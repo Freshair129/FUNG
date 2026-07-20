@@ -1,0 +1,217 @@
+version: "0.3.0b"
+updated_at: "2026-07-20T19:15:00+07:00"
+scope: "FUNG Mobile local-first command boundary"
+transport:
+  primary: "Tauri invoke"
+  offline_required: true
+conventions:
+  ids: "UUID string"
+  timestamps: "RFC3339"
+  graph_epistemic_status:
+    - confirmed
+    - inferred
+    - evidence
+    - superseded
+    - disputed
+commands:
+  - name: mobile_capture_start
+    input:
+      project_id: string
+    output: CaptureSession
+  - name: mobile_capture_append_segment
+    input:
+      recording_id: string
+      bytes: "number[]"
+      duration_ms: integer
+    output: CaptureSession
+    invariants:
+      - "segment bytes are persisted before the safe checkpoint advances"
+      - "each segment stores a SHA-256 checksum"
+  - name: mobile_capture_finish
+    input:
+      recording_id: string
+    output: CaptureSession
+  - name: mobile_native_recorder_start
+    platform: android
+    input:
+      recording_id: string
+    output: NativeRecorderStatus
+  - name: mobile_native_recorder_status
+    platform: android
+    input:
+      recording_id: string
+    output: NativeRecorderStatus
+  - name: mobile_native_recorder_control
+    platform: android
+    input:
+      recording_id: string
+      action: '"pause" | "resume" | "stop"'
+    output: NativeRecorderStatus
+  - name: mobile_capture_reconcile_native
+    input:
+      recording_id: string
+      segments: "NativeSegment[]"
+    output: CaptureSession
+    invariants:
+      - "source paths cannot escape the app-private native recording directory"
+      - "byte size and SHA-256 must match the native journal"
+      - "only contiguous segments advance the Rust-owned safe checkpoint"
+  - name: mobile_note_upsert
+    input: MobileNoteInput
+    output:
+      revision_id: string
+    invariants:
+      - "note revisions are immutable"
+      - "the note head changes transactionally with its mutation log"
+  - name: mobile_relation_upsert
+    input: GraphEdgeInput
+    output:
+      edge_id: string
+  - name: mobile_graph_query
+    input:
+      project_id: string
+      focus_node_id: "string?"
+      depth: "integer, clamped to 1..3"
+    output: GraphOutput
+  - name: mobile_timeline_query
+    input:
+      project_id: string
+    output: TimelineOutput
+    invariants:
+      - "speaker labels describe voice clusters, not verified identity"
+      - "the source recording remains immutable"
+  - name: mobile_diarization_start
+    input:
+      project_id: string
+      recording_id: string
+    output: DiarizationJob
+    invariants:
+      - "requires an explicitly paired FUNG Desktop"
+      - "queues transcript.diarize without blocking standalone playback or manual labels"
+  - name: mobile_diarization_import
+    input:
+      project_id: string
+      recording_id: string
+      provider_id: string
+      turns: "DiarizationTurnInput[]"
+    output: TimelineOutput
+  - name: mobile_speaker_rename
+    input:
+      speaker_id: string
+      display_name: string
+    output: void
+  - name: mobile_speaker_turn_split
+    input:
+      turn_id: string
+      split_ms: integer
+    output: TimelineOutput
+  - name: mobile_speaker_merge
+    input:
+      project_id: string
+      source_speaker_id: string
+      target_speaker_id: string
+    output: TimelineOutput
+    invariants:
+      - "requires explicit confirmation in the client"
+      - "records a reversible revision before changing assignments"
+  - name: mobile_speaker_turn_confirm
+    input:
+      turn_id: string
+    output: void
+  - name: mobile_story_create
+    input:
+      project_id: string
+      title: "string, 1..120 characters"
+    output: StorySequence
+  - name: mobile_story_query
+    input:
+      project_id: string
+    output: "StorySequence?"
+  - name: mobile_story_clip_move
+    input:
+      clip_id: string
+      timeline_start_ms: "integer >= 0"
+    output: StorySequence
+  - name: mobile_story_clip_trim
+    input:
+      clip_id: string
+      source_start_ms: integer
+      source_end_ms: integer
+    output: StorySequence
+    invariants:
+      - "trim boundaries remain inside the immutable source speaker turn"
+  - name: mobile_story_clip_split
+    input:
+      clip_id: string
+      split_source_ms: integer
+    output: StorySequence
+  - name: mobile_story_undo
+    input:
+      sequence_id: string
+    output: StorySequence
+  - name: mobile_story_redo
+    input:
+      sequence_id: string
+    output: StorySequence
+  - name: mobile_processing_job_start
+    input:
+      project_id: string
+      operation: '"transcript.refine" | "audio.effect_preview" | "story.export" | "model.install"'
+      input_ref: "string, 1..512 characters"
+    output: DelegatedJob
+    invariants:
+      - "requires an explicitly paired FUNG Desktop"
+      - "returns queued truth; the client does not simulate progress"
+  - name: mobile_model_packages_query
+    input: {}
+    output: "ModelPackage[]"
+  - name: mobile_refinement_review
+    input:
+      proposal_id: string
+      decision: '"accepted" | "rejected"'
+    output: void
+  - name: mobile_effect_chain_update
+    input:
+      project_id: string
+      owner_kind: '"project" | "story_clip" | "voice_profile"'
+      owner_id: string
+      label: string
+      nodes: "EffectNode[]"
+    output: string
+    invariants:
+      - "effect parameters are validated against bounded per-kind ranges"
+      - "the chain changes metadata, never source audio"
+  - name: mobile_voice_profiles_query
+    input:
+      project_id: string
+    output: "VoiceProfile[]"
+  - name: mobile_agent_voice_grant_set
+    input:
+      project_id: string
+      mcp_client_id: string
+      voice_profile_id: string
+      enabled: boolean
+    output: boolean
+    invariants:
+      - "grant is denied when rights are not valid"
+  - name: mobile_agent_voice_stop
+    input:
+      session_id: string
+    output: void
+  - name: mobile_pair_desktop
+    input:
+      endpoint: string
+      code: "six-digit string"
+      name: string
+    output: PairedDevice
+  - name: mobile_voice_parse
+    input:
+      utterance: string
+    output: VoiceIntent
+    invariants:
+      - "destructive intents always require confirmation"
+  - name: mobile_mcp_set_enabled
+    input:
+      enabled: boolean
+      expose_lan: boolean
+    output: McpState

@@ -1,0 +1,32 @@
+{
+  "name": "fung",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "test:mobile": "node --test --experimental-strip-types tests/captureOrchestration.test.mjs",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "desktop": "tauri dev",
+    "mobile:android:init": "powershell -ExecutionPolicy Bypass -File scripts/mobile_android.ps1 init",
+    "mobile:android:build": "powershell -ExecutionPolicy Bypass -File scripts/mobile_android.ps1 build-debug",
+    "mobile:android:verify": "powershell -ExecutionPolicy Bypass -File scripts/mobile_android.ps1 verify-debug"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "lucide-react": "^0.542.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^6.0.3",
+    "typescript": "^5.6.3",
+    "vite": "^8.1.3"
+  }
+}

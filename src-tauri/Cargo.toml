@@ -1,0 +1,28 @@
+[package]
+name = "fung"
+version = "0.1.0"
+default-run = "fung"
+description = "FUNG local-first audio intelligence desktop app"
+authors = ["Boss"]
+license = ""
+repository = ""
+edition = "2021"
+
+[lib]
+name = "fung_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+genesis-block-native = { path = "G:/GenesisBlock_Dev/GenesisBlock", default-features = false, features = ["mobile"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+thiserror = "1"
+uuid = { version = "1", features = ["v4", "serde"] }

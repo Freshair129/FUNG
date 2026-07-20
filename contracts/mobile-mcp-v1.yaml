@@ -1,0 +1,49 @@
+version: "0.2.0b"
+updated_at: "2026-07-20T19:15:00+07:00"
+scope: "bounded FUNG Mobile MCP server"
+transport:
+  protocol: "Streamable HTTP compatible JSON-RPC subset"
+  default_bind: "127.0.0.1:0"
+  lan_bind_requires_explicit_enable: true
+  authentication: "per-session Bearer token"
+lifecycle:
+  default: disabled
+  stop_on_disable: true
+methods:
+  - initialize
+  - tools/list
+  - tools/call
+tools:
+  - name: fung.projects.list
+    mutating: false
+    output: "Project[]"
+  - name: fung.notes.search
+    mutating: false
+    input:
+      query: "string?"
+    output: "NoteSummary[]"
+  - name: fung.capture.status
+    mutating: false
+    input:
+      recording_id: string
+    output: CaptureSession
+  - name: fung.voice.speak
+    mutating: true
+    input:
+      projectId: string
+      voiceProfileId: string
+      text: "string, 1..2000 characters"
+      retainOutput: "boolean, default false"
+    output: AgentVoiceSession
+    invariants:
+      - "default deny unless an active fung-mobile-mcp voice.speak grant exists"
+      - "voice rights must be valid and a concrete provider must be recorded"
+      - "a paired FUNG Desktop executor is required"
+      - "raw requested text is not stored in the session or job metadata"
+security_invariants:
+  - "unauthenticated requests return 401"
+  - "the server is not exposed to LAN unless the user explicitly enables it"
+  - "voice.speak is the only mutating tool and is separately rights-scoped and default-deny"
+not_yet_claimed:
+  - "mutual TLS between Mobile and Desktop"
+  - "remote destructive tools"

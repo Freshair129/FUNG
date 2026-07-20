@@ -1,0 +1,18 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <path id="subtractPanelPath" d="M 40,12 H 800 A 20 20 0 0 1 820,32 V 54 A 20 20 0 0 0 840,74 H 1248 A 20 20 0 0 1 1268,94 V 688 A 20 20 0 0 1 1248,708 H 112 A 20 20 0 0 1 92,688 V 350 A 20 20 0 0 0 72,330 H 32 A 20 20 0 0 1 12,310 V 40 A 28 28 0 0 1 40,12 Z" />
+    <clipPath id="panelClip" clipPathUnits="userSpaceOnUse">
+      <use href="#subtractPanelPath" />
+    </clipPath>
+    <filter id="softShadow" x="-5%" y="-8%" width="110%" height="116%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#111827" flood-opacity="0.18" />
+    </filter>
+  </defs>
+
+  <rect width="1280" height="720" fill="#F4F1EA" />
+  <g filter="url(#softShadow)">
+    <use href="#subtractPanelPath" fill="#FFFFFF" fill-opacity="0.42" />
+    <use href="#subtractPanelPath" stroke="#FFFFFF" stroke-opacity="0.68" stroke-width="1.5" />
+    <use href="#subtractPanelPath" stroke="#111827" stroke-opacity="0.12" stroke-width="1" />
+  </g>
+</svg>

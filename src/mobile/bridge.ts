@@ -1,0 +1,194 @@
+import { invoke } from "@tauri-apps/api/core";
+import type { EffectNode, GraphEdge, GraphNode, MobileNote, StorySequence, TimelineData, VoiceProfile } from "./model";
+
+const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+export type CaptureSession = {
+  recordingId: string;
+  state: string;
+  safeOffsetMs: number;
+  segmentCount: number;
+};
+
+export type NativeSegment = {
+  sequence: number;
+  relativePath: string;
+  durationMs: number;
+  byteSize: number;
+  checksum: string;
+};
+
+export type NativeRecorderStatus = {
+  available: boolean;
+  recordingId: string | null;
+  state: string;
+  safeOffsetMs: number;
+  segmentCount: number;
+  segments: NativeSegment[];
+};
+
+export type PlaybackSegment = { sequence: number; durationMs: number; mimeType: string; bytes: number[]; hasNext: boolean };
+
+const unavailableRecorder = (): NativeRecorderStatus => ({
+  available: false,
+  recordingId: null,
+  state: "unavailable",
+  safeOffsetMs: 0,
+  segmentCount: 0,
+  segments: [],
+});
+
+export async function startCapture(projectId: string): Promise<CaptureSession | null> {
+  if (!isTauri()) return null;
+  return invoke<CaptureSession>("mobile_capture_start", { projectId });
+}
+
+export async function appendCaptureSegment(recordingId: string, bytes: Uint8Array, durationMs: number): Promise<CaptureSession | null> {
+  if (!isTauri()) return null;
+  return invoke<CaptureSession>("mobile_capture_append_segment", {
+    recordingId,
+    bytes: Array.from(bytes),
+    durationMs,
+  });
+}
+
+export async function finishCapture(recordingId: string): Promise<CaptureSession | null> {
+  if (!isTauri()) return null;
+  return invoke<CaptureSession>("mobile_capture_finish", { recordingId });
+}
+
+export async function loadPlaybackSegment(recordingId: string, sequence: number): Promise<PlaybackSegment | null> {
+  if (!isTauri()) return null;
+  return invoke<PlaybackSegment>("mobile_capture_playback_segment", { recordingId, sequence });
+}
+
+export async function reconcileNativeCapture(recordingId: string, segments: NativeSegment[]): Promise<CaptureSession | null> {
+  if (!isTauri()) return null;
+  return invoke<CaptureSession>("mobile_capture_reconcile_native", { recordingId, segments });
+}
+
+export async function startNativeRecorder(recordingId: string): Promise<NativeRecorderStatus> {
+  if (!isTauri()) return unavailableRecorder();
+  return invoke<NativeRecorderStatus>("mobile_native_recorder_start", { recordingId });
+}
+
+export async function nativeRecorderStatus(recordingId: string): Promise<NativeRecorderStatus> {
+  if (!isTauri()) return unavailableRecorder();
+  return invoke<NativeRecorderStatus>("mobile_native_recorder_status", { recordingId });
+}
+
+export async function controlNativeRecorder(recordingId: string, action: "pause" | "resume" | "stop"): Promise<NativeRecorderStatus> {
+  if (!isTauri()) return unavailableRecorder();
+  return invoke<NativeRecorderStatus>("mobile_native_recorder_control", { recordingId, action });
+}
+
+export async function persistNote(note: MobileNote): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("mobile_note_upsert", { note });
+}
+
+export async function persistRelation(edge: GraphEdge): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("mobile_relation_upsert", { edge });
+}
+
+export async function queryGraph(projectId: string): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] } | null> {
+  if (!isTauri()) return null;
+  return invoke("mobile_graph_query", { projectId, depth: 2 });
+}
+
+export async function pairDesktop(name: string, endpoint: string, pairingCode: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("mobile_pair_desktop", { name, endpoint, pairingCode });
+}
+
+export async function setMcpEnabled(enabled: boolean, exposeLan: boolean): Promise<{ enabled: boolean; bind: string | null }> {
+  if (!isTauri()) return { enabled, bind: enabled ? "browser-preview" : null };
+  return invoke("mobile_mcp_set_enabled", { enabled, exposeLan });
+}
+
+export async function queryTimeline(projectId: string): Promise<TimelineData | null> {
+  if (!isTauri()) return null;
+  return invoke<TimelineData>("mobile_timeline_query", { projectId });
+}
+
+export async function startDiarization(projectId: string, recordingId: string): Promise<{ id: string; state: string }> {
+  if (!isTauri()) return { id: crypto.randomUUID(), state: "preview" };
+  return invoke("mobile_diarization_start", { projectId, recordingId });
+}
+
+export async function startProcessingJob(projectId: string, operation: "transcript.refine" | "audio.effect_preview" | "story.export" | "model.install", inputRef: string): Promise<{ id: string; state: string } | null> {
+  if (!isTauri()) return null;
+  return invoke("mobile_processing_job_start", { projectId, operation, inputRef });
+}
+
+export async function renameSpeaker(speakerId: string, displayName: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("mobile_speaker_rename", { speakerId, displayName });
+}
+
+export async function splitSpeakerTurn(turnId: string, splitMs: number): Promise<TimelineData | null> {
+  if (!isTauri()) return null;
+  return invoke("mobile_speaker_turn_split", { turnId, splitMs });
+}
+
+export async function mergeSpeakers(projectId: string, sourceSpeakerId: string, targetSpeakerId: string): Promise<TimelineData | null> {
+  if (!isTauri()) return null;
+  return invoke("mobile_speaker_merge", { projectId, sourceSpeakerId, targetSpeakerId });
+}
+
+export async function confirmSpeakerTurn(turnId: string): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("mobile_speaker_turn_confirm", { turnId });
+}
+
+export async function queryStory(projectId: string): Promise<StorySequence | null> {
+  if (!isTauri()) return null;
+  return invoke("mobile_story_query", { projectId });
+}
+
+export async function createStory(projectId: string, title: string): Promise<StorySequence | null> {
+  if (!isTauri()) return null;
+  return invoke("mobile_story_create", { projectId, title });
+}
+
+export async function moveStoryClip(clipId: string, timelineStartMs: number): Promise<StorySequence | null> {
+  if (!isTauri()) return null;
+  return invoke("mobile_story_clip_move", { clipId, timelineStartMs });
+}
+
+export async function trimStoryClip(clipId: string, sourceStartMs: number, sourceEndMs: number): Promise<StorySequence | null> {
+  if (!isTauri()) return null;
+  return invoke("mobile_story_clip_trim", { clipId, sourceStartMs, sourceEndMs });
+}
+
+export async function splitStoryClip(clipId: string, splitSourceMs: number): Promise<StorySequence | null> {
+  if (!isTauri()) return null;
+  return invoke("mobile_story_clip_split", { clipId, splitSourceMs });
+}
+
+export async function storyHistory(sequenceId: string, direction: "undo" | "redo"): Promise<StorySequence | null> {
+  if (!isTauri()) return null;
+  return invoke(direction === "undo" ? "mobile_story_undo" : "mobile_story_redo", { sequenceId });
+}
+
+export async function reviewRefinement(proposalId: string, decision: "accepted" | "rejected"): Promise<void> {
+  if (!isTauri()) return;
+  await invoke("mobile_refinement_review", { proposalId, decision });
+}
+
+export async function updateEffectChain(projectId: string, ownerKind: "project" | "story_clip" | "voice_profile", ownerId: string, label: string, effects: EffectNode[]): Promise<string | null> {
+  if (!isTauri()) return null;
+  const nodes = effects.map((effect, position) => ({ id: effect.id, kind: effect.kind, position, parameters: effect.parameters, bypassed: effect.bypassed }));
+  return invoke("mobile_effect_chain_update", { projectId, ownerKind, ownerId, label, nodes });
+}
+
+export async function queryVoiceProfiles(projectId: string): Promise<VoiceProfile[]> {
+  if (!isTauri()) return [];
+  return invoke("mobile_voice_profiles_query", { projectId });
+}
+
+export async function setAgentVoiceGrant(projectId: string, voiceProfileId: string, enabled: boolean): Promise<boolean> {
+  if (!isTauri()) return enabled;
+  return invoke("mobile_agent_voice_grant_set", { projectId, mcpClientId: "fung-mobile-mcp", voiceProfileId, enabled });
+}

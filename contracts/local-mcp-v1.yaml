@@ -1,0 +1,128 @@
+version: "0.1.0b"
+updated_at: "2026-07-05T10:35:00+07:00"
+scope: "local MCP server"
+transport:
+  bind: "localhost only"
+  auth: "desktop-local trust boundary"
+rules:
+  - "Tools wrap the local API and should not bypass DB or job invariants."
+  - "Long-running work returns job_id immediately."
+  - "Intent outputs must keep inference labels and evidence spans."
+tools:
+  - name: "fung.health"
+    maps_to: "GET /health"
+    input: {}
+    output:
+      status: "string"
+      app_version: "string"
+  - name: "fung.project.list"
+    maps_to: "GET /projects"
+    input: {}
+    output:
+      items: "Project[]"
+  - name: "fung.project.create"
+    maps_to: "POST /projects"
+    input:
+      name: "string"
+      storage_path: "string"
+    output:
+      project_id: "string"
+  - name: "fung.recording.start"
+    maps_to: "POST /recordings"
+    input:
+      project_id: "string"
+      source: '"microphone" | "import"'
+      input_path: "string?"
+    output:
+      recording_id: "string"
+      job_id: "string"
+  - name: "fung.recording.control"
+    maps_to: "POST /recordings/{id}/pause|resume|stop|recover"
+    input:
+      recording_id: "string"
+      action: '"pause" | "resume" | "stop" | "recover"'
+    output:
+      job_id: "string"
+  - name: "fung.job.list"
+    maps_to: "GET /jobs"
+    input:
+      project_id: "string?"
+      status: "string?"
+      type: "string?"
+    output:
+      items: "Job[]"
+  - name: "fung.job.get"
+    maps_to: "GET /jobs/{job_id}"
+    input:
+      job_id: "string"
+    output:
+      job: "Job"
+      events: "JobEvent[]"
+  - name: "fung.job.control"
+    maps_to: "POST /jobs/{job_id}/retry|cancel"
+    input:
+      job_id: "string"
+      action: '"retry" | "cancel"'
+    output:
+      job: "Job"
+  - name: "fung.transcript.get"
+    maps_to: "GET /transcripts/{project_id}"
+    input:
+      project_id: "string"
+    output:
+      speakers: "Speaker[]"
+      segments: "TranscriptSegment[]"
+  - name: "fung.layer.list"
+    maps_to: "GET /layers/{recording_id}"
+    input:
+      recording_id: "string"
+    output:
+      items: "AudioLayer[]"
+  - name: "fung.transcript.patch_segment"
+    maps_to: "PATCH /transcripts/segments/{segment_id}"
+    input:
+      segment_id: "string"
+      text: "string?"
+      speaker_id: "string?"
+    output:
+      segment: "TranscriptSegment"
+  - name: "fung.transcript.rename_speaker"
+    maps_to: "PATCH /transcripts/speakers/{speaker_id}"
+    input:
+      speaker_id: "string"
+      display_name: "string"
+    output:
+      speaker: "Speaker"
+  - name: "fung.model.list"
+    maps_to: "GET /models"
+    input: {}
+    output:
+      items: "ModelProvider[]"
+  - name: "fung.model.test"
+    maps_to: "POST /models/{provider_id}/test"
+    input:
+      provider_id: "string"
+    output:
+      ok: "boolean"
+      detail: "string"
+  - name: "fung.summary.list"
+    maps_to: "GET /summaries/{project_id}"
+    input:
+      project_id: "string"
+    output:
+      items: "Summary[]"
+  - name: "fung.intent.list"
+    maps_to: "GET /intent/{project_id}"
+    input:
+      project_id: "string"
+    output:
+      items: "IntentInference[]"
+  - name: "fung.export.create"
+    maps_to: "POST /exports"
+    input:
+      project_id: "string"
+      kind: '"wav" | "mp3" | "txt" | "srt" | "vtt" | "json"'
+      source_layer_id: "string?"
+    output:
+      export_artifact_id: "string"
+      job_id: "string"

@@ -1,0 +1,43 @@
+{
+  "$schema": "./gen/schemas/desktop-schema.json",
+  "productName": "FUNG",
+  "version": "0.1.0",
+  "identifier": "dev.fung.local",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "FUNG",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1200,
+        "minHeight": 780,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: asset:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://127.0.0.1:*",
+      "capabilities": ["default"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "resources": {
+      "../.venv-whisper": ".venv-whisper",
+      "../runtime": "runtime",
+      "../scripts/transcribe.py": "scripts/transcribe.py"
+    }
+  }
+}

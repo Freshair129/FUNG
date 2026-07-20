@@ -1,0 +1,122 @@
+version: "0.1.1b"
+updated_at: "2026-07-20T21:34:00+07:00"
+status: "deprecated"
+superseded_by: "GenesisBlockDB docs/SPEC--GENESISDB-UNIFIED-OPERATIONAL-BOUNDARY-V1.md plus a future FUNG RelationalSchemaPackage"
+scope: "historical FUNG entity inventory; not a Genesis SDK, transaction, query, graph, vector, WAL, or blob contract"
+aggregate_roots:
+  Project:
+    identity: "project_id"
+    fields:
+      - "name"
+      - "storage_path"
+      - "created_at"
+      - "updated_at"
+    owns:
+      - "Recording"
+      - "Speaker"
+      - "TranscriptSegment"
+      - "Summary"
+      - "IntentInference"
+      - "ExportArtifact"
+      - "AuditEvent"
+  Recording:
+    identity: "recording_id"
+    fields:
+      - "source"
+      - "canonical_audio_path"
+      - "status"
+      - "duration_ms"
+    owns:
+      - "AudioChunk"
+      - "AudioLayer"
+      - "ModelRun"
+  ModelProvider:
+    identity: "provider_id"
+    fields:
+      - "label"
+      - "runtime_location"
+      - "kind"
+      - "enabled"
+entities:
+  AudioChunk:
+    purpose: "durable file slice metadata for long recordings"
+    required_fields:
+      - "recording_id"
+      - "sequence_no"
+      - "file_path"
+      - "start_ms"
+      - "end_ms"
+  AudioLayer:
+    purpose: "derived or source audio view"
+    required_fields:
+      - "recording_id"
+      - "kind"
+      - "file_path"
+    allowed_kinds:
+      - "original"
+      - "cleaned"
+      - "noise_reduced_export"
+      - "selected_clip"
+      - "voice"
+      - "music"
+      - "noise"
+  Speaker:
+    purpose: "editable speaker label"
+    required_fields:
+      - "project_id"
+      - "key"
+      - "display_name"
+    rule: "default to generic labels such as Speaker 1"
+  TranscriptSegment:
+    purpose: "timestamped text span"
+    required_fields:
+      - "project_id"
+      - "recording_id"
+      - "start_ms"
+      - "end_ms"
+      - "text"
+  ModelRun:
+    purpose: "provenance for any AI-derived artifact"
+    required_fields:
+      - "recording_id"
+      - "provider_id"
+      - "model_name"
+      - "task_kind"
+      - "runtime_location"
+      - "input_ref"
+      - "output_ref"
+  Summary:
+    purpose: "whole-story, speaker, or timeline summary"
+    required_fields:
+      - "project_id"
+      - "kind"
+      - "content"
+      - "evidence_refs_json"
+      - "model_run_id"
+  IntentInference:
+    purpose: "speaker-level inferred intent"
+    required_fields:
+      - "project_id"
+      - "speaker_id"
+      - "label"
+      - "confidence"
+      - "evidence_refs_json"
+      - "model_run_id"
+    rule: "must be stored and rendered as inference, not verified fact"
+  ExportArtifact:
+    purpose: "materialized export file"
+    required_fields:
+      - "project_id"
+      - "kind"
+      - "file_path"
+  AuditEvent:
+    purpose: "local audit trail"
+    required_fields:
+      - "project_id"
+      - "event_type"
+      - "actor"
+      - "payload_json"
+provenance_invariants:
+  - "Every Summary and IntentInference must resolve to one ModelRun."
+  - "Every ModelRun must record provider, model_name, runtime_location, and timestamps."
+  - "User edits to transcript, speaker labels, summary text, or intent labels append AuditEvent rows."

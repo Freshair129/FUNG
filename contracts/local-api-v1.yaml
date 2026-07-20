@@ -1,0 +1,255 @@
+version: "0.1.0b"
+updated_at: "2026-07-05T10:35:00+07:00"
+scope: "loopback-only local API"
+transport:
+  protocol: "http"
+  bind: "127.0.0.1"
+  request_content_type: "application/json"
+  response_content_type: "application/json"
+conventions:
+  ids: "string uuid-like"
+  timestamps: "RFC3339"
+  errors:
+    shape:
+      error: "string machine code"
+      message: "human readable"
+      retryable: "boolean"
+  derived_artifact_rule:
+    summary: "must include evidence_refs"
+    intent: "must include evidence_refs, confidence, and inference_label"
+resources:
+  - method: "GET"
+    path: "/health"
+    response:
+      status: '"ok" | "degraded" | "error"'
+      app_version: "string"
+      db:
+        journal_mode: '"wal"'
+        writable: "boolean"
+      runtimes:
+        providers_available: "number"
+        microphone_available: "boolean"
+  - method: "GET"
+    path: "/projects"
+    response:
+      items: "Project[]"
+  - method: "POST"
+    path: "/projects"
+    body:
+      name: "string"
+      storage_path: "string"
+    response:
+      project: "Project"
+  - method: "GET"
+    path: "/projects/{project_id}"
+    response:
+      project: "Project"
+      recordings: "Recording[]"
+      jobs: "Job[]"
+  - method: "PATCH"
+    path: "/projects/{project_id}"
+    body:
+      name: "string?"
+      archived_at: "RFC3339|null?"
+    response:
+      project: "Project"
+  - method: "POST"
+    path: "/recordings"
+    body:
+      project_id: "string"
+      source: '"microphone" | "import"'
+      input_path: "string?"
+    response:
+      recording: "Recording"
+      job: "Job"
+  - method: "POST"
+    path: "/recordings/{recording_id}/pause"
+    response:
+      job: "Job"
+  - method: "POST"
+    path: "/recordings/{recording_id}/resume"
+    response:
+      job: "Job"
+  - method: "POST"
+    path: "/recordings/{recording_id}/stop"
+    response:
+      recording: "Recording"
+      job: "Job"
+  - method: "POST"
+    path: "/recordings/{recording_id}/recover"
+    response:
+      recovered_chunk_count: "number"
+      recording: "Recording"
+      job: "Job"
+  - method: "GET"
+    path: "/jobs"
+    query:
+      project_id: "string?"
+      status: "string?"
+      type: "string?"
+    response:
+      items: "Job[]"
+  - method: "GET"
+    path: "/jobs/{job_id}"
+    response:
+      job: "Job"
+      events: "JobEvent[]"
+  - method: "POST"
+    path: "/jobs/{job_id}/retry"
+    response:
+      job: "Job"
+  - method: "POST"
+    path: "/jobs/{job_id}/cancel"
+    response:
+      job: "Job"
+  - method: "GET"
+    path: "/transcripts/{project_id}"
+    response:
+      speakers: "Speaker[]"
+      segments: "TranscriptSegment[]"
+  - method: "GET"
+    path: "/layers/{recording_id}"
+    response:
+      items: "AudioLayer[]"
+  - method: "PATCH"
+    path: "/transcripts/segments/{segment_id}"
+    body:
+      text: "string?"
+      speaker_id: "string?"
+    response:
+      segment: "TranscriptSegment"
+  - method: "PATCH"
+    path: "/transcripts/speakers/{speaker_id}"
+    body:
+      display_name: "string"
+    response:
+      speaker: "Speaker"
+  - method: "GET"
+    path: "/models"
+    response:
+      items: "ModelProvider[]"
+  - method: "POST"
+    path: "/models/{provider_id}/test"
+    response:
+      provider: "ModelProvider"
+      ok: "boolean"
+      detail: "string"
+  - method: "GET"
+    path: "/summaries/{project_id}"
+    response:
+      items: "Summary[]"
+  - method: "GET"
+    path: "/intent/{project_id}"
+    response:
+      items: "IntentInference[]"
+  - method: "POST"
+    path: "/exports"
+    body:
+      project_id: "string"
+      kind: '"wav" | "mp3" | "txt" | "srt" | "vtt" | "json"'
+      source_layer_id: "string?"
+    response:
+      export_artifact: "ExportArtifact"
+      job: "Job"
+types:
+  Project:
+    id: "string"
+    name: "string"
+    storage_path: "string"
+    created_at: "RFC3339"
+    updated_at: "RFC3339"
+    active_recording_id: "string|null"
+  Recording:
+    id: "string"
+    project_id: "string"
+    source: '"microphone" | "import"'
+    input_path: "string|null"
+    canonical_audio_path: "string"
+    status: '"pending" | "recording" | "paused" | "completed" | "failed"'
+    duration_ms: "number"
+  Speaker:
+    id: "string"
+    project_id: "string"
+    key: "string"
+    display_name: "string"
+    confidence: "number|null"
+  AudioLayer:
+    id: "string"
+    recording_id: "string"
+    kind: '"original" | "cleaned" | "noise_reduced_export" | "selected_clip" | "voice" | "music" | "noise"'
+    file_path: "string"
+  TranscriptSegment:
+    id: "string"
+    project_id: "string"
+    recording_id: "string"
+    speaker_id: "string|null"
+    start_ms: "number"
+    end_ms: "number"
+    text: "string"
+    confidence: "number|null"
+  ModelProvider:
+    id: "string"
+    label: "string"
+    runtime_location: '"local" | "lan" | "cloud"'
+    kind: '"transcription" | "diarization" | "cleanup" | "separation" | "summary_intent"'
+    enabled: "boolean"
+  Summary:
+    id: "string"
+    project_id: "string"
+    kind: '"whole_story" | "timeline" | "decisions_actions" | "speaker"'
+    content: "string"
+    evidence_refs: "string[]"
+    model_run_id: "string"
+  IntentInference:
+    id: "string"
+    project_id: "string"
+    speaker_id: "string"
+    label: "string"
+    confidence: "number"
+    evidence_refs: "string[]"
+    inference_label: '"ai_inference"'
+    model_run_id: "string"
+  Job:
+    id: "string"
+    project_id: "string"
+    type: "JobType"
+    status: "JobStatus"
+    progress: "number 0..100"
+    input_refs: "string[]"
+    output_refs: "string[]"
+    provider_id: "string|null"
+    error_code: "string|null"
+    error_message: "string|null"
+    started_at: "RFC3339|null"
+    finished_at: "RFC3339|null"
+  JobEvent:
+    id: "string"
+    job_id: "string"
+    status: "JobStatus"
+    message: "string"
+    created_at: "RFC3339"
+  ExportArtifact:
+    id: "string"
+    project_id: "string"
+    kind: '"wav" | "mp3" | "txt" | "srt" | "vtt" | "json"'
+    path: "string"
+    created_at: "RFC3339"
+enums:
+  JobType:
+    - "recording.capture"
+    - "recording.recover"
+    - "audio.cleanup"
+    - "audio.separate"
+    - "transcript.transcribe"
+    - "transcript.diarize"
+    - "summary.generate"
+    - "intent.infer"
+    - "export.render"
+  JobStatus:
+    - "queued"
+    - "running"
+    - "paused"
+    - "completed"
+    - "failed"
+    - "retrying"
+    - "cancelled"

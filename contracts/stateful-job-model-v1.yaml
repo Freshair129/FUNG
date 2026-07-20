@@ -1,0 +1,72 @@
+version: "0.1.0b"
+updated_at: "2026-07-05T10:35:00+07:00"
+scope: "stateful background jobs"
+job_types:
+  - "recording.capture"
+  - "recording.recover"
+  - "audio.cleanup"
+  - "audio.separate"
+  - "transcript.transcribe"
+  - "transcript.diarize"
+  - "summary.generate"
+  - "intent.infer"
+  - "export.render"
+statuses:
+  - "queued"
+  - "running"
+  - "paused"
+  - "completed"
+  - "failed"
+  - "retrying"
+  - "cancelled"
+transitions:
+  queued:
+    - "running"
+    - "cancelled"
+  running:
+    - "paused"
+    - "completed"
+    - "failed"
+    - "cancelled"
+  paused:
+    - "running"
+    - "cancelled"
+  failed:
+    - "retrying"
+  retrying:
+    - "running"
+    - "failed"
+    - "cancelled"
+terminal_statuses:
+  - "completed"
+  - "cancelled"
+retry_policy:
+  manual_retry_only: true
+  max_attempts_default: 3
+progress_rules:
+  - "progress is integer 0..100"
+  - "completed implies progress=100"
+  - "failed and cancelled keep last known progress"
+data_contract:
+  required_fields:
+    - "id"
+    - "project_id"
+    - "type"
+    - "status"
+    - "progress"
+    - "input_refs"
+    - "output_refs"
+    - "created_at"
+  optional_fields:
+    - "provider_id"
+    - "error_code"
+    - "error_message"
+    - "started_at"
+    - "finished_at"
+    - "attempt_no"
+execution_rules:
+  - "Long-running API, CLI, and MCP actions must create or reuse a Job row."
+  - "Recording capture is resumable and may emit AudioChunk rows before completion."
+  - "Only one active recording.capture job may exist per project."
+  - "Retry creates a new execution attempt on the same logical job id."
+  - "State transitions append JobEvent rows."

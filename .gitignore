@@ -19,5 +19,8 @@ src-tauri/gen/
 .env
 .env.*
 !.env.example
+.vercel/
 runtime/cuda12/bin/*.dll
 runtime/manifest.json
+
+.vercel

@@ -1,0 +1,15 @@
+.git/
+.brain/
+.codex/
+.agents/
+.playwright-cli/
+.target-mobile/
+.toolchains/
+.venv-whisper/
+docs/
+output/
+runtime/
+src-tauri/
+tests/
+BUILD_FUNG_EXE.bat
+RUN_FUNG.bat

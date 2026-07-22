@@ -11,12 +11,14 @@ use std::{
     thread,
 };
 use tauri::{Manager, State};
+use tauri_plugin_opener::OpenerExt;
 use thiserror::Error;
 use uuid::Uuid;
 
 mod genesis_adapter;
 mod mobile;
 mod native_recorder;
+mod on_device_ai;
 
 /// Source-tree fallback used by `tauri dev`. Packaged builds must resolve all
 /// worker resources from the installed application's resource directory.
@@ -73,6 +75,24 @@ fn transcription_profile() -> Result<String, String> {
             "invalid FUNG_TRANSCRIPTION_PROFILE '{profile}'; use 'gpu' or 'cpu'"
         )),
     }
+}
+
+/// Opens the configured FUNG account portal in the system browser. OAuth is
+/// intentionally completed by the hosted web surface; the embedded local
+/// runtime never receives a provider client secret.
+#[tauri::command]
+fn open_external_account_portal(app: tauri::AppHandle) -> AppResult<()> {
+    let url = env::var("FUNG_WEB_APP_URL")
+        .map_err(|_| AppError::InvalidInput("FUNG_WEB_APP_URL is not configured".to_string()))?;
+    let url = url.trim();
+    if !url.starts_with("https://") {
+        return Err(AppError::InvalidInput(
+            "FUNG_WEB_APP_URL must use https".to_string(),
+        ));
+    }
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|error| AppError::InvalidInput(format!("could not open account portal: {error}")))
 }
 
 #[derive(Debug, Error)]
@@ -849,7 +869,9 @@ fn handle_api_stream(mut stream: TcpStream, storage: &genesis_block_native::Stor
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(native_recorder::init())
+        .plugin(on_device_ai::init())
         .setup(|app| {
             let state = app_state(app)?;
             app.manage(state);
@@ -865,6 +887,7 @@ pub fn run() {
             list_transcript_segments,
             import_and_transcribe,
             start_local_api,
+            open_external_account_portal,
             mobile::mobile_capture_start,
             mobile::mobile_capture_append_segment,
             mobile::mobile_capture_reconcile_native,
@@ -873,6 +896,7 @@ pub fn run() {
             native_recorder::mobile_native_recorder_start,
             native_recorder::mobile_native_recorder_status,
             native_recorder::mobile_native_recorder_control,
+            on_device_ai::mobile_on_device_ai_status,
             mobile::mobile_note_upsert,
             mobile::mobile_relation_upsert,
             mobile::mobile_graph_query,

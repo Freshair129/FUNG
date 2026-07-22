@@ -192,3 +192,16 @@ export async function closeWindow(): Promise<void> {
   if (!canInvoke()) return;
   await getCurrentWindow().close();
 }
+
+export async function openExternalAccountPortal(): Promise<void> {
+  if (canInvoke()) {
+    await invoke<void>("open_external_account_portal");
+    return;
+  }
+
+  const url = import.meta.env.VITE_FUNG_WEB_APP_URL;
+  if (!url?.startsWith("https://")) {
+    throw new Error("The hosted account portal is not configured.");
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}

@@ -29,6 +29,17 @@ export type NativeRecorderStatus = {
 
 export type PlaybackSegment = { sequence: number; durationMs: number; mimeType: string; bytes: number[]; hasNext: boolean };
 
+export type OnDeviceAiStatus = {
+  probeAvailable: boolean;
+  tier: "core" | "ai_lite" | "ai_standard" | "ai_pro";
+  reason: string;
+  sdkInt: number | null;
+  arm64: boolean | null;
+  totalRamMb: number | null;
+  availableRamMb: number | null;
+  freeStorageMb: number | null;
+};
+
 const unavailableRecorder = (): NativeRecorderStatus => ({
   available: false,
   recordingId: null,
@@ -105,6 +116,11 @@ export async function pairDesktop(name: string, endpoint: string, pairingCode: s
 export async function setMcpEnabled(enabled: boolean, exposeLan: boolean): Promise<{ enabled: boolean; bind: string | null }> {
   if (!isTauri()) return { enabled, bind: enabled ? "browser-preview" : null };
   return invoke("mobile_mcp_set_enabled", { enabled, exposeLan });
+}
+
+export async function onDeviceAiStatus(): Promise<OnDeviceAiStatus | null> {
+  if (!isTauri()) return null;
+  return invoke<OnDeviceAiStatus>("mobile_on_device_ai_status");
 }
 
 export async function queryTimeline(projectId: string): Promise<TimelineData | null> {

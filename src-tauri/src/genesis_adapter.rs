@@ -20,6 +20,7 @@ fn nullable(name: &str, column_type: RelationalColumnType) -> RelationalColumn {
         name: name.to_string(),
         column_type,
         nullable: true,
+        default: None,
     }
 }
 
@@ -51,6 +52,9 @@ fn schema_v1() -> RelationalSchemaPackage {
     RelationalSchemaPackage {
         namespace: NAMESPACE.to_string(),
         schema_version: 1,
+        previous_version: None,
+        package_id: "79b5fb04-9eb0-43b4-8c01-6d1b040ebdc9".to_string(),
+        schema_hash: String::new(),
         tables: vec![
             table(
                 "projects",
@@ -144,6 +148,7 @@ fn schema_v1() -> RelationalSchemaPackage {
                 vec![],
             ),
         ],
+        named_queries: vec![],
     }
 }
 
@@ -151,6 +156,7 @@ fn schema_v2() -> RelationalSchemaPackage {
     use RelationalColumnType::{Integer, Text};
     let mut package = schema_v1();
     package.schema_version = 2;
+    package.previous_version = Some(1);
     package.tables[0]
         .columns
         .push(nullable("active_recording_id", Text));
@@ -208,6 +214,7 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
     use RelationalColumnType::{Boolean, Integer, Json, Real, Text};
     let mut package = schema_v2();
     package.schema_version = 3;
+    package.previous_version = Some(2);
     package.tables.extend([
         table("paired_devices", vec![required("id", Text), required("name", Text), required("endpoint", Text), required("trust_state", Text), required("pairing_proof_hash", Text), required("capabilities_json", Json), required("created_at", Text), required("updated_at", Text)], vec![], vec![]),
         table("capability_grants", vec![required("id", Text), required("device_id", Text), required("project_id", Text), required("capabilities_json", Json), nullable("expires_at", Text), nullable("revoked_at", Text), required("created_at", Text)], vec![fk("device_id", "paired_devices"), fk("project_id", "projects")], vec![]),
@@ -237,12 +244,6 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
 }
 
 pub(crate) fn install(storage: &Storage) -> Result<(), String> {
-    storage
-        .register_relational_schema(schema_v1())
-        .map_err(|error| error.to_string())?;
-    storage
-        .register_relational_schema(schema_v2())
-        .map_err(|error| error.to_string())?;
     storage
         .register_relational_schema(schema())
         .map(|_| ())
@@ -817,6 +818,26 @@ mod tests {
         assert_eq!(storage.stable_frontier(), 3);
         assert!(storage.node_view("note-a").is_some());
         assert!(storage.node_view("note-b").is_some());
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn install_is_idempotent_after_a_prior_schema_upgrade() {
+        let path = std::env::temp_dir().join(format!("fung-genesis-upgrade-test-{}", Uuid::new_v4()));
+        let storage = Storage::open(OpenOptions {
+            path: path.display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+        })
+        .unwrap();
+
+        storage.register_relational_schema(schema_v1()).unwrap();
+        storage.register_relational_schema(schema_v2()).unwrap();
+        storage.register_relational_schema(schema()).unwrap();
+        install(&storage).unwrap();
+
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
     }

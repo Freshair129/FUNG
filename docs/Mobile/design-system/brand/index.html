@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="th" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>FUNG Brand Presentation</title>
+  <script>if (location.search.includes("export=1")) document.documentElement.dataset.export="true";</script>
+  <style>
+    :root { --canvas:#28374C; --surface:#35465E; --raised:#40536D; --ink:#FFFFFF; --muted:#D5DCE2; --line:rgba(255,255,255,.16); --focus:#FE6A3C; --local:#D5DCE2; --inferred:#D5DCE2; --record:#FE6A3C; --danger:#C94E2B; --control:14px; --surface-radius:20px; --dock:28px; --shadow:0 12px 34px rgba(0,0,0,.16); font-family:Noto Sans Thai, Leelawadee UI, system-ui, sans-serif; color:var(--ink); background:var(--canvas); }
+    html[data-theme="light"] { --canvas:#FFFFFF; --surface:#FFFFFF; --raised:#D5DCE2; --ink:#28374C; --muted:#53637A; --line:rgba(40,55,76,.16); --focus:#FE6A3C; --local:#28374C; --inferred:#28374C; --record:#FE6A3C; --danger:#C94E2B; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--canvas); color:var(--ink); }
+    button { font:inherit; }
+    a { color:inherit; }
+    .site { min-height:100vh; }
+    .topbar { position:sticky; z-index:3; top:0; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px clamp(20px,4vw,56px); border-bottom:1px solid var(--line); background:color-mix(in srgb,var(--canvas) 92%,transparent); backdrop-filter:blur(16px); }
+    .brand { display:flex; gap:10px; align-items:center; font-weight:700; letter-spacing:.02em; text-decoration:none; }
+    .brand-dot { width:10px; height:10px; background:var(--focus); border-radius:999px; box-shadow:0 0 0 5px color-mix(in srgb,var(--focus) 15%,transparent); }
+    .controls { display:flex; align-items:center; gap:8px; }
+    .button { min-height:40px; border:1px solid var(--line); border-radius:999px; background:var(--surface); color:var(--ink); padding:0 14px; cursor:pointer; }
+    .button:hover { border-color:var(--focus); }
+    .button.primary { background:var(--focus); border-color:var(--focus); color:#fff; }
+    .page { max-width:1200px; margin:0 auto; padding:clamp(40px,8vw,112px) clamp(20px,4vw,56px) 96px; }
+    .eyebrow { margin:0 0 12px; color:var(--local); font-size:12px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; }
+    h1 { max-width:850px; margin:0; font-size:clamp(40px,7vw,88px); letter-spacing:-.055em; line-height:.98; }
+    h2 { margin:0; font-size:clamp(28px,4vw,48px); letter-spacing:-.04em; line-height:1.05; }
+    h3 { margin:0; font-size:18px; }
+    p { color:var(--muted); line-height:1.65; }
+    .lede { max-width:690px; font-size:18px; }
+    .section { margin-top:clamp(60px,10vw,136px); }
+    .grid { display:grid; gap:16px; }
+    .two { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .three { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .panel { padding:24px; border:1px solid var(--line); border-radius:var(--surface-radius); background:var(--surface); box-shadow:var(--shadow); }
+    .token { display:flex; align-items:center; gap:14px; min-height:80px; }
+    .swatch { width:44px; height:44px; flex:0 0 44px; border-radius:14px; border:1px solid color-mix(in srgb,#fff 24%,transparent); }
+    .mono { font:500 12px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--muted); }
+    .copy { margin-left:auto; min-height:32px; padding:0 10px; border:1px solid var(--line); border-radius:999px; background:transparent; color:var(--muted); cursor:pointer; font-size:12px; }
+    .copy:hover { color:var(--ink); border-color:var(--focus); }
+    .specimen { position:relative; overflow:hidden; min-height:430px; padding:20px; border:1px solid var(--line); border-radius:28px; background:var(--canvas); box-shadow:var(--shadow); }
+    .specimen.light { background:#FFFFFF; color:#28374C; }
+    .specimen.light .mini-card { background:#FFFFFF; border-color:rgba(40,55,76,.16); }
+    .specimen.light .mini-muted { color:#53637A; }
+    .device { width:min(100%,340px); margin:0 auto; padding:18px; border:1px solid var(--line); border-radius:34px; background:var(--surface); box-shadow:var(--shadow); }
+    .device.landscape { width:min(100%,720px); min-height:290px; display:grid; grid-template-columns:60px 1fr; gap:14px; }
+    .mini-status { display:flex; justify-content:space-between; color:var(--muted); font-size:12px; }
+    .mini-card { padding:16px; border:1px solid var(--line); border-radius:20px; background:var(--raised); }
+    .mini-muted { color:var(--muted); font-size:13px; }
+    .voice { display:grid; place-items:center; width:108px; height:108px; margin:20px auto; border:7px solid color-mix(in srgb,var(--focus) 30%,transparent); border-radius:999px; background:var(--focus); color:#fff; font-size:26px; box-shadow:inset 0 2px 7px rgba(0,0,0,.18); }
+    .wave { display:flex; align-items:center; gap:3px; height:42px; }
+    .wave i { display:block; width:3px; background:var(--local); border-radius:99px; }
+    .dock { display:flex; justify-content:space-around; align-items:center; min-height:58px; margin-top:18px; border-radius:var(--dock); background:var(--raised); color:var(--muted); font-size:12px; }
+    .dock b { color:var(--ink); }
+    .rail { display:flex; flex-direction:column; justify-content:space-evenly; padding:8px 0; border-radius:24px; background:var(--raised); color:var(--muted); text-align:center; font-size:11px; }
+    .badge { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:6px 10px; background:color-mix(in srgb,var(--local) 15%,transparent); color:var(--local); font-size:12px; font-weight:700; }
+    .warning { background:color-mix(in srgb,var(--inferred) 15%,transparent); color:var(--inferred); }
+    .record { background:color-mix(in srgb,var(--record) 15%,transparent); color:var(--record); }
+    .spacers { display:flex; align-items:end; gap:12px; min-height:120px; }
+    .space { display:grid; place-items:end center; gap:8px; color:var(--muted); font-size:12px; }
+    .space i { display:block; width:24px; background:var(--focus); border-radius:6px; }
+    .footer { margin-top:80px; padding-top:22px; border-top:1px solid var(--line); color:var(--muted); font-size:12px; }
+    .brand-hero { min-height:70vh; display:grid; align-content:center; gap:24px; }
+    .wordmark { display:flex; align-items:center; gap:20px; font-size:clamp(62px,13vw,170px); font-weight:760; letter-spacing:-.09em; line-height:.8; }
+    .guide { background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px); background-size:32px 32px; }
+    .logo-grid { min-height:360px; display:grid; place-items:center; border:1px solid var(--line); border-radius:var(--surface-radius); }
+    .rule { height:1px; background:var(--line); margin:18px 0; }
+    .quiet-mark { display:block; width:clamp(72px,10vw,132px); height:clamp(72px,10vw,132px); object-fit:contain; }
+    .quiet-mark.large { width:150px; height:150px; }
+    .quiet-mark.icon { width:96px; height:96px; }
+    @media (max-width:760px) {
+      .two,.three { grid-template-columns:1fr; }
+      .topbar { padding:14px 18px; }
+      .button { padding:0 11px; }
+      .page { padding-inline:20px; }
+      .brand-hero { min-height:58vh; }
+      .device.landscape { grid-template-columns:48px 1fr; }
+    }
+    @media print {
+      .topbar,.controls,.copy { display:none !important; }
+      body { background:#fff; color:#111; }
+      .page { max-width:none; padding:28px; }
+      .panel,.device,.specimen,.logo-grid { box-shadow:none; break-inside:avoid; }
+      .section { margin-top:48px; }
+    }
+    html[data-export="true"] .site { min-height:0; }
+    html[data-export="true"] .brand-hero { min-height:740px; padding-block:120px; }
+    html[data-export="true"] .topbar { position:static; }
+    html[data-export="true"] .page { padding-bottom:48px; }
+  </style>
+</head>
+<body data-page="brand">
+  <main class="site">
+    <header class="topbar"><a class="brand" href="../index.html"><span class="brand-dot"></span>FUNG / design system</a><div class="controls"><button class="button" data-theme-toggle>Light canvas</button><button class="button" onclick="window.print()">Export / Print</button></div></header>
+    <div class="page">
+    <section class="brand-hero"><p class="eyebrow">Local-first voice intelligence - selected identity</p><div class="wordmark"><img class="quiet-mark" src="../assets/quiet-archive-mark-white.svg" alt="FUNG Quiet Archive mark" />FUNG</div><p class="lede">A calm identity for private voice work. Quiet Archive keeps an open centre for the note, recording and evidence that remain available to the user.</p><span class="badge">Quiet Archive selected · beta identity</span></section>
+    <section class="section"><div class="grid three"><article class="panel"><p class="eyebrow">01</p><h3>Brand idea</h3></article><article class="panel"><p class="eyebrow">02</p><h3>Quiet Archive mark</h3></article><article class="panel"><p class="eyebrow">03</p><h3>Construction and clear space</h3></article><article class="panel"><p class="eyebrow">04</p><h3>Semantic colour system</h3></article><article class="panel"><p class="eyebrow">05</p><h3>Thai-first type and icons</h3></article><article class="panel"><p class="eyebrow">06</p><h3>Tactile material and motion</h3></article><article class="panel"><p class="eyebrow">07</p><h3>Product application</h3></article><article class="panel"><p class="eyebrow">08</p><h3>Reference boundary</h3></article></div></section>
+    <section class="section"><p class="eyebrow">Quiet Archive construction</p><h2>An open archive, drawn as one ribbon.</h2><div class="grid two" style="margin-top:22px"><article class="logo-grid guide"><img class="quiet-mark large" src="../assets/quiet-archive-mark-white.svg" alt="Quiet Archive construction mark" /></article><article class="panel"><h3>Master rules</h3><div class="rule"></div><p>The flat master retains a continuous rounded ribbon, an off-centre archive aperture and two diagonal fold cuts. Material texture is presentation-only.</p><p class="mono">Current status: selected-beta</p><div style="display:flex;gap:14px;align-items:center;margin-top:18px"><img class="quiet-mark" src="../assets/quiet-archive-mark-ink.svg" alt="Deep Blue mark on white" /><img class="quiet-mark" src="../assets/quiet-archive-mark-white.svg" style="background:#28374C;border-radius:24px;padding:12px" alt="White mark on Deep Blue" /><img class="quiet-mark icon" src="../assets/quiet-archive-app-icon.svg" alt="Android icon preview" /></div></article></div></section>
+    <section class="section"><p class="eyebrow">Colour system</p><h2>Semantic, restrained and operational.</h2><div class="grid three" style="margin-top:22px"><article class="panel token"><span class="swatch" style="background:#FFFFFF"></span><span><strong>White</strong><span class="mono">#FFFFFF</span></span></article><article class="panel token"><span class="swatch" style="background:#28374C"></span><span><strong>Deep Blue</strong><span class="mono">#28374C</span></span></article><article class="panel token"><span class="swatch" style="background:#FE6A3C"></span><span><strong>Focus</strong><span class="mono">#FE6A3C</span></span></article><article class="panel token"><span class="swatch" style="background:#28374C"></span><span><strong>Local</strong><span class="mono">#28374C</span></span></article><article class="panel token"><span class="swatch" style="background:#28374C"></span><span><strong>Inference</strong><span class="mono">#28374C</span></span></article><article class="panel token"><span class="swatch" style="background:#FE6A3C"></span><span><strong>Record</strong><span class="mono">#FE6A3C</span></span></article></div></section>
+    <section class="section"><p class="eyebrow">Typography</p><div class="grid two"><article class="panel"><div style="font-size:32px;line-height:1.12;font-weight:650">ฟังให้ครบ<br>ก่อนสรุป</div><p>Thai content has zero letter-spacing and a reading-first body scale.</p></article><article class="panel"><h3>Icon and material voice</h3><p>Rounded, deliberate outline icons. Surfaces use shallow porcelain elevation; pressed controls use inset depth without layout movement.</p><span class="badge">Reduced motion respected</span></article></div></section>
+    <section class="section"><p class="eyebrow">Product application</p><h2>The identity becomes operational UI.</h2><div class="grid two" style="margin-top:22px"><article class="specimen"><div class="device"><div class="mini-status"><span>FUNG</span><span>9:41</span></div><div class="voice">⌁</div><p style="text-align:center;margin:0"><strong>กดค้างเพื่อสั่งงาน</strong><br><span class="mini-muted">ทำงานบนมือถือ</span></p><div class="mini-card" style="margin-top:18px">โน้ตล่าสุด<div class="wave" aria-label="Waveform preview"><i style="height:14px"></i><i style="height:25px"></i><i style="height:39px"></i><i style="height:18px"></i><i style="height:33px"></i><i style="height:42px"></i><i style="height:23px"></i><i style="height:35px"></i><i style="height:17px"></i><i style="height:40px"></i><i style="height:28px"></i><i style="height:16px"></i><i style="height:37px"></i><i style="height:24px"></i><i style="height:42px"></i><i style="height:19px"></i><i style="height:32px"></i><i style="height:14px"></i><i style="height:30px"></i></div></div><div class="dock"><span>Home</span><span>Notes</span><b>Voice</b><span>Graph</span><span>Devices</span></div></div></article><article class="panel"><p class="eyebrow">Truthful states</p><h3>Identity never hides execution context.</h3><p><span class="badge">On-device</span> means local processing. <span class="badge warning">Inference</span> remains pending. <span class="badge record">Recording</span> is visually and textually explicit.</p><p>FUNG does not adopt the reference's cloning claims, neon palette, avatars or subscription language.</p></article></div></section>
+    <section class="section"><p class="eyebrow">Reference boundary</p><div class="panel"><h2>Adapt the rhythm, not the identity.</h2><p>Sequential narrative, construction grids and a long-form case-study presentation are permitted inspiration. Brand geometry, marks, copy and type treatment remain independent FUNG work.</p></div></section>
+    <footer class="footer">Generated from docs/Mobile/DESIGN_SYSTEM.md - Source revision 0.2.0b - Use Export / Print for long image or PDF capture.</footer>
+  </div>
+  </main>
+  <script id="fung-design-system-data" type="application/json">{&quot;version&quot;:&quot;0.2.0b&quot;,&quot;sourceUpdatedAt&quot;:&quot;2026-07-21T07:22:00+07:00&quot;,&quot;brand&quot;:{&quot;name&quot;:&quot;FUNG&quot;,&quot;tagline&quot;:&quot;Local-first voice intelligence&quot;,&quot;markStatus&quot;:&quot;selected-beta&quot;,&quot;markStatusLabel&quot;:&quot;Quiet Archive selected · beta identity&quot;,&quot;markAsset&quot;:&quot;assets/quiet-archive-mark.svg&quot;,&quot;markInkAsset&quot;:&quot;assets/quiet-archive-mark-ink.svg&quot;,&quot;markWhiteAsset&quot;:&quot;assets/quiet-archive-mark-white.svg&quot;,&quot;appIconAsset&quot;:&quot;assets/quiet-archive-app-icon.svg&quot;},&quot;themes&quot;:{&quot;dark&quot;:{&quot;canvas&quot;:&quot;#28374C&quot;,&quot;surface&quot;:&quot;#35465E&quot;,&quot;surfaceRaised&quot;:&quot;#40536D&quot;,&quot;ink&quot;:&quot;#FFFFFF&quot;,&quot;muted&quot;:&quot;#D5DCE2&quot;,&quot;line&quot;:&quot;rgba(255,255,255,.16)&quot;},&quot;light&quot;:{&quot;canvas&quot;:&quot;#FFFFFF&quot;,&quot;surface&quot;:&quot;#FFFFFF&quot;,&quot;surfaceRaised&quot;:&quot;#D5DCE2&quot;,&quot;ink&quot;:&quot;#28374C&quot;,&quot;muted&quot;:&quot;#53637A&quot;,&quot;line&quot;:&quot;rgba(40,55,76,.16)&quot;}},&quot;semantic&quot;:{&quot;focus&quot;:&quot;#FE6A3C&quot;,&quot;focusOnDark&quot;:&quot;#FE6A3C&quot;,&quot;local&quot;:&quot;#28374C&quot;,&quot;localOnDark&quot;:&quot;#D5DCE2&quot;,&quot;inferred&quot;:&quot;#28374C&quot;,&quot;inferredOnDark&quot;:&quot;#D5DCE2&quot;,&quot;record&quot;:&quot;#FE6A3C&quot;,&quot;danger&quot;:&quot;#C94E2B&quot;},&quot;type&quot;:{&quot;uiFamily&quot;:&quot;Noto Sans Thai, Leelawadee UI, system-ui, sans-serif&quot;,&quot;display&quot;:{&quot;size&quot;:&quot;32px&quot;,&quot;lineHeight&quot;:&quot;1.12&quot;,&quot;weight&quot;:&quot;650&quot;},&quot;title&quot;:{&quot;size&quot;:&quot;22px&quot;,&quot;lineHeight&quot;:&quot;1.25&quot;,&quot;weight&quot;:&quot;650&quot;},&quot;body&quot;:{&quot;size&quot;:&quot;16px&quot;,&quot;lineHeight&quot;:&quot;1.55&quot;,&quot;weight&quot;:&quot;400&quot;},&quot;label&quot;:{&quot;size&quot;:&quot;14px&quot;,&quot;lineHeight&quot;:&quot;1.3&quot;,&quot;weight&quot;:&quot;600&quot;},&quot;caption&quot;:{&quot;size&quot;:&quot;12px&quot;,&quot;lineHeight&quot;:&quot;1.4&quot;,&quot;weight&quot;:&quot;500&quot;}},&quot;spacing&quot;:[4,8,12,16,20,24,32,40,48],&quot;radii&quot;:{&quot;control&quot;:&quot;14px&quot;,&quot;surface&quot;:&quot;20px&quot;,&quot;dock&quot;:&quot;28px&quot;,&quot;voice&quot;:&quot;999px&quot;},&quot;elevation&quot;:{&quot;rest&quot;:&quot;0 12px 34px rgba(0,0,0,.16)&quot;,&quot;pressed&quot;:&quot;inset 0 2px 7px rgba(0,0,0,.18)&quot;},&quot;components&quot;:[{&quot;name&quot;:&quot;Voice control&quot;,&quot;state&quot;:&quot;local-ready&quot;,&quot;note&quot;:&quot;Owned by the command dock; touch target at least 44 dp.&quot;},{&quot;name&quot;:&quot;Runtime badge&quot;,&quot;state&quot;:&quot;on-device&quot;,&quot;note&quot;:&quot;States where the action runs; never implies unavailable capability.&quot;},{&quot;name&quot;:&quot;Evidence link&quot;,&quot;state&quot;:&quot;inferred&quot;,&quot;note&quot;:&quot;Dashed Deep Blue relation remains a proposal until user confirmation.&quot;},{&quot;name&quot;:&quot;Capture control&quot;,&quot;state&quot;:&quot;recording&quot;,&quot;note&quot;:&quot;Red is reserved for live recording, stop or destructive action.&quot;}],&quot;brandNarrative&quot;:[&quot;Brand idea&quot;,&quot;Quiet Archive mark&quot;,&quot;Construction and clear space&quot;,&quot;Semantic colour system&quot;,&quot;Thai-first type and icons&quot;,&quot;Tactile material and motion&quot;,&quot;Product application&quot;,&quot;Reference boundary&quot;]}</script>
+  <script>
+    const root=document.documentElement; const toggle=document.querySelector("[data-theme-toggle]");
+    toggle?.addEventListener("click",()=>{const next=root.dataset.theme==="dark"?"light":"dark";root.dataset.theme=next;toggle.textContent=next==="dark"?"Light canvas":"Deep Blue canvas";});
+    document.querySelectorAll("[data-copy]").forEach(button=>button.addEventListener("click",async()=>{await navigator.clipboard?.writeText(button.dataset.copy||"");const prior=button.textContent;button.textContent="Copied";setTimeout(()=>button.textContent=prior,900);}));
+  </script>
+</body></html>

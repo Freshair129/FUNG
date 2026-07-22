@@ -34,6 +34,7 @@ import {
   listProjects,
   listTranscriptSegments,
   minimizeWindow,
+  openExternalAccountPortal,
   pickAudioOrVideoFile,
   startLocalApi,
   type Health,
@@ -42,6 +43,7 @@ import {
   type Project,
   type TranscriptSegment,
 } from "./tauri";
+import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
 
 function formatMs(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -580,6 +582,7 @@ export function App() {
   const [activeView, setActiveView] = useState<ViewId>("review");
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
+  const [accountPanelOpen, setAccountPanelOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [signals, setSignals] = useState<Record<SignalId, boolean>>({
     focus: true,
@@ -927,6 +930,7 @@ export function App() {
 
   return (
     <div className={`app-shell theme-${theme}`}>
+      {accountPanelOpen && <ExternalAccountPanel onClose={() => setAccountPanelOpen(false)} onOpenPortal={openExternalAccountPortal} />}
       <div className="ambient-grid" data-tauri-drag-region aria-hidden="true" />
 
       <svg className="clip-defs" width="0" height="0" aria-hidden="true" focusable="false">
@@ -1245,7 +1249,8 @@ export function App() {
                 type="button"
                 className="sidebar-action"
                 aria-label="Settings"
-                onClick={() => activateAnchor("P4")}
+                title="Account and connection settings"
+                onClick={() => setAccountPanelOpen(true)}
               >
                 <SlidersHorizontal size={20} />
               </button>

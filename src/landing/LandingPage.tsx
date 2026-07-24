@@ -88,6 +88,7 @@ export function LandingPage() {
         <nav className="landing-nav" aria-label="เมนูหลัก">
           <a href="#product">Product</a>
           <a href="#how-it-works">How it works</a>
+          <a href="#demo">Demo</a>
           <a href="#privacy">Privacy</a>
         </nav>
         <a className="landing-header-cta" href="/app">
@@ -253,6 +254,42 @@ export function LandingPage() {
         </div>
       </section>
 
+      <section id="demo" className="demo-scene">
+        <div className="demo-shell">
+          <div className="demo-heading">
+            <span>04 / Demo-ready</span>
+            <h2>à¸žà¸£à¸µà¹€à¸‹à¸™à¸•à¹Œà¸ˆà¸²à¸à¹€à¸§à¹‡à¸š<br />à¹à¸¥à¹‰à¸§à¸žà¸²à¹„à¸›à¸–à¸¶à¸‡à¹€à¸”à¹‚à¸¡à¸ˆà¸£à¸´à¸‡<br />à¹‚à¸”à¸¢à¹„à¸¡à¹ˆà¹€à¸ªà¸µà¸¢à¸ˆà¸±à¸‡à¸«à¸§à¸°</h2>
+            <p>
+              à¸«à¸™à¹‰à¸²à¹€à¸§à¹‡à¸šà¸™à¸µà¹‰à¹ƒà¸Šà¹‰à¹€à¸¥à¹ˆà¸² product story à¹„à¸”à¹‰à¸—à¸±à¸™à¸—à¸µ à¸ˆà¸²à¸à¸™à¸±à¹‰à¸™à¸„à¹ˆà¸­à¸¢à¸žà¸²à¹€à¸‚à¹‰à¸²à¸«à¸™à¹‰à¸² app à¸«à¸£à¸·à¸­ desktop demo
+              à¸•à¸²à¸¡ flow à¸‚à¸­à¸‡à¸«à¹‰à¸­à¸‡à¸žà¸£à¸µà¹€à¸‹à¸™à¸•à¹Œ à¹‚à¸”à¸¢à¹„à¸¡à¹ˆà¸•à¹‰à¸­à¸‡à¸­à¸˜à¸´à¸šà¸²à¸¢ architecture à¸¢à¸²à¸§à¹€à¸à¸´à¸™à¸ˆà¸³à¹€à¸›à¹‡à¸™
+            </p>
+          </div>
+
+          <div className="demo-grid">
+            <article className="demo-card">
+              <small>Story</small>
+              <h3>Scroll à¹€à¸žà¸·à¹ˆà¸­à¸‚à¸²à¸¢ vision</h3>
+              <p>à¹€à¸¥à¹ˆà¸²à¹ƒà¸«à¹‰à¹€à¸«à¹‡à¸™à¸§à¹ˆà¸²à¸ˆà¸²à¸à¹€à¸ªà¸µà¸¢à¸‡ à¸„à¸§à¸²à¸¡à¹€à¸‡à¸µà¸¢à¸š à¹à¸¥à¸°à¸šà¸£à¸´à¸šà¸— FUNG à¹€à¸›à¸¥à¸µà¹ˆà¸¢à¸™à¹€à¸›à¹‡à¸™ knowledge à¸—à¸µà¹ˆà¸­à¹‰à¸²à¸‡à¸­à¸´à¸‡à¸¢à¹‰à¸­à¸™à¸à¸¥à¸±à¸šà¹„à¸”à¹‰à¸­à¸¢à¹ˆà¸²à¸‡à¹„à¸£</p>
+              <a href="#top">à¹€à¸£à¸´à¹ˆà¸¡à¸žà¸£à¸µà¹€à¸‹à¸™à¸•à¹Œà¸ˆà¸²à¸à¸«à¸™à¹‰à¸²à¹à¸£à¸ <ArrowIcon /></a>
+            </article>
+
+            <article className="demo-card">
+              <small>Product</small>
+              <h3>à¹€à¸›à¸´à¸” app surface à¸•à¹ˆà¸­à¸—à¸±à¸™à¸—à¸µ</h3>
+              <p>à¸à¸£à¸°à¹‚à¸”à¸”à¹€à¸‚à¹‰à¸²à¸«à¸™à¹‰à¸² product à¹€à¸žà¸·à¹ˆà¸­à¹‚à¸Šà¸§à¹Œ capture, transcript, summary à¹à¸¥à¸° runtime control à¹‚à¸”à¸¢à¹„à¸¡à¹ˆà¸•à¹‰à¸­à¸‡à¸­à¸­à¸à¸ˆà¸²à¸ flow</p>
+              <a href="/app">à¹€à¸›à¸´à¸” FUNG app <ArrowIcon /></a>
+            </article>
+
+            <article className="demo-card demo-card-highlight">
+              <small>Desktop demo</small>
+              <h3>à¸•à¸±à¸§à¹€à¸”à¹‚à¸¡ desktop à¸žà¸£à¹‰à¸­à¸¡à¹ƒà¸™à¹€à¸„à¸£à¸·à¹ˆà¸­à¸‡</h3>
+              <p>à¹ƒà¸Šà¹‰ installer à¸«à¸£à¸·à¸­à¹€à¸›à¸´à¸”à¸ˆà¸²à¸ runtime à¹ƒà¸™à¹€à¸„à¸£à¸·à¹ˆà¸­à¸‡à¹„à¸”à¹‰à¹€à¸¥à¸¢ à¸ªà¹ˆà¸§à¸™ production web à¸„à¸‡à¸‚à¹‰à¸­à¸„à¸§à¸²à¸¡à¹ƒà¸«à¹‰à¸•à¸£à¸‡à¸„à¸§à¸²à¸¡à¸ˆà¸£à¸´à¸‡à¹à¸¥à¸°à¹„à¸¡à¹ˆà¹à¸à¸¥à¹‰à¸‡à¸—à¸³à¹€à¸›à¹‡à¸™à¸”à¸²à¸§à¸™à¹Œà¹‚à¸«à¸¥à¸”à¸ˆà¸²à¸ cloud</p>
+              <a href="#privacy">à¸”à¸¹ privacy + local-first boundary <ArrowIcon /></a>
+            </article>
+          </div>
+        </div>
+      </section>
+
       <section id="privacy" className="closing-scene" data-scroll-scene>
         <div className="closing-ribbon" aria-hidden="true"><div className="memory-mark"><i /></div></div>
         <div className="closing-copy">
@@ -261,7 +298,7 @@ export function LandingPage() {
           <p>เริ่มจากเสียงหนึ่งประโยค แล้วปล่อยให้ FUNG ช่วยรักษาบริบทที่เหลือ</p>
           <div className="closing-actions">
             <a className="landing-button landing-button-indigo" href="/app">เปิด FUNG <ArrowIcon /></a>
-            <a className="landing-text-link" href="/app?surface=desktop">ดาวน์โหลด Desktop <ArrowIcon /></a>
+            <a className="landing-text-link" href="/app?surface=desktop">ดู Desktop surface <ArrowIcon /></a>
           </div>
           <div className="privacy-note"><LockKeyhole size={17} /> ใช้งานแบบ Local ได้โดยไม่ต้องมีบัญชี</div>
         </div>

@@ -734,7 +734,7 @@ fn run_processing_pipeline(ctx: ImportContext, participants: Vec<(String, std::p
     match outcome {
         Ok(()) => {
             let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "completed", Some(100), None);
-            crate::graph_build::start_graph_build(ctx.storage.clone(), ctx.project_id.clone(), ctx.recording_id.clone(), ctx.meeting_topic.clone());
+            crate::graph_build::start_graph_build(ctx.storage.clone(), ctx.project_id.clone(), ctx.recording_id.clone(), ctx.meeting_topic.clone(), Some(ctx.job_id.clone()));
         }
         Err(message) => { let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "failed", None, Some(&message)); }
     }

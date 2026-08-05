@@ -182,6 +182,12 @@ fn llm_provider_config(storage: &genesis_block_native::Storage) -> Result<(Strin
     let row = genesis_adapter::query(storage, "model_providers", &["config_json", "enabled"],
         vec![genesis_adapter::eq("model_providers", "id", serde_json::json!("ollama-summary-intent"))], 1)?
         .into_iter().next().ok_or_else(|| "summary/intent model provider is not configured".to_string())?;
+    let enabled = row.get("model_providers.enabled")
+        .and_then(|value| value.as_bool().or_else(|| value.as_i64().map(|number| number != 0)))
+        .unwrap_or(false);
+    if !enabled {
+        return Err("summary/intent model provider is disabled".to_string());
+    }
     let config = row.get("model_providers.config_json").and_then(serde_json::Value::as_str)
         .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
         .unwrap_or(serde_json::Value::Null);
@@ -213,11 +219,15 @@ fn call_llm(endpoint: &str, model: &str, prompt: &str) -> Result<String, String>
 }
 
 /// Spawns the graph.build job for a recording whose transcript is ready.
+/// `import_job_id`, when given, is the `zoom.import` (or other) job that
+/// triggered this build — used only to surface a seeding failure, since the
+/// import job may already have reported `completed` by the time this runs.
 pub(crate) fn start_graph_build(
     storage: std::sync::Arc<genesis_block_native::Storage>,
     project_id: String,
     recording_id: String,
     meeting_label: String,
+    import_job_id: Option<String>,
 ) {
     let job_id = Uuid::new_v4().to_string();
     let timestamp = now();
@@ -225,7 +235,23 @@ pub(crate) fn start_graph_build(
         genesis_adapter::upsert("jobs", serde_json::json!({"id": job_id, "project_id": project_id, "type": "graph.build", "status": "running", "progress": 0, "input_refs_json": [recording_id], "output_refs_json": [], "provider_id": null, "error_code": null, "error_message": null, "attempt_no": 1, "started_at": timestamp, "finished_at": null, "created_at": timestamp, "updated_at": timestamp})),
         genesis_adapter::upsert("job_events", serde_json::json!({"id": Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": "building knowledge graph", "created_at": timestamp})),
     ]);
-    if seeded.is_err() { return; }
+    if let Err(message) = seeded {
+        // The graph.build job row itself could not be created, so it has no
+        // way to report its own failure and the build silently never
+        // happens. Surface it against the job that triggered this (usually
+        // the zoom.import job, which may already have reported "completed")
+        // so the failure isn't invisible.
+        if let Some(import_job_id) = import_job_id {
+            let _ = genesis_adapter::commit_rows(&storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({
+                "id": Uuid::new_v4().to_string(),
+                "job_id": import_job_id,
+                "status": "failed",
+                "message": format!("graph build could not start: {message}"),
+                "created_at": now(),
+            }))]);
+        }
+        return;
+    }
     std::thread::spawn(move || {
         let outcome = run_graph_build(&storage, &project_id, &recording_id, &meeting_label, &job_id);
         let _ = match outcome {
@@ -252,7 +278,7 @@ fn run_graph_build(
     let mut segment_rows = genesis_adapter::query(storage, "transcript_segments", &["id", "start_ms", "text", "speaker_id"],
         vec![genesis_adapter::eq("transcript_segments", "recording_id", serde_json::json!(recording_id))], QUERY_ROW_CEILING)?;
     segment_rows.sort_by_key(|row| row.get("transcript_segments.start_ms").and_then(serde_json::Value::as_i64).unwrap_or(0));
-    if segment_rows.len() >= 1000 {
+    if segment_rows.len() >= QUERY_ROW_CEILING as usize {
         let timestamp = now();
         let _ = genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({
             "id": Uuid::new_v4().to_string(),
@@ -262,18 +288,59 @@ fn run_graph_build(
             "created_at": timestamp,
         }))]);
     }
+
+    // Speakers for the `spoke_in` edges must be scoped to *this recording*,
+    // not the whole project: a project can hold multiple recordings, and
+    // asserting a "confirmed" spoke_in edge for a speaker who spoke in a
+    // different recording of the same project would violate the
+    // epistemic-status rule. genesis_adapter filters are equality-only, so
+    // there's no `id IN (...)` query — collect this recording's speaker ids
+    // from its transcript segments and speaker turns, then resolve display
+    // names by pulling the project's speakers (capped, like every other
+    // query here) and keeping only the ids that are actually in scope.
+    let mut recording_speaker_ids: std::collections::HashSet<String> = segment_rows.iter()
+        .filter_map(|row| row.get("transcript_segments.speaker_id").and_then(serde_json::Value::as_str))
+        .map(str::to_owned)
+        .collect();
+    let turn_rows = genesis_adapter::query(storage, "speaker_turns", &["speaker_id"],
+        vec![genesis_adapter::eq("speaker_turns", "recording_id", serde_json::json!(recording_id))], QUERY_ROW_CEILING)?;
+    if turn_rows.len() >= QUERY_ROW_CEILING as usize {
+        let timestamp = now();
+        let _ = genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({
+            "id": Uuid::new_v4().to_string(),
+            "job_id": job_id,
+            "status": "running",
+            "message": "recording's speaker turns exceed the 1000-row query ceiling; some turn-only speakers may be missing from the graph",
+            "created_at": timestamp,
+        }))]);
+    }
+    recording_speaker_ids.extend(turn_rows.iter()
+        .filter_map(|row| row.get("speaker_turns.speaker_id").and_then(serde_json::Value::as_str).map(str::to_owned)));
+
     let speaker_rows = genesis_adapter::query(storage, "speakers", &["id", "display_name"],
-        vec![genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id))], 500)?;
-    let speakers: Vec<(String, String)> = speaker_rows.iter().filter_map(|row| Some((
-        row.get("speakers.id")?.as_str()?.to_string(),
-        row.get("speakers.display_name")?.as_str()?.to_string(),
-    ))).collect();
+        vec![genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id))], QUERY_ROW_CEILING)?;
+    if speaker_rows.len() >= QUERY_ROW_CEILING as usize {
+        let timestamp = now();
+        let _ = genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({
+            "id": Uuid::new_v4().to_string(),
+            "job_id": job_id,
+            "status": "running",
+            "message": "project speakers exceed the 1000-row query ceiling; some of this recording's speakers may be missing from the graph",
+            "created_at": timestamp,
+        }))]);
+    }
+    let speakers: Vec<(String, String)> = speaker_rows.iter().filter_map(|row| {
+        let id = row.get("speakers.id")?.as_str()?.to_string();
+        if !recording_speaker_ids.contains(&id) { return None; }
+        Some((id, row.get("speakers.display_name")?.as_str()?.to_string()))
+    }).collect();
     let timestamp = now();
     ensure_project_node(storage, project_id, &timestamp)?;
     genesis_adapter::commit_rows(storage, structural_mutations(project_id, recording_id, meeting_label, &speakers, &timestamp))?;
     let _ = crate::set_job_status(storage, job_id, "running", Some(20), None);
 
-    // 2) Replace old extraction for this recording (idempotent re-run).
+    // 2) Find (but do not yet delete) old extraction rows for this recording,
+    //    so a re-run replaces rather than duplicates them.
     // NOTE (query ceiling): these two queries are filtered by project_id (the
     // only equality filter available — prefix filtering happens in Rust), so
     // they return this recording's stale gx:/gxe: rows mixed in with every
@@ -289,7 +356,7 @@ fn run_graph_build(
         vec![genesis_adapter::eq("graph_nodes", "project_id", serde_json::json!(project_id))], QUERY_ROW_CEILING)?;
     let edge_rows = genesis_adapter::query(storage, "graph_edges", &["id"],
         vec![genesis_adapter::eq("graph_edges", "project_id", serde_json::json!(project_id))], QUERY_ROW_CEILING)?;
-    if node_rows.len() >= 1000 || edge_rows.len() >= 1000 {
+    if node_rows.len() >= QUERY_ROW_CEILING as usize || edge_rows.len() >= QUERY_ROW_CEILING as usize {
         let timestamp = now();
         let _ = genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({
             "id": Uuid::new_v4().to_string(),
@@ -299,6 +366,13 @@ fn run_graph_build(
             "created_at": timestamp,
         }))]);
     }
+    // Computed here (queries happen where they always did) but NOT committed
+    // yet: deleting the prior extraction before the LLM call means an
+    // ordinary failure (Ollama not running) destroys the previous good
+    // extraction and produces nothing. The delete is folded into the same
+    // commit as the fresh insert below, once parse_extraction has actually
+    // succeeded — extraction ids are deterministic, so delete+insert in one
+    // batch is still idempotent.
     let mut cleanup = Vec::new();
     for id in stale_extraction_ids(&edge_rows, "graph_edges.id", &format!("gxe:{recording_id}:")) {
         cleanup.push(genesis_adapter::delete("graph_edges", &id));
@@ -306,10 +380,11 @@ fn run_graph_build(
     for id in stale_extraction_ids(&node_rows, "graph_nodes.id", &format!("gx:{recording_id}:")) {
         cleanup.push(genesis_adapter::delete("graph_nodes", &id));
     }
-    if !cleanup.is_empty() { genesis_adapter::commit_rows(storage, cleanup)?; }
 
     // 3) LLM extraction (best-effort by design, but a failure fails the JOB so
-    //    the user can retry — structural graph above is already committed).
+    //    the user can retry — structural graph above is already committed,
+    //    and the prior extraction (if any) is untouched since its cleanup
+    //    hasn't been committed yet).
     let segment_ids: Vec<String> = segment_rows.iter()
         .filter_map(|row| row.get("transcript_segments.id").and_then(serde_json::Value::as_str).map(str::to_owned))
         .collect();
@@ -326,9 +401,10 @@ fn run_graph_build(
 
     let model_run_id = Uuid::new_v4().to_string();
     let timestamp = now();
-    let mut mutations = vec![
-        genesis_adapter::upsert("model_runs", serde_json::json!({"id": model_run_id, "recording_id": recording_id, "provider_id": "ollama-summary-intent", "model_name": model, "task_kind": "graph_extraction", "runtime_location": "local", "input_ref": recording_id, "output_ref": format!("graph:{recording_id}"), "parameters_json": {"endpoint": endpoint}, "created_at": timestamp})),
-    ];
+    // The prior extraction's cleanup deletes and the fresh insert land in one
+    // commit — only now that the new extraction has actually parsed.
+    let mut mutations = cleanup;
+    mutations.push(genesis_adapter::upsert("model_runs", serde_json::json!({"id": model_run_id, "recording_id": recording_id, "provider_id": "ollama-summary-intent", "model_name": model, "task_kind": "graph_extraction", "runtime_location": "local", "input_ref": recording_id, "output_ref": format!("graph:{recording_id}"), "parameters_json": {"endpoint": endpoint}, "created_at": timestamp})));
     mutations.extend(extraction_mutations(project_id, recording_id, &model_run_id, &extraction, &segment_ids, &timestamp));
     genesis_adapter::commit_rows(storage, mutations)
 }
@@ -346,7 +422,7 @@ pub(crate) fn graph_build_start(
         .into_iter().next()
         .and_then(|row| row.get("projects.name").and_then(serde_json::Value::as_str).map(str::to_owned))
         .unwrap_or_else(|| "Meeting".to_string());
-    start_graph_build(state.genesis.clone(), project_id, recording_id, label);
+    start_graph_build(state.genesis.clone(), project_id, recording_id, label, None);
     Ok(())
 }
 
@@ -457,6 +533,34 @@ mod tests {
             vec![crate::genesis_adapter::eq("graph_nodes", "id", serde_json::json!("p1"))], 10).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["graph_nodes.label"], "Renamed by user", "must not overwrite a user-edited label");
+
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn a_failed_llm_call_leaves_the_prior_extraction_intact() {
+        let (path, storage) = open_storage();
+        crate::genesis_adapter::commit_rows(&storage, vec![
+            crate::genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"Weekly sync","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"})),
+            crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":10,"created_at":"t","updated_at":"t"})),
+        ]).unwrap();
+        ensure_project_node(&storage, "p1", "t").unwrap();
+
+        // Seed a prior extraction node, as a previous successful run would
+        // have left behind.
+        let prior_node_id = det_node_id("r1", "topic", "Prior topic");
+        crate::genesis_adapter::commit_rows(&storage, vec![
+            crate::genesis_adapter::upsert("graph_nodes", serde_json::json!({"id": prior_node_id, "project_id":"p1","entity_type":"topic","entity_id":prior_node_id,"label":"Prior topic","position_x":70.0,"position_y":30.0,"created_at":"t","updated_at":"t"})),
+        ]).unwrap();
+
+        // No model_providers row exists (e.g. Ollama not configured/running),
+        // so llm_provider_config fails before any network call.
+        let outcome = run_graph_build(&storage, "p1", "r1", "Weekly sync", "job-does-not-exist");
+        assert!(outcome.is_err(), "a missing LLM provider must fail the build");
+
+        let nodes = crate::genesis_adapter::query(&storage, "graph_nodes", &["id"],
+            vec![crate::genesis_adapter::eq("graph_nodes", "id", serde_json::json!(prior_node_id))], 1).unwrap();
+        assert_eq!(nodes.len(), 1, "a failed LLM call must not delete the prior extraction");
 
         drop(storage); let _ = std::fs::remove_dir_all(path);
     }

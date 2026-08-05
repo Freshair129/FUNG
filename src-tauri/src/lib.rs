@@ -19,6 +19,7 @@ mod genesis_adapter;
 mod mobile;
 mod native_recorder;
 mod on_device_ai;
+mod zoom_sync;
 
 /// Source-tree fallback used by `tauri dev`. Packaged builds must resolve all
 /// worker resources from the installed application's resource directory.

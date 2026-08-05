@@ -6,7 +6,8 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read as IoRead, Write as IoWrite};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::State;
 use tauri_plugin_opener::OpenerExt;
 
@@ -16,6 +17,10 @@ const KEYRING_SERVICE: &str = "FUNG";
 const KEYRING_USER: &str = "zoom-oauth";
 const ZOOM_AUTH_BASE: &str = "https://zoom.us";
 pub(crate) const ZOOM_API_BASE: &str = "https://api.zoom.us/v2";
+
+/// Monotonic id of the newest connect attempt. A worker thread whose epoch is
+/// no longer current must not write connection state.
+static CONNECT_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct TokenSet {
@@ -166,6 +171,40 @@ pub(crate) fn parse_callback_request(first_line: &str) -> Result<(String, String
     }
 }
 
+/// Waits for one loopback callback connection until `deadline`, returning the
+/// connected stream and the request's first line. The listener must already be
+/// nonblocking.
+fn wait_for_callback(
+    listener: &TcpListener,
+    deadline: std::time::Instant,
+) -> Result<(TcpStream, String), String> {
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                stream.set_nonblocking(false).map_err(|e| e.to_string())?;
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+                    .ok();
+                let mut stream = stream;
+                let mut buffer = [0u8; 4096];
+                let read = stream.read(&mut buffer).map_err(|e| e.to_string())?;
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                let first_line = request.lines().next().unwrap_or_default().to_string();
+                return Ok((stream, first_line));
+            }
+            Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if std::time::Instant::now() >= deadline {
+                    return Err(
+                        "timed out waiting for the Zoom authorization callback".to_string()
+                    );
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+}
+
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ZoomConnectionStatus {
@@ -219,38 +258,37 @@ fn fetch_account_email(access_token: &str) -> Result<String, String> {
 }
 
 /// Starts the OAuth flow: opens the system browser and spawns a background
-/// thread that waits (max 180 s) for the loopback callback, exchanges the
-/// code, and stores tokens. UI polls `zoom_connection_status`.
+/// thread that waits up to 180 s for the loopback callback, exchanges the
+/// code, and stores tokens. The loopback listener is armed nonblocking and is
+/// dropped by the worker thread on every exit path (success, auth error, or
+/// timeout), so it never outlives the flow. UI polls `zoom_connection_status`.
 #[tauri::command]
 pub(crate) fn zoom_connect(app: tauri::AppHandle, state: State<'_, AppState>) -> AppResult<ZoomConnectionStatus> {
     let client_id = client_id_from_env()?;
     let listener = TcpListener::bind("127.0.0.1:0")?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| AppError::InvalidInput(format!("could not arm the callback listener: {error}")))?;
     let port = listener.local_addr()?.port();
     let redirect_uri = format!("http://127.0.0.1:{port}/zoom/callback");
     let verifier = new_verifier();
     let oauth_state = uuid::Uuid::new_v4().simple().to_string();
     let url = authorize_url(&client_id, &redirect_uri, &oauth_state, &pkce_challenge(&verifier));
 
+    let epoch = CONNECT_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
     write_connection(&state.genesis, "connecting", "").map_err(AppError::Genesis)?;
-    app.opener().open_url(url, None::<&str>)
-        .map_err(|error| AppError::InvalidInput(format!("could not open browser: {error}")))?;
+    if let Err(error) = app.opener().open_url(url, None::<&str>) {
+        CONNECT_EPOCH.fetch_add(1, Ordering::SeqCst);
+        write_connection(&state.genesis, "error", "").map_err(AppError::Genesis)?;
+        return Err(AppError::InvalidInput(format!("could not open browser: {error}")));
+    }
 
     let storage = state.genesis.clone();
     std::thread::spawn(move || {
-        listener.set_nonblocking(false).ok();
-        // read_timeout guards a connected-but-silent client; the accept itself
-        // blocks until the browser redirects. Guard total time with a deadline
-        // thread that closes the flow by dropping nothing — accept blocks, so
-        // rely on the user closing the panel; a stray success after timeout is
-        // harmless because state is overwritten idempotently.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
         let outcome = (|| -> Result<String, String> {
-            let (mut stream, _) = listener.accept().map_err(|e| e.to_string())?;
-            stream.set_read_timeout(Some(std::time::Duration::from_secs(180))).ok();
-            let mut buffer = [0u8; 4096];
-            let read = stream.read(&mut buffer).map_err(|e| e.to_string())?;
-            let request = String::from_utf8_lossy(&buffer[..read]);
-            let first_line = request.lines().next().unwrap_or_default();
-            let result = parse_callback_request(first_line).and_then(|(code, returned_state)| {
+            let (mut stream, first_line) = wait_for_callback(&listener, deadline)?;
+            let result = parse_callback_request(&first_line).and_then(|(code, returned_state)| {
                 if returned_state != oauth_state { return Err("oauth state mismatch".to_string()); }
                 exchange_code(&client_id, &code, &redirect_uri, &verifier)
             });
@@ -267,6 +305,11 @@ pub(crate) fn zoom_connect(app: tauri::AppHandle, state: State<'_, AppState>) ->
                 body.len(), body).as_bytes());
             out
         })();
+        if CONNECT_EPOCH.load(Ordering::SeqCst) != epoch {
+            // A newer connect attempt (or a disconnect) superseded this one;
+            // writing state now would clobber it.
+            return;
+        }
         let _ = match outcome {
             Ok(email) => write_connection(&storage, "connected", &email),
             Err(_) => write_connection(&storage, "error", ""),
@@ -290,6 +333,7 @@ pub(crate) fn zoom_connection_status(state: State<'_, AppState>) -> AppResult<Zo
 #[tauri::command]
 pub(crate) fn zoom_disconnect(state: State<'_, AppState>) -> AppResult<ZoomConnectionStatus> {
     delete_tokens().map_err(AppError::Genesis)?;
+    CONNECT_EPOCH.fetch_add(1, Ordering::SeqCst);
     write_connection(&state.genesis, "disconnected", "").map_err(AppError::Genesis)?;
     read_connection(&state.genesis).map_err(AppError::Genesis)
 }
@@ -343,5 +387,33 @@ mod tests {
     fn callback_parser_rejects_denials_and_junk() {
         assert!(parse_callback_request("GET /zoom/callback?error=access_denied HTTP/1.1").is_err());
         assert!(parse_callback_request("GET /favicon.ico HTTP/1.1").is_err());
+    }
+
+    #[test]
+    fn wait_for_callback_returns_request_line_from_loopback_client() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = std::thread::spawn(move || {
+            use std::io::Write as _;
+            let mut stream = TcpStream::connect(addr).unwrap();
+            stream
+                .write_all(b"GET /zoom/callback?code=c&state=s HTTP/1.1\r\nHost: x\r\n\r\n")
+                .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let (_stream, first_line) = wait_for_callback(&listener, deadline).unwrap();
+        assert_eq!(first_line, "GET /zoom/callback?code=c&state=s HTTP/1.1");
+        client.join().unwrap();
+    }
+
+    #[test]
+    fn wait_for_callback_times_out_without_a_client() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(300);
+        let error = wait_for_callback(&listener, deadline).unwrap_err();
+        assert!(error.contains("timed out"));
     }
 }

@@ -5,6 +5,12 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::io::{Read as IoRead, Write as IoWrite};
+use std::net::TcpListener;
+use tauri::State;
+use tauri_plugin_opener::OpenerExt;
+
+use crate::{genesis_adapter, now, AppError, AppResult, AppState};
 
 const KEYRING_SERVICE: &str = "FUNG";
 const KEYRING_USER: &str = "zoom-oauth";
@@ -140,6 +146,154 @@ pub(crate) fn ensure_fresh_access_token(client_id: &str) -> Result<String, Strin
     Ok(refreshed.access_token)
 }
 
+pub(crate) fn parse_callback_request(first_line: &str) -> Result<(String, String), String> {
+    let path = first_line.strip_prefix("GET ").and_then(|rest| rest.split(' ').next())
+        .ok_or_else(|| "not a GET request".to_string())?;
+    let query = path.strip_prefix("/zoom/callback?").ok_or_else(|| "unexpected path".to_string())?;
+    let mut code = None;
+    let mut state = None;
+    for pair in query.split('&') {
+        match pair.split_once('=') {
+            Some(("code", value)) => code = Some(value.to_string()),
+            Some(("state", value)) => state = Some(value.to_string()),
+            Some(("error", value)) => return Err(format!("zoom authorization error: {value}")),
+            _ => {}
+        }
+    }
+    match (code, state) {
+        (Some(code), Some(state)) => Ok((code, state)),
+        _ => Err("callback missing code or state".to_string()),
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ZoomConnectionStatus {
+    pub(crate) status: String,
+    pub(crate) account_label: Option<String>,
+}
+
+fn write_connection(storage: &genesis_block_native::Storage, status: &str, account_label: &str) -> Result<(), String> {
+    let timestamp = now();
+    let created_at = genesis_adapter::query(storage, "external_connections", &["created_at"],
+        vec![genesis_adapter::eq("external_connections", "id", serde_json::json!("zoom"))], 1)?
+        .into_iter().next()
+        .and_then(|row| row.get("external_connections.created_at").and_then(serde_json::Value::as_str).map(str::to_owned))
+        .unwrap_or_else(|| timestamp.clone());
+    genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("external_connections", serde_json::json!({
+        "id": "zoom", "provider": "zoom", "account_label": account_label,
+        "status": status, "created_at": created_at, "updated_at": timestamp,
+    }))])
+}
+
+fn read_connection(storage: &genesis_block_native::Storage) -> Result<ZoomConnectionStatus, String> {
+    let row = genesis_adapter::query(storage, "external_connections", &["status", "account_label"],
+        vec![genesis_adapter::eq("external_connections", "id", serde_json::json!("zoom"))], 1)?
+        .into_iter().next();
+    Ok(match row {
+        Some(row) => ZoomConnectionStatus {
+            status: genesis_adapter::string(&row, "external_connections.status")?,
+            account_label: row.get("external_connections.account_label").and_then(serde_json::Value::as_str)
+                .filter(|label| !label.is_empty()).map(str::to_owned),
+        },
+        None => ZoomConnectionStatus { status: "disconnected".to_string(), account_label: None },
+    })
+}
+
+pub(crate) fn client_id_from_env() -> AppResult<String> {
+    std::env::var("FUNG_ZOOM_CLIENT_ID")
+        .map_err(|_| AppError::InvalidInput("FUNG_ZOOM_CLIENT_ID is not configured".to_string()))
+}
+
+fn fetch_account_email(access_token: &str) -> Result<String, String> {
+    #[derive(serde::Deserialize)]
+    struct Me { email: String }
+    let response = reqwest::blocking::Client::new()
+        .get(format!("{ZOOM_API_BASE}/users/me"))
+        .bearer_auth(access_token)
+        .send().map_err(|e| format!("zoom users/me failed: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("zoom users/me returned {}", response.status()));
+    }
+    response.json::<Me>().map(|me| me.email).map_err(|e| e.to_string())
+}
+
+/// Starts the OAuth flow: opens the system browser and spawns a background
+/// thread that waits (max 180 s) for the loopback callback, exchanges the
+/// code, and stores tokens. UI polls `zoom_connection_status`.
+#[tauri::command]
+pub(crate) fn zoom_connect(app: tauri::AppHandle, state: State<'_, AppState>) -> AppResult<ZoomConnectionStatus> {
+    let client_id = client_id_from_env()?;
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    let redirect_uri = format!("http://127.0.0.1:{port}/zoom/callback");
+    let verifier = new_verifier();
+    let oauth_state = uuid::Uuid::new_v4().simple().to_string();
+    let url = authorize_url(&client_id, &redirect_uri, &oauth_state, &pkce_challenge(&verifier));
+
+    write_connection(&state.genesis, "connecting", "").map_err(AppError::Genesis)?;
+    app.opener().open_url(url, None::<&str>)
+        .map_err(|error| AppError::InvalidInput(format!("could not open browser: {error}")))?;
+
+    let storage = state.genesis.clone();
+    std::thread::spawn(move || {
+        listener.set_nonblocking(false).ok();
+        // read_timeout guards a connected-but-silent client; the accept itself
+        // blocks until the browser redirects. Guard total time with a deadline
+        // thread that closes the flow by dropping nothing — accept blocks, so
+        // rely on the user closing the panel; a stray success after timeout is
+        // harmless because state is overwritten idempotently.
+        let outcome = (|| -> Result<String, String> {
+            let (mut stream, _) = listener.accept().map_err(|e| e.to_string())?;
+            stream.set_read_timeout(Some(std::time::Duration::from_secs(180))).ok();
+            let mut buffer = [0u8; 4096];
+            let read = stream.read(&mut buffer).map_err(|e| e.to_string())?;
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            let first_line = request.lines().next().unwrap_or_default();
+            let result = parse_callback_request(first_line).and_then(|(code, returned_state)| {
+                if returned_state != oauth_state { return Err("oauth state mismatch".to_string()); }
+                exchange_code(&client_id, &code, &redirect_uri, &verifier)
+            });
+            let (body, out) = match result {
+                Ok(tokens) => {
+                    save_tokens(&tokens)?;
+                    let email = fetch_account_email(&tokens.access_token).unwrap_or_default();
+                    ("<html><body><h2>FUNG connected to Zoom.</h2>You can close this tab.</body></html>", Ok(email))
+                }
+                Err(error) => ("<html><body><h2>Zoom connection failed.</h2>Return to FUNG and retry.</body></html>", Err(error)),
+            };
+            let _ = stream.write_all(format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(), body).as_bytes());
+            out
+        })();
+        let _ = match outcome {
+            Ok(email) => write_connection(&storage, "connected", &email),
+            Err(_) => write_connection(&storage, "error", ""),
+        };
+    });
+
+    Ok(ZoomConnectionStatus { status: "connecting".to_string(), account_label: None })
+}
+
+#[tauri::command]
+pub(crate) fn zoom_connection_status(state: State<'_, AppState>) -> AppResult<ZoomConnectionStatus> {
+    let mut status = read_connection(&state.genesis).map_err(AppError::Genesis)?;
+    // A "connected" row without stored tokens means the credential was
+    // removed out-of-band; surface that truthfully.
+    if status.status == "connected" && load_tokens().map_err(AppError::Genesis)?.is_none() {
+        status.status = "error".to_string();
+    }
+    Ok(status)
+}
+
+#[tauri::command]
+pub(crate) fn zoom_disconnect(state: State<'_, AppState>) -> AppResult<ZoomConnectionStatus> {
+    delete_tokens().map_err(AppError::Genesis)?;
+    write_connection(&state.genesis, "disconnected", "").map_err(AppError::Genesis)?;
+    read_connection(&state.genesis).map_err(AppError::Genesis)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,5 +328,20 @@ mod tests {
         assert!(!rendered.contains("secret-access"));
         assert!(!rendered.contains("secret-refresh"));
         assert!(rendered.contains("<redacted>"));
+    }
+
+    #[test]
+    fn callback_parser_extracts_code_and_state() {
+        let line = "GET /zoom/callback?code=abc123&state=xyz HTTP/1.1";
+        assert_eq!(parse_callback_request(line).unwrap(), ("abc123".to_string(), "xyz".to_string()));
+        // Order-independent.
+        let line2 = "GET /zoom/callback?state=xyz&code=abc123 HTTP/1.1";
+        assert_eq!(parse_callback_request(line2).unwrap(), ("abc123".to_string(), "xyz".to_string()));
+    }
+
+    #[test]
+    fn callback_parser_rejects_denials_and_junk() {
+        assert!(parse_callback_request("GET /zoom/callback?error=access_denied HTTP/1.1").is_err());
+        assert!(parse_callback_request("GET /favicon.ico HTTP/1.1").is_err());
     }
 }

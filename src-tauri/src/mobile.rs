@@ -166,7 +166,10 @@ pub(crate) fn init_schema(conn: &Connection) -> AppResult<()> {
         CREATE TABLE IF NOT EXISTS graph_nodes (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-            entity_type TEXT NOT NULL CHECK (entity_type IN ('note', 'project', 'recording', 'person')),
+            -- 'meeting'..'mention' are written by graph_build.rs (structural
+            -- meeting/speaker layer plus the LLM extraction layer); this mirror
+            -- must accept every entity_type the primary store can hold.
+            entity_type TEXT NOT NULL CHECK (entity_type IN ('note', 'project', 'recording', 'person', 'meeting', 'speaker', 'topic', 'decision', 'action_item', 'mention')),
             entity_id TEXT NOT NULL,
             label TEXT NOT NULL,
             position_x REAL NOT NULL DEFAULT 50,
@@ -182,7 +185,10 @@ pub(crate) fn init_schema(conn: &Connection) -> AppResult<()> {
             source_node_id TEXT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
             target_node_id TEXT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
             predicate TEXT NOT NULL,
-            epistemic_status TEXT NOT NULL CHECK (epistemic_status IN ('confirmed', 'inferred', 'evidence', 'superseded', 'disputed')),
+            -- 'ai_proposed' marks LLM-extracted edges from graph_build.rs. It is
+            -- storable here but deliberately not writable through
+            -- mobile_relation_upsert — see the ALLOWED list on that command.
+            epistemic_status TEXT NOT NULL CHECK (epistemic_status IN ('confirmed', 'inferred', 'evidence', 'superseded', 'disputed', 'ai_proposed')),
             provenance_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -668,19 +674,26 @@ pub(crate) fn mobile_note_upsert(
         .map_err(AppError::Genesis)
 }
 
+/// Epistemic statuses a mobile client may assert through
+/// `mobile_relation_upsert`. Deliberately narrower than the `graph_edges`
+/// CHECK constraint: `ai_proposed` is storable (graph_build.rs writes it) but
+/// certifies that an edge came from the local extraction pipeline, so a client
+/// must not be able to mint it. Reviewing an ai_proposed edge means upserting
+/// one of the statuses below over it, which is the intended transition.
+const CLIENT_WRITABLE_EPISTEMIC_STATUS: [&str; 5] = [
+    "confirmed",
+    "inferred",
+    "evidence",
+    "superseded",
+    "disputed",
+];
+
 #[tauri::command]
 pub(crate) fn mobile_relation_upsert(
     edge: GraphEdgeInput,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    const ALLOWED: [&str; 5] = [
-        "confirmed",
-        "inferred",
-        "evidence",
-        "superseded",
-        "disputed",
-    ];
-    if !ALLOWED.contains(&edge.status.as_str()) {
+    if !CLIENT_WRITABLE_EPISTEMIC_STATUS.contains(&edge.status.as_str()) {
         return Err(AppError::InvalidInput(
             "invalid epistemic status".to_string(),
         ));
@@ -719,6 +732,11 @@ pub(crate) fn mobile_graph_query(
             "graph depth must be 1 or 2".to_string(),
         ));
     }
+    // This is the only graph read surface, and one meeting's structural plus
+    // extracted nodes now realistically exceeds the old 200-row cap. Raised
+    // to the engine's hard 1000-row query ceiling — a project whose
+    // cumulative graph_nodes exceed that still loses its tail here, same
+    // limitation as every other query against this table.
     let node_rows = crate::genesis_adapter::query(
         &state.genesis,
         "graph_nodes",
@@ -728,7 +746,7 @@ pub(crate) fn mobile_graph_query(
             "project_id",
             serde_json::json!(project_id),
         )],
-        200,
+        1000,
     )
     .map_err(AppError::Genesis)?;
     let nodes = node_rows
@@ -1815,20 +1833,99 @@ mod tests {
         assert!(intent.requires_confirmation);
     }
 
-    #[test]
-    fn graph_schema_preserves_epistemic_status() {
+    /// Mirror database seeded with the parent tables `init_schema` references.
+    fn mirror_db() -> Connection {
         let db = Connection::open_in_memory().expect("memory database");
         db.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE projects(id TEXT PRIMARY KEY, name TEXT, storage_path TEXT, active_recording_id TEXT, archived_at TEXT, created_at TEXT, updated_at TEXT); CREATE TABLE recordings(id TEXT PRIMARY KEY, project_id TEXT, status TEXT, duration_ms INTEGER);").expect("parent schema");
         init_schema(&db).expect("mobile schema");
-        let sql: String = db
-            .query_row(
-                "SELECT sql FROM sqlite_master WHERE name='graph_edges'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("graph schema");
-        assert!(sql.contains("inferred"));
-        assert!(sql.contains("disputed"));
+        db.execute(
+            "INSERT INTO projects(id, name, created_at, updated_at) VALUES ('p', 'Project', 't', 't')",
+            [],
+        )
+        .expect("seed project");
+        db
+    }
+
+    fn insert_node(db: &Connection, id: &str, entity_type: &str) -> rusqlite::Result<usize> {
+        db.execute(
+            "INSERT INTO graph_nodes(id, project_id, entity_type, entity_id, label, created_at, updated_at) VALUES (?1, 'p', ?2, ?1, 'label', 't', 't')",
+            rusqlite::params![id, entity_type],
+        )
+    }
+
+    fn insert_edge(db: &Connection, id: &str, status: &str) -> rusqlite::Result<usize> {
+        db.execute(
+            "INSERT INTO graph_edges(id, project_id, source_node_id, target_node_id, predicate, epistemic_status, created_at, updated_at) VALUES (?1, 'p', 'src', 'dst', 'extracted_from', ?2, 't', 't')",
+            rusqlite::params![id, status],
+        )
+    }
+
+    /// The mirror must accept every `epistemic_status` the primary store can
+    /// hold, including `ai_proposed` from graph_build.rs — a stricter CHECK
+    /// here would make those rows unsyncable.
+    #[test]
+    fn graph_schema_preserves_epistemic_status() {
+        let db = mirror_db();
+        insert_node(&db, "src", "meeting").expect("source node");
+        insert_node(&db, "dst", "project").expect("target node");
+        for (index, status) in [
+            "confirmed",
+            "inferred",
+            "evidence",
+            "superseded",
+            "disputed",
+            "ai_proposed",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            insert_edge(&db, &format!("e{index}"), status)
+                .unwrap_or_else(|error| panic!("{status} must be storable: {error}"));
+        }
+        assert!(
+            insert_edge(&db, "bogus", "hallucinated").is_err(),
+            "the CHECK must still reject unknown statuses"
+        );
+    }
+
+    /// Same contract for `entity_type`: graph_build.rs writes the structural
+    /// (meeting/speaker) and extracted (topic/decision/action_item/mention)
+    /// kinds alongside the original four.
+    #[test]
+    fn graph_schema_preserves_entity_types() {
+        let db = mirror_db();
+        for (index, entity_type) in [
+            "note",
+            "project",
+            "recording",
+            "person",
+            "meeting",
+            "speaker",
+            "topic",
+            "decision",
+            "action_item",
+            "mention",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            insert_node(&db, &format!("n{index}"), entity_type)
+                .unwrap_or_else(|error| panic!("{entity_type} must be storable: {error}"));
+        }
+        assert!(
+            insert_node(&db, "bogus", "wormhole").is_err(),
+            "the CHECK must still reject unknown entity types"
+        );
+    }
+
+    /// The mirror stores `ai_proposed`, but the client-facing write command
+    /// must not let a mobile device forge AI provenance. Widening the schema
+    /// CHECK must not silently widen this.
+    #[test]
+    fn relation_upsert_rejects_ai_proposed_from_clients() {
+        assert!(!CLIENT_WRITABLE_EPISTEMIC_STATUS.contains(&"ai_proposed"));
+        assert!(CLIENT_WRITABLE_EPISTEMIC_STATUS.contains(&"confirmed"));
+        assert!(CLIENT_WRITABLE_EPISTEMIC_STATUS.contains(&"disputed"));
     }
 
     #[test]

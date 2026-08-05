@@ -56,6 +56,8 @@ export type TranscriptSegment = {
   id: string;
   projectId: string;
   recordingId: string;
+  speakerId: string | null;
+  speakerName: string | null;
   startMs: number;
   endMs: number;
   text: string;
@@ -147,6 +149,11 @@ export async function listTranscriptSegments(projectId: string): Promise<Transcr
   return invoke<TranscriptSegment[]>("list_transcript_segments", { projectId });
 }
 
+export async function renameSpeaker(speakerId: string, displayName: string): Promise<void> {
+  if (!canInvoke()) return;
+  await invoke<void>("mobile_speaker_rename", { speakerId, displayName });
+}
+
 export async function importAndTranscribe(filePath: string, projectId?: string): Promise<Job> {
   if (!canInvoke()) {
     const now = new Date().toISOString();
@@ -204,4 +211,50 @@ export async function openExternalAccountPortal(): Promise<void> {
     throw new Error("The hosted account portal is not configured.");
   }
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+export type ZoomConnectionStatus = {
+  status: "disconnected" | "connecting" | "connected" | "error";
+  accountLabel: string | null;
+  revokeFailed: boolean;
+};
+
+export type ZoomRecordingSummary = {
+  uuid: string;
+  topic: string;
+  startTime: string;
+  durationMinutes: number;
+  hasParticipantAudio: boolean;
+};
+
+const zoomOffline: ZoomConnectionStatus = { status: "disconnected", accountLabel: null, revokeFailed: false };
+
+export async function zoomConnect(): Promise<ZoomConnectionStatus> {
+  if (!canInvoke()) return zoomOffline;
+  return invoke<ZoomConnectionStatus>("zoom_connect");
+}
+
+export async function zoomConnectionStatus(): Promise<ZoomConnectionStatus> {
+  if (!canInvoke()) return zoomOffline;
+  return invoke<ZoomConnectionStatus>("zoom_connection_status");
+}
+
+export async function zoomDisconnect(): Promise<ZoomConnectionStatus> {
+  if (!canInvoke()) return zoomOffline;
+  return invoke<ZoomConnectionStatus>("zoom_disconnect");
+}
+
+export async function zoomListRecordings(): Promise<ZoomRecordingSummary[]> {
+  if (!canInvoke()) return [];
+  return invoke<ZoomRecordingSummary[]>("zoom_list_recordings");
+}
+
+export async function zoomImportRecording(meetingUuid: string): Promise<Job> {
+  if (!canInvoke()) throw new Error("Zoom import requires the desktop app.");
+  return invoke<Job>("zoom_import_recording", { meetingUuid });
+}
+
+export async function graphBuildStart(projectId: string, recordingId: string): Promise<void> {
+  if (!canInvoke()) return;
+  await invoke<void>("graph_build_start", { projectId, recordingId });
 }

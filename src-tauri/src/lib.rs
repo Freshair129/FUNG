@@ -16,16 +16,19 @@ use thiserror::Error;
 use uuid::Uuid;
 
 mod genesis_adapter;
+mod graph_build;
 mod mobile;
 mod native_recorder;
 mod on_device_ai;
+mod speaker_merge;
+mod zoom_sync;
 
 /// Source-tree fallback used by `tauri dev`. Packaged builds must resolve all
 /// worker resources from the installed application's resource directory.
 const PROJECT_ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 #[derive(Clone)]
-struct WhisperRuntime {
+pub(crate) struct WhisperRuntime {
     python: PathBuf,
     script: PathBuf,
     cuda_bin: PathBuf,
@@ -130,6 +133,12 @@ pub(crate) struct AppState {
     pub(crate) mobile_gateway: Mutex<Option<mobile::MobileGatewayControl>>,
 }
 
+impl AppState {
+    pub(crate) fn whisper_runtime_clone(&self) -> WhisperRuntime {
+        self.whisper_runtime.clone()
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Health {
@@ -163,22 +172,22 @@ struct Project {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Job {
-    id: String,
-    project_id: String,
+pub(crate) struct Job {
+    pub(crate) id: String,
+    pub(crate) project_id: String,
     #[serde(rename = "type")]
-    job_type: String,
-    status: String,
-    progress: i64,
-    input_refs: Vec<String>,
-    output_refs: Vec<String>,
-    provider_id: Option<String>,
-    error_code: Option<String>,
-    error_message: Option<String>,
-    started_at: Option<String>,
-    finished_at: Option<String>,
-    created_at: String,
-    updated_at: String,
+    pub(crate) job_type: String,
+    pub(crate) status: String,
+    pub(crate) progress: i64,
+    pub(crate) input_refs: Vec<String>,
+    pub(crate) output_refs: Vec<String>,
+    pub(crate) provider_id: Option<String>,
+    pub(crate) error_code: Option<String>,
+    pub(crate) error_message: Option<String>,
+    pub(crate) started_at: Option<String>,
+    pub(crate) finished_at: Option<String>,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -187,6 +196,8 @@ struct TranscriptSegment {
     id: String,
     project_id: String,
     recording_id: String,
+    speaker_id: Option<String>,
+    speaker_name: Option<String>,
     start_ms: i64,
     end_ms: i64,
     text: String,
@@ -196,18 +207,18 @@ struct TranscriptSegment {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct WhisperSegment {
-    start_ms: i64,
-    end_ms: i64,
-    text: String,
-    confidence: Option<f64>,
+pub(crate) struct WhisperSegment {
+    pub(crate) start_ms: i64,
+    pub(crate) end_ms: i64,
+    pub(crate) text: String,
+    pub(crate) confidence: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct WhisperOutput {
-    duration_ms: i64,
-    segments: Vec<WhisperSegment>,
+pub(crate) struct WhisperOutput {
+    pub(crate) duration_ms: i64,
+    pub(crate) segments: Vec<WhisperSegment>,
 }
 
 #[derive(Debug, Serialize)]
@@ -335,7 +346,7 @@ fn init_database(db_path: PathBuf) -> AppResult<Connection> {
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-            type TEXT NOT NULL CHECK (type IN ('recording.capture', 'recording.recover', 'audio.cleanup', 'audio.separate', 'transcript.transcribe', 'transcript.diarize', 'summary.generate', 'intent.infer', 'export.render')),
+            type TEXT NOT NULL CHECK (type IN ('recording.capture', 'recording.recover', 'audio.cleanup', 'audio.separate', 'transcript.transcribe', 'transcript.diarize', 'summary.generate', 'intent.infer', 'export.render', 'zoom.import', 'graph.build')),
             status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'paused', 'completed', 'failed', 'retrying', 'cancelled')),
             progress INTEGER NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
             input_refs_json TEXT NOT NULL DEFAULT '[]',
@@ -585,11 +596,34 @@ fn list_transcript_segments(
     project_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<Vec<TranscriptSegment>> {
-    let mut segments = genesis_adapter::query(&state.genesis, "transcript_segments", &["id", "project_id", "recording_id", "start_ms", "end_ms", "text", "confidence", "created_at"], vec![genesis_adapter::eq("transcript_segments", "project_id", serde_json::json!(project_id))], 1000).map_err(AppError::Genesis)?.into_iter().map(|row| Ok(TranscriptSegment { id: genesis_adapter::string(&row, "transcript_segments.id").map_err(AppError::Genesis)?, project_id: genesis_adapter::string(&row, "transcript_segments.project_id").map_err(AppError::Genesis)?, recording_id: genesis_adapter::string(&row, "transcript_segments.recording_id").map_err(AppError::Genesis)?, start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms").map_err(AppError::Genesis)?, end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms").map_err(AppError::Genesis)?, text: genesis_adapter::string(&row, "transcript_segments.text").map_err(AppError::Genesis)?, confidence: row.get("transcript_segments.confidence").and_then(serde_json::Value::as_f64), created_at: genesis_adapter::string(&row, "transcript_segments.created_at").map_err(AppError::Genesis)? })).collect::<AppResult<Vec<_>>>()?;
+    // Resolve speaker display names once per call: query the project's
+    // speakers (capped like every other query against this engine) and build
+    // an id -> display_name map, rather than a lookup per segment.
+    let speaker_rows = genesis_adapter::query(&state.genesis, "speakers", &["id", "display_name"],
+        vec![genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id.clone()))], 1000).map_err(AppError::Genesis)?;
+    let speaker_names: std::collections::HashMap<String, String> = speaker_rows.into_iter().filter_map(|row| {
+        Some((row.get("speakers.id")?.as_str()?.to_string(), row.get("speakers.display_name")?.as_str()?.to_string()))
+    }).collect();
+    let mut segments = genesis_adapter::query(&state.genesis, "transcript_segments", &["id", "project_id", "recording_id", "speaker_id", "start_ms", "end_ms", "text", "confidence", "created_at"], vec![genesis_adapter::eq("transcript_segments", "project_id", serde_json::json!(project_id))], 1000).map_err(AppError::Genesis)?.into_iter().map(|row| {
+        let speaker_id = row.get("transcript_segments.speaker_id").and_then(serde_json::Value::as_str).map(str::to_owned);
+        let speaker_name = speaker_id.as_ref().and_then(|id| speaker_names.get(id).cloned());
+        Ok(TranscriptSegment {
+            id: genesis_adapter::string(&row, "transcript_segments.id").map_err(AppError::Genesis)?,
+            project_id: genesis_adapter::string(&row, "transcript_segments.project_id").map_err(AppError::Genesis)?,
+            recording_id: genesis_adapter::string(&row, "transcript_segments.recording_id").map_err(AppError::Genesis)?,
+            speaker_id,
+            speaker_name,
+            start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms").map_err(AppError::Genesis)?,
+            end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms").map_err(AppError::Genesis)?,
+            text: genesis_adapter::string(&row, "transcript_segments.text").map_err(AppError::Genesis)?,
+            confidence: row.get("transcript_segments.confidence").and_then(serde_json::Value::as_f64),
+            created_at: genesis_adapter::string(&row, "transcript_segments.created_at").map_err(AppError::Genesis)?,
+        })
+    }).collect::<AppResult<Vec<_>>>()?;
     segments.sort_by_key(|segment| segment.start_ms); Ok(segments)
 }
 
-fn set_job_status(
+pub(crate) fn set_job_status(
     storage: &genesis_block_native::Storage,
     job_id: &str,
     status: &str,
@@ -714,36 +748,119 @@ fn import_and_transcribe(
     })
 }
 
-/// Runs the faster-whisper worker script and blocks until it exits,
-/// reporting `PROGRESS <pct>` lines from stderr via `on_progress` as they
-/// arrive. Intended to run off the main thread (see `import_and_transcribe`).
-fn run_transcription(
+/// Cap on the non-`PROGRESS` stderr tail captured for a worker's error
+/// message. Chatty workers (torch/pyannote log warnings on every run) can
+/// otherwise dump megabytes of noise into a `job_events` row; the real
+/// failure text is almost always right before the process exits, so the
+/// *tail* is the part worth keeping.
+const STDERR_TAIL_CAP_BYTES: usize = 8192;
+
+/// Appends `line` (plus a newline) to `buffer`, then drops whole lines from
+/// the front until `buffer` is back at or under `STDERR_TAIL_CAP_BYTES` —
+/// never splitting a line, and always keeping the most recently written
+/// (i.e. most relevant) text.
+fn append_bounded(buffer: &mut String, line: &str) {
+    buffer.push_str(line);
+    buffer.push('\n');
+    while buffer.len() > STDERR_TAIL_CAP_BYTES {
+        match buffer.find('\n') {
+            Some(newline_index) => {
+                buffer.drain(..=newline_index);
+            }
+            None => break,
+        }
+    }
+}
+
+/// Runs a python worker from the whisper venv and returns its stdout after a
+/// zero exit. `PROGRESS <pct>` stderr lines stream through `on_progress`;
+/// other stderr lines are collected into the error message on failure.
+/// `path_prefix`, when set, is prepended to the child's PATH — used by
+/// `run_transcription` to expose the bundled CUDA DLLs; harmless to omit for
+/// workers (like diarize) that don't need it.
+pub(crate) fn run_python_worker(
     runtime: &WhisperRuntime,
-    file_path: &str,
+    script: &std::path::Path,
+    args: &[&str],
+    path_prefix: Option<&std::path::Path>,
     on_progress: impl Fn(i64) + Send + 'static,
-) -> Result<WhisperOutput, String> {
+) -> Result<String, String> {
     if !runtime.python.exists() {
         return Err(format!(
             "FUNG Python runtime is missing at {}. Reinstall the FUNG application bundle.",
             runtime.python.display(),
         ));
     }
-    if !runtime.script.exists() {
+    if !script.exists() {
         return Err(format!(
-            "FUNG transcription worker is missing at {}. Reinstall the FUNG application bundle.",
-            runtime.script.display(),
+            "FUNG worker script is missing at {}. Reinstall the FUNG application bundle.",
+            script.display(),
         ));
     }
 
-    let profile = transcription_profile()?;
     let mut command = Command::new(&runtime.python);
-    command
-        .arg(&runtime.script)
-        .arg(file_path)
-        .arg("--profile")
-        .arg(&profile);
+    command.arg(script).args(args);
 
-    if profile == "gpu" {
+    if let Some(prefix) = path_prefix {
+        let inherited_path = env::var_os("PATH").unwrap_or_default();
+        let child_path = env::join_paths([prefix.as_os_str(), inherited_path.as_os_str()])
+            .map_err(|err| format!("could not compose FUNG GPU runtime PATH: {err}"))?;
+        command.env("PATH", child_path);
+    }
+
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| format!("failed to launch worker: {err}"))?;
+
+    let stderr = child.stderr.take().expect("stderr was piped");
+    let stderr_tail = Arc::new(Mutex::new(String::new()));
+    let tail = stderr_tail.clone();
+    let progress_thread = thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if let Some(rest) = line.strip_prefix("PROGRESS ") {
+                if let Ok(pct) = rest.trim().parse::<i64>() {
+                    on_progress(pct);
+                }
+            } else if let Ok(mut tail) = tail.lock() {
+                append_bounded(&mut tail, &line);
+            }
+        }
+    });
+
+    let mut stdout = child.stdout.take().expect("stdout was piped");
+    let mut raw_output = String::new();
+    stdout
+        .read_to_string(&mut raw_output)
+        .map_err(|err| format!("failed to read worker output: {err}"))?;
+
+    let status = child
+        .wait()
+        .map_err(|err| format!("failed to wait for worker: {err}"))?;
+    let _ = progress_thread.join();
+
+    if !status.success() {
+        let tail = stderr_tail.lock().map(|t| t.clone()).unwrap_or_default();
+        return Err(format!("worker exited with {status}: {}", tail.trim()));
+    }
+
+    Ok(raw_output)
+}
+
+/// Runs the faster-whisper worker script and blocks until it exits,
+/// reporting `PROGRESS <pct>` lines from stderr via `on_progress` as they
+/// arrive. Intended to run off the main thread (see `import_and_transcribe`).
+/// The GPU/CUDA DLL check and profile selection are whisper-specific and stay
+/// here rather than in the generic `run_python_worker`.
+pub(crate) fn run_transcription(
+    runtime: &WhisperRuntime,
+    file_path: &str,
+    on_progress: impl Fn(i64) + Send + 'static,
+) -> Result<WhisperOutput, String> {
+    let profile = transcription_profile()?;
+
+    let path_prefix = if profile == "gpu" {
         let missing: Vec<&str> = REQUIRED_CUDA_DLLS
             .iter()
             .copied()
@@ -756,51 +873,35 @@ fn run_transcription(
                 missing.join(", ")
             ));
         }
+        Some(runtime.cuda_bin.as_path())
+    } else {
+        None
+    };
 
-        let inherited_path = env::var_os("PATH").unwrap_or_default();
-        let child_path =
-            env::join_paths([runtime.cuda_bin.as_os_str(), inherited_path.as_os_str()])
-                .map_err(|err| format!("could not compose FUNG GPU runtime PATH: {err}"))?;
-        command.env("PATH", child_path);
-    }
-
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| format!("failed to launch transcription worker: {err}"))?;
-
-    let stderr = child.stderr.take().expect("stderr was piped");
-    let progress_thread = thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            if let Some(rest) = line.strip_prefix("PROGRESS ") {
-                if let Ok(pct) = rest.trim().parse::<i64>() {
-                    on_progress(pct);
-                }
-            }
-        }
-    });
-
-    let mut stdout = child.stdout.take().expect("stdout was piped");
-    let mut raw_output = String::new();
-    stdout
-        .read_to_string(&mut raw_output)
-        .map_err(|err| format!("failed to read transcription output: {err}"))?;
-
-    let status = child
-        .wait()
-        .map_err(|err| format!("failed to wait for transcription worker: {err}"))?;
-    let _ = progress_thread.join();
-
-    if !status.success() {
-        return Err(format!(
-            "transcription worker exited with {status}: {}",
-            raw_output.trim()
-        ));
-    }
+    let raw_output = run_python_worker(
+        runtime,
+        &runtime.script,
+        &[file_path, "--profile", &profile],
+        path_prefix,
+        on_progress,
+    )?;
 
     serde_json::from_str::<WhisperOutput>(raw_output.trim())
         .map_err(|err| format!("failed to parse transcription output: {err}"))
+}
+
+/// Runs the pyannote diarization worker script. Path B calls this after
+/// transcribing the mixed file; a failure here must never take down the
+/// transcript (see `zoom_sync::run_mixed_audio_path`).
+pub(crate) fn run_diarization(
+    runtime: &WhisperRuntime,
+    file_path: &str,
+    on_progress: impl Fn(i64) + Send + 'static,
+) -> Result<zoom_sync::DiarizeOutput, String> {
+    let script = runtime.script.parent().expect("scripts dir").join("diarize.py");
+    let raw = run_python_worker(runtime, &script, &[file_path], None, on_progress)?;
+    serde_json::from_str(raw.trim())
+        .map_err(|err| format!("failed to parse diarization output: {err}"))
 }
 
 #[tauri::command]
@@ -888,6 +989,12 @@ pub fn run() {
             import_and_transcribe,
             start_local_api,
             open_external_account_portal,
+            zoom_sync::zoom_connect,
+            zoom_sync::zoom_connection_status,
+            zoom_sync::zoom_disconnect,
+            zoom_sync::zoom_list_recordings,
+            zoom_sync::zoom_import_recording,
+            graph_build::graph_build_start,
             mobile::mobile_capture_start,
             mobile::mobile_capture_append_segment,
             mobile::mobile_capture_reconcile_native,
@@ -927,4 +1034,30 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running FUNG");
+}
+
+#[cfg(test)]
+mod worker_tests {
+    use super::*;
+
+    #[test]
+    fn append_bounded_caps_length_and_keeps_latest_line() {
+        let mut buffer = String::new();
+        for i in 0..2000 {
+            append_bounded(&mut buffer, &format!("torch warning line {i}"));
+        }
+        assert!(
+            buffer.len() <= STDERR_TAIL_CAP_BYTES + 128,
+            "buffer must stay bounded near the cap, got {} bytes",
+            buffer.len()
+        );
+        assert!(
+            buffer.contains("torch warning line 1999"),
+            "must retain the most recently appended line"
+        );
+        assert!(
+            !buffer.contains("torch warning line 0\n"),
+            "oldest lines must be dropped once the cap is exceeded"
+        );
+    }
 }

@@ -28,7 +28,9 @@ attributes:
 
 ## 2. Goal
 
-ผู้ใช้เชื่อมบัญชี Zoom กับ FUNG Desktop แล้ว import cloud recording เข้ามาได้ จากนั้นระบบสร้าง transcript ภาษาไทย/อังกฤษที่**แยกผู้พูดได้** และสร้าง **knowledge graph** (หัวข้อ, มติ, action item, สิ่งที่ถูกพูดถึง) ที่ค้นข้ามประชุมได้ — ทั้งหมดประมวลผลและเก็บในเครื่องตาม local-first contract
+ผู้ใช้เชื่อมบัญชี Zoom กับ FUNG Desktop แล้ว import cloud recording เข้ามาได้ จากนั้นระบบสร้าง transcript ภาษาไทย/อังกฤษที่**แยกผู้พูดได้** และสร้าง **knowledge graph** (หัวข้อ, มติ, action item, สิ่งที่ถูกพูดถึง) ของประชุมนั้น — ทั้งหมดประมวลผลและเก็บในเครื่องตาม local-first contract
+
+Phase 1 ตอบคำถามในขอบเขตประชุมเดียว การค้นข้ามประชุมยังทำไม่ได้ (ดู §7)
 
 ### Non-goals (Phase นี้)
 
@@ -141,7 +143,19 @@ Job `zoom.import`:
 - extraction ล้มเหลว → structural graph ยังอยู่ครบ, job retry ได้
 - `graph.build` ซ้ำบน meeting เดิมต้อง idempotent (แทนที่ผล extraction เก่าของ meeting นั้น ไม่สร้าง node ซ้ำ)
 
-ผลลัพธ์ที่ต้องตอบได้: "โปรเจกต์ X ถูกพูดถึงในประชุมไหนบ้าง" / "ใครรับ action item อะไรไปจากประชุมนี้"
+ผลลัพธ์ที่ต้องตอบได้ใน Phase 1: "ประชุมนี้คุยหัวข้ออะไรบ้าง", "มีมติอะไร", "ใครรับ action item อะไรไปจากประชุมนี้" — ทุกคำถามอยู่ในขอบเขต **ประชุมเดียว**
+
+### ข้อจำกัดที่ตั้งใจไว้ใน Phase 1 — ยังถามข้ามประชุมไม่ได้
+
+การ import แต่ละครั้งสร้าง project ใหม่หนึ่งอัน, `det_node_id` ผูก entity กับ recording เดียว และ graph query
+กรองด้วย `project_id` ดังนั้นคำถามข้ามประชุมแบบ "โปรเจกต์ X ถูกพูดถึงในประชุมไหนบ้าง" **ตอบไม่ได้** —
+entity ชื่อเดียวกันจากสองประชุมเป็นคนละ node ในคนละ project ที่ไม่มี query ใดเชื่อมถึงกัน
+
+การเปิดความสามารถนี้ต้องมีอย่างน้อยหนึ่งอย่างต่อไปนี้ ซึ่งอยู่นอก Phase 1:
+
+- ให้ผู้ใช้เลือก import เข้า project ที่มีอยู่แล้ว แทนที่จะสร้างใหม่ทุกครั้ง
+- เปลี่ยน scope ของ extraction node id จาก recording เป็น project
+- entity resolution ข้ามประชุม (ระบุว่า "บอส" กับ "Boss" คือคนเดียวกัน) ซึ่ง §2 ระบุไว้แล้วว่าเป็น non-goal
 
 ## 8. UI (Phase 1 — minimal)
 
@@ -171,7 +185,7 @@ Job `zoom.import`:
 ## 11. Testing
 
 - **Unit:** multi-file timeline merge (รวม overlap), time-overlap speaker assignment, graph upsert idempotency, VTT/paging parsing
-- **Integration:** mock Zoom API fixtures ทดสอบ job chain ทั้งเส้น (import → transcribe → diarize/merge → graph.build) รวม failure paths
+- **Integration (deferred — ยังไม่ได้ทำใน Phase 1):** mock Zoom API fixtures ทดสอบ job chain ทั้งเส้น (import → transcribe → diarize/merge → graph.build) รวม failure paths — ดูรายการที่ครอบคลุมจริงใน `docs/Desktop/ZOOM_INTEGRATION_SETUP.md` §7
 - **UAT:** บัญชี Zoom จริง 1 ประชุม ทั้งแบบเปิดและไม่เปิด separate audio files
 
 ## 12. Version Diff

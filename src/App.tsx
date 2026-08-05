@@ -44,6 +44,7 @@ import {
   type TranscriptSegment,
 } from "./tauri";
 import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
+import { ZoomPanel } from "./components/ZoomPanel";
 
 function formatMs(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -583,6 +584,7 @@ export function App() {
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
   const [accountPanelOpen, setAccountPanelOpen] = useState(false);
+  const [zoomPanelOpen, setZoomPanelOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [signals, setSignals] = useState<Record<SignalId, boolean>>({
     focus: true,
@@ -931,6 +933,7 @@ export function App() {
   return (
     <div className={`app-shell theme-${theme}`}>
       {accountPanelOpen && <ExternalAccountPanel onClose={() => setAccountPanelOpen(false)} onOpenPortal={openExternalAccountPortal} />}
+      {zoomPanelOpen && <ZoomPanel onClose={() => setZoomPanelOpen(false)} />}
       <div className="ambient-grid" data-tauri-drag-region aria-hidden="true" />
 
       <svg className="clip-defs" width="0" height="0" aria-hidden="true" focusable="false">
@@ -1253,6 +1256,15 @@ export function App() {
                 onClick={() => setAccountPanelOpen(true)}
               >
                 <SlidersHorizontal size={20} />
+              </button>
+              <button
+                type="button"
+                className="sidebar-action"
+                aria-label="Zoom"
+                title="Import from Zoom"
+                onClick={() => setZoomPanelOpen(true)}
+              >
+                <Cloud size={20} />
               </button>
           </div>
 

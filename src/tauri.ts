@@ -205,3 +205,43 @@ export async function openExternalAccountPortal(): Promise<void> {
   }
   window.open(url, "_blank", "noopener,noreferrer");
 }
+
+export type ZoomConnectionStatus = {
+  status: "disconnected" | "connecting" | "connected" | "error";
+  accountLabel: string | null;
+};
+
+export type ZoomRecordingSummary = {
+  uuid: string;
+  topic: string;
+  startTime: string;
+  durationMinutes: number;
+  hasParticipantAudio: boolean;
+};
+
+const zoomOffline: ZoomConnectionStatus = { status: "disconnected", accountLabel: null };
+
+export async function zoomConnect(): Promise<ZoomConnectionStatus> {
+  if (!canInvoke()) return zoomOffline;
+  return invoke<ZoomConnectionStatus>("zoom_connect");
+}
+
+export async function zoomConnectionStatus(): Promise<ZoomConnectionStatus> {
+  if (!canInvoke()) return zoomOffline;
+  return invoke<ZoomConnectionStatus>("zoom_connection_status");
+}
+
+export async function zoomDisconnect(): Promise<ZoomConnectionStatus> {
+  if (!canInvoke()) return zoomOffline;
+  return invoke<ZoomConnectionStatus>("zoom_disconnect");
+}
+
+export async function zoomListRecordings(): Promise<ZoomRecordingSummary[]> {
+  if (!canInvoke()) return [];
+  return invoke<ZoomRecordingSummary[]>("zoom_list_recordings");
+}
+
+export async function zoomImportRecording(meetingUuid: string): Promise<Job> {
+  if (!canInvoke()) throw new Error("Zoom import requires the desktop app.");
+  return invoke<Job>("zoom_import_recording", { meetingUuid });
+}

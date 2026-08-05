@@ -280,27 +280,27 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
     package
 }
 
+/// Registers the schema chain stepwise. Genesis requires a fresh database to
+/// start at version 1 and advance one version at a time; on an existing
+/// database the already-registered steps report a version conflict, which is
+/// expected and skipped. Any other error — and any failure on the final
+/// (current) package — is fatal.
 pub(crate) fn install(storage: &Storage) -> Result<(), String> {
-    // Try to register the current schema. If it fails due to schema version issues,
-    // try to bootstrap from v1. This handles both new databases and existing upgrades.
-    match storage.register_relational_schema(schema()) {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            let err_str = e.to_string();
-            // If registration fails due to schema version issues, try bootstrapping from v1
-            if err_str.contains("SCHEMA_VERSION") {
-                // Attempt to bootstrap from v1. Ignore errors as earlier versions may already be registered.
-                let _ = storage.register_relational_schema(schema_v1());
-                let _ = storage.register_relational_schema(schema_v2());
-                let _ = storage.register_relational_schema(schema_v3());
-                let _ = storage.register_relational_schema(schema());
-                // After bootstrap attempt, consider installation successful (idempotent behavior)
-                Ok(())
-            } else {
-                Err(err_str)
+    let packages = [schema_v1(), schema_v2(), schema_v3(), schema()];
+    let last_index = packages.len() - 1;
+    for (index, package) in packages.into_iter().enumerate() {
+        match storage.register_relational_schema(package) {
+            Ok(_) => {}
+            Err(error) => {
+                let message = error.to_string();
+                if index < last_index && message.contains("REL_SCHEMA_VERSION_CONFLICT") {
+                    continue; // step already registered on an existing database
+                }
+                return Err(message);
             }
         }
     }
+    Ok(())
 }
 
 /// One-way compatibility import. The retired SQLite file is opened read-only;
@@ -888,6 +888,7 @@ mod tests {
 
         storage.register_relational_schema(schema_v1()).unwrap();
         storage.register_relational_schema(schema_v2()).unwrap();
+        storage.register_relational_schema(schema_v3()).unwrap();
         storage.register_relational_schema(schema()).unwrap();
         install(&storage).unwrap();
 

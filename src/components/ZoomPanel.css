@@ -31,3 +31,19 @@
   .zoom-panel-backdrop { padding: 12px; align-items: end; }
   .zoom-panel { border-radius: 18px; }
 }
+
+.theme-dark .zoom-panel-backdrop { background: rgba(0, 0, 0, .55); }
+.theme-dark .zoom-panel { background: linear-gradient(145deg, #26231f, #171615 72%, #11100f); color: #f3efe7; border-color: rgba(255, 255, 255, .11); box-shadow: 0 28px 70px rgba(0, 0, 0, .5); }
+.theme-dark .zoom-panel-header button { background: #2f2b25; color: #c3bbad; }
+.theme-dark .zoom-panel-status [data-status="connected"] { color: #9fbaad; }
+.theme-dark .zoom-panel-status [data-status="connecting"] { color: #d2b88d; }
+.theme-dark .zoom-panel-status [data-status="disconnected"] { color: #9b9386; }
+.theme-dark .zoom-panel-status [data-status="error"] { color: #f0aaa0; }
+.theme-dark .zoom-panel-account { color: #9b9386; }
+.theme-dark .zoom-panel-status button { background: #a8b6e6; color: #171615; border-color: rgba(255, 255, 255, .11); }
+.theme-dark .zoom-panel-error { color: #f0aaa0; }
+.theme-dark .zoom-panel-list li { background: linear-gradient(145deg, #2f2b25, #1d1b18); }
+.theme-dark .zoom-panel-list li span { color: #9b9386; }
+.theme-dark .zoom-panel-list li button { background: #39342d; color: #f3efe7; border-color: rgba(255, 255, 255, .11); }
+.theme-dark .zoom-panel-empty { color: #9b9386; }
+.theme-dark .zoom-panel-note { color: #9b9386; }

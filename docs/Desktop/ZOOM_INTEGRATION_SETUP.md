@@ -150,6 +150,13 @@ operator running this feature should know about them:
   and leave stale "proposed" turns behind. This needs realistic meeting
   lengths far beyond normal use to reach — the visible consequence, if it
   ever happens, is stale rows rather than data corruption.
+- **The knowledge graph does not span meetings.** Every import creates its own
+  project, extracted entities are scoped to a single recording, and the graph
+  query filters by project. So a topic, person, or project mentioned in two
+  different meetings becomes two unrelated nodes that no query joins — you can
+  ask "what did *this* meeting decide" but not "which meetings mentioned X".
+  Cross-meeting questions need either importing into an existing project or
+  entity resolution across meetings, neither of which is in this phase.
 
 ## 7. Full validation
 
@@ -162,8 +169,18 @@ npm run test:mobile
 ```
 
 Last run (2026-08-06) on this branch: all three passed —
-`cargo test`: 42 passed, 0 failed; `npm run build`: succeeded (tsc + vite
+`cargo test`: 48 passed, 0 failed; `npm run build`: succeeded (tsc + vite
 build); `npm run test:mobile`: 4 passed, 0 failed.
+
+Coverage note: the design spec's §11 asks for integration tests driving the
+whole job chain (import → transcribe → diarize/merge → graph.build) against
+mocked Zoom fixtures. That is **deferred** — no HTTP mocking layer was built in
+this phase. What is covered today: every pure function (merge, turn grouping,
+overlap assignment, extraction parsing, id derivation), storage-backed tests
+for attribution and graph persistence, `run_graph_build` end to end against
+real storage, and `download_to_file` against a loopback HTTP server. The
+uncovered remainder is thin glue whose only failure behavior is to propagate an
+error into a failed job status.
 
 ## 8. Manual UAT checklist (requires a real Zoom account; not executable in
    this environment — no Zoom account or GPU runtime here)

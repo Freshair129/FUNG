@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS note_revisions (
 CREATE TABLE IF NOT EXISTS graph_nodes (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  entity_type TEXT NOT NULL CHECK (entity_type IN ('note', 'project', 'recording', 'person')),
+  -- 'meeting'..'mention' are written by the knowledge-graph builder
+  -- (structural meeting/speaker layer plus the LLM extraction layer).
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('note', 'project', 'recording', 'person', 'meeting', 'speaker', 'topic', 'decision', 'action_item', 'mention')),
   entity_id TEXT NOT NULL,
   label TEXT NOT NULL,
   position_x REAL NOT NULL DEFAULT 50,
@@ -50,7 +52,9 @@ CREATE TABLE IF NOT EXISTS graph_edges (
   source_node_id TEXT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
   target_node_id TEXT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
   predicate TEXT NOT NULL,
-  epistemic_status TEXT NOT NULL CHECK (epistemic_status IN ('confirmed', 'inferred', 'evidence', 'superseded', 'disputed')),
+  -- 'ai_proposed' marks LLM-extracted edges. Storable, but not writable
+  -- through the client-facing relation upsert command.
+  epistemic_status TEXT NOT NULL CHECK (epistemic_status IN ('confirmed', 'inferred', 'evidence', 'superseded', 'disputed', 'ai_proposed')),
   provenance_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

@@ -708,15 +708,17 @@ fn run_import_worker(ctx: ImportContext, meeting: ZoomMeetingRecording) {
     }
 }
 
-/// Path A (>=2 participant audio files): transcribe each participant file
+/// Path A (>=1 participant audio file): transcribe each participant file
 /// separately for perfect attribution, merge by time, then persist. Path B
 /// (mixed audio only) is implemented in Task 7. Either way the `zoom.import`
 /// job only reports `completed` once attribution has actually persisted, and
 /// `persist_attribution` is what flips the recording row to `completed`.
 fn run_processing_pipeline(ctx: ImportContext, participants: Vec<(String, std::path::PathBuf)>) {
     let outcome = (|| -> Result<(), String> {
-        if participants.len() >= 2 {
-            // Path A: perfect attribution from per-participant files.
+        if !participants.is_empty() {
+            // Path A: perfect attribution from per-participant files. A
+            // single participant file still beats Path B — it is already
+            // per-speaker audio, so there's no diarization guesswork needed.
             let total = participants.len() as i64;
             let mut outputs = Vec::new();
             for (index, (display_name, path)) in participants.iter().enumerate() {
@@ -727,9 +729,9 @@ fn run_processing_pipeline(ctx: ImportContext, participants: Vec<(String, std::p
                 let output = crate::run_transcription(&ctx.whisper, &path.display().to_string(), move |pct| {
                     let _ = crate::set_job_status(&storage, &job_id, "running", Some(base + pct * span / 100), None);
                 })?;
-                outputs.push((display_name.clone(), output));
+                outputs.push((index, display_name.clone(), output));
             }
-            let duration_ms = outputs.iter().map(|(_, output)| output.duration_ms).max().unwrap_or(0);
+            let duration_ms = outputs.iter().map(|(_, _, output)| output.duration_ms).max().unwrap_or(0);
             let merged = crate::speaker_merge::merge_participant_outputs(outputs);
             let turns = crate::speaker_merge::group_turns(&merged, 1_500);
             crate::speaker_merge::persist_attribution(&ctx.storage, &ctx.project_id, &ctx.recording_id, "local", "faster-whisper per-participant", &merged, &turns, duration_ms)?;
@@ -785,10 +787,13 @@ fn run_mixed_audio_path(ctx: &ImportContext) -> Result<(), String> {
     }) {
         Ok(diarize) => {
             let assigned = crate::speaker_merge::assign_by_overlap(&unassigned, &diarize.turns);
-            let turns: Vec<crate::speaker_merge::SpeakerTurn> = diarize.turns.iter().map(|turn| crate::speaker_merge::SpeakerTurn {
+            let mut turns: Vec<crate::speaker_merge::SpeakerTurn> = diarize.turns.iter().map(|turn| crate::speaker_merge::SpeakerTurn {
                 speaker_key: turn.speaker_key.clone(), display_name: turn.display_name.clone(),
                 start_ms: turn.start_ms, end_ms: turn.end_ms, confidence: turn.confidence, overlap: false,
             }).collect();
+            // Diarization does emit overlapping turns; compute the flag the
+            // same way Path A does instead of hardcoding false.
+            crate::speaker_merge::compute_overlaps(&mut turns);
             crate::speaker_merge::persist_attribution(&ctx.storage, &ctx.project_id, &ctx.recording_id, "local", "pyannote/speaker-diarization-3.1", &assigned, &turns, whisper_output.duration_ms)
         }
         Err(message) => {

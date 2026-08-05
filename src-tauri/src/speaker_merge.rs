@@ -25,9 +25,14 @@ pub(crate) struct SpeakerTurn {
     pub(crate) overlap: bool,
 }
 
-pub(crate) fn merge_participant_outputs(outputs: Vec<(String, WhisperOutput)>) -> Vec<AttributedSegment> {
-    let mut merged: Vec<AttributedSegment> = outputs.into_iter().flat_map(|(display_name, output)| {
-        let key = format!("p:{}", display_name.trim().to_lowercase());
+/// `outputs` is `(file index, display name, transcription)`. The file index
+/// is folded into the speaker key so two participants who share a Zoom
+/// display name (e.g. two devices both named "iPhone") stay distinct
+/// speakers instead of silently merging; the display name is still used
+/// as-is for the label.
+pub(crate) fn merge_participant_outputs(outputs: Vec<(usize, String, WhisperOutput)>) -> Vec<AttributedSegment> {
+    let mut merged: Vec<AttributedSegment> = outputs.into_iter().flat_map(|(index, display_name, output)| {
+        let key = format!("p:{index}:{}", display_name.trim().to_lowercase());
         output.segments.into_iter().map(move |segment| AttributedSegment {
             speaker_key: Some(key.clone()),
             display_name: Some(display_name.clone()),
@@ -39,6 +44,20 @@ pub(crate) fn merge_participant_outputs(outputs: Vec<(String, WhisperOutput)>) -
     }).collect();
     merged.sort_by_key(|segment| (segment.start_ms, segment.end_ms));
     merged
+}
+
+/// Marks each turn's `overlap` flag: true when its time range intersects a
+/// different speaker's turn. Shared by Path A's grouped turns and Path B's
+/// diarization turns so both routes compute overlap identically instead of
+/// one of them hardcoding `false`.
+pub(crate) fn compute_overlaps(turns: &mut [SpeakerTurn]) {
+    let snapshot = turns.to_vec();
+    for turn in turns.iter_mut() {
+        turn.overlap = snapshot.iter().any(|other|
+            other.speaker_key != turn.speaker_key
+                && other.start_ms < turn.end_ms
+                && turn.start_ms < other.end_ms);
+    }
 }
 
 pub(crate) fn group_turns(segments: &[AttributedSegment], gap_ms: i64) -> Vec<SpeakerTurn> {
@@ -63,14 +82,7 @@ pub(crate) fn group_turns(segments: &[AttributedSegment], gap_ms: i64) -> Vec<Sp
             }),
         }
     }
-    // Overlap pass: a turn overlaps when it intersects a different speaker's turn.
-    let snapshot = turns.clone();
-    for turn in &mut turns {
-        turn.overlap = snapshot.iter().any(|other|
-            other.speaker_key != turn.speaker_key
-                && other.start_ms < turn.end_ms
-                && turn.start_ms < other.end_ms);
-    }
+    compute_overlaps(&mut turns);
     turns.sort_by_key(|turn| (turn.start_ms, turn.end_ms));
     turns
 }
@@ -240,29 +252,42 @@ mod tests {
     #[test]
     fn merge_interleaves_participants_by_time() {
         let merged = merge_participant_outputs(vec![
-            ("Boss".to_string(), WhisperOutput { duration_ms: 10_000, segments: vec![seg(0, 2_000, "hello"), seg(6_000, 8_000, "bye")] }),
-            ("ATHER".to_string(), WhisperOutput { duration_ms: 10_000, segments: vec![seg(2_500, 5_000, "hi")] }),
+            (0, "Boss".to_string(), WhisperOutput { duration_ms: 10_000, segments: vec![seg(0, 2_000, "hello"), seg(6_000, 8_000, "bye")] }),
+            (1, "ATHER".to_string(), WhisperOutput { duration_ms: 10_000, segments: vec![seg(2_500, 5_000, "hi")] }),
         ]);
         assert_eq!(merged.len(), 3);
         assert_eq!(merged[0].display_name.as_deref(), Some("Boss"));
         assert_eq!(merged[1].display_name.as_deref(), Some("ATHER"));
-        assert_eq!(merged[1].speaker_key.as_deref(), Some("p:ather"));
+        assert_eq!(merged[1].speaker_key.as_deref(), Some("p:1:ather"));
         assert_eq!(merged[2].text, "bye");
+    }
+
+    #[test]
+    fn merge_keeps_same_display_name_distinct_by_file_index() {
+        // Two Zoom participants can share a display name (e.g. two devices
+        // both named "iPhone"); the file index must keep them distinct.
+        let merged = merge_participant_outputs(vec![
+            (0, "iPhone".to_string(), WhisperOutput { duration_ms: 2_000, segments: vec![seg(0, 1_000, "a")] }),
+            (1, "iPhone".to_string(), WhisperOutput { duration_ms: 2_000, segments: vec![seg(0, 1_000, "b")] }),
+        ]);
+        assert_ne!(merged[0].speaker_key, merged[1].speaker_key);
+        assert_eq!(merged[0].display_name.as_deref(), Some("iPhone"));
+        assert_eq!(merged[1].display_name.as_deref(), Some("iPhone"));
     }
 
     #[test]
     fn group_turns_merges_within_gap_and_flags_overlap() {
         let merged = merge_participant_outputs(vec![
-            ("Boss".to_string(), WhisperOutput { duration_ms: 10_000, segments: vec![seg(0, 2_000, "a"), seg(2_800, 4_000, "b"), seg(9_000, 9_500, "c")] }),
-            ("ATHER".to_string(), WhisperOutput { duration_ms: 10_000, segments: vec![seg(3_500, 6_000, "x")] }),
+            (0, "Boss".to_string(), WhisperOutput { duration_ms: 10_000, segments: vec![seg(0, 2_000, "a"), seg(2_800, 4_000, "b"), seg(9_000, 9_500, "c")] }),
+            (1, "ATHER".to_string(), WhisperOutput { duration_ms: 10_000, segments: vec![seg(3_500, 6_000, "x")] }),
         ]);
         let turns = group_turns(&merged, 1_500);
         // Boss: [0..4000] (gap 800 <= 1500 merges) and [9000..9500]; ATHER: [3500..6000].
         assert_eq!(turns.len(), 3);
-        let boss_first = turns.iter().find(|t| t.speaker_key == "p:boss" && t.start_ms == 0).unwrap();
+        let boss_first = turns.iter().find(|t| t.speaker_key == "p:0:boss" && t.start_ms == 0).unwrap();
         assert_eq!(boss_first.end_ms, 4_000);
         assert!(boss_first.overlap, "intersects ATHER 3500..6000");
-        let boss_second = turns.iter().find(|t| t.speaker_key == "p:boss" && t.start_ms == 9_000).unwrap();
+        let boss_second = turns.iter().find(|t| t.speaker_key == "p:0:boss" && t.start_ms == 9_000).unwrap();
         assert!(!boss_second.overlap);
     }
 
@@ -291,7 +316,7 @@ mod tests {
             crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"pending","duration_ms":0,"created_at":"t","updated_at":"t"})),
         ]).unwrap();
         let merged = merge_participant_outputs(vec![
-            ("Boss".to_string(), WhisperOutput { duration_ms: 4_000, segments: vec![seg(0, 2_000, "a")] }),
+            (0, "Boss".to_string(), WhisperOutput { duration_ms: 4_000, segments: vec![seg(0, 2_000, "a")] }),
         ]);
         let turns = group_turns(&merged, 1_500);
         persist_attribution(&storage, "p1", "r1", "local", "faster-whisper per-participant", &merged, &turns, 4_000).unwrap();
@@ -324,7 +349,7 @@ mod tests {
                 confidence: Some(0.9),
             });
         }
-        let merged = merge_participant_outputs(vec![("Boss".to_string(), output)]);
+        let merged = merge_participant_outputs(vec![(0, "Boss".to_string(), output)]);
         let turns = group_turns(&merged, 1_500);
         persist_attribution(&storage, "p1", "r1", "local", "test", &merged, &turns, 1_200_000).unwrap();
         persist_attribution(&storage, "p1", "r1", "local", "test", &merged, &turns, 1_200_000).unwrap();

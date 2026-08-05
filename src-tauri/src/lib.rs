@@ -892,6 +892,7 @@ pub fn run() {
             zoom_sync::zoom_connect,
             zoom_sync::zoom_connection_status,
             zoom_sync::zoom_disconnect,
+            zoom_sync::zoom_list_recordings,
             mobile::mobile_capture_start,
             mobile::mobile_capture_append_segment,
             mobile::mobile_capture_reconcile_native,

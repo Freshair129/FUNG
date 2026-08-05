@@ -338,6 +338,103 @@ pub(crate) fn zoom_disconnect(state: State<'_, AppState>) -> AppResult<ZoomConne
     read_connection(&state.genesis).map_err(AppError::Genesis)
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct ZoomRecordingFile {
+    pub(crate) file_type: String,
+    pub(crate) recording_type: Option<String>,
+    pub(crate) download_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ZoomParticipantAudioFile {
+    pub(crate) file_name: String,
+    pub(crate) download_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ZoomMeetingRecording {
+    pub(crate) uuid: String,
+    pub(crate) topic: String,
+    pub(crate) start_time: String,
+    pub(crate) duration: i64,
+    #[serde(default)]
+    pub(crate) recording_files: Vec<ZoomRecordingFile>,
+    #[serde(default)]
+    pub(crate) participant_audio_files: Option<Vec<ZoomParticipantAudioFile>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ZoomRecordingsPage {
+    #[serde(default)]
+    pub(crate) next_page_token: String,
+    #[serde(default)]
+    pub(crate) meetings: Vec<ZoomMeetingRecording>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ZoomRecordingSummary {
+    pub(crate) uuid: String,
+    pub(crate) topic: String,
+    pub(crate) start_time: String,
+    pub(crate) duration_minutes: i64,
+    pub(crate) has_participant_audio: bool,
+}
+
+pub(crate) fn summarize_meeting(meeting: &ZoomMeetingRecording) -> ZoomRecordingSummary {
+    ZoomRecordingSummary {
+        uuid: meeting.uuid.clone(),
+        topic: meeting.topic.clone(),
+        start_time: meeting.start_time.clone(),
+        duration_minutes: meeting.duration,
+        has_participant_audio: meeting.participant_audio_files.as_ref().is_some_and(|files| !files.is_empty()),
+    }
+}
+
+/// Zoom path parameter rule: double-encode UUIDs that contain '/' (or start
+/// with '/'), otherwise pass through unchanged.
+pub(crate) fn encode_meeting_uuid(uuid: &str) -> String {
+    if uuid.contains('/') || uuid.starts_with('/') {
+        url_encode(&url_encode(uuid))
+    } else {
+        uuid.to_string()
+    }
+}
+
+fn api_get_json<T: serde::de::DeserializeOwned>(access_token: &str, path_and_query: &str) -> Result<T, String> {
+    let response = reqwest::blocking::Client::new()
+        .get(format!("{ZOOM_API_BASE}{path_and_query}"))
+        .bearer_auth(access_token)
+        .send().map_err(|e| format!("zoom api request failed: {e}"))?;
+    let status = response.status();
+    if status.as_u16() == 429 {
+        return Err("zoom rate limit hit (429); try again shortly".to_string());
+    }
+    if !status.is_success() {
+        return Err(format!("zoom api returned {status} for {path_and_query}"));
+    }
+    response.json::<T>().map_err(|e| format!("zoom api response parse failed: {e}"))
+}
+
+/// Lists the caller's cloud recordings from the last 30 days (up to 3 pages).
+#[tauri::command]
+pub(crate) fn zoom_list_recordings() -> AppResult<Vec<ZoomRecordingSummary>> {
+    let client_id = client_id_from_env()?;
+    let access_token = ensure_fresh_access_token(&client_id).map_err(AppError::InvalidInput)?;
+    let from = (chrono::Utc::now() - chrono::Duration::days(30)).format("%Y-%m-%d").to_string();
+    let mut summaries = Vec::new();
+    let mut next_page_token = String::new();
+    for _ in 0..3 {
+        let path = format!("/users/me/recordings?page_size=30&from={from}&next_page_token={}", url_encode(&next_page_token));
+        let page: ZoomRecordingsPage = api_get_json(&access_token, &path).map_err(AppError::InvalidInput)?;
+        summaries.extend(page.meetings.iter().map(summarize_meeting));
+        if page.next_page_token.is_empty() { break; }
+        next_page_token = page.next_page_token;
+    }
+    summaries.sort_by(|a, b| b.start_time.cmp(&a.start_time));
+    Ok(summaries)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,5 +512,52 @@ mod tests {
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(300);
         let error = wait_for_callback(&listener, deadline).unwrap_err();
         assert!(error.contains("timed out"));
+    }
+
+    const RECORDINGS_FIXTURE: &str = r#"{
+      "next_page_token": "",
+      "meetings": [
+        {
+          "uuid": "abc//slash==",
+          "topic": "Weekly sync",
+          "start_time": "2026-08-01T09:00:00Z",
+          "duration": 42,
+          "recording_files": [
+            {"file_type": "M4A", "recording_type": "audio_only", "download_url": "https://zoom.us/rec/dl/mixed"},
+            {"file_type": "MP4", "recording_type": "shared_screen_with_speaker_view", "download_url": "https://zoom.us/rec/dl/video"}
+          ],
+          "participant_audio_files": [
+            {"file_name": "Audio only - Boss", "download_url": "https://zoom.us/rec/dl/p1"},
+            {"file_name": "Audio only - ATHER", "download_url": "https://zoom.us/rec/dl/p2"}
+          ]
+        },
+        {
+          "uuid": "plainuuid",
+          "topic": "1:1",
+          "start_time": "2026-08-02T10:00:00Z",
+          "duration": 15,
+          "recording_files": [
+            {"file_type": "M4A", "recording_type": "audio_only", "download_url": "https://zoom.us/rec/dl/only"}
+          ]
+        }
+      ]
+    }"#;
+
+    #[test]
+    fn recordings_page_parses_and_summarizes() {
+        let page: ZoomRecordingsPage = serde_json::from_str(RECORDINGS_FIXTURE).unwrap();
+        let summaries: Vec<ZoomRecordingSummary> = page.meetings.iter().map(summarize_meeting).collect();
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].uuid, "abc//slash==");
+        assert_eq!(summaries[0].duration_minutes, 42);
+        assert!(summaries[0].has_participant_audio);
+        assert!(!summaries[1].has_participant_audio);
+    }
+
+    #[test]
+    fn meeting_uuid_is_double_encoded_when_it_contains_slashes() {
+        // Zoom requires double URL-encoding for UUIDs containing '/' or '//'.
+        assert_eq!(encode_meeting_uuid("abc//slash=="), "abc%252F%252Fslash%253D%253D");
+        assert_eq!(encode_meeting_uuid("plainuuid"), "plainuuid");
     }
 }

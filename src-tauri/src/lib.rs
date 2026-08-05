@@ -969,6 +969,7 @@ pub fn run() {
             zoom_sync::zoom_disconnect,
             zoom_sync::zoom_list_recordings,
             zoom_sync::zoom_import_recording,
+            graph_build::graph_build_start,
             mobile::mobile_capture_start,
             mobile::mobile_capture_append_segment,
             mobile::mobile_capture_reconcile_native,

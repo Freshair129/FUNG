@@ -16,9 +16,11 @@ use thiserror::Error;
 use uuid::Uuid;
 
 mod genesis_adapter;
+mod graph_build;
 mod mobile;
 mod native_recorder;
 mod on_device_ai;
+mod speaker_merge;
 mod zoom_sync;
 
 /// Source-tree fallback used by `tauri dev`. Packaged builds must resolve all
@@ -203,18 +205,18 @@ struct TranscriptSegment {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct WhisperSegment {
-    start_ms: i64,
-    end_ms: i64,
-    text: String,
-    confidence: Option<f64>,
+pub(crate) struct WhisperSegment {
+    pub(crate) start_ms: i64,
+    pub(crate) end_ms: i64,
+    pub(crate) text: String,
+    pub(crate) confidence: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct WhisperOutput {
-    duration_ms: i64,
-    segments: Vec<WhisperSegment>,
+pub(crate) struct WhisperOutput {
+    pub(crate) duration_ms: i64,
+    pub(crate) segments: Vec<WhisperSegment>,
 }
 
 #[derive(Debug, Serialize)]
@@ -724,7 +726,7 @@ fn import_and_transcribe(
 /// Runs the faster-whisper worker script and blocks until it exits,
 /// reporting `PROGRESS <pct>` lines from stderr via `on_progress` as they
 /// arrive. Intended to run off the main thread (see `import_and_transcribe`).
-fn run_transcription(
+pub(crate) fn run_transcription(
     runtime: &WhisperRuntime,
     file_path: &str,
     on_progress: impl Fn(i64) + Send + 'static,

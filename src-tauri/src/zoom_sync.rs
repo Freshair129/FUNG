@@ -647,9 +647,48 @@ fn run_import_worker(ctx: ImportContext, meeting: ZoomMeetingRecording, access_t
     }
 }
 
-/// Placeholder until Task 6/7 wire transcription + attribution + graph.
-fn run_processing_pipeline(ctx: ImportContext, _participants: Vec<(String, std::path::PathBuf)>) {
-    let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "completed", Some(100), None);
+/// Path A (>=2 participant audio files): transcribe each participant file
+/// separately for perfect attribution, merge by time, then persist. Path B
+/// (mixed audio only) is implemented in Task 7. Either way the `zoom.import`
+/// job only reports `completed` once attribution has actually persisted, and
+/// `persist_attribution` is what flips the recording row to `completed`.
+fn run_processing_pipeline(ctx: ImportContext, participants: Vec<(String, std::path::PathBuf)>) {
+    let outcome = (|| -> Result<(), String> {
+        if participants.len() >= 2 {
+            // Path A: perfect attribution from per-participant files.
+            let total = participants.len() as i64;
+            let mut outputs = Vec::new();
+            for (index, (display_name, path)) in participants.iter().enumerate() {
+                let storage = ctx.storage.clone();
+                let job_id = ctx.job_id.clone();
+                let base = 30 + (index as i64 * 55) / total;
+                let span = 55 / total;
+                let output = crate::run_transcription(&ctx.whisper, &path.display().to_string(), move |pct| {
+                    let _ = crate::set_job_status(&storage, &job_id, "running", Some(base + pct * span / 100), None);
+                })?;
+                outputs.push((display_name.clone(), output));
+            }
+            let duration_ms = outputs.iter().map(|(_, output)| output.duration_ms).max().unwrap_or(0);
+            let merged = crate::speaker_merge::merge_participant_outputs(outputs);
+            let turns = crate::speaker_merge::group_turns(&merged, 1_500);
+            crate::speaker_merge::persist_attribution(&ctx.storage, &ctx.project_id, &ctx.recording_id, "local", "faster-whisper per-participant", &merged, &turns, duration_ms)?;
+        } else {
+            run_mixed_audio_path(&ctx)?; // Path B — implemented in Task 7.
+        }
+        Ok(())
+    })();
+    match outcome {
+        Ok(()) => {
+            let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "completed", Some(100), None);
+            crate::graph_build::start_graph_build(ctx.storage.clone(), ctx.project_id.clone(), ctx.recording_id.clone(), ctx.meeting_topic.clone());
+        }
+        Err(message) => { let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "failed", None, Some(&message)); }
+    }
+}
+
+// Replaced in Task 7.
+fn run_mixed_audio_path(_ctx: &ImportContext) -> Result<(), String> {
+    Err("mixed-audio path not yet implemented".to_string())
 }
 
 #[cfg(test)]

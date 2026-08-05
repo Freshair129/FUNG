@@ -417,7 +417,13 @@ function NotesScreen({ snapshot, setSnapshot, go }: ScreenProps) {
   );
 }
 
-const edgeClass = (status: EpistemicStatus) => status === "inferred" ? "is-inferred" : status === "disputed" ? "is-disputed" : "is-confirmed";
+// ai_proposed must render distinctly from confirmed — see graph_build.rs's
+// note that it "is never indistinguishable from structural (confirmed) truth".
+const edgeClass = (status: EpistemicStatus) =>
+  status === "inferred" ? "is-inferred"
+  : status === "disputed" ? "is-disputed"
+  : status === "ai_proposed" ? "is-ai-proposed"
+  : "is-confirmed";
 
 function GraphScreen({ snapshot }: ScreenProps) {
   const [selectedId, setSelectedId] = useState(snapshot.nodes[0]?.id ?? "");
@@ -443,7 +449,12 @@ function GraphScreen({ snapshot }: ScreenProps) {
           >{node.label}</button>
         ))}
       </section>
-      <div className="m-graph-legend"><span><i />ยืนยันแล้ว</span><span><i className="is-dotted" />ข้อเสนอ</span></div>
+      <div className="m-graph-legend">
+        <span><i />ยืนยันแล้ว</span>
+        <span><i className="is-inferred" />อนุมาน</span>
+        <span><i className="is-disputed" />ขัดแย้ง</span>
+        <span><i className="is-ai-proposed" />ข้อเสนอจากระบบ</span>
+      </div>
       {selected && <section className="m-graph-inspector"><span>โหนดที่เลือก</span><h2>{selected.label}</h2><p>{snapshot.edges.filter((edge) => edge.sourceId === selected.id || edge.targetId === selected.id).length} ความสัมพันธ์ที่ตรวจสอบย้อนกลับได้</p></section>}
     </main>
   );

@@ -100,7 +100,10 @@ export type CreativeStudioState = {
   updatedAt: string;
 };
 
-export type EpistemicStatus = "confirmed" | "inferred" | "evidence" | "superseded" | "disputed";
+// "ai_proposed" is server-assigned only (graph_build.rs extraction layer) —
+// mobile_relation_upsert's CLIENT_WRITABLE_EPISTEMIC_STATUS list rejects it
+// from clients, so it only ever appears on edges read from queryGraph.
+export type EpistemicStatus = "confirmed" | "inferred" | "evidence" | "superseded" | "disputed" | "ai_proposed";
 
 export type MobileNote = {
   id: string;
@@ -112,10 +115,12 @@ export type MobileNote = {
   evidenceLabel?: string;
 };
 
+// "meeting" | "speaker" | "topic" | "decision" | "action_item" | "mention"
+// come from graph_build.rs's structural + LLM-extraction layers.
 export type GraphNode = {
   id: string;
   label: string;
-  kind: "note" | "project" | "recording" | "person";
+  kind: "note" | "project" | "recording" | "person" | "meeting" | "speaker" | "topic" | "decision" | "action_item" | "mention";
   x: number;
   y: number;
 };

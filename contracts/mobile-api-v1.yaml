@@ -1,5 +1,5 @@
 version: "0.3.0b"
-updated_at: "2026-07-20T19:15:00+07:00"
+updated_at: "2026-08-06T12:00:00+07:00"
 scope: "FUNG Mobile local-first command boundary"
 transport:
   primary: "Tauri invoke"
@@ -7,12 +7,30 @@ transport:
 conventions:
   ids: "UUID string"
   timestamps: "RFC3339"
+  # Full set storable in graph_edges.epistemic_status and returned by
+  # mobile_graph_query. Not all of these are writable by a client — see
+  # mobile_relation_upsert's invariants below.
   graph_epistemic_status:
     - confirmed
     - inferred
     - evidence
     - superseded
     - disputed
+    - ai_proposed
+  # Full set storable in graph_nodes.entity_type and returned by
+  # mobile_graph_query. meeting/speaker/topic/decision/action_item/mention
+  # are written by the desktop knowledge-graph builder, not by mobile clients.
+  graph_entity_type:
+    - note
+    - project
+    - recording
+    - person
+    - meeting
+    - speaker
+    - topic
+    - decision
+    - action_item
+    - mention
 commands:
   - name: mobile_capture_start
     input:
@@ -67,6 +85,8 @@ commands:
     input: GraphEdgeInput
     output:
       edge_id: string
+    invariants:
+      - "epistemic_status must be confirmed | inferred | evidence | superseded | disputed; ai_proposed is assigned only by the desktop graph-extraction pipeline and is rejected here"
   - name: mobile_graph_query
     input:
       project_id: string

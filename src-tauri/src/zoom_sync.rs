@@ -569,6 +569,19 @@ pub(crate) fn zoom_import_recording(meeting_uuid: String, state: State<'_, AppSt
     let mut seed = Vec::new();
     if !resuming {
         seed.push(genesis_adapter::upsert("projects", serde_json::json!({"id": project_id, "name": meeting.topic, "storage_path": storage_path, "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp})));
+        // Every project needs its graph node: graph_edges.project/target FKs
+        // reference it, so omitting it aborts any later graph commit.
+        seed.push(genesis_adapter::upsert("graph_nodes", serde_json::json!({
+            "id": project_id,
+            "project_id": project_id,
+            "entity_type": "project",
+            "entity_id": project_id,
+            "label": meeting.topic,
+            "position_x": 50.0,
+            "position_y": 17.0,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        })));
         seed.push(genesis_adapter::upsert("recordings", serde_json::json!({"id": recording_id, "project_id": project_id, "source": "import", "input_path": null, "canonical_audio_path": mixed_path.display().to_string(), "status": "pending", "duration_ms": 0, "created_at": timestamp, "updated_at": timestamp})));
         // Recorded upfront so a concurrent second call finds it immediately.
         seed.push(genesis_adapter::upsert("external_imports", serde_json::json!({

@@ -56,6 +56,49 @@ pub(crate) fn stale_extraction_ids(rows: &[serde_json::Value], column: &str, pre
         .collect()
 }
 
+/// The project's own graph node backs the FK that `part_of` edges target.
+/// Projects created outside `create_project` may not have one, so make sure it
+/// exists before committing any structural edge.
+fn ensure_project_node(
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+    timestamp: &str,
+) -> Result<(), String> {
+    let existing = genesis_adapter::query(
+        storage,
+        "graph_nodes",
+        &["id"],
+        vec![genesis_adapter::eq("graph_nodes", "id", serde_json::json!(project_id))],
+        1,
+    )?;
+    if !existing.is_empty() {
+        return Ok(());
+    }
+    let label = genesis_adapter::query(
+        storage,
+        "projects",
+        &["name"],
+        vec![genesis_adapter::eq("projects", "id", serde_json::json!(project_id))],
+        1,
+    )?
+    .into_iter()
+    .next()
+    .map(|row| genesis_adapter::string(&row, "projects.name"))
+    .transpose()?
+    .unwrap_or_else(|| "Project".to_string());
+    genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("graph_nodes", serde_json::json!({
+        "id": project_id,
+        "project_id": project_id,
+        "entity_type": "project",
+        "entity_id": project_id,
+        "label": label,
+        "position_x": 50.0,
+        "position_y": 17.0,
+        "created_at": timestamp,
+        "updated_at": timestamp,
+    }))])
+}
+
 /// Structural layer: meeting node, speaker nodes, spoke_in + part_of edges.
 pub(crate) fn structural_mutations(
     project_id: &str,
@@ -209,6 +252,16 @@ fn run_graph_build(
     let mut segment_rows = genesis_adapter::query(storage, "transcript_segments", &["id", "start_ms", "text", "speaker_id"],
         vec![genesis_adapter::eq("transcript_segments", "recording_id", serde_json::json!(recording_id))], QUERY_ROW_CEILING)?;
     segment_rows.sort_by_key(|row| row.get("transcript_segments.start_ms").and_then(serde_json::Value::as_i64).unwrap_or(0));
+    if segment_rows.len() >= 1000 {
+        let timestamp = now();
+        let _ = genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({
+            "id": Uuid::new_v4().to_string(),
+            "job_id": job_id,
+            "status": "running",
+            "message": "transcript exceeds the 1000-row query ceiling; graph extraction covers only the first 1000 segments",
+            "created_at": timestamp,
+        }))]);
+    }
     let speaker_rows = genesis_adapter::query(storage, "speakers", &["id", "display_name"],
         vec![genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id))], 500)?;
     let speakers: Vec<(String, String)> = speaker_rows.iter().filter_map(|row| Some((
@@ -216,6 +269,7 @@ fn run_graph_build(
         row.get("speakers.display_name")?.as_str()?.to_string(),
     ))).collect();
     let timestamp = now();
+    ensure_project_node(storage, project_id, &timestamp)?;
     genesis_adapter::commit_rows(storage, structural_mutations(project_id, recording_id, meeting_label, &speakers, &timestamp))?;
     let _ = crate::set_job_status(storage, job_id, "running", Some(20), None);
 
@@ -235,6 +289,16 @@ fn run_graph_build(
         vec![genesis_adapter::eq("graph_nodes", "project_id", serde_json::json!(project_id))], QUERY_ROW_CEILING)?;
     let edge_rows = genesis_adapter::query(storage, "graph_edges", &["id"],
         vec![genesis_adapter::eq("graph_edges", "project_id", serde_json::json!(project_id))], QUERY_ROW_CEILING)?;
+    if node_rows.len() >= 1000 || edge_rows.len() >= 1000 {
+        let timestamp = now();
+        let _ = genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({
+            "id": Uuid::new_v4().to_string(),
+            "job_id": job_id,
+            "status": "running",
+            "message": "project graph exceeds the 1000-row query ceiling; some superseded extraction rows may remain",
+            "created_at": timestamp,
+        }))]);
+    }
     let mut cleanup = Vec::new();
     for id in stale_extraction_ids(&edge_rows, "graph_edges.id", &format!("gxe:{recording_id}:")) {
         cleanup.push(genesis_adapter::delete("graph_edges", &id));
@@ -340,5 +404,60 @@ mod tests {
         assert_eq!(provenance["actor"], "ai");
         assert!(provenance["evidenceSegmentIds"].as_array().unwrap().iter().all(|v| v.as_str().unwrap().starts_with('s')));
         assert_eq!(edge["epistemic_status"], "ai_proposed");
+    }
+
+    fn open_storage() -> (std::path::PathBuf, genesis_block_native::Storage) {
+        let path = std::env::temp_dir().join(format!("fung-graph-test-{}", Uuid::new_v4()));
+        let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
+            path: path.display().to_string(), page_cache_mb: Some(16), read_only: Some(false), vector_dim: Some(4),
+        }).unwrap();
+        crate::genesis_adapter::install(&storage).unwrap();
+        (path, storage)
+    }
+
+    #[test]
+    fn structural_commit_succeeds_for_a_project_seeded_without_a_graph_node() {
+        let (path, storage) = open_storage();
+        // Mirrors the Zoom import seed: a project row with no graph_nodes row.
+        crate::genesis_adapter::commit_rows(&storage, vec![
+            crate::genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"Weekly sync","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"})),
+            crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":10,"created_at":"t","updated_at":"t"})),
+        ]).unwrap();
+
+        ensure_project_node(&storage, "p1", "t").unwrap();
+        crate::genesis_adapter::commit_rows(
+            &storage,
+            structural_mutations("p1", "r1", "Weekly sync", &[("s1".to_string(), "Boss".to_string())], "t"),
+        )
+        .expect("structural commit must not violate the graph_edges foreign key");
+
+        let nodes = crate::genesis_adapter::query(&storage, "graph_nodes", &["id"],
+            vec![crate::genesis_adapter::eq("graph_nodes", "project_id", serde_json::json!("p1"))], 100).unwrap();
+        // project + meeting + speaker
+        assert_eq!(nodes.len(), 3);
+        let edges = crate::genesis_adapter::query(&storage, "graph_edges", &["id"],
+            vec![crate::genesis_adapter::eq("graph_edges", "project_id", serde_json::json!("p1"))], 100).unwrap();
+        // part_of + spoke_in
+        assert_eq!(edges.len(), 2);
+
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn ensure_project_node_is_idempotent_and_keeps_the_existing_label() {
+        let (path, storage) = open_storage();
+        crate::genesis_adapter::commit_rows(&storage, vec![
+            crate::genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"Weekly sync","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"})),
+            crate::genesis_adapter::upsert("graph_nodes", serde_json::json!({"id":"p1","project_id":"p1","entity_type":"project","entity_id":"p1","label":"Renamed by user","position_x":50.0,"position_y":17.0,"created_at":"t","updated_at":"t"})),
+        ]).unwrap();
+
+        ensure_project_node(&storage, "p1", "t2").unwrap();
+
+        let rows = crate::genesis_adapter::query(&storage, "graph_nodes", &["id", "label"],
+            vec![crate::genesis_adapter::eq("graph_nodes", "id", serde_json::json!("p1"))], 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["graph_nodes.label"], "Renamed by user", "must not overwrite a user-edited label");
+
+        drop(storage); let _ = std::fs::remove_dir_all(path);
     }
 }

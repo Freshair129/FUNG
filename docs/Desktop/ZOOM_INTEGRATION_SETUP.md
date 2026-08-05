@@ -178,9 +178,14 @@ mocked Zoom fixtures. That is **deferred** — no HTTP mocking layer was built i
 this phase. What is covered today: every pure function (merge, turn grouping,
 overlap assignment, extraction parsing, id derivation), storage-backed tests
 for attribution and graph persistence, `run_graph_build` end to end against
-real storage, and `download_to_file` against a loopback HTTP server. The
-uncovered remainder is thin glue whose only failure behavior is to propagate an
-error into a failed job status.
+real storage, and `download_to_file` against a loopback HTTP server. What
+remains uncovered is the worker orchestration plus the two 429 retry loops.
+Most of it only propagates errors into a failed job status — but one exception
+matters: `run_mixed_audio_path`'s diarization-failure branch deliberately does
+the opposite, swallowing the error to persist the transcript with no speakers,
+recording a job event, and completing the job. That branch implements this
+feature's rule that diarization being unavailable must never block a
+transcript, and it is verified by inspection only.
 
 ## 8. Manual UAT checklist (requires a real Zoom account; not executable in
    this environment — no Zoom account or GPU runtime here)

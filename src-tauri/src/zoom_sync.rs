@@ -18,6 +18,10 @@ const KEYRING_USER: &str = "zoom-oauth";
 const ZOOM_AUTH_BASE: &str = "https://zoom.us";
 pub(crate) const ZOOM_API_BASE: &str = "https://api.zoom.us/v2";
 
+/// Runaway guard only — a real 30-day window never approaches this. Hitting it
+/// is reported as an error rather than silently truncating the list.
+const MAX_RECORDING_PAGES: usize = 20;
+
 /// Monotonic id of the newest connect attempt. A worker thread whose epoch is
 /// no longer current must not write connection state.
 static CONNECT_EPOCH: AtomicU64 = AtomicU64::new(0);
@@ -416,7 +420,17 @@ fn api_get_json<T: serde::de::DeserializeOwned>(access_token: &str, path_and_que
     response.json::<T>().map_err(|e| format!("zoom api response parse failed: {e}"))
 }
 
-/// Lists the caller's cloud recordings from the last 30 days (up to 3 pages).
+/// Decides whether paging may continue. Extracted so the runaway-guard policy
+/// is testable without an HTTP layer.
+fn may_fetch_another_page(pages_fetched: usize, next_page_token: &str) -> bool {
+    !next_page_token.is_empty() && pages_fetched < MAX_RECORDING_PAGES
+}
+
+/// Lists the caller's cloud recordings from the last 30 days, paging through
+/// every result until Zoom stops returning a `next_page_token`. Paging is
+/// capped at `MAX_RECORDING_PAGES` purely as a runaway guard — a real 30-day
+/// window never approaches it — and hitting that cap is reported as an error
+/// rather than silently truncating the list.
 #[tauri::command]
 pub(crate) fn zoom_list_recordings() -> AppResult<Vec<ZoomRecordingSummary>> {
     let client_id = client_id_from_env()?;
@@ -424,12 +438,26 @@ pub(crate) fn zoom_list_recordings() -> AppResult<Vec<ZoomRecordingSummary>> {
     let from = (chrono::Utc::now() - chrono::Duration::days(30)).format("%Y-%m-%d").to_string();
     let mut summaries = Vec::new();
     let mut next_page_token = String::new();
-    for _ in 0..3 {
+    let mut pages_fetched = 0usize;
+    let mut complete = false;
+    loop {
         let path = format!("/users/me/recordings?page_size=30&from={from}&next_page_token={}", url_encode(&next_page_token));
         let page: ZoomRecordingsPage = api_get_json(&access_token, &path).map_err(AppError::InvalidInput)?;
         summaries.extend(page.meetings.iter().map(summarize_meeting));
-        if page.next_page_token.is_empty() { break; }
+        pages_fetched += 1;
+        if page.next_page_token.is_empty() {
+            complete = true;
+            break;
+        }
         next_page_token = page.next_page_token;
+        if !may_fetch_another_page(pages_fetched, &next_page_token) {
+            break;
+        }
+    }
+    if !complete {
+        return Err(AppError::InvalidInput(
+            "too many Zoom recordings to list in one request; narrow the date range".to_string(),
+        ));
     }
     summaries.sort_by(|a, b| b.start_time.cmp(&a.start_time));
     Ok(summaries)
@@ -559,5 +587,17 @@ mod tests {
         // Zoom requires double URL-encoding for UUIDs containing '/' or '//'.
         assert_eq!(encode_meeting_uuid("abc//slash=="), "abc%252F%252Fslash%253D%253D");
         assert_eq!(encode_meeting_uuid("plainuuid"), "plainuuid");
+    }
+
+    #[test]
+    fn paging_continues_past_three_pages_and_stops_at_the_runaway_guard() {
+        // An empty token always ends paging.
+        assert!(!may_fetch_another_page(1, ""));
+        // Page 4 and beyond must still be fetched — the old 3-page cap was a
+        // silent truncation bug.
+        assert!(may_fetch_another_page(3, "tok"));
+        assert!(may_fetch_another_page(10, "tok"));
+        // The runaway guard is the only stop condition besides an empty token.
+        assert!(!may_fetch_another_page(MAX_RECORDING_PAGES, "tok"));
     }
 }

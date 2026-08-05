@@ -75,10 +75,50 @@ pub(crate) fn group_turns(segments: &[AttributedSegment], gap_ms: i64) -> Vec<Sp
     turns
 }
 
+/// Deletes rows of `table` belonging to `recording_id`, paging around the
+/// storage engine's 1000-row query ceiling by committing each page before
+/// querying again. `deletable` decides which rows of a page to remove; a page
+/// with nothing deletable ends the sweep.
+fn delete_recording_rows(
+    storage: &genesis_block_native::Storage,
+    table: &str,
+    recording_id: &str,
+    columns: &[&str],
+    deletable: impl Fn(&serde_json::Value) -> bool,
+) -> Result<(), String> {
+    let id_column = format!("{table}.id");
+    loop {
+        let rows = genesis_adapter::query(
+            storage,
+            table,
+            columns,
+            vec![genesis_adapter::eq(table, "recording_id", serde_json::json!(recording_id))],
+            1000,
+        )?;
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let mutations: Vec<_> = rows
+            .iter()
+            .filter(|row| deletable(row))
+            .map(|row| Ok(genesis_adapter::delete(table, &genesis_adapter::string(row, &id_column)?)))
+            .collect::<Result<Vec<_>, String>>()?;
+        // Every row on this page is retained, so no further page can be reached
+        // by deleting — the sweep is done.
+        if mutations.is_empty() {
+            return Ok(());
+        }
+        genesis_adapter::commit_rows(storage, mutations)?;
+    }
+}
+
 /// Persists speakers (reused by key), transcript segments, proposed speaker
 /// turns and diarization provenance, then marks the recording completed.
 /// Deletes this recording's previously-persisted segments/proposed turns
-/// first so a re-run replaces rather than duplicates.
+/// first so a re-run replaces rather than duplicates. The cleanup is
+/// committed ahead of the insert batch — the engine has no way to delete an
+/// unbounded set inside one transaction, so paging the deletes must commit
+/// each page as it goes rather than joining the final `mutations` batch.
 pub(crate) fn persist_attribution(
     storage: &genesis_block_native::Storage,
     project_id: &str,
@@ -90,50 +130,75 @@ pub(crate) fn persist_attribution(
     duration_ms: i64,
 ) -> Result<(), String> {
     let timestamp = now();
+    delete_recording_rows(storage, "transcript_segments", recording_id, &["id"], |_| true)?;
+    delete_recording_rows(storage, "speaker_turns", recording_id, &["id", "status"], |row| {
+        row.get("speaker_turns.status").and_then(serde_json::Value::as_str) == Some("proposed")
+    })?;
+
     let mut mutations = Vec::new();
-    for row in genesis_adapter::query(storage, "transcript_segments", &["id"],
-        vec![genesis_adapter::eq("transcript_segments", "recording_id", serde_json::json!(recording_id))], 1000)? {
-        mutations.push(genesis_adapter::delete("transcript_segments", &genesis_adapter::string(&row, "transcript_segments.id")?));
-    }
-    for row in genesis_adapter::query(storage, "speaker_turns", &["id", "status"],
-        vec![genesis_adapter::eq("speaker_turns", "recording_id", serde_json::json!(recording_id))], 1000)? {
-        if row.get("speaker_turns.status").and_then(serde_json::Value::as_str) == Some("proposed") {
-            mutations.push(genesis_adapter::delete("speaker_turns", &genesis_adapter::string(&row, "speaker_turns.id")?));
-        }
-    }
 
     let provider_id = "fung-desktop-attribution";
     let model_run_id = Uuid::new_v4().to_string();
     mutations.push(genesis_adapter::upsert("model_providers", serde_json::json!({"id": provider_id, "label": "FUNG Desktop attribution", "runtime_location": runtime_location, "kind": "diarization", "enabled": true, "config_json": {}, "created_at": timestamp, "updated_at": timestamp})));
     mutations.push(genesis_adapter::upsert("model_runs", serde_json::json!({"id": model_run_id, "recording_id": recording_id, "provider_id": provider_id, "model_name": model_name, "task_kind": "diarization", "runtime_location": runtime_location, "input_ref": recording_id, "output_ref": format!("speaker-turns:{recording_id}"), "parameters_json": {}, "created_at": timestamp})));
 
-    // Reuse speakers by key (same contract as mobile_diarization_import).
-    let existing = genesis_adapter::query(storage, "speakers", &["id", "key", "created_at"],
-        vec![genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id))], 500)?;
-    let mut key_to_id = std::collections::HashMap::new();
-    for row in &existing {
-        if let (Some(key), Some(id)) = (
-            row.get("speakers.key").and_then(serde_json::Value::as_str),
-            row.get("speakers.id").and_then(serde_json::Value::as_str),
-        ) { key_to_id.insert(key.to_string(), id.to_string()); }
+    // Resolve one speaker per distinct key. Querying per key avoids listing a
+    // whole project's speakers, which the engine would cap.
+    let mut wanted: Vec<(String, String, Option<f64>)> = Vec::new();
+    for segment in segments {
+        if let (Some(key), Some(name)) = (&segment.speaker_key, &segment.display_name) {
+            if !wanted.iter().any(|(existing, _, _)| existing == key) {
+                wanted.push((key.clone(), name.clone(), segment.confidence));
+            }
+        }
     }
-    let mut ensure_speaker = |key: &str, display_name: &str, confidence: Option<f64>, mutations: &mut Vec<_>| -> String {
-        if let Some(id) = key_to_id.get(key) { return id.clone(); }
-        let id = Uuid::new_v4().to_string();
-        mutations.push(genesis_adapter::upsert("speakers", serde_json::json!({"id": id, "project_id": project_id, "key": key, "display_name": display_name, "confidence": confidence, "created_at": timestamp, "updated_at": timestamp})));
-        key_to_id.insert(key.to_string(), id.clone());
-        id
-    };
+    for turn in turns {
+        if !wanted.iter().any(|(existing, _, _)| existing == &turn.speaker_key) {
+            wanted.push((turn.speaker_key.clone(), turn.display_name.clone(), turn.confidence));
+        }
+    }
+
+    let mut key_to_id: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for (key, display_name, confidence) in &wanted {
+        let existing = genesis_adapter::query(
+            storage,
+            "speakers",
+            &["id"],
+            vec![
+                genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id)),
+                genesis_adapter::eq("speakers", "key", serde_json::json!(key)),
+            ],
+            1,
+        )?
+        .into_iter()
+        .next()
+        .map(|row| genesis_adapter::string(&row, "speakers.id"))
+        .transpose()?;
+        match existing {
+            Some(id) => {
+                key_to_id.insert(key.clone(), id);
+            }
+            None => {
+                let id = Uuid::new_v4().to_string();
+                mutations.push(genesis_adapter::upsert("speakers", serde_json::json!({
+                    "id": id, "project_id": project_id, "key": key,
+                    "display_name": display_name, "confidence": confidence,
+                    "created_at": timestamp, "updated_at": timestamp,
+                })));
+                key_to_id.insert(key.clone(), id);
+            }
+        }
+    }
 
     for segment in segments {
-        let speaker_id = match (&segment.speaker_key, &segment.display_name) {
-            (Some(key), Some(name)) => serde_json::json!(ensure_speaker(key, name, segment.confidence, &mut mutations)),
-            _ => serde_json::Value::Null,
+        let speaker_id = match &segment.speaker_key {
+            Some(key) => serde_json::json!(key_to_id.get(key).expect("resolved above")),
+            None => serde_json::Value::Null,
         };
         mutations.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({"id": Uuid::new_v4().to_string(), "project_id": project_id, "recording_id": recording_id, "speaker_id": speaker_id, "start_ms": segment.start_ms, "end_ms": segment.end_ms, "text": segment.text, "confidence": segment.confidence, "created_at": timestamp, "updated_at": timestamp})));
     }
     for turn in turns {
-        let speaker_id = ensure_speaker(&turn.speaker_key, &turn.display_name, turn.confidence, &mut mutations);
+        let speaker_id = key_to_id.get(&turn.speaker_key).expect("resolved above");
         mutations.push(genesis_adapter::upsert("speaker_turns", serde_json::json!({"id": Uuid::new_v4().to_string(), "project_id": project_id, "recording_id": recording_id, "speaker_id": speaker_id, "start_ms": turn.start_ms, "end_ms": turn.end_ms, "confidence": turn.confidence, "status": "proposed", "model_run_id": model_run_id, "overlap": turn.overlap, "revision": 1, "created_at": timestamp, "updated_at": timestamp})));
     }
     let recording = genesis_adapter::query(storage, "recordings", &["source", "input_path", "canonical_audio_path", "created_at"],
@@ -201,6 +266,53 @@ mod tests {
         let segments = crate::genesis_adapter::query(&storage, "transcript_segments", &["id", "speaker_id"],
             vec![crate::genesis_adapter::eq("transcript_segments", "project_id", serde_json::json!("p1"))], 10).unwrap();
         assert!(segments.iter().all(|row| row.get("transcript_segments.speaker_id").and_then(serde_json::Value::as_str).is_some()));
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn persist_attribution_replaces_more_segments_than_one_query_page() {
+        let (path, storage) = open_storage();
+        crate::genesis_adapter::commit_rows(&storage, vec![
+            crate::genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"})),
+            crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"pending","duration_ms":0,"created_at":"t","updated_at":"t"})),
+        ]).unwrap();
+
+        // 1200 segments — past the engine's 1000-row query ceiling.
+        let mut output = WhisperOutput { duration_ms: 1_200_000, segments: Vec::new() };
+        for index in 0..1200i64 {
+            output.segments.push(WhisperSegment {
+                start_ms: index * 1000,
+                end_ms: index * 1000 + 900,
+                text: format!("line {index}"),
+                confidence: Some(0.9),
+            });
+        }
+        let merged = merge_participant_outputs(vec![("Boss".to_string(), output)]);
+        let turns = group_turns(&merged, 1_500);
+        persist_attribution(&storage, "p1", "r1", "local", "test", &merged, &turns, 1_200_000).unwrap();
+        persist_attribution(&storage, "p1", "r1", "local", "test", &merged, &turns, 1_200_000).unwrap();
+
+        // A second run must replace, not append. A single 1000-row query cannot
+        // see the whole table when the bug duplicates rows (1200 kept + 1200
+        // fresh = 2400), so count the exact total by repeatedly counting and
+        // deleting a page until the table is empty.
+        let mut total = 0usize;
+        loop {
+            let page = crate::genesis_adapter::query(&storage, "transcript_segments", &["id"],
+                vec![crate::genesis_adapter::eq("transcript_segments", "recording_id", serde_json::json!("r1"))], 1000).unwrap();
+            if page.is_empty() { break; }
+            total += page.len();
+            let deletes: Vec<_> = page.iter()
+                .map(|row| crate::genesis_adapter::delete("transcript_segments", &crate::genesis_adapter::string(row, "transcript_segments.id").unwrap()))
+                .collect();
+            crate::genesis_adapter::commit_rows(&storage, deletes).unwrap();
+        }
+        assert_eq!(total, 1200, "second run must replace the 1200 segments exactly, not accumulate duplicates");
+
+        let speakers = crate::genesis_adapter::query(&storage, "speakers", &["id"],
+            vec![crate::genesis_adapter::eq("speakers", "project_id", serde_json::json!("p1"))], 100).unwrap();
+        assert_eq!(speakers.len(), 1, "speaker rows must be reused across runs");
+
         drop(storage); let _ = std::fs::remove_dir_all(path);
     }
 

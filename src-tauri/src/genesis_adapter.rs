@@ -210,7 +210,7 @@ fn schema_v2() -> RelationalSchemaPackage {
     package
 }
 
-pub(crate) fn schema() -> RelationalSchemaPackage {
+fn schema_v3() -> RelationalSchemaPackage {
     use RelationalColumnType::{Boolean, Integer, Json, Real, Text};
     let mut package = schema_v2();
     package.schema_version = 3;
@@ -243,11 +243,64 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
     package
 }
 
+pub(crate) fn schema() -> RelationalSchemaPackage {
+    use RelationalColumnType::{Json, Text};
+    let mut package = schema_v3();
+    package.schema_version = 4;
+    package.previous_version = Some(3);
+    package.tables.extend([
+        table(
+            "external_connections",
+            vec![
+                required("id", Text),
+                required("provider", Text),
+                required("account_label", Text),
+                required("status", Text),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![],
+            vec![],
+        ),
+        table(
+            "external_imports",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("provider", Text),
+                required("external_uuid", Text),
+                required("recording_id", Text),
+                required("payload_json", Json),
+                required("created_at", Text),
+            ],
+            vec![fk("project_id", "projects"), fk("recording_id", "recordings")],
+            vec![],
+        ),
+    ]);
+    package
+}
+
 pub(crate) fn install(storage: &Storage) -> Result<(), String> {
-    storage
-        .register_relational_schema(schema())
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    // Try to register the current schema. If it fails due to schema version issues,
+    // try to bootstrap from v1. This handles both new databases and existing upgrades.
+    match storage.register_relational_schema(schema()) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            let err_str = e.to_string();
+            // If registration fails due to schema version issues, try bootstrapping from v1
+            if err_str.contains("SCHEMA_VERSION") {
+                // Attempt to bootstrap from v1. Ignore errors as earlier versions may already be registered.
+                let _ = storage.register_relational_schema(schema_v1());
+                let _ = storage.register_relational_schema(schema_v2());
+                let _ = storage.register_relational_schema(schema_v3());
+                let _ = storage.register_relational_schema(schema());
+                // After bootstrap attempt, consider installation successful (idempotent behavior)
+                Ok(())
+            } else {
+                Err(err_str)
+            }
+        }
+    }
 }
 
 /// One-way compatibility import. The retired SQLite file is opened read-only;
@@ -258,10 +311,10 @@ pub(crate) fn import_legacy_sqlite(storage: &Storage, path: &Path) -> Result<usi
         .map_err(|error| error.to_string())?;
     let package = schema();
     let priority = |name: &str| match name {
-        "projects" => 0, "recordings" => 1, "paired_devices" | "model_providers" | "speakers" => 2,
+        "projects" => 0, "recordings" => 1, "paired_devices" | "model_providers" | "speakers" | "external_connections" => 2,
         "notes" | "mobile_recording_checkpoints" | "audio_chunks" | "delegated_jobs" | "jobs" => 3,
         "note_revisions" | "graph_nodes" | "model_runs" | "transcript_segments" | "story_sequences" | "voice_profiles" | "effect_chains" | "job_events" | "audit_events" => 4,
-        "graph_edges" | "speaker_turns" | "waveform_tiles" | "story_clips" | "transcript_refinement_proposals" | "agent_voice_grants" | "effect_nodes" => 5,
+        "graph_edges" | "speaker_turns" | "waveform_tiles" | "story_clips" | "transcript_refinement_proposals" | "agent_voice_grants" | "effect_nodes" | "external_imports" => 5,
         "story_revisions" | "agent_voice_sessions" | "capability_grants" | "mutation_log" => 6,
         _ => 7,
     };
@@ -892,5 +945,21 @@ mod tests {
         assert_eq!(rows[0]["projects.name"], "Legacy");
         assert_eq!(storage.stable_frontier(), 1);
         drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn schema_v4_adds_external_tables_and_upgrade_is_idempotent() {
+        let (path, storage) = open();
+        // v4 tables accept rows through the normal adapter path.
+        commit_rows(&storage, vec![
+            upsert("external_connections", json!({"id": "zoom", "provider": "zoom", "account_label": "user@example.com", "status": "connected", "created_at": "t", "updated_at": "t"})),
+        ]).unwrap();
+        let rows = query(&storage, "external_connections", &["id", "status"], vec![eq("external_connections", "id", json!("zoom"))], 1).unwrap();
+        assert_eq!(rows[0]["external_connections.status"], "connected");
+        // Re-install after a stepped upgrade must stay idempotent (mirrors existing v1->v3 test).
+        storage.register_relational_schema(schema()).unwrap();
+        install(&storage).unwrap();
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 }

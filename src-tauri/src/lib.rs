@@ -335,7 +335,7 @@ fn init_database(db_path: PathBuf) -> AppResult<Connection> {
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-            type TEXT NOT NULL CHECK (type IN ('recording.capture', 'recording.recover', 'audio.cleanup', 'audio.separate', 'transcript.transcribe', 'transcript.diarize', 'summary.generate', 'intent.infer', 'export.render')),
+            type TEXT NOT NULL CHECK (type IN ('recording.capture', 'recording.recover', 'audio.cleanup', 'audio.separate', 'transcript.transcribe', 'transcript.diarize', 'summary.generate', 'intent.infer', 'export.render', 'zoom.import', 'graph.build')),
             status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'paused', 'completed', 'failed', 'retrying', 'cancelled')),
             progress INTEGER NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
             input_refs_json TEXT NOT NULL DEFAULT '[]',

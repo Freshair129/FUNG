@@ -647,10 +647,11 @@ pub(crate) fn zoom_import_recording(meeting_uuid: String, state: State<'_, AppSt
         recording_id: recording_id.clone(),
         meeting_uuid: meeting_uuid.clone(),
         meeting_topic: meeting.topic.clone(),
+        client_id,
         base_dir,
         mixed_path,
     };
-    std::thread::spawn(move || run_import_worker(ctx, meeting, access_token));
+    std::thread::spawn(move || run_import_worker(ctx, meeting));
 
     Ok(crate::Job {
         id: job_id, project_id, job_type: "zoom.import".to_string(), status: "running".to_string(),
@@ -669,17 +670,22 @@ pub(crate) struct ImportContext {
     pub(crate) recording_id: String,
     pub(crate) meeting_uuid: String,
     pub(crate) meeting_topic: String,
+    pub(crate) client_id: String,
     pub(crate) base_dir: std::path::PathBuf,
     pub(crate) mixed_path: std::path::PathBuf,
 }
 
 /// Phase 1 of the worker: downloads. Task 6/7 extend this with processing.
-fn run_import_worker(ctx: ImportContext, meeting: ZoomMeetingRecording, access_token: String) {
+fn run_import_worker(ctx: ImportContext, meeting: ZoomMeetingRecording) {
     let result = (|| -> Result<Vec<(String, std::path::PathBuf)>, String> {
         let mixed = meeting.recording_files.iter()
             .find(|f| f.recording_type.as_deref() == Some("audio_only") && f.file_type.eq_ignore_ascii_case("M4A"))
             .or_else(|| meeting.recording_files.iter().find(|f| f.file_type.eq_ignore_ascii_case("MP4")))
             .ok_or_else(|| "no downloadable audio/video file on this recording".to_string())?;
+        // Tokens last ~1 hour; a long multi-file import can outlive one.
+        // Refresh per download rather than carrying a single token for the
+        // whole worker.
+        let access_token = ensure_fresh_access_token(&ctx.client_id)?;
         download_to_file(&access_token, &mixed.download_url, &ctx.mixed_path)?;
         let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "running", Some(15), None);
         let mut participants = Vec::new();
@@ -687,6 +693,7 @@ fn run_import_worker(ctx: ImportContext, meeting: ZoomMeetingRecording, access_t
             for (index, file) in files.iter().enumerate() {
                 let display_name = file.file_name.strip_prefix("Audio only - ").unwrap_or(&file.file_name).to_string();
                 let dest = ctx.base_dir.join("participants").join(format!("{index}-{}.m4a", sanitize_component(&display_name)));
+                let access_token = ensure_fresh_access_token(&ctx.client_id)?;
                 download_to_file(&access_token, &file.download_url, &dest)?;
                 participants.push((display_name, dest));
             }

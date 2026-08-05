@@ -463,9 +463,178 @@ pub(crate) fn zoom_list_recordings() -> AppResult<Vec<ZoomRecordingSummary>> {
     Ok(summaries)
 }
 
+pub(crate) fn find_existing_import(storage: &genesis_block_native::Storage, uuid: &str) -> Result<Option<String>, String> {
+    Ok(genesis_adapter::query(storage, "external_imports", &["recording_id", "provider", "external_uuid"],
+        vec![genesis_adapter::eq("external_imports", "external_uuid", serde_json::json!(uuid))], 10)?
+        .into_iter()
+        .find(|row| row.get("external_imports.provider").and_then(serde_json::Value::as_str) == Some("zoom"))
+        .and_then(|row| row.get("external_imports.recording_id").and_then(serde_json::Value::as_str).map(str::to_owned)))
+}
+
+/// Windows-safe single path component: replaces separator/reserved chars.
+pub(crate) fn sanitize_component(value: &str) -> String {
+    value.chars().map(|c| match c {
+        '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '=' => '_',
+        other => other,
+    }).collect()
+}
+
+/// Streams `url` to `dest`, resuming with a Range request when a partial
+/// file exists. Never log `url` — it is credential-bearing.
+pub(crate) fn download_to_file(access_token: &str, url: &str, dest: &std::path::Path) -> Result<(), String> {
+    if let Some(parent) = dest.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+    let existing = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
+    let client = reqwest::blocking::Client::new();
+    let mut request = client.get(url).bearer_auth(access_token);
+    if existing > 0 { request = request.header("Range", format!("bytes={existing}-")); }
+    // reqwest::Error's Display embeds the request URL when one is set (as it
+    // is here); strip it before formatting so the credential-bearing
+    // download URL never reaches a job event or error string.
+    let mut response = request.send().map_err(|e| format!("zoom download failed: {}", e.without_url()))?;
+    let status = response.status();
+    let append = status.as_u16() == 206;
+    if !status.is_success() {
+        return Err(format!("zoom download returned {status}"));
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true).write(true).append(append).truncate(!append)
+        .open(dest).map_err(|e| e.to_string())?;
+    std::io::copy(&mut response, &mut file).map_err(|e| format!("zoom download write failed: {e}"))?;
+    Ok(())
+}
+
+/// Imports one Zoom cloud recording end-to-end: download → transcribe →
+/// speaker attribution → graph build. Runs on a background thread; UI polls
+/// `list_jobs`.
+#[tauri::command]
+pub(crate) fn zoom_import_recording(meeting_uuid: String, state: State<'_, AppState>) -> AppResult<crate::Job> {
+    let client_id = client_id_from_env()?;
+    if find_existing_import(&state.genesis, &meeting_uuid).map_err(AppError::Genesis)?.is_some() {
+        return Err(AppError::InvalidInput("recording is already imported".to_string()));
+    }
+    let access_token = ensure_fresh_access_token(&client_id).map_err(AppError::InvalidInput)?;
+    let meeting: ZoomMeetingRecording =
+        api_get_json(&access_token, &format!("/meetings/{}/recordings", encode_meeting_uuid(&meeting_uuid)))
+            .map_err(AppError::InvalidInput)?;
+
+    let project_id = uuid::Uuid::new_v4().to_string();
+    let recording_id = uuid::Uuid::new_v4().to_string();
+    let job_id = uuid::Uuid::new_v4().to_string();
+    let timestamp = now();
+    let storage_path = state.data_root.join("projects").join(&project_id).display().to_string();
+    let base_dir = state.data_root.join("projects").join(&project_id).join("zoom").join(sanitize_component(&meeting_uuid));
+    let mixed_path = base_dir.join("mixed.m4a");
+
+    genesis_adapter::commit_rows(&state.genesis, vec![
+        genesis_adapter::upsert("projects", serde_json::json!({"id": project_id, "name": meeting.topic, "storage_path": storage_path, "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp})),
+        genesis_adapter::upsert("recordings", serde_json::json!({"id": recording_id, "project_id": project_id, "source": "import", "input_path": null, "canonical_audio_path": mixed_path.display().to_string(), "status": "pending", "duration_ms": 0, "created_at": timestamp, "updated_at": timestamp})),
+        genesis_adapter::upsert("jobs", serde_json::json!({"id": job_id, "project_id": project_id, "type": "zoom.import", "status": "running", "progress": 0, "input_refs_json": [meeting_uuid], "output_refs_json": [recording_id], "provider_id": null, "error_code": null, "error_message": null, "attempt_no": 1, "started_at": timestamp, "finished_at": null, "created_at": timestamp, "updated_at": timestamp})),
+        genesis_adapter::upsert("job_events", serde_json::json!({"id": uuid::Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": "downloading zoom recording", "created_at": timestamp})),
+    ]).map_err(AppError::Genesis)?;
+
+    let ctx = ImportContext {
+        storage: state.genesis.clone(),
+        whisper: state.whisper_runtime_clone(),
+        job_id: job_id.clone(),
+        project_id: project_id.clone(),
+        recording_id: recording_id.clone(),
+        meeting_uuid: meeting_uuid.clone(),
+        meeting_topic: meeting.topic.clone(),
+        base_dir,
+        mixed_path,
+    };
+    std::thread::spawn(move || run_import_worker(ctx, meeting, access_token));
+
+    Ok(crate::Job {
+        id: job_id, project_id, job_type: "zoom.import".to_string(), status: "running".to_string(),
+        progress: 0, input_refs: vec![meeting_uuid], output_refs: vec![recording_id],
+        provider_id: None, error_code: None, error_message: None,
+        started_at: Some(timestamp.clone()), finished_at: None,
+        created_at: timestamp.clone(), updated_at: timestamp,
+    })
+}
+
+pub(crate) struct ImportContext {
+    pub(crate) storage: std::sync::Arc<genesis_block_native::Storage>,
+    pub(crate) whisper: crate::WhisperRuntime,
+    pub(crate) job_id: String,
+    pub(crate) project_id: String,
+    pub(crate) recording_id: String,
+    pub(crate) meeting_uuid: String,
+    pub(crate) meeting_topic: String,
+    pub(crate) base_dir: std::path::PathBuf,
+    pub(crate) mixed_path: std::path::PathBuf,
+}
+
+/// Phase 1 of the worker: downloads. Task 6/7 extend this with processing.
+fn run_import_worker(ctx: ImportContext, meeting: ZoomMeetingRecording, access_token: String) {
+    let result = (|| -> Result<Vec<(String, std::path::PathBuf)>, String> {
+        let mixed = meeting.recording_files.iter()
+            .find(|f| f.recording_type.as_deref() == Some("audio_only") && f.file_type.eq_ignore_ascii_case("M4A"))
+            .or_else(|| meeting.recording_files.iter().find(|f| f.file_type.eq_ignore_ascii_case("MP4")))
+            .ok_or_else(|| "no downloadable audio/video file on this recording".to_string())?;
+        download_to_file(&access_token, &mixed.download_url, &ctx.mixed_path)?;
+        let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "running", Some(15), None);
+        let mut participants = Vec::new();
+        if let Some(files) = &meeting.participant_audio_files {
+            for (index, file) in files.iter().enumerate() {
+                let display_name = file.file_name.strip_prefix("Audio only - ").unwrap_or(&file.file_name).to_string();
+                let dest = ctx.base_dir.join("participants").join(format!("{index}-{}.m4a", sanitize_component(&display_name)));
+                download_to_file(&access_token, &file.download_url, &dest)?;
+                participants.push((display_name, dest));
+            }
+        }
+        let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "running", Some(30), None);
+        let timestamp = now();
+        genesis_adapter::commit_rows(&ctx.storage, vec![
+            genesis_adapter::upsert("external_imports", serde_json::json!({"id": uuid::Uuid::new_v4().to_string(), "project_id": ctx.project_id, "provider": "zoom", "external_uuid": ctx.meeting_uuid, "recording_id": ctx.recording_id, "payload_json": {"topic": ctx.meeting_topic, "participantFiles": participants.len()}, "created_at": timestamp})),
+        ])?;
+        Ok(participants)
+    })();
+
+    match result {
+        Ok(participants) => run_processing_pipeline(ctx, participants),
+        Err(message) => { let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "failed", None, Some(&message)); }
+    }
+}
+
+/// Placeholder until Task 6/7 wire transcription + attribution + graph.
+fn run_processing_pipeline(ctx: ImportContext, _participants: Vec<(String, std::path::PathBuf)>) {
+    let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "completed", Some(100), None);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn open_storage() -> (std::path::PathBuf, genesis_block_native::Storage) {
+        let path = std::env::temp_dir().join(format!("fung-zoom-test-{}", uuid::Uuid::new_v4()));
+        let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
+            path: path.display().to_string(), page_cache_mb: Some(16), read_only: Some(false), vector_dim: Some(4),
+        }).unwrap();
+        crate::genesis_adapter::install(&storage).unwrap();
+        (path, storage)
+    }
+
+    #[test]
+    fn import_idempotency_finds_prior_recording_by_uuid() {
+        let (path, storage) = open_storage();
+        assert_eq!(find_existing_import(&storage, "uuid-1").unwrap(), None);
+        crate::genesis_adapter::commit_rows(&storage, vec![
+            crate::genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"})),
+            crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"pending","duration_ms":0,"created_at":"t","updated_at":"t"})),
+            crate::genesis_adapter::upsert("external_imports", serde_json::json!({"id":"i1","project_id":"p1","provider":"zoom","external_uuid":"uuid-1","recording_id":"r1","payload_json":{},"created_at":"t"})),
+        ]).unwrap();
+        assert_eq!(find_existing_import(&storage, "uuid-1").unwrap(), Some("r1".to_string()));
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn sanitize_component_keeps_paths_safe() {
+        assert_eq!(sanitize_component("abc//slash=="), "abc__slash__");
+        assert_eq!(sanitize_component("Audio only - Boss"), "Audio only - Boss");
+        assert_eq!(sanitize_component("a<b>:c|?*\\/"), "a_b__c_____");
+    }
 
     #[test]
     fn pkce_challenge_matches_rfc7636_vector() {

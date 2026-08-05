@@ -26,7 +26,7 @@ mod zoom_sync;
 const PROJECT_ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 #[derive(Clone)]
-struct WhisperRuntime {
+pub(crate) struct WhisperRuntime {
     python: PathBuf,
     script: PathBuf,
     cuda_bin: PathBuf,
@@ -131,6 +131,12 @@ pub(crate) struct AppState {
     pub(crate) mobile_gateway: Mutex<Option<mobile::MobileGatewayControl>>,
 }
 
+impl AppState {
+    pub(crate) fn whisper_runtime_clone(&self) -> WhisperRuntime {
+        self.whisper_runtime.clone()
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Health {
@@ -164,22 +170,22 @@ struct Project {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Job {
-    id: String,
-    project_id: String,
+pub(crate) struct Job {
+    pub(crate) id: String,
+    pub(crate) project_id: String,
     #[serde(rename = "type")]
-    job_type: String,
-    status: String,
-    progress: i64,
-    input_refs: Vec<String>,
-    output_refs: Vec<String>,
-    provider_id: Option<String>,
-    error_code: Option<String>,
-    error_message: Option<String>,
-    started_at: Option<String>,
-    finished_at: Option<String>,
-    created_at: String,
-    updated_at: String,
+    pub(crate) job_type: String,
+    pub(crate) status: String,
+    pub(crate) progress: i64,
+    pub(crate) input_refs: Vec<String>,
+    pub(crate) output_refs: Vec<String>,
+    pub(crate) provider_id: Option<String>,
+    pub(crate) error_code: Option<String>,
+    pub(crate) error_message: Option<String>,
+    pub(crate) started_at: Option<String>,
+    pub(crate) finished_at: Option<String>,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -590,7 +596,7 @@ fn list_transcript_segments(
     segments.sort_by_key(|segment| segment.start_ms); Ok(segments)
 }
 
-fn set_job_status(
+pub(crate) fn set_job_status(
     storage: &genesis_block_native::Storage,
     job_id: &str,
     status: &str,
@@ -893,6 +899,7 @@ pub fn run() {
             zoom_sync::zoom_connection_status,
             zoom_sync::zoom_disconnect,
             zoom_sync::zoom_list_recordings,
+            zoom_sync::zoom_import_recording,
             mobile::mobile_capture_start,
             mobile::mobile_capture_append_segment,
             mobile::mobile_capture_reconcile_native,

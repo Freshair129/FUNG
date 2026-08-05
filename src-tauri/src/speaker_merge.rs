@@ -75,6 +75,26 @@ pub(crate) fn group_turns(segments: &[AttributedSegment], gap_ms: i64) -> Vec<Sp
     turns
 }
 
+/// Assigns each transcript segment the diarization turn with the largest
+/// time overlap; segments overlapping nothing stay unassigned (speaker null).
+pub(crate) fn assign_by_overlap(
+    segments: &[AttributedSegment],
+    turns: &[crate::zoom_sync::DiarizeTurn],
+) -> Vec<AttributedSegment> {
+    segments.iter().map(|segment| {
+        let best = turns.iter()
+            .map(|turn| (turn, (segment.end_ms.min(turn.end_ms) - segment.start_ms.max(turn.start_ms)).max(0)))
+            .filter(|(_, overlap)| *overlap > 0)
+            .max_by_key(|(_, overlap)| *overlap)
+            .map(|(turn, _)| turn);
+        AttributedSegment {
+            speaker_key: best.map(|turn| turn.speaker_key.clone()),
+            display_name: best.map(|turn| turn.display_name.clone()),
+            ..segment.clone()
+        }
+    }).collect()
+}
+
 /// Deletes rows of `table` belonging to `recording_id`, paging around the
 /// storage engine's 1000-row query ceiling by committing each page before
 /// querying again. `deletable` decides which rows of a page to remove; a page
@@ -244,6 +264,23 @@ mod tests {
         assert!(boss_first.overlap, "intersects ATHER 3500..6000");
         let boss_second = turns.iter().find(|t| t.speaker_key == "p:boss" && t.start_ms == 9_000).unwrap();
         assert!(!boss_second.overlap);
+    }
+
+    #[test]
+    fn assign_by_overlap_picks_dominant_turn_and_leaves_gaps_unassigned() {
+        let segments = vec![
+            AttributedSegment { speaker_key: None, display_name: None, start_ms: 0, end_ms: 2_000, text: "a".into(), confidence: None },
+            AttributedSegment { speaker_key: None, display_name: None, start_ms: 2_000, end_ms: 4_000, text: "b".into(), confidence: None },
+            AttributedSegment { speaker_key: None, display_name: None, start_ms: 8_000, end_ms: 9_000, text: "c".into(), confidence: None },
+        ];
+        let turns = vec![
+            crate::zoom_sync::DiarizeTurn { speaker_key: "s:0".into(), display_name: "Speaker 1".into(), start_ms: 0, end_ms: 2_500, confidence: None },
+            crate::zoom_sync::DiarizeTurn { speaker_key: "s:1".into(), display_name: "Speaker 2".into(), start_ms: 2_500, end_ms: 5_000, confidence: None },
+        ];
+        let assigned = assign_by_overlap(&segments, &turns);
+        assert_eq!(assigned[0].speaker_key.as_deref(), Some("s:0"));
+        assert_eq!(assigned[1].speaker_key.as_deref(), Some("s:1")); // 1500ms overlap beats 500ms
+        assert_eq!(assigned[2].speaker_key, None); // no overlap → unassigned
     }
 
     #[test]

@@ -686,9 +686,58 @@ fn run_processing_pipeline(ctx: ImportContext, participants: Vec<(String, std::p
     }
 }
 
-// Replaced in Task 7.
-fn run_mixed_audio_path(_ctx: &ImportContext) -> Result<(), String> {
-    Err("mixed-audio path not yet implemented".to_string())
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiarizeTurn {
+    pub(crate) speaker_key: String,
+    pub(crate) display_name: String,
+    pub(crate) start_ms: i64,
+    pub(crate) end_ms: i64,
+    pub(crate) confidence: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DiarizeOutput {
+    pub(crate) duration_ms: i64,
+    pub(crate) turns: Vec<DiarizeTurn>,
+}
+
+/// Path B: whisper on the mixed file, then local pyannote diarization.
+/// Diarization failure downgrades gracefully: transcript persists without
+/// speakers and the job still completes (spec rule).
+fn run_mixed_audio_path(ctx: &ImportContext) -> Result<(), String> {
+    let mixed = ctx.mixed_path.display().to_string();
+    let (storage, job_id) = (ctx.storage.clone(), ctx.job_id.clone());
+    let whisper_output = crate::run_transcription(&ctx.whisper, &mixed, move |pct| {
+        let _ = crate::set_job_status(&storage, &job_id, "running", Some(30 + pct * 35 / 100), None);
+    })?;
+    let unassigned: Vec<crate::speaker_merge::AttributedSegment> = whisper_output.segments.iter().map(|segment| crate::speaker_merge::AttributedSegment {
+        speaker_key: None, display_name: None,
+        start_ms: segment.start_ms, end_ms: segment.end_ms,
+        text: segment.text.clone(), confidence: segment.confidence,
+    }).collect();
+
+    let (storage, job_id) = (ctx.storage.clone(), ctx.job_id.clone());
+    match crate::run_diarization(&ctx.whisper, &mixed, move |pct| {
+        let _ = crate::set_job_status(&storage, &job_id, "running", Some(65 + pct * 30 / 100), None);
+    }) {
+        Ok(diarize) => {
+            let assigned = crate::speaker_merge::assign_by_overlap(&unassigned, &diarize.turns);
+            let turns: Vec<crate::speaker_merge::SpeakerTurn> = diarize.turns.iter().map(|turn| crate::speaker_merge::SpeakerTurn {
+                speaker_key: turn.speaker_key.clone(), display_name: turn.display_name.clone(),
+                start_ms: turn.start_ms, end_ms: turn.end_ms, confidence: turn.confidence, overlap: false,
+            }).collect();
+            crate::speaker_merge::persist_attribution(&ctx.storage, &ctx.project_id, &ctx.recording_id, "local", "pyannote/speaker-diarization-3.1", &assigned, &turns, whisper_output.duration_ms)
+        }
+        Err(message) => {
+            // Transcript must survive without diarization.
+            crate::speaker_merge::persist_attribution(&ctx.storage, &ctx.project_id, &ctx.recording_id, "local", "faster-whisper (no diarization)", &unassigned, &[], whisper_output.duration_ms)?;
+            let timestamp = now();
+            genesis_adapter::commit_rows(&ctx.storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({"id": uuid::Uuid::new_v4().to_string(), "job_id": ctx.job_id, "status": "running", "message": format!("diarization unavailable: {message}"), "created_at": timestamp}))])?;
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -702,6 +751,14 @@ mod tests {
         }).unwrap();
         crate::genesis_adapter::install(&storage).unwrap();
         (path, storage)
+    }
+
+    #[test]
+    fn diarize_output_parses_worker_json() {
+        let raw = r#"{"durationMs": 9000, "turns": [{"speakerKey": "s:0", "displayName": "Speaker 1", "startMs": 0, "endMs": 2500, "confidence": null}]}"#;
+        let output: DiarizeOutput = serde_json::from_str(raw).unwrap();
+        assert_eq!(output.turns.len(), 1);
+        assert_eq!(output.turns[0].display_name, "Speaker 1");
     }
 
     #[test]

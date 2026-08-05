@@ -723,36 +723,96 @@ fn import_and_transcribe(
     })
 }
 
-/// Runs the faster-whisper worker script and blocks until it exits,
-/// reporting `PROGRESS <pct>` lines from stderr via `on_progress` as they
-/// arrive. Intended to run off the main thread (see `import_and_transcribe`).
-pub(crate) fn run_transcription(
+/// Runs a python worker from the whisper venv and returns its stdout after a
+/// zero exit. `PROGRESS <pct>` stderr lines stream through `on_progress`;
+/// other stderr lines are collected into the error message on failure.
+/// `path_prefix`, when set, is prepended to the child's PATH — used by
+/// `run_transcription` to expose the bundled CUDA DLLs; harmless to omit for
+/// workers (like diarize) that don't need it.
+pub(crate) fn run_python_worker(
     runtime: &WhisperRuntime,
-    file_path: &str,
+    script: &std::path::Path,
+    args: &[&str],
+    path_prefix: Option<&std::path::Path>,
     on_progress: impl Fn(i64) + Send + 'static,
-) -> Result<WhisperOutput, String> {
+) -> Result<String, String> {
     if !runtime.python.exists() {
         return Err(format!(
             "FUNG Python runtime is missing at {}. Reinstall the FUNG application bundle.",
             runtime.python.display(),
         ));
     }
-    if !runtime.script.exists() {
+    if !script.exists() {
         return Err(format!(
-            "FUNG transcription worker is missing at {}. Reinstall the FUNG application bundle.",
-            runtime.script.display(),
+            "FUNG worker script is missing at {}. Reinstall the FUNG application bundle.",
+            script.display(),
         ));
     }
 
-    let profile = transcription_profile()?;
     let mut command = Command::new(&runtime.python);
-    command
-        .arg(&runtime.script)
-        .arg(file_path)
-        .arg("--profile")
-        .arg(&profile);
+    command.arg(script).args(args);
 
-    if profile == "gpu" {
+    if let Some(prefix) = path_prefix {
+        let inherited_path = env::var_os("PATH").unwrap_or_default();
+        let child_path = env::join_paths([prefix.as_os_str(), inherited_path.as_os_str()])
+            .map_err(|err| format!("could not compose FUNG GPU runtime PATH: {err}"))?;
+        command.env("PATH", child_path);
+    }
+
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| format!("failed to launch worker: {err}"))?;
+
+    let stderr = child.stderr.take().expect("stderr was piped");
+    let stderr_tail = Arc::new(Mutex::new(String::new()));
+    let tail = stderr_tail.clone();
+    let progress_thread = thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if let Some(rest) = line.strip_prefix("PROGRESS ") {
+                if let Ok(pct) = rest.trim().parse::<i64>() {
+                    on_progress(pct);
+                }
+            } else if let Ok(mut tail) = tail.lock() {
+                tail.push_str(&line);
+                tail.push('\n');
+            }
+        }
+    });
+
+    let mut stdout = child.stdout.take().expect("stdout was piped");
+    let mut raw_output = String::new();
+    stdout
+        .read_to_string(&mut raw_output)
+        .map_err(|err| format!("failed to read worker output: {err}"))?;
+
+    let status = child
+        .wait()
+        .map_err(|err| format!("failed to wait for worker: {err}"))?;
+    let _ = progress_thread.join();
+
+    if !status.success() {
+        let tail = stderr_tail.lock().map(|t| t.clone()).unwrap_or_default();
+        return Err(format!("worker exited with {status}: {}", tail.trim()));
+    }
+
+    Ok(raw_output)
+}
+
+/// Runs the faster-whisper worker script and blocks until it exits,
+/// reporting `PROGRESS <pct>` lines from stderr via `on_progress` as they
+/// arrive. Intended to run off the main thread (see `import_and_transcribe`).
+/// The GPU/CUDA DLL check and profile selection are whisper-specific and stay
+/// here rather than in the generic `run_python_worker`.
+pub(crate) fn run_transcription(
+    runtime: &WhisperRuntime,
+    file_path: &str,
+    on_progress: impl Fn(i64) + Send + 'static,
+) -> Result<WhisperOutput, String> {
+    let profile = transcription_profile()?;
+
+    let path_prefix = if profile == "gpu" {
         let missing: Vec<&str> = REQUIRED_CUDA_DLLS
             .iter()
             .copied()
@@ -765,51 +825,35 @@ pub(crate) fn run_transcription(
                 missing.join(", ")
             ));
         }
+        Some(runtime.cuda_bin.as_path())
+    } else {
+        None
+    };
 
-        let inherited_path = env::var_os("PATH").unwrap_or_default();
-        let child_path =
-            env::join_paths([runtime.cuda_bin.as_os_str(), inherited_path.as_os_str()])
-                .map_err(|err| format!("could not compose FUNG GPU runtime PATH: {err}"))?;
-        command.env("PATH", child_path);
-    }
-
-    let mut child = command
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| format!("failed to launch transcription worker: {err}"))?;
-
-    let stderr = child.stderr.take().expect("stderr was piped");
-    let progress_thread = thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            if let Some(rest) = line.strip_prefix("PROGRESS ") {
-                if let Ok(pct) = rest.trim().parse::<i64>() {
-                    on_progress(pct);
-                }
-            }
-        }
-    });
-
-    let mut stdout = child.stdout.take().expect("stdout was piped");
-    let mut raw_output = String::new();
-    stdout
-        .read_to_string(&mut raw_output)
-        .map_err(|err| format!("failed to read transcription output: {err}"))?;
-
-    let status = child
-        .wait()
-        .map_err(|err| format!("failed to wait for transcription worker: {err}"))?;
-    let _ = progress_thread.join();
-
-    if !status.success() {
-        return Err(format!(
-            "transcription worker exited with {status}: {}",
-            raw_output.trim()
-        ));
-    }
+    let raw_output = run_python_worker(
+        runtime,
+        &runtime.script,
+        &[file_path, "--profile", &profile],
+        path_prefix,
+        on_progress,
+    )?;
 
     serde_json::from_str::<WhisperOutput>(raw_output.trim())
         .map_err(|err| format!("failed to parse transcription output: {err}"))
+}
+
+/// Runs the pyannote diarization worker script. Path B calls this after
+/// transcribing the mixed file; a failure here must never take down the
+/// transcript (see `zoom_sync::run_mixed_audio_path`).
+pub(crate) fn run_diarization(
+    runtime: &WhisperRuntime,
+    file_path: &str,
+    on_progress: impl Fn(i64) + Send + 'static,
+) -> Result<zoom_sync::DiarizeOutput, String> {
+    let script = runtime.script.parent().expect("scripts dir").join("diarize.py");
+    let raw = run_python_worker(runtime, &script, &[file_path], None, on_progress)?;
+    serde_json::from_str(raw.trim())
+        .map_err(|err| format!("failed to parse diarization output: {err}"))
 }
 
 #[tauri::command]

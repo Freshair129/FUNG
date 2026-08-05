@@ -46,7 +46,11 @@ def main() -> int:
         pipeline.to(torch.device("cuda"))
 
     report(10)
-    diarization = pipeline(args.audio_path)
+    try:
+        diarization = pipeline(args.audio_path)
+    except Exception as error:  # bad audio, OOM, or any other inference failure
+        print(f"DIARIZE_FAILED {error}", file=sys.stderr, flush=True)
+        return 4
     report(90)
 
     turns = []

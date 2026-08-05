@@ -723,6 +723,30 @@ fn import_and_transcribe(
     })
 }
 
+/// Cap on the non-`PROGRESS` stderr tail captured for a worker's error
+/// message. Chatty workers (torch/pyannote log warnings on every run) can
+/// otherwise dump megabytes of noise into a `job_events` row; the real
+/// failure text is almost always right before the process exits, so the
+/// *tail* is the part worth keeping.
+const STDERR_TAIL_CAP_BYTES: usize = 8192;
+
+/// Appends `line` (plus a newline) to `buffer`, then drops whole lines from
+/// the front until `buffer` is back at or under `STDERR_TAIL_CAP_BYTES` —
+/// never splitting a line, and always keeping the most recently written
+/// (i.e. most relevant) text.
+fn append_bounded(buffer: &mut String, line: &str) {
+    buffer.push_str(line);
+    buffer.push('\n');
+    while buffer.len() > STDERR_TAIL_CAP_BYTES {
+        match buffer.find('\n') {
+            Some(newline_index) => {
+                buffer.drain(..=newline_index);
+            }
+            None => break,
+        }
+    }
+}
+
 /// Runs a python worker from the whisper venv and returns its stdout after a
 /// zero exit. `PROGRESS <pct>` stderr lines stream through `on_progress`;
 /// other stderr lines are collected into the error message on failure.
@@ -775,8 +799,7 @@ pub(crate) fn run_python_worker(
                     on_progress(pct);
                 }
             } else if let Ok(mut tail) = tail.lock() {
-                tail.push_str(&line);
-                tail.push('\n');
+                append_bounded(&mut tail, &line);
             }
         }
     });
@@ -985,4 +1008,30 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running FUNG");
+}
+
+#[cfg(test)]
+mod worker_tests {
+    use super::*;
+
+    #[test]
+    fn append_bounded_caps_length_and_keeps_latest_line() {
+        let mut buffer = String::new();
+        for i in 0..2000 {
+            append_bounded(&mut buffer, &format!("torch warning line {i}"));
+        }
+        assert!(
+            buffer.len() <= STDERR_TAIL_CAP_BYTES + 128,
+            "buffer must stay bounded near the cap, got {} bytes",
+            buffer.len()
+        );
+        assert!(
+            buffer.contains("torch warning line 1999"),
+            "must retain the most recently appended line"
+        );
+        assert!(
+            !buffer.contains("torch warning line 0\n"),
+            "oldest lines must be dropped once the cap is exceeded"
+        );
+    }
 }

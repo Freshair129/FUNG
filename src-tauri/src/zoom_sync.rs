@@ -734,7 +734,10 @@ fn run_mixed_audio_path(ctx: &ImportContext) -> Result<(), String> {
             // Transcript must survive without diarization.
             crate::speaker_merge::persist_attribution(&ctx.storage, &ctx.project_id, &ctx.recording_id, "local", "faster-whisper (no diarization)", &unassigned, &[], whisper_output.duration_ms)?;
             let timestamp = now();
-            genesis_adapter::commit_rows(&ctx.storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({"id": uuid::Uuid::new_v4().to_string(), "job_id": ctx.job_id, "status": "running", "message": format!("diarization unavailable: {message}"), "created_at": timestamp}))])?;
+            // The transcript is already durable at this point; an audit-log
+            // write failure here must not fail the import, so this is
+            // best-effort rather than `?`.
+            let _ = genesis_adapter::commit_rows(&ctx.storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({"id": uuid::Uuid::new_v4().to_string(), "job_id": ctx.job_id, "status": "running", "message": format!("diarization unavailable: {message}"), "created_at": timestamp}))]);
             Ok(())
         }
     }

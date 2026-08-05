@@ -19,6 +19,12 @@ const STATUS_LABEL: Record<ZoomConnectionStatus["status"], string> = {
 
 export function ZoomPanel({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<ZoomConnectionStatus>({ status: "disconnected", accountLabel: null, revokeFailed: false });
+  // Held separately from `status`: the 2000ms poll overwrites `status` with
+  // `read_connection`'s hardcoded `revoke_failed: false` on its very next
+  // tick, which would erase this warning almost immediately. It is the one
+  // message that must persist, since only the user can act on it (removing
+  // the app in the Zoom Marketplace), so only `handleDisconnect` writes it.
+  const [revokeFailed, setRevokeFailed] = useState(false);
   const [recordings, setRecordings] = useState<ZoomRecordingSummary[]>([]);
   const [recordingsLoaded, setRecordingsLoaded] = useState(false);
   const [busyUuids, setBusyUuids] = useState<Set<string>>(new Set());
@@ -53,6 +59,7 @@ export function ZoomPanel({ onClose }: { onClose: () => void }) {
 
   const handleConnect = async () => {
     setError(null);
+    setRevokeFailed(false);
     try {
       setStatus(await zoomConnect());
     } catch (err) {
@@ -63,7 +70,9 @@ export function ZoomPanel({ onClose }: { onClose: () => void }) {
   const handleDisconnect = async () => {
     setError(null);
     try {
-      setStatus(await zoomDisconnect());
+      const result = await zoomDisconnect();
+      setStatus(result);
+      setRevokeFailed(result.revokeFailed);
       setRecordings([]);
       setRecordingsLoaded(false);
     } catch (err) {
@@ -107,7 +116,7 @@ export function ZoomPanel({ onClose }: { onClose: () => void }) {
           )}
         </div>
         {error && <p className="zoom-panel-error">{error}</p>}
-        {status.revokeFailed && (
+        {revokeFailed && (
           <p className="zoom-panel-error">
             ยกเลิกการเชื่อมต่อในเครื่องแล้ว แต่เพิกถอนสิทธิ์ฝั่ง Zoom ไม่สำเร็จ — ลบแอปออกจาก Zoom Marketplace เพื่อตัดสิทธิ์ให้สมบูรณ์
           </p>

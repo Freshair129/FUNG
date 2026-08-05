@@ -111,12 +111,13 @@ fn token_set_from_response(response: TokenResponse) -> TokenSet {
     }
 }
 
-/// Distinguishes a token endpoint failure the server *decided* (4xx — the
-/// request itself, e.g. an expired/revoked refresh token, is rejected) from
-/// one where the server was never meaningfully reached (network failure,
-/// timeout, or a non-4xx status). Only `Rejected` justifies destroying the
-/// locally stored grant — a `Transport` failure is a temporary condition and
-/// the token may still be good once connectivity returns.
+/// Distinguishes a token endpoint failure that means the grant itself is
+/// dead (RFC 6749 §5.2: 400, canonically with `"error":"invalid_grant"` in
+/// the body, or 401) from every other failure — a network error, a timeout,
+/// the rest of the 4xx range (429 Zoom rate limit, 407/408 from a local
+/// corporate proxy answering before Zoom is ever reached), or a 5xx. Only
+/// `Rejected` justifies destroying the locally stored grant — a `Transport`
+/// failure is a temporary or local condition and the token may still be good.
 #[derive(Debug)]
 pub(crate) enum TokenEndpointError {
     Rejected(String),
@@ -144,13 +145,27 @@ fn post_token_form_to(url: &str, form: &[(&str, &str)]) -> Result<TokenSet, Toke
         .send()
         .map_err(|e| TokenEndpointError::Transport(format!("zoom token request failed: {e}")))?;
     let status = response.status();
-    if status.is_client_error() {
-        // The server considered and rejected the request — a network blip
-        // could not have produced this. Body may describe the error; it
-        // never contains our secrets.
+    // RFC 6749 §5.2: 401 always means the grant is dead. Body may describe
+    // the error; it never contains our secrets.
+    if status.as_u16() == 401 {
         return Err(TokenEndpointError::Rejected(format!("zoom token endpoint returned {status}")));
     }
+    if status.as_u16() == 400 {
+        // Confirm invalid_grant in the body when we can read it; a 400 whose
+        // body can't be read still falls back to Rejected — that status has
+        // no other meaning per RFC 6749 §5.2.
+        return match response.text() {
+            Ok(body) if body.contains("invalid_grant") => {
+                Err(TokenEndpointError::Rejected(format!("zoom token endpoint returned {status}")))
+            }
+            Ok(_) => Err(TokenEndpointError::Transport(format!("zoom token endpoint returned {status}"))),
+            Err(_) => Err(TokenEndpointError::Rejected(format!("zoom token endpoint returned {status}"))),
+        };
+    }
     if !status.is_success() {
+        // Everything else non-success — the rest of the 4xx range (429 rate
+        // limit, 407/408 from a local proxy) and any 5xx — is a transport
+        // condition, not proof the refresh token is dead.
         return Err(TokenEndpointError::Transport(format!("zoom token endpoint returned {status}")));
     }
     response.json::<TokenResponse>().map(token_set_from_response)
@@ -180,12 +195,14 @@ pub(crate) fn refresh_tokens(client_id: &str, refresh_token: &str) -> Result<Tok
 }
 
 /// Revokes a token on Zoom's side via `/oauth/revoke`. Revoking the refresh
-/// token invalidates the whole grant. Never log or format the token itself
-/// into the error string.
-fn revoke_token(token: &str) -> Result<(), String> {
+/// token invalidates the whole grant. RFC 7009 §2.1 requires a public client
+/// to identify itself with `client_id`, or Zoom answers 401 and the revoke
+/// fails every time. Never log or format the token itself into the error
+/// string.
+fn revoke_token(client_id: &str, token: &str) -> Result<(), String> {
     let response = reqwest::blocking::Client::new()
         .post(format!("{ZOOM_AUTH_BASE}/oauth/revoke"))
-        .form(&[("token", token)])
+        .form(&[("token", token), ("client_id", client_id)])
         .send()
         .map_err(|e| format!("zoom revoke request failed: {e}"))?;
     if !response.status().is_success() {
@@ -409,13 +426,20 @@ pub(crate) fn zoom_connection_status(state: State<'_, AppState>) -> AppResult<Zo
 /// user asked to disconnect, and leaving the token on the machine because
 /// Zoom was unreachable would be worse than losing the revoke. The revoke
 /// outcome is still surfaced to the caller via `revoke_failed` so a user can
-/// see it, rather than swallowing it silently.
+/// see it, rather than swallowing it silently. Deletion is never gated on
+/// the revoke attempt: an unconfigured client (no `FUNG_ZOOM_CLIENT_ID`) or
+/// an unreadable/corrupt stored credential must not block disconnecting.
 #[tauri::command]
 pub(crate) fn zoom_disconnect(state: State<'_, AppState>) -> AppResult<ZoomConnectionStatus> {
-    let revoke_failed = match load_tokens().map_err(AppError::Genesis)? {
-        // Revoking the refresh token invalidates the whole grant.
-        Some(tokens) => revoke_token(&tokens.refresh_token).is_err(),
-        None => false,
+    let revoke_failed = match client_id_from_env() {
+        Ok(client_id) => {
+            // An unreadable credential still has to be deletable — never
+            // gate the local delete on parsing what we are about to destroy.
+            matches!(load_tokens(), Ok(Some(tokens)) if revoke_token(&client_id, &tokens.refresh_token).is_err())
+        }
+        // An unconfigured client genuinely cannot revoke; tell the user to
+        // finish in the Zoom Marketplace.
+        Err(_) => true,
     };
     delete_tokens().map_err(AppError::Genesis)?;
     CONNECT_EPOCH.fetch_add(1, Ordering::SeqCst);
@@ -1125,11 +1149,53 @@ mod tests {
     }
 
     #[test]
-    fn token_endpoint_4xx_is_classified_as_a_definitive_rejection() {
+    fn token_endpoint_400_with_invalid_grant_is_classified_as_a_definitive_rejection() {
         let (url, handle) = serve_once("400 Bad Request", "", r#"{"error":"invalid_grant"}"#);
         let error = post_token_form_to(&url, &[("grant_type", "refresh_token"), ("refresh_token", "stale")])
-            .expect_err("a 4xx must be treated as a rejection");
+            .expect_err("a 400 invalid_grant must be treated as a rejection");
         assert!(matches!(error, TokenEndpointError::Rejected(_)), "expected Rejected, got {error:?}");
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn token_endpoint_401_is_classified_as_a_definitive_rejection() {
+        let (url, handle) = serve_once("401 Unauthorized", "", "");
+        let error = post_token_form_to(&url, &[("grant_type", "refresh_token"), ("refresh_token", "stale")])
+            .expect_err("a 401 must be treated as a rejection");
+        assert!(matches!(error, TokenEndpointError::Rejected(_)), "expected Rejected, got {error:?}");
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn token_endpoint_rate_limit_and_proxy_challenge_must_never_be_read_as_a_dead_grant() {
+        // 429 (Zoom's own OAuth rate limit, now reachable because a long
+        // multi-participant import refreshes per download) and 407/408 (a
+        // corporate Windows proxy answering before Zoom is ever reached) are
+        // local/transient conditions. Only 400 (invalid_grant) and 401 mean
+        // the refresh token itself is dead — everything else must not
+        // destroy a valid grant.
+        for status_line in [
+            "429 Too Many Requests",
+            "407 Proxy Authentication Required",
+            "408 Request Timeout",
+        ] {
+            let (url, handle) = serve_once(status_line, "", "");
+            let error = post_token_form_to(&url, &[("grant_type", "refresh_token"), ("refresh_token", "stale")])
+                .expect_err("a non-success status must fail");
+            assert!(
+                matches!(error, TokenEndpointError::Transport(_)),
+                "expected Transport for {status_line}, got {error:?}"
+            );
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn token_endpoint_5xx_is_not_a_dead_grant() {
+        let (url, handle) = serve_once("503 Service Unavailable", "", "");
+        let error = post_token_form_to(&url, &[("grant_type", "refresh_token"), ("refresh_token", "stale")])
+            .expect_err("a 5xx must fail");
+        assert!(matches!(error, TokenEndpointError::Transport(_)), "expected Transport, got {error:?}");
         handle.join().unwrap();
     }
 

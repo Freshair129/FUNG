@@ -196,6 +196,8 @@ struct TranscriptSegment {
     id: String,
     project_id: String,
     recording_id: String,
+    speaker_id: Option<String>,
+    speaker_name: Option<String>,
     start_ms: i64,
     end_ms: i64,
     text: String,
@@ -594,7 +596,30 @@ fn list_transcript_segments(
     project_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<Vec<TranscriptSegment>> {
-    let mut segments = genesis_adapter::query(&state.genesis, "transcript_segments", &["id", "project_id", "recording_id", "start_ms", "end_ms", "text", "confidence", "created_at"], vec![genesis_adapter::eq("transcript_segments", "project_id", serde_json::json!(project_id))], 1000).map_err(AppError::Genesis)?.into_iter().map(|row| Ok(TranscriptSegment { id: genesis_adapter::string(&row, "transcript_segments.id").map_err(AppError::Genesis)?, project_id: genesis_adapter::string(&row, "transcript_segments.project_id").map_err(AppError::Genesis)?, recording_id: genesis_adapter::string(&row, "transcript_segments.recording_id").map_err(AppError::Genesis)?, start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms").map_err(AppError::Genesis)?, end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms").map_err(AppError::Genesis)?, text: genesis_adapter::string(&row, "transcript_segments.text").map_err(AppError::Genesis)?, confidence: row.get("transcript_segments.confidence").and_then(serde_json::Value::as_f64), created_at: genesis_adapter::string(&row, "transcript_segments.created_at").map_err(AppError::Genesis)? })).collect::<AppResult<Vec<_>>>()?;
+    // Resolve speaker display names once per call: query the project's
+    // speakers (capped like every other query against this engine) and build
+    // an id -> display_name map, rather than a lookup per segment.
+    let speaker_rows = genesis_adapter::query(&state.genesis, "speakers", &["id", "display_name"],
+        vec![genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id.clone()))], 1000).map_err(AppError::Genesis)?;
+    let speaker_names: std::collections::HashMap<String, String> = speaker_rows.into_iter().filter_map(|row| {
+        Some((row.get("speakers.id")?.as_str()?.to_string(), row.get("speakers.display_name")?.as_str()?.to_string()))
+    }).collect();
+    let mut segments = genesis_adapter::query(&state.genesis, "transcript_segments", &["id", "project_id", "recording_id", "speaker_id", "start_ms", "end_ms", "text", "confidence", "created_at"], vec![genesis_adapter::eq("transcript_segments", "project_id", serde_json::json!(project_id))], 1000).map_err(AppError::Genesis)?.into_iter().map(|row| {
+        let speaker_id = row.get("transcript_segments.speaker_id").and_then(serde_json::Value::as_str).map(str::to_owned);
+        let speaker_name = speaker_id.as_ref().and_then(|id| speaker_names.get(id).cloned());
+        Ok(TranscriptSegment {
+            id: genesis_adapter::string(&row, "transcript_segments.id").map_err(AppError::Genesis)?,
+            project_id: genesis_adapter::string(&row, "transcript_segments.project_id").map_err(AppError::Genesis)?,
+            recording_id: genesis_adapter::string(&row, "transcript_segments.recording_id").map_err(AppError::Genesis)?,
+            speaker_id,
+            speaker_name,
+            start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms").map_err(AppError::Genesis)?,
+            end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms").map_err(AppError::Genesis)?,
+            text: genesis_adapter::string(&row, "transcript_segments.text").map_err(AppError::Genesis)?,
+            confidence: row.get("transcript_segments.confidence").and_then(serde_json::Value::as_f64),
+            created_at: genesis_adapter::string(&row, "transcript_segments.created_at").map_err(AppError::Genesis)?,
+        })
+    }).collect::<AppResult<Vec<_>>>()?;
     segments.sort_by_key(|segment| segment.start_ms); Ok(segments)
 }
 

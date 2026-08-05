@@ -56,6 +56,8 @@ export type TranscriptSegment = {
   id: string;
   projectId: string;
   recordingId: string;
+  speakerId: string | null;
+  speakerName: string | null;
   startMs: number;
   endMs: number;
   text: string;
@@ -145,6 +147,11 @@ export async function listModelProviders(): Promise<ModelProvider[]> {
 export async function listTranscriptSegments(projectId: string): Promise<TranscriptSegment[]> {
   if (!canInvoke()) return [];
   return invoke<TranscriptSegment[]>("list_transcript_segments", { projectId });
+}
+
+export async function renameSpeaker(speakerId: string, displayName: string): Promise<void> {
+  if (!canInvoke()) return;
+  await invoke<void>("mobile_speaker_rename", { speakerId, displayName });
 }
 
 export async function importAndTranscribe(filePath: string, projectId?: string): Promise<Job> {
@@ -244,4 +251,9 @@ export async function zoomListRecordings(): Promise<ZoomRecordingSummary[]> {
 export async function zoomImportRecording(meetingUuid: string): Promise<Job> {
   if (!canInvoke()) throw new Error("Zoom import requires the desktop app.");
   return invoke<Job>("zoom_import_recording", { meetingUuid });
+}
+
+export async function graphBuildStart(projectId: string, recordingId: string): Promise<void> {
+  if (!canInvoke()) return;
+  await invoke<void>("graph_build_start", { projectId, recordingId });
 }

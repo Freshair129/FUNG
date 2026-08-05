@@ -1033,6 +1033,50 @@ button {
   white-space: nowrap;
 }
 
+.log-item__speaker,
+.log-item__speaker-input {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.6;
+  max-width: 100%;
+}
+
+.log-item__speaker {
+  border: 1px solid rgba(126, 105, 78, 0.25);
+  background: rgba(126, 105, 78, 0.08);
+  color: var(--graphite);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-item__speaker:hover {
+  background: rgba(126, 105, 78, 0.18);
+}
+
+.log-item__speaker-input {
+  border: 1px solid rgba(126, 105, 78, 0.4);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--graphite);
+  width: 100%;
+}
+
+.log-item--retry {
+  border-color: rgba(191, 97, 66, 0.35);
+  background: linear-gradient(145deg, rgba(255, 244, 238, 0.95), rgba(240, 210, 198, 0.5));
+}
+
+.log-item__retry {
+  margin-top: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+}
+
 .event-item {
   grid-template-columns: 1fr auto;
   align-items: center;

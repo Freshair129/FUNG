@@ -28,6 +28,7 @@ import {
   createJob,
   createProject,
   getHealth,
+  graphBuildStart,
   importAndTranscribe,
   listJobs,
   listModelProviders,
@@ -36,6 +37,7 @@ import {
   minimizeWindow,
   openExternalAccountPortal,
   pickAudioOrVideoFile,
+  renameSpeaker,
   startLocalApi,
   type Health,
   type Job,
@@ -88,6 +90,8 @@ type ActivityEntry = {
   time: string;
   title: string;
   detail: string;
+  speakerId?: string | null;
+  speakerName?: string | null;
 };
 
 type EventEntry = {
@@ -571,6 +575,62 @@ function Segmented<T extends string>({
   );
 }
 
+function SpeakerLabel({
+  speakerId,
+  speakerName,
+  onRename,
+}: {
+  speakerId: string;
+  speakerName: string;
+  onRename: (speakerId: string, displayName: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(speakerName);
+
+  useEffect(() => {
+    setValue(speakerName);
+  }, [speakerName]);
+
+  if (editing) {
+    return (
+      <input
+        className="log-item__speaker-input"
+        autoFocus
+        value={value}
+        aria-label="แก้ไขชื่อผู้พูด"
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => {
+          setEditing(false);
+          const trimmed = value.trim();
+          if (trimmed && trimmed !== speakerName) onRename(speakerId, trimmed);
+          else setValue(speakerName);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") {
+            setValue(speakerName);
+            setEditing(false);
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="log-item__speaker"
+      title="แก้ไขชื่อผู้พูด"
+      onClick={(event) => {
+        event.stopPropagation();
+        setEditing(true);
+      }}
+    >
+      {speakerName}
+    </button>
+  );
+}
+
 export function App() {
   const scale = useStageScale();
   const [health, setHealth] = useState<Health | null>(null);
@@ -729,6 +789,8 @@ export function App() {
         time: formatMs(segment.startMs),
         title: segment.text.length > 60 ? `${segment.text.slice(0, 60)}…` : segment.text,
         detail: segment.confidence != null ? `Confidence ${(segment.confidence * 100).toFixed(0)}%` : "faster-whisper",
+        speakerId: segment.speakerId,
+        speakerName: segment.speakerName,
       }));
     }
 
@@ -848,6 +910,26 @@ export function App() {
       if (!job || job.status === "completed" || job.status === "failed") return;
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
+  };
+
+  const handleRenameSpeaker = async (speakerId: string, displayName: string) => {
+    await renameSpeaker(speakerId, displayName);
+    if (selectedProjectId) {
+      const nextSegments = await listTranscriptSegments(selectedProjectId);
+      setSegments(nextSegments);
+    }
+  };
+
+  const failedGraphBuilds = useMemo(
+    () => jobs.filter((job) => job.type === "graph.build" && job.status === "failed"),
+    [jobs],
+  );
+
+  const handleRetryGraphBuild = async (job: Job) => {
+    const recordingId = job.inputRefs[0];
+    if (!recordingId) return;
+    await graphBuildStart(job.projectId, recordingId);
+    await refresh();
   };
 
   const handleImportAndTranscribe = async () => {
@@ -1112,8 +1194,33 @@ export function App() {
                     <article key={entry.time + entry.title} className="log-item">
                       <span className="log-item__time">{entry.time}</span>
                       <div>
+                        {entry.speakerName && entry.speakerId ? (
+                          <SpeakerLabel
+                            speakerId={entry.speakerId}
+                            speakerName={entry.speakerName}
+                            onRename={(speakerId, displayName) => void handleRenameSpeaker(speakerId, displayName)}
+                          />
+                        ) : null}
                         <strong>{entry.title}</strong>
                         <p>{entry.detail}</p>
+                      </div>
+                    </article>
+                  ))}
+                  {failedGraphBuilds.map((job) => (
+                    <article key={job.id} className="log-item log-item--retry">
+                      <span className="log-item__time">
+                        {new Date(job.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <div>
+                        <strong>สร้างกราฟความรู้ไม่สำเร็จ</strong>
+                        <p>{job.errorMessage ?? "ลองสร้างกราฟใหม่อีกครั้ง"}</p>
+                        <button
+                          type="button"
+                          className="quick-action log-item__retry"
+                          onClick={() => void handleRetryGraphBuild(job)}
+                        >
+                          ลองใหม่
+                        </button>
                       </div>
                     </article>
                   ))}

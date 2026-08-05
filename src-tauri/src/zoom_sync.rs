@@ -405,11 +405,38 @@ pub(crate) fn encode_meeting_uuid(uuid: &str) -> String {
     }
 }
 
+/// Zoom's documented rate-limit backoff. Returns the number of seconds to wait,
+/// defaulting to a conservative value when the header is absent or unparseable.
+fn retry_after_seconds(response: &reqwest::blocking::Response) -> u64 {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds <= 120)
+        .unwrap_or(5)
+}
+
+/// Bounded attempts for a 429 backoff-and-retry loop. Zoom's rate limit is
+/// routine, not exceptional, so a handful of retries with `Retry-After`
+/// backoff resolves most hits without surfacing an error.
+const MAX_RATE_LIMIT_ATTEMPTS: u32 = 3;
+
 fn api_get_json<T: serde::de::DeserializeOwned>(access_token: &str, path_and_query: &str) -> Result<T, String> {
-    let response = reqwest::blocking::Client::new()
-        .get(format!("{ZOOM_API_BASE}{path_and_query}"))
-        .bearer_auth(access_token)
-        .send().map_err(|e| format!("zoom api request failed: {e}"))?;
+    let client = reqwest::blocking::Client::new();
+    let mut attempt = 0u32;
+    let response = loop {
+        attempt += 1;
+        let response = client
+            .get(format!("{ZOOM_API_BASE}{path_and_query}"))
+            .bearer_auth(access_token)
+            .send().map_err(|e| format!("zoom api request failed: {e}"))?;
+        if response.status().as_u16() == 429 && attempt < MAX_RATE_LIMIT_ATTEMPTS {
+            std::thread::sleep(std::time::Duration::from_secs(retry_after_seconds(&response)));
+            continue;
+        }
+        break response;
+    };
     let status = response.status();
     if status.as_u16() == 429 {
         return Err("zoom rate limit hit (429); try again shortly".to_string());
@@ -522,13 +549,27 @@ pub(crate) fn download_to_file(access_token: &str, url: &str, dest: &std::path::
     if let Some(parent) = dest.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
     let existing = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
     let client = reqwest::blocking::Client::new();
-    let mut request = client.get(url).bearer_auth(access_token);
-    if existing > 0 { request = request.header("Range", format!("bytes={existing}-")); }
-    // reqwest::Error's Display embeds the request URL when one is set (as it
-    // is here); strip it before formatting so the credential-bearing
-    // download URL never reaches a job event or error string.
-    let mut response = request.send().map_err(|e| format!("zoom download failed: {}", e.without_url()))?;
+    let mut attempt = 0u32;
+    let mut response = loop {
+        attempt += 1;
+        let mut request = client.get(url).bearer_auth(access_token);
+        if existing > 0 { request = request.header("Range", format!("bytes={existing}-")); }
+        // reqwest::Error's Display embeds the request URL when one is set (as
+        // it is here); strip it before formatting so the credential-bearing
+        // download URL never reaches a job event or error string.
+        let response = request.send().map_err(|e| format!("zoom download failed: {}", e.without_url()))?;
+        if response.status().as_u16() == 429 && attempt < MAX_RATE_LIMIT_ATTEMPTS {
+            std::thread::sleep(std::time::Duration::from_secs(retry_after_seconds(&response)));
+            continue;
+        }
+        break response;
+    };
     let status = response.status();
+    // A complete file on disk makes the server reject our Range with 416.
+    // That means the download already finished — not an error.
+    if status.as_u16() == 416 && existing > 0 {
+        return Ok(());
+    }
     let append = status.as_u16() == 206;
     if !status.is_success() {
         return Err(format!("zoom download returned {status}"));
@@ -954,5 +995,52 @@ mod tests {
         assert!(may_fetch_another_page(10, "tok"));
         // The runaway guard is the only stop condition besides an empty token.
         assert!(!may_fetch_another_page(MAX_RECORDING_PAGES, "tok"));
+    }
+
+    /// Serves one canned HTTP response on a loopback port and returns its URL.
+    fn serve_once(status_line: &'static str, headers: &'static str, body: &'static str) -> (String, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/file", listener.local_addr().unwrap());
+        let handle = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0u8; 2048];
+                let _ = stream.read(&mut buffer);
+                use std::io::Write as _;
+                let response = format!(
+                    "HTTP/1.1 {status_line}\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (url, handle)
+    }
+
+    #[test]
+    fn download_treats_416_on_a_complete_file_as_done() {
+        let dir = std::env::temp_dir().join(format!("fung-dl-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dest = dir.join("mixed.m4a");
+        std::fs::write(&dest, b"already downloaded").unwrap();
+
+        let (url, handle) = serve_once("416 Range Not Satisfiable", "", "");
+        // A finished download must not fail the retry, and must not truncate
+        // the file that is already on disk.
+        download_to_file("token", &url, &dest).expect("416 on a complete file means done");
+        handle.join().unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"already downloaded");
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn download_writes_a_fresh_file_on_200() {
+        let dir = std::env::temp_dir().join(format!("fung-dl-{}", uuid::Uuid::new_v4()));
+        let dest = dir.join("mixed.m4a");
+        let (url, handle) = serve_once("200 OK", "", "audio-bytes");
+        download_to_file("token", &url, &dest).unwrap();
+        handle.join().unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"audio-bytes");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -18,7 +18,7 @@ const STATUS_LABEL: Record<ZoomConnectionStatus["status"], string> = {
 };
 
 export function ZoomPanel({ onClose }: { onClose: () => void }) {
-  const [status, setStatus] = useState<ZoomConnectionStatus>({ status: "disconnected", accountLabel: null });
+  const [status, setStatus] = useState<ZoomConnectionStatus>({ status: "disconnected", accountLabel: null, revokeFailed: false });
   const [recordings, setRecordings] = useState<ZoomRecordingSummary[]>([]);
   const [recordingsLoaded, setRecordingsLoaded] = useState(false);
   const [busyUuids, setBusyUuids] = useState<Set<string>>(new Set());
@@ -107,6 +107,11 @@ export function ZoomPanel({ onClose }: { onClose: () => void }) {
           )}
         </div>
         {error && <p className="zoom-panel-error">{error}</p>}
+        {status.revokeFailed && (
+          <p className="zoom-panel-error">
+            ยกเลิกการเชื่อมต่อในเครื่องแล้ว แต่เพิกถอนสิทธิ์ฝั่ง Zoom ไม่สำเร็จ — ลบแอปออกจาก Zoom Marketplace เพื่อตัดสิทธิ์ให้สมบูรณ์
+          </p>
+        )}
         {status.status === "connected" && (
           <ul className="zoom-panel-list">
             {recordingsLoaded && recordings.length === 0 && (

@@ -216,6 +216,7 @@ export async function openExternalAccountPortal(): Promise<void> {
 export type ZoomConnectionStatus = {
   status: "disconnected" | "connecting" | "connected" | "error";
   accountLabel: string | null;
+  revokeFailed: boolean;
 };
 
 export type ZoomRecordingSummary = {
@@ -226,7 +227,7 @@ export type ZoomRecordingSummary = {
   hasParticipantAudio: boolean;
 };
 
-const zoomOffline: ZoomConnectionStatus = { status: "disconnected", accountLabel: null };
+const zoomOffline: ZoomConnectionStatus = { status: "disconnected", accountLabel: null, revokeFailed: false };
 
 export async function zoomConnect(): Promise<ZoomConnectionStatus> {
   if (!canInvoke()) return zoomOffline;

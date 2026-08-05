@@ -111,18 +111,54 @@ fn token_set_from_response(response: TokenResponse) -> TokenSet {
     }
 }
 
-fn post_token_form(form: &[(&str, &str)]) -> Result<TokenSet, String> {
+/// Distinguishes a token endpoint failure the server *decided* (4xx — the
+/// request itself, e.g. an expired/revoked refresh token, is rejected) from
+/// one where the server was never meaningfully reached (network failure,
+/// timeout, or a non-4xx status). Only `Rejected` justifies destroying the
+/// locally stored grant — a `Transport` failure is a temporary condition and
+/// the token may still be good once connectivity returns.
+#[derive(Debug)]
+pub(crate) enum TokenEndpointError {
+    Rejected(String),
+    Transport(String),
+}
+
+impl TokenEndpointError {
+    pub(crate) fn message(&self) -> &str {
+        match self {
+            TokenEndpointError::Rejected(message) | TokenEndpointError::Transport(message) => message,
+        }
+    }
+}
+
+impl std::fmt::Display for TokenEndpointError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+fn post_token_form_to(url: &str, form: &[(&str, &str)]) -> Result<TokenSet, TokenEndpointError> {
     let response = reqwest::blocking::Client::new()
-        .post(format!("{ZOOM_AUTH_BASE}/oauth/token"))
+        .post(url)
         .form(form)
         .send()
-        .map_err(|e| format!("zoom token request failed: {e}"))?;
-    if !response.status().is_success() {
-        // Body may describe the error; it never contains our secrets.
-        return Err(format!("zoom token endpoint returned {}", response.status()));
+        .map_err(|e| TokenEndpointError::Transport(format!("zoom token request failed: {e}")))?;
+    let status = response.status();
+    if status.is_client_error() {
+        // The server considered and rejected the request — a network blip
+        // could not have produced this. Body may describe the error; it
+        // never contains our secrets.
+        return Err(TokenEndpointError::Rejected(format!("zoom token endpoint returned {status}")));
+    }
+    if !status.is_success() {
+        return Err(TokenEndpointError::Transport(format!("zoom token endpoint returned {status}")));
     }
     response.json::<TokenResponse>().map(token_set_from_response)
-        .map_err(|e| format!("zoom token response parse failed: {e}"))
+        .map_err(|e| TokenEndpointError::Transport(format!("zoom token response parse failed: {e}")))
+}
+
+fn post_token_form(form: &[(&str, &str)]) -> Result<TokenSet, TokenEndpointError> {
+    post_token_form_to(&format!("{ZOOM_AUTH_BASE}/oauth/token"), form)
 }
 
 pub(crate) fn exchange_code(client_id: &str, code: &str, redirect_uri: &str, verifier: &str) -> Result<TokenSet, String> {
@@ -132,10 +168,10 @@ pub(crate) fn exchange_code(client_id: &str, code: &str, redirect_uri: &str, ver
         ("redirect_uri", redirect_uri),
         ("client_id", client_id),
         ("code_verifier", verifier),
-    ])
+    ]).map_err(|e| e.message().to_string())
 }
 
-pub(crate) fn refresh_tokens(client_id: &str, refresh_token: &str) -> Result<TokenSet, String> {
+pub(crate) fn refresh_tokens(client_id: &str, refresh_token: &str) -> Result<TokenSet, TokenEndpointError> {
     post_token_form(&[
         ("grant_type", "refresh_token"),
         ("refresh_token", refresh_token),
@@ -143,16 +179,44 @@ pub(crate) fn refresh_tokens(client_id: &str, refresh_token: &str) -> Result<Tok
     ])
 }
 
+/// Revokes a token on Zoom's side via `/oauth/revoke`. Revoking the refresh
+/// token invalidates the whole grant. Never log or format the token itself
+/// into the error string.
+fn revoke_token(token: &str) -> Result<(), String> {
+    let response = reqwest::blocking::Client::new()
+        .post(format!("{ZOOM_AUTH_BASE}/oauth/revoke"))
+        .form(&[("token", token)])
+        .send()
+        .map_err(|e| format!("zoom revoke request failed: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("zoom revoke endpoint returned {}", response.status()));
+    }
+    Ok(())
+}
+
 /// Returns a currently-valid access token, refreshing (and re-saving) when
 /// it expires within 60 seconds. `Err` means the user must reconnect.
+///
+/// A refresh the server definitively rejects (4xx — the refresh token is
+/// dead) deletes the stored tokens so `zoom_connection_status` reports
+/// `error` (spec §9). A transport failure leaves the tokens alone: it is a
+/// temporary condition and destroying the grant over it would be wrong.
 pub(crate) fn ensure_fresh_access_token(client_id: &str) -> Result<String, String> {
     let tokens = load_tokens()?.ok_or_else(|| "Zoom is not connected".to_string())?;
     if tokens.expires_at_epoch - chrono::Utc::now().timestamp() > 60 {
         return Ok(tokens.access_token);
     }
-    let refreshed = refresh_tokens(client_id, &tokens.refresh_token)?;
-    save_tokens(&refreshed)?;
-    Ok(refreshed.access_token)
+    match refresh_tokens(client_id, &tokens.refresh_token) {
+        Ok(refreshed) => {
+            save_tokens(&refreshed)?;
+            Ok(refreshed.access_token)
+        }
+        Err(TokenEndpointError::Rejected(message)) => {
+            let _ = delete_tokens();
+            Err(message)
+        }
+        Err(TokenEndpointError::Transport(message)) => Err(message),
+    }
 }
 
 pub(crate) fn parse_callback_request(first_line: &str) -> Result<(String, String), String> {
@@ -214,6 +278,11 @@ fn wait_for_callback(
 pub(crate) struct ZoomConnectionStatus {
     pub(crate) status: String,
     pub(crate) account_label: Option<String>,
+    /// True only when a disconnect attempted a Zoom-side revoke and it
+    /// failed. Local state is still authoritative (tokens are gone either
+    /// way) — this just tells the user the grant may still be live on
+    /// Zoom's side.
+    pub(crate) revoke_failed: bool,
 }
 
 fn write_connection(storage: &genesis_block_native::Storage, status: &str, account_label: &str) -> Result<(), String> {
@@ -238,8 +307,9 @@ fn read_connection(storage: &genesis_block_native::Storage) -> Result<ZoomConnec
             status: genesis_adapter::string(&row, "external_connections.status")?,
             account_label: row.get("external_connections.account_label").and_then(serde_json::Value::as_str)
                 .filter(|label| !label.is_empty()).map(str::to_owned),
+            revoke_failed: false,
         },
-        None => ZoomConnectionStatus { status: "disconnected".to_string(), account_label: None },
+        None => ZoomConnectionStatus { status: "disconnected".to_string(), account_label: None, revoke_failed: false },
     })
 }
 
@@ -320,7 +390,7 @@ pub(crate) fn zoom_connect(app: tauri::AppHandle, state: State<'_, AppState>) ->
         };
     });
 
-    Ok(ZoomConnectionStatus { status: "connecting".to_string(), account_label: None })
+    Ok(ZoomConnectionStatus { status: "connecting".to_string(), account_label: None, revoke_failed: false })
 }
 
 #[tauri::command]
@@ -334,12 +404,25 @@ pub(crate) fn zoom_connection_status(state: State<'_, AppState>) -> AppResult<Zo
     Ok(status)
 }
 
+/// Disconnects Zoom: attempts to revoke the grant on Zoom's side, then always
+/// deletes the local tokens regardless of whether the revoke succeeded — the
+/// user asked to disconnect, and leaving the token on the machine because
+/// Zoom was unreachable would be worse than losing the revoke. The revoke
+/// outcome is still surfaced to the caller via `revoke_failed` so a user can
+/// see it, rather than swallowing it silently.
 #[tauri::command]
 pub(crate) fn zoom_disconnect(state: State<'_, AppState>) -> AppResult<ZoomConnectionStatus> {
+    let revoke_failed = match load_tokens().map_err(AppError::Genesis)? {
+        // Revoking the refresh token invalidates the whole grant.
+        Some(tokens) => revoke_token(&tokens.refresh_token).is_err(),
+        None => false,
+    };
     delete_tokens().map_err(AppError::Genesis)?;
     CONNECT_EPOCH.fetch_add(1, Ordering::SeqCst);
     write_connection(&state.genesis, "disconnected", "").map_err(AppError::Genesis)?;
-    read_connection(&state.genesis).map_err(AppError::Genesis)
+    let mut status = read_connection(&state.genesis).map_err(AppError::Genesis)?;
+    status.revoke_failed = revoke_failed;
+    Ok(status)
 }
 
 #[derive(Debug, Deserialize)]
@@ -895,6 +978,19 @@ mod tests {
     }
 
     #[test]
+    fn zoom_connection_status_revoke_failed_serializes_camel_case_and_defaults_false() {
+        let (path, storage) = open_storage();
+        write_connection(&storage, "connected", "user@example.com").unwrap();
+        let status = read_connection(&storage).unwrap();
+        // A read that never attempted a revoke must default to false.
+        assert!(!status.revoke_failed);
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json.get("revokeFailed"), Some(&serde_json::json!(false)));
+        assert!(json.get("revoke_failed").is_none(), "must serialize camelCase, not snake_case");
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
     fn token_set_debug_never_exposes_secrets() {
         let tokens = TokenSet {
             access_token: "secret-access".to_string(),
@@ -1026,6 +1122,29 @@ mod tests {
             }
         });
         (url, handle)
+    }
+
+    #[test]
+    fn token_endpoint_4xx_is_classified_as_a_definitive_rejection() {
+        let (url, handle) = serve_once("400 Bad Request", "", r#"{"error":"invalid_grant"}"#);
+        let error = post_token_form_to(&url, &[("grant_type", "refresh_token"), ("refresh_token", "stale")])
+            .expect_err("a 4xx must be treated as a rejection");
+        assert!(matches!(error, TokenEndpointError::Rejected(_)), "expected Rejected, got {error:?}");
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn token_endpoint_transport_failure_is_not_a_rejection() {
+        // Bind then immediately drop so the port is guaranteed free — the
+        // connection attempt fails because nothing is listening, not
+        // because a server answered and said no.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let url = format!("http://127.0.0.1:{port}/oauth/token");
+        let error = post_token_form_to(&url, &[("grant_type", "refresh_token"), ("refresh_token", "stale")])
+            .expect_err("nothing is listening; this must fail");
+        assert!(matches!(error, TokenEndpointError::Transport(_)), "expected Transport, got {error:?}");
     }
 
     #[test]

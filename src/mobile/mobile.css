@@ -143,13 +143,16 @@
 .m-graph-canvas line { vector-effect: non-scaling-stroke; stroke-width: 1.5; stroke: var(--m-sage); }
 .m-graph-canvas line.is-inferred { stroke: var(--m-metal); stroke-dasharray: 4 4; }
 .m-graph-canvas line.is-disputed { stroke: var(--m-record); stroke-dasharray: 2 3; }
+.m-graph-canvas line.is-ai-proposed { stroke: var(--m-indigo); stroke-dasharray: 1 3; }
 .m-graph-node { position: absolute; transform: translate(-50%, -50%); max-width: 116px; min-height: 39px; padding: 8px 13px; border-radius: 999px; border: 1px solid var(--m-line)!important; background: var(--m-surface-raised); box-shadow: var(--m-shadow); font-size: 11px; }
 .m-graph-node.is-project { color: white; background: var(--m-indigo); }
 .m-graph-node.is-selected { outline: 4px solid color-mix(in srgb, var(--m-indigo) 20%, transparent); }
 .m-graph-legend { display: flex; justify-content: center; gap: 24px; color: var(--m-muted); font-size: 11px; }
 .m-graph-legend span { display: flex; align-items: center; gap: 7px; }
 .m-graph-legend i { width: 25px; border-top: 2px solid var(--m-sage); }
-.m-graph-legend i.is-dotted { border-top-style: dashed; border-color: var(--m-metal); }
+.m-graph-legend i.is-inferred { border-top-style: dashed; border-color: var(--m-metal); }
+.m-graph-legend i.is-disputed { border-top-style: dashed; border-color: var(--m-record); }
+.m-graph-legend i.is-ai-proposed { border-top-style: dotted; border-color: var(--m-indigo); }
 .m-graph-inspector { margin-top: 19px; padding: 18px; border-radius: 19px; background: var(--m-surface); box-shadow: var(--m-shadow); }
 .m-graph-inspector > span { color: var(--m-sage); font-size: 11px; }
 .m-graph-inspector h2 { margin: 6px 0; font-size: 20px; }

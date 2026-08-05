@@ -463,12 +463,49 @@ pub(crate) fn zoom_list_recordings() -> AppResult<Vec<ZoomRecordingSummary>> {
     Ok(summaries)
 }
 
-pub(crate) fn find_existing_import(storage: &genesis_block_native::Storage, uuid: &str) -> Result<Option<String>, String> {
-    Ok(genesis_adapter::query(storage, "external_imports", &["recording_id", "provider", "external_uuid"],
-        vec![genesis_adapter::eq("external_imports", "external_uuid", serde_json::json!(uuid))], 10)?
-        .into_iter()
-        .find(|row| row.get("external_imports.provider").and_then(serde_json::Value::as_str) == Some("zoom"))
-        .and_then(|row| row.get("external_imports.recording_id").and_then(serde_json::Value::as_str).map(str::to_owned)))
+/// A prior Zoom import of the same meeting, if any.
+#[derive(Debug, Clone)]
+pub(crate) struct PriorImport {
+    pub(crate) project_id: String,
+    pub(crate) recording_id: String,
+    /// The recording's current status; `"completed"` means the import finished.
+    pub(crate) recording_status: String,
+}
+
+/// Finds a previous Zoom import of `uuid`, so a retry can resume it instead of
+/// creating a second project. Returns `None` when the meeting was never imported.
+pub(crate) fn find_prior_import(
+    storage: &genesis_block_native::Storage,
+    uuid: &str,
+) -> Result<Option<PriorImport>, String> {
+    let Some(row) = genesis_adapter::query(
+        storage,
+        "external_imports",
+        &["project_id", "recording_id", "provider", "external_uuid"],
+        vec![genesis_adapter::eq("external_imports", "external_uuid", serde_json::json!(uuid))],
+        10,
+    )?
+    .into_iter()
+    .find(|row| {
+        row.get("external_imports.provider").and_then(serde_json::Value::as_str) == Some("zoom")
+    }) else {
+        return Ok(None);
+    };
+    let project_id = genesis_adapter::string(&row, "external_imports.project_id")?;
+    let recording_id = genesis_adapter::string(&row, "external_imports.recording_id")?;
+    let recording_status = genesis_adapter::query(
+        storage,
+        "recordings",
+        &["status"],
+        vec![genesis_adapter::eq("recordings", "id", serde_json::json!(recording_id))],
+        1,
+    )?
+    .into_iter()
+    .next()
+    .map(|row| genesis_adapter::string(&row, "recordings.status"))
+    .transpose()?
+    .unwrap_or_else(|| "pending".to_string());
+    Ok(Some(PriorImport { project_id, recording_id, recording_status }))
 }
 
 /// Windows-safe single path component: replaces separator/reserved chars.
@@ -509,28 +546,44 @@ pub(crate) fn download_to_file(access_token: &str, url: &str, dest: &std::path::
 #[tauri::command]
 pub(crate) fn zoom_import_recording(meeting_uuid: String, state: State<'_, AppState>) -> AppResult<crate::Job> {
     let client_id = client_id_from_env()?;
-    if find_existing_import(&state.genesis, &meeting_uuid).map_err(AppError::Genesis)?.is_some() {
+    let prior = find_prior_import(&state.genesis, &meeting_uuid).map_err(AppError::Genesis)?;
+    if prior.as_ref().is_some_and(|import| import.recording_status == "completed") {
         return Err(AppError::InvalidInput("recording is already imported".to_string()));
     }
+    let resuming = prior.is_some();
+    let (project_id, recording_id) = match &prior {
+        Some(import) => (import.project_id.clone(), import.recording_id.clone()),
+        None => (uuid::Uuid::new_v4().to_string(), uuid::Uuid::new_v4().to_string()),
+    };
     let access_token = ensure_fresh_access_token(&client_id).map_err(AppError::InvalidInput)?;
     let meeting: ZoomMeetingRecording =
         api_get_json(&access_token, &format!("/meetings/{}/recordings", encode_meeting_uuid(&meeting_uuid)))
             .map_err(AppError::InvalidInput)?;
 
-    let project_id = uuid::Uuid::new_v4().to_string();
-    let recording_id = uuid::Uuid::new_v4().to_string();
     let job_id = uuid::Uuid::new_v4().to_string();
     let timestamp = now();
     let storage_path = state.data_root.join("projects").join(&project_id).display().to_string();
     let base_dir = state.data_root.join("projects").join(&project_id).join("zoom").join(sanitize_component(&meeting_uuid));
     let mixed_path = base_dir.join("mixed.m4a");
 
-    genesis_adapter::commit_rows(&state.genesis, vec![
-        genesis_adapter::upsert("projects", serde_json::json!({"id": project_id, "name": meeting.topic, "storage_path": storage_path, "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp})),
-        genesis_adapter::upsert("recordings", serde_json::json!({"id": recording_id, "project_id": project_id, "source": "import", "input_path": null, "canonical_audio_path": mixed_path.display().to_string(), "status": "pending", "duration_ms": 0, "created_at": timestamp, "updated_at": timestamp})),
-        genesis_adapter::upsert("jobs", serde_json::json!({"id": job_id, "project_id": project_id, "type": "zoom.import", "status": "running", "progress": 0, "input_refs_json": [meeting_uuid], "output_refs_json": [recording_id], "provider_id": null, "error_code": null, "error_message": null, "attempt_no": 1, "started_at": timestamp, "finished_at": null, "created_at": timestamp, "updated_at": timestamp})),
-        genesis_adapter::upsert("job_events", serde_json::json!({"id": uuid::Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": "downloading zoom recording", "created_at": timestamp})),
-    ]).map_err(AppError::Genesis)?;
+    let mut seed = Vec::new();
+    if !resuming {
+        seed.push(genesis_adapter::upsert("projects", serde_json::json!({"id": project_id, "name": meeting.topic, "storage_path": storage_path, "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp})));
+        seed.push(genesis_adapter::upsert("recordings", serde_json::json!({"id": recording_id, "project_id": project_id, "source": "import", "input_path": null, "canonical_audio_path": mixed_path.display().to_string(), "status": "pending", "duration_ms": 0, "created_at": timestamp, "updated_at": timestamp})));
+        // Recorded upfront so a concurrent second call finds it immediately.
+        seed.push(genesis_adapter::upsert("external_imports", serde_json::json!({
+            "id": uuid::Uuid::new_v4().to_string(),
+            "project_id": project_id,
+            "provider": "zoom",
+            "external_uuid": meeting_uuid,
+            "recording_id": recording_id,
+            "payload_json": {"topic": meeting.topic},
+            "created_at": timestamp,
+        })));
+    }
+    seed.push(genesis_adapter::upsert("jobs", serde_json::json!({"id": job_id, "project_id": project_id, "type": "zoom.import", "status": "running", "progress": 0, "input_refs_json": [meeting_uuid], "output_refs_json": [recording_id], "provider_id": null, "error_code": null, "error_message": null, "attempt_no": 1, "started_at": timestamp, "finished_at": null, "created_at": timestamp, "updated_at": timestamp})));
+    seed.push(genesis_adapter::upsert("job_events", serde_json::json!({"id": uuid::Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": if resuming { "resuming zoom recording download" } else { "downloading zoom recording" }, "created_at": timestamp})));
+    genesis_adapter::commit_rows(&state.genesis, seed).map_err(AppError::Genesis)?;
 
     let ctx = ImportContext {
         storage: state.genesis.clone(),
@@ -585,10 +638,6 @@ fn run_import_worker(ctx: ImportContext, meeting: ZoomMeetingRecording, access_t
             }
         }
         let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "running", Some(30), None);
-        let timestamp = now();
-        genesis_adapter::commit_rows(&ctx.storage, vec![
-            genesis_adapter::upsert("external_imports", serde_json::json!({"id": uuid::Uuid::new_v4().to_string(), "project_id": ctx.project_id, "provider": "zoom", "external_uuid": ctx.meeting_uuid, "recording_id": ctx.recording_id, "payload_json": {"topic": ctx.meeting_topic, "participantFiles": participants.len()}, "created_at": timestamp})),
-        ])?;
         Ok(participants)
     })();
 
@@ -617,15 +666,40 @@ mod tests {
     }
 
     #[test]
-    fn import_idempotency_finds_prior_recording_by_uuid() {
+    fn prior_import_reports_recording_status_for_resume_decisions() {
         let (path, storage) = open_storage();
-        assert_eq!(find_existing_import(&storage, "uuid-1").unwrap(), None);
+        assert!(find_prior_import(&storage, "uuid-1").unwrap().is_none());
         crate::genesis_adapter::commit_rows(&storage, vec![
             crate::genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"})),
             crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"pending","duration_ms":0,"created_at":"t","updated_at":"t"})),
             crate::genesis_adapter::upsert("external_imports", serde_json::json!({"id":"i1","project_id":"p1","provider":"zoom","external_uuid":"uuid-1","recording_id":"r1","payload_json":{},"created_at":"t"})),
         ]).unwrap();
-        assert_eq!(find_existing_import(&storage, "uuid-1").unwrap(), Some("r1".to_string()));
+
+        let prior = find_prior_import(&storage, "uuid-1").unwrap().expect("prior import");
+        assert_eq!(prior.project_id, "p1");
+        assert_eq!(prior.recording_id, "r1");
+        // An unfinished import must be resumable, not rejected.
+        assert_eq!(prior.recording_status, "pending");
+
+        crate::genesis_adapter::commit_rows(&storage, vec![
+            crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":10,"created_at":"t","updated_at":"t2"})),
+        ]).unwrap();
+        let finished = find_prior_import(&storage, "uuid-1").unwrap().expect("prior import");
+        assert_eq!(finished.recording_status, "completed");
+
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn prior_import_ignores_other_providers_and_other_meetings() {
+        let (path, storage) = open_storage();
+        crate::genesis_adapter::commit_rows(&storage, vec![
+            crate::genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"})),
+            crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"pending","duration_ms":0,"created_at":"t","updated_at":"t"})),
+            crate::genesis_adapter::upsert("external_imports", serde_json::json!({"id":"i1","project_id":"p1","provider":"other","external_uuid":"uuid-1","recording_id":"r1","payload_json":{},"created_at":"t"})),
+        ]).unwrap();
+        assert!(find_prior_import(&storage, "uuid-1").unwrap().is_none(), "non-zoom provider must not match");
+        assert!(find_prior_import(&storage, "uuid-2").unwrap().is_none());
         drop(storage); let _ = std::fs::remove_dir_all(path);
     }
 

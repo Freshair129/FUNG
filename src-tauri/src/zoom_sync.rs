@@ -11,12 +11,22 @@ const KEYRING_USER: &str = "zoom-oauth";
 const ZOOM_AUTH_BASE: &str = "https://zoom.us";
 pub(crate) const ZOOM_API_BASE: &str = "https://api.zoom.us/v2";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct TokenSet {
     pub(crate) access_token: String,
     pub(crate) refresh_token: String,
     /// Unix seconds after which `access_token` is no longer valid.
     pub(crate) expires_at_epoch: i64,
+}
+
+impl std::fmt::Debug for TokenSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenSet")
+            .field("access_token", &"<redacted>")
+            .field("refresh_token", &"<redacted>")
+            .field("expires_at_epoch", &self.expires_at_epoch)
+            .finish()
+    }
 }
 
 fn keyring_entry() -> Result<keyring::Entry, String> {
@@ -151,5 +161,18 @@ mod tests {
         assert!(url.contains("state=st4te"));
         assert!(url.contains("code_challenge=chall"));
         assert!(url.contains("code_challenge_method=S256"));
+    }
+
+    #[test]
+    fn token_set_debug_never_exposes_secrets() {
+        let tokens = TokenSet {
+            access_token: "secret-access".to_string(),
+            refresh_token: "secret-refresh".to_string(),
+            expires_at_epoch: 123,
+        };
+        let rendered = format!("{tokens:?}");
+        assert!(!rendered.contains("secret-access"));
+        assert!(!rendered.contains("secret-refresh"));
+        assert!(rendered.contains("<redacted>"));
     }
 }

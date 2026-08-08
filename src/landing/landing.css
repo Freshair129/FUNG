@@ -1095,6 +1095,116 @@ body[data-surface="landing"] #root {
   outline-offset: 4px;
 }
 
+/* Auth login button in header */
+.landing-login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px;
+  min-height: 44px;
+  background: #fffdf8;
+  color: #191a1d;
+  border: 1px solid rgba(32, 35, 40, 0.15);
+  border-radius: 10px;
+  font-family: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 220ms ease, background 220ms ease;
+}
+
+.landing-login-btn:hover {
+  background: #f7f2ea;
+  transform: translateY(-2px);
+}
+
+.landing-login-btn svg {
+  flex-shrink: 0;
+}
+
+/* Hero login CTA */
+.hero-login-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #fffdf8;
+  color: #191a1d;
+  border: 1px solid rgba(32, 35, 40, 0.15);
+  border-radius: 10px;
+  padding: 12px 24px;
+  font-family: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 220ms ease, transform 220ms ease;
+}
+
+.hero-login-btn:hover {
+  background: #f7f2ea;
+  transform: translateY(-1px);
+}
+
+/* Avatar in header when logged in */
+.landing-avatar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 1px solid rgba(32, 35, 40, 0.15);
+  border-radius: 20px;
+  padding: 3px 10px 3px 3px;
+  cursor: pointer;
+  position: relative;
+}
+
+.landing-avatar-btn img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.landing-avatar-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: #fffdf8;
+  border: 1px solid rgba(32, 35, 40, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  padding: 6px 0;
+  min-width: 170px;
+  z-index: 800;
+}
+
+.landing-avatar-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
+  font-size: 13px;
+  color: #191a1d;
+  text-align: left;
+}
+
+.landing-avatar-dropdown button:hover {
+  background: rgba(111, 137, 126, 0.08);
+}
+
+/* Google G icon inline SVG */
+.google-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
 @media (max-width: 1050px) {
   .hero-copy { width: min(760px, 72vw); }
   .hero-ribbon { right: -35vw; opacity: .78; }

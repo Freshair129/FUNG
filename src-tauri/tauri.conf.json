@@ -9,6 +9,19 @@
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["fung"]
+      },
+      "mobile": [
+        {
+          "scheme": ["fung"],
+          "appLink": false
+        }
+      ]
+    }
+  },
   "app": {
     "windows": [
       {

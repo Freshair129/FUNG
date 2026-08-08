@@ -15,6 +15,7 @@ use tauri_plugin_opener::OpenerExt;
 use thiserror::Error;
 use uuid::Uuid;
 
+mod device_identity;
 mod genesis_adapter;
 mod graph_build;
 mod mobile;
@@ -1349,6 +1350,7 @@ pub fn run() {
             import_and_transcribe,
             start_local_api,
             open_external_account_portal,
+            device_identity::device_identity_ensure,
             zoom_sync::zoom_connect,
             zoom_sync::zoom_connection_status,
             zoom_sync::zoom_disconnect,

@@ -138,7 +138,12 @@ fn exec_rest_api(
     if !response.status().is_success() {
         let status = response.status();
         let body_text = response.text().unwrap_or_default();
-        let truncated = if body_text.len() > 500 { &body_text[..500] } else { &body_text };
+        let truncated = if body_text.len() > 500 {
+            let end = body_text.char_indices().take_while(|(i, _)| *i < 500).last().map(|(i, c)| i + c.len_utf8()).unwrap_or(0);
+            &body_text[..end]
+        } else {
+            &body_text
+        };
         return Err(format!("endpoint ตอบ {status}: {truncated}"));
     }
 
@@ -194,7 +199,8 @@ fn run_with_timeout(mut cmd: Command, label: &str) -> Result<(), String> {
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let truncated = if stderr.len() > 500 {
-                    &stderr[..500]
+                    let end = stderr.char_indices().take_while(|(i, _)| *i < 500).last().map(|(i, c)| i + c.len_utf8()).unwrap_or(0);
+                    &stderr[..end]
                 } else {
                     &stderr
                 };

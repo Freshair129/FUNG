@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, Cloud, LogOut, Mic, FolderOpen, Settings } from "lucide-react";
+import { ChevronDown, Cloud, LogOut, Settings } from "lucide-react";
 import { FungLogo } from "../components/FungLogo";
 import { supabase } from "../lib/supabase";
 import { AccountSettings } from "./AccountSettings";
@@ -11,28 +11,36 @@ export function Dashboard() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  const load = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    setAvatarUrl(user.user_metadata?.avatar_url ?? null);
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("display_name")
+      .eq("id", user.id)
+      .single();
+
+    if (profileError) console.error("Failed to load profile:", profileError);
+
+    if (profile) {
+      setDisplayName(profile.display_name ?? "User");
+    }
+  };
+
   useEffect(() => {
-    const load = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-
-      setAvatarUrl(user.user_metadata?.avatar_url ?? null);
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("display_name")
-        .eq("id", user.id)
-        .single();
-
-      if (profile) {
-        setDisplayName(profile.display_name ?? "User");
-      }
-    };
-
     void load();
   }, []);
+
+  useEffect(() => {
+    if (!settingsOpen) {
+      void load();
+    }
+  }, [settingsOpen]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();

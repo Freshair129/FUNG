@@ -30,21 +30,25 @@ export function AccountSettings({ onClose }: AccountSettingsProps) {
 
       setEmail(user.email ?? "");
 
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("display_name")
         .eq("id", user.id)
         .single();
+
+      if (profileError) console.error("Failed to load profile:", profileError);
 
       if (profile) {
         setDisplayName(profile.display_name ?? "");
         setSavedName(profile.display_name ?? "");
       }
 
-      const { data: oauthConnections } = await supabase
+      const { data: oauthConnections, error: connError } = await supabase
         .from("oauth_connections")
         .select("id, provider, status")
         .eq("user_id", user.id);
+
+      if (connError) console.error("Failed to load connections:", connError);
 
       if (oauthConnections) {
         setConnections(oauthConnections);
@@ -53,6 +57,14 @@ export function AccountSettings({ onClose }: AccountSettingsProps) {
 
     void load();
   }, []);
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleEsc);
+    return () => document.removeEventListener("keydown", handleEsc);
+  }, [onClose]);
 
   const handleSave = async () => {
     const trimmed = displayName.trim();

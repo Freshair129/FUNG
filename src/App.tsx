@@ -49,7 +49,6 @@ import {
 import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
 import { ZoomPanel } from "./components/ZoomPanel";
 import { TtsProviderPanel } from "./components/TtsProviderPanel";
-import { FungLogo } from "./components/FungLogo";
 
 function formatMs(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -1037,9 +1036,6 @@ export function App() {
           <div className="panel-glow" data-tauri-drag-region aria-hidden="true" />
           <div className="panel-glass" data-tauri-drag-region>
             <section className="zone anchor-rail" aria-label="Anchor rail">
-              <div className="brand-header" style={{ padding: "8px 0 16px" }}>
-                <FungLogo showWordmark size={24} wordmarkColor="#6F897E" />
-              </div>
               <div className="eyebrow">Pages</div>
               {pageAnchors.map((anchor) => (
                 <button

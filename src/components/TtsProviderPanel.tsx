@@ -39,6 +39,24 @@ const emptyForm: FormState = {
   binaryPath: "", argsTemplate: "--text {text} --output {output}",
 };
 
+// When editing an existing provider, listModelProviders does not return the
+// stored config_json, so the form only ever starts pre-filled with the
+// label. If the user only changes the label and clicks update, the
+// runtime-specific fields are empty — sending that as configJson would wipe
+// the provider's working config. This checks whether the fields relevant to
+// the selected runtime type are all empty, so the caller can omit
+// configJson entirely and let the backend keep the existing config.
+function isConfigFormEmpty(form: FormState): boolean {
+  switch (form.runtimeType) {
+    case "python_script":
+      return !form.venvPath.trim() && !form.scriptPath.trim();
+    case "rest_api":
+      return !form.endpoint.trim();
+    case "local_binary":
+      return !form.binaryPath.trim();
+  }
+}
+
 function buildConfigJson(form: FormState): string {
   switch (form.runtimeType) {
     case "python_script":
@@ -88,12 +106,16 @@ export function TtsProviderPanel({ onClose }: Props) {
     setSaving(true);
     setValidation(null);
     try {
-      const configJson = buildConfigJson(form);
       if (editId) {
+        // Only send configJson when the user actually filled in runtime
+        // fields — otherwise omit it so the backend preserves the existing
+        // config instead of overwriting it with empty strings.
+        const configJson = isConfigFormEmpty(form) ? undefined : buildConfigJson(form);
         const v = await ttsProviderUpdate(editId, form.label, configJson);
         setValidation(v);
         if (!v.ok) return;
       } else {
+        const configJson = buildConfigJson(form);
         const r = await ttsProviderRegister(form.label, configJson);
         setValidation(r.validation);
         if (!r.validation.ok) return;
@@ -102,6 +124,12 @@ export function TtsProviderPanel({ onClose }: Props) {
       setEditId(null);
       setForm(emptyForm);
       await loadProviders();
+    } catch (e) {
+      setValidation({
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+        warnings: [],
+      });
     } finally {
       setSaving(false);
     }
@@ -154,7 +182,7 @@ export function TtsProviderPanel({ onClose }: Props) {
       <div className="tts-panel" onClick={(e) => e.stopPropagation()}>
         <h2>
           <Volume2 size={18} />
-          Voice Synthesis Providers
+          ผู้ให้บริการเสียงสังเคราะห์
           <button className="tts-panel-close" onClick={onClose}><X size={16} /></button>
         </h2>
 

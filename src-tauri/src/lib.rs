@@ -21,6 +21,8 @@ mod mobile;
 mod native_recorder;
 mod on_device_ai;
 mod speaker_merge;
+mod tts_config;
+mod tts_executor;
 mod zoom_sync;
 
 /// Source-tree fallback used by `tauri dev`. Packaged builds must resolve all

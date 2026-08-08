@@ -182,3 +182,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_active_recording_capture
     AND status IN ('queued', 'running', 'paused', 'retrying');
 CREATE INDEX IF NOT EXISTS idx_job_events_job_id ON job_events(job_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_project_id ON audit_events(project_id, created_at);
+
+-- Phase 1 pairing (Task 5): desktop-local record of paired mobile devices.
+-- NOTE: at runtime this table lives in its own WAL-mode file
+-- (`paired_devices.db`), NOT in this document's namesake `fung.db`. `fung.db`
+-- is a one-time-import source read by genesis_adapter::import_legacy_sqlite,
+-- which matches tables by name against GenesisBlockDB's schema -- which
+-- separately defines its own, differently-shaped `paired_devices` table for
+-- an unrelated mobile-side capability-delegation concept (see mobile.rs /
+-- genesis_adapter.rs). Co-locating this table in fung.db would let that
+-- importer sweep these rows into the wrong schema. Kept here for schema
+-- documentation and as future migration input only.
+CREATE TABLE IF NOT EXISTS paired_devices (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  paired_at TEXT NOT NULL,
+  revoked_at TEXT,
+  pairing_session_id TEXT NOT NULL
+);

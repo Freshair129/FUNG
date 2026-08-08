@@ -960,7 +960,7 @@ export function App() {
     } catch (e: unknown) {
       // If no provider registered, open TTS settings
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("ยังไม่ได้ลงทะเบียน") || msg.includes("provider")) {
+      if (msg.includes("ยังไม่ได้ลงทะเบียน")) {
         setTtsPanelOpen(true);
       }
     } finally {

@@ -1,5 +1,5 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family:
     "SF Pro Display",
     "SF Pro Text",
@@ -7,30 +7,30 @@
     "Yu Gothic UI",
     "Segoe UI",
     sans-serif;
-  --bg-porcelain: #232527;
-  --porcelain-top: #2C2F33;
-  --porcelain-mid: #272A2E;
-  --porcelain-low: #1C1D20;
-  --bevel-light: rgba(255, 255, 255, 0.08);
-  --bevel-dark: rgba(0, 0, 0, 0.5);
-  --pressed-shadow: inset 4px 4px 10px rgba(0, 0, 0, 0.5), inset -4px -4px 10px rgba(255, 255, 255, 0.05);
-  --bg-warm: rgba(35, 37, 39, 0.88);
-  --bg-warm-strong: rgba(35, 37, 39, 0.96);
-  --bg-panel: rgba(39, 42, 46, 0.6);
-  --bg-panel-strong: rgba(39, 42, 46, 0.85);
-  --ink: #EBEBF5;
-  --graphite: #D1D1D6;
-  --graphite-soft: #8E8E93;
-  --sage: #6F897E;
-  --sage-soft: rgba(111, 137, 126, 0.3);
-  --indigo: #5C73B8;
-  --indigo-soft: rgba(92, 115, 184, 0.3);
-  --metal: #8B8579;
-  --metal-soft: rgba(139, 133, 121, 0.3);
-  --signal: #EF4444;
-  --line-soft: rgba(255, 255, 255, 0.05);
-  --line-strong: rgba(255, 255, 255, 0.1);
-  --shadow: 8px 12px 24px rgba(0, 0, 0, 0.4), -5px -5px 14px rgba(255, 255, 255, 0.03);
+  --bg-porcelain: #f4f1ea;
+  --porcelain-top: #fffaf0;
+  --porcelain-mid: #eee5d6;
+  --porcelain-low: #d8ccba;
+  --bevel-light: rgba(255, 255, 255, 0.92);
+  --bevel-dark: rgba(119, 104, 84, 0.22);
+  --pressed-shadow: inset 4px 4px 10px rgba(128, 112, 92, 0.18), inset -4px -4px 10px rgba(255, 255, 255, 0.74);
+  --bg-warm: rgba(255, 251, 245, 0.78);
+  --bg-warm-strong: rgba(255, 249, 241, 0.92);
+  --bg-panel: rgba(255, 255, 255, 0.28);
+  --bg-panel-strong: rgba(255, 255, 255, 0.58);
+  --ink: #191a1d;
+  --graphite: #5f6268;
+  --graphite-soft: #848990;
+  --sage: #6e897d;
+  --sage-soft: rgba(110, 137, 125, 0.16);
+  --indigo: #3d4f82;
+  --indigo-soft: rgba(61, 79, 130, 0.14);
+  --metal: #9a8260;
+  --metal-soft: rgba(154, 130, 96, 0.16);
+  --signal: #b34b4b;
+  --line-soft: rgba(32, 35, 40, 0.08);
+  --line-strong: rgba(28, 30, 34, 0.16);
+  --shadow: 8px 12px 24px rgba(92, 78, 58, 0.2), -5px -5px 14px rgba(255, 255, 255, 0.68);
 }
 
 * {
@@ -94,10 +94,10 @@ button {
   position: absolute;
   inset: 16px 22px 18px 24px;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.4)),
-    linear-gradient(90deg, rgba(39, 42, 46, 0.8), transparent 34%, rgba(0, 0, 0, 0.5) 78%, transparent 100%);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(186, 171, 148, 0.16)),
+    linear-gradient(90deg, rgba(61, 79, 130, 0.05), transparent 34%, rgba(154, 130, 96, 0.12) 78%, transparent 100%);
   filter: blur(22px);
-  opacity: 0.6;
+  opacity: 0.42;
 }
 
 .panel-glass {
@@ -112,12 +112,12 @@ button {
   backdrop-filter: blur(14px) saturate(1.08);
   -webkit-backdrop-filter: blur(14px) saturate(1.08);
   background:
-    linear-gradient(145deg, #2A2D31, #232527 72%, #1C1D20),
-    linear-gradient(315deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.4));
+    linear-gradient(145deg, #fffaf3, #eee4d6 72%, #e3d6c4),
+    linear-gradient(315deg, rgba(255, 255, 255, 0.62), rgba(205, 190, 168, 0.24));
   box-shadow:
     inset 2px 2px 2px var(--bevel-light),
-    inset -5px -5px 16px rgba(0, 0, 0, 0.5),
-    12px 16px 34px rgba(0, 0, 0, 0.6);
+    inset -5px -5px 16px rgba(132, 112, 88, 0.16),
+    12px 16px 34px rgba(105, 91, 72, 0.14);
 }
 
 .panel-glass::before {
@@ -125,8 +125,8 @@ button {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 44%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 30%, rgba(0, 0, 0, 0.4) 100%);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.3), transparent 44%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 30%, rgba(125, 107, 83, 0.08) 100%);
   pointer-events: none;
 }
 
@@ -147,12 +147,12 @@ button {
 }
 
 .panel-rim__stroke--outer {
-  stroke: rgba(0, 0, 0, 0.5);
+  stroke: rgba(82, 70, 54, 0.24);
   stroke-width: 1.2;
 }
 
 .panel-rim__stroke--inner {
-  stroke: rgba(255, 255, 255, 0.1);
+  stroke: rgba(255, 255, 255, 0.72);
   stroke-width: 0.8;
 }
 

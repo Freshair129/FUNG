@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -31,4 +34,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      # tauri-build copies bundle.resources at build-script time (unconditionally,
+      # regardless of the custom-protocol feature). .venv-whisper/ and runtime/ are
+      # gitignored, so create them empty — empty dirs are skipped by ResourcePaths.
+      - run: New-Item -ItemType Directory -Force .venv-whisper, runtime
       - run: cargo test --manifest-path src-tauri/Cargo.toml

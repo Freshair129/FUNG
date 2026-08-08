@@ -29,7 +29,7 @@ runtime/manifest.json
 attic/
 
 # Large build artifacts
-public/fung-android-debug.apk
+public/*.apk
 
 # Local tooling config
 .claude/

@@ -1,6 +1,6 @@
 # Auth + Login UI (Sub-project A) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add Google OAuth login via Supabase with a web dashboard shell, account settings panel, and login buttons on the landing page.
 
@@ -61,7 +61,7 @@
 - Consumes: nothing
 - Produces: `supabase` — a `SupabaseClient` instance exported from `src/lib/supabase.ts`. All later tasks import this.
 
-- [ ] **Step 1: Install @supabase/supabase-js**
+- [x] **Step 1: Install @supabase/supabase-js**
 
 ```bash
 npm install @supabase/supabase-js
@@ -69,7 +69,7 @@ npm install @supabase/supabase-js
 
 Expected: package.json updated with `"@supabase/supabase-js": "^2.x"` in dependencies.
 
-- [ ] **Step 2: Create .env.example**
+- [x] **Step 2: Create .env.example**
 
 Create `.env.example`:
 
@@ -79,7 +79,7 @@ VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-- [ ] **Step 3: Create .env with real values**
+- [x] **Step 3: Create .env with real values**
 
 Create `.env` (gitignored — will NOT be committed):
 
@@ -92,7 +92,7 @@ To get the anon key: Supabase Dashboard → Settings → API → `anon` `public`
 
 **Note:** If the actual anon key is not available during implementation, use a placeholder. The tests in this task don't hit Supabase — they only verify the module compiles and exports correctly.
 
-- [ ] **Step 4: Create src/lib/supabase.ts**
+- [x] **Step 4: Create src/lib/supabase.ts**
 
 ```typescript
 import { createClient } from "@supabase/supabase-js";
@@ -109,7 +109,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const supabase = createClient(supabaseUrl ?? "", supabaseAnonKey ?? "");
 ```
 
-- [ ] **Step 5: Verify TypeScript compiles**
+- [x] **Step 5: Verify TypeScript compiles**
 
 ```bash
 npx tsc --noEmit
@@ -117,7 +117,7 @@ npx tsc --noEmit
 
 Expected: No new errors (pre-existing `PitchingAssist.tsx` errors are unrelated).
 
-- [ ] **Step 6: Verify Vite build**
+- [x] **Step 6: Verify Vite build**
 
 ```bash
 npx vite build
@@ -125,7 +125,7 @@ npx vite build
 
 Expected: Build succeeds. `supabase.ts` is tree-shaken if not imported by anything yet, but the module is syntactically valid.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/lib/supabase.ts .env.example package.json package-lock.json
@@ -145,7 +145,7 @@ Do NOT commit `.env` — it is gitignored.
 - Consumes: existing `profiles` table (columns: `id uuid PK`, `display_name text`) and `oauth_connections` table (columns: `user_id uuid`, `provider text`, `status text`, `approved_scopes text[]`, unique constraint on `(user_id, provider)`) from migration `20260722000000_auth_control_plane.sql`
 - Produces: two database triggers that fire on `auth.users` INSERT — downstream code can rely on `profiles` and `oauth_connections` rows existing for any authenticated user
 
-- [ ] **Step 1: Create the migration file**
+- [x] **Step 1: Create the migration file**
 
 Create `supabase/migrations/20260808000000_profile_trigger.sql`:
 
@@ -196,7 +196,7 @@ CREATE TRIGGER on_auth_user_google_connection
   FOR EACH ROW EXECUTE FUNCTION public.handle_google_oauth_connection();
 ```
 
-- [ ] **Step 2: Verify SQL syntax**
+- [x] **Step 2: Verify SQL syntax**
 
 Read the file back and confirm:
 - Both functions use `SECURITY DEFINER` (required to bypass RLS when writing to `profiles` and `oauth_connections`)
@@ -210,7 +210,7 @@ Fix the ON CONFLICT clause:
     SET status = 'active', last_authorized_at = now();
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add supabase/migrations/20260808000000_profile_trigger.sql
@@ -236,7 +236,7 @@ git commit -m "feat(auth): add profile and OAuth connection auto-provisioning tr
   - `AuthCallback(): JSX.Element` — renders at `/auth/callback`, reads hash tokens, redirects to `/app`
   - `AuthGuard({ children }: { children: React.ReactNode }): JSX.Element` — wraps Dashboard, redirects to `/` if unauthenticated
 
-- [ ] **Step 1: Create src/web/LoadingScreen.css**
+- [x] **Step 1: Create src/web/LoadingScreen.css**
 
 ```css
 .loading-screen {
@@ -323,7 +323,7 @@ git commit -m "feat(auth): add profile and OAuth connection auto-provisioning tr
 }
 ```
 
-- [ ] **Step 2: Create src/web/LoadingScreen.tsx**
+- [x] **Step 2: Create src/web/LoadingScreen.tsx**
 
 ```tsx
 import { FungLogo } from "../components/FungLogo";
@@ -344,7 +344,7 @@ export function LoadingScreen({ message }: LoadingScreenProps) {
 }
 ```
 
-- [ ] **Step 3: Create src/web/AuthCallback.tsx**
+- [x] **Step 3: Create src/web/AuthCallback.tsx**
 
 ```tsx
 import { useEffect, useState } from "react";
@@ -378,7 +378,7 @@ export function AuthCallback() {
 }
 ```
 
-- [ ] **Step 4: Create src/web/AuthGuard.tsx**
+- [x] **Step 4: Create src/web/AuthGuard.tsx**
 
 ```tsx
 import { useEffect, useState } from "react";
@@ -419,7 +419,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
 }
 ```
 
-- [ ] **Step 5: Verify TypeScript compiles**
+- [x] **Step 5: Verify TypeScript compiles**
 
 ```bash
 npx tsc --noEmit
@@ -427,7 +427,7 @@ npx tsc --noEmit
 
 Expected: No new errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/web/LoadingScreen.tsx src/web/LoadingScreen.css src/web/AuthCallback.tsx src/web/AuthGuard.tsx
@@ -448,7 +448,7 @@ git commit -m "feat(auth): add LoadingScreen, AuthCallback, and AuthGuard"
 - Consumes: `supabase` from `src/lib/supabase.ts` (Task 1), `FungLogo` from `src/components/FungLogo.tsx`
 - Produces: `Dashboard(): JSX.Element` — the post-login web shell, used by `main.tsx` routing in Task 5
 
-- [ ] **Step 1: Create src/web/AccountSettings.css**
+- [x] **Step 1: Create src/web/AccountSettings.css**
 
 ```css
 .account-settings-overlay {
@@ -671,7 +671,7 @@ git commit -m "feat(auth): add LoadingScreen, AuthCallback, and AuthGuard"
 }
 ```
 
-- [ ] **Step 2: Create src/web/AccountSettings.tsx**
+- [x] **Step 2: Create src/web/AccountSettings.tsx**
 
 ```tsx
 import { useEffect, useState } from "react";
@@ -883,7 +883,7 @@ export function AccountSettings({ onClose }: AccountSettingsProps) {
 }
 ```
 
-- [ ] **Step 3: Create src/web/Dashboard.css**
+- [x] **Step 3: Create src/web/Dashboard.css**
 
 ```css
 .dashboard {
@@ -1099,7 +1099,7 @@ export function AccountSettings({ onClose }: AccountSettingsProps) {
 }
 ```
 
-- [ ] **Step 4: Create src/web/Dashboard.tsx**
+- [x] **Step 4: Create src/web/Dashboard.tsx**
 
 ```tsx
 import { useEffect, useState } from "react";
@@ -1232,7 +1232,7 @@ export function Dashboard() {
 }
 ```
 
-- [ ] **Step 5: Verify TypeScript compiles**
+- [x] **Step 5: Verify TypeScript compiles**
 
 ```bash
 npx tsc --noEmit
@@ -1240,7 +1240,7 @@ npx tsc --noEmit
 
 Expected: No new errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/web/Dashboard.tsx src/web/Dashboard.css src/web/AccountSettings.tsx src/web/AccountSettings.css
@@ -1260,7 +1260,7 @@ git commit -m "feat(auth): add web Dashboard shell and AccountSettings panel"
 - Consumes: `AuthCallback` from `src/web/AuthCallback.tsx` (Task 3), `AuthGuard` from `src/web/AuthGuard.tsx` (Task 3), `Dashboard` from `src/web/Dashboard.tsx` (Task 4), `supabase` from `src/lib/supabase.ts` (Task 1)
 - Produces: complete auth flow end-to-end — landing → login → callback → dashboard
 
-- [ ] **Step 1: Modify src/main.tsx to add route branching**
+- [x] **Step 1: Modify src/main.tsx to add route branching**
 
 Replace the entire content of `src/main.tsx` with:
 
@@ -1325,7 +1325,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 );
 ```
 
-- [ ] **Step 2: Add login styles to src/landing/landing.css**
+- [x] **Step 2: Add login styles to src/landing/landing.css**
 
 Append the following at the end of `landing.css`, before the existing media query block (`@media (max-width: 820px)`):
 
@@ -1441,7 +1441,7 @@ Append the following at the end of `landing.css`, before the existing media quer
 }
 ```
 
-- [ ] **Step 3: Modify src/landing/LandingPage.tsx to add login/avatar**
+- [x] **Step 3: Modify src/landing/LandingPage.tsx to add login/avatar**
 
 Add the following imports at the top of the file, after the existing imports:
 
@@ -1580,7 +1580,7 @@ In the closing actions `<div>` (around line 436-441), add login link:
 </div>
 ```
 
-- [ ] **Step 4: Verify TypeScript compiles**
+- [x] **Step 4: Verify TypeScript compiles**
 
 ```bash
 npx tsc --noEmit
@@ -1588,7 +1588,7 @@ npx tsc --noEmit
 
 Expected: No new errors.
 
-- [ ] **Step 5: Verify Vite build**
+- [x] **Step 5: Verify Vite build**
 
 ```bash
 npx vite build
@@ -1596,24 +1596,24 @@ npx vite build
 
 Expected: Build succeeds.
 
-- [ ] **Step 6: Verify landing page still loads**
+- [x] **Step 6: Verify landing page still loads**
 
 Open `http://localhost:1420/` in the browser preview. Confirm:
 - Landing page renders with scroll narrative intact
 - "เข้าสู่ระบบ" button appears in header and hero
 - No console errors
 
-- [ ] **Step 7: Verify /app route shows AuthGuard**
+- [x] **Step 7: Verify /app route shows AuthGuard**
 
 Open `http://localhost:1420/app` in the browser preview. Confirm:
 - Shows LoadingScreen briefly, then redirects to `/` (since no session exists)
 
-- [ ] **Step 8: Verify /app?surface=desktop is NOT gated**
+- [x] **Step 8: Verify /app?surface=desktop is NOT gated**
 
 Open `http://localhost:1420/app?surface=desktop` in the browser preview. Confirm:
 - Desktop app loads directly without any auth check or redirect
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src/main.tsx src/landing/LandingPage.tsx src/landing/landing.css

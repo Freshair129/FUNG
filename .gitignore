@@ -24,3 +24,12 @@ runtime/cuda12/bin/*.dll
 runtime/manifest.json
 
 .vercel
+
+# Quarantined code pending disposition (see master plan REQ-R-04)
+attic/
+
+# Large build artifacts
+public/*.apk
+
+# Local tooling config
+.claude/

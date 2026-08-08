@@ -18,7 +18,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
-genesis-block-native = { path = "G:/GenesisBlock_Dev/GenesisBlock", default-features = false, features = ["mobile"] }
+genesis-block-native = { git = "https://github.com/Freshair129/GenesisBlock.git", rev = "0502c6b971525b8d256e0a8236950a3997831f99", default-features = false, features = ["mobile"] }
 keyring = { version = "3", features = ["windows-native"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -34,3 +34,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+# --- Local development against a WIP GenesisBlock checkout ---
+# Uncomment to build against the local working copy instead of the pinned git rev.
+# Never commit this uncommented.
+# [patch."https://github.com/Freshair129/GenesisBlock.git"]
+# genesis-block-native = { path = "G:/GenesisBlock_Dev/GenesisBlock" }

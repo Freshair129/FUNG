@@ -9,7 +9,8 @@ import type {
   CreativeStudioState, EffectKind, EffectNode, ModelPackage, StoryClip, StorySequence,
   TimelineData,
 } from "./model";
-import { createStory, moveStoryClip, onDeviceAiStatus, queryStory, reviewRefinement, splitStoryClip, startProcessingJob, storyHistory, trimStoryClip, updateEffectChain, type OnDeviceAiStatus } from "./bridge";
+import { createStory, moveStoryClip, onDeviceAiStatus, queryStory, reviewRefinement, setAgentVoiceGrant, splitStoryClip, startProcessingJob, storyHistory, trimStoryClip, updateEffectChain, type OnDeviceAiStatus } from "./bridge";
+import { listModelProviders, type ModelProvider } from "../tauri";
 
 const STUDIO_KEY = "fung.mobile.creative-studio.v1";
 const effectLabels: Record<EffectKind, string> = {
@@ -178,7 +179,15 @@ export function ProcessingStudio({ state, setState, desktopAvailable, onBack }: 
   const [tab, setTab] = useState<"transcribe" | "refine" | "effects" | "voice">("transcribe");
   const [jobState, setJobState] = useState<"idle" | "submitting" | "queued" | "unavailable" | "failed">("idle");
   const [localAi, setLocalAi] = useState<OnDeviceAiStatus | null>(null);
+  const [ttsProviders, setTtsProviders] = useState<ModelProvider[]>([]);
+  const [selectedTtsId, setSelectedTtsId] = useState<string>("");
   useEffect(() => { void onDeviceAiStatus().then(setLocalAi).catch(() => setLocalAi(null)); }, []);
+  useEffect(() => {
+    void listModelProviders().then((all) => {
+      const tts = all.filter((p) => p.kind === "tts" && p.enabled);
+      setTtsProviders(tts);
+    }).catch(() => setTtsProviders([]));
+  }, []);
   const proposal = state.proposals[0];
   const persistEffects = (effects: EffectNode[]) => void updateEffectChain(state.story.projectId, "project", state.story.projectId, "Story processing", effects).catch(() => undefined);
   const toggleEffect = (id: string) => setState((current) => { const effects = current.effects.map((effect) => effect.id === id ? { ...effect, bypassed: !effect.bypassed } : effect); persistEffects(effects); return { ...current, effects, updatedAt: new Date().toISOString() }; });
@@ -191,7 +200,19 @@ export function ProcessingStudio({ state, setState, desktopAvailable, onBack }: 
     const effects = [...current.effects, node]; persistEffects(effects); return { ...current, effects, updatedAt: new Date().toISOString() };
   });
   const reviewProposal = (status: "accepted" | "rejected") => { setState((current) => ({ ...current, proposals: current.proposals.map((item) => item.id === proposal.id ? { ...item, status } : item), updatedAt: new Date().toISOString() })); void reviewRefinement(proposal.id, status).catch(() => undefined); };
-  const setGrant = () => window.alert("ยังเปิดสิทธิ์ไม่ได้: ต้องเลือก voice synthesis provider และแนบหลักฐานสิทธิ์ตามนโยบายก่อน");
+  const setGrant = () => {
+    if (ttsProviders.length === 0) {
+      window.alert("ยังไม่ได้ลงทะเบียน TTS provider — ไปตั้งค่าที่ Settings ก่อน");
+      return;
+    }
+    if (!selectedTtsId) {
+      window.alert("เลือก TTS provider ก่อนเปิดสิทธิ์");
+      return;
+    }
+    const next = !state.agentVoiceGrant;
+    setState((current) => ({ ...current, agentVoiceGrant: next, updatedAt: new Date().toISOString() }));
+    void setAgentVoiceGrant(state.story.projectId, state.voiceProfile.id, next).catch(() => undefined);
+  };
   const startTranscription = async () => {
     if (!desktopAvailable || jobState === "submitting") return;
     setJobState("submitting");
@@ -211,6 +232,26 @@ export function ProcessingStudio({ state, setState, desktopAvailable, onBack }: 
     <section className={`m-processing-panel ${tab === "transcribe" ? "is-focus" : ""}`}><header><h2>เลือกโมเดล Whisper</h2><button>เกี่ยวกับโมเดล <ChevronRight /></button></header><div className="m-model-list">{modelPackages.map((model) => <button key={model.id} className={state.selectedModelId === model.id ? "is-selected" : ""} onClick={() => model.installed && setState((current) => ({ ...current, selectedModelId: model.id, updatedAt: new Date().toISOString() }))}><i /><span>{model.label}</span><small>{model.installed ? "ติดตั้งแล้ว" : "ยังไม่ติดตั้ง"}</small><em>{model.sizeLabel}</em>{!model.installed && <CloudDownload size={16} />}</button>)}</div><div className="m-model-balance"><Leaf /><span>สมดุลคุณภาพ–ความเร็ว · 99 ภาษา · snapshot จาก Desktop</span><div><i /><i /><i /><i className="is-on" /><i /></div></div><button className="m-process-start" disabled={!desktopAvailable || jobState === "submitting"} onClick={startTranscription}><Play />{jobState === "queued" ? "ส่งงานเข้าคิวแล้ว" : jobState === "submitting" ? "กำลังส่งงาน…" : jobState === "unavailable" ? "เปิดในแอปเพื่อส่งงาน" : jobState === "failed" ? "ส่งงานไม่สำเร็จ · ลองใหม่" : desktopAvailable ? "เริ่มประมวลผล" : "เชื่อม Desktop เพื่อเริ่ม"}</button></section>
     <section className={`m-processing-panel ${tab === "refine" ? "is-focus" : ""}`}><header><h2>ปรับแต่งการถอดเสียง</h2><Sparkles /></header><div className="m-refinement-diff"><div><span>ต้นฉบับ</span><p>{proposal.originalText}</p></div><div className="is-proposed"><span>ข้อเสนอ · {proposal.status === "proposed" ? "ยังไม่ยืนยัน" : proposal.status === "accepted" ? "ยืนยันแล้ว" : "ปฏิเสธแล้ว"}</span><p>{proposal.proposedText}</p></div><footer><small><WandSparkles /> {proposal.policy}</small>{proposal.status === "proposed" && <span><button onClick={() => reviewProposal("rejected")}>ปฏิเสธ</button><button onClick={() => reviewProposal("accepted")}>ยืนยันการปรับ</button></span>}</footer></div></section>
     <section className={`m-processing-panel ${tab === "effects" ? "is-focus" : ""}`}><header><h2>เอฟเฟกต์เสียง</h2><SlidersHorizontal /></header><div className="m-effect-chain">{state.effects.map((effect) => <button key={effect.id} className={`${effect.bypassed ? "is-bypassed" : ""} is-${effect.kind}`} onClick={() => toggleEffect(effect.id)}>{effect.label}<AudioLines size={15} /><X size={14} onClick={(event) => { event.stopPropagation(); removeEffect(effect.id); }} /></button>)}</div><div className="m-effect-footer"><button onClick={addEffect}><Plus />เพิ่มเอฟเฟกต์</button><button><Bookmark />พรีเซ็ตของคุณ <ChevronRight /></button></div><p className="m-provider-gate">Preview/render ต้องใช้ DSP provider บน Desktop · ต้นฉบับไม่ถูกแก้ไข</p></section>
-    <section className={`m-processing-panel ${tab === "voice" ? "is-focus" : ""}`}><header><h2>เสียง Agent</h2><Bot /></header><div className="m-agent-policy"><button onClick={setGrant}><span>การอนุญาต MCP</span><strong>ปิด · default deny</strong><ChevronRight /></button><div><span>โปรไฟล์เสียง</span><strong>{state.voiceProfile.displayName}</strong><small>candidate · รอ provider และหลักฐานสิทธิ์ที่อนุมัติ</small></div><div className="m-agent-session"><i /><span><strong>ยังไม่มี session ที่กำลังพูด</strong><small>{state.voiceProfile.providerAvailable ? "provider พร้อม" : "ยังไม่มี voice synthesis provider"}</small></span><button disabled><Square /></button><button disabled><VolumeX /></button></div><footer><ShieldCheck /> บันทึกสิทธิ์และคำสั่งหยุดไว้ในเครื่องเท่านั้น</footer></div></section>
+    <section className={`m-processing-panel ${tab === "voice" ? "is-focus" : ""}`}><header><h2>เสียง Agent</h2><Bot /></header><div className="m-agent-policy">
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 12, color: "#999", display: "block", marginBottom: 4 }}>TTS Provider</label>
+        {ttsProviders.length > 0 ? (
+          <select
+            value={selectedTtsId}
+            onChange={(event) => setSelectedTtsId(event.target.value)}
+            style={{
+              width: "100%", padding: "6px 8px", borderRadius: 6,
+              background: "rgba(255,255,255,0.04)", color: "#e0e0e0",
+              border: "1px solid rgba(255,255,255,0.1)", fontSize: 13,
+            }}
+          >
+            <option value="">— เลือก provider —</option>
+            {ttsProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
+          </select>
+        ) : (
+          <p style={{ fontSize: 12, color: "#999" }}>ยังไม่มี TTS provider — ตั้งค่าที่ Settings</p>
+        )}
+      </div>
+      <button onClick={setGrant}><span>การอนุญาต MCP</span><strong>{state.agentVoiceGrant ? "เปิด · อนุญาตแล้ว" : "ปิด · default deny"}</strong><ChevronRight /></button><div><span>โปรไฟล์เสียง</span><strong>{state.voiceProfile.displayName}</strong><small>candidate · รอ provider และหลักฐานสิทธิ์ที่อนุมัติ</small></div><div className="m-agent-session"><i /><span><strong>ยังไม่มี session ที่กำลังพูด</strong><small>{state.voiceProfile.providerAvailable ? "provider พร้อม" : "ยังไม่มี voice synthesis provider"}</small></span><button disabled><Square /></button><button disabled><VolumeX /></button></div><footer><ShieldCheck /> บันทึกสิทธิ์และคำสั่งหยุดไว้ในเครื่องเท่านั้น</footer></div></section>
   </main>;
 }

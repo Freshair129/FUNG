@@ -243,7 +243,7 @@ fn schema_v3() -> RelationalSchemaPackage {
     package
 }
 
-pub(crate) fn schema() -> RelationalSchemaPackage {
+fn schema_v4() -> RelationalSchemaPackage {
     use RelationalColumnType::{Json, Text};
     let mut package = schema_v3();
     package.schema_version = 4;
@@ -280,13 +280,35 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
     package
 }
 
+pub(crate) fn schema() -> RelationalSchemaPackage {
+    use RelationalColumnType::{Integer, Text};
+    let mut package = schema_v4();
+    package.schema_version = 5;
+    package.previous_version = Some(4);
+    package.tables.push(table(
+        "tts_test_results",
+        vec![
+            required("id", Text),
+            required("provider_id", Text),
+            required("status", Text),
+            nullable("latency_ms", Integer),
+            nullable("sample_audio_path", Text),
+            nullable("error_message", Text),
+            required("tested_at", Text),
+        ],
+        vec![fk("provider_id", "model_providers")],
+        vec![],
+    ));
+    package
+}
+
 /// Registers the schema chain stepwise. Genesis requires a fresh database to
 /// start at version 1 and advance one version at a time; on an existing
 /// database the already-registered steps report a version conflict, which is
 /// expected and skipped. Any other error — and any failure on the final
 /// (current) package — is fatal.
 pub(crate) fn install(storage: &Storage) -> Result<(), String> {
-    let packages = [schema_v1(), schema_v2(), schema_v3(), schema()];
+    let packages = [schema_v1(), schema_v2(), schema_v3(), schema_v4(), schema()];
     let last_index = packages.len() - 1;
     for (index, package) in packages.into_iter().enumerate() {
         match storage.register_relational_schema(package) {
@@ -889,6 +911,7 @@ mod tests {
         storage.register_relational_schema(schema_v1()).unwrap();
         storage.register_relational_schema(schema_v2()).unwrap();
         storage.register_relational_schema(schema_v3()).unwrap();
+        storage.register_relational_schema(schema_v4()).unwrap();
         storage.register_relational_schema(schema()).unwrap();
         install(&storage).unwrap();
 
@@ -958,6 +981,23 @@ mod tests {
         let rows = query(&storage, "external_connections", &["id", "status"], vec![eq("external_connections", "id", json!("zoom"))], 1).unwrap();
         assert_eq!(rows[0]["external_connections.status"], "connected");
         // Re-install after a stepped upgrade must stay idempotent (mirrors existing v1->v3 test).
+        storage.register_relational_schema(schema()).unwrap();
+        install(&storage).unwrap();
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn schema_v5_adds_tts_test_results_table_and_upgrade_is_idempotent() {
+        let (path, storage) = open();
+        commit_rows(&storage, vec![
+            upsert("model_providers", json!({"id": "tts-1", "label": "F5-TTS", "runtime_location": "local", "kind": "tts", "enabled": true, "config_json": "{}", "created_at": "t", "updated_at": "t"})),
+            upsert("tts_test_results", json!({"id": "test-1", "provider_id": "tts-1", "status": "ok", "latency_ms": 812, "sample_audio_path": "/tmp/sample.wav", "error_message": null, "tested_at": "t"})),
+        ]).unwrap();
+        let rows = query(&storage, "tts_test_results", &["id", "status", "latency_ms"], vec![eq("tts_test_results", "id", json!("test-1"))], 1).unwrap();
+        assert_eq!(rows[0]["tts_test_results.status"], "ok");
+        assert_eq!(rows[0]["tts_test_results.latency_ms"], 812);
+        // Re-install after a stepped upgrade must stay idempotent.
         storage.register_relational_schema(schema()).unwrap();
         install(&storage).unwrap();
         drop(storage);

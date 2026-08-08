@@ -1,4 +1,28 @@
-export type MobileTab = "home" | "notes" | "voice" | "timeline" | "graph" | "devices";
+export type MobileTab = "home" | "notes" | "voice" | "pitching" | "timeline" | "graph" | "devices";
+
+export type PitchTimerMode = "topic_countdown" | "total_countdown" | "count_up";
+
+export type PitchTopic = {
+  id: string;
+  title: string;
+  targetDurationSec: number;
+  notes?: string;
+};
+
+export type PitchSessionState = {
+  active: boolean;
+  recordingId: string | null;
+  startedAt: number | null;
+  pausedAt: number | null;
+  elapsedMs: number;
+  currentTopicIndex: number;
+  timerMode: PitchTimerMode;
+  topics: PitchTopic[];
+  enableFrontCamera: boolean;
+  enableVoiceCommands: boolean;
+  dndEnabled: boolean;
+  walLastSyncedAt: number | null;
+};
 
 export type ThemePreference = "system" | "light" | "dark";
 
@@ -86,6 +110,52 @@ export type VoiceProfile = {
   rightsBasis: "owned_recording" | "licensed_pack" | "explicit_consent";
   rightsState: "valid" | "revoked" | "expired";
   providerAvailable: boolean;
+};
+
+export type TtsRuntimeType = "python_script" | "rest_api" | "local_binary";
+
+export type TtsPythonScriptConfig = {
+  runtime_type: "python_script";
+  venv_path: string;
+  script_path: string;
+  model_path?: string;
+  device: "cuda" | "cpu";
+};
+
+export type TtsRestApiConfig = {
+  runtime_type: "rest_api";
+  endpoint: string;
+  auth_header?: string;
+};
+
+export type TtsLocalBinaryConfig = {
+  runtime_type: "local_binary";
+  binary_path: string;
+  model_path?: string;
+  args_template: string;
+};
+
+export type TtsProviderConfig =
+  | TtsPythonScriptConfig
+  | TtsRestApiConfig
+  | TtsLocalBinaryConfig;
+
+export type TtsTestResult = {
+  status: "ok" | "error";
+  latencyMs?: number;
+  audioPath?: string;
+  message?: string;
+};
+
+export type TtsValidation = {
+  ok: boolean;
+  error?: string;
+  warnings: string[];
+};
+
+export type TtsRegisterResult = {
+  providerId: string;
+  validation: TtsValidation;
 };
 
 export type CreativeStudioState = {

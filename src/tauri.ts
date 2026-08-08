@@ -144,6 +144,53 @@ export async function listModelProviders(): Promise<ModelProvider[]> {
   return invoke<ModelProvider[]>("list_model_providers");
 }
 
+// ── TTS Provider Management ──
+
+export async function ttsProviderRegister(
+  label: string,
+  configJson: string,
+): Promise<{ providerId: string; validation: { ok: boolean; error?: string; warnings: string[] } }> {
+  if (!canInvoke()) throw new Error("Tauri not available");
+  return invoke("tts_provider_register", { input: { label, configJson } });
+}
+
+export async function ttsProviderUpdate(
+  providerId: string,
+  label?: string,
+  configJson?: string,
+): Promise<{ ok: boolean; error?: string; warnings: string[] }> {
+  if (!canInvoke()) throw new Error("Tauri not available");
+  return invoke("tts_provider_update", { input: { providerId, label, configJson } });
+}
+
+export async function ttsProviderToggle(
+  providerId: string,
+  enabled: boolean,
+): Promise<boolean> {
+  if (!canInvoke()) throw new Error("Tauri not available");
+  return invoke("tts_provider_toggle", { providerId, enabled });
+}
+
+export async function ttsProviderTest(
+  providerId: string,
+  testText?: string,
+): Promise<{ status: string; latencyMs?: number; audioPath?: string; message?: string }> {
+  if (!canInvoke()) throw new Error("Tauri not available");
+  return invoke("tts_provider_test", { providerId, testText });
+}
+
+export async function ttsSynthesizeText(
+  text: string,
+  providerId?: string,
+  refAudio?: string,
+  refText?: string,
+): Promise<{ audioPath: string; latencyMs: number }> {
+  if (!canInvoke()) throw new Error("Tauri not available");
+  return invoke("tts_synthesize_text", {
+    input: { text, providerId, refAudio, refText },
+  });
+}
+
 export async function listTranscriptSegments(projectId: string): Promise<TranscriptSegment[]> {
   if (!canInvoke()) return [];
   return invoke<TranscriptSegment[]>("list_transcript_segments", { projectId });

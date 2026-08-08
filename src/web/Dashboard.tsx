@@ -58,12 +58,20 @@ export function Dashboard() {
         </div>
 
         <div className="dashboard-topbar-right">
-          <button
+          <div
             className="dashboard-avatar-btn"
-            type="button"
+            role="button"
+            tabIndex={0}
             onClick={(e) => {
               e.stopPropagation();
               setDropdownOpen((prev) => !prev);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                setDropdownOpen((prev) => !prev);
+              }
             }}
           >
             {avatarUrl ? (
@@ -98,7 +106,7 @@ export function Dashboard() {
                 </button>
               </div>
             )}
-          </button>
+          </div>
         </div>
       </header>
 

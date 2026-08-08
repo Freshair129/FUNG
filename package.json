@@ -10,6 +10,7 @@
     "design-system:check": "node scripts/render_mobile_design_system.mjs check",
     "design-system:export": "node scripts/export_mobile_design_system.mjs",
     "test:design-system": "node --test tests/designSystemPublishing.test.mjs",
+    "test:auth": "node --test --experimental-strip-types tests/authFlow.test.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",

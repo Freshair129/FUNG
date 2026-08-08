@@ -27,3 +27,9 @@ runtime/manifest.json
 
 # Quarantined code pending disposition (see master plan REQ-R-04)
 attic/
+
+# Large build artifacts
+public/fung-android-debug.apk
+
+# Local tooling config
+.claude/

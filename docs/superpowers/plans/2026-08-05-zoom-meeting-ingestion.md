@@ -1,6 +1,6 @@
 # Zoom Meeting Ingestion Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** FUNG Desktop connects to a user's Zoom account, imports cloud recordings, produces speaker-attributed transcripts (per-participant audio files when available, local pyannote diarization as fallback), and builds a knowledge graph (structural + LLM-extracted) in GenesisBlockDB.
 
@@ -48,7 +48,7 @@
 **Interfaces:**
 - Produces: tables `external_connections` (id, provider, account_label, status, created_at, updated_at) and `external_imports` (id, project_id, provider, external_uuid, recording_id, payload_json, created_at); crates `reqwest::blocking`, `keyring`, `base64` available to later tasks.
 
-- [ ] **Step 1: Add dependencies to `src-tauri/Cargo.toml`**
+- [x] **Step 1: Add dependencies to `src-tauri/Cargo.toml`**
 
 Append to `[dependencies]`:
 
@@ -58,7 +58,7 @@ keyring = { version = "3", features = ["windows-native"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 ```
 
-- [ ] **Step 2: Write the failing schema test**
+- [x] **Step 2: Write the failing schema test**
 
 In `src-tauri/src/genesis_adapter.rs`, inside `mod tests`, add:
 
@@ -80,12 +80,12 @@ In `src-tauri/src/genesis_adapter.rs`, inside `mod tests`, add:
     }
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml schema_v4 -- --nocapture`
 Expected: FAIL — `external_connections` is not a registered table (relational mutation rejected).
 
-- [ ] **Step 4: Implement schema v4**
+- [x] **Step 4: Implement schema v4**
 
 In `src-tauri/src/genesis_adapter.rs`: rename the current `pub(crate) fn schema()` to `fn schema_v3()` (keep its body, still setting `schema_version = 3`). Add below it:
 
@@ -130,7 +130,7 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
 
 Note: the existing test `install_is_idempotent_after_a_prior_schema_upgrade` registers `schema_v1()`, `schema_v2()`, then `schema()` — it now exercises v1→v2→v4 which remains valid because `schema()` chains `previous_version` correctly. Also update the `priority` closure in `import_legacy_sqlite` — add `"external_connections"` to the priority-2 arm and `"external_imports"` to the priority-5 arm.
 
-- [ ] **Step 5: Test-schema parity in `src-tauri/src/lib.rs`**
+- [x] **Step 5: Test-schema parity in `src-tauri/src/lib.rs`**
 
 In `init_database` (test-only sqlite mirror), extend the `jobs.type` CHECK list at line ~338 to include the new job types:
 
@@ -138,12 +138,12 @@ In `init_database` (test-only sqlite mirror), extend the `jobs.type` CHECK list 
 type TEXT NOT NULL CHECK (type IN ('recording.capture', 'recording.recover', 'audio.cleanup', 'audio.separate', 'transcript.transcribe', 'transcript.diarize', 'summary.generate', 'intent.infer', 'export.render', 'zoom.import', 'graph.build')),
 ```
 
-- [ ] **Step 6: Run tests to verify pass**
+- [x] **Step 6: Run tests to verify pass**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml genesis_adapter`
 Expected: PASS (all existing genesis tests + the new one).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/src/genesis_adapter.rs src-tauri/src/lib.rs
@@ -159,7 +159,7 @@ git commit -m "feat(zoom): add http/keyring deps and genesis schema v4 external 
 **Interfaces:**
 - Produces: `pub(crate) struct TokenSet { access_token: String, refresh_token: String, expires_at_epoch: i64 }`; `save_tokens(&TokenSet) -> Result<(), String>`; `load_tokens() -> Result<Option<TokenSet>, String>`; `delete_tokens() -> Result<(), String>`; `pkce_challenge(&str) -> String`; `authorize_url(client_id, redirect_uri, state, challenge) -> String`; `exchange_code(client_id, code, redirect_uri, verifier) -> Result<TokenSet, String>`; `ensure_fresh_access_token(client_id) -> Result<String, String>`.
 
-- [ ] **Step 1: Write failing PKCE + URL tests**
+- [x] **Step 1: Write failing PKCE + URL tests**
 
 Create `src-tauri/src/zoom_sync.rs` with just the test module first:
 
@@ -195,12 +195,12 @@ mod tests {
 
 Add `mod zoom_sync;` in `src-tauri/src/lib.rs` under the existing `mod on_device_ai;`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml zoom_sync`
 Expected: FAIL to compile — `pkce_challenge` / `authorize_url` not found.
 
-- [ ] **Step 3: Implement token store + PKCE + endpoints**
+- [x] **Step 3: Implement token store + PKCE + endpoints**
 
 Add above the test module in `src-tauri/src/zoom_sync.rs`:
 
@@ -334,12 +334,12 @@ pub(crate) fn ensure_fresh_access_token(client_id: &str) -> Result<String, Strin
 }
 ```
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml zoom_sync`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/zoom_sync.rs src-tauri/src/lib.rs
@@ -356,7 +356,7 @@ git commit -m "feat(zoom): PKCE helpers, keyring token store, token endpoints"
 - Consumes: Task 2 token functions; `crate::genesis_adapter::{upsert, commit_rows, query, eq, string}`; `crate::{AppState, AppError, AppResult, now}`.
 - Produces: commands `zoom_connect() -> ZoomConnectionStatus`, `zoom_connection_status() -> ZoomConnectionStatus`, `zoom_disconnect() -> ZoomConnectionStatus` where `ZoomConnectionStatus { status: String, account_label: Option<String> }` (serde camelCase; `status` ∈ `disconnected|connecting|connected|error`); helper `parse_callback_request(&str) -> Result<(String, String), String>` returning `(code, state)`.
 
-- [ ] **Step 1: Write failing callback-parser tests**
+- [x] **Step 1: Write failing callback-parser tests**
 
 Add to the `tests` module in `zoom_sync.rs`:
 
@@ -377,12 +377,12 @@ Add to the `tests` module in `zoom_sync.rs`:
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml zoom_sync::tests::callback`
 Expected: FAIL to compile — `parse_callback_request` not found.
 
-- [ ] **Step 3: Implement parser, connection persistence, and commands**
+- [x] **Step 3: Implement parser, connection persistence, and commands**
 
 Add to `zoom_sync.rs`:
 
@@ -551,12 +551,12 @@ Register in `src-tauri/src/lib.rs` inside `tauri::generate_handler![` (after `op
             zoom_sync::zoom_disconnect,
 ```
 
-- [ ] **Step 4: Run tests + build**
+- [x] **Step 4: Run tests + build**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml zoom_sync`
 Expected: PASS (4 tests). Full compile succeeds.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/zoom_sync.rs src-tauri/src/lib.rs
@@ -573,7 +573,7 @@ git commit -m "feat(zoom): OAuth loopback connect/status/disconnect commands"
 - Consumes: `ensure_fresh_access_token`, `client_id_from_env`.
 - Produces: command `zoom_list_recordings() -> Vec<ZoomRecordingSummary>` with `ZoomRecordingSummary { uuid: String, topic: String, start_time: String, duration_minutes: i64, has_participant_audio: bool }` (serde camelCase); internal `ZoomMeetingRecording { uuid, topic, start_time, duration, recording_files: Vec<ZoomRecordingFile>, participant_audio_files: Option<Vec<ZoomParticipantAudioFile>> }`, `ZoomRecordingFile { file_type: String, recording_type: Option<String>, download_url: String }`, `ZoomParticipantAudioFile { file_name: String, download_url: String }`; helper `encode_meeting_uuid(&str) -> String`.
 
-- [ ] **Step 1: Write failing parse/encode tests**
+- [x] **Step 1: Write failing parse/encode tests**
 
 Add to `tests` in `zoom_sync.rs`:
 
@@ -626,12 +626,12 @@ Add to `tests` in `zoom_sync.rs`:
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml zoom_sync`
 Expected: FAIL to compile — missing types.
 
-- [ ] **Step 3: Implement models, summarize, encode, and the command**
+- [x] **Step 3: Implement models, summarize, encode, and the command**
 
 Add to `zoom_sync.rs`:
 
@@ -736,12 +736,12 @@ pub(crate) fn zoom_list_recordings() -> AppResult<Vec<ZoomRecordingSummary>> {
 
 Register `zoom_sync::zoom_list_recordings,` in `generate_handler!` after `zoom_sync::zoom_disconnect,`.
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml zoom_sync`
 Expected: PASS (6 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/zoom_sync.rs src-tauri/src/lib.rs
@@ -758,7 +758,7 @@ git commit -m "feat(zoom): recordings list command with fixture-tested API model
 - Consumes: Task 4 models; `crate::{set_job_status}` — change its visibility in `lib.rs` from `fn` to `pub(crate) fn` (same for `now` if not already).
 - Produces: command `zoom_import_recording(meeting_uuid: String) -> Job`; helpers `find_existing_import(storage, uuid) -> Result<Option<String>, String>` (returns recording_id), `sanitize_component(&str) -> String`, `download_to_file(access_token, url, dest) -> Result<(), String>` (resumes via HTTP Range when a partial file exists). Downloaded layout: `<data_root>/projects/<project_id>/zoom/<safe_uuid>/mixed.m4a` and `participants/<i>-<safe_name>.m4a`. After download it records `external_imports` + flips `recordings.status`, then runs Task 6/7 processing in the same worker thread.
 
-- [ ] **Step 1: Write failing tests (idempotency + sanitize)**
+- [x] **Step 1: Write failing tests (idempotency + sanitize)**
 
 Add to `tests` in `zoom_sync.rs` (mirror the temp-storage pattern from `genesis_adapter::tests::open`):
 
@@ -793,12 +793,12 @@ Add to `tests` in `zoom_sync.rs` (mirror the temp-storage pattern from `genesis_
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml zoom_sync`
 Expected: FAIL to compile — helpers not found.
 
-- [ ] **Step 3: Implement helpers + import command**
+- [x] **Step 3: Implement helpers + import command**
 
 In `src-tauri/src/lib.rs` change `fn set_job_status(` to `pub(crate) fn set_job_status(`. Then add to `zoom_sync.rs`:
 
@@ -953,12 +953,12 @@ impl AppState {
 
 and make `struct WhisperRuntime` + `struct Job` and Job's fields `pub(crate)` so `zoom_sync` can construct/return them. Register `zoom_sync::zoom_import_recording,` in `generate_handler!`.
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml zoom_sync`
 Expected: PASS (8 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/zoom_sync.rs src-tauri/src/lib.rs
@@ -981,7 +981,7 @@ git commit -m "feat(zoom): import job with resumable downloads and uuid idempote
   - `group_turns(&[AttributedSegment], gap_ms: i64) -> Vec<SpeakerTurn>` — merges adjacent same-speaker segments with gap ≤ gap_ms; `overlap = true` when the turn time-intersects any turn of another speaker.
   - `persist_attribution(storage, project_id, recording_id, runtime_location: &str, model_name: &str, segments: &[AttributedSegment], turns: &[SpeakerTurn], duration_ms: i64) -> Result<(), String>` — writes `speakers` (reuse-by-key like `mobile_diarization_import` at `src-tauri/src/mobile.rs:1047`), `transcript_segments` (with `speaker_id`), `speaker_turns` (status `proposed`), one `model_providers` row id `fung-desktop-attribution` (kind `diarization`, runtime_location as given), one `model_runs` row (task_kind `diarization`), and flips `recordings.status` to `completed` with `duration_ms`.
 
-- [ ] **Step 1: Write failing merge/grouping tests**
+- [x] **Step 1: Write failing merge/grouping tests**
 
 Create `src-tauri/src/speaker_merge.rs` starting with tests:
 
@@ -1064,12 +1064,12 @@ mod tests {
 
 Add `mod speaker_merge;` to `src-tauri/src/lib.rs` and make `WhisperOutput`/`WhisperSegment` + fields + `run_transcription` `pub(crate)`.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml speaker_merge`
 Expected: FAIL to compile — functions/types missing.
 
-- [ ] **Step 3: Implement merge, grouping, persistence**
+- [x] **Step 3: Implement merge, grouping, persistence**
 
 Add above the tests in `speaker_merge.rs`:
 
@@ -1216,12 +1216,12 @@ pub(crate) fn persist_attribution(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml speaker_merge`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Wire Path A into the import worker**
+- [x] **Step 5: Wire Path A into the import worker**
 
 Replace the placeholder `run_processing_pipeline` in `zoom_sync.rs`:
 
@@ -1282,7 +1282,7 @@ pub(crate) fn start_graph_build(
 ) {}
 ```
 
-- [ ] **Step 6: Run full test suite + commit**
+- [x] **Step 6: Run full test suite + commit**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml`
 Expected: PASS.
@@ -1304,7 +1304,7 @@ git commit -m "feat(zoom): per-participant transcription merge with speaker attr
 - Consumes: `WhisperRuntime` (python venv path); Task 6 `persist_attribution`.
 - Produces: `crate::run_diarization(&WhisperRuntime, file_path, on_progress) -> Result<DiarizeOutput, String>` with `pub(crate) struct DiarizeOutput { duration_ms: i64, turns: Vec<DiarizeTurn> }`, `pub(crate) struct DiarizeTurn { speaker_key: String, display_name: String, start_ms: i64, end_ms: i64, confidence: Option<f64> }` (serde camelCase); `speaker_merge::assign_by_overlap(&[AttributedSegment], &[DiarizeTurn]) -> Vec<AttributedSegment>`.
 
-- [ ] **Step 1: Write `scripts/diarize.py`**
+- [x] **Step 1: Write `scripts/diarize.py`**
 
 Same worker contract as `transcribe.py` (PROGRESS on stderr, one JSON on stdout):
 
@@ -1390,7 +1390,7 @@ One-time environment setup (document only — done by the user/UAT, not CI):
 D:\FUNG\.venv-whisper\Scripts\pip.exe install pyannote.audio
 ```
 
-- [ ] **Step 2: Write failing Rust tests (fixture parse + overlap assignment)**
+- [x] **Step 2: Write failing Rust tests (fixture parse + overlap assignment)**
 
 In `src-tauri/src/lib.rs` `#[cfg(test)]` area (or a `mod tests` in `speaker_merge.rs` — put them beside the code they test):
 
@@ -1427,12 +1427,12 @@ In `src-tauri/src/lib.rs` `#[cfg(test)]` area (or a `mod tests` in `speaker_merg
     }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml assign_by_overlap diarize_output`
 Expected: FAIL to compile.
 
-- [ ] **Step 4: Implement runner generalization + assignment + Path B**
+- [x] **Step 4: Implement runner generalization + assignment + Path B**
 
 In `src-tauri/src/lib.rs`, extract the subprocess plumbing of `run_transcription` into a reusable runner (keep `run_transcription` signature; it becomes a thin wrapper):
 
@@ -1583,7 +1583,7 @@ fn run_mixed_audio_path(ctx: &ImportContext) -> Result<(), String> {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify pass, commit**
+- [x] **Step 5: Run tests to verify pass, commit**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml`
 Expected: PASS (all).
@@ -1605,7 +1605,7 @@ git commit -m "feat(zoom): pyannote diarization worker and mixed-audio fallback 
 - Consumes: `genesis_adapter`; `model_providers` row `ollama-summary-intent` (`config_json.endpoint`, optional `config_json.model`, default model `llama3.1:8b`); transcript segments of the recording.
 - Produces: `start_graph_build(storage: Arc<Storage>, project_id: String, recording_id: String, meeting_label: String)` (spawns thread + `graph.build` job); command `graph_build_start(project_id: String, recording_id: String) -> Job` for manual retry; pure fns `det_node_id(recording_id, kind, label) -> String`, `structural_mutations(...)`, `extraction_mutations(...)`, `stale_extraction_ids(rows: &[serde_json::Value], recording_id: &str) -> Vec<String>`, `parse_extraction(&str) -> Extraction`.
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Replace stub file content, starting with:
 
@@ -1672,12 +1672,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml graph_build`
 Expected: FAIL to compile.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Above the tests:
 
@@ -1940,7 +1940,7 @@ pub(crate) fn graph_build_start(
 
 Register `graph_build::graph_build_start,` in `generate_handler!`. Note `extraction_mutations`' edge-id slice `&node_id[node_id.len()-16..]` — node ids end with 16 hex chars, so this is the per-entity hash suffix.
 
-- [ ] **Step 4: Run tests to verify pass, commit**
+- [x] **Step 4: Run tests to verify pass, commit**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml graph_build`
 Expected: PASS (4 tests). Then full `cargo test` passes.
@@ -1962,7 +1962,7 @@ git commit -m "feat(graph): structural + LLM-extracted knowledge graph with evid
 - Consumes: the 6 Rust commands from Tasks 3–5 and 8.
 - Produces: `zoomConnect/zoomConnectionStatus/zoomDisconnect/zoomListRecordings/zoomImportRecording` wrappers; `<ZoomPanel onClose={() => void} />` modal.
 
-- [ ] **Step 1: Add wrappers + types to `src/tauri.ts`**
+- [x] **Step 1: Add wrappers + types to `src/tauri.ts`**
 
 Append:
 
@@ -2008,7 +2008,7 @@ export async function zoomImportRecording(meetingUuid: string): Promise<Job> {
 }
 ```
 
-- [ ] **Step 2: Create `src/components/ZoomPanel.tsx`**
+- [x] **Step 2: Create `src/components/ZoomPanel.tsx`**
 
 ```tsx
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -2142,7 +2142,7 @@ export function ZoomPanel({ onClose }: { onClose: () => void }) {
 }
 ```
 
-- [ ] **Step 3: Create `src/components/ZoomPanel.css`**
+- [x] **Step 3: Create `src/components/ZoomPanel.css`**
 
 Follow the visual language of `src/components/ExternalAccountPanel.css` (read it first and reuse its backdrop/panel tokens). Baseline:
 
@@ -2180,7 +2180,7 @@ Follow the visual language of `src/components/ExternalAccountPanel.css` (read it
 .zoom-panel-note { font-size: 0.75rem; opacity: 0.6; margin-top: 14px; }
 ```
 
-- [ ] **Step 4: Wire into `src/App.tsx`**
+- [x] **Step 4: Wire into `src/App.tsx`**
 
 1. Add import next to the ExternalAccountPanel import (line 46): `import { ZoomPanel } from "./components/ZoomPanel";`
 2. Locate the existing `accountPanelOpen` state declaration (search `accountPanelOpen`) and add beside it: `const [zoomPanelOpen, setZoomPanelOpen] = useState(false);`
@@ -2196,7 +2196,7 @@ Follow the visual language of `src/components/ExternalAccountPanel.css` (read it
 
 (`Cloud` is already imported from lucide-react at `src/App.tsx:8`.)
 
-- [ ] **Step 5: Verify build, commit**
+- [x] **Step 5: Verify build, commit**
 
 Run: `npm run build`
 Expected: tsc + vite succeed with no type errors.
@@ -2213,7 +2213,7 @@ git commit -m "feat(zoom): desktop panel for connect, list, and import"
 
 **Interfaces:** none (docs + verification only).
 
-- [ ] **Step 1: Write `docs/Desktop/ZOOM_INTEGRATION_SETUP.md`**
+- [x] **Step 1: Write `docs/Desktop/ZOOM_INTEGRATION_SETUP.md`**
 
 ```markdown
 # Zoom Integration Setup
@@ -2265,7 +2265,7 @@ the provider row to override.
 - Audio, transcripts, and graph data never leave this machine.
 ```
 
-- [ ] **Step 2: Full validation**
+- [x] **Step 2: Full validation**
 
 Run: `cargo test --manifest-path D:\FUNG\src-tauri\Cargo.toml`
 Expected: PASS (all suites: genesis_adapter, zoom_sync, speaker_merge, graph_build, existing tests).
@@ -2276,7 +2276,7 @@ Expected: success.
 Run: `npm run test:mobile`
 Expected: PASS (unchanged behavior — regression check).
 
-- [ ] **Step 3: Manual UAT checklist (real Zoom account)**
+- [x] **Step 3: Manual UAT checklist (real Zoom account)**
 
 1. Set `FUNG_ZOOM_CLIENT_ID`, launch `npm run desktop`, open Zoom panel → Connect → browser consent → panel shows connected + email.
 2. Meeting A (separate audio files ON): import → job runs → transcript shows real participant names; speakers renameable; graph has meeting/speaker/topic nodes.
@@ -2284,7 +2284,7 @@ Expected: PASS (unchanged behavior — regression check).
 4. Re-import Meeting A → rejected with "already imported".
 5. Disconnect → token gone from Credential Manager (verify in Windows Credential Manager UI); reconnect works.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add docs/Desktop/ZOOM_INTEGRATION_SETUP.md

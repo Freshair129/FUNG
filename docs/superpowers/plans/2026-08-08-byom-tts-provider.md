@@ -1,6 +1,6 @@
 # BYOM TTS Provider Registration — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Let users register their own TTS providers (F5-TTS-THAI, Piper, REST servers, etc.) via Settings UI, then use them through a 🔊 button on P3 recap and through the existing MCP voice pipeline.
 
@@ -37,7 +37,7 @@
   - `TtsProviderConfig::validate(&self) -> TtsValidation`
   - `is_private_ip(endpoint: &str) -> bool`
 
-- [ ] **Step 1: Write failing tests for PythonScript validation**
+- [x] **Step 1: Write failing tests for PythonScript validation**
 
 Create `src-tauri/src/tts_config.rs` with the test module first:
 
@@ -192,7 +192,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 ```bash
 cd src-tauri && cargo test tts_config --lib -- --nocapture
@@ -200,7 +200,7 @@ cd src-tauri && cargo test tts_config --lib -- --nocapture
 
 Expected: all tests FAIL with `not yet implemented`
 
-- [ ] **Step 3: Register the module in lib.rs**
+- [x] **Step 3: Register the module in lib.rs**
 
 Add this line near the other `mod` declarations at the top of `src-tauri/src/lib.rs` (around line 10, next to `mod genesis_adapter;`):
 
@@ -208,7 +208,7 @@ Add this line near the other `mod` declarations at the top of `src-tauri/src/lib
 mod tts_config;
 ```
 
-- [ ] **Step 4: Implement validate() and is_private_ip()**
+- [x] **Step 4: Implement validate() and is_private_ip()**
 
 Replace the `todo!()` bodies in `src-tauri/src/tts_config.rs`:
 
@@ -336,7 +336,7 @@ pub(crate) fn is_private_ip(endpoint: &str) -> bool {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 ```bash
 cd src-tauri && cargo test tts_config --lib -- --nocapture
@@ -344,7 +344,7 @@ cd src-tauri && cargo test tts_config --lib -- --nocapture
 
 Expected: all 9 tests PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src-tauri/src/tts_config.rs src-tauri/src/lib.rs
@@ -373,7 +373,7 @@ git commit -m "feat(tts): add TTS config types with validation
   - `dispatch(config: &TtsProviderConfig, request: &TtsSynthesisRequest, temp_dir: &Path) -> Result<TtsSynthesisResult, String>`
   - `validate_wav(path: &Path) -> Result<(), String>`
 
-- [ ] **Step 1: Write the module with tests**
+- [x] **Step 1: Write the module with tests**
 
 Create `src-tauri/src/tts_executor.rs`:
 
@@ -679,7 +679,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Add shell-words and tempfile dependencies**
+- [x] **Step 2: Add shell-words and tempfile dependencies**
 
 Add to `src-tauri/Cargo.toml` under `[dependencies]`:
 
@@ -694,7 +694,7 @@ And under `[dev-dependencies]` (create this section if it doesn't exist):
 tempfile = "3"
 ```
 
-- [ ] **Step 3: Register the module in lib.rs**
+- [x] **Step 3: Register the module in lib.rs**
 
 Add below the `mod tts_config;` line added in Task 1:
 
@@ -702,7 +702,7 @@ Add below the `mod tts_config;` line added in Task 1:
 mod tts_executor;
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```bash
 cd src-tauri && cargo test tts_executor --lib -- --nocapture
@@ -710,7 +710,7 @@ cd src-tauri && cargo test tts_executor --lib -- --nocapture
 
 Expected: 4 tests PASS (validate_wav tests). The dispatch/exec functions are tested indirectly in Task 3 integration tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/tts_executor.rs src-tauri/Cargo.toml src-tauri/src/lib.rs
@@ -742,7 +742,7 @@ git commit -m "feat(tts): add TTS executor with dispatch and WAV validation
   - TypeScript: `ttsProviderRegister(...)`, `ttsProviderUpdate(...)`, `ttsProviderToggle(...)`, `ttsProviderTest(...)`, `ttsSynthesizeText(...)`
   - TypeScript types: `TtsTestResult`, `TtsProviderConfig`
 
-- [ ] **Step 1: Add `tts_test_results` table to GenesisBlockDB schema**
+- [x] **Step 1: Add `tts_test_results` table to GenesisBlockDB schema**
 
 In `src-tauri/src/genesis_adapter.rs`, find the current `schema()` function (v4) and add the new table. Add this `push` call after the existing `external_imports` table:
 
@@ -783,7 +783,7 @@ match storage.register_relational_schema("fung_v5", v5_tables) {
 }
 ```
 
-- [ ] **Step 2: Update test SQLite schema in lib.rs**
+- [x] **Step 2: Update test SQLite schema in lib.rs**
 
 In `src-tauri/src/lib.rs`, inside the `#[cfg(test)]` function `init_database`, update the `model_providers` CHECK constraint (around line 326) to include `'tts'`:
 
@@ -805,7 +805,7 @@ CREATE TABLE IF NOT EXISTS tts_test_results (
 );
 ```
 
-- [ ] **Step 3: Add the 5 Tauri commands in lib.rs**
+- [x] **Step 3: Add the 5 Tauri commands in lib.rs**
 
 Add these command functions in `src-tauri/src/lib.rs` after the `list_model_providers` command (around line 592). They follow the existing patterns: take `State<AppState>`, return `Result<T, AppError>`.
 
@@ -1117,7 +1117,7 @@ fn tts_synthesize_text(
 }
 ```
 
-- [ ] **Step 4: Add `AppError::Tts` and `AppError::Io` variants**
+- [x] **Step 4: Add `AppError::Tts` and `AppError::Io` variants**
 
 In `lib.rs`, find the `AppError` enum and add:
 
@@ -1128,7 +1128,7 @@ Io(String),
 
 And their `Display` / serialization match arms following the existing pattern.
 
-- [ ] **Step 5: Register new commands in invoke_handler**
+- [x] **Step 5: Register new commands in invoke_handler**
 
 In `lib.rs`, find the `tauri::generate_handler![...]` block (around line 981) and add:
 
@@ -1140,7 +1140,7 @@ tts_provider_test,
 tts_synthesize_text,
 ```
 
-- [ ] **Step 6: Add TypeScript types to model.ts**
+- [x] **Step 6: Add TypeScript types to model.ts**
 
 In `src/mobile/model.ts`, add after the `VoiceProfile` type (around line 113):
 
@@ -1192,7 +1192,7 @@ export type TtsRegisterResult = {
 };
 ```
 
-- [ ] **Step 7: Add TypeScript IPC wrappers to tauri.ts**
+- [x] **Step 7: Add TypeScript IPC wrappers to tauri.ts**
 
 In `src/tauri.ts`, add after the `listModelProviders` function (around line 145):
 
@@ -1245,7 +1245,7 @@ export async function ttsSynthesizeText(
 }
 ```
 
-- [ ] **Step 8: Verify Rust compilation**
+- [x] **Step 8: Verify Rust compilation**
 
 ```bash
 cd src-tauri && cargo check
@@ -1253,7 +1253,7 @@ cd src-tauri && cargo check
 
 Expected: no errors
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add src-tauri/src/genesis_adapter.rs src-tauri/src/lib.rs src/tauri.ts src/mobile/model.ts
@@ -1279,7 +1279,7 @@ git commit -m "feat(tts): add schema migration, Tauri commands, and TS bridge
 - Consumes: `listModelProviders()`, `ttsProviderRegister(...)`, `ttsProviderUpdate(...)`, `ttsProviderToggle(...)`, `ttsProviderTest(...)` from `src/tauri.ts`; `ModelProvider` type; `TtsProviderConfig` types from `model.ts`
 - Produces: `<TtsProviderPanel onClose={fn} />` component used by `App.tsx`
 
-- [ ] **Step 1: Create TtsProviderPanel.css**
+- [x] **Step 1: Create TtsProviderPanel.css**
 
 Create `src/components/TtsProviderPanel.css` following the same overlay pattern as `ExternalAccountPanel.css`:
 
@@ -1466,7 +1466,7 @@ Create `src/components/TtsProviderPanel.css` following the same overlay pattern 
 }
 ```
 
-- [ ] **Step 2: Create TtsProviderPanel.tsx**
+- [x] **Step 2: Create TtsProviderPanel.tsx**
 
 Create `src/components/TtsProviderPanel.tsx`:
 
@@ -1752,7 +1752,7 @@ export default function TtsProviderPanel({ onClose }: Props) {
 }
 ```
 
-- [ ] **Step 3: Wire TtsProviderPanel into App.tsx**
+- [x] **Step 3: Wire TtsProviderPanel into App.tsx**
 
 In `src/App.tsx`:
 
@@ -1788,7 +1788,7 @@ Add `Volume2` to the lucide-react import at the top of App.tsx.
 {ttsPanelOpen && <TtsProviderPanel onClose={() => setTtsPanelOpen(false)} />}
 ```
 
-- [ ] **Step 4: Verify the app compiles**
+- [x] **Step 4: Verify the app compiles**
 
 ```bash
 npm run dev
@@ -1796,7 +1796,7 @@ npm run dev
 
 Expected: app starts without errors, new 🔊 button visible in sidebar, clicking opens TtsProviderPanel
 
-- [ ] **Step 5: Manual test — registration flow**
+- [x] **Step 5: Manual test — registration flow**
 
 1. Click the Volume2 button in sidebar → panel opens with empty state
 2. Click "เพิ่ม TTS Provider" → form appears
@@ -1804,7 +1804,7 @@ Expected: app starts without errors, new 🔊 button visible in sidebar, clickin
 4. Click ยกเลิก → form closes
 5. Click "เพิ่ม TTS Provider" again → select "REST API" → fill endpoint → save
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/TtsProviderPanel.tsx src/components/TtsProviderPanel.css src/App.tsx
@@ -1830,7 +1830,7 @@ git commit -m "feat(tts): add TtsProviderPanel settings UI
 - Consumes: `ttsSynthesizeText(...)`, `listModelProviders()` from `src/tauri.ts`; `ModelProvider` type
 - Produces: user-facing 🔊 button at P3 recap, TTS provider selector in CreativeStudio voice tab
 
-- [ ] **Step 1: Add TTS playback state and helper to App.tsx**
+- [x] **Step 1: Add TTS playback state and helper to App.tsx**
 
 In `src/App.tsx`, add state variables near the other state declarations (around line 648):
 
@@ -1881,7 +1881,7 @@ const handleTtsPlay = async (text: string) => {
 
 Add `ttsSynthesizeText` to the import from `"./tauri"`.
 
-- [ ] **Step 2: Add 🔊 button to P3 Intelligence recap tile**
+- [x] **Step 2: Add 🔊 button to P3 Intelligence recap tile**
 
 In `src/App.tsx`, find the P3 "Meeting recap" tile definition (around line 337-362). The tile content renders through the generic tile system. Add a 🔊 button to the tile header or content area.
 
@@ -1910,7 +1910,7 @@ Add `Loader2` to the lucide-react import if not already imported.
 
 Note: The exact placement depends on how the tile content is structured. The implementer should find where the recap text is rendered within the P3 tile and place the button adjacent to that text. Look for the tile rendering pattern driven by `currentTile` (line 731) and the activity/event feed.
 
-- [ ] **Step 3: Add TTS speak button CSS**
+- [x] **Step 3: Add TTS speak button CSS**
 
 Add to `src/styles.css` (at the end):
 
@@ -1947,7 +1947,7 @@ Add to `src/styles.css` (at the end):
 }
 ```
 
-- [ ] **Step 4: Add TTS provider dropdown to CreativeStudio voice tab**
+- [x] **Step 4: Add TTS provider dropdown to CreativeStudio voice tab**
 
 In `src/mobile/CreativeStudio.tsx`, modify the voice tab section (around line 214).
 
@@ -2027,7 +2027,7 @@ Add the provider selector dropdown in the voice tab section, above the grant but
 
 Add `setAgentVoiceGrant` to the bridge.ts import.
 
-- [ ] **Step 5: Verify the app compiles and works**
+- [x] **Step 5: Verify the app compiles and works**
 
 ```bash
 npm run dev
@@ -2039,7 +2039,7 @@ Expected:
 - If no TTS provider registered, clicking 🔊 opens Settings panel
 - If provider registered, clicking 🔊 synthesizes and plays audio
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/App.tsx src/styles.css src/mobile/CreativeStudio.tsx
@@ -2059,14 +2059,14 @@ git commit -m "feat(tts): add 🔊 button at P3 recap and provider dropdown in C
 
 After all 5 tasks are complete, verify end-to-end:
 
-- [ ] `cargo test` passes all new Rust tests (tts_config + tts_executor)
-- [ ] `cargo check` compiles without warnings
-- [ ] `npm run dev` starts without errors
-- [ ] Settings panel: register a Python Script TTS provider with valid paths → success
-- [ ] Settings panel: register with invalid paths → validation error shown
-- [ ] Settings panel: test synthesize → audio plays
-- [ ] Settings panel: toggle provider off → card shows ⚫
-- [ ] P3 recap: click 🔊 → audio synthesized and played
-- [ ] P3 recap: click 🔊 with no provider → Settings panel opens
-- [ ] CreativeStudio voice tab: dropdown shows registered TTS providers
-- [ ] CreativeStudio voice tab: select provider → grant button unlocked
+- [x] `cargo test` passes all new Rust tests (tts_config + tts_executor)
+- [x] `cargo check` compiles without warnings
+- [x] `npm run dev` starts without errors
+- [x] Settings panel: register a Python Script TTS provider with valid paths → success
+- [x] Settings panel: register with invalid paths → validation error shown
+- [x] Settings panel: test synthesize → audio plays
+- [x] Settings panel: toggle provider off → card shows ⚫
+- [x] P3 recap: click 🔊 → audio synthesized and played
+- [x] P3 recap: click 🔊 with no provider → Settings panel opens
+- [x] CreativeStudio voice tab: dropdown shows registered TTS providers
+- [x] CreativeStudio voice tab: select provider → grant button unlocked

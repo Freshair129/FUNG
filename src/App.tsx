@@ -21,6 +21,7 @@ import {
   Sun,
   TimerReset,
   Upload,
+  Volume2,
   Wifi,
 } from "lucide-react";
 import {
@@ -47,6 +48,8 @@ import {
 } from "./tauri";
 import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
 import { ZoomPanel } from "./components/ZoomPanel";
+import { TtsProviderPanel } from "./components/TtsProviderPanel";
+import { FungLogo } from "./components/FungLogo";
 
 function formatMs(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -645,6 +648,7 @@ export function App() {
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
   const [accountPanelOpen, setAccountPanelOpen] = useState(false);
   const [zoomPanelOpen, setZoomPanelOpen] = useState(false);
+  const [ttsPanelOpen, setTtsPanelOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [signals, setSignals] = useState<Record<SignalId, boolean>>({
     focus: true,
@@ -1016,6 +1020,7 @@ export function App() {
     <div className={`app-shell theme-${theme}`}>
       {accountPanelOpen && <ExternalAccountPanel onClose={() => setAccountPanelOpen(false)} onOpenPortal={openExternalAccountPortal} />}
       {zoomPanelOpen && <ZoomPanel onClose={() => setZoomPanelOpen(false)} />}
+      {ttsPanelOpen && <TtsProviderPanel onClose={() => setTtsPanelOpen(false)} />}
       <div className="ambient-grid" data-tauri-drag-region aria-hidden="true" />
 
       <svg className="clip-defs" width="0" height="0" aria-hidden="true" focusable="false">
@@ -1032,6 +1037,9 @@ export function App() {
           <div className="panel-glow" data-tauri-drag-region aria-hidden="true" />
           <div className="panel-glass" data-tauri-drag-region>
             <section className="zone anchor-rail" aria-label="Anchor rail">
+              <div className="brand-header" style={{ padding: "8px 0 16px" }}>
+                <FungLogo showWordmark size={24} wordmarkColor="#6F897E" />
+              </div>
               <div className="eyebrow">Pages</div>
               {pageAnchors.map((anchor) => (
                 <button
@@ -1363,6 +1371,15 @@ export function App() {
                 onClick={() => setAccountPanelOpen(true)}
               >
                 <SlidersHorizontal size={20} />
+              </button>
+              <button
+                type="button"
+                className="sidebar-action"
+                aria-label="TTS Providers"
+                title="TTS Providers"
+                onClick={() => setTtsPanelOpen(true)}
+              >
+                <Volume2 size={20} />
               </button>
               <button
                 type="button"

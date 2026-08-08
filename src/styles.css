@@ -1416,3 +1416,45 @@ button,
     transition: none !important;
   }
 }
+
+/* ── TTS Speak Button ── */
+.tts-speak-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid rgba(20, 19, 17, 0.12);
+  background: transparent;
+  color: #767066;
+  cursor: pointer;
+  transition: all 0.15s;
+  vertical-align: middle;
+}
+.tts-speak-btn:hover:not(:disabled) {
+  background: rgba(20, 19, 17, 0.06);
+  color: #1f1c18;
+}
+.tts-speak-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.theme-dark .tts-speak-btn {
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #999;
+}
+.theme-dark .tts-speak-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e0e0e0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 1s linear infinite;
+}

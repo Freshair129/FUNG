@@ -21,6 +21,8 @@ mod mobile;
 mod native_recorder;
 mod on_device_ai;
 mod speaker_merge;
+mod tts_config;
+mod tts_executor;
 mod zoom_sync;
 
 /// Source-tree fallback used by `tauri dev`. Packaged builds must resolve all
@@ -111,6 +113,8 @@ enum AppError {
     InvalidInput(String),
     #[error("GenesisBlockDB error: {0}")]
     Genesis(String),
+    #[error("TTS error: {0}")]
+    Tts(String),
 }
 
 impl Serialize for AppError {
@@ -323,7 +327,7 @@ fn init_database(db_path: PathBuf) -> AppResult<Connection> {
             id TEXT PRIMARY KEY,
             label TEXT NOT NULL,
             runtime_location TEXT NOT NULL CHECK (runtime_location IN ('local', 'lan', 'cloud')),
-            kind TEXT NOT NULL CHECK (kind IN ('transcription', 'diarization', 'cleanup', 'separation', 'summary_intent')),
+            kind TEXT NOT NULL CHECK (kind IN ('transcription', 'diarization', 'cleanup', 'separation', 'summary_intent', 'tts')),
             enabled INTEGER NOT NULL DEFAULT 1,
             config_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
@@ -408,6 +412,16 @@ fn init_database(db_path: PathBuf) -> AppResult<Connection> {
             actor TEXT NOT NULL,
             payload_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS tts_test_results (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL REFERENCES model_providers(id) ON DELETE CASCADE,
+            status TEXT NOT NULL CHECK (status IN ('ok', 'error')),
+            latency_ms INTEGER,
+            sample_audio_path TEXT,
+            error_message TEXT,
+            tested_at TEXT NOT NULL
         );
 
         CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_active_recording_capture
@@ -589,6 +603,352 @@ fn job_from_row(row: serde_json::Value) -> AppResult<Job> {
 fn list_model_providers(state: State<'_, AppState>) -> AppResult<Vec<ModelProvider>> {
     let mut providers = genesis_adapter::query(&state.genesis, "model_providers", &["id", "label", "runtime_location", "kind", "enabled", "created_at", "updated_at"], vec![], 500).map_err(AppError::Genesis)?.into_iter().map(|row| Ok(ModelProvider { id: genesis_adapter::string(&row, "model_providers.id").map_err(AppError::Genesis)?, label: genesis_adapter::string(&row, "model_providers.label").map_err(AppError::Genesis)?, runtime_location: genesis_adapter::string(&row, "model_providers.runtime_location").map_err(AppError::Genesis)?, kind: genesis_adapter::string(&row, "model_providers.kind").map_err(AppError::Genesis)?, enabled: row.get("model_providers.enabled").and_then(|value| value.as_bool().or_else(|| value.as_i64().map(|number| number != 0))).unwrap_or(false), created_at: genesis_adapter::string(&row, "model_providers.created_at").map_err(AppError::Genesis)?, updated_at: genesis_adapter::string(&row, "model_providers.updated_at").map_err(AppError::Genesis)? })).collect::<AppResult<Vec<_>>>()?;
     providers.sort_by_key(|provider| (provider.runtime_location.clone(), provider.label.clone())); Ok(providers)
+}
+
+fn model_provider_row_enabled(row: &serde_json::Value) -> bool {
+    row.get("model_providers.enabled")
+        .and_then(|value| value.as_bool().or_else(|| value.as_i64().map(|number| number != 0)))
+        .unwrap_or(false)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TtsRegisterInput {
+    label: String,
+    config_json: String, // JSON string of tts_config::TtsProviderConfig
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TtsRegisterOutput {
+    provider_id: String,
+    validation: tts_config::TtsValidation,
+}
+
+#[tauri::command]
+fn tts_provider_register(
+    input: TtsRegisterInput,
+    state: State<'_, AppState>,
+) -> AppResult<TtsRegisterOutput> {
+    let config: tts_config::TtsProviderConfig = serde_json::from_str(&input.config_json)
+        .map_err(|e| AppError::InvalidInput(format!("config ไม่ถูกรูปแบบ: {e}")))?;
+
+    let validation = config.validate();
+    if !validation.ok {
+        return Ok(TtsRegisterOutput {
+            provider_id: String::new(),
+            validation,
+        });
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let timestamp = now();
+
+    genesis_adapter::commit_rows(
+        &state.genesis,
+        vec![genesis_adapter::upsert(
+            "model_providers",
+            serde_json::json!({
+                "id": id,
+                "label": input.label,
+                "runtime_location": "local",
+                "kind": "tts",
+                "enabled": true,
+                "config_json": input.config_json,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }),
+        )],
+    )
+    .map_err(AppError::Genesis)?;
+
+    Ok(TtsRegisterOutput {
+        provider_id: id,
+        validation,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TtsUpdateInput {
+    provider_id: String,
+    label: Option<String>,
+    config_json: Option<String>,
+}
+
+#[tauri::command]
+fn tts_provider_update(
+    input: TtsUpdateInput,
+    state: State<'_, AppState>,
+) -> AppResult<tts_config::TtsValidation> {
+    // If config_json is provided, validate it before persisting anything.
+    if let Some(ref config_json) = input.config_json {
+        let config: tts_config::TtsProviderConfig = serde_json::from_str(config_json)
+            .map_err(|e| AppError::InvalidInput(format!("config ไม่ถูกรูปแบบ: {e}")))?;
+        let validation = config.validate();
+        if !validation.ok {
+            return Ok(validation);
+        }
+    }
+
+    let timestamp = now();
+
+    let rows = genesis_adapter::query(
+        &state.genesis,
+        "model_providers",
+        &["id", "label", "runtime_location", "kind", "enabled", "config_json", "created_at", "updated_at"],
+        vec![genesis_adapter::eq("model_providers", "id", serde_json::json!(input.provider_id))],
+        1,
+    )
+    .map_err(AppError::Genesis)?;
+
+    let row = rows
+        .first()
+        .ok_or_else(|| AppError::InvalidInput(format!("ไม่พบ provider: {}", input.provider_id)))?;
+
+    let label = match input.label {
+        Some(label) => label,
+        None => genesis_adapter::string(row, "model_providers.label").map_err(AppError::Genesis)?,
+    };
+    let config_json = match input.config_json {
+        Some(config_json) => config_json,
+        None => genesis_adapter::string(row, "model_providers.config_json").map_err(AppError::Genesis)?,
+    };
+    let runtime_location = genesis_adapter::string(row, "model_providers.runtime_location").map_err(AppError::Genesis)?;
+    let kind = genesis_adapter::string(row, "model_providers.kind").map_err(AppError::Genesis)?;
+    let enabled = model_provider_row_enabled(row);
+    let created_at = genesis_adapter::string(row, "model_providers.created_at").map_err(AppError::Genesis)?;
+
+    genesis_adapter::commit_rows(
+        &state.genesis,
+        vec![genesis_adapter::upsert(
+            "model_providers",
+            serde_json::json!({
+                "id": input.provider_id,
+                "label": label,
+                "runtime_location": runtime_location,
+                "kind": kind,
+                "enabled": enabled,
+                "config_json": config_json,
+                "created_at": created_at,
+                "updated_at": timestamp,
+            }),
+        )],
+    )
+    .map_err(AppError::Genesis)?;
+
+    Ok(tts_config::TtsValidation { ok: true, error: None, warnings: vec![] })
+}
+
+#[tauri::command]
+fn tts_provider_toggle(
+    provider_id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> AppResult<bool> {
+    let timestamp = now();
+
+    let rows = genesis_adapter::query(
+        &state.genesis,
+        "model_providers",
+        &["id", "label", "runtime_location", "kind", "enabled", "config_json", "created_at", "updated_at"],
+        vec![genesis_adapter::eq("model_providers", "id", serde_json::json!(provider_id))],
+        1,
+    )
+    .map_err(AppError::Genesis)?;
+
+    let row = rows
+        .first()
+        .ok_or_else(|| AppError::InvalidInput(format!("ไม่พบ provider: {provider_id}")))?;
+
+    let label = genesis_adapter::string(row, "model_providers.label").map_err(AppError::Genesis)?;
+    let runtime_location = genesis_adapter::string(row, "model_providers.runtime_location").map_err(AppError::Genesis)?;
+    let kind = genesis_adapter::string(row, "model_providers.kind").map_err(AppError::Genesis)?;
+    let config_json = genesis_adapter::string(row, "model_providers.config_json").map_err(AppError::Genesis)?;
+    let created_at = genesis_adapter::string(row, "model_providers.created_at").map_err(AppError::Genesis)?;
+
+    genesis_adapter::commit_rows(
+        &state.genesis,
+        vec![genesis_adapter::upsert(
+            "model_providers",
+            serde_json::json!({
+                "id": provider_id,
+                "label": label,
+                "runtime_location": runtime_location,
+                "kind": kind,
+                "enabled": enabled,
+                "config_json": config_json,
+                "created_at": created_at,
+                "updated_at": timestamp,
+            }),
+        )],
+    )
+    .map_err(AppError::Genesis)?;
+
+    Ok(true)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TtsTestOutput {
+    status: String, // "ok" or "error"
+    latency_ms: Option<u64>,
+    audio_path: Option<String>,
+    message: Option<String>,
+}
+
+#[tauri::command]
+fn tts_provider_test(
+    provider_id: String,
+    test_text: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<TtsTestOutput> {
+    let text = test_text.unwrap_or_else(|| "ทดสอบระบบเสียง".into());
+
+    let rows = genesis_adapter::query(
+        &state.genesis,
+        "model_providers",
+        &["id", "config_json"],
+        vec![
+            genesis_adapter::eq("model_providers", "id", serde_json::json!(provider_id)),
+            genesis_adapter::eq("model_providers", "kind", serde_json::json!("tts")),
+        ],
+        1,
+    )
+    .map_err(AppError::Genesis)?;
+
+    let row = rows
+        .first()
+        .ok_or_else(|| AppError::InvalidInput(format!("ไม่พบ TTS provider: {provider_id}")))?;
+
+    let config_str = genesis_adapter::string(row, "model_providers.config_json").map_err(AppError::Genesis)?;
+    let config: tts_config::TtsProviderConfig = serde_json::from_str(&config_str)
+        .map_err(|e| AppError::InvalidInput(format!("config ไม่ถูกรูปแบบ: {e}")))?;
+
+    let temp_dir = std::env::temp_dir().join("fung-tts");
+    std::fs::create_dir_all(&temp_dir).map_err(|e| {
+        AppError::Io(std::io::Error::new(e.kind(), format!("สร้าง temp dir ไม่ได้: {e}")))
+    })?;
+
+    let request = tts_executor::TtsSynthesisRequest {
+        text,
+        ref_audio: None,
+        ref_text: None,
+    };
+
+    let (status, latency_ms, audio_path, message) = match tts_executor::dispatch(&config, &request, &temp_dir) {
+        Ok(result) => (
+            "ok".to_string(),
+            Some(result.latency_ms),
+            Some(result.audio_path.display().to_string()),
+            None,
+        ),
+        Err(e) => ("error".to_string(), None, None, Some(e)),
+    };
+
+    // Record the test result; a failure to persist it should not fail the whole test.
+    let timestamp = now();
+    let test_id = Uuid::new_v4().to_string();
+    let _ = genesis_adapter::commit_rows(
+        &state.genesis,
+        vec![genesis_adapter::upsert(
+            "tts_test_results",
+            serde_json::json!({
+                "id": test_id,
+                "provider_id": provider_id,
+                "status": status,
+                "latency_ms": latency_ms,
+                "sample_audio_path": audio_path,
+                "error_message": message,
+                "tested_at": timestamp,
+            }),
+        )],
+    );
+
+    Ok(TtsTestOutput { status, latency_ms, audio_path, message })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TtsSynthesizeInput {
+    text: String,
+    provider_id: Option<String>,
+    ref_audio: Option<String>,
+    ref_text: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TtsSynthesizeOutput {
+    audio_path: String,
+    latency_ms: u64,
+}
+
+#[tauri::command]
+fn tts_synthesize_text(
+    input: TtsSynthesizeInput,
+    state: State<'_, AppState>,
+) -> AppResult<TtsSynthesizeOutput> {
+    // Locate the config for the requested (or first enabled) TTS provider.
+    let config_str = if let Some(pid) = &input.provider_id {
+        let rows = genesis_adapter::query(
+            &state.genesis,
+            "model_providers",
+            &["config_json"],
+            vec![
+                genesis_adapter::eq("model_providers", "id", serde_json::json!(pid)),
+                genesis_adapter::eq("model_providers", "kind", serde_json::json!("tts")),
+                genesis_adapter::eq("model_providers", "enabled", serde_json::json!(true)),
+            ],
+            1,
+        )
+        .map_err(AppError::Genesis)?;
+        rows.first()
+            .map(|row| genesis_adapter::string(row, "model_providers.config_json"))
+            .transpose()
+            .map_err(AppError::Genesis)?
+            .ok_or_else(|| AppError::InvalidInput(format!("TTS provider '{pid}' ไม่พร้อมใช้งาน")))?
+    } else {
+        let rows = genesis_adapter::query(
+            &state.genesis,
+            "model_providers",
+            &["config_json"],
+            vec![
+                genesis_adapter::eq("model_providers", "kind", serde_json::json!("tts")),
+                genesis_adapter::eq("model_providers", "enabled", serde_json::json!(true)),
+            ],
+            1,
+        )
+        .map_err(AppError::Genesis)?;
+        rows.first()
+            .map(|row| genesis_adapter::string(row, "model_providers.config_json"))
+            .transpose()
+            .map_err(AppError::Genesis)?
+            .ok_or_else(|| {
+                AppError::InvalidInput("ยังไม่ได้ลงทะเบียน TTS provider — ไปตั้งค่าที่ Settings".to_string())
+            })?
+    };
+
+    let config: tts_config::TtsProviderConfig = serde_json::from_str(&config_str)
+        .map_err(|e| AppError::InvalidInput(format!("config ผิดพลาด: {e}")))?;
+
+    let temp_dir = std::env::temp_dir().join("fung-tts");
+    std::fs::create_dir_all(&temp_dir).map_err(|e| {
+        AppError::Io(std::io::Error::new(e.kind(), format!("สร้าง temp dir ไม่ได้: {e}")))
+    })?;
+
+    let request = tts_executor::TtsSynthesisRequest {
+        text: input.text,
+        ref_audio: input.ref_audio.map(std::path::PathBuf::from),
+        ref_text: input.ref_text,
+    };
+
+    let result = tts_executor::dispatch(&config, &request, &temp_dir).map_err(AppError::Tts)?;
+
+    Ok(TtsSynthesizeOutput {
+        audio_path: result.audio_path.display().to_string(),
+        latency_ms: result.latency_ms,
+    })
 }
 
 #[tauri::command]
@@ -1030,7 +1390,12 @@ pub fn run() {
             mobile::mobile_agent_voice_stop,
             mobile::mobile_pair_desktop,
             mobile::mobile_voice_parse,
-            mobile::mobile_mcp_set_enabled
+            mobile::mobile_mcp_set_enabled,
+            tts_provider_register,
+            tts_provider_update,
+            tts_provider_toggle,
+            tts_provider_test,
+            tts_synthesize_text
         ])
         .run(tauri::generate_context!())
         .expect("error while running FUNG");

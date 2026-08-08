@@ -8,6 +8,7 @@ import {
   Cloud,
   Download,
   HardDriveDownload,
+  Loader2,
   Mic,
   Minimize2,
   Moon,
@@ -21,6 +22,7 @@ import {
   Sun,
   TimerReset,
   Upload,
+  Volume2,
   Wifi,
 } from "lucide-react";
 import {
@@ -39,6 +41,7 @@ import {
   pickAudioOrVideoFile,
   renameSpeaker,
   startLocalApi,
+  ttsSynthesizeText,
   type Health,
   type Job,
   type ModelProvider,
@@ -47,6 +50,7 @@ import {
 } from "./tauri";
 import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
 import { ZoomPanel } from "./components/ZoomPanel";
+import { TtsProviderPanel } from "./components/TtsProviderPanel";
 
 function formatMs(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -645,7 +649,11 @@ export function App() {
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
   const [accountPanelOpen, setAccountPanelOpen] = useState(false);
   const [zoomPanelOpen, setZoomPanelOpen] = useState(false);
+  const [ttsPanelOpen, setTtsPanelOpen] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [ttsPlaying, setTtsPlaying] = useState(false);
+  const [ttsLoading, setTtsLoading] = useState(false);
+  const [ttsAudio, setTtsAudio] = useState<HTMLAudioElement | null>(null);
   const [signals, setSignals] = useState<Record<SignalId, boolean>>({
     focus: true,
     health: true,
@@ -920,6 +928,46 @@ export function App() {
     }
   };
 
+  const handleTtsPlay = async (text: string) => {
+    // If already playing, stop
+    if (ttsAudio) {
+      ttsAudio.pause();
+      setTtsAudio(null);
+      setTtsPlaying(false);
+      return;
+    }
+
+    // Block TTS during active recording to prevent feedback
+    if (recording) {
+      return;
+    }
+
+    setTtsLoading(true);
+    try {
+      const result = await ttsSynthesizeText(text);
+      const audio = new Audio(`asset://localhost/${result.audioPath}`);
+      audio.onended = () => {
+        setTtsPlaying(false);
+        setTtsAudio(null);
+      };
+      audio.onerror = () => {
+        setTtsPlaying(false);
+        setTtsAudio(null);
+      };
+      await audio.play();
+      setTtsAudio(audio);
+      setTtsPlaying(true);
+    } catch (e: unknown) {
+      // If no provider registered, open TTS settings
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("ยังไม่ได้ลงทะเบียน")) {
+        setTtsPanelOpen(true);
+      }
+    } finally {
+      setTtsLoading(false);
+    }
+  };
+
   const failedGraphBuilds = useMemo(
     () => jobs.filter((job) => job.type === "graph.build" && job.status === "failed"),
     [jobs],
@@ -1016,6 +1064,7 @@ export function App() {
     <div className={`app-shell theme-${theme}`}>
       {accountPanelOpen && <ExternalAccountPanel onClose={() => setAccountPanelOpen(false)} onOpenPortal={openExternalAccountPortal} />}
       {zoomPanelOpen && <ZoomPanel onClose={() => setZoomPanelOpen(false)} />}
+      {ttsPanelOpen && <TtsProviderPanel onClose={() => setTtsPanelOpen(false)} />}
       <div className="ambient-grid" data-tauri-drag-region aria-hidden="true" />
 
       <svg className="clip-defs" width="0" height="0" aria-hidden="true" focusable="false">
@@ -1151,7 +1200,28 @@ export function App() {
 
                 <div className="agent-current">
                   <span>{currentTile.currentLabel}</span>
-                  <strong>{currentTile.title}</strong>
+                  <strong>
+                    {currentTile.title}
+                    {activeAnchor === "P3" && currentTile.id === "meeting-recap" && (
+                      <button
+                        type="button"
+                        className="tts-speak-btn"
+                        title={ttsPlaying ? "หยุดฟัง" : "ฟังสรุป"}
+                        aria-label={ttsPlaying ? "หยุดฟังสรุป" : "ฟังสรุป"}
+                        onClick={() => void handleTtsPlay(currentTile.detail)}
+                        disabled={ttsLoading}
+                        style={{ marginLeft: 8 }}
+                      >
+                        {ttsLoading ? (
+                          <Loader2 size={14} className="spin" />
+                        ) : ttsPlaying ? (
+                          <span>⏸</span>
+                        ) : (
+                          <Volume2 size={14} />
+                        )}
+                      </button>
+                    )}
+                  </strong>
                   <p>{currentTile.detail}</p>
                 </div>
 
@@ -1363,6 +1433,15 @@ export function App() {
                 onClick={() => setAccountPanelOpen(true)}
               >
                 <SlidersHorizontal size={20} />
+              </button>
+              <button
+                type="button"
+                className="sidebar-action"
+                aria-label="TTS Providers"
+                title="TTS Providers"
+                onClick={() => setTtsPanelOpen(true)}
+              >
+                <Volume2 size={20} />
               </button>
               <button
                 type="button"

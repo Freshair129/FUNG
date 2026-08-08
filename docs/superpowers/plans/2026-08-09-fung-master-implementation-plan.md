@@ -120,7 +120,7 @@ Decisions locked in brainstorm 2026-08-09: scope = pairing only (D pulled in) ·
 |---|---|---|
 | REQ-C-01 | Account Settings: connect Google Drive / OneDrive / S3-compatible / custom endpoint for backup target | original decision (3) |
 | REQ-C-02 | Export/backup job writes encrypted archive to configured target (aligns with U9 backup gap) | IMPLEMENTATION_STATUS U9 |
-| REQ-E-01 | Mobile app Google login (same Supabase project, PKCE) linking device to account | sub-project E |
+| REQ-E-01 | ~~Mobile app Google login~~ — **moved into Phase 1** (2026-08-09: cloud-brokered pairing requires mobile session under RLS; Boss approved). Phase 4 E scope shrinks to account-settings unification on mobile | sub-project E |
 | REQ-E-02 | Mobile session ↔ device registration unified with Phase 1 model | REQ-B-02 |
 
 ### Phase 5 — Hardening & Release

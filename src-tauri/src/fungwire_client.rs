@@ -781,6 +781,11 @@ fn run_transfer(
     let give_up_or_backoff = |reconnect_attempts: &mut u32, ctx: &JobContext, detail: &str| -> bool {
         *reconnect_attempts += 1;
         if reconnect_deadline.elapsed() >= reconnect_budget {
+            // A terminal job state is visible to pollers immediately. Update
+            // the paired-peer state first so observers can never see
+            // "failed because unreachable" while the peer still appears
+            // reachable.
+            mark_peer_unreachable(&storage, &desktop_device_id);
             let _ = update_job(
                 &storage,
                 ctx,
@@ -791,7 +796,6 @@ fn run_transfer(
                     reconnect_deadline.elapsed()
                 )),
             );
-            mark_peer_unreachable(&storage, &desktop_device_id);
             true
         } else {
             thread::sleep(backoff_delay(*reconnect_attempts));

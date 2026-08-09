@@ -1,0 +1,250 @@
+.live-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 16, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+.live-panel {
+  width: min(1080px, 94vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  border-radius: 18px;
+  padding: 22px 26px;
+  background: linear-gradient(160deg, rgba(30, 34, 42, 0.98), rgba(18, 20, 26, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  color: #e8e6df;
+  font-size: 14px;
+}
+
+.live-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.live-header h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.02em;
+}
+
+.live-sub {
+  margin: 4px 0 0;
+  opacity: 0.75;
+}
+
+.live-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.live-btn {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  border-radius: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.live-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.live-btn-primary {
+  background: #3f7d54;
+  border-color: #4f9d69;
+}
+
+.live-btn-danger {
+  background: #8d3b3b;
+  border-color: #b05252;
+}
+
+.live-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  margin-bottom: 12px;
+}
+
+.live-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-options select {
+  background: rgba(0, 0, 0, 0.4);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+
+.live-consent {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12.5px;
+  opacity: 0.8;
+}
+
+.live-note {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 195, 90, 0.12);
+  border: 1px solid rgba(255, 195, 90, 0.35);
+  margin-bottom: 10px;
+}
+
+.live-note-error {
+  background: rgba(255, 99, 99, 0.12);
+  border-color: rgba(255, 99, 99, 0.4);
+}
+
+.live-devices {
+  font-size: 12.5px;
+  opacity: 0.7;
+  margin-bottom: 10px;
+}
+
+.live-body {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 14px;
+}
+
+.live-feed-wrap h3,
+.live-card h3,
+.live-summary h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.85;
+}
+
+.live-feed {
+  height: 360px;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.live-line {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 3px solid #6d9773;
+}
+
+.live-line-system {
+  border-left-color: #7d86c0;
+}
+
+.live-line-meta {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-bottom: 2px;
+}
+
+.live-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.live-card {
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 12px 14px;
+}
+
+.live-card h4,
+.live-summary h4 {
+  margin: 10px 0 4px;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.live-card ul,
+.live-summary ul,
+.live-sources {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.live-topic {
+  font-size: 15px;
+  margin: 4px 0;
+}
+
+.live-model-tag {
+  font-size: 11.5px;
+  opacity: 0.55;
+  margin: 8px 0 0;
+  word-break: break-all;
+}
+
+.live-empty {
+  opacity: 0.55;
+  font-size: 13px;
+}
+
+.live-ask-row {
+  display: flex;
+  gap: 8px;
+}
+
+.live-ask-row input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  color: inherit;
+  padding: 8px 12px;
+}
+
+.live-answer {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(109, 151, 115, 0.12);
+  border: 1px solid rgba(109, 151, 115, 0.3);
+}
+
+.live-sources {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.live-source-kind {
+  opacity: 0.65;
+}
+
+.live-summary {
+  margin-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 12px;
+}

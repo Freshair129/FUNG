@@ -305,3 +305,122 @@ export async function graphBuildStart(projectId: string, recordingId: string): P
   if (!canInvoke()) return;
   await invoke<void>("graph_build_start", { projectId, recordingId });
 }
+
+// ── Live Meeting (Meeting Mode MVP) ──
+
+export type LiveStartOutput = {
+  projectId: string;
+  recordingId: string;
+  jobId: string;
+  micDevice: string;
+  systemDevice: string | null;
+  warning: string | null;
+};
+
+export type LiveStatusOutput = {
+  active: boolean;
+  stopping: boolean;
+  projectId: string | null;
+  recordingId: string | null;
+  elapsedMs: number | null;
+};
+
+export type LiveSegmentEvent = {
+  recordingId: string;
+  segmentId: string;
+  channel: string;
+  speaker: string;
+  startMs: number;
+  endMs: number;
+  text: string;
+  confidence: number | null;
+};
+
+export type LiveTopicEvent = {
+  recordingId: string;
+  topic: string;
+  openPoints: string[];
+  actionItems: string[];
+  model: string;
+  windowStartMs: number;
+  windowEndMs: number;
+};
+
+export type LiveStatusEvent = {
+  recordingId: string;
+  state: string;
+  detail: string | null;
+  micDevice: string | null;
+  systemDevice: string | null;
+};
+
+export type LiveSummaryEvent = {
+  recordingId: string;
+  state: "running" | "ready" | "failed";
+  detail: string | null;
+  exportPath: string | null;
+};
+
+export type AskSource = {
+  n: number;
+  kind: string;
+  projectName: string | null;
+  text: string;
+  startMs: number | null;
+  recordingId: string | null;
+};
+
+export type AskAnswer = {
+  answer: string;
+  sources: AskSource[];
+  model: string;
+  searchedRowsCapped: boolean;
+};
+
+export type SummaryRow = {
+  id: string;
+  kind: string;
+  content: string;
+  evidenceCount: number;
+  createdAt: string;
+};
+
+export async function liveMeetingStart(options?: {
+  projectId?: string;
+  captureSystem?: boolean;
+  language?: string;
+}): Promise<LiveStartOutput> {
+  if (!canInvoke()) throw new Error("Live Meeting ต้องรันในแอปเดสก์ท็อป");
+  return invoke<LiveStartOutput>("live_meeting_start", {
+    projectId: options?.projectId ?? null,
+    captureSystem: options?.captureSystem ?? true,
+    language: options?.language ?? null,
+  });
+}
+
+export async function liveMeetingStop(): Promise<string> {
+  if (!canInvoke()) throw new Error("Live Meeting ต้องรันในแอปเดสก์ท็อป");
+  return invoke<string>("live_meeting_stop");
+}
+
+export async function liveMeetingStatus(): Promise<LiveStatusOutput> {
+  if (!canInvoke()) {
+    return { active: false, stopping: false, projectId: null, recordingId: null, elapsedMs: null };
+  }
+  return invoke<LiveStatusOutput>("live_meeting_status");
+}
+
+export async function meetingAsk(question: string, projectId?: string): Promise<AskAnswer> {
+  if (!canInvoke()) throw new Error("ถาม FUNG ต้องรันในแอปเดสก์ท็อป");
+  return invoke<AskAnswer>("meeting_ask", { question, projectId: projectId ?? null });
+}
+
+export async function meetingSummaries(projectId: string): Promise<SummaryRow[]> {
+  if (!canInvoke()) return [];
+  return invoke<SummaryRow[]>("meeting_summaries", { projectId });
+}
+
+export async function generateMeetingSummary(projectId: string, recordingId: string): Promise<void> {
+  if (!canInvoke()) return;
+  await invoke<void>("generate_meeting_summary", { projectId, recordingId });
+}

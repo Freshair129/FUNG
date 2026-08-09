@@ -7,6 +7,11 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    watch: {
+      // cargo rewrites src-tauri/target artifacts while vite's initial scan
+      // runs; watching them races into EBUSY and kills the dev server.
+      ignored: ["**/src-tauri/**"],
+    },
   },
   envPrefix: ["VITE_", "TAURI_"],
 });

@@ -18,11 +18,13 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+cpal = "0.16"
+hound = "3.5"
 curve25519-dalek = "4"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 genesis-block-native = { git = "https://github.com/Freshair129/GenesisBlock.git", rev = "0502c6b971525b8d256e0a8236950a3997831f99", default-features = false, features = ["mobile"] }
 keyring = { version = "3", features = ["windows-native"] }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "multipart"] }
 rand = "0.8"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

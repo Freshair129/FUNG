@@ -15,6 +15,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 mod cloud_config;
+mod cloud_executor;
 mod device_identity;
 mod fungwire;
 mod fungwire_client;

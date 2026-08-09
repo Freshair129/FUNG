@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 mod cloud_config;
 mod cloud_executor;
+mod cloud_commands;
 mod device_identity;
 mod fungwire;
 mod fungwire_client;
@@ -190,6 +191,8 @@ enum AppError {
     Genesis(String),
     #[error("TTS error: {0}")]
     Tts(String),
+    #[error("cloud error: {0}")]
+    Cloud(String),
 }
 
 impl Serialize for AppError {
@@ -1746,6 +1749,12 @@ pub fn run() {
             fungwire_client::fungwire_desktop_reachable,
             fungwire_client::fungwire_delegate_transcription,
             fungwire_client::fungwire_job_poll,
+            cloud_commands::cloud_config_set,
+            cloud_commands::cloud_config_clear,
+            cloud_commands::cloud_config_status,
+            cloud_commands::tier_policy_get,
+            cloud_commands::tier_policy_set,
+            cloud_commands::cloud_call_counts_today,
             tts_provider_register,
             tts_provider_update,
             tts_provider_toggle,

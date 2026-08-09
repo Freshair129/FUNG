@@ -15,6 +15,9 @@ use thiserror::Error;
 use uuid::Uuid;
 
 mod device_identity;
+mod fungwire;
+mod fungwire_client;
+mod fungwire_server;
 mod genesis_adapter;
 mod graph_build;
 mod mobile;
@@ -32,8 +35,78 @@ const PROJECT_ROOT: &str = env!("CARGO_MANIFEST_DIR");
 #[derive(Clone)]
 pub(crate) struct WhisperRuntime {
     python: PathBuf,
-    script: PathBuf,
+    pub(crate) script: PathBuf,
     cuda_bin: PathBuf,
+}
+
+impl WhisperRuntime {
+    /// Test-only constructor pointing at explicit python/script paths,
+    /// bypassing the packaged-vs-source-tree resolution `whisper_runtime`
+    /// performs (there is no `tauri::App` to resolve a resource dir from in
+    /// unit tests). Used by the FUNGWIRE job-loop tests to point the worker
+    /// at a stub script instead of the real faster-whisper pipeline, while
+    /// still exercising the real `run_python_worker` subprocess plumbing.
+    ///
+    /// `python` is accepted for source-compat with existing callers (who
+    /// still build the bundled `.venv-whisper` path) but is intentionally
+    /// NOT used: that path exists on dev machines but not on CI runners
+    /// (which never install the FUNG app bundle), which made these tests
+    /// dev-only (see CI failure `FUNG Python runtime is missing at
+    /// D:\a\FUNG\FUNG\.venv-whisper\...`). Instead we resolve a real system
+    /// python via `resolve_test_python`, which is present on both dev
+    /// machines and CI runners, falling back to the bundled venv locally
+    /// when no system python is on PATH.
+    #[cfg(test)]
+    pub(crate) fn for_test(_python: PathBuf, script: PathBuf) -> Self {
+        Self {
+            python: resolve_test_python(),
+            script,
+            cuda_bin: PathBuf::new(),
+        }
+    }
+}
+
+/// Resolves an absolute path to a system Python interpreter for use by
+/// `WhisperRuntime::for_test`. Dependency-free: shells out to `where`
+/// (Windows) or `which` (unix) rather than pulling in a crate, since this is
+/// test-only plumbing. Falls back to the bundled `.venv-whisper` interpreter
+/// (present in local dev checkouts, absent on CI) if no system interpreter
+/// resolves, so local test runs are unaffected either way.
+#[cfg(test)]
+fn resolve_test_python() -> PathBuf {
+    let (finder, names): (&str, &[&str]) = if cfg!(windows) {
+        ("where", &["python", "python3"])
+    } else {
+        ("which", &["python3", "python"])
+    };
+
+    for name in names {
+        let Ok(output) = Command::new(finder).arg(name).output() else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let candidate = PathBuf::from(line.trim());
+            // Skip the Windows Store's python.exe alias stub: it exists on
+            // disk (so `.exists()` passes) but launches the Store instead of
+            // an interpreter when executed.
+            let is_store_stub = candidate
+                .components()
+                .any(|c| c.as_os_str().eq_ignore_ascii_case("WindowsApps"));
+            if !is_store_stub && candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+
+    // Fallback: bundled venv python (present in local dev checkouts).
+    source_root()
+        .join(".venv-whisper")
+        .join("Scripts")
+        .join("python.exe")
 }
 
 fn source_root() -> PathBuf {
@@ -134,6 +207,7 @@ pub(crate) struct AppState {
     local_api: Mutex<Option<String>>,
     whisper_runtime: WhisperRuntime,
     pub(crate) mobile_gateway: Mutex<Option<mobile::MobileGatewayControl>>,
+    pub(crate) fungwire: Mutex<Option<fungwire_server::FungwireServerControl>>,
 }
 
 impl AppState {
@@ -252,6 +326,7 @@ pub(crate) struct PairedDeviceInput {
     pub(crate) platform: String,
     pub(crate) fingerprint: String,
     pub(crate) pairing_session_id: String,
+    pub(crate) public_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -263,6 +338,7 @@ pub(crate) struct PairedDeviceRow {
     pub(crate) paired_at: String,
     pub(crate) revoked_at: Option<String>,
     pub(crate) pairing_session_id: String,
+    pub(crate) public_key: Option<String>,
 }
 
 fn ensure_paired_devices_table(conn: &Connection) -> AppResult<()> {
@@ -275,21 +351,35 @@ fn ensure_paired_devices_table(conn: &Connection) -> AppResult<()> {
           fingerprint TEXT NOT NULL,
           paired_at TEXT NOT NULL,
           revoked_at TEXT,
-          pairing_session_id TEXT NOT NULL
+          pairing_session_id TEXT NOT NULL,
+          public_key TEXT
         );
         "#,
     )?;
+    // CREATE TABLE IF NOT EXISTS is a no-op on a paired_devices.db written
+    // before this task, so a fresh column definition above never reaches an
+    // existing table. SQLite has no ADD COLUMN IF NOT EXISTS, so probe via
+    // PRAGMA table_info and ALTER only when the column is actually missing.
+    let has_public_key = conn
+        .prepare("PRAGMA table_info(paired_devices)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(Result::ok)
+        .any(|column_name| column_name == "public_key");
+    if !has_public_key {
+        conn.execute("ALTER TABLE paired_devices ADD COLUMN public_key TEXT", [])?;
+    }
     Ok(())
 }
 
 fn upsert_paired_device(conn: &Connection, device: PairedDeviceInput) -> AppResult<()> {
     conn.execute(
         r#"
-        INSERT INTO paired_devices (id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id)
-        VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)
+        INSERT INTO paired_devices (id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id, public_key)
+        VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
-            revoked_at = NULL
+            revoked_at = NULL,
+            public_key = excluded.public_key
         "#,
         params![
             device.id,
@@ -298,6 +388,7 @@ fn upsert_paired_device(conn: &Connection, device: PairedDeviceInput) -> AppResu
             device.fingerprint,
             now(),
             device.pairing_session_id,
+            device.public_key,
         ],
     )?;
     Ok(())
@@ -305,7 +396,7 @@ fn upsert_paired_device(conn: &Connection, device: PairedDeviceInput) -> AppResu
 
 fn list_paired_devices(conn: &Connection) -> AppResult<Vec<PairedDeviceRow>> {
     let mut statement = conn.prepare(
-        "SELECT id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id \
+        "SELECT id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id, public_key \
          FROM paired_devices ORDER BY paired_at DESC",
     )?;
     let rows = statement
@@ -318,6 +409,7 @@ fn list_paired_devices(conn: &Connection) -> AppResult<Vec<PairedDeviceRow>> {
                 paired_at: row.get(4)?,
                 revoked_at: row.get(5)?,
                 pairing_session_id: row.get(6)?,
+                public_key: row.get(7)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -332,8 +424,14 @@ fn revoke_paired_device(conn: &Connection, id: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn paired_devices_connection(state: &AppState) -> AppResult<Connection> {
-    let db_path = state.data_root.join("paired_devices.db");
+/// Opens (creating if needed) the `paired_devices.db` that lives under
+/// `dir` (an app data directory). Split out from `paired_devices_connection`
+/// so the FUNGWIRE server (Task 6) can look up a peer using only the app
+/// data path it already has, without needing a full `AppState`/`State<'_,_>`
+/// (which isn't available off the Tauri command dispatch path, e.g. inside a
+/// TCP accept-loop worker thread).
+fn paired_devices_connection_at(dir: &std::path::Path) -> AppResult<Connection> {
+    let db_path = dir.join("paired_devices.db");
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -343,6 +441,43 @@ fn paired_devices_connection(state: &AppState) -> AppResult<Connection> {
     conn.pragma_update(None, "busy_timeout", 5000)?;
     ensure_paired_devices_table(&conn)?;
     Ok(conn)
+}
+
+fn paired_devices_connection(state: &AppState) -> AppResult<Connection> {
+    paired_devices_connection_at(&state.data_root)
+}
+
+/// Looks up a single paired, non-revoked device by id. Used by the FUNGWIRE
+/// server's pre-Noise peer check (Task 6): the responder must know which
+/// peer's static key to expect, and must refuse unknown or revoked devices
+/// before spending any handshake work on them. Returns `Ok(None)` rather
+/// than an error for "no such active pairing" — that's an expected, routine
+/// outcome the caller turns into a rejected connection, not a failure.
+pub(crate) fn lookup_paired_peer(
+    app_data: &std::path::Path,
+    device_id: &str,
+) -> AppResult<Option<PairedDeviceRow>> {
+    let conn = paired_devices_connection_at(app_data)?;
+    let mut statement = conn.prepare(
+        "SELECT id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id, public_key \
+         FROM paired_devices WHERE id = ?1 AND revoked_at IS NULL",
+    )?;
+    let mut rows = statement.query_map(params![device_id], |row| {
+        Ok(PairedDeviceRow {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            platform: row.get(2)?,
+            fingerprint: row.get(3)?,
+            paired_at: row.get(4)?,
+            revoked_at: row.get(5)?,
+            pairing_session_id: row.get(6)?,
+            public_key: row.get(7)?,
+        })
+    })?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
 }
 
 #[tauri::command]
@@ -361,6 +496,48 @@ fn paired_device_list(state: State<'_, AppState>) -> AppResult<Vec<PairedDeviceR
 fn paired_device_revoke(id: String, state: State<'_, AppState>) -> AppResult<()> {
     let conn = paired_devices_connection(&state)?;
     revoke_paired_device(&conn, &id)
+}
+
+/// Best-effort LAN-routable IPv4 for this machine, found without any network
+/// traffic or external dependency: `connect`ing a UDP socket to a public
+/// address just makes the OS pick a local route/interface (no packet is
+/// actually sent for UDP `connect`), and `local_addr()` reads that choice
+/// back. Returns `None` on any failure (no route, no network, sandboxed
+/// environment, etc.) or if the resolved address is loopback/non-IPv4 —
+/// callers must treat `None` as "endpoint unknown", not an error.
+pub(crate) fn primary_lan_ipv4() -> Option<String> {
+    use std::net::UdpSocket;
+    let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect("8.8.8.8:80").ok()?; // no packet sent; just sets the local addr
+    match sock.local_addr().ok()?.ip() {
+        std::net::IpAddr::V4(v4) if !v4.is_loopback() => Some(v4.to_string()),
+        _ => None,
+    }
+}
+
+/// Desktop-side publisher half of Task 9: reports `"<lan-ip>:<port>"` for the
+/// FUNGWIRE server Task 6 binds via `fungwire_server_set_enabled`, so the
+/// frontend (Task 10) can write it to Supabase `devices.lan_endpoint` for
+/// mobile to resolve. Returns `Ok(None)` — not an error — whenever the
+/// server isn't currently bound or the LAN IP can't be determined; the
+/// stored bind is `"0.0.0.0:PORT"` (unroutable), so the concrete port is
+/// combined with `primary_lan_ipv4()` rather than returned as-is.
+#[tauri::command]
+fn fungwire_local_endpoint(state: State<'_, AppState>) -> AppResult<Option<String>> {
+    let bind = {
+        let guard = state.fungwire.lock().expect("fungwire mutex poisoned");
+        match guard.as_ref() {
+            Some(control) => control.bind.clone(),
+            None => return Ok(None),
+        }
+    };
+
+    let port = match bind.rsplit_once(':') {
+        Some((_, port)) => port,
+        None => return Ok(None),
+    };
+
+    Ok(primary_lan_ipv4().map(|ip| format!("{ip}:{port}")))
 }
 
 pub(crate) fn now() -> String {
@@ -608,6 +785,7 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         local_api: Mutex::new(None),
         whisper_runtime: whisper_runtime(app),
         mobile_gateway: Mutex::new(None),
+        fungwire: Mutex::new(None),
     })
 }
 
@@ -1516,6 +1694,7 @@ pub fn run() {
             paired_device_list,
             paired_device_revoke,
             device_identity::device_identity_ensure,
+            device_identity::device_public_key,
             zoom_sync::zoom_connect,
             zoom_sync::zoom_connection_status,
             zoom_sync::zoom_disconnect,
@@ -1558,6 +1737,12 @@ pub fn run() {
             mobile::mobile_pairing_complete,
             mobile::mobile_voice_parse,
             mobile::mobile_mcp_set_enabled,
+            fungwire_server::fungwire_server_set_enabled,
+            fungwire_server::fungwire_status,
+            fungwire_local_endpoint,
+            fungwire_client::fungwire_desktop_reachable,
+            fungwire_client::fungwire_delegate_transcription,
+            fungwire_client::fungwire_job_poll,
             tts_provider_register,
             tts_provider_update,
             tts_provider_toggle,
@@ -1592,6 +1777,20 @@ mod worker_tests {
             "oldest lines must be dropped once the cap is exceeded"
         );
     }
+
+    #[test]
+    fn primary_lan_ipv4_never_panics_and_is_non_loopback_or_none() {
+        // Sandboxed/CI runners often have no route to the public internet, so
+        // this must tolerate `None` — it must never panic, and any `Some`
+        // must not be the loopback address.
+        match primary_lan_ipv4() {
+            Some(ip) => {
+                let parsed: std::net::Ipv4Addr = ip.parse().expect("must be a valid IPv4 string");
+                assert!(!parsed.is_loopback(), "must not report loopback: {ip}");
+            }
+            None => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1615,6 +1814,7 @@ mod paired_device_tests {
                 platform: "android".into(),
                 fingerprint: "ab".repeat(32),
                 pairing_session_id: "sess-1".into(),
+                public_key: Some("cGVlci1wdWJsaWMta2V5LWJhc2U2NA==".into()),
             },
         )
         .unwrap();
@@ -1624,10 +1824,55 @@ mod paired_device_tests {
         assert_eq!(rows[0].name, "Pixel");
         assert_eq!(rows[0].platform, "android");
         assert!(rows[0].revoked_at.is_none());
+        assert_eq!(
+            rows[0].public_key.as_deref(),
+            Some("cGVlci1wdWJsaWMta2V5LWJhc2U2NA==")
+        );
 
         revoke_paired_device(&storage, "dev-1").unwrap();
         let rows = list_paired_devices(&storage).unwrap();
         assert!(rows[0].revoked_at.is_some());
+    }
+
+    #[test]
+    fn ensure_paired_devices_table_backfills_public_key_column_on_legacy_db() {
+        // Simulates a paired_devices.db created before this task: the table
+        // exists but has no public_key column. ensure_paired_devices_table
+        // must ALTER it in place rather than relying on CREATE TABLE IF NOT
+        // EXISTS (which is a no-op once the table already exists).
+        let storage = Connection::open_in_memory().expect("open in-memory sqlite");
+        storage
+            .execute_batch(
+                r#"
+                CREATE TABLE paired_devices (
+                  id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  platform TEXT NOT NULL,
+                  fingerprint TEXT NOT NULL,
+                  paired_at TEXT NOT NULL,
+                  revoked_at TEXT,
+                  pairing_session_id TEXT NOT NULL
+                );
+                "#,
+            )
+            .unwrap();
+
+        ensure_paired_devices_table(&storage).expect("backfill public_key column");
+
+        upsert_paired_device(
+            &storage,
+            PairedDeviceInput {
+                id: "dev-legacy".into(),
+                name: "Legacy Pixel".into(),
+                platform: "android".into(),
+                fingerprint: "cd".repeat(32),
+                pairing_session_id: "sess-legacy".into(),
+                public_key: Some("bGVnYWN5LXB1YmxpYy1rZXk=".into()),
+            },
+        )
+        .unwrap();
+        let rows = list_paired_devices(&storage).unwrap();
+        assert_eq!(rows[0].public_key.as_deref(), Some("bGVnYWN5LXB1YmxpYy1rZXk="));
     }
 
     #[test]
@@ -1641,6 +1886,7 @@ mod paired_device_tests {
                 platform: "android".into(),
                 fingerprint: "ab".repeat(32),
                 pairing_session_id: "sess-1".into(),
+                public_key: None,
             },
         )
         .unwrap();
@@ -1654,6 +1900,7 @@ mod paired_device_tests {
                 platform: "android".into(),
                 fingerprint: "ab".repeat(32),
                 pairing_session_id: "sess-2".into(),
+                public_key: None,
             },
         )
         .unwrap();
@@ -1679,6 +1926,7 @@ mod paired_device_tests {
                 platform: "android".into(),
                 fingerprint: "aa".repeat(32),
                 pairing_session_id: "sess-1".into(),
+                public_key: None,
             },
         )
         .unwrap();
@@ -1696,6 +1944,7 @@ mod paired_device_tests {
                 platform: "ios".into(),
                 fingerprint: "bb".repeat(32),
                 pairing_session_id: "sess-2".into(),
+                public_key: None,
             },
         )
         .unwrap();

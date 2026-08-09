@@ -2,17 +2,37 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft, AudioLines, Bookmark, Bot, Check, ChevronRight, CloudDownload, Crop,
   GripVertical, Leaf, Mic2, Monitor, Move, Pause, Play, Plus, Redo2, Scissors,
-  Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Square, Undo2, Upload,
+  Send, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Square, Undo2, Upload,
   VolumeX, WandSparkles, X,
 } from "lucide-react";
 import type {
-  CreativeStudioState, EffectKind, EffectNode, ModelPackage, StoryClip, StorySequence,
+  CreativeStudioState, DelegatedJob, EffectKind, EffectNode, ModelPackage, StoryClip, StorySequence,
   TimelineData,
 } from "./model";
-import { createStory, moveStoryClip, onDeviceAiStatus, queryStory, reviewRefinement, setAgentVoiceGrant, splitStoryClip, startProcessingJob, storyHistory, trimStoryClip, updateEffectChain, type OnDeviceAiStatus } from "./bridge";
+import { createStory, delegateTranscription, desktopEndpoint, desktopReachable, moveStoryClip, onDeviceAiStatus, pollDelegatedJob, queryStory, reviewRefinement, setAgentVoiceGrant, splitStoryClip, startProcessingJob, storyHistory, trimStoryClip, updateEffectChain, type OnDeviceAiStatus } from "./bridge";
 import { listModelProviders, type ModelProvider } from "../tauri";
 
 const STUDIO_KEY = "fung.mobile.creative-studio.v1";
+// Must match MobileApp.tsx's DEVICE_ID_KEY — this mobile device's Supabase
+// `devices.id`, cached at registration time.
+const DEVICE_ID_KEY = "fung.device.id";
+// Mirrors `on_device_ai::Admission::Deferred`'s reason strings
+// (src-tauri/src/on_device_ai.rs) — anything else (`model_package_pending_approval`,
+// meaning admitted but no package installed yet, or `android_profile_unavailable`,
+// meaning the probe itself couldn't run) is not a resource-driven deferral and
+// isn't treated as "recommend the desktop" here.
+const DEFERRED_ADMISSION_REASONS = new Set([
+  "device_tier_core", "capture_active", "thermal_severe", "memory_pressure", "battery_low", "device_tier_insufficient",
+]);
+const DELEGATE_POLL_MS = 1_500;
+// How often the desktop reachability probe (fungwire_desktop_reachable) is
+// re-run while this screen is open, so a desktop that comes back online is
+// noticed without requiring a remount.
+const DESKTOP_REACHABLE_POLL_MS = 5_000;
+const delegateStateLabel = (state: DelegatedJob["state"]) => ({
+  queued: "รอคิว", running: "กำลังถอดเสียง", paused: "หยุดชั่วคราว",
+  completed: "เสร็จสิ้น", failed: "ล้มเหลว", cancelled: "ยกเลิกแล้ว",
+})[state];
 const effectLabels: Record<EffectKind, string> = {
   pitch_shift: "Pitch", reverb: "Reverb", delay: "Delay", compressor: "Compressor", low_pass: "Low-pass",
 };
@@ -173,14 +193,26 @@ const modelPackages: ModelPackage[] = [
   { id: "whisper-turbo", label: "Whisper Turbo", sizeLabel: "809M", installed: false, compatible: true, runtimeLocation: "desktop", languages: 99 },
 ];
 
-type ProcessingProps = { state: CreativeStudioState; setState: React.Dispatch<React.SetStateAction<CreativeStudioState>>; desktopAvailable: boolean; onBack: () => void };
+type ProcessingProps = {
+  state: CreativeStudioState;
+  setState: React.Dispatch<React.SetStateAction<CreativeStudioState>>;
+  desktopAvailable: boolean;
+  pairedDesktopId: string | null;
+  recordingId: string | null;
+  onBack: () => void;
+};
 
-export function ProcessingStudio({ state, setState, desktopAvailable, onBack }: ProcessingProps) {
+export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesktopId, recordingId, onBack }: ProcessingProps) {
   const [tab, setTab] = useState<"transcribe" | "refine" | "effects" | "voice">("transcribe");
   const [jobState, setJobState] = useState<"idle" | "submitting" | "queued" | "unavailable" | "failed">("idle");
   const [localAi, setLocalAi] = useState<OnDeviceAiStatus | null>(null);
   const [ttsProviders, setTtsProviders] = useState<ModelProvider[]>([]);
   const [selectedTtsId, setSelectedTtsId] = useState<string>("");
+  const [desktopEndpointValue, setDesktopEndpointValue] = useState<string | null>(null);
+  const [desktopReachableValue, setDesktopReachableValue] = useState<boolean | null>(null);
+  const [delegatedJob, setDelegatedJob] = useState<DelegatedJob | null>(null);
+  const [delegating, setDelegating] = useState(false);
+  const [delegateError, setDelegateError] = useState<string | null>(null);
   useEffect(() => { void onDeviceAiStatus().then(setLocalAi).catch(() => setLocalAi(null)); }, []);
   useEffect(() => {
     void listModelProviders().then((all) => {
@@ -188,6 +220,80 @@ export function ProcessingStudio({ state, setState, desktopAvailable, onBack }: 
       setTtsProviders(tts);
     }).catch(() => setTtsProviders([]));
   }, []);
+
+  // Resolve the paired desktop's LAN endpoint whenever the pairing changes.
+  useEffect(() => {
+    if (!pairedDesktopId) { setDesktopEndpointValue(null); return; }
+    let cancelled = false;
+    void desktopEndpoint(pairedDesktopId).then((endpoint) => { if (!cancelled) setDesktopEndpointValue(endpoint); });
+    return () => { cancelled = true; };
+  }, [pairedDesktopId]);
+
+  // Probe reachability periodically rather than once — gates the
+  // "ถอดเสียงบน FUNG Desktop" button and the delegate recommendation banner.
+  // `fungwire_desktop_reachable` is the same probe that resets a peer from
+  // "unreachable" back to "paired" in Genesis on success (final review fix
+  // wave B), so re-running it on an interval is what lets a desktop that
+  // comes back online (e.g. after a restart) reflect as reachable again
+  // here without requiring the user to leave and re-enter this screen.
+  useEffect(() => {
+    if (!pairedDesktopId || !desktopEndpointValue) { setDesktopReachableValue(pairedDesktopId ? null : false); return; }
+    let cancelled = false;
+    const probe = () => {
+      const ownDeviceId = localStorage.getItem(DEVICE_ID_KEY);
+      if (!ownDeviceId) { if (!cancelled) setDesktopReachableValue(false); return; }
+      void desktopReachable(pairedDesktopId, desktopEndpointValue, ownDeviceId)
+        .then((reachable) => { if (!cancelled) setDesktopReachableValue(reachable); })
+        .catch(() => { if (!cancelled) setDesktopReachableValue(false); });
+    };
+    probe();
+    const timer = window.setInterval(probe, DESKTOP_REACHABLE_POLL_MS);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [pairedDesktopId, desktopEndpointValue]);
+
+  // Poll the delegated job every 1.5s until it leaves queued/running.
+  useEffect(() => {
+    if (!delegatedJob || (delegatedJob.state !== "queued" && delegatedJob.state !== "running")) return;
+    const jobId = delegatedJob.id;
+    const timer = window.setInterval(() => {
+      void pollDelegatedJob(jobId).then((job) => {
+        if (job) setDelegatedJob((current) => (current && current.id === jobId ? { ...job, executorDeviceId: current.executorDeviceId } : current));
+      }).catch(() => undefined);
+    }, DELEGATE_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [delegatedJob?.id, delegatedJob?.state]);
+
+  const desktopJobBusy = delegating || (delegatedJob != null && (delegatedJob.state === "queued" || delegatedJob.state === "running"));
+  // "This device can't process — send to Desktop" is dead-end advice with no
+  // reachable desktop to send to, so it must be gated on the same live
+  // desktopReachableValue that gates the delegate button below, not merely
+  // on localAi.reason. When the device can't process locally AND no desktop
+  // is reachable, an honest "neither is available" notice is shown instead.
+  const localAiDeferred = !!localAi && DEFERRED_ADMISSION_REASONS.has(localAi.reason);
+  const showDelegateRecommendation = localAiDeferred && desktopReachableValue === true;
+  const showNoDesktopNotice = localAiDeferred && desktopReachableValue === false;
+
+  const delegateToDesktop = async () => {
+    // Double-submit guard (I8): a job already in flight, or a submit already
+    // in progress, must not be able to fire a second delegate.
+    if (desktopJobBusy || !pairedDesktopId || !recordingId || !desktopEndpointValue) return;
+    const ownDeviceId = localStorage.getItem(DEVICE_ID_KEY);
+    if (!ownDeviceId) { setDelegateError("ยังไม่พบตัวระบุอุปกรณ์นี้ — เข้าสู่ระบบก่อน"); return; }
+    setDelegating(true);
+    setDelegateError(null);
+    try {
+      const result = await delegateTranscription(state.story.projectId, recordingId, pairedDesktopId, desktopEndpointValue, ownDeviceId);
+      if (result) {
+        setDelegatedJob({ id: result.jobId, operation: "transcript.transcribe", state: "queued", progress: 0, executorDeviceId: pairedDesktopId });
+      } else {
+        setDelegateError("ส่งงานไม่สำเร็จ ลองใหม่");
+      }
+    } catch {
+      setDelegateError("ส่งงานไม่สำเร็จ ลองใหม่");
+    } finally {
+      setDelegating(false);
+    }
+  };
   const proposal = state.proposals[0];
   const persistEffects = (effects: EffectNode[]) => void updateEffectChain(state.story.projectId, "project", state.story.projectId, "Story processing", effects).catch(() => undefined);
   const toggleEffect = (id: string) => setState((current) => { const effects = current.effects.map((effect) => effect.id === id ? { ...effect, bypassed: !effect.bypassed } : effect); persistEffects(effects); return { ...current, effects, updatedAt: new Date().toISOString() }; });
@@ -229,7 +335,26 @@ export function ProcessingStudio({ state, setState, desktopAvailable, onBack }: 
     ].map(([id, label, Icon]) => <button key={id as string} className={tab === id ? "is-active" : ""} onClick={() => setTab(id as typeof tab)}><Icon size={19} />{label as string}</button>)}</nav>
     <section className="m-runtime-truth"><Monitor /><span><strong>FUNG Desktop</strong> · ภายในเครือข่าย</span><small className={desktopAvailable ? "is-ready" : ""}>{desktopAvailable ? "พร้อมประมวลผล" : "ใช้งานได้แม้ไร้ Desktop"}</small></section>
     <section className="m-runtime-truth"><Settings2 /><span><strong>AI บนมือถือ</strong> · {localAi ? localAi.tier.replace("ai_", "AI ").replace("core", "Core") : "กำลังตรวจสอบ"}</span><small>{localAi?.reason === "model_package_pending_approval" ? "ยังไม่มี package ที่อนุมัติ" : localAi?.reason === "device_tier_core" ? "อุปกรณ์ยังไม่ถึง AI Lite" : localAi?.reason === "android_profile_unavailable" ? "เปิดใน Android app เพื่อตรวจสอบ" : "ต้องเปิดใน Android app เพื่อตรวจสอบ"}</small></section>
-    <section className={`m-processing-panel ${tab === "transcribe" ? "is-focus" : ""}`}><header><h2>เลือกโมเดล Whisper</h2><button>เกี่ยวกับโมเดล <ChevronRight /></button></header><div className="m-model-list">{modelPackages.map((model) => <button key={model.id} className={state.selectedModelId === model.id ? "is-selected" : ""} onClick={() => model.installed && setState((current) => ({ ...current, selectedModelId: model.id, updatedAt: new Date().toISOString() }))}><i /><span>{model.label}</span><small>{model.installed ? "ติดตั้งแล้ว" : "ยังไม่ติดตั้ง"}</small><em>{model.sizeLabel}</em>{!model.installed && <CloudDownload size={16} />}</button>)}</div><div className="m-model-balance"><Leaf /><span>สมดุลคุณภาพ–ความเร็ว · 99 ภาษา · snapshot จาก Desktop</span><div><i /><i /><i /><i className="is-on" /><i /></div></div><button className="m-process-start" disabled={!desktopAvailable || jobState === "submitting"} onClick={startTranscription}><Play />{jobState === "queued" ? "ส่งงานเข้าคิวแล้ว" : jobState === "submitting" ? "กำลังส่งงาน…" : jobState === "unavailable" ? "เปิดในแอปเพื่อส่งงาน" : jobState === "failed" ? "ส่งงานไม่สำเร็จ · ลองใหม่" : desktopAvailable ? "เริ่มประมวลผล" : "เชื่อม Desktop เพื่อเริ่ม"}</button></section>
+    <section className={`m-processing-panel ${tab === "transcribe" ? "is-focus" : ""}`}><header><h2>เลือกโมเดล Whisper</h2><button>เกี่ยวกับโมเดล <ChevronRight /></button></header><div className="m-model-list">{modelPackages.map((model) => <button key={model.id} className={state.selectedModelId === model.id ? "is-selected" : ""} onClick={() => model.installed && setState((current) => ({ ...current, selectedModelId: model.id, updatedAt: new Date().toISOString() }))}><i /><span>{model.label}</span><small>{model.installed ? "ติดตั้งแล้ว" : "ยังไม่ติดตั้ง"}</small><em>{model.sizeLabel}</em>{!model.installed && <CloudDownload size={16} />}</button>)}</div><div className="m-model-balance"><Leaf /><span>สมดุลคุณภาพ–ความเร็ว · 99 ภาษา · snapshot จาก Desktop</span><div><i /><i /><i /><i className="is-on" /><i /></div></div><button className="m-process-start" disabled={!desktopAvailable || jobState === "submitting"} onClick={startTranscription}><Play />{jobState === "queued" ? "ส่งงานเข้าคิวแล้ว" : jobState === "submitting" ? "กำลังส่งงาน…" : jobState === "unavailable" ? "เปิดในแอปเพื่อส่งงาน" : jobState === "failed" ? "ส่งงานไม่สำเร็จ · ลองใหม่" : desktopAvailable ? "เริ่มประมวลผล" : "เชื่อม Desktop เพื่อเริ่ม"}</button>
+      {pairedDesktopId && recordingId && (
+        <div className="m-delegate-panel">
+          {showDelegateRecommendation && <p className="m-delegate-recommend"><Sparkles size={14} />อุปกรณ์นี้ประมวลผลเองไม่ไหว — ส่งไปที่ FUNG Desktop</p>}
+          {showNoDesktopNotice && <p className="m-delegate-error">อุปกรณ์นี้ประมวลผลเองไม่ไหว และไม่พบ FUNG Desktop ที่เชื่อมต่อได้ในขณะนี้</p>}
+          {desktopReachableValue && (
+            <button type="button" className="m-delegate-button" disabled={desktopJobBusy} onClick={() => void delegateToDesktop()}>
+              <Send size={16} />{delegating ? "กำลังส่งงาน…" : "ถอดเสียงบน FUNG Desktop"}
+            </button>
+          )}
+          {delegatedJob && (
+            <div className="m-delegate-progress">
+              <div className="m-delegate-progress-bar"><i style={{ width: `${delegatedJob.progress}%` }} /></div>
+              <span>{delegateStateLabel(delegatedJob.state)} · {delegatedJob.progress}%</span>
+            </div>
+          )}
+          {(delegatedJob?.error ?? delegateError) && <p className="m-delegate-error">{delegatedJob?.error ?? delegateError}</p>}
+        </div>
+      )}
+    </section>
     <section className={`m-processing-panel ${tab === "refine" ? "is-focus" : ""}`}><header><h2>ปรับแต่งการถอดเสียง</h2><Sparkles /></header><div className="m-refinement-diff"><div><span>ต้นฉบับ</span><p>{proposal.originalText}</p></div><div className="is-proposed"><span>ข้อเสนอ · {proposal.status === "proposed" ? "ยังไม่ยืนยัน" : proposal.status === "accepted" ? "ยืนยันแล้ว" : "ปฏิเสธแล้ว"}</span><p>{proposal.proposedText}</p></div><footer><small><WandSparkles /> {proposal.policy}</small>{proposal.status === "proposed" && <span><button onClick={() => reviewProposal("rejected")}>ปฏิเสธ</button><button onClick={() => reviewProposal("accepted")}>ยืนยันการปรับ</button></span>}</footer></div></section>
     <section className={`m-processing-panel ${tab === "effects" ? "is-focus" : ""}`}><header><h2>เอฟเฟกต์เสียง</h2><SlidersHorizontal /></header><div className="m-effect-chain">{state.effects.map((effect) => <button key={effect.id} className={`${effect.bypassed ? "is-bypassed" : ""} is-${effect.kind}`} onClick={() => toggleEffect(effect.id)}>{effect.label}<AudioLines size={15} /><X size={14} onClick={(event) => { event.stopPropagation(); removeEffect(effect.id); }} /></button>)}</div><div className="m-effect-footer"><button onClick={addEffect}><Plus />เพิ่มเอฟเฟกต์</button><button><Bookmark />พรีเซ็ตของคุณ <ChevronRight /></button></div><p className="m-provider-gate">Preview/render ต้องใช้ DSP provider บน Desktop · ต้นฉบับไม่ถูกแก้ไข</p></section>
     <section className={`m-processing-panel ${tab === "voice" ? "is-focus" : ""}`}><header><h2>เสียง Agent</h2><Bot /></header><div className="m-agent-policy">

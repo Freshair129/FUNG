@@ -214,6 +214,19 @@ export type DeviceState = {
   pairingSessionId?: string;
 };
 
+// Mirrors the `delegated_jobs` row shape surfaced by the desktop's
+// `fungwire_job_poll` command (see `src-tauri/src/fungwire_client.rs`'s
+// `JobPollOutput`) plus the identifying fields set at delegation time —
+// `state` matches the table's CHECK constraint exactly.
+export type DelegatedJob = {
+  id: string;
+  operation: string;
+  state: "queued" | "running" | "paused" | "completed" | "failed" | "cancelled";
+  progress: number;
+  executorDeviceId: string | null;
+  error?: string;
+};
+
 export type CaptureState = {
   state: "idle" | "preparing" | "recording" | "paused" | "finalizing" | "completed" | "recovery_required";
   recordingId: string | null;

@@ -218,12 +218,15 @@ commands:
     input:
       session_id: string
     output: void
-  - name: mobile_pair_desktop
+  - name: mobile_pairing_complete
     input:
-      endpoint: string
-      code: "six-digit string"
+      peer_device_id: string
       name: string
+      endpoint: string
+      pairing_session_id: string
     output: PairedDevice
+    invariants:
+      - "called only after confirm_pairing (Supabase RPC) returns 'confirmed'"
   - name: mobile_voice_parse
     input:
       utterance: string

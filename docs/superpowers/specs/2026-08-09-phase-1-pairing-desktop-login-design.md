@@ -94,7 +94,7 @@ New Rust module `src-tauri/src/device_identity.rs`:
 
 - `device_identity_ensure() -> DeviceIdentity { fingerprint: String, created: bool }`
   - Generates an ed25519 keypair on first call (new deps: `ed25519-dalek = "2"`, `rand = "0.8"`).
-  - Private key: Windows → OS keyring (`keyring` crate, service `fung-device-key`); Android → app-data file with `0600` semantics (Keystore upgrade deferred, §17).
+  - Private key: Phase 1 stores the device private key as a base64 file in the app-data dir on both platforms; OS keyring / Android Keystore hardening is deferred (backlog).
   - Fingerprint = lowercase hex `sha256(public_key_bytes)` (64 chars — satisfies the existing `devices_fingerprint_length` 16–255 constraint).
 - The keypair is **not used for signing in Phase 1**; it exists so the `devices` row is anchored to hardware from day one, and Phase 2's tunnel handshake signs with it.
 
@@ -220,7 +220,7 @@ Event types written by clients: `pairing_session_created`, `pairing_confirmed`, 
 
 ## 8. Local Persistence (hybrid model)
 
-**Desktop (SQLite WAL, new table — added to `schemas/sqlite-wal-v1.sql` and created idempotently at startup):**
+**Desktop paired devices are stored in a dedicated `paired_devices.db` SQLite file, NOT the main WAL db, because GenesisBlockDB defines its own `paired_devices` table and the legacy importer matches tables by name.** Concretely: `import_legacy_sqlite` walks a source SQLite file and imports tables by name match; if the desktop's own pairing table lived in the same WAL db (or shared a file with a GenesisBlockDB-schema database) under the name `paired_devices`, the importer would treat it as GenesisBlockDB data and attempt to import/merge it incorrectly. To avoid that collision, the desktop pairing table lives in its own file, created idempotently at startup:
 
 ```sql
 CREATE TABLE IF NOT EXISTS paired_devices (
@@ -280,7 +280,7 @@ All UI labels Thai; identifiers English; CSS = hardcoded light + `.theme-dark` o
 | Brute force | 5 attempts → `locked`; 6-digit space + 5-min TTL |
 | Replay | session single-use (`status` transitions one-way), TTL |
 | Cross-user access | RLS user-scoped on all three tables; RPC is `security invoker` |
-| Key material | device private key in keyring (win) / app-private file (android); never serialized to any DB or log |
+| Key material | Phase 1 stores the device private key as a base64 file in the app-data dir on both platforms; OS keyring / Android Keystore hardening is deferred (backlog). Never serialized to any DB or log. |
 | Anon key only | unchanged — no service role anywhere client-side |
 | Webview OAuth ban | system browser only (opener plugin) |
 

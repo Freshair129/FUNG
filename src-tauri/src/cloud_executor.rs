@@ -19,6 +19,31 @@ fn truncated(body: &str) -> &str {
     &body[..end]
 }
 
+/// The MIME type to label an uploaded audio file with, derived from the file's
+/// own extension rather than hard-coded.
+///
+/// FUNGWIRE's cloud path does not always upload a `.wav`: a *single*-segment
+/// job skips the concat step entirely and uploads the raw `.m4a` segment it
+/// received from the phone (`fungwire_server::dispatch_cloud_stt`). Labelling
+/// those bytes `audio/wav` is a lie the OpenAI endpoint happens to forgive
+/// (it sniffs the filename instead), but a strict "custom" endpoint is
+/// entitled to reject it.
+///
+/// Anything unrecognised falls back to `audio/wav`, which is both the previous
+/// hard-coded behaviour and what the concat step always produces.
+pub(crate) fn mime_for_audio_path(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("m4a") => "audio/m4a",
+        Some("wav") => "audio/wav",
+        _ => "audio/wav",
+    }
+}
+
 pub(crate) fn dispatch_stt(config: &CloudProviderConfig, audio_path: &Path) -> Result<Vec<Segment>, String> {
     match config {
         CloudProviderConfig::OpenAi { api_key } => openai_stt(api_key, audio_path),
@@ -49,7 +74,7 @@ fn openai_stt(api_key: &str, audio_path: &Path) -> Result<Vec<Segment>, String> 
     let bytes = std::fs::read(audio_path).map_err(|e| format!("อ่านไฟล์เสียงไม่ได้: {e}"))?;
     let part = reqwest::blocking::multipart::Part::bytes(bytes)
         .file_name(file_name)
-        .mime_str("audio/wav")
+        .mime_str(mime_for_audio_path(audio_path))
         .map_err(|e| e.to_string())?;
     let form = reqwest::blocking::multipart::Form::new()
         .part("file", part)
@@ -95,7 +120,7 @@ fn custom_stt(endpoint: &str, api_key: &str, audio_path: &Path) -> Result<Vec<Se
     let response = client
         .post(endpoint)
         .header("Authorization", format!("Bearer {api_key}"))
-        .header("Content-Type", "audio/wav")
+        .header("Content-Type", mime_for_audio_path(audio_path))
         .body(bytes)
         .send()
         .map_err(|e| if e.is_timeout() { "custom STT endpoint ไม่ตอบสนองภายใน 120 วินาที".to_string() } else { format!("เชื่อมต่อ custom STT endpoint ไม่ได้: {e}") })?;
@@ -224,6 +249,27 @@ mod tests {
             }
         });
         addr
+    }
+
+    #[test]
+    fn mime_for_audio_path_labels_wav_as_audio_wav() {
+        assert_eq!(mime_for_audio_path(Path::new("/tmp/concat.wav")), "audio/wav");
+        // Extension casing comes from whoever named the file, not from us.
+        assert_eq!(mime_for_audio_path(Path::new("/tmp/CONCAT.WAV")), "audio/wav");
+    }
+
+    /// The single-segment FUNGWIRE cloud job uploads the phone's raw
+    /// `segment-0.m4a` with no concat step, so this is the case the old
+    /// hard-coded `audio/wav` mislabelled.
+    #[test]
+    fn mime_for_audio_path_labels_m4a_as_audio_m4a() {
+        assert_eq!(mime_for_audio_path(Path::new("/tmp/segment-0.m4a")), "audio/m4a");
+    }
+
+    #[test]
+    fn mime_for_audio_path_falls_back_to_wav_for_unknown_or_missing_extension() {
+        assert_eq!(mime_for_audio_path(Path::new("/tmp/audio.ogg")), "audio/wav");
+        assert_eq!(mime_for_audio_path(Path::new("/tmp/audio")), "audio/wav");
     }
 
     #[test]

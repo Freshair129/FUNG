@@ -395,7 +395,24 @@ fn run_graph_build(
     }
     let (endpoint, model) = llm_provider_config(storage)?;
     let _ = crate::set_job_status(storage, job_id, "running", Some(40), None);
-    let raw = call_llm(&endpoint, &model, &prompt)?;
+    // Tier-3 cloud fallback inputs. The policy DB lives in the app data
+    // directory, which is the parent of the GenesisDB directory this Storage
+    // was opened at (lib.rs::app_state opens it at `<app data dir>/genesisdb`).
+    // Deriving it from the Storage already in hand keeps the path off
+    // start_graph_build's signature, which runs on a detached worker thread
+    // with no AppState in scope.
+    let data_root = storage.path.parent()
+        .ok_or_else(|| "cannot locate the app data directory from the graph storage path".to_string())?;
+    let policy_conn = crate::paired_devices_connection_at(data_root).map_err(|e| e.to_string())?;
+    let policy = crate::policy::load_policy(&policy_conn)?;
+    let calls_today = crate::policy::calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Llm)?;
+    // The fallback itself lives in cloud_executor.rs, which is the module
+    // allowed to handle key-bearing cloud configs; see the guard note there.
+    let cloud = crate::cloud_executor::first_configured_llm_provider();
+    let raw = crate::cloud_executor::call_llm_with_fallback(
+        || call_llm(&endpoint, &model, &prompt),
+        &prompt, cloud.as_ref(), &policy, calls_today, &policy_conn,
+    )?;
     let extraction = parse_extraction(&raw)?;
     let _ = crate::set_job_status(storage, job_id, "running", Some(80), None);
 
@@ -563,5 +580,44 @@ mod tests {
         assert_eq!(nodes.len(), 1, "a failed LLM call must not delete the prior extraction");
 
         drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    /// The tier-3 cloud fallback decides whether to retry in the cloud by
+    /// matching on `call_llm`'s error *text*, so the two must not drift
+    /// apart. Pins both directions from the producing side: an unreachable
+    /// Ollama has to be recognised as a connection failure, and a reachable
+    /// Ollama that answers badly must NOT be — otherwise a genuine bug would
+    /// get silently masked by a cloud retry.
+    #[test]
+    fn call_llm_error_text_matches_what_the_cloud_fallback_keys_on() {
+        // Nothing listens on TCP port 1 — a deterministic, immediate
+        // connection refusal rather than a real network round-trip.
+        let unreachable = call_llm("http://127.0.0.1:1", "llama3.1:8b", "prompt")
+            .expect_err("port 1 must refuse the connection");
+        assert!(
+            crate::cloud_executor::is_connection_error(&unreachable),
+            "an unreachable Ollama must be recognised as a connection failure: {unreachable}",
+        );
+
+        // A reachable endpoint that answers 500: a real bug, not a missing
+        // Ollama.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = std::io::Read::read(&mut stream, &mut buf);
+                let _ = std::io::Write::write_all(
+                    &mut stream,
+                    b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n",
+                );
+            }
+        });
+        let bad_response = call_llm(&format!("http://{addr}"), "llama3.1:8b", "prompt")
+            .expect_err("a 500 must fail the call");
+        assert!(
+            !crate::cloud_executor::is_connection_error(&bad_response),
+            "a bad response must NOT be treated as a connection failure: {bad_response}",
+        );
     }
 }

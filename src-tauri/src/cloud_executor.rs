@@ -225,6 +225,98 @@ fn custom_llm(endpoint: &str, api_key: &str, prompt: &str) -> Result<String, Str
     response.json::<ChatResponse>().map(|r| r.message.content).map_err(|e| format!("อ่าน response custom LLM ไม่ได้: {e}"))
 }
 
+// ---- Tier-3 LLM cloud fallback (spec §8) ---------------------------------
+// The graph builder's LLM call is local-first: it talks to the user's own
+// Ollama. When that machine simply isn't running Ollama, and the user has
+// both enabled cloud LLM and configured a key, the same prompt is retried
+// against their cloud provider instead of failing the build.
+//
+// This lives here rather than in graph_build.rs on purpose. cloud_config.rs's
+// static leak guard (`no_source_file_serializes_cloud_config_into_*_paths`)
+// forbids any source file from naming `CloudProviderConfig` alongside
+// `genesis_adapter` writes, so that a key-bearing config can never be
+// persisted into GenesisBlockDB by accident. graph_build.rs is a
+// genesis-writing file (it commits `model_runs` rows carrying the LLM
+// endpoint), so it must stay out of the key-bearing type's business — it
+// calls [`call_llm_with_fallback`] and never sees a `CloudProviderConfig`.
+
+/// True only for the specific failure this fallback exists to catch — Ollama
+/// not running / not reachable. A malformed-response error (bad status,
+/// unparseable body) is NOT masked by a silent cloud retry; it surfaces as a
+/// real bug, matching `graph_build::call_llm`'s pre-existing behavior for
+/// those cases.
+///
+/// This keys off the message `call_llm` builds for a failed `send()`, so the
+/// two must not drift apart; `graph_build`'s
+/// `call_llm_error_text_matches_what_the_cloud_fallback_keys_on` pins that
+/// contract from the producing side (which is why this is `pub(crate)`).
+pub(crate) fn is_connection_error(message: &str) -> bool {
+    message.contains("LLM endpoint unreachable")
+}
+
+/// First-configured wins: Anthropic, then OpenAI, then Custom (documented
+/// priority order, surfaced in CloudProvidersPanel per spec §16, resolved).
+/// `None` means the user has configured no LLM cloud provider at all, which
+/// makes the fallback a no-op and leaves the local error untouched.
+///
+/// The STT counterpart is `fungwire_server::resolve_stt_cloud_config`, which
+/// consults only two slots because Anthropic has no STT product.
+pub(crate) fn first_configured_llm_provider() -> Option<CloudProviderConfig> {
+    use crate::cloud_config::{cloud_config_slot, load_cloud_config, CloudTaskKind};
+    for provider in ["anthropic", "openai", "custom"] {
+        let slot = cloud_config_slot(provider, CloudTaskKind::Llm);
+        if let Ok(Some(config)) = load_cloud_config(&slot) {
+            return Some(config);
+        }
+    }
+    None
+}
+
+/// Wraps a local LLM call with the tier-3 cloud fallback.
+///
+/// `local_call` is the caller's own local-first attempt — in practice
+/// `graph_build::call_llm` bound to its endpoint/model/prompt. Taking it as a
+/// closure keeps the dependency pointing one way (graph_build → here) instead
+/// of this module reaching back into the graph builder for its HTTP helper.
+///
+/// `cloud` is the first-configured LLM provider (see
+/// [`first_configured_llm_provider`]); `None` if nothing is configured.
+/// `calls_today` is read by the caller before this function, mirroring
+/// `fungwire_server::dispatch_cloud_stt`'s convention, and `policy_conn` is
+/// the same connection it was read from so that a successful dispatch can
+/// charge the day's budget here — the only place that knows the cloud path
+/// actually ran.
+pub(crate) fn call_llm_with_fallback(
+    local_call: impl FnOnce() -> Result<String, String>,
+    prompt: &str,
+    cloud: Option<&CloudProviderConfig>,
+    policy: &crate::policy::TierPolicy,
+    calls_today: u32,
+    policy_conn: &rusqlite::Connection,
+) -> Result<String, String> {
+    match local_call() {
+        Ok(text) => Ok(text),
+        Err(e) if is_connection_error(&e) => {
+            let Some(config) = cloud else { return Err(e) };
+            match crate::policy::decide_cloud_tier(policy, crate::cloud_config::CloudTaskKind::Llm, calls_today, true) {
+                crate::policy::TierDecision::Allow => {
+                    let result = dispatch_llm(config, prompt);
+                    // Charged only on success: a failed cloud round trip
+                    // produced nothing, so it must not eat the daily cap.
+                    if result.is_ok() {
+                        let _ = crate::policy::increment_calls_today(policy_conn, crate::cloud_config::CloudTaskKind::Llm);
+                    }
+                    result
+                }
+                crate::policy::TierDecision::Blocked { reason } => {
+                    Err(format!("Ollama unreachable and cloud fallback blocked ({reason}): {e}"))
+                }
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,5 +413,170 @@ mod tests {
         let result = dispatch_stt(&config, &audio_path);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("STT"));
+    }
+
+    // ---- Tier-3 LLM cloud fallback --------------------------------------
+    // The fallback's whole contract is "which of the two transports ran, and
+    // did the daily counter move". The local side is injected as a closure
+    // returning the exact error text `graph_build::call_llm` produces (that
+    // text is pinned against the real function by graph_build's
+    // `call_llm_error_text_matches_what_the_cloud_fallback_keys_on`), while
+    // the cloud side goes through a real `dispatch_llm` HTTP round trip.
+    // Each test gets its own in-memory policy DB so counter assertions stay
+    // independent.
+
+    /// The message `call_llm` produces when Ollama is not listening.
+    const LOCAL_UNREACHABLE: &str = "LLM endpoint unreachable at http://127.0.0.1:11434: connection refused";
+    /// The message `call_llm` produces when Ollama answers, badly.
+    const LOCAL_BAD_STATUS: &str = "LLM endpoint returned 500 Internal Server Error";
+
+    fn llm_cloud_policy(enabled: bool) -> crate::policy::TierPolicy {
+        crate::policy::TierPolicy { stt_cloud_enabled: false, llm_cloud_enabled: enabled, daily_cap: 20 }
+    }
+
+    fn llm_calls_today(conn: &rusqlite::Connection) -> u32 {
+        crate::policy::calls_today(conn, crate::cloud_config::CloudTaskKind::Llm).unwrap()
+    }
+
+    /// A stub cloud LLM endpoint speaking the Ollama-shaped custom contract.
+    fn stub_cloud_provider() -> CloudProviderConfig {
+        let addr = one_shot_server("HTTP/1.1 200 OK", r#"{"message":{"content":"cloud extraction result"}}"#);
+        CloudProviderConfig::Custom {
+            endpoint: format!("http://{addr}"),
+            api_key: "test-key".into(),
+            task_kind: crate::cloud_config::CloudTaskKind::Llm,
+        }
+    }
+
+    #[test]
+    fn ollama_connection_failure_falls_back_to_cloud_when_enabled_and_configured() {
+        let cloud_config = stub_cloud_provider();
+        let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        let result = call_llm_with_fallback(
+            || Err(LOCAL_UNREACHABLE.to_string()),
+            "prompt", Some(&cloud_config), &llm_cloud_policy(true), 0, &policy_conn,
+        );
+
+        assert_eq!(result.unwrap(), "cloud extraction result");
+        assert_eq!(
+            llm_calls_today(&policy_conn), 1,
+            "a successful cloud dispatch must consume one of the day's budgeted calls",
+        );
+    }
+
+    #[test]
+    fn ollama_connection_failure_with_cloud_disabled_returns_original_error() {
+        let cloud_config = CloudProviderConfig::Custom {
+            endpoint: "http://127.0.0.1:9".into(),
+            api_key: "k".into(),
+            task_kind: crate::cloud_config::CloudTaskKind::Llm,
+        };
+        let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        let result = call_llm_with_fallback(
+            || Err(LOCAL_UNREACHABLE.to_string()),
+            "prompt", Some(&cloud_config), &llm_cloud_policy(false), 0, &policy_conn,
+        );
+
+        let error = result.unwrap_err();
+        assert!(error.contains("Ollama"), "the blocked-fallback error must name Ollama: {error}");
+        assert!(error.contains("cloud_disabled"), "the block reason must be surfaced: {error}");
+        assert_eq!(
+            llm_calls_today(&policy_conn), 0,
+            "a blocked fallback dispatches nothing, so it must not consume a call",
+        );
+    }
+
+    #[test]
+    fn ollama_connection_failure_without_a_configured_provider_returns_original_error() {
+        let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        let result = call_llm_with_fallback(
+            || Err(LOCAL_UNREACHABLE.to_string()),
+            "prompt", None, &llm_cloud_policy(true), 0, &policy_conn,
+        );
+
+        assert_eq!(
+            result.unwrap_err(), LOCAL_UNREACHABLE,
+            "with no provider configured the local error must pass through verbatim",
+        );
+        assert_eq!(llm_calls_today(&policy_conn), 0);
+    }
+
+    #[test]
+    fn a_non_connection_ollama_error_is_not_masked_by_the_cloud_fallback() {
+        // A local Ollama that IS reachable and answers badly. That is a real
+        // bug, not an "Ollama isn't running" condition, so it must surface
+        // unchanged instead of being silently retried in the cloud.
+        let cloud_config = stub_cloud_provider();
+        let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        let result = call_llm_with_fallback(
+            || Err(LOCAL_BAD_STATUS.to_string()),
+            "prompt", Some(&cloud_config), &llm_cloud_policy(true), 0, &policy_conn,
+        );
+
+        assert_eq!(
+            result.unwrap_err(), LOCAL_BAD_STATUS,
+            "a bad local response must surface as-is, not as a cloud result",
+        );
+        assert_eq!(
+            llm_calls_today(&policy_conn), 0,
+            "no cloud dispatch happened, so the counter must not move",
+        );
+    }
+
+    #[test]
+    fn a_successful_local_call_never_reaches_the_cloud_or_the_counter() {
+        let cloud_config = stub_cloud_provider();
+        let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        let result = call_llm_with_fallback(
+            || Ok("local extraction result".to_string()),
+            "prompt", Some(&cloud_config), &llm_cloud_policy(true), 0, &policy_conn,
+        );
+
+        assert_eq!(result.unwrap(), "local extraction result");
+        assert_eq!(llm_calls_today(&policy_conn), 0);
+    }
+
+    #[test]
+    fn a_failed_cloud_dispatch_does_not_consume_a_call() {
+        // Cloud is allowed and configured, but the provider is unreachable.
+        let cloud_config = CloudProviderConfig::Custom {
+            // Nothing listens on TCP port 1 — deterministic, immediate refusal.
+            endpoint: "http://127.0.0.1:1".into(),
+            api_key: "test-key".into(),
+            task_kind: crate::cloud_config::CloudTaskKind::Llm,
+        };
+        let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        let result = call_llm_with_fallback(
+            || Err(LOCAL_UNREACHABLE.to_string()),
+            "prompt", Some(&cloud_config), &llm_cloud_policy(true), 0, &policy_conn,
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            llm_calls_today(&policy_conn), 0,
+            "a cloud round trip that produced nothing must not eat the daily cap",
+        );
+    }
+
+    #[test]
+    fn a_reached_daily_cap_blocks_the_fallback() {
+        let cloud_config = stub_cloud_provider();
+        let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+        let policy = llm_cloud_policy(true);
+
+        let result = call_llm_with_fallback(
+            || Err(LOCAL_UNREACHABLE.to_string()),
+            "prompt", Some(&cloud_config), &policy, policy.daily_cap, &policy_conn,
+        );
+
+        let error = result.unwrap_err();
+        assert!(error.contains("cap_reached"), "the block reason must be surfaced: {error}");
+        assert_eq!(llm_calls_today(&policy_conn), 0);
     }
 }

@@ -636,7 +636,11 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
   };
 
   const submitCode = async () => {
-    if (!selectedDesktopId || !myDeviceId || !session) return;
+    if (!selectedDesktopId || !session) return;
+    if (!myDeviceId) {
+      setSubmitError("อุปกรณ์นี้ยังลงทะเบียนไม่เสร็จ — รอสักครู่แล้วลองใหม่");
+      return;
+    }
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -781,7 +785,7 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
             <label>รหัสยืนยัน<input inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="6 หลัก" /></label>
             <p className="m-consent-copy"><ShieldCheck size={17} /> ยืนยันรหัสเดียวกันกับที่ปรากฏบน Desktop</p>
             {submitError && <p className="m-inline-alert" role="alert">{submitError}</p>}
-            <button className="m-primary-button" onClick={() => void submitCode()} disabled={!selectedDesktopId || code.length !== 6 || submitting}>
+            <button className="m-primary-button" onClick={() => void submitCode()} disabled={!selectedDesktopId || code.length !== 6 || submitting || !myDeviceId}>
               {submitting ? "กำลังยืนยัน…" : "ยืนยันและเชื่อมต่อ"}
             </button>
           </section>

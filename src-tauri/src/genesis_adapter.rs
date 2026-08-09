@@ -307,7 +307,7 @@ fn schema_v5() -> RelationalSchemaPackage {
 /// desktop's `paired_devices.db` (see Task 5 report). Column is nullable —
 /// rows written before this task, or pairings completed before the peer's
 /// key was fetched, simply carry `public_key = NULL`.
-pub(crate) fn schema() -> RelationalSchemaPackage {
+fn schema_v6() -> RelationalSchemaPackage {
     use RelationalColumnType::Text;
     let mut package = schema_v5();
     package.schema_version = 6;
@@ -318,6 +318,25 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
         .find(|candidate| candidate.name == "paired_devices")
     {
         paired_devices.columns.push(nullable("public_key", Text));
+    }
+    package
+}
+
+/// Phase 3 BYOM: the desktop FUNGWIRE worker needs to record, per delegated
+/// job, whether it ran on the local pipeline or via a cloud provider — the
+/// mobile client persists this so the "☁ คลาวด์" badge (spec §10) survives
+/// an app restart/reconnect, not just the in-flight wire manifest.
+pub(crate) fn schema() -> RelationalSchemaPackage {
+    use RelationalColumnType::Text;
+    let mut package = schema_v6();
+    package.schema_version = 7;
+    package.previous_version = Some(6);
+    if let Some(delegated_jobs) = package
+        .tables
+        .iter_mut()
+        .find(|candidate| candidate.name == "delegated_jobs")
+    {
+        delegated_jobs.columns.push(nullable("executor", Text));
     }
     package
 }
@@ -334,6 +353,7 @@ pub(crate) fn install(storage: &Storage) -> Result<(), String> {
         schema_v3(),
         schema_v4(),
         schema_v5(),
+        schema_v6(),
         schema(),
     ];
     let last_index = packages.len() - 1;
@@ -940,7 +960,7 @@ mod tests {
         storage.register_relational_schema(schema_v3()).unwrap();
         storage.register_relational_schema(schema_v4()).unwrap();
         storage.register_relational_schema(schema_v5()).unwrap();
-        storage.register_relational_schema(schema()).unwrap();
+        storage.register_relational_schema(schema_v6()).unwrap();
         install(&storage).unwrap();
 
         drop(storage);
@@ -1046,6 +1066,38 @@ mod tests {
         ]).unwrap();
         let rows = query(&storage, "paired_devices", &["id", "public_key"], vec![eq("paired_devices", "id", json!("peer-2"))], 1).unwrap();
         assert!(rows[0]["paired_devices.public_key"].is_null());
+        // Re-install after a stepped upgrade must stay idempotent.
+        storage.register_relational_schema(schema()).unwrap();
+        install(&storage).unwrap();
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn schema_v7_adds_delegated_jobs_executor_and_upgrade_is_idempotent() {
+        let (path, storage) = open();
+        commit_rows(&storage, vec![
+            upsert("projects", json!({"id": "proj-1", "name": "Test Project", "storage_path": "test-path", "created_at": "t", "updated_at": "t"})),
+            upsert("delegated_jobs", json!({
+                "id": "job-1", "project_id": "proj-1", "executor_device_id": null,
+                "operation": "transcript.transcribe", "state": "queued", "progress": 0,
+                "input_manifest_hash": "abc123", "checkpoint_json": null,
+                "observed_at": "t", "created_at": "t", "updated_at": "t", "executor": "cloud"
+            })),
+        ]).unwrap();
+        let rows = query(&storage, "delegated_jobs", &["id", "executor"], vec![eq("delegated_jobs", "id", json!("job-1"))], 1).unwrap();
+        assert_eq!(rows[0]["delegated_jobs.executor"], "cloud");
+        // Rows written without executor (nullable) must still be readable.
+        commit_rows(&storage, vec![
+            upsert("delegated_jobs", json!({
+                "id": "job-2", "project_id": "proj-1", "executor_device_id": null,
+                "operation": "transcript.transcribe", "state": "queued", "progress": 0,
+                "input_manifest_hash": "def456", "checkpoint_json": null,
+                "observed_at": "t", "created_at": "t", "updated_at": "t", "executor": null
+            })),
+        ]).unwrap();
+        let rows = query(&storage, "delegated_jobs", &["id", "executor"], vec![eq("delegated_jobs", "id", json!("job-2"))], 1).unwrap();
+        assert!(rows[0]["delegated_jobs.executor"].is_null());
         // Re-install after a stepped upgrade must stay idempotent.
         storage.register_relational_schema(schema()).unwrap();
         install(&storage).unwrap();

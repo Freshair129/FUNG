@@ -1512,6 +1512,23 @@ mod tests {
                 thread::sleep(Duration::from_millis(100));
             }
             assert!(!final_state.is_empty(), "job must reach a terminal state");
+            // The terminal state itself is the signal that the real executor
+            // value reached the wire: the loopback desktop's default policy
+            // (see `TierPolicy::default`) has cloud STT off, so a genuine
+            // `"cloud"` `Control::JobStart` is refused and the job ends
+            // `"failed"`, while a genuine `"local"` one runs the desktop's
+            // fake-whisper pipeline and ends `"completed"`. If
+            // `Control::JobStart`'s `executor` field were ever hardcoded back
+            // to `"local"` (its old pre-Task-10 value), the `"cloud"`
+            // iteration would silently complete instead of failing, and this
+            // assertion is what would catch that.
+            assert_eq!(
+                final_state,
+                if executor == "cloud" { "failed" } else { "completed" },
+                "a '{executor}' request must reach the desktop as '{executor}' and be handled \
+                 accordingly (cloud is refused by the loopback desktop's default policy; local \
+                 succeeds via the fake pipeline)"
+            );
             assert_eq!(
                 job_poll_inner(&mobile_storage, &job_id).unwrap().executor.as_deref(),
                 Some(executor),

@@ -34,8 +34,25 @@ const PROJECT_ROOT: &str = env!("CARGO_MANIFEST_DIR");
 #[derive(Clone)]
 pub(crate) struct WhisperRuntime {
     python: PathBuf,
-    script: PathBuf,
+    pub(crate) script: PathBuf,
     cuda_bin: PathBuf,
+}
+
+impl WhisperRuntime {
+    /// Test-only constructor pointing at explicit python/script paths,
+    /// bypassing the packaged-vs-source-tree resolution `whisper_runtime`
+    /// performs (there is no `tauri::App` to resolve a resource dir from in
+    /// unit tests). Used by the FUNGWIRE job-loop tests to point the worker
+    /// at a stub script instead of the real faster-whisper pipeline, while
+    /// still exercising the real `run_python_worker` subprocess plumbing.
+    #[cfg(test)]
+    pub(crate) fn for_test(python: PathBuf, script: PathBuf) -> Self {
+        Self {
+            python,
+            script,
+            cuda_bin: PathBuf::new(),
+        }
+    }
 }
 
 fn source_root() -> PathBuf {

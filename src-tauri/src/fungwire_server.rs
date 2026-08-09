@@ -9,13 +9,17 @@
 //! handshake + job loop can block far longer than the tiny HTTP-ish requests
 //! the mobile gateway serves.
 
-use crate::fungwire::{noise_responder, read_frame, write_frame, Control, NoiseChannel, CTRL_MAX};
-use crate::{AppResult, AppState};
+use crate::fungwire::{
+    manifest_hash, noise_responder, read_frame, write_frame, Control, NoiseChannel, Segment,
+    CHUNK_MAX, CTRL_MAX,
+};
+use crate::{AppResult, AppState, WhisperOutput, WhisperRuntime};
 use base64::Engine;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::fs;
 use std::net::{TcpListener, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
@@ -86,6 +90,7 @@ pub(crate) fn fungwire_server_set_enabled(
     let loop_peers = connected_peers.clone();
     let storage = state.genesis.clone();
     let app_data = state.data_root.clone();
+    let runtime = state.whisper_runtime_clone();
 
     thread::spawn(move || {
         while !loop_stop.load(Ordering::SeqCst) {
@@ -97,11 +102,12 @@ pub(crate) fn fungwire_server_set_enabled(
                     // never block the accept loop or other peers.
                     let storage = storage.clone();
                     let app_data = app_data.clone();
+                    let runtime = runtime.clone();
                     let jobs = loop_jobs.clone();
                     let peers = loop_peers.clone();
                     peers.fetch_add(1, Ordering::SeqCst);
                     thread::spawn(move || {
-                        if let Err(e) = handle_connection(stream, &storage, &app_data, &jobs) {
+                        if let Err(e) = handle_connection(stream, &storage, &app_data, &runtime, &jobs) {
                             eprintln!("fungwire connection ended: {e}");
                         }
                         peers.fetch_sub(1, Ordering::SeqCst);
@@ -167,6 +173,7 @@ pub(crate) fn handle_connection(
     mut stream: TcpStream,
     storage: &genesis_block_native::Storage,
     app_data: &Path,
+    runtime: &WhisperRuntime,
     jobs: &Arc<AtomicUsize>,
 ) -> Result<(), String> {
     stream
@@ -212,27 +219,323 @@ pub(crate) fn handle_connection(
     let mut channel = NoiseChannel::new(stream, transport);
 
     // 4) Hand off to the job loop (Task 7).
-    run_job_loop(&mut channel, storage, app_data, &device_id, jobs)
+    run_job_loop(&mut channel, storage, app_data, runtime, &device_id, jobs)
 }
 
-/// Placeholder job loop — Task 7 implements the real `JobStart`/`Chunk`/
-/// `Result` protocol exchange over `channel`. For Task 6 this only proves
-/// the handshake reached transport mode, so the handshake path is
-/// independently testable before the job protocol exists.
+/// A job outcome that must NOT become a `Control::Error` sent back to the
+/// peer: the peer asked us to stop, so the correct response is silence — we
+/// just tear the connection down. Distinguishing this from `Failed` is the
+/// whole reason `receive_and_transcribe` doesn't return a plain
+/// `Result<_, (String, String)>` like the handshake path does.
+enum JobFailure {
+    Cancelled,
+    Failed(String, String),
+}
+
+/// RAII guard: whatever happens inside `receive_and_transcribe` (success,
+/// transport error, checksum mismatch, transcription failure, or a mid-job
+/// `Cancel`), the per-job temp directory under `app_data/fungwire/<job_id>/`
+/// is removed when the guard drops — i.e. on every return path, not just the
+/// happy one.
+struct TempJobDir<'a>(&'a Path);
+
+impl Drop for TempJobDir<'_> {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(self.0);
+    }
+}
+
+/// Real job loop: exchanges `Heartbeat`/`JobStart`/`Cancel` control messages
+/// with an already-authenticated peer until it disconnects. Only
+/// `transcript.transcribe` is wired; any other `operation` gets a
+/// `Control::Error{code:"unsupported_operation"}` and the loop keeps going
+/// (the connection itself is still healthy — just that job request isn't).
 ///
-/// Note for Task 7: when this loop calls `channel.recv_bytes(max)`, `max`
-/// must stay `<= CHUNK_MAX` — `NoiseChannel::recv_bytes` sizes its read
+/// `channel.recv_bytes(max)` calls anywhere in this module must keep
+/// `max <= CHUNK_MAX` — `NoiseChannel::recv_bytes` sizes its scratch buffer
 /// against that assumption (see fungwire.rs Task 4 review note).
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_job_loop(
-    _channel: &mut NoiseChannel<TcpStream>,
+    channel: &mut NoiseChannel<TcpStream>,
     _storage: &genesis_block_native::Storage,
-    _app_data: &Path,
+    app_data: &Path,
+    runtime: &WhisperRuntime,
     device_id: &str,
-    _jobs: &Arc<AtomicUsize>,
+    jobs: &Arc<AtomicUsize>,
 ) -> Result<(), String> {
-    eprintln!("fungwire handshake complete with device {device_id}");
-    Ok(())
+    eprintln!("fungwire job loop starting for device {device_id}");
+    loop {
+        let control = match channel.recv_control() {
+            Ok(c) => c,
+            Err(_) => return Ok(()), // peer closed the connection
+        };
+        match control {
+            Control::Heartbeat => {
+                channel.send(&Control::HeartbeatAck).map_err(|e| e.to_string())?;
+            }
+            Control::JobStart {
+                job_id,
+                operation,
+                manifest_hash: expected_manifest_hash,
+                segment_count,
+                profile,
+                checksums,
+                ..
+            } => {
+                if operation != "transcript.transcribe" {
+                    channel
+                        .send(&Control::Error {
+                            job_id,
+                            code: "unsupported_operation".into(),
+                            message: operation,
+                        })
+                        .ok();
+                    continue;
+                }
+
+                jobs.fetch_add(1, Ordering::SeqCst);
+                let outcome = receive_and_transcribe(
+                    channel,
+                    runtime,
+                    app_data,
+                    &job_id,
+                    &expected_manifest_hash,
+                    &checksums,
+                    segment_count,
+                    &profile,
+                );
+                jobs.fetch_sub(1, Ordering::SeqCst);
+
+                match outcome {
+                    Ok((duration_ms, segments)) => {
+                        channel
+                            .send(&Control::Result {
+                                job_id,
+                                duration_ms,
+                                segments,
+                            })
+                            .map_err(|e| e.to_string())?;
+                    }
+                    Err(JobFailure::Cancelled) => return Ok(()),
+                    Err(JobFailure::Failed(code, message)) => {
+                        channel
+                            .send(&Control::Error {
+                                job_id,
+                                code,
+                                message,
+                            })
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
+            }
+            Control::Cancel { .. } => return Ok(()),
+            _ => { /* ignore unexpected control on the server */ }
+        }
+    }
+}
+
+/// Receives `segment_count` chunks for one job, verifies them against the
+/// manifest, transcribes each segment separately, and returns the combined
+/// result. Every return path (including `?`/early returns on error or
+/// cancel) drops `_cleanup`, deleting the job's temp directory.
+///
+/// ## Chunk reassembly
+/// The sender splits each segment into ≤`NOISE_MAX_PLAINTEXT`-byte
+/// sub-frames (a Noise transport message tops out at 65535 bytes including
+/// its AEAD tag, far under a ~80 KB 5s AAC segment). For each `Chunk{seq,
+/// len}` control message, `len` is the *full* segment byte length; we then
+/// call `channel.recv_bytes` in a loop, appending each returned sub-frame,
+/// until the accumulator reaches exactly `len` bytes. A single `Chunk`
+/// therefore maps to one control-message read plus one-or-more
+/// `recv_bytes` reads.
+///
+/// ## Manifest verification (defense in depth, two checks)
+/// 1. Up front: `manifest_hash(&checksums) == JobStart.manifest_hash`. This
+///    catches a `JobStart` whose own declared fields are already
+///    inconsistent, before any transfer or disk work happens.
+/// 2. After all segments arrive: recompute `manifest_hash` over the
+///    checksums we actually *received* (in seq order) and compare again.
+///    Combined with the per-segment `sha256(acc) == checksums[seq]` check
+///    below, this is redundant when everything is honest, but it means a
+///    bug that skips the per-segment check still gets caught here.
+///
+/// ## Transcription (v1: per-segment, no muxing)
+/// m4a segments cannot be byte-concatenated into one file. Instead each
+/// segment is transcribed independently via the existing
+/// `run_python_worker(transcribe.py)` pipeline, and its returned
+/// `startMs`/`endMs` are shifted by `seq * 5000` (each segment is a fixed
+/// 5s window) before the per-segment segment lists are concatenated in
+/// order. `Progress{stage:"transcribing"}` is sent after each segment
+/// finishes, at `(segments_done / segment_count) * 100`.
+#[allow(clippy::too_many_arguments)]
+fn receive_and_transcribe(
+    channel: &mut NoiseChannel<TcpStream>,
+    runtime: &WhisperRuntime,
+    app_data: &Path,
+    job_id: &str,
+    expected_manifest_hash: &str,
+    checksums: &[String],
+    segment_count: u32,
+    profile: &str,
+) -> Result<(i64, Vec<Segment>), JobFailure> {
+    if checksums.len() != segment_count as usize {
+        return Err(JobFailure::Failed(
+            "manifest_mismatch".into(),
+            format!(
+                "JobStart declared {segment_count} segments but {} checksums",
+                checksums.len()
+            ),
+        ));
+    }
+    if manifest_hash(checksums) != expected_manifest_hash {
+        return Err(JobFailure::Failed(
+            "manifest_mismatch".into(),
+            "JobStart checksums do not hash to its own manifest_hash".into(),
+        ));
+    }
+
+    let job_dir = app_data.join("fungwire").join(job_id);
+    fs::create_dir_all(&job_dir)
+        .map_err(|e| JobFailure::Failed("io_error".into(), format!("temp dir: {e}")))?;
+    let _cleanup = TempJobDir(&job_dir);
+
+    let mut received_checksums: Vec<Option<String>> = vec![None; segment_count as usize];
+    let mut seg_paths: Vec<Option<PathBuf>> = vec![None; segment_count as usize];
+
+    for _ in 0..segment_count {
+        let control = channel
+            .recv_control()
+            .map_err(|e| JobFailure::Failed("transport_error".into(), e.to_string()))?;
+        match control {
+            Control::Chunk { seq, len, .. } => {
+                let idx = seq as usize;
+                if idx >= segment_count as usize {
+                    return Err(JobFailure::Failed(
+                        "bad_seq".into(),
+                        format!("seq {seq} is out of range for segment_count {segment_count}"),
+                    ));
+                }
+
+                // Reassemble: len is the full segment length; keep pulling
+                // Noise sub-frames (each <= NOISE_MAX_PLAINTEXT) until we
+                // have exactly that many bytes.
+                let mut acc = Vec::with_capacity(len as usize);
+                while acc.len() < len as usize {
+                    let part = channel
+                        .recv_bytes(CHUNK_MAX)
+                        .map_err(|e| JobFailure::Failed("transport_error".into(), e.to_string()))?;
+                    acc.extend_from_slice(&part);
+                }
+                if acc.len() != len as usize {
+                    return Err(JobFailure::Failed(
+                        "chunk_length".into(),
+                        format!("seg {seq}: expected {len} bytes, reassembled {}", acc.len()),
+                    ));
+                }
+
+                let digest: String = Sha256::digest(&acc)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                if checksums[idx] != digest {
+                    return Err(JobFailure::Failed(
+                        "checksum_mismatch".into(),
+                        format!("seg {seq}"),
+                    ));
+                }
+
+                let seg_path = job_dir.join(format!("segment-{seq}.m4a"));
+                fs::write(&seg_path, &acc)
+                    .map_err(|e| JobFailure::Failed("io_error".into(), format!("seg {seq}: {e}")))?;
+                received_checksums[idx] = Some(digest);
+                seg_paths[idx] = Some(seg_path);
+
+                channel
+                    .send(&Control::ChunkAck {
+                        job_id: job_id.to_string(),
+                        seq,
+                    })
+                    .map_err(|e| JobFailure::Failed("transport_error".into(), e.to_string()))?;
+
+                let received_so_far = received_checksums.iter().filter(|c| c.is_some()).count();
+                let percent = ((received_so_far as f64 / segment_count as f64) * 100.0) as u8;
+                channel
+                    .send(&Control::Progress {
+                        job_id: job_id.to_string(),
+                        percent,
+                        stage: "receiving".into(),
+                    })
+                    .map_err(|e| JobFailure::Failed("transport_error".into(), e.to_string()))?;
+            }
+            Control::Cancel { .. } => return Err(JobFailure::Cancelled),
+            other => {
+                return Err(JobFailure::Failed(
+                    "unexpected_control".into(),
+                    format!("expected Chunk while receiving, got {other:?}"),
+                ))
+            }
+        }
+    }
+
+    let ordered_checksums: Vec<String> = match received_checksums.into_iter().collect::<Option<Vec<String>>>() {
+        Some(v) => v,
+        None => {
+            return Err(JobFailure::Failed(
+                "manifest_mismatch".into(),
+                "one or more segments were never received".into(),
+            ))
+        }
+    };
+    if manifest_hash(&ordered_checksums) != expected_manifest_hash {
+        return Err(JobFailure::Failed(
+            "manifest_mismatch".into(),
+            "received segments do not hash to JobStart.manifest_hash".into(),
+        ));
+    }
+    let seg_paths: Vec<PathBuf> = seg_paths.into_iter().flatten().collect();
+
+    // v1: transcribe each segment independently (m4a can't be
+    // byte-concatenated) and offset timestamps by the cumulative 5s window.
+    let mut segments = Vec::new();
+    let mut duration_ms_total: i64 = 0;
+    for (i, seg_path) in seg_paths.iter().enumerate() {
+        let seg_str = seg_path.to_string_lossy().to_string();
+        let raw = crate::run_python_worker(
+            runtime,
+            &runtime.script,
+            &[seg_str.as_str(), "--profile", profile],
+            None,
+            |_pct| {},
+        )
+        .map_err(|e| JobFailure::Failed("transcribe_failed".into(), e))?;
+        let output: WhisperOutput = serde_json::from_str(raw.trim()).map_err(|e| {
+            JobFailure::Failed(
+                "transcribe_failed".into(),
+                format!("bad worker output for segment {i}: {e}"),
+            )
+        })?;
+
+        let offset_ms = i as i64 * 5000;
+        for seg in output.segments {
+            segments.push(Segment {
+                start_ms: seg.start_ms + offset_ms,
+                end_ms: seg.end_ms + offset_ms,
+                text: seg.text,
+                confidence: seg.confidence,
+            });
+        }
+        duration_ms_total += output.duration_ms;
+
+        let percent = (((i + 1) as f64 / segment_count as f64) * 100.0) as u8;
+        channel
+            .send(&Control::Progress {
+                job_id: job_id.to_string(),
+                percent,
+                stage: "transcribing".into(),
+            })
+            .map_err(|e| JobFailure::Failed("transport_error".into(), e.to_string()))?;
+    }
+
+    Ok((duration_ms_total, segments))
 }
 
 #[cfg(test)]
@@ -258,6 +561,26 @@ mod tests {
         })
         .expect("open GenesisBlockDB");
         (path, storage)
+    }
+
+    /// A `WhisperRuntime` pointed at the real venv python interpreter (so
+    /// `run_python_worker`'s existence checks pass and the subprocess
+    /// plumbing is genuinely exercised) but at `tests/fixtures/fake_transcribe.py`
+    /// instead of the real faster-whisper pipeline, so tests don't need a
+    /// model download or GPU/CPU inference to run.
+    fn test_whisper_runtime() -> WhisperRuntime {
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let python = manifest_dir
+            .parent()
+            .expect("src-tauri has a parent")
+            .join(".venv-whisper")
+            .join("Scripts")
+            .join("python.exe");
+        let script = manifest_dir
+            .join("tests")
+            .join("fixtures")
+            .join("fake_transcribe.py");
+        WhisperRuntime::for_test(python, script)
     }
 
     /// Registers `device_id` as a paired, non-revoked device in the server's
@@ -299,9 +622,10 @@ mod tests {
         let jobs = Arc::new(AtomicUsize::new(0));
 
         let server_app_data_path = server_app_data.path().to_path_buf();
+        let runtime = test_whisper_runtime();
         let server_thread = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            handle_connection(stream, &storage, &server_app_data_path, &jobs)
+            handle_connection(stream, &storage, &server_app_data_path, &runtime, &jobs)
         });
 
         // Minimal initiator using Task 3/4 helpers directly (Task 8 builds
@@ -329,6 +653,12 @@ mod tests {
         ini.into_transport_mode()
             .expect("initiator must reach transport mode");
 
+        // This test only cares that the handshake reaches transport mode;
+        // it never speaks the job protocol. Close the socket so the real
+        // `run_job_loop`'s first `recv_control()` sees the peer hang up
+        // (-> `Ok(())`) instead of blocking on the 60s read timeout.
+        drop(client_stream);
+
         let result = server_thread.join().unwrap();
         assert!(result.is_ok(), "handshake should complete: {result:?}");
     }
@@ -345,9 +675,10 @@ mod tests {
         let jobs = Arc::new(AtomicUsize::new(0));
 
         let server_app_data_path = server_app_data.path().to_path_buf();
+        let runtime = test_whisper_runtime();
         let server_thread = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            handle_connection(stream, &storage, &server_app_data_path, &jobs)
+            handle_connection(stream, &storage, &server_app_data_path, &runtime, &jobs)
         });
 
         let mut client_stream = TcpStream::connect(addr).unwrap();
@@ -364,6 +695,221 @@ mod tests {
         assert!(
             result.is_err(),
             "unpaired device must be rejected before/at handshake"
+        );
+    }
+
+    /// Drives a full `Hello` + Noise KK handshake as the initiator (same as
+    /// `paired_peer_completes_handshake_to_transport_mode`) and returns a
+    /// `NoiseChannel` ready to speak the job protocol.
+    fn initiator_handshake(
+        client_stream: TcpStream,
+        device_id: &str,
+        client_app_data: &Path,
+        server_app_data: &Path,
+    ) -> NoiseChannel<TcpStream> {
+        let mut client_stream = client_stream;
+        write_frame(
+            &mut client_stream,
+            &Control::Hello {
+                device_id: device_id.to_string(),
+            }
+            .encode(),
+        )
+        .unwrap();
+
+        let client_secret = x25519_static_secret_in_dir(client_app_data).unwrap();
+        let server_pub_b64 = public_key_b64_in_dir(server_app_data).unwrap();
+        let server_remote = x25519_public_from_ed25519_b64(&server_pub_b64).unwrap();
+        let mut ini = noise_initiator(&client_secret, &server_remote).unwrap();
+        let mut buf = [0u8; 4096];
+        let n = ini.write_message(&[], &mut buf).unwrap();
+        write_frame(&mut client_stream, &buf[..n]).unwrap();
+        let msg2 = read_frame(&mut client_stream, CTRL_MAX).unwrap();
+        let mut rbuf = [0u8; 4096];
+        ini.read_message(&msg2, &mut rbuf).unwrap();
+        let transport = ini
+            .into_transport_mode()
+            .expect("initiator must reach transport mode");
+        NoiseChannel::new(client_stream, transport)
+    }
+
+    /// End-to-end job loop test over a real loopback `TcpStream` pair: a
+    /// `JobStart` for one segment whose byte length (70,000) deliberately
+    /// exceeds `NOISE_MAX_PLAINTEXT` (65,519), split by the test into two
+    /// sub-frames on the wire — this is what actually exercises
+    /// `receive_and_transcribe`'s reassembly loop (a single sub-frame would
+    /// never prove the accumulate-until-`len` logic does anything). The
+    /// worker is pointed at `fake_transcribe.py` so the test doesn't need a
+    /// real model, and asserts the returned `Result` segment matches the
+    /// fixture's fixed output.
+    #[test]
+    fn job_loop_reassembles_multi_subframe_chunk_and_returns_transcript() {
+        let server_app_data = tempfile::tempdir().unwrap();
+        let client_app_data = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(server_app_data.path()).unwrap();
+        ensure_identity_in_dir(client_app_data.path()).unwrap();
+        pair_device(server_app_data.path(), "device-job", client_app_data.path());
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (_genesis_path, storage) = open_genesis();
+        let jobs = Arc::new(AtomicUsize::new(0));
+        let runtime = test_whisper_runtime();
+
+        let server_app_data_path = server_app_data.path().to_path_buf();
+        let server_thread = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            handle_connection(stream, &storage, &server_app_data_path, &runtime, &jobs)
+        });
+
+        let client_stream = TcpStream::connect(addr).unwrap();
+        let mut channel = initiator_handshake(
+            client_stream,
+            "device-job",
+            client_app_data.path(),
+            server_app_data.path(),
+        );
+
+        // 70,000 bytes > NOISE_MAX_PLAINTEXT (65,519): the sender must split
+        // this into >= 2 Noise sub-frames, and the server must reassemble
+        // them before it can even compute the checksum, let alone match it.
+        let seg_bytes: Vec<u8> = (0..70_000u32).map(|i| (i % 256) as u8).collect();
+        assert!(seg_bytes.len() > crate::fungwire::NOISE_MAX_PLAINTEXT);
+        let checksum: String = Sha256::digest(&seg_bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let checksums = vec![checksum];
+        let manifest = manifest_hash(&checksums);
+
+        channel
+            .send(&Control::JobStart {
+                job_id: "job-1".into(),
+                operation: "transcript.transcribe".into(),
+                manifest_hash: manifest.clone(),
+                segment_count: 1,
+                total_bytes: seg_bytes.len() as u64,
+                profile: "cpu".into(),
+                resume_from_seq: 0,
+                checksums,
+            })
+            .unwrap();
+        channel
+            .send(&Control::Chunk {
+                job_id: "job-1".into(),
+                seq: 0,
+                len: seg_bytes.len() as u32,
+            })
+            .unwrap();
+        for part in seg_bytes.chunks(crate::fungwire::NOISE_MAX_PLAINTEXT) {
+            channel.send_bytes(part).unwrap();
+        }
+
+        match channel.recv_control().unwrap() {
+            Control::ChunkAck { seq, .. } => assert_eq!(seq, 0),
+            other => panic!("expected ChunkAck, got {other:?}"),
+        }
+        match channel.recv_control().unwrap() {
+            Control::Progress { stage, .. } => assert_eq!(stage, "receiving"),
+            other => panic!("expected receiving Progress, got {other:?}"),
+        }
+        match channel.recv_control().unwrap() {
+            Control::Progress { stage, percent, .. } => {
+                assert_eq!(stage, "transcribing");
+                assert_eq!(percent, 100);
+            }
+            other => panic!("expected transcribing Progress, got {other:?}"),
+        }
+        match channel.recv_control().unwrap() {
+            Control::Result {
+                job_id,
+                duration_ms,
+                segments,
+            } => {
+                assert_eq!(job_id, "job-1");
+                assert_eq!(duration_ms, 1000);
+                assert_eq!(segments.len(), 1);
+                assert_eq!(segments[0].start_ms, 0);
+                assert_eq!(segments[0].end_ms, 1000);
+                assert_eq!(segments[0].text, "hi");
+            }
+            other => panic!("expected Result, got {other:?}"),
+        }
+
+        drop(channel);
+        let result = server_thread.join().unwrap();
+        assert!(result.is_ok(), "job loop should exit cleanly: {result:?}");
+    }
+
+    /// A `Cancel` sent instead of the expected `Chunk` mid-transfer must end
+    /// the job loop (`run_job_loop` returns `Ok(())`, not `Control::Error`)
+    /// and must leave no temp directory behind for the job.
+    #[test]
+    fn cancel_mid_transfer_ends_job_loop_and_cleans_temp_dir() {
+        let server_app_data = tempfile::tempdir().unwrap();
+        let client_app_data = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(server_app_data.path()).unwrap();
+        ensure_identity_in_dir(client_app_data.path()).unwrap();
+        pair_device(server_app_data.path(), "device-cancel", client_app_data.path());
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (_genesis_path, storage) = open_genesis();
+        let jobs = Arc::new(AtomicUsize::new(0));
+        let runtime = test_whisper_runtime();
+
+        let server_app_data_path = server_app_data.path().to_path_buf();
+        let server_thread = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            handle_connection(stream, &storage, &server_app_data_path, &runtime, &jobs)
+        });
+
+        let client_stream = TcpStream::connect(addr).unwrap();
+        let mut channel = initiator_handshake(
+            client_stream,
+            "device-cancel",
+            client_app_data.path(),
+            server_app_data.path(),
+        );
+
+        let seg_bytes = vec![7u8; 1024];
+        let checksum: String = Sha256::digest(&seg_bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let checksums = vec![checksum];
+        let manifest = manifest_hash(&checksums);
+
+        channel
+            .send(&Control::JobStart {
+                job_id: "job-cancel".into(),
+                operation: "transcript.transcribe".into(),
+                manifest_hash: manifest,
+                segment_count: 1,
+                total_bytes: seg_bytes.len() as u64,
+                profile: "cpu".into(),
+                resume_from_seq: 0,
+                checksums,
+            })
+            .unwrap();
+        // Cancel instead of sending the Chunk the server is waiting for.
+        channel
+            .send(&Control::Cancel {
+                job_id: "job-cancel".into(),
+            })
+            .unwrap();
+
+        drop(channel);
+        let result = server_thread.join().unwrap();
+        assert!(
+            result.is_ok(),
+            "cancel mid-transfer should end the loop cleanly: {result:?}"
+        );
+
+        let job_dir = server_app_data.path().join("fungwire").join("job-cancel");
+        assert!(
+            !job_dir.exists(),
+            "temp dir must be cleaned up after a mid-transfer cancel"
         );
     }
 }

@@ -58,6 +58,12 @@ pub enum Control {
         total_bytes: u64,
         profile: String,
         resume_from_seq: u32,
+        /// Ordered per-segment sha256 hex checksums the sender is about to
+        /// transfer. `manifest_hash` binds this set (see [`manifest_hash`]);
+        /// the receiver (Task 7) recomputes `manifest_hash(&checksums)` and
+        /// rejects the job if it doesn't match, then verifies each received
+        /// segment's own digest against `checksums[seq]` as it arrives.
+        checksums: Vec<String>,
     },
     Chunk {
         job_id: String,
@@ -263,6 +269,7 @@ mod tests {
             total_bytes: 900,
             profile: "cpu".into(),
             resume_from_seq: 0,
+            checksums: vec!["a".into(), "b".into(), "c".into()],
         };
         let bytes = c.encode();
         match Control::decode(&bytes).unwrap() {

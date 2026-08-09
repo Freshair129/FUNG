@@ -23,6 +23,8 @@ mod fungwire_client;
 mod fungwire_server;
 mod genesis_adapter;
 mod graph_build;
+mod live_meeting;
+mod meeting_intel;
 mod mobile;
 mod native_recorder;
 mod on_device_ai;
@@ -38,9 +40,9 @@ const PROJECT_ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 #[derive(Clone)]
 pub(crate) struct WhisperRuntime {
-    python: PathBuf,
+    pub(crate) python: PathBuf,
     pub(crate) script: PathBuf,
-    cuda_bin: PathBuf,
+    pub(crate) cuda_bin: PathBuf,
 }
 
 impl WhisperRuntime {
@@ -142,14 +144,14 @@ fn whisper_runtime(app: &tauri::App) -> WhisperRuntime {
     }
 }
 
-const REQUIRED_CUDA_DLLS: [&str; 4] = [
+pub(crate) const REQUIRED_CUDA_DLLS: [&str; 4] = [
     "cudart64_12.dll",
     "cublas64_12.dll",
     "cublasLt64_12.dll",
     "cudnn64_9.dll",
 ];
 
-fn transcription_profile() -> Result<String, String> {
+pub(crate) fn transcription_profile() -> Result<String, String> {
     let profile = env::var("FUNG_TRANSCRIPTION_PROFILE").unwrap_or_else(|_| "gpu".to_string());
     match profile.as_str() {
         "gpu" | "cpu" => Ok(profile),
@@ -214,6 +216,7 @@ pub(crate) struct AppState {
     whisper_runtime: WhisperRuntime,
     pub(crate) mobile_gateway: Mutex<Option<mobile::MobileGatewayControl>>,
     pub(crate) fungwire: Mutex<Option<fungwire_server::FungwireServerControl>>,
+    pub(crate) live: Mutex<Option<live_meeting::LiveSessionControl>>,
 }
 
 impl AppState {
@@ -792,6 +795,7 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         whisper_runtime: whisper_runtime(app),
         mobile_gateway: Mutex::new(None),
         fungwire: Mutex::new(None),
+        live: Mutex::new(None),
     })
 }
 
@@ -1429,7 +1433,7 @@ const STDERR_TAIL_CAP_BYTES: usize = 8192;
 /// the front until `buffer` is back at or under `STDERR_TAIL_CAP_BYTES` —
 /// never splitting a line, and always keeping the most recently written
 /// (i.e. most relevant) text.
-fn append_bounded(buffer: &mut String, line: &str) {
+pub(crate) fn append_bounded(buffer: &mut String, line: &str) {
     buffer.push_str(line);
     buffer.push('\n');
     while buffer.len() > STDERR_TAIL_CAP_BYTES {
@@ -1707,6 +1711,12 @@ pub fn run() {
             zoom_sync::zoom_list_recordings,
             zoom_sync::zoom_import_recording,
             graph_build::graph_build_start,
+            live_meeting::live_meeting_start,
+            live_meeting::live_meeting_stop,
+            live_meeting::live_meeting_status,
+            meeting_intel::meeting_ask,
+            meeting_intel::meeting_summaries,
+            meeting_intel::generate_meeting_summary,
             mobile::mobile_capture_start,
             mobile::mobile_capture_append_segment,
             mobile::mobile_capture_reconcile_native,

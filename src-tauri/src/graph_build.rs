@@ -178,7 +178,7 @@ Labels must be in the transcript's language (Thai stays Thai). Evidence lists th
 Transcript:
 "#;
 
-fn llm_provider_config(storage: &genesis_block_native::Storage) -> Result<(String, String), String> {
+pub(crate) fn llm_provider_config(storage: &genesis_block_native::Storage) -> Result<(String, String), String> {
     let row = genesis_adapter::query(storage, "model_providers", &["config_json", "enabled"],
         vec![genesis_adapter::eq("model_providers", "id", serde_json::json!("ollama-summary-intent"))], 1)?
         .into_iter().next().ok_or_else(|| "summary/intent model provider is not configured".to_string())?;
@@ -195,10 +195,46 @@ fn llm_provider_config(storage: &genesis_block_native::Storage) -> Result<(Strin
         .unwrap_or("http://127.0.0.1:11434").to_string();
     let model = config.get("model").and_then(serde_json::Value::as_str)
         .unwrap_or("llama3.1:8b").to_string();
+    let model = resolve_available_model(&endpoint, model);
     Ok((endpoint, model))
 }
 
-fn call_llm(endpoint: &str, model: &str, prompt: &str) -> Result<String, String> {
+/// The configured model name is a preference, not a guarantee — users install
+/// whatever they like into Ollama. If the endpoint is reachable and does NOT
+/// have the configured model, fall back to the first installed model instead
+/// of letting every downstream call 404. Unreachable endpoint: keep the
+/// configured name and let the caller surface the connection error.
+fn resolve_available_model(endpoint: &str, configured: String) -> String {
+    let Ok(client) = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+    else {
+        return configured;
+    };
+    let Ok(response) = client.get(format!("{endpoint}/api/tags")).send() else {
+        return configured;
+    };
+    let Ok(tags) = response.json::<serde_json::Value>() else {
+        return configured;
+    };
+    let names: Vec<String> = tags
+        .get("models")
+        .and_then(serde_json::Value::as_array)
+        .map(|models| {
+            models
+                .iter()
+                .filter_map(|model| model.get("name").and_then(serde_json::Value::as_str))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if names.is_empty() || names.iter().any(|name| name == &configured) {
+        return configured;
+    }
+    names.into_iter().next().expect("non-empty checked above")
+}
+
+pub(crate) fn call_llm(endpoint: &str, model: &str, prompt: &str) -> Result<String, String> {
     #[derive(Deserialize)] struct ChatMessage { content: String }
     #[derive(Deserialize)] struct ChatResponse { message: ChatMessage }
     let response = reqwest::blocking::Client::builder()

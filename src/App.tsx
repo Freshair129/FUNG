@@ -53,6 +53,7 @@ import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
 import { ZoomPanel } from "./components/ZoomPanel";
 import { TtsProviderPanel } from "./components/TtsProviderPanel";
 import { AccountLoginPanel } from "./components/AccountLoginPanel";
+import { DevicePairingPanel } from "./components/DevicePairingPanel";
 
 function formatMs(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -1068,7 +1069,12 @@ export function App() {
       {accountPanelOpen && <ExternalAccountPanel onClose={() => setAccountPanelOpen(false)} onOpenPortal={openExternalAccountPortal} />}
       {zoomPanelOpen && <ZoomPanel onClose={() => setZoomPanelOpen(false)} />}
       {ttsPanelOpen && <TtsProviderPanel onClose={() => setTtsPanelOpen(false)} />}
-      {accountLoginPanelOpen && <AccountLoginPanel />}
+      {accountLoginPanelOpen && (
+        <>
+          <AccountLoginPanel />
+          <DevicePairingPanel />
+        </>
+      )}
       <div className="ambient-grid" data-tauri-drag-region aria-hidden="true" />
 
       <svg className="clip-defs" width="0" height="0" aria-hidden="true" focusable="false">

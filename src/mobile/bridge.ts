@@ -108,9 +108,19 @@ export async function queryGraph(projectId: string): Promise<{ nodes: GraphNode[
   return invoke("mobile_graph_query", { projectId, depth: 2 });
 }
 
-export async function pairDesktop(name: string, endpoint: string, pairingCode: string): Promise<void> {
+export async function pairingComplete(
+  peerDeviceId: string,
+  name: string,
+  endpoint: string,
+  pairingSessionId: string,
+): Promise<void> {
   if (!isTauri()) return;
-  await invoke("mobile_pair_desktop", { name, endpoint, pairingCode });
+  await invoke("mobile_pairing_complete", { peerDeviceId, name, endpoint, pairingSessionId });
+}
+
+export async function deviceIdentityEnsure(): Promise<{ fingerprint: string; created: boolean } | null> {
+  if (!isTauri()) return null;
+  return invoke("device_identity_ensure");
 }
 
 export async function setMcpEnabled(enabled: boolean, exposeLan: boolean): Promise<{ enabled: boolean; bind: string | null }> {

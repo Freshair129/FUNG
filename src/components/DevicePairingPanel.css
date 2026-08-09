@@ -1,0 +1,239 @@
+/* src/components/DevicePairingPanel.css */
+
+/*
+ * Renders as a plain card, not its own fixed overlay. App.tsx stacks this
+ * panel together with AccountLoginPanel inside one shared backdrop
+ * (".account-login-overlay" / ".account-login-stack", defined in
+ * AccountLoginPanel.css) so there is exactly one backdrop below both panels
+ * and neither one can paint over or block clicks on the other (C2 +
+ * tracked-#2).
+ */
+.device-pairing-panel {
+  width: 100%;
+  background: #fffdf8;
+  border: 1px solid rgba(32, 35, 40, .12);
+  border-radius: 20px;
+  padding: 28px 32px;
+  color: #191a1d;
+  box-shadow: 0 28px 70px rgba(25, 26, 29, .3);
+}
+
+.device-pairing-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.device-pairing-header h3 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.device-pairing-close {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: #f0e8dc;
+  color: #5f6268;
+  cursor: pointer;
+  padding: 0;
+}
+.device-pairing-close:hover {
+  background: #ecdfcc;
+}
+
+.device-pairing-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.device-pairing-empty {
+  padding: 12px;
+  border-radius: 10px;
+  background: #f7f2ea;
+  color: #5f6268;
+  font-size: 13px;
+  text-align: center;
+}
+
+.device-pairing-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f7f2ea;
+}
+
+.device-pairing-item strong {
+  display: block;
+  font-size: 13px;
+}
+
+.device-pairing-item small {
+  display: block;
+  margin-top: 2px;
+  color: #5f6268;
+  font-size: 11px;
+}
+
+.device-pairing-item-revoked {
+  opacity: .55;
+}
+
+.device-pairing-revoke {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  background: #f0e8dc;
+  color: #8c4444;
+  cursor: pointer;
+  padding: 0;
+}
+.device-pairing-revoke:hover {
+  background: #ecdfcc;
+}
+
+.device-pairing-start {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: max-content;
+  padding: 8px 18px;
+  border: 1px solid rgba(32, 35, 40, .12);
+  border-radius: 999px;
+  background: #3d4f82;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.device-pairing-code-box {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 18px;
+  border-radius: 14px;
+  background: #f7f2ea;
+  text-align: center;
+}
+
+.device-pairing-code-box p {
+  margin: 0;
+  font-size: 13px;
+  color: #5f6268;
+}
+
+.device-pairing-code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: .35em;
+  /* nudge the trailing letter-spacing gap out so the glyphs read centered */
+  padding-left: .35em;
+  color: #191a1d;
+}
+
+.device-pairing-countdown {
+  font-size: 12px;
+  color: #735c3c;
+}
+
+.device-pairing-hint {
+  font-size: 12px;
+  color: #5f6268;
+}
+
+.device-pairing-success {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(63, 122, 82, .12);
+  color: #3f7a52;
+  font-size: 12px;
+}
+
+.device-pairing-error {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(140, 68, 68, .12);
+  color: #8c4444;
+  font-size: 12px;
+}
+
+/* ── Dark theme ── */
+
+.theme-dark .device-pairing-panel {
+  background: linear-gradient(145deg, #26231f, #171615 72%, #11100f);
+  color: #f3efe7;
+  border-color: rgba(255, 255, 255, .11);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, .5);
+}
+.theme-dark .device-pairing-close { background: #2f2b25; color: #c3bbad; }
+.theme-dark .device-pairing-close:hover { background: #443e35; }
+.theme-dark .device-pairing-empty,
+.theme-dark .device-pairing-item {
+  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+}
+.theme-dark .device-pairing-empty {
+  color: #9b9386;
+}
+.theme-dark .device-pairing-item small {
+  color: #9b9386;
+}
+.theme-dark .device-pairing-revoke {
+  background: #39342d;
+  color: #f0aaa0;
+}
+.theme-dark .device-pairing-revoke:hover {
+  background: #443e35;
+}
+.theme-dark .device-pairing-start {
+  background: #a8b6e6;
+  color: #171615;
+}
+.theme-dark .device-pairing-code-box {
+  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+}
+.theme-dark .device-pairing-code-box p {
+  color: #9b9386;
+}
+.theme-dark .device-pairing-code {
+  color: #f3efe7;
+}
+.theme-dark .device-pairing-countdown {
+  color: #d2b88d;
+}
+.theme-dark .device-pairing-hint {
+  color: #9b9386;
+}
+.theme-dark .device-pairing-success {
+  background: rgba(159, 186, 173, .15);
+  color: #9fbaad;
+}
+.theme-dark .device-pairing-error {
+  background: rgba(240, 170, 160, .15);
+  color: #f0aaa0;
+}
+
+@media (max-width: 620px) {
+  .device-pairing-panel {
+    border-radius: 18px;
+  }
+}

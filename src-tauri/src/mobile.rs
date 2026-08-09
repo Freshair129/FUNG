@@ -797,40 +797,81 @@ pub(crate) fn mobile_graph_query(
     Ok(GraphOutput { nodes, edges })
 }
 
-#[tauri::command]
-pub(crate) fn mobile_pair_desktop(
-    name: String,
-    endpoint: String,
-    pairing_code: String,
-    state: State<'_, AppState>,
+/// Upserts the Genesis `paired_devices` row for a mobile/desktop pairing that
+/// has already been cryptographically verified server-side via the Supabase
+/// `confirm_pairing` RPC. `peer_device_id` is the cloud `devices.id` for the
+/// counterpart device, and `pairing_session_id` is carried through as the
+/// `pairing_proof_hash` — a reference to the verified session, not a locally
+/// computed proof (unlike the fake path this replaces).
+fn pairing_complete_inner(
+    storage: &genesis_block_native::Storage,
+    peer_device_id: &str,
+    name: &str,
+    endpoint: &str,
+    pairing_session_id: &str,
 ) -> AppResult<()> {
-    if pairing_code.len() != 6 || !pairing_code.chars().all(|value| value.is_ascii_digit()) {
+    let peer_device_id = peer_device_id.trim();
+    let pairing_session_id = pairing_session_id.trim();
+    let name = name.trim();
+    if peer_device_id.is_empty() {
         return Err(AppError::InvalidInput(
-            "pairing code must contain 6 digits".to_string(),
+            "peer device id is required".to_string(),
         ));
     }
-    if endpoint.trim().is_empty() {
+    if pairing_session_id.is_empty() {
         return Err(AppError::InvalidInput(
-            "desktop endpoint is required".to_string(),
+            "pairing session id is required".to_string(),
+        ));
+    }
+    if name.is_empty() || name.chars().count() > 120 {
+        return Err(AppError::InvalidInput(
+            "device name must be between 1 and 120 characters".to_string(),
         ));
     }
     let timestamp = now();
-    let proof = sha256(format!("{endpoint}:{pairing_code}").as_bytes());
     let existing = crate::genesis_adapter::query(
-        &state.genesis,
+        storage,
         "paired_devices",
-        &["id", "created_at"],
-        vec![crate::genesis_adapter::eq("paired_devices", "endpoint", serde_json::json!(endpoint.trim()))],
+        &["created_at"],
+        vec![crate::genesis_adapter::eq(
+            "paired_devices",
+            "id",
+            serde_json::json!(peer_device_id),
+        )],
         1,
-    ).map_err(AppError::Genesis)?.into_iter().next();
-    let id = existing.as_ref().and_then(|row| row.get("paired_devices.id")).and_then(serde_json::Value::as_str).map(str::to_owned).unwrap_or_else(|| Uuid::new_v4().to_string());
-    let created_at = existing.as_ref().and_then(|row| row.get("paired_devices.created_at")).and_then(serde_json::Value::as_str).unwrap_or(&timestamp).to_string();
-    crate::genesis_adapter::commit_rows(&state.genesis, vec![crate::genesis_adapter::upsert("paired_devices", serde_json::json!({
-        "id": id, "name": name.trim(), "endpoint": endpoint.trim(), "trust_state": "paired",
-        "pairing_proof_hash": proof, "capabilities_json": ["local-llm", "transcription", "mcp"],
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next();
+    let created_at = existing
+        .as_ref()
+        .and_then(|row| row.get("paired_devices.created_at"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(&timestamp)
+        .to_string();
+    crate::genesis_adapter::commit_rows(storage, vec![crate::genesis_adapter::upsert("paired_devices", serde_json::json!({
+        "id": peer_device_id, "name": name, "endpoint": endpoint, "trust_state": "paired",
+        "pairing_proof_hash": pairing_session_id, "capabilities_json": [],
         "created_at": created_at, "updated_at": timestamp
     }))]).map_err(AppError::Genesis)?;
     Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn mobile_pairing_complete(
+    peer_device_id: String,
+    name: String,
+    endpoint: String,
+    pairing_session_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    pairing_complete_inner(
+        &state.genesis,
+        &peer_device_id,
+        &name,
+        &endpoint,
+        &pairing_session_id,
+    )
 }
 
 #[tauri::command]
@@ -1943,6 +1984,102 @@ mod tests {
         assert_eq!(output.speakers.len(), 1);
         assert_eq!(output.turns.len(), 1);
         assert_eq!(output.turns[0].status, "proposed");
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn pairing_complete_upserts_verified_row() {
+        let (path, storage) = open_genesis();
+        pairing_complete_inner(&storage, "cloud-dev-1", "FUNG Desktop", "192.168.1.20:8765", "sess-uuid-1")
+            .expect("pairing complete");
+        let rows = crate::genesis_adapter::query(
+            &storage,
+            "paired_devices",
+            &["id", "name", "endpoint", "trust_state", "pairing_proof_hash", "capabilities_json"],
+            vec![crate::genesis_adapter::eq("paired_devices", "id", serde_json::json!("cloud-dev-1"))],
+            1,
+        )
+        .expect("query paired_devices");
+        let row = rows.first().expect("paired_devices row must exist");
+        assert_eq!(row.get("paired_devices.id").and_then(serde_json::Value::as_str), Some("cloud-dev-1"));
+        assert_eq!(row.get("paired_devices.name").and_then(serde_json::Value::as_str), Some("FUNG Desktop"));
+        assert_eq!(row.get("paired_devices.endpoint").and_then(serde_json::Value::as_str), Some("192.168.1.20:8765"));
+        assert_eq!(row.get("paired_devices.trust_state").and_then(serde_json::Value::as_str), Some("paired"));
+        assert_eq!(row.get("paired_devices.pairing_proof_hash").and_then(serde_json::Value::as_str), Some("sess-uuid-1"));
+        assert_eq!(row.get("paired_devices.capabilities_json").cloned(), Some(serde_json::json!([])));
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn pairing_complete_allows_empty_endpoint() {
+        let (path, storage) = open_genesis();
+        pairing_complete_inner(&storage, "cloud-dev-2", "FUNG Desktop 2", "", "sess-uuid-2")
+            .expect("pairing complete with empty endpoint");
+        let rows = crate::genesis_adapter::query(
+            &storage,
+            "paired_devices",
+            &["id", "endpoint"],
+            vec![crate::genesis_adapter::eq("paired_devices", "id", serde_json::json!("cloud-dev-2"))],
+            1,
+        )
+        .expect("query paired_devices");
+        let row = rows.first().expect("paired_devices row must exist");
+        assert_eq!(row.get("paired_devices.endpoint").and_then(serde_json::Value::as_str), Some(""));
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn pairing_complete_rejects_blank_peer_device_id() {
+        let (path, storage) = open_genesis();
+        let error = pairing_complete_inner(&storage, "  ", "FUNG Desktop", "192.168.1.20:8765", "sess-uuid-3")
+            .expect_err("blank peer device id must be rejected");
+        assert!(matches!(error, AppError::InvalidInput(_)));
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn pairing_complete_rejects_blank_pairing_session_id() {
+        let (path, storage) = open_genesis();
+        let error = pairing_complete_inner(&storage, "cloud-dev-3", "FUNG Desktop", "192.168.1.20:8765", "")
+            .expect_err("blank pairing session id must be rejected");
+        assert!(matches!(error, AppError::InvalidInput(_)));
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn pairing_complete_rejects_invalid_name_length() {
+        let (path, storage) = open_genesis();
+        let too_long = "x".repeat(121);
+        let empty_name_error =
+            pairing_complete_inner(&storage, "cloud-dev-4", "  ", "192.168.1.20:8765", "sess-uuid-4")
+                .expect_err("empty name must be rejected");
+        assert!(matches!(empty_name_error, AppError::InvalidInput(_)));
+        let too_long_error =
+            pairing_complete_inner(&storage, "cloud-dev-4", &too_long, "192.168.1.20:8765", "sess-uuid-4")
+                .expect_err("121-char name must be rejected");
+        assert!(matches!(too_long_error, AppError::InvalidInput(_)));
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn pairing_complete_preserves_created_at_on_repair() {
+        let (path, storage) = open_genesis();
+        pairing_complete_inner(&storage, "cloud-dev-5", "FUNG Desktop", "192.168.1.20:8765", "sess-uuid-5a")
+            .expect("first pairing");
+        let first = crate::genesis_adapter::query(&storage, "paired_devices", &["created_at"], vec![crate::genesis_adapter::eq("paired_devices", "id", serde_json::json!("cloud-dev-5"))], 1)
+            .expect("query first")
+            .into_iter()
+            .next()
+            .and_then(|row| row.get("paired_devices.created_at").and_then(serde_json::Value::as_str).map(str::to_owned))
+            .expect("first created_at");
+        pairing_complete_inner(&storage, "cloud-dev-5", "FUNG Desktop", "192.168.1.20:9999", "sess-uuid-5b")
+            .expect("re-pairing");
+        let rows = crate::genesis_adapter::query(&storage, "paired_devices", &["created_at", "endpoint", "pairing_proof_hash"], vec![crate::genesis_adapter::eq("paired_devices", "id", serde_json::json!("cloud-dev-5"))], 1)
+            .expect("query second");
+        let row = rows.first().expect("row still present");
+        assert_eq!(row.get("paired_devices.created_at").and_then(serde_json::Value::as_str), Some(first.as_str()));
+        assert_eq!(row.get("paired_devices.endpoint").and_then(serde_json::Value::as_str), Some("192.168.1.20:9999"));
+        assert_eq!(row.get("paired_devices.pairing_proof_hash").and_then(serde_json::Value::as_str), Some("sess-uuid-5b"));
         drop(storage); let _ = std::fs::remove_dir_all(path);
     }
 

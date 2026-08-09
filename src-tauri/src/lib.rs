@@ -1,4 +1,3 @@
-#[cfg(test)]
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -15,6 +14,7 @@ use tauri_plugin_opener::OpenerExt;
 use thiserror::Error;
 use uuid::Uuid;
 
+mod device_identity;
 mod genesis_adapter;
 mod graph_build;
 mod mobile;
@@ -102,7 +102,6 @@ fn open_external_account_portal(app: tauri::AppHandle) -> AppResult<()> {
 
 #[derive(Debug, Error)]
 enum AppError {
-    #[cfg(test)]
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
     #[error("io error: {0}")]
@@ -235,6 +234,133 @@ struct ModelProvider {
     enabled: bool,
     created_at: String,
     updated_at: String,
+}
+
+/// Desktop-local record of a paired mobile device. Persisted in a dedicated
+/// SQLite WAL file (`paired_devices.db`) rather than the legacy `fung.db` —
+/// `fung.db` is a one-time-import source consumed by
+/// `genesis_adapter::import_legacy_sqlite`, which matches tables purely by
+/// name against GenesisBlockDB's own schema (which happens to also define a
+/// table named `paired_devices`, for an unrelated mobile-side capability
+/// concept). Sharing that file/name would let the legacy importer sweep rows
+/// out of this table using the wrong column set. See Task 5 report for
+/// details.
+#[derive(Debug, Deserialize)]
+pub(crate) struct PairedDeviceInput {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) platform: String,
+    pub(crate) fingerprint: String,
+    pub(crate) pairing_session_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct PairedDeviceRow {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) platform: String,
+    pub(crate) fingerprint: String,
+    pub(crate) paired_at: String,
+    pub(crate) revoked_at: Option<String>,
+    pub(crate) pairing_session_id: String,
+}
+
+fn ensure_paired_devices_table(conn: &Connection) -> AppResult<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS paired_devices (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          platform TEXT NOT NULL,
+          fingerprint TEXT NOT NULL,
+          paired_at TEXT NOT NULL,
+          revoked_at TEXT,
+          pairing_session_id TEXT NOT NULL
+        );
+        "#,
+    )?;
+    Ok(())
+}
+
+fn upsert_paired_device(conn: &Connection, device: PairedDeviceInput) -> AppResult<()> {
+    conn.execute(
+        r#"
+        INSERT INTO paired_devices (id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id)
+        VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            revoked_at = NULL
+        "#,
+        params![
+            device.id,
+            device.name,
+            device.platform,
+            device.fingerprint,
+            now(),
+            device.pairing_session_id,
+        ],
+    )?;
+    Ok(())
+}
+
+fn list_paired_devices(conn: &Connection) -> AppResult<Vec<PairedDeviceRow>> {
+    let mut statement = conn.prepare(
+        "SELECT id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id \
+         FROM paired_devices ORDER BY paired_at DESC",
+    )?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(PairedDeviceRow {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                platform: row.get(2)?,
+                fingerprint: row.get(3)?,
+                paired_at: row.get(4)?,
+                revoked_at: row.get(5)?,
+                pairing_session_id: row.get(6)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+fn revoke_paired_device(conn: &Connection, id: &str) -> AppResult<()> {
+    conn.execute(
+        "UPDATE paired_devices SET revoked_at = ?1 WHERE id = ?2",
+        params![now(), id],
+    )?;
+    Ok(())
+}
+
+fn paired_devices_connection(state: &AppState) -> AppResult<Connection> {
+    let db_path = state.data_root.join("paired_devices.db");
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let conn = Connection::open(db_path)?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    conn.pragma_update(None, "busy_timeout", 5000)?;
+    ensure_paired_devices_table(&conn)?;
+    Ok(conn)
+}
+
+#[tauri::command]
+fn paired_device_upsert(device: PairedDeviceInput, state: State<'_, AppState>) -> AppResult<()> {
+    let conn = paired_devices_connection(&state)?;
+    upsert_paired_device(&conn, device)
+}
+
+#[tauri::command]
+fn paired_device_list(state: State<'_, AppState>) -> AppResult<Vec<PairedDeviceRow>> {
+    let conn = paired_devices_connection(&state)?;
+    list_paired_devices(&conn)
+}
+
+#[tauri::command]
+fn paired_device_revoke(id: String, state: State<'_, AppState>) -> AppResult<()> {
+    let conn = paired_devices_connection(&state)?;
+    revoke_paired_device(&conn, &id)
 }
 
 pub(crate) fn now() -> String {
@@ -1326,9 +1452,45 @@ fn handle_api_stream(mut stream: TcpStream, storage: &genesis_block_native::Stor
     let _ = stream.write_all(response.as_bytes());
 }
 
+/// One-shot loopback HTTP listener used as a fallback when the `fung://`
+/// deep link fails to activate the app (some desktop environments never wire
+/// custom protocol handlers correctly). The browser is redirected here after
+/// OAuth completes; the first request's full URL is forwarded to the webview
+/// via the `auth-callback` event, then the listener thread exits.
+#[tauri::command]
+fn auth_loopback_listen(app: tauri::AppHandle) -> AppResult<u16> {
+    use tauri::Emitter;
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]);
+            let path = request
+                .lines()
+                .next()
+                .and_then(|line| line.split_whitespace().nth(1))
+                .unwrap_or("/")
+                .to_string();
+            let body = "<html><body style=\"font-family:sans-serif\"><p>เข้าสู่ระบบสำเร็จ ปิดหน้าต่างนี้ได้เลย</p></body></html>";
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let full_url = format!("http://127.0.0.1:{port}{path}");
+            let _ = app.emit("auth-callback", full_url);
+        }
+    });
+    Ok(port)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(native_recorder::init())
@@ -1348,7 +1510,12 @@ pub fn run() {
             list_transcript_segments,
             import_and_transcribe,
             start_local_api,
+            auth_loopback_listen,
             open_external_account_portal,
+            paired_device_upsert,
+            paired_device_list,
+            paired_device_revoke,
+            device_identity::device_identity_ensure,
             zoom_sync::zoom_connect,
             zoom_sync::zoom_connection_status,
             zoom_sync::zoom_disconnect,
@@ -1388,7 +1555,7 @@ pub fn run() {
             mobile::mobile_voice_profiles_query,
             mobile::mobile_agent_voice_grant_set,
             mobile::mobile_agent_voice_stop,
-            mobile::mobile_pair_desktop,
+            mobile::mobile_pairing_complete,
             mobile::mobile_voice_parse,
             mobile::mobile_mcp_set_enabled,
             tts_provider_register,
@@ -1424,5 +1591,117 @@ mod worker_tests {
             !buffer.contains("torch warning line 0\n"),
             "oldest lines must be dropped once the cap is exceeded"
         );
+    }
+}
+
+#[cfg(test)]
+mod paired_device_tests {
+    use super::*;
+
+    fn test_storage() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory sqlite");
+        ensure_paired_devices_table(&conn).expect("create paired_devices table");
+        conn
+    }
+
+    #[test]
+    fn paired_device_roundtrip() {
+        let storage = test_storage();
+        upsert_paired_device(
+            &storage,
+            PairedDeviceInput {
+                id: "dev-1".into(),
+                name: "Pixel".into(),
+                platform: "android".into(),
+                fingerprint: "ab".repeat(32),
+                pairing_session_id: "sess-1".into(),
+            },
+        )
+        .unwrap();
+
+        let rows = list_paired_devices(&storage).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "Pixel");
+        assert_eq!(rows[0].platform, "android");
+        assert!(rows[0].revoked_at.is_none());
+
+        revoke_paired_device(&storage, "dev-1").unwrap();
+        let rows = list_paired_devices(&storage).unwrap();
+        assert!(rows[0].revoked_at.is_some());
+    }
+
+    #[test]
+    fn upsert_revives_a_revoked_device_and_keeps_original_pairing_session() {
+        let storage = test_storage();
+        upsert_paired_device(
+            &storage,
+            PairedDeviceInput {
+                id: "dev-1".into(),
+                name: "Pixel".into(),
+                platform: "android".into(),
+                fingerprint: "ab".repeat(32),
+                pairing_session_id: "sess-1".into(),
+            },
+        )
+        .unwrap();
+        revoke_paired_device(&storage, "dev-1").unwrap();
+
+        upsert_paired_device(
+            &storage,
+            PairedDeviceInput {
+                id: "dev-1".into(),
+                name: "Pixel 9".into(),
+                platform: "android".into(),
+                fingerprint: "ab".repeat(32),
+                pairing_session_id: "sess-2".into(),
+            },
+        )
+        .unwrap();
+
+        let rows = list_paired_devices(&storage).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "Pixel 9");
+        assert!(rows[0].revoked_at.is_none());
+        assert_eq!(
+            rows[0].pairing_session_id, "sess-1",
+            "re-pairing revives the row but does not overwrite the original pairing_session_id"
+        );
+    }
+
+    #[test]
+    fn list_is_ordered_newest_paired_first() {
+        let storage = test_storage();
+        upsert_paired_device(
+            &storage,
+            PairedDeviceInput {
+                id: "dev-1".into(),
+                name: "First".into(),
+                platform: "android".into(),
+                fingerprint: "aa".repeat(32),
+                pairing_session_id: "sess-1".into(),
+            },
+        )
+        .unwrap();
+        storage
+            .execute(
+                "UPDATE paired_devices SET paired_at = '2020-01-01T00:00:00Z' WHERE id = 'dev-1'",
+                [],
+            )
+            .unwrap();
+        upsert_paired_device(
+            &storage,
+            PairedDeviceInput {
+                id: "dev-2".into(),
+                name: "Second".into(),
+                platform: "ios".into(),
+                fingerprint: "bb".repeat(32),
+                pairing_session_id: "sess-2".into(),
+            },
+        )
+        .unwrap();
+
+        let rows = list_paired_devices(&storage).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].id, "dev-2", "most recently paired device is listed first");
     }
 }

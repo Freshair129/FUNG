@@ -1,0 +1,182 @@
+/* src/components/AccountLoginPanel.css */
+
+/*
+ * Overlay + stack wrapper for AccountLoginPanel and DevicePairingPanel,
+ * unified per Phase 1 review fix (C2 + tracked-#2). App.tsx renders both
+ * panels together inside a single ".account-login-overlay" backdrop and
+ * ".account-login-stack" scroll container, so there is exactly one backdrop
+ * (below both panels) and one click-outside-to-close target. Each panel is
+ * a plain card with its own dismiss (X) button wired to the same onClose.
+ * This replaces the old per-panel ::before fixed backdrop, which painted
+ * over (and stole clicks from) the lower-z-index DevicePairingPanel.
+ */
+.account-login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(25, 26, 29, .38);
+  backdrop-filter: blur(10px);
+}
+
+.account-login-stack {
+  display: grid;
+  gap: 16px;
+  width: min(520px, 90vw);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.account-login-panel {
+  background: #fffdf8;
+  border: 1px solid rgba(32, 35, 40, .12);
+  border-radius: 20px;
+  padding: 28px 32px;
+  color: #191a1d;
+  box-shadow: 0 28px 70px rgba(25, 26, 29, .3);
+}
+
+.account-login-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 20px;
+}
+
+.account-login-header h3 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.account-login-close {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: #f0e8dc;
+  color: #5f6268;
+  cursor: pointer;
+  padding: 0;
+}
+.account-login-close:hover {
+  background: #ecdfcc;
+}
+
+.account-login-signed-in,
+.account-login-signed-out {
+  display: grid;
+  gap: 12px;
+}
+
+.account-login-email {
+  margin: 0;
+  font-size: 13px;
+  color: #5f6268;
+  word-break: break-all;
+}
+
+.account-login-label {
+  display: block;
+  font-size: 13px;
+  color: #5f6268;
+}
+
+.account-login-label input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(32, 35, 40, .12);
+  background: #fffdf8;
+  color: #191a1d;
+  font-size: 13px;
+}
+
+.account-login-status {
+  margin: 0;
+  font-size: 12px;
+  color: #5f6268;
+}
+
+.account-login-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: max-content;
+  padding: 8px 18px;
+  border: 1px solid rgba(32, 35, 40, .12);
+  border-radius: 999px;
+  background: #3d4f82;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.account-login-btn:disabled {
+  cursor: not-allowed;
+  opacity: .62;
+}
+
+.account-login-btn-secondary {
+  background: #f1e8db;
+  color: #41444a;
+}
+
+.account-login-error {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(140, 68, 68, .12);
+  color: #8c4444;
+  font-size: 12px;
+}
+
+/* ── Dark theme ── */
+
+.theme-dark .account-login-overlay { background: rgba(0, 0, 0, .55); }
+
+.theme-dark .account-login-panel {
+  background: linear-gradient(145deg, #26231f, #171615 72%, #11100f);
+  color: #f3efe7;
+  border-color: rgba(255, 255, 255, .11);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, .5);
+}
+.theme-dark .account-login-close { background: #2f2b25; color: #c3bbad; }
+.theme-dark .account-login-close:hover { background: #443e35; }
+.theme-dark .account-login-email,
+.theme-dark .account-login-label,
+.theme-dark .account-login-status {
+  color: #9b9386;
+}
+.theme-dark .account-login-label input {
+  background: #1d1b18;
+  color: #f3efe7;
+  border-color: rgba(255, 255, 255, .11);
+}
+.theme-dark .account-login-btn {
+  background: #a8b6e6;
+  color: #171615;
+}
+.theme-dark .account-login-btn-secondary {
+  background: #39342d;
+  color: #f3efe7;
+  border-color: rgba(255, 255, 255, .11);
+}
+.theme-dark .account-login-error {
+  background: rgba(240, 170, 160, .15);
+  color: #f0aaa0;
+}
+
+@media (max-width: 620px) {
+  .account-login-overlay { padding: 12px; align-items: end; }
+  .account-login-stack { width: 100%; max-width: none; }
+  .account-login-panel { border-radius: 18px; }
+}

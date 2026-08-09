@@ -207,9 +207,11 @@ export type DeviceState = {
   id: string;
   name: string;
   endpoint: string;
-  trustState: "unpaired" | "paired" | "unreachable";
+  trustState: "unpaired" | "paired" | "unreachable" | "revoked";
   capabilities: string[];
   lastSeenAt?: string;
+  cloudDeviceId?: string;
+  pairingSessionId?: string;
 };
 
 export type CaptureState = {

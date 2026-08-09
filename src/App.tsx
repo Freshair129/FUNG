@@ -22,6 +22,7 @@ import {
   Sun,
   TimerReset,
   Upload,
+  UserCircle,
   Volume2,
   Wifi,
 } from "lucide-react";
@@ -51,6 +52,8 @@ import {
 import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
 import { ZoomPanel } from "./components/ZoomPanel";
 import { TtsProviderPanel } from "./components/TtsProviderPanel";
+import { AccountLoginPanel } from "./components/AccountLoginPanel";
+import { DevicePairingPanel } from "./components/DevicePairingPanel";
 
 function formatMs(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -650,6 +653,7 @@ export function App() {
   const [accountPanelOpen, setAccountPanelOpen] = useState(false);
   const [zoomPanelOpen, setZoomPanelOpen] = useState(false);
   const [ttsPanelOpen, setTtsPanelOpen] = useState(false);
+  const [accountLoginPanelOpen, setAccountLoginPanelOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [ttsPlaying, setTtsPlaying] = useState(false);
   const [ttsLoading, setTtsLoading] = useState(false);
@@ -1065,6 +1069,18 @@ export function App() {
       {accountPanelOpen && <ExternalAccountPanel onClose={() => setAccountPanelOpen(false)} onOpenPortal={openExternalAccountPortal} />}
       {zoomPanelOpen && <ZoomPanel onClose={() => setZoomPanelOpen(false)} />}
       {ttsPanelOpen && <TtsProviderPanel onClose={() => setTtsPanelOpen(false)} />}
+      {accountLoginPanelOpen && (
+        <div
+          className="account-login-overlay"
+          role="presentation"
+          onClick={() => setAccountLoginPanelOpen(false)}
+        >
+          <div className="account-login-stack" onClick={(event) => event.stopPropagation()}>
+            <AccountLoginPanel onClose={() => setAccountLoginPanelOpen(false)} />
+            <DevicePairingPanel onClose={() => setAccountLoginPanelOpen(false)} />
+          </div>
+        </div>
+      )}
       <div className="ambient-grid" data-tauri-drag-region aria-hidden="true" />
 
       <svg className="clip-defs" width="0" height="0" aria-hidden="true" focusable="false">
@@ -1442,6 +1458,15 @@ export function App() {
                 onClick={() => setTtsPanelOpen(true)}
               >
                 <Volume2 size={20} />
+              </button>
+              <button
+                type="button"
+                className="sidebar-action"
+                aria-label="บัญชี & อุปกรณ์"
+                title="บัญชี & อุปกรณ์"
+                onClick={() => setAccountLoginPanelOpen((open) => !open)}
+              >
+                <UserCircle size={20} />
               </button>
               <button
                 type="button"

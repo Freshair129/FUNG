@@ -450,8 +450,8 @@ Per phase:
 ## 10. Phase Completion Tracker / ตัวติดตามความคืบหน้า
 
 - [x] **Phase 0** — Stabilize & Automate (exit: CI green on fresh runner, main protected) — **DONE 2026-08-09**, PR #4 (`6248816`): frontend 24s ✅ / rust 12m21s ✅ on fresh runners; actual 1 day vs 1 week planned. Task 5 (branch protection) pending Boss. Bonus findings: FungLogo.tsx untracked-but-imported (fixed), tauri-build unconditional resource copy (fixed in CI).
-- [ ] **Phase 1** — Sub-project B: Desktop Login + Device Pairing (exit: real pairing E2E + revoke)
-- [ ] **Phase 2** — FUNGWIRE v1: LAN Tunnel + Job Worker (exit: delegated transcription E2E + resume)
+- [x] **Phase 1** — Sub-project B: Desktop Login + Device Pairing (exit: real pairing E2E + revoke) — **DONE**, PR #5 merged (`5219b90`).
+- [x] **Phase 2** — FUNGWIRE v1: LAN Tunnel + Job Worker (exit: delegated transcription E2E + resume) — **DONE 2026-08-09**, PR #6: frontend ✅ / rust ✅ CI green; 2-device LAN acceptance test passed (Boss-confirmed: delegate+progress, kill-mid-job resume, revoke rejection).
 - [ ] **Phase 3** — Sub-project F: BYOM Keys + 3-Tier Policy (exit: policy matrix proven, zero key leakage)
 - [ ] **Phase 4** — Sub-projects C + E: Cloud Storage + Mobile Login (exit: backup→restore proven, mobile signed in)
 - [ ] **Phase 5** — Hardening & Release (exit: signed APK + UAT evidence + gates dispositioned)

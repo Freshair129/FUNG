@@ -1,6 +1,6 @@
 # Phase 2: FUNGWIRE v1 — LAN Tunnel + Desktop Job Worker — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** A mobile device offloads transcription to its paired desktop over an encrypted LAN tunnel — mobile streams audio segments, desktop runs the existing Whisper pipeline and streams transcript segments + progress back.
 
@@ -50,7 +50,7 @@ Task order 1→2→3→4→5→6→7→8→9→10 (mostly sequential; 3 before 4
 
 **Interfaces produced:** `devices.public_key text`, `devices.lan_endpoint text`, `devices.lan_endpoint_updated_at timestamptz`; update grant extended to those columns.
 
-- [ ] **Step 1: Write the migration** — exact content:
+- [x] **Step 1: Write the migration** — exact content:
 
 ```sql
 -- Phase 2 FUNGWIRE: publish each device's full ed25519 public key (for the Noise
@@ -72,9 +72,9 @@ grant update (device_label, last_seen_at, public_key, lan_endpoint, lan_endpoint
   on public.devices to authenticated;
 ```
 
-- [ ] **Step 2: Sanity checks** — all three `add column` are `if not exists`; the grant lists exactly the five columns; no RLS/policy change (existing owner-scoped policies already gate rows); no data migration needed (columns nullable).
-- [ ] **Step 3: Do NOT apply.** Applying to `nqnrvqnijzovkrhxslfp` happens at the controller gate.
-- [ ] **Step 4: Commit**
+- [x] **Step 2: Sanity checks** — all three `add column` are `if not exists`; the grant lists exactly the five columns; no RLS/policy change (existing owner-scoped policies already gate rows); no data migration needed (columns nullable).
+- [x] **Step 3: Do NOT apply.** Applying to `nqnrvqnijzovkrhxslfp` happens at the controller gate.
+- [x] **Step 4: Commit**
 
 ```bash
 git add supabase/migrations/20260810000000_device_pubkey_endpoint.sql
@@ -91,7 +91,7 @@ git commit -m "feat(fungwire): add devices public_key and lan_endpoint columns"
 - Consumes: existing `KEY_FILE`, `SigningKey` load path in `device_identity.rs`.
 - Produces: `public_key_b64_in_dir(dir: &Path) -> AppResult<String>`; `x25519_static_secret_in_dir(dir: &Path) -> AppResult<[u8; 32]>`; `x25519_public_from_ed25519_b64(ed_pub_b64: &str) -> AppResult<[u8; 32]>`; Tauri command `device_public_key(app) -> AppResult<String>` (base64 ed25519 verifying key).
 
-- [ ] **Step 1: Write failing tests** in `device_identity.rs` `#[cfg(test)]` (add to the existing module):
+- [x] **Step 1: Write failing tests** in `device_identity.rs` `#[cfg(test)]` (add to the existing module):
 
 ```rust
     #[test]
@@ -123,16 +123,16 @@ git commit -m "feat(fungwire): add devices public_key and lan_endpoint columns"
     }
 ```
 
-- [ ] **Step 2: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml device_identity` — expect FAIL (functions + `x25519_dalek` missing).
+- [x] **Step 2: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml device_identity` — expect FAIL (functions + `x25519_dalek` missing).
 
-- [ ] **Step 3: Add deps** to `src-tauri/Cargo.toml [dependencies]` (also used in Task 4):
+- [x] **Step 3: Add deps** to `src-tauri/Cargo.toml [dependencies]` (also used in Task 4):
 
 ```toml
 curve25519-dalek = "4"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 ```
 
-- [ ] **Step 4: Implement** the three functions in `device_identity.rs`. Add imports and a private loader that returns the raw 32-byte seed, then:
+- [x] **Step 4: Implement** the three functions in `device_identity.rs`. Add imports and a private loader that returns the raw 32-byte seed, then:
 
 ```rust
 use ed25519_dalek::VerifyingKey;
@@ -180,7 +180,7 @@ pub fn x25519_public_from_ed25519_b64(ed_pub_b64: &str) -> AppResult<[u8; 32]> {
 
 Add `use sha2::Sha512;` (or reference `sha2::Sha512` fully-qualified). If `VerifyingKey::to_montgomery()` is not available in the pinned `ed25519-dalek` version, decompress via `curve25519_dalek::edwards::CompressedEdwardsY(arr).decompress()` then `.to_montgomery().to_bytes()` — the interop test in Step 1 is the correctness gate; make it pass by whichever path compiles.
 
-- [ ] **Step 5: Add the command** in `device_identity.rs`:
+- [x] **Step 5: Add the command** in `device_identity.rs`:
 
 ```rust
 #[tauri::command]
@@ -193,8 +193,8 @@ pub fn device_public_key(app: tauri::AppHandle) -> AppResult<String> {
 
 Register `device_identity::device_public_key` in `lib.rs`'s `generate_handler![]`.
 
-- [ ] **Step 6: Run** the module tests — expect PASS. Then full `cargo test -j 1` + `npx tsc --noEmit`.
-- [ ] **Step 7: Commit** — `feat(fungwire): device public key export and ed25519→x25519 conversion`
+- [x] **Step 6: Run** the module tests — expect PASS. Then full `cargo test -j 1` + `npx tsc --noEmit`.
+- [x] **Step 7: Commit** — `feat(fungwire): device public key export and ed25519→x25519 conversion`
 
 ---
 
@@ -209,7 +209,7 @@ Register `device_identity::device_public_key` in `lib.rs`'s `generate_handler![]
 - `enum Control` (serde-tagged) with variants below; `Control::encode()/decode()`
 - `manifest_hash(segment_checksums: &[String]) -> String` (sha256 hex of the ordered checksums joined by `\n`)
 
-- [ ] **Step 1: Write failing tests** in `fungwire.rs` `#[cfg(test)]`:
+- [x] **Step 1: Write failing tests** in `fungwire.rs` `#[cfg(test)]`:
 
 ```rust
 #[cfg(test)]
@@ -257,9 +257,9 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml fungwire` — expect FAIL.
+- [x] **Step 2: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml fungwire` — expect FAIL.
 
-- [ ] **Step 3: Implement `fungwire.rs`:**
+- [x] **Step 3: Implement `fungwire.rs`:**
 
 ```rust
 use std::io::{self, Read, Write};
@@ -318,8 +318,8 @@ pub fn manifest_hash(segment_checksums: &[String]) -> String {
 }
 ```
 
-- [ ] **Step 4: Run** the tests — expect PASS. Full `cargo test -j 1`.
-- [ ] **Step 5: Commit** — `feat(fungwire): frame codec, control protocol, manifest hashing`
+- [x] **Step 4: Run** the tests — expect PASS. Full `cargo test -j 1`.
+- [x] **Step 5: Commit** — `feat(fungwire): frame codec, control protocol, manifest hashing`
 
 ---
 
@@ -333,13 +333,13 @@ pub fn manifest_hash(segment_checksums: &[String]) -> String {
 - `noise_responder(local_x25519_secret: &[u8;32], remote_x25519_public: &[u8;32]) -> Result<snow::HandshakeState, String>`
 - A helper `NoiseChannel` wrapping a `TcpStream` + `snow::TransportState` with `send(&mut self, &Control)` and `send_binary`/`recv(&mut self) -> io::Result<Vec<u8>>` used by Tasks 6–8. (Transport-mode framing = each Noise message inside one length-prefixed frame.)
 
-- [ ] **Step 1: Add dep** to `src-tauri/Cargo.toml`:
+- [x] **Step 1: Add dep** to `src-tauri/Cargo.toml`:
 
 ```toml
 snow = "0.9"
 ```
 
-- [ ] **Step 2: Write a failing handshake round-trip test** in `fungwire.rs` tests:
+- [x] **Step 2: Write a failing handshake round-trip test** in `fungwire.rs` tests:
 
 ```rust
     #[test]
@@ -393,9 +393,9 @@ snow = "0.9"
     }
 ```
 
-- [ ] **Step 3: Run** — expect FAIL (helpers missing).
+- [x] **Step 3: Run** — expect FAIL (helpers missing).
 
-- [ ] **Step 4: Implement** in `fungwire.rs`:
+- [x] **Step 4: Implement** in `fungwire.rs`:
 
 ```rust
 pub const NOISE_PARAMS: &str = "Noise_KK_25519_ChaChaPoly_BLAKE2s";
@@ -448,8 +448,8 @@ impl<S: Read + Write> NoiseChannel<S> {
 }
 ```
 
-- [ ] **Step 5: Run** — expect PASS. Full `cargo test -j 1`.
-- [ ] **Step 6: Commit** — `feat(fungwire): Noise KK handshake helpers and encrypted channel wrapper`
+- [x] **Step 5: Run** — expect PASS. Full `cargo test -j 1`.
+- [x] **Step 6: Commit** — `feat(fungwire): Noise KK handshake helpers and encrypted channel wrapper`
 
 ---
 
@@ -461,11 +461,11 @@ impl<S: Read + Write> NoiseChannel<S> {
 - Consumes: `device_public_key` command (Task 2), Phase 1 registration effects.
 - Produces: `devices.public_key` populated on registration; desktop `paired_devices.db` gains `public_key TEXT`; mobile stores the desktop peer's public key.
 
-- [ ] **Step 1: Desktop schema** — in `lib.rs`, add `public_key TEXT` to the `CREATE TABLE IF NOT EXISTS paired_devices` (in `paired_devices_connection`) and an idempotent `ALTER TABLE paired_devices ADD COLUMN public_key TEXT` guarded by a `PRAGMA table_info` check (SQLite has no `ADD COLUMN IF NOT EXISTS`). Extend `PairedDeviceInput`/`PairedDeviceRow` with `public_key: Option<String>` and the upsert/list SQL. Failing test first (extend the existing `paired_device_roundtrip` test to set + read back `public_key`).
+- [x] **Step 1: Desktop schema** — in `lib.rs`, add `public_key TEXT` to the `CREATE TABLE IF NOT EXISTS paired_devices` (in `paired_devices_connection`) and an idempotent `ALTER TABLE paired_devices ADD COLUMN public_key TEXT` guarded by a `PRAGMA table_info` check (SQLite has no `ADD COLUMN IF NOT EXISTS`). Extend `PairedDeviceInput`/`PairedDeviceRow` with `public_key: Option<String>` and the upsert/list SQL. Failing test first (extend the existing `paired_device_roundtrip` test to set + read back `public_key`).
 
-- [ ] **Step 2: Run** the focused test → FAIL → implement → PASS (`cargo test -j 1 --manifest-path src-tauri/Cargo.toml paired_device`).
+- [x] **Step 2: Run** the focused test → FAIL → implement → PASS (`cargo test -j 1 --manifest-path src-tauri/Cargo.toml paired_device`).
 
-- [ ] **Step 3: bridge.ts** — add:
+- [x] **Step 3: bridge.ts** — add:
 
 ```typescript
 export async function devicePublicKey(): Promise<string | null> {
@@ -474,12 +474,12 @@ export async function devicePublicKey(): Promise<string | null> {
 }
 ```
 
-- [ ] **Step 4: Desktop registration** — in `AccountLoginPanel.tsx`'s device-registration effect, after `device_identity_ensure`, also `const publicKey = await invoke<string>("device_public_key")`, include `public_key: publicKey` in the `.insert({...})`, and on the "row exists" branch add `.update({ last_seen_at: ..., public_key: publicKey })` (grant permits it).
+- [x] **Step 4: Desktop registration** — in `AccountLoginPanel.tsx`'s device-registration effect, after `device_identity_ensure`, also `const publicKey = await invoke<string>("device_public_key")`, include `public_key: publicKey` in the `.insert({...})`, and on the "row exists" branch add `.update({ last_seen_at: ..., public_key: publicKey })` (grant permits it).
 
-- [ ] **Step 5: Mobile registration** — same addition in `MobileApp.tsx`'s registration effect (`platform: "android"`), plus when pairing completes, fetch and store the desktop peer's `public_key` (extend the pairing-complete path to select `public_key` alongside the fields it already reads, and pass it to `mobile_pairing_complete` / store in the mobile Genesis `paired_devices` row — add a `public_key` field to that write, mirroring Phase 1's shape).
+- [x] **Step 5: Mobile registration** — same addition in `MobileApp.tsx`'s registration effect (`platform: "android"`), plus when pairing completes, fetch and store the desktop peer's `public_key` (extend the pairing-complete path to select `public_key` alongside the fields it already reads, and pass it to `mobile_pairing_complete` / store in the mobile Genesis `paired_devices` row — add a `public_key` field to that write, mirroring Phase 1's shape).
 
-- [ ] **Step 6: Verify** `npx tsc --noEmit` 0, `npm run build` green, full `cargo test -j 1` green.
-- [ ] **Step 7: Commit** — `feat(fungwire): publish device public_key at registration; cache peer keys locally`
+- [x] **Step 6: Verify** `npx tsc --noEmit` 0, `npm run build` green, full `cargo test -j 1` green.
+- [x] **Step 7: Commit** — `feat(fungwire): publish device public_key at registration; cache peer keys locally`
 
 ---
 
@@ -491,9 +491,9 @@ export async function devicePublicKey(): Promise<string | null> {
 - Consumes: `fungwire::{noise_responder, NoiseChannel, Control, read_frame}` (Tasks 3–4), `device_identity::x25519_static_secret_in_dir` + peer lookup, `paired_devices.db` (Task 5).
 - Produces: commands `fungwire_server_set_enabled(enabled: bool) -> FungwireStatus`, `fungwire_status() -> FungwireStatus { enabled, bind, active_jobs, connected_peers }`. Per-connection worker is Task 7.
 
-- [ ] **Step 1: AppState + control struct.** Add `fungwire: Mutex<Option<FungwireServerControl>>` to `AppState` (struct: `bind: String`, `stop: Arc<AtomicBool>`, `active_jobs: Arc<AtomicUsize>`). Mirror the `mobile_mcp_set_enabled` lifecycle exactly (bind `0.0.0.0:0`, `set_nonblocking(true)`, accept loop polling the `AtomicBool` every 40 ms, `thread::spawn` the loop).
+- [x] **Step 1: AppState + control struct.** Add `fungwire: Mutex<Option<FungwireServerControl>>` to `AppState` (struct: `bind: String`, `stop: Arc<AtomicBool>`, `active_jobs: Arc<AtomicUsize>`). Mirror the `mobile_mcp_set_enabled` lifecycle exactly (bind `0.0.0.0:0`, `set_nonblocking(true)`, accept loop polling the `AtomicBool` every 40 ms, `thread::spawn` the loop).
 
-- [ ] **Step 2: The accept loop spawns per-connection** (the fix vs the inline pattern):
+- [x] **Step 2: The accept loop spawns per-connection** (the fix vs the inline pattern):
 
 ```rust
 // inside the accept loop thread, on Ok((stream, _)):
@@ -507,7 +507,7 @@ std::thread::spawn(move || {
 });
 ```
 
-- [ ] **Step 3: Handshake in `handle_connection`** (Task 7 adds the job loop after it):
+- [x] **Step 3: Handshake in `handle_connection`** (Task 7 adds the job loop after it):
 
 ```rust
 pub(crate) fn handle_connection(mut stream: std::net::TcpStream, storage: &Storage, app_data: &std::path::Path, jobs: &std::sync::Arc<std::sync::atomic::AtomicUsize>) -> Result<(), String> {
@@ -551,10 +551,10 @@ pub(crate) fn handle_connection(mut stream: std::net::TcpStream, storage: &Stora
 
 Note: the `Hello` (frame 0, cleartext device_id) precedes Noise so the responder knows which static key to expect — this is safe because identity is still proven by the subsequent KK handshake (a wrong claimant cannot complete it). Add a helper `lookup_paired_peer(device_id) -> AppResult<Option<PairedDeviceRow>>` in `lib.rs` querying `paired_devices.db` where `id = ? and revoked_at is null`.
 
-- [ ] **Step 4: Commands** — `fungwire_server_set_enabled` / `fungwire_status`, registered in `generate_handler![]`, returning `FungwireStatus`.
+- [x] **Step 4: Commands** — `fungwire_server_set_enabled` / `fungwire_status`, registered in `generate_handler![]`, returning `FungwireStatus`.
 
-- [ ] **Step 5: Test** — a loopback handshake test (`fungwire_server` tests): start the responder side against a `TcpStream` pair, run a minimal initiator (reuse Task 4 helpers) through `Hello` + KK, assert `into_transport_mode` succeeds and an unpaired device_id is rejected. `cargo test -j 1`.
-- [ ] **Step 6: Commit** — `feat(fungwire): desktop server with paired-only Noise handshake and toggle`
+- [x] **Step 5: Test** — a loopback handshake test (`fungwire_server` tests): start the responder side against a `TcpStream` pair, run a minimal initiator (reuse Task 4 helpers) through `Hello` + KK, assert `into_transport_mode` succeeds and an unpaired device_id is rejected. `cargo test -j 1`.
+- [x] **Step 6: Commit** — `feat(fungwire): desktop server with paired-only Noise handshake and toggle`
 
 ---
 
@@ -566,11 +566,11 @@ Note: the `Hello` (frame 0, cleartext device_id) precedes Noise so the responder
 - Consumes: `NoiseChannel`, `Control`, existing `run_python_worker`/`WhisperRuntime`/`WhisperOutput` (lib.rs), `active_jobs` counter.
 - Produces: `run_job_loop(channel, storage, app_data, device_id, jobs) -> Result<(), String>`.
 
-- [ ] **Step 1: Write a loopback integration test** `fungwire_job_stub` using a stub script. Create `tests/fixtures/fake_transcribe.py` that prints `PROGRESS 50` to stderr then a fixed JSON (`{"durationMs":1000,"segments":[{"startMs":0,"endMs":1000,"text":"hi","confidence":0.9}]}`) to stdout. The test wires an in-process client (Task 4 initiator) + `run_job_loop` responder over a `TcpStream` loopback pair, sends `JobStart` + one `Chunk` (a tiny valid `.m4a` fixture or any bytes if the stub ignores content) whose checksum matches the manifest, and asserts a `Result` frame with one segment comes back. Point the worker at the fake script via a test-only `WhisperRuntime` override (add a constructor that takes explicit paths, or an env var the worker reads in tests).
+- [x] **Step 1: Write a loopback integration test** `fungwire_job_stub` using a stub script. Create `tests/fixtures/fake_transcribe.py` that prints `PROGRESS 50` to stderr then a fixed JSON (`{"durationMs":1000,"segments":[{"startMs":0,"endMs":1000,"text":"hi","confidence":0.9}]}`) to stdout. The test wires an in-process client (Task 4 initiator) + `run_job_loop` responder over a `TcpStream` loopback pair, sends `JobStart` + one `Chunk` (a tiny valid `.m4a` fixture or any bytes if the stub ignores content) whose checksum matches the manifest, and asserts a `Result` frame with one segment comes back. Point the worker at the fake script via a test-only `WhisperRuntime` override (add a constructor that takes explicit paths, or an env var the worker reads in tests).
 
-- [ ] **Step 2: Run** → FAIL (`run_job_loop` missing).
+- [x] **Step 2: Run** → FAIL (`run_job_loop` missing).
 
-- [ ] **Step 3: Implement `run_job_loop`:**
+- [x] **Step 3: Implement `run_job_loop`:**
 
 ```rust
 pub(crate) fn run_job_loop(
@@ -607,8 +607,8 @@ Then `receive_and_transcribe`: create a temp dir under `app_data/fungwire/<job_i
 
 **Segment concatenation note (spec §14, resolve here):** m4a files cannot be byte-concatenated. v1 approach: invoke `transcribe.py` once per received segment, adding the cumulative start offset (each segment is 5 s) to the returned `startMs`/`endMs`, and concatenate the segment lists. This avoids a muxing dependency and reuses the pipeline verbatim. Progress = `(segments_done / segment_count) * 100`.
 
-- [ ] **Step 4: Run** the integration test → PASS. Add a cancel test (send `Cancel` mid-transfer → loop returns, temp cleaned). Full `cargo test -j 1`.
-- [ ] **Step 5: Commit** — `feat(fungwire): desktop job worker runs transcription and streams results`
+- [x] **Step 4: Run** the integration test → PASS. Add a cancel test (send `Cancel` mid-transfer → loop returns, temp cleaned). Full `cargo test -j 1`.
+- [x] **Step 5: Commit** — `feat(fungwire): desktop job worker runs transcription and streams results`
 
 ---
 
@@ -620,17 +620,17 @@ Then `receive_and_transcribe`: create a temp dir under `app_data/fungwire/<job_i
 - Consumes: `fungwire::{noise_initiator, NoiseChannel, Control}`, `device_identity` x25519 helpers, mobile Genesis `audio_chunks`/`paired_devices`/`delegated_jobs`/`transcript_segments`.
 - Produces: commands `fungwire_delegate_transcription(project_id, recording_id, desktop_device_id) -> { job_id }`, `fungwire_job_poll(job_id) -> { state, progress, error }`, `fungwire_desktop_reachable(desktop_device_id) -> bool`.
 
-- [ ] **Step 1: Reachability first (smallest testable unit).** `fungwire_desktop_reachable`: resolve the peer endpoint (Task 9's resolver; for now accept an endpoint arg or read the mobile `paired_devices.endpoint`), `TcpStream::connect_timeout` (2 s) + `Hello` + KK handshake; return `true` on `into_transport_mode` success, `false` otherwise. Unit-test the "closed port → false" path.
+- [x] **Step 1: Reachability first (smallest testable unit).** `fungwire_desktop_reachable`: resolve the peer endpoint (Task 9's resolver; for now accept an endpoint arg or read the mobile `paired_devices.endpoint`), `TcpStream::connect_timeout` (2 s) + `Hello` + KK handshake; return `true` on `into_transport_mode` success, `false` otherwise. Unit-test the "closed port → false" path.
 
-- [ ] **Step 2: Delegation.** `fungwire_delegate_transcription`:
+- [x] **Step 2: Delegation.** `fungwire_delegate_transcription`:
   1. Insert a `delegated_jobs` row `state:"queued"` (reuse the existing insert idiom in `mobile_diarization_start`, `operation:"transcript.transcribe"`, `executor_device_id: desktop_device_id`, `input_manifest_hash: <computed>`), return its `job_id`.
   2. Spawn a `std::thread` that runs the transfer (mobile Rust is sync; the command returns immediately, the thread drives the job and writes progress into the `delegated_jobs` row so `fungwire_job_poll` can read it).
   3. In the thread: gather the recording's `audio_chunks` rows (ordered by `sequence_no`, each has `file_path` + `checksum`); compute `manifest_hash(ordered checksums)`; connect + `Hello` + KK initiator; send `JobStart`; stream each segment as `Chunk`+binary, wait for `ChunkAck` (resume: track `last_acked_seq`); on `Progress` update the row `state:"running"`, `progress`; on `Result` write `transcript_segments` into Genesis (existing segment-insert path) + mark row `completed`; on `Error`/timeout mark `failed` with the message; on socket loss reconnect with backoff and resume from `last_acked_seq + 1`; after N failed reconnects mark the row `failed` and flip the peer `trust_state` to `unreachable`.
 
-- [ ] **Step 3: Poll.** `fungwire_job_poll` reads the `delegated_jobs` row and returns `{ state, progress, error }` (error stored in `checkpoint_json` or a dedicated column — reuse `checkpoint_json` as `{"error": "..."}`).
+- [x] **Step 3: Poll.** `fungwire_job_poll` reads the `delegated_jobs` row and returns `{ state, progress, error }` (error stored in `checkpoint_json` or a dedicated column — reuse `checkpoint_json` as `{"error": "..."}`).
 
-- [ ] **Step 4: Tests.** Loopback integration mirroring Task 7 but driving the real client thread against the real server `run_job_loop` over `127.0.0.1`: assert the `delegated_jobs` row reaches `completed` and `transcript_segments` are written. Reconnect/resume test: kill the socket after seq K server-side, assert the client resumes and completes. `cargo test -j 1`.
-- [ ] **Step 5: Commit** — `feat(fungwire): mobile client streams jobs and applies transcripts`
+- [x] **Step 4: Tests.** Loopback integration mirroring Task 7 but driving the real client thread against the real server `run_job_loop` over `127.0.0.1`: assert the `delegated_jobs` row reaches `completed` and `transcript_segments` are written. Reconnect/resume test: kill the socket after seq K server-side, assert the client resumes and completes. `cargo test -j 1`.
+- [x] **Step 5: Commit** — `feat(fungwire): mobile client streams jobs and applies transcripts`
 
 ---
 
@@ -642,7 +642,7 @@ Then `receive_and_transcribe`: create a temp dir under `app_data/fungwire/<job_i
 - Consumes: Supabase `devices.lan_endpoint` (Task 1), the FUNGWIRE server bind port (Task 6).
 - Produces: desktop publishes `lan_endpoint` on start/tick; mobile `resolve_desktop_endpoint(device_id) -> Option<String>` used by Tasks 8's client.
 
-- [ ] **Step 1: LAN IP helper (dependency-free)** in `lib.rs`, with a test that it returns a non-loopback IPv4 or `None`:
+- [x] **Step 1: LAN IP helper (dependency-free)** in `lib.rs`, with a test that it returns a non-loopback IPv4 or `None`:
 
 ```rust
 pub(crate) fn primary_lan_ipv4() -> Option<String> {
@@ -656,12 +656,12 @@ pub(crate) fn primary_lan_ipv4() -> Option<String> {
 }
 ```
 
-- [ ] **Step 2: Publisher.** When `fungwire_server_set_enabled(true)` binds the port, compute `primary_lan_ipv4()` + the bound port and expose a command `fungwire_local_endpoint() -> Option<String>` (`"<ip>:<port>"`). The frontend (Task 10, desktop) writes it to Supabase `devices.lan_endpoint` + `lan_endpoint_updated_at = now()` via supabase-js on enable and on a 60 s interval while enabled (keeps cloud/anon-key writes in TypeScript, consistent with the Phase 1 "auth/DB in TS" split; Rust only reports the string).
+- [x] **Step 2: Publisher.** When `fungwire_server_set_enabled(true)` binds the port, compute `primary_lan_ipv4()` + the bound port and expose a command `fungwire_local_endpoint() -> Option<String>` (`"<ip>:<port>"`). The frontend (Task 10, desktop) writes it to Supabase `devices.lan_endpoint` + `lan_endpoint_updated_at = now()` via supabase-js on enable and on a 60 s interval while enabled (keeps cloud/anon-key writes in TypeScript, consistent with the Phase 1 "auth/DB in TS" split; Rust only reports the string).
 
-- [ ] **Step 3: Resolver (mobile).** `resolve_desktop_endpoint`: the mobile client reads the desktop peer's `lan_endpoint` from Supabase — but mobile Rust has no supabase-js. So the resolver is TypeScript: `bridge.ts` `desktopEndpoint(deviceId)` queries `devices.lan_endpoint`/`lan_endpoint_updated_at`, and `delegateTranscription` passes the resolved endpoint (or the manual fallback from the paired row) INTO the Rust command as an argument. Adjust Task 8's command signature to `fungwire_delegate_transcription(project_id, recording_id, desktop_device_id, endpoint)` and `fungwire_desktop_reachable(desktop_device_id, endpoint)` — the endpoint is resolved in TS and handed to Rust. Document this as the division of labor (cloud reads in TS, socket work in Rust).
+- [x] **Step 3: Resolver (mobile).** `resolve_desktop_endpoint`: the mobile client reads the desktop peer's `lan_endpoint` from Supabase — but mobile Rust has no supabase-js. So the resolver is TypeScript: `bridge.ts` `desktopEndpoint(deviceId)` queries `devices.lan_endpoint`/`lan_endpoint_updated_at`, and `delegateTranscription` passes the resolved endpoint (or the manual fallback from the paired row) INTO the Rust command as an argument. Adjust Task 8's command signature to `fungwire_delegate_transcription(project_id, recording_id, desktop_device_id, endpoint)` and `fungwire_desktop_reachable(desktop_device_id, endpoint)` — the endpoint is resolved in TS and handed to Rust. Document this as the division of labor (cloud reads in TS, socket work in Rust).
 
-- [ ] **Step 4: Test** `primary_lan_ipv4` (non-panicking; returns Some/None). Full `cargo test -j 1`.
-- [ ] **Step 5: Commit** — `feat(fungwire): desktop LAN endpoint publishing and mobile resolution`
+- [x] **Step 4: Test** `primary_lan_ipv4` (non-panicking; returns Some/None). Full `cargo test -j 1`.
+- [x] **Step 5: Commit** — `feat(fungwire): desktop LAN endpoint publishing and mobile resolution`
 
 ---
 
@@ -671,7 +671,7 @@ pub(crate) fn primary_lan_ipv4() -> Option<String> {
 
 **Interfaces:** consumes Task 8 commands + Task 2 `device_public_key`; produces the user-facing delegation flow.
 
-- [ ] **Step 1: model.ts** — add:
+- [x] **Step 1: model.ts** — add:
 
 ```typescript
 export interface DelegatedJob {
@@ -684,7 +684,7 @@ export interface DelegatedJob {
 }
 ```
 
-- [ ] **Step 2: bridge.ts** — add wrappers:
+- [x] **Step 2: bridge.ts** — add wrappers:
 
 ```typescript
 export async function desktopEndpoint(deviceId: string): Promise<string | null> {
@@ -711,12 +711,12 @@ export async function pollDelegatedJob(jobId: string): Promise<DelegatedJob | nu
 
 (`supabase` import already present in bridge/mobile via Phase 1; if bridge.ts lacks it, import from `../lib/supabase`.)
 
-- [ ] **Step 3: TimelineScreen / ProcessingStudio delegate action.** Where diarization/transcription is triggered, when a paired desktop exists: resolve its endpoint (`desktopEndpoint`), check `desktopReachable`; if reachable show **"ถอดเสียงบน FUNG Desktop"**. When `onDeviceAiStatus()` returns a `Deferred` admission, render it as the recommended path with the Thai copy "อุปกรณ์นี้ประมวลผลเองไม่ไหว — ส่งไปที่ FUNG Desktop". On tap: `delegateTranscription(...)` → poll `pollDelegatedJob(jobId)` every 1.5 s, render a progress bar from `state`/`progress`; a cancel button (calls a `fungwire_job_cancel` you add to Task 8 if not present — else omit cancel from v1 UI and note it). Results appear via the normal timeline once segments land in Genesis.
+- [x] **Step 3: TimelineScreen / ProcessingStudio delegate action.** Where diarization/transcription is triggered, when a paired desktop exists: resolve its endpoint (`desktopEndpoint`), check `desktopReachable`; if reachable show **"ถอดเสียงบน FUNG Desktop"**. When `onDeviceAiStatus()` returns a `Deferred` admission, render it as the recommended path with the Thai copy "อุปกรณ์นี้ประมวลผลเองไม่ไหว — ส่งไปที่ FUNG Desktop". On tap: `delegateTranscription(...)` → poll `pollDelegatedJob(jobId)` every 1.5 s, render a progress bar from `state`/`progress`; a cancel button (calls a `fungwire_job_cancel` you add to Task 8 if not present — else omit cancel from v1 UI and note it). Results appear via the normal timeline once segments land in Genesis.
 
-- [ ] **Step 4: Desktop FUNGWIRE toggle** — in `DevicePairingPanel.tsx` add a section: an enable/disable switch calling `fungwire_server_set_enabled`, showing `fungwire_status()` (`enabled`, `bind`, `active_jobs`, `connected_peers`); on enable, read `fungwire_local_endpoint()` and write it to `devices.lan_endpoint` + `lan_endpoint_updated_at` (supabase-js), repeating on a 60 s interval while enabled (clear on disable/unmount). Thai labels ("การเชื่อมต่อ FUNGWIRE", "เปิดให้มือถือส่งงานมาประมวลผล").
+- [x] **Step 4: Desktop FUNGWIRE toggle** — in `DevicePairingPanel.tsx` add a section: an enable/disable switch calling `fungwire_server_set_enabled`, showing `fungwire_status()` (`enabled`, `bind`, `active_jobs`, `connected_peers`); on enable, read `fungwire_local_endpoint()` and write it to `devices.lan_endpoint` + `lan_endpoint_updated_at` (supabase-js), repeating on a 60 s interval while enabled (clear on disable/unmount). Thai labels ("การเชื่อมต่อ FUNGWIRE", "เปิดให้มือถือส่งงานมาประมวลผล").
 
-- [ ] **Step 5: Verify** `npx tsc --noEmit` 0 · `npm run build` green · `npm run test:auth` 5/5 · `npm run test:mobile` 4/4.
-- [ ] **Step 6: Commit** — `feat(fungwire): mobile delegate+progress UI and desktop server toggle`
+- [x] **Step 5: Verify** `npx tsc --noEmit` 0 · `npm run build` green · `npm run test:auth` 5/5 · `npm run test:mobile` 4/4.
+- [x] **Step 6: Commit** — `feat(fungwire): mobile delegate+progress UI and desktop server toggle`
 
 ---
 

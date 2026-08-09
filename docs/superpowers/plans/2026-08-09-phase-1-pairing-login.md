@@ -1,6 +1,6 @@
 # Phase 1: Device Pairing + Desktop/Mobile Login — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Verified 6-digit-code device pairing between mobile and desktop, brokered by Supabase, with Google login on both Tauri surfaces.
 
@@ -49,7 +49,7 @@ Task order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10. (4 needs 3
 
 **Interfaces produced:** table `public.pairing_sessions`, RPC `public.confirm_pairing(p_session_id uuid, p_code text, p_responder_device_id uuid) returns text` (values: `confirmed|wrong_code|locked|expired|cancelled|not_found`), table `public.device_audit_events`.
 
-- [ ] **Step 1: Write the migration file** — exact content (copied from spec §6, single source of truth for the SQL):
+- [x] **Step 1: Write the migration file** — exact content (copied from spec §6, single source of truth for the SQL):
 
 ```sql
 -- Pairing sessions: short-lived brokered handshakes between two of a user's devices.
@@ -138,9 +138,9 @@ create policy "device_audit_insert_own" on public.device_audit_events
 grant select, insert on public.device_audit_events to authenticated;
 ```
 
-- [ ] **Step 2: Sanity checks** — confirm: every `create table` is `if not exists`; both tables have RLS enabled + policies before grants; the function is `security invoker`; the hash expression is exactly `encode(sha256((p_session_id::text || ':' || p_code)::bytea), 'hex')`.
-- [ ] **Step 3: Do NOT apply the migration** — applying to `nqnrvqnijzovkrhxslfp` happens at the controller gate after final review.
-- [ ] **Step 4: Commit** — `git add supabase/migrations/20260809000000_pairing_sessions.sql && git commit -m "feat(pairing): add pairing_sessions, confirm_pairing RPC, and device audit migration"`
+- [x] **Step 2: Sanity checks** — confirm: every `create table` is `if not exists`; both tables have RLS enabled + policies before grants; the function is `security invoker`; the hash expression is exactly `encode(sha256((p_session_id::text || ':' || p_code)::bytea), 'hex')`.
+- [x] **Step 3: Do NOT apply the migration** — applying to `nqnrvqnijzovkrhxslfp` happens at the controller gate after final review.
+- [x] **Step 4: Commit** — `git add supabase/migrations/20260809000000_pairing_sessions.sql && git commit -m "feat(pairing): add pairing_sessions, confirm_pairing RPC, and device audit migration"`
 
 ---
 
@@ -150,14 +150,14 @@ grant select, insert on public.device_audit_events to authenticated;
 
 **Interfaces produced:** Tauri command `device_identity_ensure() -> { fingerprint: String, created: bool }` (both surfaces invoke it).
 
-- [ ] **Step 1: Add deps to `src-tauri/Cargo.toml` [dependencies]:**
+- [x] **Step 1: Add deps to `src-tauri/Cargo.toml` [dependencies]:**
 
 ```toml
 ed25519-dalek = "2"
 rand = "0.8"
 ```
 
-- [ ] **Step 2: Write failing tests first** in `device_identity.rs` `#[cfg(test)]`:
+- [x] **Step 2: Write failing tests first** in `device_identity.rs` `#[cfg(test)]`:
 
 ```rust
 #[cfg(test)]
@@ -184,8 +184,8 @@ mod tests {
 }
 ```
 
-- [ ] **Step 3: Run** `cargo test --manifest-path src-tauri/Cargo.toml device_identity` — expect FAIL (functions not defined).
-- [ ] **Step 4: Implement** `device_identity.rs`:
+- [x] **Step 3: Run** `cargo test --manifest-path src-tauri/Cargo.toml device_identity` — expect FAIL (functions not defined).
+- [x] **Step 4: Implement** `device_identity.rs`:
 
 ```rust
 use std::fs;
@@ -251,9 +251,9 @@ pub fn device_identity_ensure(app: tauri::AppHandle) -> AppResult<DeviceIdentity
 
 Adjust `AppError` variant names to whatever `lib.rs` actually defines (read it — do not invent a new variant if an equivalent internal/storage variant exists).
 
-- [ ] **Step 5:** `mod device_identity;` in `lib.rs` + add `device_identity::device_identity_ensure` to `generate_handler![]`.
-- [ ] **Step 6: Run** the module tests — expect PASS. Then full `cargo test` + `npx tsc --noEmit`.
-- [ ] **Step 7: Commit** — `feat(pairing): add device identity keypair with fingerprint`
+- [x] **Step 5:** `mod device_identity;` in `lib.rs` + add `device_identity::device_identity_ensure` to `generate_handler![]`.
+- [x] **Step 6: Run** the module tests — expect PASS. Then full `cargo test` + `npx tsc --noEmit`.
+- [x] **Step 7: Commit** — `feat(pairing): add device identity keypair with fingerprint`
 
 ---
 
@@ -263,8 +263,8 @@ Adjust `AppError` variant names to whatever `lib.rs` actually defines (read it �
 
 **Interfaces produced:** deep link `fung://` delivered to webview via the plugin's `onOpenUrl` JS API; Tauri command `auth_loopback_listen() -> u16` (port) which emits event `"auth-callback"` (payload: full callback URL string) when the browser hits it.
 
-- [ ] **Step 1:** `npm install @tauri-apps/plugin-deep-link` and add `tauri-plugin-deep-link = "2"` to Cargo dependencies.
-- [ ] **Step 2:** Configure the scheme. In `src-tauri/tauri.conf.json` add to `plugins`:
+- [x] **Step 1:** `npm install @tauri-apps/plugin-deep-link` and add `tauri-plugin-deep-link = "2"` to Cargo dependencies.
+- [x] **Step 2:** Configure the scheme. In `src-tauri/tauri.conf.json` add to `plugins`:
 
 ```json
 "deep-link": {
@@ -276,8 +276,8 @@ Adjust `AppError` variant names to whatever `lib.rs` actually defines (read it �
 
 For Android the plugin reads mobile config at build time — consult the plugin's README (`https://v2.tauri.app/plugin/deep-linking/`) for the current mobile custom-scheme syntax and add it accordingly; the scheme must be `fung`. If mobile config genuinely cannot express a custom scheme (docs indicate app-links/host-based only), report DONE_WITH_CONCERNS stating exactly what the docs say — do NOT improvise a manifest hack.
 
-- [ ] **Step 3:** Register plugin in the builder in `lib.rs` (`.plugin(tauri_plugin_deep_link::init())`) and add the plugin permission (`"deep-link:default"`) to `src-tauri/capabilities/default.json`.
-- [ ] **Step 4:** Implement the loopback fallback command in `lib.rs` (pattern: `start_local_api`):
+- [x] **Step 3:** Register plugin in the builder in `lib.rs` (`.plugin(tauri_plugin_deep_link::init())`) and add the plugin permission (`"deep-link:default"`) to `src-tauri/capabilities/default.json`.
+- [x] **Step 4:** Implement the loopback fallback command in `lib.rs` (pattern: `start_local_api`):
 
 ```rust
 #[tauri::command]
@@ -318,9 +318,9 @@ fn auth_loopback_listen(app: tauri::AppHandle) -> AppResult<u16> {
 
 Register in `generate_handler![]`. One-shot by design (thread exits after first request).
 
-- [ ] **Step 5:** Unit test the path-parsing seam if extracted; otherwise `cargo build` + full `cargo test` green is the gate (network accept loop is covered by manual acceptance).
-- [ ] **Step 6:** `npx tsc --noEmit` + `npm run build` green (new npm package must not break the web build — the deep-link JS import happens only behind dynamic `import()` in Task 4).
-- [ ] **Step 7: Commit** — `feat(pairing): register fung:// deep link and loopback auth fallback`
+- [x] **Step 5:** Unit test the path-parsing seam if extracted; otherwise `cargo build` + full `cargo test` green is the gate (network accept loop is covered by manual acceptance).
+- [x] **Step 6:** `npx tsc --noEmit` + `npm run build` green (new npm package must not break the web build — the deep-link JS import happens only behind dynamic `import()` in Task 4).
+- [x] **Step 7: Commit** — `feat(pairing): register fung:// deep link and loopback auth fallback`
 
 ---
 
@@ -330,7 +330,7 @@ Register in `generate_handler![]`. One-shot by design (thread exits after first 
 
 **Interfaces produced:** `parseAuthCallbackUrl(url)`, `beginGoogleLogin(redirectTo?)`, `completeFromCallbackUrl(url)`, `listenForAuthCallback(onDone)`, `beginLoopbackFallbackLogin()`, `hashPairingCode(sessionId, code)` (WebCrypto sha256 hex — also used by Task 7).
 
-- [ ] **Step 1:** Enable PKCE in `src/lib/supabase.ts`:
+- [x] **Step 1:** Enable PKCE in `src/lib/supabase.ts`:
 
 ```typescript
 export const supabase = createClient(supabaseUrl ?? "", supabaseAnonKey ?? "", {
@@ -340,7 +340,7 @@ export const supabase = createClient(supabaseUrl ?? "", supabaseAnonKey ?? "", {
 
 **Web regression note (must appear in your report):** the web landing/AuthCallback flow (Sub-project A) currently relies on implicit-flow hash tokens. With `flowType: "pkce"`, supabase-js's `detectSessionInUrl` handles the `?code=` exchange automatically on the callback page, so `AuthCallback.tsx`'s `getSession()` pattern keeps working — verify by reading `src/web/AuthCallback.tsx` and stating in your report why it still works (or flag DONE_WITH_CONCERNS if you find it doesn't).
 
-- [ ] **Step 2: Write failing test** `tests/authFlow.test.mjs` (mirror the import pattern of `tests/captureOrchestration.test.mjs`):
+- [x] **Step 2: Write failing test** `tests/authFlow.test.mjs` (mirror the import pattern of `tests/captureOrchestration.test.mjs`):
 
 ```javascript
 import test from "node:test";
@@ -394,7 +394,7 @@ export function parseAuthCallbackUrl(url: string): AuthCallbackResult {
 
 Add script `"test:auth": "node --test --experimental-strip-types tests/authFlow.test.mjs"` and append it to the CI frontend job? NO — CI edits are out of scope for this task; instead note it for Task 10's wrap-up commit. Run: `npm run test:auth` — expect FAIL first (file missing), then PASS after implementing.
 
-- [ ] **Step 3: Implement `src/lib/authFlow.ts`:**
+- [x] **Step 3: Implement `src/lib/authFlow.ts`:**
 
 ```typescript
 import { supabase } from "./supabase";
@@ -469,9 +469,9 @@ export async function hashPairingCode(sessionId: string, code: string): Promise<
 }
 ```
 
-- [ ] **Step 4:** Add a hash test to `tests/authFlow.test.mjs` cross-checking `hashPairingCode`'s formula against node:crypto (same input → same hex), importing from a pure helper if needed; WebCrypto exists in Node ≥ 20 as `globalThis.crypto`, so testing `hashPairingCode` directly works. Vector: `hashPairingCode("11111111-1111-1111-1111-111111111111", "123456")` must equal node `createHash("sha256").update("11111111-1111-1111-1111-111111111111:123456").digest("hex")`.
-- [ ] **Step 5:** `npm run test:auth` PASS · `npx tsc --noEmit` 0 · `npm run build` green.
-- [ ] **Step 6: Commit** — `feat(auth): shared PKCE auth flow with deep link + loopback callback handling`
+- [x] **Step 4:** Add a hash test to `tests/authFlow.test.mjs` cross-checking `hashPairingCode`'s formula against node:crypto (same input → same hex), importing from a pure helper if needed; WebCrypto exists in Node ≥ 20 as `globalThis.crypto`, so testing `hashPairingCode` directly works. Vector: `hashPairingCode("11111111-1111-1111-1111-111111111111", "123456")` must equal node `createHash("sha256").update("11111111-1111-1111-1111-111111111111:123456").digest("hex")`.
+- [x] **Step 5:** `npm run test:auth` PASS · `npx tsc --noEmit` 0 · `npm run build` green.
+- [x] **Step 6: Commit** — `feat(auth): shared PKCE auth flow with deep link + loopback callback handling`
 
 ---
 
@@ -481,7 +481,7 @@ export async function hashPairingCode(sessionId: string, code: string): Promise<
 
 **Interfaces produced:** commands `paired_device_upsert(device: PairedDeviceInput)`, `paired_device_list() -> Vec<PairedDeviceRow>`, `paired_device_revoke(id: String)`.
 
-- [ ] **Step 1:** Append to `schemas/sqlite-wal-v1.sql`:
+- [x] **Step 1:** Append to `schemas/sqlite-wal-v1.sql`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS paired_devices (
@@ -497,7 +497,7 @@ CREATE TABLE IF NOT EXISTS paired_devices (
 
 First READ how `lib.rs` initializes the SQLite schema (search for `sqlite-wal-v1` / `include_str!` / `CREATE TABLE`). If the schema file is executed wholesale at startup, the append is sufficient; if tables are created individually in code, add the same `CREATE TABLE IF NOT EXISTS` to that code path too. State which mechanism you found in your report.
 
-- [ ] **Step 2: Failing tests first** (in `lib.rs` tests module or alongside the storage impl, using the existing test-storage pattern):
+- [x] **Step 2: Failing tests first** (in `lib.rs` tests module or alongside the storage impl, using the existing test-storage pattern):
 
 ```rust
 #[test]
@@ -516,9 +516,9 @@ fn paired_device_roundtrip() {
 }
 ```
 
-- [ ] **Step 3:** Run focused test → FAIL. Implement the three inner functions + `#[tauri::command]` wrappers (serde structs `PairedDeviceInput { id, name, platform, fingerprint, pairing_session_id }`, `PairedDeviceRow { id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id }`; `paired_at`/`revoked_at` = RFC3339 via `chrono::Utc::now().to_rfc3339()`). Upsert = `INSERT ... ON CONFLICT(id) DO UPDATE SET name=excluded.name, revoked_at=NULL`. Register all three commands.
-- [ ] **Step 4:** Focused test PASS → full `cargo test` → `npx tsc --noEmit`.
-- [ ] **Step 5: Commit** — `feat(pairing): desktop paired_devices storage and commands`
+- [x] **Step 3:** Run focused test → FAIL. Implement the three inner functions + `#[tauri::command]` wrappers (serde structs `PairedDeviceInput { id, name, platform, fingerprint, pairing_session_id }`, `PairedDeviceRow { id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id }`; `paired_at`/`revoked_at` = RFC3339 via `chrono::Utc::now().to_rfc3339()`). Upsert = `INSERT ... ON CONFLICT(id) DO UPDATE SET name=excluded.name, revoked_at=NULL`. Register all three commands.
+- [x] **Step 4:** Focused test PASS → full `cargo test` → `npx tsc --noEmit`.
+- [x] **Step 5: Commit** — `feat(pairing): desktop paired_devices storage and commands`
 
 ---
 
@@ -528,7 +528,7 @@ fn paired_device_roundtrip() {
 
 **Interfaces:** consumes `authFlow.ts` (Task 4), `device_identity_ensure` (Task 2). Produces: logged-in session + registered device + `localStorage["fung.device.id"]` (own cloud device id — Task 7/9 read this).
 
-- [ ] **Step 1: Component** — complete code:
+- [x] **Step 1: Component** — complete code:
 
 ```tsx
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -698,10 +698,10 @@ export function AccountLoginPanel() {
 }
 ```
 
-- [ ] **Step 2: CSS** `AccountLoginPanel.css` — follow `ExternalAccountPanel`'s visual vocabulary (read its css for exact color values), classes prefixed `account-login-`, hardcoded light values + `.theme-dark .account-login-*` overrides. Style: header row, labeled input, primary/secondary buttons, error in `#b3261e`-family red with dark override.
-- [ ] **Step 3: Wire into `src/App.tsx`** exactly the way `TtsProviderPanel` is wired (find its import, its open-state, its settings entry/button, its conditional render — replicate all four for `AccountLoginPanel` with a Thai menu label "บัญชี & อุปกรณ์"). Do not restructure anything else.
-- [ ] **Step 4:** `npx tsc --noEmit` 0 · `npm run build` green.
-- [ ] **Step 5: Commit** — `feat(auth): desktop account login panel with device registration`
+- [x] **Step 2: CSS** `AccountLoginPanel.css` — follow `ExternalAccountPanel`'s visual vocabulary (read its css for exact color values), classes prefixed `account-login-`, hardcoded light values + `.theme-dark .account-login-*` overrides. Style: header row, labeled input, primary/secondary buttons, error in `#b3261e`-family red with dark override.
+- [x] **Step 3: Wire into `src/App.tsx`** exactly the way `TtsProviderPanel` is wired (find its import, its open-state, its settings entry/button, its conditional render — replicate all four for `AccountLoginPanel` with a Thai menu label "บัญชี & อุปกรณ์"). Do not restructure anything else.
+- [x] **Step 4:** `npx tsc --noEmit` 0 · `npm run build` green.
+- [x] **Step 5: Commit** — `feat(auth): desktop account login panel with device registration`
 
 ---
 
@@ -711,7 +711,7 @@ export function AccountLoginPanel() {
 
 **Interfaces:** consumes `hashPairingCode` (Task 4), `paired_device_*` commands (Task 5), `localStorage["fung.device.id"]` (Task 6), Supabase `pairing_sessions`/`devices`/`device_audit_events` (Task 1).
 
-- [ ] **Step 1: Component** — complete code:
+- [x] **Step 1: Component** — complete code:
 
 ```tsx
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -949,10 +949,10 @@ export function DevicePairingPanel() {
 }
 ```
 
-- [ ] **Step 2: CSS** — `device-pairing-` prefix, big monospace 6-digit code display (letter-spacing), light values + `.theme-dark` overrides.
-- [ ] **Step 3:** Wire into `App.tsx` on the same settings surface as AccountLoginPanel (render below it).
-- [ ] **Step 4:** `npx tsc --noEmit` 0 · `npm run build` green.
-- [ ] **Step 5: Commit** — `feat(pairing): desktop pairing panel with code display, polling, and revoke`
+- [x] **Step 2: CSS** — `device-pairing-` prefix, big monospace 6-digit code display (letter-spacing), light values + `.theme-dark` overrides.
+- [x] **Step 3:** Wire into `App.tsx` on the same settings surface as AccountLoginPanel (render below it).
+- [x] **Step 4:** `npx tsc --noEmit` 0 · `npm run build` green.
+- [x] **Step 5: Commit** — `feat(pairing): desktop pairing panel with code display, polling, and revoke`
 
 ---
 
@@ -962,7 +962,7 @@ export function DevicePairingPanel() {
 
 **Interfaces produced:** `mobile_pairing_complete(peer_device_id, name, endpoint, pairing_session_id)`; **removed:** `mobile_pair_desktop`.
 
-- [ ] **Step 1:** Read the current `mobile_pair_desktop` (mobile.rs ~line 800) and its tests. Write a failing test for the new command's inner function:
+- [x] **Step 1:** Read the current `mobile_pair_desktop` (mobile.rs ~line 800) and its tests. Write a failing test for the new command's inner function:
 
 ```rust
 #[test]
@@ -975,9 +975,9 @@ fn pairing_complete_upserts_verified_row() {
 }
 ```
 
-- [ ] **Step 2:** Run → FAIL. Implement `pairing_complete_inner` + `#[tauri::command] mobile_pairing_complete`: upsert Genesis `paired_devices` row keyed by `id = peer_device_id` with `name`, `endpoint` (may be empty string), `trust_state = "paired"`, `pairing_proof_hash = pairing_session_id`, `capabilities_json = "[]"`, timestamps — mirroring the row shape the old function wrote, minus the fake sha256 proof. Input validation: `peer_device_id` and `pairing_session_id` non-empty; name 1..=120 chars.
-- [ ] **Step 3:** Delete `mobile_pair_desktop` (function + its tests + handler registration) and register `mobile_pairing_complete`. Any other references (grep `mobile_pair_desktop` across repo — bridge.ts updated in Task 9; if bridge still references it after this task, that's expected mid-branch breakage ONLY if tsc fails — check: bridge.ts calls `invoke("mobile_pair_desktop")` as a string, tsc will NOT fail; note the dangling string for Task 9 in your report).
-- [ ] **Step 4:** Focused tests PASS → full `cargo test` → commit: `feat(pairing): replace unverified mobile_pair_desktop with verified mobile_pairing_complete`
+- [x] **Step 2:** Run → FAIL. Implement `pairing_complete_inner` + `#[tauri::command] mobile_pairing_complete`: upsert Genesis `paired_devices` row keyed by `id = peer_device_id` with `name`, `endpoint` (may be empty string), `trust_state = "paired"`, `pairing_proof_hash = pairing_session_id`, `capabilities_json = "[]"`, timestamps — mirroring the row shape the old function wrote, minus the fake sha256 proof. Input validation: `peer_device_id` and `pairing_session_id` non-empty; name 1..=120 chars.
+- [x] **Step 3:** Delete `mobile_pair_desktop` (function + its tests + handler registration) and register `mobile_pairing_complete`. Any other references (grep `mobile_pair_desktop` across repo — bridge.ts updated in Task 9; if bridge still references it after this task, that's expected mid-branch breakage ONLY if tsc fails — check: bridge.ts calls `invoke("mobile_pair_desktop")` as a string, tsc will NOT fail; note the dangling string for Task 9 in your report).
+- [x] **Step 4:** Focused tests PASS → full `cargo test` → commit: `feat(pairing): replace unverified mobile_pair_desktop with verified mobile_pairing_complete`
 
 ---
 
@@ -987,8 +987,8 @@ fn pairing_complete_upserts_verified_row() {
 
 **Interfaces:** consumes `authFlow.ts`, `device_identity_ensure`, `mobile_pairing_complete`, `confirm_pairing` RPC, `localStorage["fung.device.id"]` (own id, set here for mobile).
 
-- [ ] **Step 1: model.ts** — extend `DeviceState.trustState` union with `"revoked"`; add optional `cloudDeviceId?: string` and `pairingSessionId?: string` fields.
-- [ ] **Step 2: mobileStore.ts** — replace `pairDevice(snapshot, name, endpoint)` with:
+- [x] **Step 1: model.ts** — extend `DeviceState.trustState` union with `"revoked"`; add optional `cloudDeviceId?: string` and `pairingSessionId?: string` fields.
+- [x] **Step 2: mobileStore.ts** — replace `pairDevice(snapshot, name, endpoint)` with:
 
 ```typescript
 export function upsertPairedDevice(
@@ -1026,7 +1026,7 @@ export function markDeviceRevoked(snapshot: MobileSnapshot, cloudDeviceId: strin
 
 Keep `removeDevice` as-is. Fix any existing callers of `pairDevice` (grep).
 
-- [ ] **Step 3: bridge.ts** — replace `pairDesktop` with:
+- [x] **Step 3: bridge.ts** — replace `pairDesktop` with:
 
 ```typescript
 export async function pairingComplete(
@@ -1045,15 +1045,15 @@ export async function deviceIdentityEnsure(): Promise<{ fingerprint: string; cre
 }
 ```
 
-- [ ] **Step 4: DevicesScreen rework** in `MobileApp.tsx`. Read the current DevicesScreen (~lines 463–505) first. New behavior (complete flow spec — adapt JSX to the file's existing sheet/list idioms and CSS classes; keep the visual container structure):
+- [x] **Step 4: DevicesScreen rework** in `MobileApp.tsx`. Read the current DevicesScreen (~lines 463–505) first. New behavior (complete flow spec — adapt JSX to the file's existing sheet/list idioms and CSS classes; keep the visual container structure):
   1. **No session** → card with "เข้าสู่ระบบด้วย Google เพื่อจับคู่อุปกรณ์" button → `beginGoogleLogin()` + `listenForAuthCallback` (register listener once in the screen's mount effect). Note: NO loopback fallback on mobile (deep link is native there).
   2. **Session, not registered** → auto-register android device (same select-then-insert flow as Task 6's effect, `platform: "android"`, label default "FUNG Mobile") → store own id in `localStorage["fung.device.id"]`.
   3. **Paired list** from `snapshot.devices` with trust-state chips: จับคู่แล้ว / ไม่ตอบสนอง / ถูกยกเลิก. Revocation check on screen focus: `select id from devices in (cloudIds)` → missing → `markDeviceRevoked` + save snapshot.
   4. **"จับคู่กับ Desktop"** opens sheet: fetch desktops (`devices` where `platform = "windows"`, `revoked_at is null` — RLS scopes to own rows); radio list + optional "ที่อยู่ (ไม่บังคับ)" endpoint field (placeholder `192.168.1.20:8765`) + 6-digit code input (numeric, `inputMode="numeric"`, `maxLength 6`).
   5. Submit → find newest pending session: `from("pairing_sessions").select("id").eq("initiator_device_id", chosen.id).eq("status","pending").order("created_at",{ascending:false}).limit(1).maybeSingle()` — if none: "ยังไม่มีรหัสจาก Desktop — กด 'จับคู่อุปกรณ์ใหม่' บนเครื่องนั้นก่อน". Else `rpc("confirm_pairing", { p_session_id, p_code: code, p_responder_device_id: myDeviceId })`.
   6. Handle RPC result: `confirmed` → `bridge.pairingComplete(...)` + `upsertPairedDevice` + save + audit insert (`pairing_confirmed`) + close sheet; `wrong_code` → "รหัสไม่ถูกต้อง ลองใหม่"; `locked` → "ใส่รหัสผิดครบ 5 ครั้ง — สร้างรหัสใหม่บน Desktop"; `expired` → "รหัสหมดอายุ".
-- [ ] **Step 5:** `npx tsc --noEmit` 0 · `npm run build` green · `npm run test:mobile` still 4/4.
-- [ ] **Step 6: Commit** — `feat(pairing): mobile login gate, desktop discovery, and verified code entry`
+- [x] **Step 5:** `npx tsc --noEmit` 0 · `npm run build` green · `npm run test:mobile` still 4/4.
+- [x] **Step 6: Commit** — `feat(pairing): mobile login gate, desktop discovery, and verified code entry`
 
 ---
 
@@ -1061,10 +1061,10 @@ export async function deviceIdentityEnsure(): Promise<{ fingerprint: string; cre
 
 **Files:** Modify `src/web/Dashboard.tsx`, `.github/workflows/ci.yml`
 
-- [ ] **Step 1:** In `Dashboard.tsx`, replace the placeholder "อุปกรณ์ที่จับคู่" tile with a live list: on load (inside the existing `load()`), also `from("devices").select("id, device_label, platform, last_seen_at").is("revoked_at", null).order("registered_at", { ascending: false })` (log error per existing pattern). Render rows (label + platform + last-seen relative time) inside the tile; per-row "ยกเลิก" button → `from("devices").delete().eq("id", id)` + audit insert (`device_revoked`) + reload. Keep tile styling classes; add minimal new classes in `Dashboard.css` with `.theme-dark` overrides if needed.
-- [ ] **Step 2:** Append `- run: npm run test:auth` to the CI frontend job (after `test:design-system`).
-- [ ] **Step 3:** `npx tsc --noEmit` 0 · `npm run build` green.
-- [ ] **Step 4: Commit** — `feat(pairing): live device list with revoke on web dashboard; run auth tests in CI`
+- [x] **Step 1:** In `Dashboard.tsx`, replace the placeholder "อุปกรณ์ที่จับคู่" tile with a live list: on load (inside the existing `load()`), also `from("devices").select("id, device_label, platform, last_seen_at").is("revoked_at", null).order("registered_at", { ascending: false })` (log error per existing pattern). Render rows (label + platform + last-seen relative time) inside the tile; per-row "ยกเลิก" button → `from("devices").delete().eq("id", id)` + audit insert (`device_revoked`) + reload. Keep tile styling classes; add minimal new classes in `Dashboard.css` with `.theme-dark` overrides if needed.
+- [x] **Step 2:** Append `- run: npm run test:auth` to the CI frontend job (after `test:design-system`).
+- [x] **Step 3:** `npx tsc --noEmit` 0 · `npm run build` green.
+- [x] **Step 4: Commit** — `feat(pairing): live device list with revoke on web dashboard; run auth tests in CI`
 
 ---
 

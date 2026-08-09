@@ -14,6 +14,7 @@ use tauri_plugin_opener::OpenerExt;
 use thiserror::Error;
 use uuid::Uuid;
 
+mod cloud_config;
 mod device_identity;
 mod fungwire;
 mod fungwire_client;

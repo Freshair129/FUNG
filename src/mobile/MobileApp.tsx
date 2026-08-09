@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import {
   ArrowLeft,
   AudioLines,
@@ -10,6 +11,7 @@ import {
   Home,
   Link2,
   LockKeyhole,
+  LogIn,
   Mic,
   Monitor,
   Moon,
@@ -30,12 +32,16 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
-import { addNote, loadSnapshot, pairDevice, removeDevice, saveSnapshot } from "./mobileStore";
-import { appendCaptureSegment, controlNativeRecorder, finishCapture, loadPlaybackSegment, nativeRecorderStatus, pairDesktop, persistNote, queryGraph, reconcileNativeCapture, setMcpEnabled, startCapture, startNativeRecorder } from "./bridge";
+import { addNote, loadSnapshot, markDeviceRevoked, removeDevice, saveSnapshot, upsertPairedDevice } from "./mobileStore";
+import { appendCaptureSegment, controlNativeRecorder, deviceIdentityEnsure, finishCapture, loadPlaybackSegment, nativeRecorderStatus, pairingComplete, persistNote, queryGraph, reconcileNativeCapture, setMcpEnabled, startCapture, startNativeRecorder } from "./bridge";
 import { acquireCaptureBackend, CaptureStartError, resumeCaptureClock } from "./captureOrchestration";
-import type { CaptureState, EpistemicStatus, MobileNote, MobileSnapshot, MobileTab, ThemePreference } from "./model";
+import type { CaptureState, DeviceState, EpistemicStatus, MobileNote, MobileSnapshot, MobileTab, ThemePreference } from "./model";
 import { TimelineScreen } from "./TimelineScreen";
+import { supabase } from "../lib/supabase";
+import { beginGoogleLogin, listenForAuthCallback } from "../lib/authFlow";
 import "./mobile.css";
+
+const DEVICE_ID_KEY = "fung.device.id";
 
 const idleCapture: CaptureState = {
   state: "idle",
@@ -460,20 +466,232 @@ function GraphScreen({ snapshot }: ScreenProps) {
   );
 }
 
+interface DesktopCandidate {
+  id: string;
+  device_label: string;
+}
+
+const trustChipLabel = (state: DeviceState["trustState"]) =>
+  state === "paired" ? "จับคู่แล้ว"
+  : state === "unreachable" ? "ไม่ตอบสนอง"
+  : state === "revoked" ? "ถูกยกเลิก"
+  : "ยังไม่จับคู่";
+
+const trustChipClass = (state: DeviceState["trustState"]) =>
+  state === "unreachable" ? "is-unreachable" : state === "revoked" ? "is-revoked" : "";
+
 function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps) {
+  const [session, setSession] = useState<Session | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [myDeviceId, setMyDeviceId] = useState<string | null>(() => localStorage.getItem(DEVICE_ID_KEY));
+  const [registering, setRegistering] = useState(false);
+  const [registerError, setRegisterError] = useState<string | null>(null);
+
   const [pairing, setPairing] = useState(false);
-  const [name, setName] = useState("FUNG Desktop");
-  const [endpoint, setEndpoint] = useState("192.168.1.20:8765");
+  const [desktops, setDesktops] = useState<DesktopCandidate[]>([]);
+  const [desktopsError, setDesktopsError] = useState<string | null>(null);
+  const [selectedDesktopId, setSelectedDesktopId] = useState<string | null>(null);
+  const [endpoint, setEndpoint] = useState("");
   const [code, setCode] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
   const [mcpEnabled, setMcpState] = useState(false);
   const [mcpBind, setMcpBind] = useState<string | null>(null);
   const ThemeIcon = theme === "system" ? Monitor : theme === "dark" ? Moon : Sun;
   const themeLabel = theme === "system" ? "ตามระบบ" : theme === "dark" ? "มืด" : "สว่าง";
 
-  const connect = async () => {
-    await pairDesktop(name, endpoint, code);
-    setSnapshot(pairDevice(snapshot, name, endpoint));
-    setPairing(false);
+  // Session subscription + deep-link auth callback (no loopback fallback on mobile).
+  useEffect(() => {
+    void supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
+    let cleanup: (() => void) | undefined;
+    void listenForAuthCallback((err) => {
+      setAuthBusy(false);
+      setAuthError(err ? `เข้าสู่ระบบไม่สำเร็จ: ${err}` : null);
+    }).then((fn) => { cleanup = fn; });
+    return () => {
+      sub.subscription.unsubscribe();
+      cleanup?.();
+    };
+  }, []);
+
+  // Auto-register this Android device once a session exists (select-then-insert, like desktop).
+  useEffect(() => {
+    if (!session || myDeviceId) return;
+    let cancelled = false;
+    setRegistering(true);
+    void (async () => {
+      try {
+        const identity = await deviceIdentityEnsure();
+        if (!identity) throw new Error("device identity unavailable");
+        const { data: existing, error: selErr } = await supabase
+          .from("devices")
+          .select("id")
+          .eq("public_key_fingerprint", identity.fingerprint)
+          .maybeSingle();
+        if (selErr) throw selErr;
+        let deviceId = existing?.id as string | undefined;
+        if (!deviceId) {
+          const { data: inserted, error: insErr } = await supabase
+            .from("devices")
+            .insert({
+              user_id: session.user.id,
+              device_label: "FUNG Mobile",
+              platform: "android",
+              public_key_fingerprint: identity.fingerprint,
+            })
+            .select("id")
+            .single();
+          if (insErr) throw insErr;
+          deviceId = inserted.id as string;
+          await supabase.from("device_audit_events").insert({
+            user_id: session.user.id,
+            device_id: deviceId,
+            event_type: "device_registered",
+            metadata: { platform: "android" },
+          });
+        } else {
+          await supabase.from("devices").update({ last_seen_at: new Date().toISOString() }).eq("id", deviceId);
+        }
+        if (!cancelled && deviceId) {
+          localStorage.setItem(DEVICE_ID_KEY, deviceId);
+          setMyDeviceId(deviceId);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Mobile device registration failed:", error);
+          setRegisterError("ลงทะเบียนอุปกรณ์ไม่สำเร็จ");
+        }
+      } finally {
+        if (!cancelled) setRegistering(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session, myDeviceId]);
+
+  // Revocation check on screen focus: paired peers must still exist in the cloud.
+  useEffect(() => {
+    if (!session) return;
+    const cloudIds = snapshot.devices
+      .filter((device) => device.cloudDeviceId && device.trustState !== "revoked")
+      .map((device) => device.cloudDeviceId as string);
+    if (cloudIds.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase.from("devices").select("id").in("id", cloudIds);
+      if (cancelled) return;
+      if (error) { console.error("Revocation check failed:", error); return; }
+      const alive = new Set((data ?? []).map((row) => row.id as string));
+      let next = snapshot;
+      for (const id of cloudIds) {
+        if (!alive.has(id)) next = markDeviceRevoked(next, id);
+      }
+      if (next !== snapshot) setSnapshot(next);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per screen mount ("on focus"); snapshot is read fresh inside.
+  }, [session]);
+
+  // Fetch this account's desktop devices whenever the pairing sheet opens.
+  useEffect(() => {
+    if (!pairing) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("devices")
+        .select("id, device_label")
+        .eq("platform", "windows")
+        .is("revoked_at", null);
+      if (cancelled) return;
+      if (error) {
+        console.error("Failed to load desktop devices:", error);
+        setDesktopsError("โหลดรายชื่อ Desktop ไม่สำเร็จ");
+        return;
+      }
+      setDesktopsError(null);
+      setDesktops((data ?? []) as DesktopCandidate[]);
+    })();
+    return () => { cancelled = true; };
+  }, [pairing]);
+
+  const handleLogin = async () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      await beginGoogleLogin();
+    } catch (error) {
+      setAuthBusy(false);
+      setAuthError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const openPairing = () => {
+    setSubmitError(null);
+    setSelectedDesktopId(null);
+    setCode("");
+    setEndpoint("");
+    setPairing(true);
+  };
+
+  const submitCode = async () => {
+    if (!selectedDesktopId || !myDeviceId || !session) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const { data: pending, error: pendingError } = await supabase
+        .from("pairing_sessions")
+        .select("id")
+        .eq("initiator_device_id", selectedDesktopId)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (pendingError) throw pendingError;
+      if (!pending) {
+        setSubmitError("ยังไม่มีรหัสจาก Desktop — กด 'จับคู่อุปกรณ์ใหม่' บนเครื่องนั้นก่อน");
+        return;
+      }
+      const { data: result, error: rpcError } = await supabase.rpc("confirm_pairing", {
+        p_session_id: pending.id,
+        p_code: code,
+        p_responder_device_id: myDeviceId,
+      });
+      if (rpcError) throw rpcError;
+      if (result === "confirmed") {
+        const desktop = desktops.find((item) => item.id === selectedDesktopId);
+        const name = desktop?.device_label ?? "FUNG Desktop";
+        const trimmedEndpoint = endpoint.trim();
+        await pairingComplete(selectedDesktopId, name, trimmedEndpoint, pending.id);
+        setSnapshot(upsertPairedDevice(snapshot, {
+          cloudDeviceId: selectedDesktopId,
+          name,
+          endpoint: trimmedEndpoint,
+          pairingSessionId: pending.id,
+        }));
+        await supabase.from("device_audit_events").insert({
+          user_id: session.user.id,
+          device_id: selectedDesktopId,
+          event_type: "pairing_confirmed",
+          metadata: { session_id: pending.id },
+        });
+        setPairing(false);
+      } else if (result === "wrong_code") {
+        setSubmitError("รหัสไม่ถูกต้อง ลองใหม่");
+      } else if (result === "locked") {
+        setSubmitError("ใส่รหัสผิดครบ 5 ครั้ง — สร้างรหัสใหม่บน Desktop");
+      } else if (result === "expired") {
+        setSubmitError("รหัสหมดอายุ");
+      } else {
+        setSubmitError("ยืนยันรหัสไม่สำเร็จ ลองใหม่");
+      }
+    } catch (error) {
+      console.error("Pairing confirm failed:", error);
+      setSubmitError("เกิดข้อผิดพลาด ลองใหม่อีกครั้ง");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const toggleMcp = async () => {
@@ -482,24 +700,93 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
     setMcpBind(result.bind);
   };
 
+  const appearancePanel = (
+    <section className="m-appearance-panel">
+      <div><strong>รูปแบบหน้าจอ</strong><span>ใช้ธีมตามระบบ หรือเลือกสว่าง/มืดสำหรับแอปนี้</span></div>
+      <button type="button" onClick={cycleTheme} aria-label={`ธีม ${themeLabel}`}><ThemeIcon size={19} /><span>{themeLabel}</span></button>
+    </section>
+  );
+
+  if (!session) {
+    return (
+      <main className="m-screen m-devices-screen">
+        <header className="m-page-header"><div><span>เครือข่ายภายใน</span><h1>อุปกรณ์</h1></div></header>
+        <section className="m-empty-device">
+          <LockKeyhole size={31} />
+          <strong>เข้าสู่ระบบเพื่อจับคู่อุปกรณ์</strong>
+          <p>ล็อกอินด้วยบัญชี Google เพื่อลงทะเบียนมือถือเครื่องนี้และจับคู่กับ Desktop</p>
+          <button type="button" onClick={() => void handleLogin()} disabled={authBusy}>
+            <LogIn size={15} /> {authBusy ? "รอการยืนยันในเบราว์เซอร์…" : "เข้าสู่ระบบด้วย Google เพื่อจับคู่อุปกรณ์"}
+          </button>
+        </section>
+        {authError && <div className="m-inline-alert" role="alert"><strong>เข้าสู่ระบบไม่สำเร็จ</strong><span>{authError}</span></div>}
+        {appearancePanel}
+      </main>
+    );
+  }
+
   return (
     <main className="m-screen m-devices-screen">
-      <header className="m-page-header"><div><span>เครือข่ายภายใน</span><h1>อุปกรณ์</h1></div><button className="m-icon-action" aria-label="เพิ่ม Desktop" onClick={() => setPairing(true)}><Plus /></button></header>
-      <section className="m-device-summary"><Smartphone size={30} /><div><strong>มือถือเครื่องนี้</strong><span>พร้อมใช้งานแบบ standalone</span></div><StatusMark>Local</StatusMark></section>
+      <header className="m-page-header"><div><span>เครือข่ายภายใน</span><h1>อุปกรณ์</h1></div><button className="m-icon-action" aria-label="จับคู่กับ Desktop" onClick={openPairing}><Plus /></button></header>
+      <section className="m-device-summary">
+        <Smartphone size={30} />
+        <div>
+          <strong>มือถือเครื่องนี้</strong>
+          <span>{registering ? "กำลังลงทะเบียนอุปกรณ์…" : registerError ?? (myDeviceId ? "ลงทะเบียนแล้ว" : "พร้อมใช้งานแบบ standalone")}</span>
+        </div>
+        <StatusMark>Local</StatusMark>
+      </section>
       <h2 className="m-subheading">FUNG Desktop ที่เชื่อถือ</h2>
       <section className="m-device-list">
         {snapshot.devices.length === 0 ? (
-          <div className="m-empty-device"><WifiOff size={31} /><strong>ยังไม่ได้เชื่อม Desktop</strong><p>คุณยังบันทึก สร้างโน้ต และเปิดกราฟได้ตามปกติ</p><button onClick={() => setPairing(true)}>เชื่อมต่อผ่าน LAN</button></div>
+          <div className="m-empty-device"><WifiOff size={31} /><strong>ยังไม่ได้เชื่อม Desktop</strong><p>คุณยังบันทึก สร้างโน้ต และเปิดกราฟได้ตามปกติ</p><button onClick={openPairing}>จับคู่กับ Desktop</button></div>
         ) : snapshot.devices.map((device) => (
-          <article className="m-device-row" key={device.id}><span className="m-device-icon"><Server /></span><div><strong>{device.name}</strong><span><Wifi size={14} /> {device.endpoint}</span><small>{device.capabilities.join(" · ")}</small></div><button onClick={() => setSnapshot(removeDevice(snapshot, device.id))} aria-label="เพิกถอนอุปกรณ์"><Trash2 size={19} /></button></article>
+          <article className="m-device-row" key={device.id}>
+            <span className="m-device-icon"><Server /></span>
+            <div>
+              <strong>{device.name}</strong>
+              <em className={`m-trust-chip ${trustChipClass(device.trustState)}`}>{trustChipLabel(device.trustState)}</em>
+              {device.endpoint && <span><Wifi size={14} /> {device.endpoint}</span>}
+            </div>
+            <button onClick={() => setSnapshot(removeDevice(snapshot, device.id))} aria-label="เพิกถอนอุปกรณ์"><Trash2 size={19} /></button>
+          </article>
         ))}
       </section>
-      <section className="m-appearance-panel">
-        <div><strong>รูปแบบหน้าจอ</strong><span>ใช้ธีมตามระบบ หรือเลือกสว่าง/มืดสำหรับแอปนี้</span></div>
-        <button type="button" onClick={cycleTheme} aria-label={`ธีม ${themeLabel}`}><ThemeIcon size={19} /><span>{themeLabel}</span></button>
-      </section>
-      <section className="m-mcp-panel"><div className="m-panel-heading"><span><LockKeyhole size={22} /></span><div><strong>MCP บนมือถือ</strong><p>{mcpEnabled ? `เปิดเฉพาะเครื่องนี้ · ${mcpBind}` : "ปิดอยู่ ไม่มีเครื่องมือเข้าถึงข้อมูล"}</p></div><button className={`m-toggle ${mcpEnabled ? "is-on" : ""}`} aria-label={mcpEnabled ? "ปิด MCP" : "เปิด MCP"} aria-pressed={mcpEnabled} onClick={toggleMcp}><i /></button></div><small>ทุก capability ต้องได้รับอนุญาตเป็นรายโปรเจกต์ และระบบจะหยุดเมื่อ lifecycle ไม่อนุญาต</small></section>
-      {pairing && <div className="m-sheet-backdrop"><section className="m-sheet"><header><h2>เชื่อม FUNG Desktop</h2><button onClick={() => setPairing(false)}><X /></button></header><label>ชื่ออุปกรณ์<input value={name} onChange={(event) => setName(event.target.value)} /></label><label>LAN endpoint<input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} /></label><label>รหัสยืนยัน<input inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="6 หลัก" /></label><p className="m-consent-copy"><ShieldCheck size={17} /> ยืนยันรหัสเดียวกันบน Desktop ก่อนให้สิทธิ์</p><button className="m-primary-button" onClick={connect} disabled={code.length !== 6}>ยืนยันและเชื่อมต่อ</button></section></div>}
+      {appearancePanel}
+      <section className="m-mcp-panel"><div className="m-panel-heading"><span><LockKeyhole size={22} /></span><div><strong>MCP บนมือถือ</strong><p>{mcpEnabled ? `เปิดเฉพาะเครื่องนี้ · ${mcpBind}` : "ปิดอยู่ ไม่มีเครื่องมือเข้าถึงข้อมูล"}</p></div><button className={`m-toggle ${mcpEnabled ? "is-on" : ""}`} aria-label={mcpEnabled ? "ปิด MCP" : "เปิด MCP"} aria-pressed={mcpEnabled} onClick={() => void toggleMcp()}><i /></button></div><small>ทุก capability ต้องได้รับอนุญาตเป็นรายโปรเจกต์ และระบบจะหยุดเมื่อ lifecycle ไม่อนุญาต</small></section>
+      {pairing && (
+        <div className="m-sheet-backdrop" role="presentation">
+          <section className="m-sheet" role="dialog" aria-modal="true" aria-label="จับคู่กับ Desktop">
+            <header><h2>จับคู่กับ Desktop</h2><button onClick={() => setPairing(false)} aria-label="ปิด"><X /></button></header>
+            {desktopsError && <p className="m-inline-alert" role="alert">{desktopsError}</p>}
+            {!desktopsError && desktops.length === 0 && <p className="m-consent-copy"><WifiOff size={15} /> ยังไม่พบ Desktop ที่ลงทะเบียนไว้กับบัญชีนี้</p>}
+            {desktops.length > 0 && (
+              <div className="m-model-list" role="radiogroup" aria-label="เลือก Desktop">
+                {desktops.map((desktop) => (
+                  <button
+                    key={desktop.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selectedDesktopId === desktop.id}
+                    className={selectedDesktopId === desktop.id ? "is-selected" : ""}
+                    onClick={() => setSelectedDesktopId(desktop.id)}
+                  >
+                    <i />
+                    <span>{desktop.device_label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <label>ที่อยู่ (ไม่บังคับ)<input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="192.168.1.20:8765" /></label>
+            <label>รหัสยืนยัน<input inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} placeholder="6 หลัก" /></label>
+            <p className="m-consent-copy"><ShieldCheck size={17} /> ยืนยันรหัสเดียวกันกับที่ปรากฏบน Desktop</p>
+            {submitError && <p className="m-inline-alert" role="alert">{submitError}</p>}
+            <button className="m-primary-button" onClick={() => void submitCode()} disabled={!selectedDesktopId || code.length !== 6 || submitting}>
+              {submitting ? "กำลังยืนยัน…" : "ยืนยันและเชื่อมต่อ"}
+            </button>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

@@ -102,16 +102,33 @@ export function addNote(snapshot: MobileSnapshot, title: string, body: string): 
   return next;
 }
 
-export function pairDevice(snapshot: MobileSnapshot, name: string, endpoint: string): MobileSnapshot {
-  const device: DeviceState = {
-    id: crypto.randomUUID(),
-    name: name.trim() || "FUNG Desktop",
-    endpoint: endpoint.trim() || "ค้นหาในเครือข่ายภายใน",
+export function upsertPairedDevice(
+  snapshot: MobileSnapshot,
+  device: { cloudDeviceId: string; name: string; endpoint: string; pairingSessionId: string },
+): MobileSnapshot {
+  const rest = snapshot.devices.filter((d) => d.cloudDeviceId !== device.cloudDeviceId);
+  const entry: DeviceState = {
+    id: device.cloudDeviceId,
+    cloudDeviceId: device.cloudDeviceId,
+    name: device.name,
+    endpoint: device.endpoint,
     trustState: "paired",
-    capabilities: ["local-llm", "transcription", "mcp"],
+    capabilities: [],
+    pairingSessionId: device.pairingSessionId,
     lastSeenAt: now(),
   };
-  const next = { ...snapshot, devices: [device, ...snapshot.devices.filter((item) => item.endpoint !== device.endpoint)] };
+  const next = { ...snapshot, devices: [...rest, entry] };
+  saveSnapshot(next);
+  return next;
+}
+
+export function markDeviceRevoked(snapshot: MobileSnapshot, cloudDeviceId: string): MobileSnapshot {
+  const next = {
+    ...snapshot,
+    devices: snapshot.devices.map((d) =>
+      d.cloudDeviceId === cloudDeviceId ? { ...d, trustState: "revoked" as const } : d,
+    ),
+  };
   saveSnapshot(next);
   return next;
 }

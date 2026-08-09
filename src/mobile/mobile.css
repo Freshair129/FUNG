@@ -191,6 +191,9 @@
 .m-toggle.is-on { background: var(--m-sage); }
 .m-toggle.is-on i { transform: translateX(18px); }
 .m-consent-copy { display: flex; align-items: center; gap: 8px; color: var(--m-sage); font-size: 11px; }
+.m-device-row em.m-trust-chip { justify-self: start; margin-top: 3px; padding: 2px 9px; border-radius: 999px; font-size: 9px; font-weight: 650; font-style: normal; color: var(--m-sage); background: color-mix(in srgb, var(--m-sage) 12%, transparent); }
+.m-device-row em.m-trust-chip.is-unreachable { color: var(--m-metal); background: color-mix(in srgb, var(--m-metal) 16%, transparent); }
+.m-device-row em.m-trust-chip.is-revoked { color: var(--m-danger); background: color-mix(in srgb, var(--m-danger) 12%, transparent); }
 
 .m-timeline-screen { padding-left: 14px; padding-right: 14px; }
 .m-timeline-header { margin-bottom: 11px; padding: 0 10px; align-items: center; }

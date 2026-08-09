@@ -916,6 +916,7 @@ mod tests {
     use crate::fungwire::noise_initiator;
     use crate::{paired_devices_connection_at, upsert_paired_device, PairedDeviceInput};
     use genesis_block_native::{OpenOptions, Storage};
+    use std::io::Write;
     use std::net::TcpListener;
     use uuid::Uuid;
 
@@ -1845,5 +1846,144 @@ mod tests {
         let app_data = tempfile::tempdir().unwrap();
         sweep_stale_job_dirs(app_data.path(), JOB_DIR_TTL);
         // Reaching this line without panicking is the assertion.
+    }
+
+    /// scripts/transcribe.py --concat-only writes ONE playable WAV covering
+    /// every listed segment, using the same manifest-file input contract the
+    /// local --manifest path already accepts (Task 5).
+    ///
+    /// This test self-skips (rather than failing) when no available
+    /// interpreter actually has `faster_whisper` importable: CI's
+    /// `.venv-whisper` is created as an empty placeholder directory by
+    /// design (see `.github/workflows/ci.yml`, which never installs
+    /// anything into it -- it exists solely so tauri-build's resource
+    /// bundling step doesn't fail on a missing dir), and the shared
+    /// `WhisperRuntime::for_test`/`resolve_test_python` in lib.rs picks
+    /// whatever `where python` finds first without checking for
+    /// `faster_whisper`, which on many dev/CI machines is a bare system
+    /// Python that doesn't have it. `--concat-only` genuinely needs
+    /// `faster_whisper.audio.decode_audio`, unlike the other
+    /// `WhisperRuntime::for_test` users in this file, which point at
+    /// `tests/fixtures/fake_transcribe.py` and have no such dependency.
+    #[test]
+    fn concat_only_writes_one_wav_covering_all_segments() {
+        let Some(python) = resolve_faster_whisper_python() else {
+            eprintln!(
+                "SKIP: no Python with faster_whisper available (needed for --concat-only's \
+                 real audio decode) -- expected on CI, run manually on a dev machine with \
+                 .venv-whisper populated"
+            );
+            return;
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        // Two minimal valid WAV files (reuse tts_executor's test WAV builder shape).
+        let seg0 = dir.path().join("segment-0.wav");
+        let seg1 = dir.path().join("segment-1.wav");
+        write_minimal_wav(&seg0, 16_000); // 1 second of silence at 16kHz
+        write_minimal_wav(&seg1, 16_000);
+        let manifest = dir.path().join("segments.txt");
+        std::fs::write(&manifest, format!("{}\n{}\n", seg0.display(), seg1.display())).unwrap();
+        let output = dir.path().join("concat.wav");
+
+        let runtime = crate::WhisperRuntime {
+            python,
+            script: real_transcribe_script(),
+            cuda_bin: std::path::PathBuf::new(),
+        };
+        let args = vec![
+            "--manifest".to_string(), manifest.to_string_lossy().to_string(),
+            "--concat-only".to_string(), output.to_string_lossy().to_string(),
+        ];
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let result = crate::run_python_worker(&runtime, &real_transcribe_script(), &arg_refs, None, |_| {});
+        assert!(result.is_ok(), "concat-only failed: {result:?}");
+        assert!(output.exists());
+        assert!(std::fs::metadata(&output).unwrap().len() > 44); // more than just a WAV header
+    }
+
+    fn real_transcribe_script() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("scripts").join("transcribe.py")
+    }
+
+    /// Resolves a Python interpreter that genuinely has `faster_whisper`
+    /// importable, for tests (like `--concat-only`'s) that shell out to the
+    /// real `scripts/transcribe.py` instead of the dependency-free
+    /// `fake_transcribe.py` stub. Prefers the bundled `.venv-whisper` (which,
+    /// when populated in a local dev checkout, is known to have
+    /// `faster_whisper`); falls back to probing a system `python`/`python3`
+    /// found via `where`/`which`. Returns `None` if neither has it, which
+    /// callers treat as a reason to skip rather than fail (see doc comment
+    /// on `concat_only_writes_one_wav_covering_all_segments`).
+    ///
+    /// Deliberately test-local and separate from lib.rs's
+    /// `WhisperRuntime::for_test`/`resolve_test_python`, which other tests in
+    /// this file rely on and which is out of scope to change here (it's
+    /// shared crate-wide plumbing, not specific to `--concat-only`).
+    fn resolve_faster_whisper_python() -> Option<std::path::PathBuf> {
+        fn has_faster_whisper(python: &std::path::Path) -> bool {
+            std::process::Command::new(python)
+                .arg("-c")
+                .arg("import faster_whisper")
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false)
+        }
+
+        let venv_python = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join(".venv-whisper")
+            .join(if cfg!(windows) { "Scripts" } else { "bin" })
+            .join(if cfg!(windows) { "python.exe" } else { "python" });
+        if venv_python.exists() && has_faster_whisper(&venv_python) {
+            return Some(venv_python);
+        }
+
+        let (finder, names): (&str, &[&str]) = if cfg!(windows) {
+            ("where", &["python", "python3"])
+        } else {
+            ("which", &["python3", "python"])
+        };
+        for name in names {
+            let Ok(output) = std::process::Command::new(finder).arg(name).output() else {
+                continue;
+            };
+            if !output.status.success() {
+                continue;
+            }
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let candidate = std::path::PathBuf::from(line.trim());
+                let is_store_stub = candidate
+                    .components()
+                    .any(|c| c.as_os_str().eq_ignore_ascii_case("WindowsApps"));
+                if !is_store_stub && candidate.exists() && has_faster_whisper(&candidate) {
+                    return Some(candidate);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn write_minimal_wav(path: &std::path::Path, sample_rate: u32) {
+        let mut f = std::fs::File::create(path).unwrap();
+        let num_samples: u32 = sample_rate; // 1 second
+        let data_size = num_samples * 2;
+        let file_size = 36 + data_size;
+        f.write_all(b"RIFF").unwrap();
+        f.write_all(&file_size.to_le_bytes()).unwrap();
+        f.write_all(b"WAVE").unwrap();
+        f.write_all(b"fmt ").unwrap();
+        f.write_all(&16u32.to_le_bytes()).unwrap();
+        f.write_all(&1u16.to_le_bytes()).unwrap();
+        f.write_all(&1u16.to_le_bytes()).unwrap();
+        f.write_all(&sample_rate.to_le_bytes()).unwrap();
+        f.write_all(&(sample_rate * 2).to_le_bytes()).unwrap();
+        f.write_all(&2u16.to_le_bytes()).unwrap();
+        f.write_all(&16u16.to_le_bytes()).unwrap();
+        f.write_all(b"data").unwrap();
+        f.write_all(&data_size.to_le_bytes()).unwrap();
+        f.write_all(&vec![0u8; data_size as usize]).unwrap(); // silence
     }
 }

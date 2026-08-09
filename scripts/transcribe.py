@@ -20,6 +20,11 @@ before it, not a fixed window, so the combined transcript's timeline is
 accurate regardless of each file's actual length. A single path still works
 exactly as before (the offset for the only file is 0).
 
+Add `--concat-only <output.wav>` to skip transcription entirely and instead
+decode+concatenate the given path(s)/manifest into one 16kHz mono WAV file
+(used by the FUNGWIRE desktop worker before a cloud STT dispatch, since cloud
+APIs accept one file, unlike this script's own multi-file --manifest input).
+
 Progress lines are written to stderr as `PROGRESS <0-100>` so the caller can
 update job progress without parsing stdout; with multiple files, progress is
 scaled across all of them (files-completed fraction plus within-file
@@ -58,6 +63,14 @@ def main() -> int:
     parser.add_argument("--profile", default="gpu", choices=["cpu", "gpu"])
     parser.add_argument("--device", choices=["cpu", "cuda"], help="Override the selected profile for diagnostics only")
     parser.add_argument("--compute-type", default=None)
+    parser.add_argument(
+        "--concat-only",
+        default=None,
+        metavar="OUTPUT_WAV",
+        help="Skip transcription entirely; decode and concatenate the given audio path(s)/manifest "
+        "into one 16kHz mono 16-bit PCM WAV at this path (FUNGWIRE cloud STT: cloud APIs take one "
+        "file, unlike the local --manifest pipeline).",
+    )
     args = parser.parse_args()
 
     if args.manifest:
@@ -67,6 +80,27 @@ def main() -> int:
         audio_paths = args.audio_paths
     if not audio_paths:
         parser.error("either --manifest (non-empty) or at least one positional audio path is required")
+
+    if args.concat_only:
+        import wave
+        from faster_whisper.audio import decode_audio
+
+        def report(pct: float) -> None:
+            print(f"PROGRESS {max(0, min(100, round(pct)))}", file=sys.stderr, flush=True)
+
+        report(1)
+        total = len(audio_paths)
+        with wave.open(args.concat_only, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)  # 16-bit
+            wav_file.setframerate(16000)
+            for index, audio_path in enumerate(audio_paths):
+                samples = decode_audio(audio_path, sampling_rate=16000)
+                pcm16 = (samples * 32767.0).clip(-32768, 32767).astype("int16")
+                wav_file.writeframes(pcm16.tobytes())
+                report(1 + (index + 1) / total * 98)
+        report(100)
+        return 0
 
     device = args.device or ("cuda" if args.profile == "gpu" else "cpu")
     compute_type = args.compute_type or ("float16" if device == "cuda" else "int8")

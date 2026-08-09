@@ -10,8 +10,8 @@
 //! the mobile gateway serves.
 
 use crate::fungwire::{
-    manifest_hash, noise_responder, read_frame, write_frame, Control, NoiseChannel, Segment,
-    CHUNK_MAX, CTRL_MAX,
+    is_expired, manifest_hash, noise_responder, read_frame, write_frame, Control, NoiseChannel,
+    Segment, CHUNK_MAX, CTRL_MAX, JOB_DIR_TTL,
 };
 use crate::{AppResult, AppState, WhisperOutput, WhisperRuntime};
 use base64::Engine;
@@ -25,8 +25,30 @@ use std::sync::{
     Arc,
 };
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tauri::State;
+
+/// Cap on simultaneously-handled connections (final review #6a). Without
+/// this, a flood of idle LAN sockets -- each accepted and handed its own
+/// thread, then blocked for up to the 60s read timeout waiting for a Hello
+/// frame that never arrives -- would spawn unbounded OS threads. 16 is far
+/// more than one desktop legitimately serving a handful of paired phones
+/// needs at once, while small enough that hitting it is cheap to recover
+/// from (the rejected peer's client just retries).
+const MAX_CONCURRENT_CONNECTIONS: usize = 16;
+
+/// RAII decrement for the `connected_peers` counter that also serves as the
+/// concurrency-cap semaphore (final review #6a). Held for the lifetime of a
+/// spawned connection-handler thread's closure so the slot is freed on every
+/// exit path -- a normal return, an early `?`/`return`, or a panic unwinding
+/// out of `handle_connection` -- not just the happy path.
+struct ConnectionSlotGuard(Arc<AtomicUsize>);
+
+impl Drop for ConnectionSlotGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 /// Handle kept in `AppState` while the server is running; dropping/replacing
 /// it does nothing by itself — `stop` is what actually tells the accept-loop
@@ -75,6 +97,15 @@ pub(crate) fn fungwire_server_set_enabled(
         });
     }
 
+    // Sweep orphaned job dirs left behind by clients that vanished mid-
+    // transfer (app killed, dead socket retry budget exhausted) before
+    // accepting any new connections (final review #4). Deliberately tied to
+    // this explicit enable action rather than a background timer: the
+    // server is only ever running while a user has it toggled on, so "each
+    // time it starts" is the natural, simplest place to reclaim orphaned
+    // disk space. Never fatal to enabling -- see the function's own doc.
+    sweep_stale_job_dirs(&state.data_root, JOB_DIR_TTL);
+
     // Bind on all interfaces only because the server is being explicitly
     // enabled here; default (no control present) is unbound/off.
     let listener = TcpListener::bind("0.0.0.0:0")?;
@@ -96,6 +127,19 @@ pub(crate) fn fungwire_server_set_enabled(
         while !loop_stop.load(Ordering::SeqCst) {
             match listener.accept() {
                 Ok((stream, _)) => {
+                    // Concurrency cap (final review #6a): reject outright,
+                    // before spawning anything, once `connected_peers` (which
+                    // already tracks in-flight connections end-to-end -- see
+                    // its increment/decrement below) is at the max. This
+                    // accept loop is the only place that ever increments it,
+                    // so checking then incrementing here has no TOCTOU race
+                    // even though decrements happen concurrently from
+                    // handler threads.
+                    if loop_peers.load(Ordering::SeqCst) >= MAX_CONCURRENT_CONNECTIONS {
+                        drop(stream); // close immediately instead of spawning
+                        continue;
+                    }
+
                     // Per-connection thread (the fix vs. the mobile gateway's
                     // inline handling): a handshake + job loop can run for
                     // the duration of a whole transcription job, so it must
@@ -107,10 +151,15 @@ pub(crate) fn fungwire_server_set_enabled(
                     let peers = loop_peers.clone();
                     peers.fetch_add(1, Ordering::SeqCst);
                     thread::spawn(move || {
+                        // Guard, not a bare fetch_sub after the call: this
+                        // must decrement on EVERY exit path, including a
+                        // panic unwinding out of `handle_connection`, or the
+                        // slot would leak and the cap would ratchet down to
+                        // zero over time.
+                        let _slot = ConnectionSlotGuard(peers);
                         if let Err(e) = handle_connection(stream, &storage, &app_data, &runtime, &jobs) {
                             eprintln!("fungwire connection ended: {e}");
                         }
-                        peers.fetch_sub(1, Ordering::SeqCst);
                     });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -246,6 +295,98 @@ fn job_dir_path(app_data: &Path, job_id: &str) -> PathBuf {
 
 fn cleanup_job_dir(job_dir: &Path) {
     let _ = fs::remove_dir_all(job_dir);
+}
+
+/// Deletes every subdirectory of `<app_data>/fungwire/jobs/` whose mtime is
+/// older than `ttl` (final review #4).
+///
+/// This is the disk-leak counterpart to [`cleanup_job_dir`]: that function
+/// only ever runs when a connection reaches a *known* terminal outcome
+/// (`Result`, a terminal `Error`, or `Cancel` -- see
+/// [`TERMINAL_JOB_ERROR_CODES`]). A client that goes away for good mid-
+/// transfer -- app killed, or its own retry budget exhausted against a dead
+/// socket -- never produces any of those; the worker's outcome is
+/// `transport_error`, which is deliberately left non-terminal so a real
+/// reconnect can still resume. Nothing else ever revisits that directory, so
+/// without this sweep its partial audio segments (privacy-adjacent user
+/// data) would accumulate on disk forever.
+///
+/// A directory's own mtime is used as the "last activity" signal rather than
+/// walking its files: every new segment written into it during a transfer
+/// (`receive_and_transcribe`'s `fs::write(&seg_path, ...)`) creates a new
+/// directory entry, which bumps the directory's own mtime on every mainstream
+/// filesystem (NTFS included) -- so mtime tracks the most recent chunk
+/// received, not merely the moment the directory was first created.
+///
+/// Deliberately non-fatal end to end: any I/O error (can't read the jobs
+/// root, can't stat an entry, can't remove a stale one) is logged and
+/// skipped rather than propagated, because this runs inline in
+/// `fungwire_server_set_enabled` and must never block the server from
+/// starting over a leftover-cleanup failure.
+fn sweep_stale_job_dirs(app_data: &Path, ttl: Duration) {
+    let jobs_root = app_data.join("fungwire").join("jobs");
+    let entries = match fs::read_dir(&jobs_root) {
+        Ok(entries) => entries,
+        // Nothing to sweep yet (server has never received a job) -- not an
+        // error worth logging.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            eprintln!(
+                "fungwire: stale-job-dir sweep could not read {}: {e}",
+                jobs_root.display()
+            );
+            return;
+        }
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                eprintln!("fungwire: stale-job-dir sweep could not read a dir entry: {e}");
+                continue;
+            }
+        };
+        let path = entry.path();
+        let metadata = match entry.metadata() {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!(
+                    "fungwire: stale-job-dir sweep could not stat {}: {e}",
+                    path.display()
+                );
+                continue;
+            }
+        };
+        if !metadata.is_dir() {
+            continue; // job dirs are directories; ignore stray files.
+        }
+        let modified = match metadata.modified() {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!(
+                    "fungwire: stale-job-dir sweep could not read mtime of {}: {e}",
+                    path.display()
+                );
+                continue;
+            }
+        };
+        let age = match SystemTime::now().duration_since(modified) {
+            Ok(age) => age,
+            // mtime is in the future (clock skew) -- treat as freshly
+            // touched rather than erroring.
+            Err(_) => continue,
+        };
+        if is_expired(age, ttl) {
+            match fs::remove_dir_all(&path) {
+                Ok(()) => eprintln!("fungwire: swept stale job dir {}", path.display()),
+                Err(e) => eprintln!(
+                    "fungwire: stale-job-dir sweep could not remove {}: {e}",
+                    path.display()
+                ),
+            }
+        }
+    }
 }
 
 /// `JobFailure::Failed` codes after which resuming from the persisted job
@@ -1400,5 +1541,88 @@ mod tests {
             !job_dir.exists(),
             "job dir must be cleaned up after a resume_gap rejection (terminal error)"
         );
+    }
+
+    /// Sets a directory's mtime directly, without going through `fs::write`
+    /// (which would just set it to "now"). Opening a directory as a `File`
+    /// needs `FILE_FLAG_BACKUP_SEMANTICS` on Windows (a plain `File::open`
+    /// on a directory fails there); Unix has no such restriction.
+    #[cfg(windows)]
+    fn touch_dir_mtime(path: &Path, when: std::time::SystemTime) {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+            .expect("open dir with backup semantics to set its mtime");
+        file.set_modified(when).expect("set dir mtime");
+    }
+
+    #[cfg(not(windows))]
+    fn touch_dir_mtime(path: &Path, when: std::time::SystemTime) {
+        let file = fs::File::open(path).expect("open dir to set its mtime");
+        file.set_modified(when).expect("set dir mtime");
+    }
+
+    /// Core sweep behavior (final review #4): a job dir whose mtime is older
+    /// than the TTL is removed; one that's still fresh survives.
+    #[test]
+    fn sweep_removes_only_dirs_older_than_ttl() {
+        let app_data = tempfile::tempdir().unwrap();
+        let jobs_root = app_data.path().join("fungwire").join("jobs");
+        let stale = jobs_root.join("job-stale-and-abandoned");
+        let fresh = jobs_root.join("job-still-in-progress");
+        fs::create_dir_all(&stale).unwrap();
+        fs::create_dir_all(&fresh).unwrap();
+
+        let ttl = Duration::from_secs(60 * 60 * 24);
+        touch_dir_mtime(
+            &stale,
+            SystemTime::now() - ttl - Duration::from_secs(60),
+        );
+        // `fresh` keeps the mtime it got from `create_dir_all` a moment ago.
+
+        sweep_stale_job_dirs(app_data.path(), ttl);
+
+        assert!(
+            !stale.exists(),
+            "a job dir older than the TTL must be swept"
+        );
+        assert!(
+            fresh.exists(),
+            "a job dir younger than the TTL must survive the sweep"
+        );
+    }
+
+    /// A job dir created moments before the sweep runs (the common case: the
+    /// server is toggled on while a resume is still realistically pending)
+    /// must never be touched, regardless of how the sweep is implemented
+    /// internally -- this is the "doesn't hang/misfire on the happy path"
+    /// check called for alongside the pure `is_expired` unit tests.
+    #[test]
+    fn sweep_does_not_touch_a_just_created_dir() {
+        let app_data = tempfile::tempdir().unwrap();
+        let jobs_root = app_data.path().join("fungwire").join("jobs");
+        let brand_new = jobs_root.join("job-just-started");
+        fs::create_dir_all(&brand_new).unwrap();
+
+        sweep_stale_job_dirs(app_data.path(), JOB_DIR_TTL);
+
+        assert!(
+            brand_new.exists(),
+            "a job dir created moments ago must never be swept"
+        );
+    }
+
+    /// The server enables successfully even the very first time, before any
+    /// job has ever run and `fungwire/jobs/` doesn't exist yet -- the sweep
+    /// must treat a missing jobs root as a no-op, not an error that could
+    /// block enabling.
+    #[test]
+    fn sweep_on_missing_jobs_root_is_a_harmless_noop() {
+        let app_data = tempfile::tempdir().unwrap();
+        sweep_stale_job_dirs(app_data.path(), JOB_DIR_TTL);
+        // Reaching this line without panicking is the assertion.
     }
 }

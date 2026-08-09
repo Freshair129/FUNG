@@ -173,7 +173,8 @@ mod tests {
         // (TS) must never coexist with Supabase, GenesisBlockDB, or localStorage.
         //
         // Checks:
-        // 1. .rs files containing CloudProviderConfig must NOT contain:
+        // 1. .rs files containing CloudProviderConfig must NOT use it in a
+        //    persistence path:
         //    - genesis_adapter::commit_rows or genesis_adapter::upsert
         //    - "supabase" (any case)
         //    - "localStorage"
@@ -192,6 +193,38 @@ mod tests {
             let file_name = entry.file_name().unwrap_or_default().to_string_lossy();
 
             if contents.contains("CloudProviderConfig") && file_name != "cloud_config.rs" {
+                // lib.rs owns both unrelated application persistence and the
+                // Tauri cloud-config command surface. Scan only that command
+                // region so a keyring-only command is not rejected merely
+                // because another function in the same module persists jobs.
+                if file_name == "lib.rs" {
+                    let command_start = contents
+                        .find("fn cloud_config_set")
+                        .expect("lib.rs must contain cloud_config_set");
+                    let command_end = contents
+                        .find("pub(crate) fn now")
+                        .expect("cloud-config commands must end before now");
+                    let command_region = &contents[command_start..command_end];
+                    assert!(
+                        !command_region.contains("genesis_adapter::commit_rows"),
+                        "{entry:?} cloud-config command region serializes into Genesis"
+                    );
+                    assert!(
+                        !command_region.contains("genesis_adapter::upsert"),
+                        "{entry:?} cloud-config command region upserts into Genesis"
+                    );
+                    let lower = command_region.to_lowercase();
+                    assert!(
+                        !lower.contains("supabase"),
+                        "{entry:?} cloud-config command region references Supabase"
+                    );
+                    assert!(
+                        !command_region.contains("localStorage"),
+                        "{entry:?} cloud-config command region references localStorage"
+                    );
+                    continue;
+                }
+
                 // Check for genesis_adapter violations
                 assert!(
                     !contents.contains("genesis_adapter::commit_rows"),

@@ -90,10 +90,22 @@ pub(crate) struct FungwireStatus {
 /// `data_root`. Shared by every [`FungwireStatus`] construction site so the
 /// reported value can never drift between "server just enabled", "server
 /// already running" and "server off".
-fn stt_cloud_enabled(data_root: &Path) -> AppResult<bool> {
-    let conn = crate::paired_devices_connection_at(data_root)?;
-    let policy = crate::policy::load_policy(&conn).map_err(crate::AppError::InvalidInput)?;
-    Ok(policy.stt_cloud_enabled)
+///
+/// Fails soft to `false` on any read error, the same way `run_job_loop`'s
+/// `Control::StatusRequest` handler already does for its own policy read:
+/// whether the tunnel is on is otherwise an infallible query, and this field
+/// (added so mobile could read cloud-tier state -- superseded in practice by
+/// the `StatusRequest`/`StatusReply` wire probe, see that handler) must not
+/// turn it into a fallible one at every `FungwireStatus` call site. A
+/// desktop that cannot even read its own policy honestly answers "no" to
+/// "may I use cloud STT?".
+fn stt_cloud_enabled(data_root: &Path) -> bool {
+    (|| -> AppResult<bool> {
+        let conn = crate::paired_devices_connection_at(data_root)?;
+        let policy = crate::policy::load_policy(&conn).map_err(crate::AppError::InvalidInput)?;
+        Ok(policy.stt_cloud_enabled)
+    })()
+    .unwrap_or(false)
 }
 
 #[tauri::command]
@@ -112,7 +124,7 @@ pub(crate) fn fungwire_server_set_enabled(
             bind: None,
             active_jobs: 0,
             connected_peers: 0,
-            stt_cloud_enabled: stt_cloud_enabled(&state.data_root)?,
+            stt_cloud_enabled: stt_cloud_enabled(&state.data_root),
         });
     }
 
@@ -122,7 +134,7 @@ pub(crate) fn fungwire_server_set_enabled(
             bind: Some(control.bind.clone()),
             active_jobs: control.active_jobs.load(Ordering::SeqCst),
             connected_peers: control.connected_peers.load(Ordering::SeqCst),
-            stt_cloud_enabled: stt_cloud_enabled(&state.data_root)?,
+            stt_cloud_enabled: stt_cloud_enabled(&state.data_root),
         });
     }
 
@@ -211,14 +223,14 @@ pub(crate) fn fungwire_server_set_enabled(
         bind: Some(bind),
         active_jobs: 0,
         connected_peers: 0,
-        stt_cloud_enabled: stt_cloud_enabled(&state.data_root)?,
+        stt_cloud_enabled: stt_cloud_enabled(&state.data_root),
     })
 }
 
 #[tauri::command]
 pub(crate) fn fungwire_status(state: State<'_, AppState>) -> AppResult<FungwireStatus> {
     let guard = state.fungwire.lock().expect("fungwire mutex poisoned");
-    let stt_cloud_enabled = stt_cloud_enabled(&state.data_root)?;
+    let stt_cloud_enabled = stt_cloud_enabled(&state.data_root);
     Ok(match guard.as_ref() {
         Some(control) => FungwireStatus {
             enabled: true,
@@ -510,7 +522,7 @@ pub(crate) fn run_job_loop(
             // read its own policy is "no", and that is exactly what the
             // job-side check would conclude too.
             Control::StatusRequest => {
-                let enabled = stt_cloud_enabled(app_data).unwrap_or(false);
+                let enabled = stt_cloud_enabled(app_data);
                 channel
                     .send(&Control::StatusReply {
                         stt_cloud_enabled: enabled,
@@ -1198,9 +1210,11 @@ fn dispatch_cloud_stt(
         })??;
 
     // Success: the call happened and counts against today's cap, even if the
-    // peer disappeared while it was in flight.
-    crate::policy::increment_calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt)
-        .map_err(|e| JobFailure::Failed("policy_error".into(), e))?;
+    // peer disappeared while it was in flight. A successful cloud result is
+    // not discarded merely because writing today's usage count failed -- the
+    // spend guardrail is a rate limit, not a correctness invariant (mirrors
+    // cloud_executor::call_llm_with_fallback's LLM path).
+    let _ = crate::policy::increment_calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt);
 
     if let Some(e) = transport_error {
         return Err(JobFailure::Failed("transport_error".into(), e));
@@ -2501,6 +2515,144 @@ mod tests {
             0,
             "a blocked job must not consume any of the daily cap"
         );
+
+        set_test_stt_cloud_config(None);
+    }
+
+    /// A successful cloud STT call must not be discarded just because the
+    /// follow-up write to today's usage counter fails (e.g. a transient
+    /// SQLite error) -- mirrors `cloud_executor::call_llm_with_fallback`'s
+    /// LLM path, which already treats the spend guardrail as best-effort.
+    ///
+    /// The failure is injected with a `BEFORE INSERT` trigger that aborts
+    /// every write to `cloud_call_counter`, rather than the
+    /// drop-and-recreate-with-a-missing-column technique
+    /// `policy::calls_today_fails_closed_on_real_db_errors` uses: that
+    /// technique breaks the `SELECT` `calls_today` runs too, which would
+    /// fail the job before it ever reached the cloud call and defeat the
+    /// point of this test. The trigger breaks only the `INSERT` that
+    /// `increment_calls_today` issues.
+    #[test]
+    fn cloud_stt_result_survives_a_failed_counter_increment() {
+        let _cloud_seam = CLOUD_STT_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let server_app_data = tempfile::tempdir().unwrap();
+        let client_app_data = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(server_app_data.path()).unwrap();
+        ensure_identity_in_dir(client_app_data.path()).unwrap();
+        pair_device(server_app_data.path(), "device-cloud-counter-fail", client_app_data.path());
+
+        let policy_conn = paired_devices_connection_at(server_app_data.path()).unwrap();
+        crate::policy::save_policy(
+            &policy_conn,
+            &crate::policy::TierPolicy {
+                stt_cloud_enabled: true,
+                llm_cloud_enabled: false,
+                daily_cap: 20,
+            },
+        )
+        .unwrap();
+
+        // save_policy's ensure_policy_tables already created cloud_call_counter;
+        // now make every insert into it fail, while leaving it fully readable
+        // (so calls_today's SELECT -- run before increment_calls_today --
+        // still succeeds and the job reaches the actual cloud dispatch).
+        policy_conn
+            .execute_batch(
+                "CREATE TRIGGER block_counter_insert BEFORE INSERT ON cloud_call_counter \
+                 BEGIN SELECT RAISE(ABORT, 'simulated counter write failure'); END;",
+            )
+            .unwrap();
+
+        let addr = one_shot_stt_server();
+        set_test_stt_cloud_config(Some(crate::cloud_config::CloudProviderConfig::Custom {
+            endpoint: format!("http://{addr}/stt"),
+            api_key: "test-key".into(),
+            task_kind: crate::cloud_config::CloudTaskKind::Stt,
+        }));
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server_addr = listener.local_addr().unwrap();
+        let (_genesis_path, storage) = open_genesis();
+        let jobs = Arc::new(AtomicUsize::new(0));
+        let runtime = test_whisper_runtime();
+
+        let server_app_data_path = server_app_data.path().to_path_buf();
+        let server_thread = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            handle_connection(stream, &storage, &server_app_data_path, &runtime, &jobs)
+        });
+
+        let client_stream = TcpStream::connect(server_addr).unwrap();
+        let mut channel = initiator_handshake(
+            client_stream,
+            "device-cloud-counter-fail",
+            client_app_data.path(),
+            server_app_data.path(),
+        );
+
+        let seg_bytes: Vec<u8> = (0..256u32).map(|i| (i % 256) as u8).collect();
+        let checksum: String = Sha256::digest(&seg_bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let checksums = vec![checksum];
+        let manifest = manifest_hash(&checksums);
+
+        channel
+            .send(&Control::JobStart {
+                job_id: "job-cloud-counter-fail".into(),
+                operation: "transcript.transcribe".into(),
+                manifest_hash: manifest,
+                segment_count: 1,
+                total_bytes: seg_bytes.len() as u64,
+                profile: "cpu".into(),
+                resume_from_seq: 0,
+                checksums,
+                executor: "cloud".to_string(),
+            })
+            .unwrap();
+        channel
+            .send(&Control::Chunk {
+                job_id: "job-cloud-counter-fail".into(),
+                seq: 0,
+                len: seg_bytes.len() as u32,
+            })
+            .unwrap();
+        channel.send_bytes(&seg_bytes).unwrap();
+
+        match channel.recv_control().unwrap() {
+            Control::ChunkAck { seq, .. } => assert_eq!(seq, 0),
+            other => panic!("expected ChunkAck, got {other:?}"),
+        }
+        match channel.recv_control().unwrap() {
+            Control::Progress { stage, .. } => assert_eq!(stage, "receiving"),
+            other => panic!("expected receiving Progress, got {other:?}"),
+        }
+
+        let transcribing_percents = recv_transcribing_progress_until_done(&mut channel);
+        assert_eq!(*transcribing_percents.last().unwrap(), 100);
+
+        // The point of the test: despite the counter write failing, the
+        // paid-for cloud transcript must still come back as a Result, not be
+        // thrown away behind a policy_error.
+        match channel.recv_control().unwrap() {
+            Control::Result {
+                job_id, segments, ..
+            } => {
+                assert_eq!(job_id, "job-cloud-counter-fail");
+                assert_eq!(segments.len(), 1);
+                assert_eq!(segments[0].text, "cloud result");
+            }
+            other => panic!(
+                "a successful cloud dispatch must survive a failed counter increment, got {other:?}"
+            ),
+        }
+
+        drop(channel);
+        let result = server_thread.join().unwrap();
+        assert!(result.is_ok(), "cloud job loop should exit cleanly: {result:?}");
 
         set_test_stt_cloud_config(None);
     }

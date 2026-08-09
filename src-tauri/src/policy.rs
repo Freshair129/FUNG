@@ -30,6 +30,13 @@ pub(crate) enum TierDecision {
 
 /// Pure — no I/O. Callers (fungwire_server.rs for STT, graph_build.rs for
 /// LLM) read `calls_today`/`key_configured` themselves before calling this.
+///
+/// The read-check-increment sequence spanning this function and
+/// [`increment_calls_today`] is not transactional -- under concurrent cloud
+/// dispatches (FUNGWIRE allows multiple simultaneous connections), the cap
+/// can be exceeded by a small, bounded amount. This is treated as an
+/// acceptable trade-off for a rate-limit-style guardrail, not a hard
+/// invariant.
 pub(crate) fn decide_cloud_tier(
     policy: &TierPolicy,
     task: CloudTaskKind,

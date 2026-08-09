@@ -36,6 +36,12 @@ export function CloudProvidersPanel({ onClose }: CloudProvidersPanelProps) {
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [endpointDrafts, setEndpointDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  // Local typing buffer for the daily-cap input, kept separate from `policy`
+  // so every keystroke doesn't call savePolicy: typing "20" -> "100" would
+  // otherwise transiently save dailyCap: 1 after the first keystroke, which
+  // could momentarily block a cloud dispatch mid-edit. Committed to `policy`
+  // (and the backend) on blur.
+  const [dailyCapDraft, setDailyCapDraft] = useState<string>("20");
 
   const refresh = useCallback(async () => {
     try {
@@ -46,6 +52,7 @@ export function CloudProvidersPanel({ onClose }: CloudProvidersPanelProps) {
       ]);
       setStatuses(nextStatuses);
       setPolicy(nextPolicy);
+      setDailyCapDraft(String(nextPolicy.dailyCap));
       setCounts(nextCounts);
     } catch (e) {
       console.error("Failed to load cloud provider state:", e);
@@ -149,13 +156,18 @@ export function CloudProvidersPanel({ onClose }: CloudProvidersPanelProps) {
                   {status?.configured && <span className="cloud-providers-badge">ตั้งค่าแล้ว ✓</span>}
                 </div>
                 {provider === "custom" && (
-                  <input
-                    className="cloud-providers-input"
-                    type="text"
-                    placeholder="https://your-endpoint.example.com"
-                    value={endpointDrafts[key] ?? ""}
-                    onChange={(e) => setEndpointDrafts((prev) => ({ ...prev, [key]: e.target.value }))}
-                  />
+                  <>
+                    <input
+                      className="cloud-providers-input"
+                      type="text"
+                      placeholder="https://your-endpoint.example.com"
+                      value={endpointDrafts[key] ?? ""}
+                      onChange={(e) => setEndpointDrafts((prev) => ({ ...prev, [key]: e.target.value }))}
+                    />
+                    <p className="cloud-providers-hint">
+                      ใส่คีย์ในช่อง API key ด้านล่าง อย่าใส่ไว้ใน URL
+                    </p>
+                  </>
                 )}
                 <input
                   className="cloud-providers-input"
@@ -222,8 +234,13 @@ export function CloudProvidersPanel({ onClose }: CloudProvidersPanelProps) {
                 className="cloud-providers-input cloud-providers-input--narrow"
                 type="number"
                 min={1}
-                value={policy.dailyCap}
-                onChange={(e) => void savePolicy({ ...policy, dailyCap: Math.max(1, Number(e.target.value) || 1) })}
+                value={dailyCapDraft}
+                onChange={(e) => setDailyCapDraft(e.target.value)}
+                onBlur={() => {
+                  const dailyCap = Math.max(1, Number(dailyCapDraft) || 1);
+                  setDailyCapDraft(String(dailyCap));
+                  void savePolicy({ ...policy, dailyCap });
+                }}
               />
             </label>
             <dl className="cloud-providers-counts">

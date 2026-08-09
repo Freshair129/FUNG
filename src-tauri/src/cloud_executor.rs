@@ -314,9 +314,21 @@ pub(crate) fn call_llm_with_fallback(
     match local_call() {
         Ok(text) => Ok((text, RUNTIME_LOCAL)),
         Err(e) if is_connection_error(&e) => {
-            let Some(config) = cloud else { return Err(e) };
-            match crate::policy::decide_cloud_tier(policy, crate::cloud_config::CloudTaskKind::Llm, calls_today, true) {
+            // Mirrors fungwire_server::dispatch_cloud_stt: decide the tier
+            // first, passing the real key_configured state, so a `None`
+            // cloud config surfaces as a `no_key_configured` block reason
+            // instead of silently falling through to the original local
+            // error with no indication cloud fallback was even considered.
+            match crate::policy::decide_cloud_tier(
+                policy,
+                crate::cloud_config::CloudTaskKind::Llm,
+                calls_today,
+                cloud.is_some(),
+            ) {
                 crate::policy::TierDecision::Allow => {
+                    let config = cloud.expect(
+                        "decide_cloud_tier only returns Allow when key_configured was true",
+                    );
                     let result = dispatch_llm(config, prompt);
                     // Charged only on success: a failed cloud round trip
                     // produced nothing, so it must not eat the daily cap.
@@ -550,8 +562,13 @@ mod tests {
         );
     }
 
+    /// Cloud enabled but no provider ever configured must surface as a
+    /// `no_key_configured` block, mirroring how
+    /// `fungwire_server::dispatch_cloud_stt` reports the same situation on
+    /// the STT side, instead of silently dropping back to the original local
+    /// error with no hint that cloud fallback was skipped and why.
     #[test]
-    fn ollama_connection_failure_without_a_configured_provider_returns_original_error() {
+    fn ollama_connection_failure_without_a_configured_provider_surfaces_no_key_configured() {
         let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
 
         let result = call_llm_with_fallback(
@@ -559,9 +576,11 @@ mod tests {
             "prompt", None, &llm_cloud_policy(true), 0, &policy_conn,
         );
 
-        assert_eq!(
-            result.unwrap_err(), LOCAL_UNREACHABLE,
-            "with no provider configured the local error must pass through verbatim",
+        let error = result.unwrap_err();
+        assert!(error.contains("Ollama"), "the blocked-fallback error must name Ollama: {error}");
+        assert!(
+            error.contains("no_key_configured"),
+            "the block reason must be surfaced: {error}",
         );
         assert_eq!(llm_calls_today(&policy_conn), 0);
     }

@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Date | 2026-08-09 |
-| Status | draft — pending Boss review |
+| Status | approved 2026-08-09 |
 | Sub-project | Phase 3 (Sub-project F) — master plan REQ-F-01…04 |
 | Depends on | Phase 2 (FUNGWIRE tunnel + job delegation), PR #6 — merged 2026-08-09 |
 | Master plan | `2026-08-09-fung-master-implementation-plan.md` Phase 3 |
@@ -265,11 +265,13 @@ New Tauri commands: `cloud_config_set`, `cloud_config_clear`, `cloud_config_stat
 2. No dashboard change.
 3. Manual acceptance: on a real desktop, register an OpenAI key, enable STT cloud tier, delegate a real recording from a paired mobile with the desktop's local pipeline temporarily disabled (or simply confirm the executor path via logs) — confirm segments land on mobile with the cloud badge. Register an Anthropic key, stop the local Ollama service, confirm graph extraction still completes via cloud fallback.
 
-## 16. Open Questions for Spec Review
+## 16. Resolved (was: Open Questions for Spec Review)
 
-- **LLM provider priority when multiple are configured:** §8 proposes "first configured wins" (Anthropic → OpenAI → Custom) with the order surfaced in the UI. Confirm this is acceptable, or should the user explicitly pick one active LLM provider instead of an implicit priority order?
-- **STT segment confidence from OpenAI:** the Whisper API's `verbose_json` doesn't return a per-segment confidence value; §6 defaults it to `1.0`. Confirm that's fine for the existing `Segment.confidence` consumers (e.g. any UI that visualizes confidence) rather than, say, `null`/omitted.
-- **120s STT / 60s LLM cloud timeouts (§6):** confirm these bounds are reasonable, or should they be user-configurable alongside the daily cap.
+Boss approved 2026-08-09 — resolved as originally proposed, no design changes needed:
+
+- **LLM provider priority when multiple are configured:** confirmed "first configured wins" (Anthropic → OpenAI → Custom), order surfaced in `CloudProvidersPanel` — no explicit-picker UI added.
+- **STT segment confidence from OpenAI:** confirmed default `1.0` (not `null`/omitted) — matches `Segment.confidence`'s existing type (non-optional `f64` from the Phase 2 pipeline).
+- **Cloud timeouts:** confirmed fixed 120s (STT) / 60s (LLM), not user-configurable in v1 — same fixed-timeout convention as `tts_executor::TIMEOUT`.
 
 ## 17. Requirement Traceability
 

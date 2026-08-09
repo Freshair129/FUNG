@@ -22,11 +22,22 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
+    mpsc::{self, RecvTimeoutError},
     Arc,
 };
 use std::thread;
 use std::time::{Duration, SystemTime};
 use tauri::State;
+
+/// How often a keepalive `Progress{stage:"transcribing"}` frame is sent to
+/// the client while `transcribe.py` runs on its own thread (see
+/// `receive_and_transcribe`'s doc comment). Must stay comfortably under the
+/// mobile client's `set_read_timeout` (`fungwire_client::READ_TIMEOUT`, 60s)
+/// so a socket that would otherwise sit silent for the whole transcription
+/// never trips that timeout — the BLOCKING regression this module fixes: a
+/// desktop that transcribes correctly but stays silent for >60s used to look
+/// identical, from the client's point of view, to a dead connection.
+const TRANSCRIBE_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(20);
 
 /// Cap on simultaneously-handled connections (final review #6a). Without
 /// this, a flood of idle LAN sockets -- each accepted and handed its own
@@ -566,7 +577,7 @@ pub(crate) fn run_job_loop(
 /// Noise KK handshake, which is the trust boundary. Do not rely on this
 /// manifest as a content-authenticity anchor against a malicious peer.
 ///
-/// ## Transcription (single invocation, model loaded once)
+/// ## Transcription (single invocation, model loaded once, on its own thread)
 /// m4a segments cannot be byte-concatenated into one file, but they no
 /// longer need to be transcribed one subprocess per segment either (Final
 /// review #3): all ordered segment paths are passed to a *single*
@@ -580,8 +591,31 @@ pub(crate) fn run_job_loop(
 /// The profile is the desktop's own choice (see `transcription_profile`),
 /// never the mobile-sent `JobStart.profile` (Final review #5): a GPU desktop
 /// must actually use its GPU regardless of what the sending phone guessed.
-/// A single `Progress{stage:"transcribing", percent:100}` is sent once the
-/// call returns.
+///
+/// Segment paths are handed to `transcribe.py` via a newline-delimited
+/// manifest file (`<job_dir>/segments.txt`, `--manifest <path>`), never as
+/// positional argv (Important fix): a medium-or-longer recording can produce
+/// hundreds of segments, and one argv entry per path risks overflowing the
+/// ~32KB Windows command-line length limit.
+///
+/// `run_python_worker` blocks for the whole transcription, which for a real
+/// recording can easily exceed the mobile client's 60s socket read timeout.
+/// Since the *main* thread here is the only thing holding `channel` (a
+/// `NoiseChannel` is not `Clone`/shareable), the call runs on a **separate**
+/// `std::thread` instead, forwarding each `PROGRESS <pct>` line from
+/// `transcribe.py` into an `mpsc::Sender<i64>`. The main thread then loops on
+/// `progress_rx.recv_timeout(TRANSCRIBE_KEEPALIVE_INTERVAL)`, sending a
+/// `Progress{stage:"transcribing"}` frame on every real update *and* on every
+/// timeout tick (re-sending the last known percent as a pure keepalive) —
+/// guaranteeing a frame at least every `TRANSCRIBE_KEEPALIVE_INTERVAL`
+/// (well under the client's 60s read timeout) regardless of how sparsely
+/// `transcribe.py` reports progress. The loop exits on
+/// `RecvTimeoutError::Disconnected` (the worker thread's `Sender` was
+/// dropped, i.e. it finished), after which the worker's `JoinHandle` is
+/// joined for the actual `Result<String, String>`. A final
+/// `Progress{stage:"transcribing", percent:100}` is sent once parsing
+/// succeeds, as a definitive "done" marker independent of whatever the last
+/// worker-reported percent happened to be.
 #[allow(clippy::too_many_arguments)]
 fn receive_and_transcribe(
     channel: &mut NoiseChannel<TcpStream>,
@@ -768,18 +802,78 @@ fn receive_and_transcribe(
     // is loaded exactly once, not once per segment. `transcribe.py` does its
     // own cross-file offsetting by real duration, so the result here is
     // already one continuous, correctly-timed segment list.
-    let seg_path_strings: Vec<String> = seg_paths
+    //
+    // Paths go through a manifest file, not positional argv (Important fix
+    // -- see this function's doc comment): a several-hundred-segment job can
+    // overflow the ~32KB Windows command-line limit if every path is passed
+    // positionally.
+    let manifest_path = job_dir.join("segments.txt");
+    let manifest_contents = seg_paths
         .iter()
         .map(|p| p.to_string_lossy().to_string())
-        .collect();
-    let mut args: Vec<&str> = Vec::with_capacity(seg_path_strings.len() + 2);
-    for s in &seg_path_strings {
-        args.push(s.as_str());
-    }
-    args.push("--profile");
-    args.push(profile.as_str());
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(&manifest_path, manifest_contents).map_err(|e| {
+        JobFailure::Failed("io_error".into(), format!("segment manifest: {e}"))
+    })?;
+    let manifest_path_string = manifest_path.to_string_lossy().to_string();
+    let worker_args: Vec<String> = vec![
+        "--manifest".to_string(),
+        manifest_path_string,
+        "--profile".to_string(),
+        profile,
+    ];
 
-    let raw = crate::run_python_worker(runtime, &runtime.script, &args, None, |_pct| {})
+    // Run the (possibly long) transcription on its own thread so the main
+    // thread -- which owns `channel`, the only handle to the socket -- stays
+    // free to send keepalive Progress frames throughout (BLOCKING fix; see
+    // this function's doc comment). `on_progress` forwards each
+    // `PROGRESS <pct>` line into `progress_tx`; `progress_tx` (and therefore
+    // the channel) is dropped when the worker thread's closure ends, which
+    // is how the main loop below detects completion
+    // (`RecvTimeoutError::Disconnected`).
+    let (progress_tx, progress_rx) = mpsc::channel::<i64>();
+    let worker_runtime = runtime.clone();
+    let worker_script = runtime.script.clone();
+    let worker_handle: thread::JoinHandle<Result<String, String>> = thread::spawn(move || {
+        let arg_refs: Vec<&str> = worker_args.iter().map(String::as_str).collect();
+        crate::run_python_worker(&worker_runtime, &worker_script, &arg_refs, None, move |pct| {
+            let _ = progress_tx.send(pct);
+        })
+    });
+
+    let mut last_pct: u8 = 0;
+    loop {
+        let tick = progress_rx.recv_timeout(TRANSCRIBE_KEEPALIVE_INTERVAL);
+        match tick {
+            Ok(pct) => last_pct = pct.clamp(0, 100) as u8,
+            Err(RecvTimeoutError::Timeout) => { /* keepalive: re-send last_pct below */ }
+            Err(RecvTimeoutError::Disconnected) => break, // worker thread is done
+        }
+        // A send failure here means the client actually disconnected (not
+        // just a slow transcription) -- surface it as a transport error
+        // instead of panicking. The job dir is left in place (transport
+        // errors are not in `TERMINAL_JOB_ERROR_CODES`) so a reconnect can
+        // resume: since every segment was already received, the resumed
+        // connection will re-run this transcription step from the persisted
+        // segments rather than re-receiving anything.
+        channel
+            .send(&Control::Progress {
+                job_id: job_id.to_string(),
+                percent: last_pct,
+                stage: "transcribing".into(),
+            })
+            .map_err(|e| JobFailure::Failed("transport_error".into(), e.to_string()))?;
+    }
+
+    let raw = worker_handle
+        .join()
+        .map_err(|_| {
+            JobFailure::Failed(
+                "transcribe_failed".into(),
+                "transcription worker thread panicked".into(),
+            )
+        })?
         .map_err(|e| JobFailure::Failed("transcribe_failed".into(), e))?;
     let output: WhisperOutput = serde_json::from_str(raw.trim()).map_err(|e| {
         JobFailure::Failed(
@@ -799,6 +893,8 @@ fn receive_and_transcribe(
         })
         .collect();
 
+    // Definitive "done" marker, independent of whatever the last
+    // worker-reported (or keepalive-repeated) percent happened to be.
     channel
         .send(&Control::Progress {
             job_id: job_id.to_string(),
@@ -1005,6 +1101,126 @@ mod tests {
         NoiseChannel::new(client_stream, transport)
     }
 
+    /// Reads controls from `channel` until a `Progress{stage:"transcribing",
+    /// percent:100}` is seen -- the definitive completion marker
+    /// `receive_and_transcribe` always sends last, regardless of whatever
+    /// interim percents the worker thread reported -- collecting every
+    /// transcribing percent observed along the way (in order, including the
+    /// final 100). Panics if a non-transcribing-Progress control shows up
+    /// first, since nothing else is expected on the wire between the last
+    /// "receiving" Progress and the eventual `Result`.
+    fn recv_transcribing_progress_until_done(channel: &mut NoiseChannel<TcpStream>) -> Vec<u8> {
+        let mut percents = Vec::new();
+        loop {
+            match channel.recv_control().unwrap() {
+                Control::Progress { stage, percent, .. } => {
+                    assert_eq!(stage, "transcribing");
+                    percents.push(percent);
+                    if percent == 100 {
+                        return percents;
+                    }
+                }
+                other => panic!("expected transcribing Progress, got {other:?}"),
+            }
+        }
+    }
+
+    /// Dedicated proof for the BLOCKING-regression fix: `receive_and_transcribe`
+    /// must stream real `transcribe.py` progress to the client as it happens
+    /// (via the worker-thread + `mpsc` handoff), not just discard it and send
+    /// a single 100% at the very end (which is what silently regressed when
+    /// the single-invocation fix passed a no-op `|_pct| {}` closure and left
+    /// the socket dark for the whole transcription). `fake_transcribe.py`
+    /// emits `PROGRESS 30` then, after a short (~200ms, far under
+    /// `TRANSCRIBE_KEEPALIVE_INTERVAL`'s 20s) sleep, `PROGRESS 70` -- so a
+    /// correct implementation must deliver at least one "transcribing"
+    /// `Progress` with `percent < 100` to the client before the final 100%
+    /// and `Result`, proving the socket carries live progress rather than
+    /// sitting silent.
+    #[test]
+    fn transcribing_progress_is_streamed_before_result() {
+        let server_app_data = tempfile::tempdir().unwrap();
+        let client_app_data = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(server_app_data.path()).unwrap();
+        ensure_identity_in_dir(client_app_data.path()).unwrap();
+        pair_device(server_app_data.path(), "device-progress", client_app_data.path());
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (_genesis_path, storage) = open_genesis();
+        let jobs = Arc::new(AtomicUsize::new(0));
+        let runtime = test_whisper_runtime();
+
+        let server_app_data_path = server_app_data.path().to_path_buf();
+        let server_thread = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            handle_connection(stream, &storage, &server_app_data_path, &runtime, &jobs)
+        });
+
+        let client_stream = TcpStream::connect(addr).unwrap();
+        let mut channel = initiator_handshake(
+            client_stream,
+            "device-progress",
+            client_app_data.path(),
+            server_app_data.path(),
+        );
+
+        let seg_bytes = vec![9u8; 1024];
+        let checksum: String = Sha256::digest(&seg_bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let checksums = vec![checksum];
+        let manifest = manifest_hash(&checksums);
+
+        channel
+            .send(&Control::JobStart {
+                job_id: "job-progress".into(),
+                operation: "transcript.transcribe".into(),
+                manifest_hash: manifest,
+                segment_count: 1,
+                total_bytes: seg_bytes.len() as u64,
+                profile: "cpu".into(),
+                resume_from_seq: 0,
+                checksums,
+            })
+            .unwrap();
+        channel
+            .send(&Control::Chunk {
+                job_id: "job-progress".into(),
+                seq: 0,
+                len: seg_bytes.len() as u32,
+            })
+            .unwrap();
+        channel.send_bytes(&seg_bytes).unwrap();
+
+        match channel.recv_control().unwrap() {
+            Control::ChunkAck { seq, .. } => assert_eq!(seq, 0),
+            other => panic!("expected ChunkAck, got {other:?}"),
+        }
+        match channel.recv_control().unwrap() {
+            Control::Progress { stage, .. } => assert_eq!(stage, "receiving"),
+            other => panic!("expected receiving Progress, got {other:?}"),
+        }
+
+        let transcribing_percents = recv_transcribing_progress_until_done(&mut channel);
+        assert!(
+            transcribing_percents.iter().any(|&p| p < 100),
+            "expected the client to observe at least one transcribing Progress \
+             below 100% before the final marker (i.e. progress streamed live, \
+             not just sent once at the end): {transcribing_percents:?}"
+        );
+
+        match channel.recv_control().unwrap() {
+            Control::Result { job_id, .. } => assert_eq!(job_id, "job-progress"),
+            other => panic!("expected Result, got {other:?}"),
+        }
+
+        drop(channel);
+        let result = server_thread.join().unwrap();
+        assert!(result.is_ok(), "job loop should exit cleanly: {result:?}");
+    }
+
     /// End-to-end job loop test over a real loopback `TcpStream` pair: a
     /// `JobStart` for one segment whose byte length (70,000) deliberately
     /// exceeds `NOISE_MAX_PLAINTEXT` (65,519), split by the test into two
@@ -1085,13 +1301,17 @@ mod tests {
             Control::Progress { stage, .. } => assert_eq!(stage, "receiving"),
             other => panic!("expected receiving Progress, got {other:?}"),
         }
-        match channel.recv_control().unwrap() {
-            Control::Progress { stage, percent, .. } => {
-                assert_eq!(stage, "transcribing");
-                assert_eq!(percent, 100);
-            }
-            other => panic!("expected transcribing Progress, got {other:?}"),
-        }
+        // Transcription now runs on a separate thread while the main thread
+        // streams progress (BLOCKING fix), so the fixture's two interim
+        // `PROGRESS` lines (30, 70) arrive as their own "transcribing"
+        // frames before the definitive 100% completion marker -- not just a
+        // single "transcribing -> 100" transition.
+        let transcribing_percents = recv_transcribing_progress_until_done(&mut channel);
+        assert!(
+            transcribing_percents.iter().any(|&p| p < 100),
+            "expected at least one interim transcribing Progress, got {transcribing_percents:?}"
+        );
+        assert_eq!(*transcribing_percents.last().unwrap(), 100);
         match channel.recv_control().unwrap() {
             Control::Result {
                 job_id,
@@ -1424,16 +1644,17 @@ mod tests {
             other => panic!("expected receiving Progress, got {other:?}"),
         }
         // Transcription now runs in a SINGLE invocation covering all 3
-        // segments (2 reloaded from disk + 1 received this connection), so
-        // exactly one "transcribing" Progress message is sent, not one per
-        // segment.
-        match channel2.recv_control().unwrap() {
-            Control::Progress { stage, percent, .. } => {
-                assert_eq!(stage, "transcribing");
-                assert_eq!(percent, 100);
-            }
-            other => panic!("expected transcribing Progress, got {other:?}"),
-        }
+        // segments (2 reloaded from disk + 1 received this connection), on
+        // its own thread while the main thread streams progress (BLOCKING
+        // fix) -- so the fixture's two interim `PROGRESS` lines (30, 70)
+        // arrive as their own "transcribing" frames, not one Progress
+        // message per segment and not just a single final 100%.
+        let transcribing_percents = recv_transcribing_progress_until_done(&mut channel2);
+        assert!(
+            transcribing_percents.iter().any(|&p| p < 100),
+            "expected at least one interim transcribing Progress, got {transcribing_percents:?}"
+        );
+        assert_eq!(*transcribing_percents.last().unwrap(), 100);
         match channel2.recv_control().unwrap() {
             Control::Result {
                 job_id: result_job_id,
@@ -1443,7 +1664,7 @@ mod tests {
                 assert_eq!(result_job_id, job_id);
                 assert_eq!(
                     duration_ms, 3000,
-                    "fake_transcribe.py returns 1000ms per positional path, 3 paths in one call"
+                    "fake_transcribe.py returns 1000ms per manifest path, 3 paths in one call"
                 );
                 assert_eq!(segments.len(), 3, "all three segments must be transcribed");
                 assert_eq!(segments[0].start_ms, 0);

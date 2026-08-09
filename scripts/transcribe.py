@@ -1,8 +1,14 @@
 """Local speech-to-text worker for FUNG, backed by faster-whisper.
 
-Invoked by the Rust backend as a subprocess:
+Invoked by the Rust backend as a subprocess, either with paths given directly:
 
     python transcribe.py <audio_or_video_path> [<audio_or_video_path> ...] [--model small] [--language th]
+
+or (FUNGWIRE desktop worker, many segments) via a newline-delimited manifest
+file, to avoid overflowing the ~32KB Windows command-line length limit that a
+several-hundred-segment job's positional-argv paths could otherwise hit:
+
+    python transcribe.py --manifest <path/to/segments.txt> [--model small] [--language th]
 
 Accepts one or more audio/video paths so a single process (and a single
 loaded Whisper model) can transcribe every segment of a job, instead of the
@@ -37,8 +43,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Transcribe one or more audio/video files locally.")
     parser.add_argument(
         "audio_paths",
-        nargs="+",
-        help="Path(s) to the source audio or video file(s); transcribed in order as one continuous timeline",
+        nargs="*",
+        help="Path(s) to the source audio or video file(s); transcribed in order as one continuous "
+        "timeline. Ignored when --manifest is given.",
+    )
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        help="Path to a newline-delimited file of segment paths (used instead of positional "
+        "audio_paths when the segment count is too large for argv, e.g. FUNGWIRE jobs).",
     )
     parser.add_argument("--model", default="small", help="faster-whisper model size or repo id")
     parser.add_argument("--language", default=None, help="Force a language code (e.g. th, en); omit to auto-detect")
@@ -46,6 +59,14 @@ def main() -> int:
     parser.add_argument("--device", choices=["cpu", "cuda"], help="Override the selected profile for diagnostics only")
     parser.add_argument("--compute-type", default=None)
     args = parser.parse_args()
+
+    if args.manifest:
+        with open(args.manifest, "r", encoding="utf-8") as manifest_file:
+            audio_paths = [line.strip() for line in manifest_file if line.strip()]
+    else:
+        audio_paths = args.audio_paths
+    if not audio_paths:
+        parser.error("either --manifest (non-empty) or at least one positional audio path is required")
 
     device = args.device or ("cuda" if args.profile == "gpu" else "cpu")
     compute_type = args.compute_type or ("float16" if device == "cuda" else "int8")
@@ -62,13 +83,13 @@ def main() -> int:
     model = WhisperModel(args.model, device=device, compute_type=compute_type)
 
     report(5)
-    total_files = len(args.audio_paths)
+    total_files = len(audio_paths)
     segments = []
     cumulative_ms = 0
     detected_language = None
     detected_language_probability = None
 
-    for file_index, audio_path in enumerate(args.audio_paths):
+    for file_index, audio_path in enumerate(audio_paths):
         segments_iter, info = model.transcribe(
             audio_path,
             language=args.language,

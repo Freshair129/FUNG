@@ -126,14 +126,19 @@ pub(crate) fn save_policy(conn: &Connection, policy: &TierPolicy) -> Result<(), 
 
 pub(crate) fn calls_today(conn: &Connection, task: CloudTaskKind) -> Result<u32, String> {
     ensure_policy_tables(conn)?;
-    let count: Option<i64> = conn
-        .query_row(
-            "SELECT count FROM cloud_call_counter WHERE task_kind = ?1 AND call_date = ?2",
-            params![task_kind_str(task), today_local()],
-            |row| row.get(0),
-        )
-        .ok();
-    Ok(count.unwrap_or(0) as u32)
+    conn.query_row(
+        "SELECT count FROM cloud_call_counter WHERE task_kind = ?1 AND call_date = ?2",
+        params![task_kind_str(task), today_local()],
+        |row| row.get::<_, i64>(0),
+    )
+    .or_else(|e| {
+        if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
+            Ok(0i64)
+        } else {
+            Err(e.to_string())
+        }
+    })
+    .map(|count| count as u32)
 }
 
 pub(crate) fn increment_calls_today(conn: &Connection, task: CloudTaskKind) -> Result<(), String> {
@@ -244,6 +249,26 @@ mod tests {
         increment_calls_today(&conn, CloudTaskKind::Stt).unwrap();
         increment_calls_today(&conn, CloudTaskKind::Stt).unwrap();
         assert_eq!(calls_today(&conn, CloudTaskKind::Stt).unwrap(), 2);
+    }
+
+    #[test]
+    fn calls_today_fails_closed_on_real_db_errors() {
+        let conn = Connection::open_in_memory().unwrap();
+        // Set up the normal table structure via ensure_policy_tables.
+        ensure_policy_tables(&conn).unwrap();
+        // Now corrupt the table schema: drop the count column (or replace the table with wrong schema)
+        // by dropping and recreating it with a missing required column.
+        conn.execute("DROP TABLE cloud_call_counter", []).unwrap();
+        conn.execute(
+            "CREATE TABLE cloud_call_counter (task_kind TEXT NOT NULL, call_date TEXT NOT NULL, PRIMARY KEY (task_kind, call_date))",
+            [],
+        )
+        .unwrap();
+
+        let result = calls_today(&conn, CloudTaskKind::Stt);
+        // Must fail (Err), not silently return Ok(0).
+        // The query will fail because it tries to SELECT count which doesn't exist.
+        assert!(result.is_err());
     }
 
     #[test]

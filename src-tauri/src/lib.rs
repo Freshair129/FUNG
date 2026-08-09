@@ -445,6 +445,48 @@ fn paired_device_revoke(id: String, state: State<'_, AppState>) -> AppResult<()>
     revoke_paired_device(&conn, &id)
 }
 
+/// Best-effort LAN-routable IPv4 for this machine, found without any network
+/// traffic or external dependency: `connect`ing a UDP socket to a public
+/// address just makes the OS pick a local route/interface (no packet is
+/// actually sent for UDP `connect`), and `local_addr()` reads that choice
+/// back. Returns `None` on any failure (no route, no network, sandboxed
+/// environment, etc.) or if the resolved address is loopback/non-IPv4 —
+/// callers must treat `None` as "endpoint unknown", not an error.
+pub(crate) fn primary_lan_ipv4() -> Option<String> {
+    use std::net::UdpSocket;
+    let sock = UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect("8.8.8.8:80").ok()?; // no packet sent; just sets the local addr
+    match sock.local_addr().ok()?.ip() {
+        std::net::IpAddr::V4(v4) if !v4.is_loopback() => Some(v4.to_string()),
+        _ => None,
+    }
+}
+
+/// Desktop-side publisher half of Task 9: reports `"<lan-ip>:<port>"` for the
+/// FUNGWIRE server Task 6 binds via `fungwire_server_set_enabled`, so the
+/// frontend (Task 10) can write it to Supabase `devices.lan_endpoint` for
+/// mobile to resolve. Returns `Ok(None)` — not an error — whenever the
+/// server isn't currently bound or the LAN IP can't be determined; the
+/// stored bind is `"0.0.0.0:PORT"` (unroutable), so the concrete port is
+/// combined with `primary_lan_ipv4()` rather than returned as-is.
+#[tauri::command]
+fn fungwire_local_endpoint(state: State<'_, AppState>) -> AppResult<Option<String>> {
+    let bind = {
+        let guard = state.fungwire.lock().expect("fungwire mutex poisoned");
+        match guard.as_ref() {
+            Some(control) => control.bind.clone(),
+            None => return Ok(None),
+        }
+    };
+
+    let port = match bind.rsplit_once(':') {
+        Some((_, port)) => port,
+        None => return Ok(None),
+    };
+
+    Ok(primary_lan_ipv4().map(|ip| format!("{ip}:{port}")))
+}
+
 pub(crate) fn now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
@@ -1644,6 +1686,7 @@ pub fn run() {
             mobile::mobile_mcp_set_enabled,
             fungwire_server::fungwire_server_set_enabled,
             fungwire_server::fungwire_status,
+            fungwire_local_endpoint,
             fungwire_client::fungwire_desktop_reachable,
             fungwire_client::fungwire_delegate_transcription,
             fungwire_client::fungwire_job_poll,
@@ -1680,6 +1723,20 @@ mod worker_tests {
             !buffer.contains("torch warning line 0\n"),
             "oldest lines must be dropped once the cap is exceeded"
         );
+    }
+
+    #[test]
+    fn primary_lan_ipv4_never_panics_and_is_non_loopback_or_none() {
+        // Sandboxed/CI runners often have no route to the public internet, so
+        // this must tolerate `None` — it must never panic, and any `Some`
+        // must not be the loopback address.
+        match primary_lan_ipv4() {
+            Some(ip) => {
+                let parsed: std::net::Ipv4Addr = ip.parse().expect("must be a valid IPv4 string");
+                assert!(!parsed.is_loopback(), "must not report loopback: {ip}");
+            }
+            None => {}
+        }
     }
 }
 

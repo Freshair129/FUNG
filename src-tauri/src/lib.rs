@@ -46,14 +46,67 @@ impl WhisperRuntime {
     /// unit tests). Used by the FUNGWIRE job-loop tests to point the worker
     /// at a stub script instead of the real faster-whisper pipeline, while
     /// still exercising the real `run_python_worker` subprocess plumbing.
+    ///
+    /// `python` is accepted for source-compat with existing callers (who
+    /// still build the bundled `.venv-whisper` path) but is intentionally
+    /// NOT used: that path exists on dev machines but not on CI runners
+    /// (which never install the FUNG app bundle), which made these tests
+    /// dev-only (see CI failure `FUNG Python runtime is missing at
+    /// D:\a\FUNG\FUNG\.venv-whisper\...`). Instead we resolve a real system
+    /// python via `resolve_test_python`, which is present on both dev
+    /// machines and CI runners, falling back to the bundled venv locally
+    /// when no system python is on PATH.
     #[cfg(test)]
-    pub(crate) fn for_test(python: PathBuf, script: PathBuf) -> Self {
+    pub(crate) fn for_test(_python: PathBuf, script: PathBuf) -> Self {
         Self {
-            python,
+            python: resolve_test_python(),
             script,
             cuda_bin: PathBuf::new(),
         }
     }
+}
+
+/// Resolves an absolute path to a system Python interpreter for use by
+/// `WhisperRuntime::for_test`. Dependency-free: shells out to `where`
+/// (Windows) or `which` (unix) rather than pulling in a crate, since this is
+/// test-only plumbing. Falls back to the bundled `.venv-whisper` interpreter
+/// (present in local dev checkouts, absent on CI) if no system interpreter
+/// resolves, so local test runs are unaffected either way.
+#[cfg(test)]
+fn resolve_test_python() -> PathBuf {
+    let (finder, names): (&str, &[&str]) = if cfg!(windows) {
+        ("where", &["python", "python3"])
+    } else {
+        ("which", &["python3", "python"])
+    };
+
+    for name in names {
+        let Ok(output) = Command::new(finder).arg(name).output() else {
+            continue;
+        };
+        if !output.status.success() {
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let candidate = PathBuf::from(line.trim());
+            // Skip the Windows Store's python.exe alias stub: it exists on
+            // disk (so `.exists()` passes) but launches the Store instead of
+            // an interpreter when executed.
+            let is_store_stub = candidate
+                .components()
+                .any(|c| c.as_os_str().eq_ignore_ascii_case("WindowsApps"));
+            if !is_store_stub && candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+
+    // Fallback: bundled venv python (present in local dev checkouts).
+    source_root()
+        .join(".venv-whisper")
+        .join("Scripts")
+        .join("python.exe")
 }
 
 fn source_root() -> PathBuf {

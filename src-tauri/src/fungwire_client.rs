@@ -533,9 +533,11 @@ fn attempt_transfer(
         }
     }
 
-    // All segments sent (or nothing left to send on a resumed attempt).
-    // The server now transcribes each segment in turn, sending one
-    // Progress{stage:"transcribing"} per segment before the final Result.
+    // All segments sent (or nothing left to send on a resumed attempt). The
+    // server now transcribes every segment in a single worker invocation
+    // (Final review #3), sending one Progress{stage:"transcribing"} before
+    // the final Result -- this loop makes no assumption about the count, so
+    // it keeps working regardless of how many Progress messages arrive.
     loop {
         match channel.recv_control() {
             Ok(Control::Progress { percent, .. }) => {

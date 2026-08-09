@@ -2,12 +2,23 @@
 
 Invoked by the Rust backend as a subprocess:
 
-    python transcribe.py <audio_or_video_path> [--model small] [--language th]
+    python transcribe.py <audio_or_video_path> [<audio_or_video_path> ...] [--model small] [--language th]
+
+Accepts one or more audio/video paths so a single process (and a single
+loaded Whisper model) can transcribe every segment of a job, instead of the
+caller spawning one process per segment and reloading the model each time
+(Final review #3). When multiple paths are given they are transcribed in
+order and treated as one continuous recording: each file's segment timestamps
+are offset by the cumulative REAL duration (in ms) of the files transcribed
+before it, not a fixed window, so the combined transcript's timeline is
+accurate regardless of each file's actual length. A single path still works
+exactly as before (the offset for the only file is 0).
 
 Progress lines are written to stderr as `PROGRESS <0-100>` so the caller can
-update job progress without parsing stdout. The final transcript is written
-to stdout as a single JSON object once processing completes, so partial
-stdout reads never yield invalid JSON.
+update job progress without parsing stdout; with multiple files, progress is
+scaled across all of them (files-completed fraction plus within-file
+fraction). The final transcript is written to stdout as a single JSON object
+once processing completes, so partial stdout reads never yield invalid JSON.
 """
 
 import argparse
@@ -23,8 +34,12 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-    parser = argparse.ArgumentParser(description="Transcribe an audio/video file locally.")
-    parser.add_argument("audio_path", help="Path to the source audio or video file")
+    parser = argparse.ArgumentParser(description="Transcribe one or more audio/video files locally.")
+    parser.add_argument(
+        "audio_paths",
+        nargs="+",
+        help="Path(s) to the source audio or video file(s); transcribed in order as one continuous timeline",
+    )
     parser.add_argument("--model", default="small", help="faster-whisper model size or repo id")
     parser.add_argument("--language", default=None, help="Force a language code (e.g. th, en); omit to auto-detect")
     parser.add_argument("--profile", default="gpu", choices=["cpu", "gpu"])
@@ -39,40 +54,59 @@ def main() -> int:
         print(f"PROGRESS {max(0, min(100, round(pct)))}", file=sys.stderr, flush=True)
 
     report(1)
+    # Loaded once, before the file loop, regardless of how many paths were
+    # given -- this is the whole point of accepting multiple paths (Final
+    # review #3): the model load is by far the most expensive part of a
+    # per-segment subprocess, so amortizing it across every segment of a job
+    # is what makes a 1-hour recording practical instead of ~720 reloads.
     model = WhisperModel(args.model, device=device, compute_type=compute_type)
 
     report(5)
-    segments_iter, info = model.transcribe(
-        args.audio_path,
-        language=args.language,
-        vad_filter=True,
-        word_timestamps=False,
-    )
-
-    duration_s = info.duration or 0.0
+    total_files = len(args.audio_paths)
     segments = []
-    for segment in segments_iter:
-        text = segment.text.strip()
-        if not text:
-            continue
-        segments.append(
-            {
-                "startMs": round(segment.start * 1000),
-                "endMs": round(segment.end * 1000),
-                "text": text,
-                "confidence": round(1.0 - segment.no_speech_prob, 4)
-                if segment.no_speech_prob is not None
-                else None,
-            }
+    cumulative_ms = 0
+    detected_language = None
+    detected_language_probability = None
+
+    for file_index, audio_path in enumerate(args.audio_paths):
+        segments_iter, info = model.transcribe(
+            audio_path,
+            language=args.language,
+            vad_filter=True,
+            word_timestamps=False,
         )
-        if duration_s > 0:
-            report(5 + 93 * min(1.0, segment.end / duration_s))
+        if detected_language is None:
+            detected_language = info.language
+            detected_language_probability = info.language_probability
+
+        duration_s = info.duration or 0.0
+        file_offset_ms = cumulative_ms
+        for segment in segments_iter:
+            text = segment.text.strip()
+            if not text:
+                continue
+            segments.append(
+                {
+                    "startMs": file_offset_ms + round(segment.start * 1000),
+                    "endMs": file_offset_ms + round(segment.end * 1000),
+                    "text": text,
+                    "confidence": round(1.0 - segment.no_speech_prob, 4)
+                    if segment.no_speech_prob is not None
+                    else None,
+                }
+            )
+            if duration_s > 0:
+                file_fraction_done = min(1.0, segment.end / duration_s)
+                overall_fraction = (file_index + file_fraction_done) / total_files
+                report(5 + 93 * overall_fraction)
+
+        cumulative_ms += round(duration_s * 1000)
 
     report(100)
     result = {
-        "language": info.language,
-        "languageProbability": round(info.language_probability, 4) if info.language_probability else None,
-        "durationMs": round(duration_s * 1000),
+        "language": detected_language,
+        "languageProbability": round(detected_language_probability, 4) if detected_language_probability else None,
+        "durationMs": cumulative_ms,
         "segments": segments,
     }
     print(json.dumps(result, ensure_ascii=False))

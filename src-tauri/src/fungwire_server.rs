@@ -299,7 +299,14 @@ pub(crate) fn run_job_loop(
                 operation,
                 manifest_hash: expected_manifest_hash,
                 segment_count,
-                profile,
+                // `profile` (the mobile sender's guess at gpu/cpu) is
+                // deliberately NOT threaded through to `receive_and_transcribe`
+                // (Final review #5): the desktop is the one that actually runs
+                // inference, so it must pick its own profile the same way
+                // `import_and_transcribe` does, via `transcription_profile()`.
+                // The field stays in the wire format (still decoded here) so
+                // older/newer peers don't break on it; it's just unused.
+                profile: _mobile_profile,
                 checksums,
                 resume_from_seq,
                 ..
@@ -326,7 +333,6 @@ pub(crate) fn run_job_loop(
                     &checksums,
                     segment_count,
                     resume_from_seq,
-                    &profile,
                 );
                 jobs.fetch_sub(1, Ordering::SeqCst);
 
@@ -419,14 +425,22 @@ pub(crate) fn run_job_loop(
 /// Noise KK handshake, which is the trust boundary. Do not rely on this
 /// manifest as a content-authenticity anchor against a malicious peer.
 ///
-/// ## Transcription (v1: per-segment, no muxing)
-/// m4a segments cannot be byte-concatenated into one file. Instead each
-/// segment is transcribed independently via the existing
-/// `run_python_worker(transcribe.py)` pipeline, and its returned
-/// `startMs`/`endMs` are shifted by `seq * 5000` (each segment is a fixed
-/// 5s window) before the per-segment segment lists are concatenated in
-/// order. `Progress{stage:"transcribing"}` is sent after each segment
-/// finishes, at `(segments_done / segment_count) * 100`.
+/// ## Transcription (single invocation, model loaded once)
+/// m4a segments cannot be byte-concatenated into one file, but they no
+/// longer need to be transcribed one subprocess per segment either (Final
+/// review #3): all ordered segment paths are passed to a *single*
+/// `run_python_worker(transcribe.py)` call, so `WhisperModel(...)` is
+/// constructed exactly once for the whole job instead of once per segment
+/// (~720 reloads for a 1-hour recording at 5s segments). `transcribe.py`
+/// transcribes each path in order and offsets each file's segments by the
+/// cumulative REAL duration of the files before it, so the worker here just
+/// parses the single combined `WhisperOutput` and maps its `segments`
+/// straight to `fungwire::Segment` — no per-segment offsetting on this side.
+/// The profile is the desktop's own choice (see `transcription_profile`),
+/// never the mobile-sent `JobStart.profile` (Final review #5): a GPU desktop
+/// must actually use its GPU regardless of what the sending phone guessed.
+/// A single `Progress{stage:"transcribing", percent:100}` is sent once the
+/// call returns.
 #[allow(clippy::too_many_arguments)]
 fn receive_and_transcribe(
     channel: &mut NoiseChannel<TcpStream>,
@@ -437,7 +451,6 @@ fn receive_and_transcribe(
     checksums: &[String],
     segment_count: u32,
     resume_from_seq: u32,
-    profile: &str,
 ) -> Result<(i64, Vec<Segment>), JobFailure> {
     if checksums.len() != segment_count as usize {
         return Err(JobFailure::Failed(
@@ -599,49 +612,61 @@ fn receive_and_transcribe(
     }
     let seg_paths: Vec<PathBuf> = seg_paths.into_iter().flatten().collect();
 
-    // v1: transcribe each segment independently (m4a can't be
-    // byte-concatenated) and offset timestamps by the cumulative 5s window.
-    let mut segments = Vec::new();
-    let mut duration_ms_total: i64 = 0;
-    for (i, seg_path) in seg_paths.iter().enumerate() {
-        let seg_str = seg_path.to_string_lossy().to_string();
-        let raw = crate::run_python_worker(
-            runtime,
-            &runtime.script,
-            &[seg_str.as_str(), "--profile", profile],
-            None,
-            |_pct| {},
+    // Desktop picks its own profile -- never the mobile-sent
+    // `JobStart.profile` (Final review #5). This is the same helper
+    // `import_and_transcribe`'s `run_transcription` uses.
+    let profile = crate::transcription_profile().map_err(|e| {
+        JobFailure::Failed(
+            "transcribe_failed".into(),
+            format!("could not determine transcription profile: {e}"),
         )
-        .map_err(|e| JobFailure::Failed("transcribe_failed".into(), e))?;
-        let output: WhisperOutput = serde_json::from_str(raw.trim()).map_err(|e| {
-            JobFailure::Failed(
-                "transcribe_failed".into(),
-                format!("bad worker output for segment {i}: {e}"),
-            )
-        })?;
+    })?;
 
-        let offset_ms = i as i64 * 5000;
-        for seg in output.segments {
-            segments.push(Segment {
-                start_ms: seg.start_ms + offset_ms,
-                end_ms: seg.end_ms + offset_ms,
-                text: seg.text,
-                confidence: seg.confidence,
-            });
-        }
-        duration_ms_total += output.duration_ms;
-
-        let percent = (((i + 1) as f64 / segment_count as f64) * 100.0) as u8;
-        channel
-            .send(&Control::Progress {
-                job_id: job_id.to_string(),
-                percent,
-                stage: "transcribing".into(),
-            })
-            .map_err(|e| JobFailure::Failed("transport_error".into(), e.to_string()))?;
+    // Single invocation for the whole job (Final review #3): all ordered
+    // segment paths go to one `run_python_worker` call so the Whisper model
+    // is loaded exactly once, not once per segment. `transcribe.py` does its
+    // own cross-file offsetting by real duration, so the result here is
+    // already one continuous, correctly-timed segment list.
+    let seg_path_strings: Vec<String> = seg_paths
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+    let mut args: Vec<&str> = Vec::with_capacity(seg_path_strings.len() + 2);
+    for s in &seg_path_strings {
+        args.push(s.as_str());
     }
+    args.push("--profile");
+    args.push(profile.as_str());
 
-    Ok((duration_ms_total, segments))
+    let raw = crate::run_python_worker(runtime, &runtime.script, &args, None, |_pct| {})
+        .map_err(|e| JobFailure::Failed("transcribe_failed".into(), e))?;
+    let output: WhisperOutput = serde_json::from_str(raw.trim()).map_err(|e| {
+        JobFailure::Failed(
+            "transcribe_failed".into(),
+            format!("bad worker output: {e}"),
+        )
+    })?;
+
+    let segments: Vec<Segment> = output
+        .segments
+        .into_iter()
+        .map(|seg| Segment {
+            start_ms: seg.start_ms,
+            end_ms: seg.end_ms,
+            text: seg.text,
+            confidence: seg.confidence,
+        })
+        .collect();
+
+    channel
+        .send(&Control::Progress {
+            job_id: job_id.to_string(),
+            percent: 100,
+            stage: "transcribing".into(),
+        })
+        .map_err(|e| JobFailure::Failed("transport_error".into(), e.to_string()))?;
+
+    Ok((output.duration_ms, segments))
 }
 
 #[cfg(test)]
@@ -1257,13 +1282,16 @@ mod tests {
             }
             other => panic!("expected receiving Progress, got {other:?}"),
         }
-        // Transcription runs once per segment (3 segments total: 2 reloaded
-        // from disk + 1 received this connection).
-        for _ in 0..3 {
-            match channel2.recv_control().unwrap() {
-                Control::Progress { stage, .. } => assert_eq!(stage, "transcribing"),
-                other => panic!("expected transcribing Progress, got {other:?}"),
+        // Transcription now runs in a SINGLE invocation covering all 3
+        // segments (2 reloaded from disk + 1 received this connection), so
+        // exactly one "transcribing" Progress message is sent, not one per
+        // segment.
+        match channel2.recv_control().unwrap() {
+            Control::Progress { stage, percent, .. } => {
+                assert_eq!(stage, "transcribing");
+                assert_eq!(percent, 100);
             }
+            other => panic!("expected transcribing Progress, got {other:?}"),
         }
         match channel2.recv_control().unwrap() {
             Control::Result {
@@ -1272,11 +1300,20 @@ mod tests {
                 segments,
             } => {
                 assert_eq!(result_job_id, job_id);
-                assert_eq!(duration_ms, 3000, "fake_transcribe.py returns 1000ms per segment call");
+                assert_eq!(
+                    duration_ms, 3000,
+                    "fake_transcribe.py returns 1000ms per positional path, 3 paths in one call"
+                );
                 assert_eq!(segments.len(), 3, "all three segments must be transcribed");
                 assert_eq!(segments[0].start_ms, 0);
-                assert_eq!(segments[1].start_ms, 5000, "segment 1 offset by one 5s window");
-                assert_eq!(segments[2].start_ms, 10000, "segment 2 offset by two 5s windows");
+                assert_eq!(
+                    segments[1].start_ms, 1000,
+                    "segment 1 offset by segment 0's real duration (1000ms), not a fixed 5s window"
+                );
+                assert_eq!(
+                    segments[2].start_ms, 2000,
+                    "segment 2 offset by segments 0+1's real cumulative duration (2000ms)"
+                );
             }
             other => panic!("expected Result, got {other:?}"),
         }

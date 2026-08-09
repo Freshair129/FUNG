@@ -21,8 +21,10 @@ create policy "pairing_sessions_insert_own" on public.pairing_sessions
   for insert with check ((select auth.uid()) = user_id);
 create policy "pairing_sessions_update_own" on public.pairing_sessions
   for update using ((select auth.uid()) = user_id);
+create policy "pairing_sessions_delete_own" on public.pairing_sessions
+  for delete using ((select auth.uid()) = user_id);
 
-grant select, insert, update on public.pairing_sessions to authenticated;
+grant select, insert, update, delete on public.pairing_sessions to authenticated;
 
 create index pairing_sessions_user_pending_idx
   on public.pairing_sessions (user_id, created_at desc)

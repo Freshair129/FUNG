@@ -34,6 +34,7 @@ export function DevicePairingPanel() {
   const [paired, setPaired] = useState<PairedDeviceRow[]>([]);
   const [pairing, setPairing] = useState<PairingState>({ kind: "idle" });
   const [now, setNow] = useState(Date.now());
+  const [creating, setCreating] = useState(false);
   const pollTimer = useRef<number | null>(null);
 
   const refreshLocal = useCallback(async () => {
@@ -81,12 +82,23 @@ export function DevicePairingPanel() {
     }
   }, []);
 
+  // Client-side self-expiry: stop polling once the countdown reaches zero.
+  useEffect(() => {
+    if (pairing.kind !== "waiting") return;
+    if (Date.now() >= pairing.expiresAt) {
+      stopPolling();
+      setPairing({ kind: "error", message: "รหัสหมดอายุ — สร้างรหัสใหม่" });
+    }
+  }, [now, pairing, stopPolling]);
+
   const startPairing = useCallback(async () => {
+    setCreating(true);
     const myDeviceId = localStorage.getItem(DEVICE_ID_KEY);
     const { data: sessionData } = await supabase.auth.getSession();
     const userId = sessionData.session?.user.id;
     if (!myDeviceId || !userId) {
       setPairing({ kind: "error", message: "ต้องเข้าสู่ระบบและลงทะเบียนอุปกรณ์ก่อน" });
+      setCreating(false);
       return;
     }
     const sessionId = crypto.randomUUID();
@@ -105,6 +117,7 @@ export function DevicePairingPanel() {
     });
     if (error) {
       setPairing({ kind: "error", message: `สร้างรหัสไม่สำเร็จ: ${error.message}` });
+      setCreating(false);
       return;
     }
     await supabase.from("device_audit_events").insert({
@@ -115,6 +128,7 @@ export function DevicePairingPanel() {
     });
     setPairing({ kind: "waiting", sessionId, code, expiresAt: Date.now() + 5 * 60_000 });
     pollTimer.current = window.setInterval(() => void poll(sessionId, userId), POLL_MS);
+    setCreating(false);
   }, []);
 
   const poll = useCallback(
@@ -127,12 +141,19 @@ export function DevicePairingPanel() {
       if (error) { console.error("Pairing poll failed:", error); return; }
       if (data.status === "confirmed" && data.responder_device_id) {
         stopPolling();
-        const { data: peer } = await supabase
+        const { data: peer, error: peerError } = await supabase
           .from("devices")
           .select("id, device_label, platform, public_key_fingerprint")
           .eq("id", data.responder_device_id)
           .single();
-        if (peer) {
+        if (peerError || !peer) {
+          console.error("Failed to load paired peer device:", peerError);
+          setPairing({
+            kind: "error",
+            message: "จับคู่สำเร็จแต่โหลดข้อมูลอุปกรณ์ไม่ได้ — รีเฟรชรายการอีกครั้ง",
+          });
+          void refreshLocal();
+        } else {
           await invoke("paired_device_upsert", {
             device: {
               id: peer.id,
@@ -169,7 +190,11 @@ export function DevicePairingPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       const userId = sessionData.session?.user.id;
       const { error } = await supabase.from("devices").delete().eq("id", row.id);
-      if (error) { console.error("Cloud revoke failed:", error); }
+      if (error) {
+        console.error("Cloud revoke failed:", error);
+        setPairing({ kind: "error", message: "ยกเลิกการจับคู่ไม่สำเร็จ ลองใหม่อีกครั้ง" });
+        return;
+      }
       await invoke("paired_device_revoke", { id: row.id });
       if (userId) {
         await supabase.from("device_audit_events").insert({
@@ -220,8 +245,13 @@ export function DevicePairingPanel() {
           <p className="device-pairing-hint">รอการยืนยันจากมือถือ…</p>
         </div>
       ) : (
-        <button type="button" className="device-pairing-start" onClick={() => void startPairing()}>
-          <RefreshCw size={15} /> จับคู่อุปกรณ์ใหม่
+        <button
+          type="button"
+          className="device-pairing-start"
+          onClick={() => void startPairing()}
+          disabled={creating}
+        >
+          <RefreshCw size={15} /> {creating ? "กำลังสร้างรหัส…" : "จับคู่อุปกรณ์ใหม่"}
         </button>
       )}
       {pairing.kind === "confirmed" && (

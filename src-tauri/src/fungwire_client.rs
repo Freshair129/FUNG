@@ -56,7 +56,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::State;
 use uuid::Uuid;
 
@@ -68,9 +68,18 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// `set_read_timeout(Some(Duration::from_secs(60)))` in
 /// `fungwire_server::handle_connection`.
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
-/// Number of *reconnect* attempts (i.e. not counting the initial attempt)
-/// before the job is given up on and the peer is marked `unreachable`.
-const MAX_RECONNECT_ATTEMPTS: u32 = 3;
+/// Total wall-clock budget for the reconnect loop (i.e. not counting the
+/// initial attempt) before the job is given up on and the peer is marked
+/// `unreachable`. A fixed attempt-count budget (the previous design) adds
+/// up to about 1.4s of retrying, which is far shorter than a desktop app
+/// restart — spec §12's "kill desktop mid-job -> resumes on restart"
+/// acceptance step needs a budget on the order of minutes, not attempts.
+const RECONNECT_BUDGET: Duration = Duration::from_secs(120);
+/// Initial backoff delay before the first reconnect attempt; doubles on
+/// each subsequent attempt up to [`RECONNECT_BACKOFF_CAP`].
+const RECONNECT_BACKOFF_BASE: Duration = Duration::from_millis(500);
+/// Ceiling on the exponential backoff delay between reconnect attempts.
+const RECONNECT_BACKOFF_CAP: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -165,8 +174,12 @@ fn connect_and_handshake(
 
 /// Looks up `device_id` in the *mobile* Genesis `paired_devices` table
 /// (populated by `mobile::mobile_pairing_complete`) and returns its cached
-/// ed25519 public key. Requires `trust_state == "paired"` — a revoked or
-/// already-unreachable peer must not be dialed again until re-paired.
+/// ed25519 public key. Accepts `trust_state == "paired"` *or*
+/// `"unreachable"` — an unreachable peer must still be dialable so a
+/// reachability probe or a delegate's reconnect loop can attempt it and, on
+/// success, reset it back to `"paired"` (see [`mark_peer_reachable`]);
+/// otherwise a peer that ever went unreachable could never recover. Only
+/// `"revoked"` (a stronger, user-driven signal) is rejected.
 fn lookup_peer_public_key(
     storage: &genesis_block_native::Storage,
     device_id: &str,
@@ -189,7 +202,7 @@ fn lookup_peer_public_key(
         .get("paired_devices.trust_state")
         .and_then(Value::as_str)
         .unwrap_or("");
-    if trust_state != "paired" {
+    if trust_state != "paired" && trust_state != "unreachable" {
         return Err(format!(
             "desktop {device_id} is not currently paired (trust_state={trust_state})"
         ));
@@ -212,6 +225,9 @@ fn desktop_reachable_inner(
         let own_secret = x25519_static_secret_in_dir(app_data).map_err(|e| e.to_string())?;
         let peer_pub = x25519_public_from_ed25519_b64(&peer_pub_b64).map_err(|e| e.to_string())?;
         connect_and_handshake(endpoint, own_device_id, &own_secret, &peer_pub)?;
+        // Handshake succeeded: reset an unreachable peer back to paired
+        // (spec §7) rather than leaving it stuck forever.
+        mark_peer_reachable(storage, desktop_device_id);
         Ok(())
     })()
     .is_ok()
@@ -322,11 +338,16 @@ fn update_job(
     )
 }
 
-/// Flips the peer's `trust_state` to `"unreachable"` after the retry budget
-/// is exhausted (brief step 2.3). Leaves an already-`"revoked"` peer alone —
-/// revocation is a stronger, user-driven signal that an unreachable flip
-/// must not paper over.
-fn mark_peer_unreachable(storage: &genesis_block_native::Storage, device_id: &str) {
+/// Sets the peer's `paired_devices.trust_state` to `new_state`, unless the
+/// peer row is missing, already in `new_state`, or currently `"revoked"`.
+/// The `"revoked"` guard is shared by both callers below —
+/// [`mark_peer_unreachable`] (run after the reconnect budget is exhausted)
+/// and [`mark_peer_reachable`] (run after every successful handshake):
+/// revocation is a stronger, user-driven signal that neither an unreachable
+/// flip nor a reachable reset may paper over. `commit_rows`'s `upsert`
+/// requires every NOT NULL column, not just the one changing, hence the
+/// full-row re-read.
+fn set_peer_trust_state(storage: &genesis_block_native::Storage, device_id: &str, new_state: &str) {
     let Ok(rows) = crate::genesis_adapter::query(
         storage,
         "paired_devices",
@@ -352,7 +373,8 @@ fn mark_peer_unreachable(storage: &genesis_block_native::Storage, device_id: &st
         return;
     };
     let get = |key: &str| row.get(key).cloned().unwrap_or(Value::Null);
-    if get("paired_devices.trust_state").as_str() == Some("revoked") {
+    let current = get("paired_devices.trust_state");
+    if current.as_str() == Some("revoked") || current.as_str() == Some(new_state) {
         return;
     }
     let timestamp = now();
@@ -364,7 +386,7 @@ fn mark_peer_unreachable(storage: &genesis_block_native::Storage, device_id: &st
                 "id": device_id,
                 "name": get("paired_devices.name"),
                 "endpoint": get("paired_devices.endpoint"),
-                "trust_state": "unreachable",
+                "trust_state": new_state,
                 "pairing_proof_hash": get("paired_devices.pairing_proof_hash"),
                 "capabilities_json": get("paired_devices.capabilities_json"),
                 "created_at": get("paired_devices.created_at"),
@@ -373,6 +395,24 @@ fn mark_peer_unreachable(storage: &genesis_block_native::Storage, device_id: &st
             }),
         )],
     );
+}
+
+/// Flips the peer's `trust_state` to `"unreachable"` after the reconnect
+/// budget is exhausted (brief step 2.3). See [`set_peer_trust_state`] for
+/// the shared revoked/no-op guard.
+fn mark_peer_unreachable(storage: &genesis_block_native::Storage, device_id: &str) {
+    set_peer_trust_state(storage, device_id, "unreachable");
+}
+
+/// Resets the peer's `trust_state` back to `"paired"` on the very next
+/// successful handshake (design spec §7: "reset to paired on next
+/// success"). Called unconditionally after every successful
+/// `connect_and_handshake` (both the reachability probe and the delegate
+/// transfer's reconnect loop) — it is a no-op unless the peer was actually
+/// `"unreachable"`, since without this nothing else in this file ever
+/// clears that flag once set.
+fn mark_peer_reachable(storage: &genesis_block_native::Storage, device_id: &str) {
+    set_peer_trust_state(storage, device_id, "paired");
 }
 
 /// Writes the returned transcript into `transcript_segments` (mirroring the
@@ -435,6 +475,7 @@ fn attempt_transfer(
     ctx: &JobContext,
     endpoint: &str,
     own_device_id: &str,
+    desktop_device_id: &str,
     own_secret: &[u8; 32],
     peer_public: &[u8; 32],
     manifest: &str,
@@ -449,6 +490,10 @@ fn attempt_transfer(
             Ok(channel) => channel,
             Err(e) => return AttemptOutcome::TransportError(e),
         };
+    // Handshake succeeded: reset an unreachable peer back to paired (spec
+    // §7) as soon as we know the connection works, independent of whether
+    // the rest of this job attempt goes on to succeed or fail.
+    mark_peer_reachable(storage, desktop_device_id);
 
     let segment_count = segments.len() as u32;
     if let Err(e) = channel.send(&Control::JobStart {
@@ -557,16 +602,22 @@ fn attempt_transfer(
     }
 }
 
-/// Exponential backoff for reconnect attempt `attempt` (1-indexed):
-/// 200ms, 400ms, 800ms, ... capped at attempt 4 to avoid overflow.
+/// Exponential backoff for reconnect attempt `attempt` (1-indexed): 500ms,
+/// 1s, 2s, 4s, ... capped at [`RECONNECT_BACKOFF_CAP`] so a long-running
+/// reconnect loop (see [`RECONNECT_BUDGET`]) doesn't end up sleeping for
+/// minutes between individual attempts.
 fn backoff_delay(attempt: u32) -> Duration {
-    Duration::from_millis(200u64 * 2u64.pow(attempt.saturating_sub(1).min(4)))
+    let millis =
+        RECONNECT_BACKOFF_BASE.as_millis() as u64 * 2u64.pow(attempt.saturating_sub(1).min(4));
+    Duration::from_millis(millis).min(RECONNECT_BACKOFF_CAP)
 }
 
 /// Runs on a dedicated `std::thread` (spawned by
 /// `delegate_transcription_inner`); drives the whole job to completion or
 /// failure, writing every state transition into the `delegated_jobs` row so
-/// `fungwire_job_poll` can observe it.
+/// `fungwire_job_poll` can observe it. `reconnect_budget` is
+/// [`RECONNECT_BUDGET`] in production; tests inject a short budget instead
+/// so the exhausted-retries path doesn't have to actually wait minutes.
 #[allow(clippy::too_many_arguments)]
 fn run_transfer(
     storage: Arc<genesis_block_native::Storage>,
@@ -579,6 +630,7 @@ fn run_transfer(
     segments: Vec<SegmentRef>,
     checksums: Vec<String>,
     manifest: String,
+    reconnect_budget: Duration,
 ) {
     let _ = update_job(&storage, &ctx, "running", 0, None);
 
@@ -604,6 +656,34 @@ fn run_transfer(
 
     let mut last_acked: i64 = -1;
     let mut reconnect_attempts: u32 = 0;
+    // Wall-clock budget for the whole reconnect loop (started once, not
+    // reset per attempt) — the initial attempt above always runs regardless
+    // of this budget; only reconnects after a failure count against it.
+    let reconnect_deadline = Instant::now();
+    // Shared give-up path for both the transport-error and resume_gap
+    // branches below: exceeding the budget marks the job failed and the
+    // peer unreachable; otherwise sleeps the next backoff and lets the
+    // caller's loop retry.
+    let give_up_or_backoff = |reconnect_attempts: &mut u32, ctx: &JobContext, detail: &str| -> bool {
+        *reconnect_attempts += 1;
+        if reconnect_deadline.elapsed() >= reconnect_budget {
+            let _ = update_job(
+                &storage,
+                ctx,
+                "failed",
+                0,
+                Some(&format!(
+                    "unreachable after {reconnect_attempts} reconnect attempts over {:?}: {detail}",
+                    reconnect_deadline.elapsed()
+                )),
+            );
+            mark_peer_unreachable(&storage, &desktop_device_id);
+            true
+        } else {
+            thread::sleep(backoff_delay(*reconnect_attempts));
+            false
+        }
+    };
 
     loop {
         let resume_from = (last_acked + 1) as u32;
@@ -612,6 +692,7 @@ fn run_transfer(
             &ctx,
             &endpoint,
             &own_device_id,
+            &desktop_device_id,
             &own_secret,
             &peer_public,
             &manifest,
@@ -637,21 +718,9 @@ fn run_transfer(
                 // permanently confused peer still gives up eventually
                 // instead of looping forever.
                 last_acked = -1;
-                reconnect_attempts += 1;
-                if reconnect_attempts > MAX_RECONNECT_ATTEMPTS {
-                    let _ = update_job(
-                        &storage,
-                        &ctx,
-                        "failed",
-                        0,
-                        Some(&format!(
-                            "unreachable after {reconnect_attempts} reconnect attempts: {code}: {message}"
-                        )),
-                    );
-                    mark_peer_unreachable(&storage, &desktop_device_id);
+                if give_up_or_backoff(&mut reconnect_attempts, &ctx, &format!("{code}: {message}")) {
                     return;
                 }
-                thread::sleep(backoff_delay(reconnect_attempts));
                 // Loop back and try again from seq 0.
             }
             AttemptOutcome::ServerError(code, message) => {
@@ -665,21 +734,9 @@ fn run_transfer(
                 return;
             }
             AttemptOutcome::TransportError(message) => {
-                reconnect_attempts += 1;
-                if reconnect_attempts > MAX_RECONNECT_ATTEMPTS {
-                    let _ = update_job(
-                        &storage,
-                        &ctx,
-                        "failed",
-                        0,
-                        Some(&format!(
-                            "unreachable after {reconnect_attempts} reconnect attempts: {message}"
-                        )),
-                    );
-                    mark_peer_unreachable(&storage, &desktop_device_id);
+                if give_up_or_backoff(&mut reconnect_attempts, &ctx, &message) {
                     return;
                 }
-                thread::sleep(backoff_delay(reconnect_attempts));
                 // Loop back and try again from `last_acked_seq + 1`.
             }
         }
@@ -694,6 +751,33 @@ fn delegate_transcription_inner(
     desktop_device_id: String,
     endpoint: String,
     own_device_id: String,
+) -> AppResult<String> {
+    delegate_transcription_inner_with_budget(
+        storage,
+        app_data,
+        project_id,
+        recording_id,
+        desktop_device_id,
+        endpoint,
+        own_device_id,
+        RECONNECT_BUDGET,
+    )
+}
+
+/// Same as [`delegate_transcription_inner`] but with the reconnect budget
+/// exposed as a parameter, so tests can inject a short budget instead of
+/// [`RECONNECT_BUDGET`]'s production value (which would otherwise force an
+/// exhausted-retries test to actually wait minutes).
+#[allow(clippy::too_many_arguments)]
+fn delegate_transcription_inner_with_budget(
+    storage: Arc<genesis_block_native::Storage>,
+    app_data: PathBuf,
+    project_id: String,
+    recording_id: String,
+    desktop_device_id: String,
+    endpoint: String,
+    own_device_id: String,
+    reconnect_budget: Duration,
 ) -> AppResult<String> {
     let valid = crate::genesis_adapter::query(
         &storage,
@@ -769,6 +853,7 @@ fn delegate_transcription_inner(
             segments,
             checksums,
             manifest,
+            reconnect_budget,
         );
     });
 
@@ -898,11 +983,14 @@ mod tests {
     /// Registers the desktop as a peer in the *mobile* Genesis
     /// `paired_devices` table, caching the desktop's real published ed25519
     /// key (read from `desktop_app_data`) so `x25519_public_from_ed25519_b64`
-    /// gets a real, valid key.
+    /// gets a real, valid key. `trust_state` is exposed so tests can seed a
+    /// peer that starts `"unreachable"` or `"revoked"` instead of the usual
+    /// `"paired"`.
     fn pair_desktop_on_mobile(
         mobile_storage: &Storage,
         desktop_device_id: &str,
         desktop_app_data: &Path,
+        trust_state: &str,
     ) {
         let pub_b64 = public_key_b64_in_dir(desktop_app_data).unwrap();
         let timestamp = now();
@@ -912,7 +1000,7 @@ mod tests {
                 "paired_devices",
                 json!({
                     "id": desktop_device_id, "name": "FUNG Desktop", "endpoint": "",
-                    "trust_state": "paired", "pairing_proof_hash": "sess-desktop",
+                    "trust_state": trust_state, "pairing_proof_hash": "sess-desktop",
                     "capabilities_json": [], "created_at": timestamp, "updated_at": timestamp,
                     "public_key": pub_b64,
                 }),
@@ -1041,7 +1129,7 @@ mod tests {
         ensure_identity_in_dir(mobile_dir.path()).unwrap();
         ensure_identity_in_dir(desktop_dir.path()).unwrap();
         let (genesis_path, mobile_storage) = open_genesis();
-        pair_desktop_on_mobile(&mobile_storage, "desktop-reach", desktop_dir.path());
+        pair_desktop_on_mobile(&mobile_storage, "desktop-reach", desktop_dir.path(), "paired");
         pair_mobile_on_desktop(desktop_dir.path(), "mobile-reach", mobile_dir.path());
 
         let (addr, server_handle) = spawn_server(desktop_dir.path().to_path_buf());
@@ -1094,7 +1182,7 @@ mod tests {
         let (genesis_path, mobile_storage) = open_genesis();
         let mobile_storage = Arc::new(mobile_storage);
 
-        pair_desktop_on_mobile(&mobile_storage, "desktop-e2e", desktop_dir.path());
+        pair_desktop_on_mobile(&mobile_storage, "desktop-e2e", desktop_dir.path(), "paired");
         pair_mobile_on_desktop(desktop_dir.path(), "mobile-e2e", mobile_dir.path());
 
         // Two segments: one small, one 70,000 bytes (> NOISE_MAX_PLAINTEXT =
@@ -1203,7 +1291,7 @@ mod tests {
         let (genesis_path, mobile_storage) = open_genesis();
         let mobile_storage = Arc::new(mobile_storage);
 
-        pair_desktop_on_mobile(&mobile_storage, "desktop-resume", desktop_dir.path());
+        pair_desktop_on_mobile(&mobile_storage, "desktop-resume", desktop_dir.path(), "paired");
         pair_mobile_on_desktop(desktop_dir.path(), "mobile-resume", mobile_dir.path());
         seed_recording_with_segments(
             &mobile_storage,
@@ -1273,18 +1361,25 @@ mod tests {
         let _ = std::fs::remove_dir_all(genesis_path);
     }
 
-    /// After the retry budget is exhausted (`MAX_RECONNECT_ATTEMPTS`
-    /// reconnects, i.e. `MAX_RECONNECT_ATTEMPTS + 1` total failed attempts),
-    /// `run_transfer` must mark the `delegated_jobs` row `failed` AND flip
-    /// the peer's `paired_devices.trust_state` to `"unreachable"` on the
-    /// mobile side (brief step 2.3 — previously untested). Every connection
-    /// attempt fails immediately with "connection refused" (the port is
-    /// bound then dropped before any client ever connects, same trick as
-    /// `closed_port_is_not_reachable`), so this exercises the
-    /// exhausted-retries path end-to-end without needing a real or fake
-    /// server on the other end.
+    /// After the reconnect time budget is exhausted, `run_transfer` must
+    /// mark the `delegated_jobs` row `failed` AND flip the peer's
+    /// `paired_devices.trust_state` to `"unreachable"` on the mobile side
+    /// (brief step 2.3). Every connection attempt fails immediately with
+    /// "connection refused" (the port is bound then dropped before any
+    /// client ever connects, same trick as `closed_port_is_not_reachable`),
+    /// so this exercises the exhausted-retries path end-to-end without
+    /// needing a real or fake server on the other end.
+    ///
+    /// The production budget ([`RECONNECT_BUDGET`], 2 minutes) would make
+    /// this test itself take minutes, so it drives
+    /// `delegate_transcription_inner_with_budget` with a short injected
+    /// budget instead — long enough to exercise at least one real
+    /// backoff-and-retry cycle before giving up, short enough that the test
+    /// finishes in about a second.
     #[test]
     fn exhausted_reconnects_marks_job_failed_and_peer_unreachable() {
+        const SHORT_RECONNECT_BUDGET: Duration = Duration::from_millis(700);
+
         let mobile_dir = tempfile::tempdir().unwrap();
         let desktop_dir = tempfile::tempdir().unwrap();
         let segment_dir = tempfile::tempdir().unwrap();
@@ -1293,7 +1388,7 @@ mod tests {
         let (genesis_path, mobile_storage) = open_genesis();
         let mobile_storage = Arc::new(mobile_storage);
 
-        pair_desktop_on_mobile(&mobile_storage, "desktop-unreachable", desktop_dir.path());
+        pair_desktop_on_mobile(&mobile_storage, "desktop-unreachable", desktop_dir.path(), "paired");
         seed_recording_with_segments(
             &mobile_storage,
             "proj-unreachable",
@@ -1306,7 +1401,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         drop(listener);
 
-        let job_id = delegate_transcription_inner(
+        let job_id = delegate_transcription_inner_with_budget(
             mobile_storage.clone(),
             mobile_dir.path().to_path_buf(),
             "proj-unreachable".to_string(),
@@ -1314,17 +1409,21 @@ mod tests {
             "desktop-unreachable".to_string(),
             addr.to_string(),
             "mobile-unreachable".to_string(),
+            SHORT_RECONNECT_BUDGET,
         )
         .expect("delegate transcription");
 
+        // Bounded to well under the production budget: the short injected
+        // budget above must make this resolve in ~1-2s, never anywhere near
+        // SHORT_RECONNECT_BUDGET's real-world equivalent of minutes.
         let mut final_state = String::new();
-        for _ in 0..150 {
+        for _ in 0..100 {
             let poll = job_poll_inner(&mobile_storage, &job_id).expect("poll job");
             if poll.state == "completed" || poll.state == "failed" {
                 final_state = poll.state;
                 break;
             }
-            thread::sleep(Duration::from_millis(200));
+            thread::sleep(Duration::from_millis(100));
         }
         assert_eq!(
             final_state, "failed",
@@ -1352,6 +1451,96 @@ mod tests {
             "peer must be flipped to unreachable after exhausting the retry budget"
         );
 
+        drop(mobile_storage);
+        let _ = std::fs::remove_dir_all(genesis_path);
+    }
+
+    // -------------------------------------------------------------
+    // Unreachable -> paired reset (final-review fix wave B)
+    // -------------------------------------------------------------
+
+    /// `lookup_peer_public_key` (used before connecting, for both the
+    /// reachability probe and the delegate's reconnect loop) must accept a
+    /// peer that is currently `"unreachable"` — otherwise a peer that ever
+    /// went unreachable could never be dialed again to recover — but must
+    /// still reject `"revoked"`, which is a stronger, user-driven signal.
+    #[test]
+    fn lookup_peer_public_key_accepts_unreachable_but_rejects_revoked() {
+        let mobile_dir = tempfile::tempdir().unwrap();
+        let desktop_dir = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(mobile_dir.path()).unwrap();
+        ensure_identity_in_dir(desktop_dir.path()).unwrap();
+        let (genesis_path, mobile_storage) = open_genesis();
+
+        pair_desktop_on_mobile(&mobile_storage, "desktop-unreach-ok", desktop_dir.path(), "unreachable");
+        assert!(
+            lookup_peer_public_key(&mobile_storage, "desktop-unreach-ok").is_ok(),
+            "an unreachable peer must still be dialable so a retry/probe can recover it"
+        );
+
+        pair_desktop_on_mobile(&mobile_storage, "desktop-revoked", desktop_dir.path(), "revoked");
+        assert!(
+            lookup_peer_public_key(&mobile_storage, "desktop-revoked").is_err(),
+            "a revoked peer must never be dialed again"
+        );
+
+        drop(mobile_storage);
+        let _ = std::fs::remove_dir_all(genesis_path);
+    }
+
+    /// End-to-end: a peer seeded as `"unreachable"` in Genesis
+    /// `paired_devices` must be reset to `"paired"` once a real handshake
+    /// against it succeeds (design spec §7: "reset to paired on next
+    /// success") — driven against the real loopback Task 6/7 server, not a
+    /// mock, so this proves both halves of the fix together: the lookup
+    /// that allows dialing an unreachable peer at all, and the reset that
+    /// runs after `into_transport_mode` succeeds.
+    #[test]
+    fn desktop_reachable_inner_resets_unreachable_peer_to_paired_on_success() {
+        let mobile_dir = tempfile::tempdir().unwrap();
+        let desktop_dir = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(mobile_dir.path()).unwrap();
+        ensure_identity_in_dir(desktop_dir.path()).unwrap();
+        let (genesis_path, mobile_storage) = open_genesis();
+        pair_desktop_on_mobile(&mobile_storage, "desktop-recover", desktop_dir.path(), "unreachable");
+        pair_mobile_on_desktop(desktop_dir.path(), "mobile-recover", mobile_dir.path());
+
+        let (addr, server_handle) = spawn_server(desktop_dir.path().to_path_buf());
+
+        let reachable = desktop_reachable_inner(
+            &mobile_storage,
+            mobile_dir.path(),
+            "desktop-recover",
+            &addr.to_string(),
+            "mobile-recover",
+        );
+        assert!(
+            reachable,
+            "an unreachable-marked peer with an open port must still be dialable and reachable"
+        );
+
+        let rows = crate::genesis_adapter::query(
+            &mobile_storage,
+            "paired_devices",
+            &["trust_state"],
+            vec![crate::genesis_adapter::eq(
+                "paired_devices",
+                "id",
+                json!("desktop-recover"),
+            )],
+            1,
+        )
+        .expect("query paired_devices");
+        let trust_state = rows[0]
+            .get("paired_devices.trust_state")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert_eq!(
+            trust_state, "paired",
+            "a successful handshake must reset trust_state back to paired"
+        );
+
+        server_handle.join().unwrap().ok();
         drop(mobile_storage);
         let _ = std::fs::remove_dir_all(genesis_path);
     }

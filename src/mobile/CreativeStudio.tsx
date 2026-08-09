@@ -25,6 +25,10 @@ const DEFERRED_ADMISSION_REASONS = new Set([
   "device_tier_core", "capture_active", "thermal_severe", "memory_pressure", "battery_low", "device_tier_insufficient",
 ]);
 const DELEGATE_POLL_MS = 1_500;
+// How often the desktop reachability probe (fungwire_desktop_reachable) is
+// re-run while this screen is open, so a desktop that comes back online is
+// noticed without requiring a remount.
+const DESKTOP_REACHABLE_POLL_MS = 5_000;
 const delegateStateLabel = (state: DelegatedJob["state"]) => ({
   queued: "รอคิว", running: "กำลังถอดเสียง", paused: "หยุดชั่วคราว",
   completed: "เสร็จสิ้น", failed: "ล้มเหลว", cancelled: "ยกเลิกแล้ว",
@@ -217,23 +221,35 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
     }).catch(() => setTtsProviders([]));
   }, []);
 
-  // Resolve the paired desktop's LAN endpoint and probe reachability
-  // whenever the pairing changes — gates the "ถอดเสียงบน FUNG Desktop" button.
+  // Resolve the paired desktop's LAN endpoint whenever the pairing changes.
   useEffect(() => {
-    if (!pairedDesktopId) { setDesktopEndpointValue(null); setDesktopReachableValue(false); return; }
+    if (!pairedDesktopId) { setDesktopEndpointValue(null); return; }
     let cancelled = false;
-    setDesktopReachableValue(null);
-    void (async () => {
-      const endpoint = await desktopEndpoint(pairedDesktopId);
-      if (cancelled) return;
-      setDesktopEndpointValue(endpoint);
-      const ownDeviceId = localStorage.getItem(DEVICE_ID_KEY);
-      if (!endpoint || !ownDeviceId) { setDesktopReachableValue(false); return; }
-      const reachable = await desktopReachable(pairedDesktopId, endpoint, ownDeviceId).catch(() => false);
-      if (!cancelled) setDesktopReachableValue(reachable);
-    })();
+    void desktopEndpoint(pairedDesktopId).then((endpoint) => { if (!cancelled) setDesktopEndpointValue(endpoint); });
     return () => { cancelled = true; };
   }, [pairedDesktopId]);
+
+  // Probe reachability periodically rather than once — gates the
+  // "ถอดเสียงบน FUNG Desktop" button and the delegate recommendation banner.
+  // `fungwire_desktop_reachable` is the same probe that resets a peer from
+  // "unreachable" back to "paired" in Genesis on success (final review fix
+  // wave B), so re-running it on an interval is what lets a desktop that
+  // comes back online (e.g. after a restart) reflect as reachable again
+  // here without requiring the user to leave and re-enter this screen.
+  useEffect(() => {
+    if (!pairedDesktopId || !desktopEndpointValue) { setDesktopReachableValue(pairedDesktopId ? null : false); return; }
+    let cancelled = false;
+    const probe = () => {
+      const ownDeviceId = localStorage.getItem(DEVICE_ID_KEY);
+      if (!ownDeviceId) { if (!cancelled) setDesktopReachableValue(false); return; }
+      void desktopReachable(pairedDesktopId, desktopEndpointValue, ownDeviceId)
+        .then((reachable) => { if (!cancelled) setDesktopReachableValue(reachable); })
+        .catch(() => { if (!cancelled) setDesktopReachableValue(false); });
+    };
+    probe();
+    const timer = window.setInterval(probe, DESKTOP_REACHABLE_POLL_MS);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [pairedDesktopId, desktopEndpointValue]);
 
   // Poll the delegated job every 1.5s until it leaves queued/running.
   useEffect(() => {
@@ -248,7 +264,14 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
   }, [delegatedJob?.id, delegatedJob?.state]);
 
   const desktopJobBusy = delegating || (delegatedJob != null && (delegatedJob.state === "queued" || delegatedJob.state === "running"));
-  const showDelegateRecommendation = !!localAi && DEFERRED_ADMISSION_REASONS.has(localAi.reason);
+  // "This device can't process — send to Desktop" is dead-end advice with no
+  // reachable desktop to send to, so it must be gated on the same live
+  // desktopReachableValue that gates the delegate button below, not merely
+  // on localAi.reason. When the device can't process locally AND no desktop
+  // is reachable, an honest "neither is available" notice is shown instead.
+  const localAiDeferred = !!localAi && DEFERRED_ADMISSION_REASONS.has(localAi.reason);
+  const showDelegateRecommendation = localAiDeferred && desktopReachableValue === true;
+  const showNoDesktopNotice = localAiDeferred && desktopReachableValue === false;
 
   const delegateToDesktop = async () => {
     // Double-submit guard (I8): a job already in flight, or a submit already
@@ -316,6 +339,7 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
       {pairedDesktopId && recordingId && (
         <div className="m-delegate-panel">
           {showDelegateRecommendation && <p className="m-delegate-recommend"><Sparkles size={14} />อุปกรณ์นี้ประมวลผลเองไม่ไหว — ส่งไปที่ FUNG Desktop</p>}
+          {showNoDesktopNotice && <p className="m-delegate-error">อุปกรณ์นี้ประมวลผลเองไม่ไหว และไม่พบ FUNG Desktop ที่เชื่อมต่อได้ในขณะนี้</p>}
           {desktopReachableValue && (
             <button type="button" className="m-delegate-button" disabled={desktopJobBusy} onClick={() => void delegateToDesktop()}>
               <Send size={16} />{delegating ? "กำลังส่งงาน…" : "ถอดเสียงบน FUNG Desktop"}

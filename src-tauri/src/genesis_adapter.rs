@@ -326,7 +326,7 @@ fn schema_v6() -> RelationalSchemaPackage {
 /// job, whether it ran on the local pipeline or via a cloud provider — the
 /// mobile client persists this so the "☁ คลาวด์" badge (spec §10) survives
 /// an app restart/reconnect, not just the in-flight wire manifest.
-pub(crate) fn schema() -> RelationalSchemaPackage {
+fn schema_v7() -> RelationalSchemaPackage {
     use RelationalColumnType::Text;
     let mut package = schema_v6();
     package.schema_version = 7;
@@ -338,6 +338,50 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
     {
         delegated_jobs.columns.push(nullable("executor", Text));
     }
+    package
+}
+
+/// Live Meeting MVP: `summaries` and `export_artifacts` are specified in the
+/// entity contract (and existed in the retired SQLite DDL) but never had
+/// Genesis tables — nothing could persist a summary or an export until now.
+/// Column sets mirror the contract exactly; `export_artifacts.source_layer_id`
+/// stays a plain nullable text ref because `audio_layers` has no Genesis
+/// table yet.
+pub(crate) fn schema() -> RelationalSchemaPackage {
+    use RelationalColumnType::{Json, Text};
+    let mut package = schema_v7();
+    package.schema_version = 8;
+    package.previous_version = Some(7);
+    package.tables.extend([
+        table(
+            "summaries",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("kind", Text),
+                required("content", Text),
+                required("evidence_refs_json", Json),
+                required("model_run_id", Text),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![fk("project_id", "projects"), fk("model_run_id", "model_runs")],
+            vec![],
+        ),
+        table(
+            "export_artifacts",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("kind", Text),
+                required("file_path", Text),
+                nullable("source_layer_id", Text),
+                required("created_at", Text),
+            ],
+            vec![fk("project_id", "projects")],
+            vec![],
+        ),
+    ]);
     package
 }
 
@@ -354,6 +398,7 @@ pub(crate) fn install(storage: &Storage) -> Result<(), String> {
         schema_v4(),
         schema_v5(),
         schema_v6(),
+        schema_v7(),
         schema(),
     ];
     let last_index = packages.len() - 1;

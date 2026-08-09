@@ -61,12 +61,19 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
               device_label: deviceLabel,
               platform: "windows",
               public_key_fingerprint: identity.fingerprint,
-              public_key: publicKey,
             })
             .select("id")
             .single();
           if (insErr) throw insErr;
           deviceId = inserted.id as string;
+          // public_key is not covered by the INSERT grant (only user_id,
+          // device_label, platform, public_key_fingerprint are) — set it via
+          // a follow-up UPDATE, which the grant does cover.
+          const { error: pkErr } = await supabase
+            .from("devices")
+            .update({ public_key: publicKey })
+            .eq("id", deviceId);
+          if (pkErr) console.error("Failed to set device public key:", pkErr);
           await supabase.from("device_audit_events").insert({
             user_id: session.user.id,
             device_id: deviceId,

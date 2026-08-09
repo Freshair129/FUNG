@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 mod device_identity;
 mod fungwire;
+mod fungwire_server;
 mod genesis_adapter;
 mod graph_build;
 mod mobile;
@@ -135,6 +136,7 @@ pub(crate) struct AppState {
     local_api: Mutex<Option<String>>,
     whisper_runtime: WhisperRuntime,
     pub(crate) mobile_gateway: Mutex<Option<mobile::MobileGatewayControl>>,
+    pub(crate) fungwire: Mutex<Option<fungwire_server::FungwireServerControl>>,
 }
 
 impl AppState {
@@ -351,8 +353,14 @@ fn revoke_paired_device(conn: &Connection, id: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn paired_devices_connection(state: &AppState) -> AppResult<Connection> {
-    let db_path = state.data_root.join("paired_devices.db");
+/// Opens (creating if needed) the `paired_devices.db` that lives under
+/// `dir` (an app data directory). Split out from `paired_devices_connection`
+/// so the FUNGWIRE server (Task 6) can look up a peer using only the app
+/// data path it already has, without needing a full `AppState`/`State<'_,_>`
+/// (which isn't available off the Tauri command dispatch path, e.g. inside a
+/// TCP accept-loop worker thread).
+fn paired_devices_connection_at(dir: &std::path::Path) -> AppResult<Connection> {
+    let db_path = dir.join("paired_devices.db");
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -362,6 +370,43 @@ fn paired_devices_connection(state: &AppState) -> AppResult<Connection> {
     conn.pragma_update(None, "busy_timeout", 5000)?;
     ensure_paired_devices_table(&conn)?;
     Ok(conn)
+}
+
+fn paired_devices_connection(state: &AppState) -> AppResult<Connection> {
+    paired_devices_connection_at(&state.data_root)
+}
+
+/// Looks up a single paired, non-revoked device by id. Used by the FUNGWIRE
+/// server's pre-Noise peer check (Task 6): the responder must know which
+/// peer's static key to expect, and must refuse unknown or revoked devices
+/// before spending any handshake work on them. Returns `Ok(None)` rather
+/// than an error for "no such active pairing" — that's an expected, routine
+/// outcome the caller turns into a rejected connection, not a failure.
+pub(crate) fn lookup_paired_peer(
+    app_data: &std::path::Path,
+    device_id: &str,
+) -> AppResult<Option<PairedDeviceRow>> {
+    let conn = paired_devices_connection_at(app_data)?;
+    let mut statement = conn.prepare(
+        "SELECT id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id, public_key \
+         FROM paired_devices WHERE id = ?1 AND revoked_at IS NULL",
+    )?;
+    let mut rows = statement.query_map(params![device_id], |row| {
+        Ok(PairedDeviceRow {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            platform: row.get(2)?,
+            fingerprint: row.get(3)?,
+            paired_at: row.get(4)?,
+            revoked_at: row.get(5)?,
+            pairing_session_id: row.get(6)?,
+            public_key: row.get(7)?,
+        })
+    })?;
+    match rows.next() {
+        Some(row) => Ok(Some(row?)),
+        None => Ok(None),
+    }
 }
 
 #[tauri::command]
@@ -627,6 +672,7 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         local_api: Mutex::new(None),
         whisper_runtime: whisper_runtime(app),
         mobile_gateway: Mutex::new(None),
+        fungwire: Mutex::new(None),
     })
 }
 
@@ -1578,6 +1624,8 @@ pub fn run() {
             mobile::mobile_pairing_complete,
             mobile::mobile_voice_parse,
             mobile::mobile_mcp_set_enabled,
+            fungwire_server::fungwire_server_set_enabled,
+            fungwire_server::fungwire_status,
             tts_provider_register,
             tts_provider_update,
             tts_provider_toggle,

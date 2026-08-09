@@ -207,7 +207,7 @@ New Tauri commands: `cloud_config_set`, `cloud_config_clear`, `cloud_config_stat
 |---|---|
 | Desktop OS keyring | + up to 5 new entries (`cloud-stt-openai`, `cloud-stt-custom`, `cloud-llm-anthropic`, `cloud-llm-openai`, `cloud-llm-custom`) |
 | Desktop SQLite WAL DB | + `tier_policy` (single row), + `cloud_call_counter` (`task_kind`, `call_date`, `count`) |
-| Mobile Genesis `delegated_jobs` | no schema change to the table; the in-flight job manifest (wire protocol, not persisted state) gains `executor` |
+| Mobile Genesis `delegated_jobs` | + `executor TEXT` column (`"local" \| "cloud"`, nullable, defaults to `"local"` on existing rows) — persisted so the cloud badge (§10) survives app restart/reconnect, not just carried in the in-flight wire manifest |
 | Supabase | **no change** — cloud keys/policy never leave the desktop |
 
 ## 12. New Components
@@ -222,6 +222,7 @@ New Tauri commands: `cloud_config_set`, `cloud_config_clear`, `cloud_config_stat
 - `fungwire_server.rs` — worker branch on `executor` (§7).
 - `graph_build.rs` — `call_llm` cloud fallback (§8).
 - `lib.rs` — register new commands (§9); `fungwire_status` gains `stt_cloud_enabled`.
+- `genesis_adapter.rs` — schema upgrade adding `delegated_jobs.executor` (idempotent, same pattern as the existing `schema_v6_adds_paired_devices_public_key_and_upgrade_is_idempotent` upgrade).
 
 **Frontend (new):**
 - `src/components/CloudProvidersPanel.tsx` (+ `.css`) — §9.

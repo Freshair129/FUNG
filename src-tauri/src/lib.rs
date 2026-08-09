@@ -15,6 +15,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 mod device_identity;
+mod fungwire;
 mod genesis_adapter;
 mod graph_build;
 mod mobile;

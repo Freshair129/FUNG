@@ -24,6 +24,7 @@ mod graph_build;
 mod mobile;
 mod native_recorder;
 mod on_device_ai;
+mod policy;
 mod speaker_merge;
 mod tts_config;
 mod tts_executor;

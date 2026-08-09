@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpenText, Check, ChevronDown, Merge, Pause, Play, Scissors, SlidersHorizontal, Sparkles, UserRoundPen, ZoomIn, ZoomOut } from "lucide-react";
 import { confirmSpeakerTurn, mergeSpeakers, queryTimeline, renameSpeaker, splitSpeakerTurn, startDiarization } from "./bridge";
-import type { Speaker, SpeakerTurn, TimelineData } from "./model";
+import type { DeviceState, Speaker, SpeakerTurn, TimelineData } from "./model";
 import { ProcessingStudio, StoryEditor, useCreativeStudio } from "./CreativeStudio";
 
 const PREVIEW_DURATION = 180_000;
@@ -33,9 +33,10 @@ const timeLabel = (milliseconds: number) => {
 
 const waveBars = Array.from({ length: 34 }, (_, index) => 25 + ((index * 17) % 58));
 
-type Props = { projectId: string; desktopAvailable: boolean; onRecord: () => void };
+type Props = { projectId: string; pairedDesktop: DeviceState | null; onRecord: () => void };
 
-export function TimelineScreen({ projectId, desktopAvailable, onRecord }: Props) {
+export function TimelineScreen({ projectId, pairedDesktop, onRecord }: Props) {
+  const desktopAvailable = pairedDesktop != null;
   const [data, setData] = useState<TimelineData>(() => {
     try {
       const stored = localStorage.getItem(TIMELINE_PREVIEW_KEY);
@@ -159,7 +160,7 @@ export function TimelineScreen({ projectId, desktopAvailable, onRecord }: Props)
   }
 
   if (surface === "story") return <StoryEditor timeline={data} state={studio} setState={setStudio} onBack={() => setSurface("timeline")} onEffects={() => setSurface("processing")} />;
-  if (surface === "processing") return <ProcessingStudio state={studio} setState={setStudio} desktopAvailable={desktopAvailable} onBack={() => setSurface("story")} />;
+  if (surface === "processing") return <ProcessingStudio state={studio} setState={setStudio} desktopAvailable={desktopAvailable} pairedDesktopId={pairedDesktop?.id ?? null} recordingId={data.recordingId} onBack={() => setSurface("story")} />;
 
   return (
     <main className="m-screen m-timeline-screen">

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { EffectNode, GraphEdge, GraphNode, MobileNote, StorySequence, TimelineData, VoiceProfile } from "./model";
+import { supabase } from "../lib/supabase";
+import type { DelegatedJob, EffectNode, GraphEdge, GraphNode, MobileNote, StorySequence, TimelineData, VoiceProfile } from "./model";
 
 const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -223,4 +224,54 @@ export async function queryVoiceProfiles(projectId: string): Promise<VoiceProfil
 export async function setAgentVoiceGrant(projectId: string, voiceProfileId: string, enabled: boolean): Promise<boolean> {
   if (!isTauri()) return enabled;
   return invoke("mobile_agent_voice_grant_set", { projectId, mcpClientId: "fung-mobile-mcp", voiceProfileId, enabled });
+}
+
+// ---------------------------------------------------------------------
+// FUNGWIRE delegation (Task 10): resolve a paired desktop's LAN endpoint
+// from Supabase, probe it, hand off a transcription job, and poll for
+// progress. Command param names below are read directly off the
+// `#[tauri::command]` signatures in `src-tauri/src/fungwire_client.rs` —
+// both `fungwire_desktop_reachable` and `fungwire_delegate_transcription`
+// take an `own_device_id` (this mobile device's Supabase `devices.id`,
+// cached in `localStorage["fung.device.id"]` by MobileApp.tsx) in addition
+// to the resolved `endpoint`, so callers must supply both.
+// ---------------------------------------------------------------------
+
+export async function desktopEndpoint(deviceId: string): Promise<string | null> {
+  const { data } = await supabase.from("devices").select("lan_endpoint, lan_endpoint_updated_at").eq("id", deviceId).maybeSingle();
+  return (data?.lan_endpoint as string | undefined) ?? null;
+}
+
+export async function desktopReachable(deviceId: string, endpoint: string, ownDeviceId: string): Promise<boolean> {
+  if (!isTauri()) return false;
+  return invoke<boolean>("fungwire_desktop_reachable", { desktopDeviceId: deviceId, endpoint, ownDeviceId });
+}
+
+export async function delegateTranscription(
+  projectId: string,
+  recordingId: string,
+  desktopDeviceId: string,
+  endpoint: string,
+  ownDeviceId: string,
+): Promise<{ jobId: string } | null> {
+  if (!isTauri()) return null;
+  return invoke<{ jobId: string }>("fungwire_delegate_transcription", { projectId, recordingId, desktopDeviceId, endpoint, ownDeviceId });
+}
+
+// `fungwire_job_poll` (Rust `JobPollOutput`) only reports `{ state, progress,
+// error }` — it doesn't echo back the job id, operation, or executor, so
+// those are filled in from what the caller already knows rather than from
+// the wire response.
+export async function pollDelegatedJob(jobId: string): Promise<DelegatedJob | null> {
+  if (!isTauri()) return null;
+  const result = await invoke<{ state: DelegatedJob["state"]; progress: number; error: string | null }>("fungwire_job_poll", { jobId });
+  if (!result) return null;
+  return {
+    id: jobId,
+    operation: "transcript.transcribe",
+    state: result.state,
+    progress: result.progress,
+    executorDeviceId: null,
+    error: result.error ?? undefined,
+  };
 }

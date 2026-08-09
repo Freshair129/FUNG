@@ -885,7 +885,7 @@ export function MobileApp() {
 
   const cycleTheme = () => setTheme((current) => current === "system" ? "light" : current === "light" ? "dark" : "system");
   const props = useMemo<ScreenProps>(() => ({ snapshot, setSnapshot, capture, setCapture, go: setTab, theme, cycleTheme }), [snapshot, capture, theme]);
-  const screen = tab === "home" ? <HomeScreen {...props} /> : tab === "notes" ? <NotesScreen {...props} /> : tab === "timeline" ? <TimelineScreen projectId={snapshot.projectId} desktopAvailable={snapshot.devices.some((device) => device.trustState === "paired")} onRecord={() => setTab("voice")} /> : tab === "graph" ? <GraphScreen {...props} /> : tab === "devices" ? <DevicesScreen {...props} /> : <CaptureScreen {...props} />;
+  const screen = tab === "home" ? <HomeScreen {...props} /> : tab === "notes" ? <NotesScreen {...props} /> : tab === "timeline" ? <TimelineScreen projectId={snapshot.projectId} pairedDesktop={snapshot.devices.find((device) => device.trustState === "paired") ?? null} onRecord={() => setTab("voice")} /> : tab === "graph" ? <GraphScreen {...props} /> : tab === "devices" ? <DevicesScreen {...props} /> : <CaptureScreen {...props} />;
 
   return (
     <div className={`m-app ${dark ? "m-theme-dark" : ""}`}>

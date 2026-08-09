@@ -327,6 +327,15 @@
 .m-model-balance > div i.is-on { background: var(--m-indigo); }
 .m-process-start { width: 100%; min-height: 48px; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 13px; color: white; background: var(--m-indigo); font-size: 12px; font-weight: 650; }
 .m-process-start:disabled { color: var(--m-muted); background: color-mix(in srgb, var(--m-ink) 6%, transparent); }
+.m-delegate-panel { margin-top: 9px; display: grid; gap: 8px; }
+.m-delegate-recommend { margin: 0; padding: 8px 10px; display: flex; align-items: center; gap: 6px; border-radius: 11px; color: var(--m-sage); background: color-mix(in srgb, var(--m-sage) 10%, transparent); font-size: 10px; font-weight: 620; }
+.m-delegate-button { width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid color-mix(in srgb, var(--m-indigo) 45%, transparent); border-radius: 13px; color: var(--m-indigo); background: color-mix(in srgb, var(--m-indigo) 9%, transparent); font-size: 11px; font-weight: 650; }
+.m-delegate-button:disabled { color: var(--m-muted); border-color: var(--m-line); background: color-mix(in srgb, var(--m-ink) 6%, transparent); }
+.m-delegate-progress { display: grid; gap: 4px; }
+.m-delegate-progress-bar { height: 6px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--m-ink) 8%, transparent); }
+.m-delegate-progress-bar i { display: block; height: 100%; border-radius: 999px; background: var(--m-indigo); transition: width 240ms ease; }
+.m-delegate-progress span { color: var(--m-muted); font-size: 9px; text-align: right; }
+.m-delegate-error { margin: 0; color: var(--m-danger); font-size: 10px; }
 .m-refinement-diff { margin-top: 8px; overflow: hidden; border: 1px solid var(--m-line); border-radius: 12px; }
 .m-refinement-diff > div { min-height: 47px; padding: 9px; display: grid; grid-template-columns: 78px 1fr; align-items: center; gap: 8px; border-bottom: 1px solid var(--m-line); }
 .m-refinement-diff span { color: var(--m-sage); font-size: 8px; }

@@ -107,6 +107,90 @@
   background: #ecdfcc;
 }
 
+.device-pairing-fungwire {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #f7f2ea;
+}
+
+.device-pairing-fungwire-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.device-pairing-fungwire-header strong {
+  display: block;
+  font-size: 13px;
+}
+
+.device-pairing-fungwire-header small {
+  display: block;
+  margin-top: 2px;
+  color: #5f6268;
+  font-size: 11px;
+}
+
+.device-pairing-fungwire-switch {
+  flex-shrink: 0;
+  width: 42px;
+  height: 24px;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  border: none;
+  border-radius: 999px;
+  background: #ded2bc;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+.device-pairing-fungwire-switch:disabled {
+  cursor: default;
+  opacity: .6;
+}
+.device-pairing-fungwire-switch i {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fffdf8;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .16);
+  transition: transform 160ms ease;
+}
+.device-pairing-fungwire-switch.is-on {
+  background: #3f7a52;
+}
+.device-pairing-fungwire-switch.is-on i {
+  transform: translateX(18px);
+}
+
+.device-pairing-fungwire-status {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  border-top: 1px solid rgba(32, 35, 40, .1);
+}
+.device-pairing-fungwire-status div {
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+.device-pairing-fungwire-status dt {
+  color: #5f6268;
+  font-size: 10px;
+}
+.device-pairing-fungwire-status dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
 .device-pairing-start {
   display: inline-flex;
   align-items: center;
@@ -230,6 +314,30 @@
 .theme-dark .device-pairing-error {
   background: rgba(240, 170, 160, .15);
   color: #f0aaa0;
+}
+.theme-dark .device-pairing-fungwire {
+  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+}
+.theme-dark .device-pairing-fungwire-header small {
+  color: #9b9386;
+}
+.theme-dark .device-pairing-fungwire-switch {
+  background: #443e35;
+}
+.theme-dark .device-pairing-fungwire-switch.is-on {
+  background: #9fbaad;
+}
+.theme-dark .device-pairing-fungwire-switch i {
+  background: #f3efe7;
+}
+.theme-dark .device-pairing-fungwire-status {
+  border-top-color: rgba(255, 255, 255, .11);
+}
+.theme-dark .device-pairing-fungwire-status dt {
+  color: #9b9386;
+}
+.theme-dark .device-pairing-fungwire-status dd {
+  color: #f3efe7;
 }
 
 @media (max-width: 620px) {

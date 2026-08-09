@@ -23,6 +23,19 @@ type PairingState =
 
 const DEVICE_ID_KEY = "fung.device.id";
 const POLL_MS = 2000;
+// Republish the LAN endpoint at this cadence while FUNGWIRE is enabled, so a
+// DHCP-reassigned IP (or a server rebind after this desktop restarts) never
+// leaves mobile with a stale `devices.lan_endpoint` for longer than this.
+const FUNGWIRE_PUBLISH_MS = 60_000;
+
+interface FungwireStatus {
+  enabled: boolean;
+  bind: string | null;
+  activeJobs: number;
+  connectedPeers: number;
+}
+
+const FUNGWIRE_STATUS_IDLE: FungwireStatus = { enabled: false, bind: null, activeJobs: 0, connectedPeers: 0 };
 
 interface DevicePairingPanelProps {
   onClose?: () => void;
@@ -41,6 +54,11 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
   const [creating, setCreating] = useState(false);
   const pollTimer = useRef<number | null>(null);
 
+  const [fungwireStatus, setFungwireStatus] = useState<FungwireStatus>(FUNGWIRE_STATUS_IDLE);
+  const [fungwireBusy, setFungwireBusy] = useState(false);
+  const [fungwireError, setFungwireError] = useState<string | null>(null);
+  const fungwirePublishTimer = useRef<number | null>(null);
+
   const refreshLocal = useCallback(async () => {
     try {
       setPaired(await invoke<PairedDeviceRow[]>("paired_device_list"));
@@ -52,6 +70,72 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
   useEffect(() => {
     void refreshLocal();
   }, [refreshLocal]);
+
+  // Reads this desktop's currently-bound LAN endpoint (Task 9's
+  // `fungwire_local_endpoint`) and writes it into this device's own
+  // Supabase `devices` row so a paired mobile can resolve it later — this
+  // session only ever updates its own row (found via DEVICE_ID_KEY), never
+  // another device's. A missing endpoint (server not actually bound, or no
+  // routable LAN IP) is a silent no-op rather than an error.
+  const publishFungwireEndpoint = useCallback(async () => {
+    const myDeviceId = localStorage.getItem(DEVICE_ID_KEY);
+    if (!myDeviceId) return;
+    try {
+      const endpoint = await invoke<string | null>("fungwire_local_endpoint");
+      if (!endpoint) return;
+      const { error } = await supabase
+        .from("devices")
+        .update({ lan_endpoint: endpoint, lan_endpoint_updated_at: new Date().toISOString() })
+        .eq("id", myDeviceId);
+      if (error) console.error("Failed to publish FUNGWIRE endpoint:", error);
+    } catch (e) {
+      console.error("Failed to read FUNGWIRE local endpoint:", e);
+    }
+  }, []);
+
+  const stopFungwirePublishing = useCallback(() => {
+    if (fungwirePublishTimer.current) {
+      window.clearInterval(fungwirePublishTimer.current);
+      fungwirePublishTimer.current = null;
+    }
+  }, []);
+
+  const startFungwirePublishing = useCallback(() => {
+    stopFungwirePublishing();
+    void publishFungwireEndpoint();
+    fungwirePublishTimer.current = window.setInterval(() => void publishFungwireEndpoint(), FUNGWIRE_PUBLISH_MS);
+  }, [publishFungwireEndpoint, stopFungwirePublishing]);
+
+  // Pick up an already-running server from an earlier mount of this panel
+  // (the Tauri-side server lives for the app's process lifetime, not this
+  // component's) and resume endpoint publishing if so. Cleans up the
+  // publish interval on unmount either way.
+  useEffect(() => {
+    void invoke<FungwireStatus>("fungwire_status")
+      .then((status) => {
+        setFungwireStatus(status);
+        if (status.enabled) startFungwirePublishing();
+      })
+      .catch((e) => console.error("Failed to read FUNGWIRE status:", e));
+    return () => stopFungwirePublishing();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only probe of server state that already exists independently of this component
+  }, []);
+
+  const toggleFungwire = useCallback(async () => {
+    setFungwireBusy(true);
+    setFungwireError(null);
+    try {
+      const status = await invoke<FungwireStatus>("fungwire_server_set_enabled", { enabled: !fungwireStatus.enabled });
+      setFungwireStatus(status);
+      if (status.enabled) startFungwirePublishing();
+      else stopFungwirePublishing();
+    } catch (e) {
+      console.error("Failed to toggle FUNGWIRE server:", e);
+      setFungwireError("เปิด/ปิดการเชื่อมต่อไม่สำเร็จ");
+    } finally {
+      setFungwireBusy(false);
+    }
+  }, [fungwireStatus.enabled, startFungwirePublishing, stopFungwirePublishing]);
 
   // Revocation propagation: verify each local peer still exists in the cloud.
   // Guarded on an active session so a logged-out or different-account state
@@ -292,6 +376,34 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
           </li>
         ))}
       </ul>
+
+      <section className="device-pairing-fungwire" aria-label="การเชื่อมต่อ FUNGWIRE">
+        <div className="device-pairing-fungwire-header">
+          <div>
+            <strong>การเชื่อมต่อ FUNGWIRE</strong>
+            <small>เปิดให้มือถือส่งงานมาประมวลผล</small>
+          </div>
+          <button
+            type="button"
+            className={`device-pairing-fungwire-switch ${fungwireStatus.enabled ? "is-on" : ""}`}
+            role="switch"
+            aria-checked={fungwireStatus.enabled}
+            aria-label="เปิด/ปิด FUNGWIRE"
+            onClick={() => void toggleFungwire()}
+            disabled={fungwireBusy}
+          >
+            <i />
+          </button>
+        </div>
+        {fungwireStatus.enabled && (
+          <dl className="device-pairing-fungwire-status">
+            <div><dt>ที่อยู่ในเครือข่าย</dt><dd>{fungwireStatus.bind ?? "ไม่ทราบ"}</dd></div>
+            <div><dt>งานที่กำลังทำ</dt><dd>{fungwireStatus.activeJobs}</dd></div>
+            <div><dt>อุปกรณ์ที่เชื่อมต่อ</dt><dd>{fungwireStatus.connectedPeers}</dd></div>
+          </dl>
+        )}
+        {fungwireError && <p className="device-pairing-error">{fungwireError}</p>}
+      </section>
 
       {pairing.kind === "waiting" ? (
         <div className="device-pairing-code-box">

@@ -22,24 +22,26 @@
 //! now"), `own_device_id` is accepted as an explicit parameter on both
 //! `fungwire_desktop_reachable` and `fungwire_delegate_transcription`.
 //!
-//! ## Resume across reconnects: a known Task 7 limitation
-//! `Control::JobStart.resume_from_seq` is threaded through faithfully here
-//! (computed as `last_acked_seq + 1` and only the not-yet-acked segments are
-//! resent), but `fungwire_server::receive_and_transcribe` does not actually
-//! implement cross-connection resume: every new TCP connection starts a
-//! brand-new job context (`run_job_loop` -> fresh `receive_and_transcribe`
-//! call, fresh temp dir) that unconditionally waits for exactly
-//! `segment_count` `Chunk` messages, regardless of `resume_from_seq`. A
-//! reconnect that resends fewer than `segment_count` chunks will make the
-//! *server* block on `recv_control()` until its 60s read timeout, not fail
-//! fast. This module still implements the client side of the intended
-//! protocol (so it is correct against a server that does honor
-//! `resume_from_seq`), but a real mid-transfer reconnect against *this
-//! repo's* Task 7 server only actually completes if the drop happens before
-//! any chunk was acknowledged (`last_acked_seq == -1`, so `resume_from_seq
-//! == 0` resends everything). The resume-offset arithmetic itself is
-//! covered by a pure unit test independent of that limitation.
-//! independent of that limitation.
+//! ## Resume across reconnects
+//! `Control::JobStart.resume_from_seq` is computed as `last_acked_seq + 1`
+//! and only the not-yet-acked segments (`seq >= resume_from_seq`) are
+//! resent. `fungwire_server::receive_and_transcribe` honors this: it keeps a
+//! per-`job_id` directory that persists across connections (rather than
+//! deleting it on every disconnect), reloads and re-verifies segments
+//! `0..resume_from_seq` from that directory, and only waits for `Chunk`s in
+//! `resume_from_seq..segment_count` — so a genuine mid-transfer reconnect
+//! (`last_acked_seq >= 0`) resumes for real instead of silently blocking
+//! until the server's 60s read timeout. See
+//! `fungwire_server::receive_and_transcribe`'s doc comment for the worker
+//! side of this contract.
+//!
+//! If the worker's persisted state and this client's `resume_from_seq` have
+//! diverged (e.g. the worker's job dir was lost between connections), it
+//! answers with `Control::Error{code: "resume_gap"}` instead of hanging;
+//! `run_transfer` treats that the same as a transport error except that it
+//! also resets `last_acked_seq` to `-1` first, so the next attempt restarts
+//! the whole job from seq 0 rather than repeating a resume that can never
+//! succeed.
 
 use crate::device_identity::{x25519_public_from_ed25519_b64, x25519_static_secret_in_dir};
 use crate::fungwire::{
@@ -408,9 +410,14 @@ fn write_transcript_and_complete(
 /// handshake + JobStart + chunk streaming + result wait).
 enum AttemptOutcome {
     Completed(Vec<Segment>),
-    /// The peer answered with `Control::Error` — a terminal, protocol-level
-    /// failure (bad manifest, checksum mismatch, unsupported op, ...).
-    /// Retrying the same job against the same peer will not help.
+    /// The peer answered with `Control::Error` — normally a terminal,
+    /// protocol-level failure (bad manifest, checksum mismatch, unsupported
+    /// op, ...) that retrying the same job against the same peer will not
+    /// fix. The one exception `run_transfer` special-cases is
+    /// `code == "resume_gap"`: the worker's persisted state and our
+    /// `resume_from_seq` have diverged, so that case is handled like a
+    /// transport error but additionally resets `last_acked_seq` to restart
+    /// the whole job from seq 0.
     ServerError(String, String),
     /// Anything below the protocol layer: connect failure, handshake
     /// failure, io error, unexpected/missing control message, decode
@@ -618,6 +625,32 @@ fn run_transfer(
                     let _ = update_job(&storage, &ctx, "failed", 100, Some(&e));
                 }
                 return;
+            }
+            AttemptOutcome::ServerError(code, message) if code == "resume_gap" => {
+                // The worker's persisted job dir and our idea of
+                // "already acked" have diverged (e.g. its dir was lost
+                // between connections). There is no partial recovery from
+                // this: reset to seq 0 and retry under the same
+                // reconnect/backoff budget as a transport error, so a
+                // permanently confused peer still gives up eventually
+                // instead of looping forever.
+                last_acked = -1;
+                reconnect_attempts += 1;
+                if reconnect_attempts > MAX_RECONNECT_ATTEMPTS {
+                    let _ = update_job(
+                        &storage,
+                        &ctx,
+                        "failed",
+                        0,
+                        Some(&format!(
+                            "unreachable after {reconnect_attempts} reconnect attempts: {code}: {message}"
+                        )),
+                    );
+                    mark_peer_unreachable(&storage, &desktop_device_id);
+                    return;
+                }
+                thread::sleep(backoff_delay(reconnect_attempts));
+                // Loop back and try again from seq 0.
             }
             AttemptOutcome::ServerError(code, message) => {
                 let _ = update_job(
@@ -1133,9 +1166,10 @@ mod tests {
 
     /// Pure unit test for the resume-offset arithmetic used on every
     /// reconnect: `resume_from_seq` is always `last_acked_seq + 1`,
-    /// independent of any networking (see the module doc comment for why a
-    /// true mid-transfer resume can't be demonstrated end-to-end against
-    /// this repo's Task 7 server).
+    /// independent of any networking. The true end-to-end K>0 case (a real
+    /// mid-transfer drop after at least one segment is acked, followed by a
+    /// genuine resume) is covered against the real worker in
+    /// `fungwire_server::tests::resume_from_seq_reloads_persisted_segments_after_reconnect_and_completes`.
     #[test]
     fn resume_offset_is_last_acked_plus_one() {
         let mut last_acked: i64 = -1;
@@ -1151,10 +1185,12 @@ mod tests {
     /// acknowledged, so `last_acked_seq` stays at -1 / `resume_from_seq ==
     /// 0`). The client must detect the transport error, back off, reconnect,
     /// resend the whole job from scratch on the second attempt, and still
-    /// reach `completed` — proving the reconnect-with-backoff loop and the
-    /// resume-offset computation are wired together correctly for the case
-    /// this server implementation can actually satisfy (see module doc
-    /// comment on the cross-connection resume limitation).
+    /// reach `completed` — the K=0 edge of the reconnect-with-backoff loop.
+    /// The K>0 case (a real mid-transfer resume after at least one segment
+    /// is genuinely acked) is covered in
+    /// `fungwire_server::tests::resume_from_seq_reloads_persisted_segments_after_reconnect_and_completes`,
+    /// which drives the wire protocol directly against the real worker so
+    /// it can force the drop at an exact `last_acked_seq`.
     #[test]
     fn delegate_transcription_reconnects_after_early_drop_and_completes() {
         let mobile_dir = tempfile::tempdir().unwrap();
@@ -1231,6 +1267,89 @@ mod tests {
         );
 
         server_thread.join().unwrap().ok();
+        drop(mobile_storage);
+        let _ = std::fs::remove_dir_all(genesis_path);
+    }
+
+    /// After the retry budget is exhausted (`MAX_RECONNECT_ATTEMPTS`
+    /// reconnects, i.e. `MAX_RECONNECT_ATTEMPTS + 1` total failed attempts),
+    /// `run_transfer` must mark the `delegated_jobs` row `failed` AND flip
+    /// the peer's `paired_devices.trust_state` to `"unreachable"` on the
+    /// mobile side (brief step 2.3 — previously untested). Every connection
+    /// attempt fails immediately with "connection refused" (the port is
+    /// bound then dropped before any client ever connects, same trick as
+    /// `closed_port_is_not_reachable`), so this exercises the
+    /// exhausted-retries path end-to-end without needing a real or fake
+    /// server on the other end.
+    #[test]
+    fn exhausted_reconnects_marks_job_failed_and_peer_unreachable() {
+        let mobile_dir = tempfile::tempdir().unwrap();
+        let desktop_dir = tempfile::tempdir().unwrap();
+        let segment_dir = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(mobile_dir.path()).unwrap();
+        ensure_identity_in_dir(desktop_dir.path()).unwrap();
+        let (genesis_path, mobile_storage) = open_genesis();
+        let mobile_storage = Arc::new(mobile_storage);
+
+        pair_desktop_on_mobile(&mobile_storage, "desktop-unreachable", desktop_dir.path());
+        seed_recording_with_segments(
+            &mobile_storage,
+            "proj-unreachable",
+            "rec-unreachable",
+            segment_dir.path(),
+            &[512],
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let job_id = delegate_transcription_inner(
+            mobile_storage.clone(),
+            mobile_dir.path().to_path_buf(),
+            "proj-unreachable".to_string(),
+            "rec-unreachable".to_string(),
+            "desktop-unreachable".to_string(),
+            addr.to_string(),
+            "mobile-unreachable".to_string(),
+        )
+        .expect("delegate transcription");
+
+        let mut final_state = String::new();
+        for _ in 0..150 {
+            let poll = job_poll_inner(&mobile_storage, &job_id).expect("poll job");
+            if poll.state == "completed" || poll.state == "failed" {
+                final_state = poll.state;
+                break;
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+        assert_eq!(
+            final_state, "failed",
+            "job must fail once the reconnect budget is exhausted"
+        );
+
+        let rows = crate::genesis_adapter::query(
+            &mobile_storage,
+            "paired_devices",
+            &["trust_state"],
+            vec![crate::genesis_adapter::eq(
+                "paired_devices",
+                "id",
+                json!("desktop-unreachable"),
+            )],
+            1,
+        )
+        .expect("query paired_devices");
+        let trust_state = rows[0]
+            .get("paired_devices.trust_state")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert_eq!(
+            trust_state, "unreachable",
+            "peer must be flipped to unreachable after exhausting the retry budget"
+        );
+
         drop(mobile_storage);
         let _ = std::fs::remove_dir_all(genesis_path);
     }

@@ -232,18 +232,40 @@ enum JobFailure {
     Failed(String, String),
 }
 
-/// RAII guard: whatever happens inside `receive_and_transcribe` (success,
-/// transport error, checksum mismatch, transcription failure, or a mid-job
-/// `Cancel`), the per-job temp directory under `app_data/fungwire/<job_id>/`
-/// is removed when the guard drops — i.e. on every return path, not just the
-/// happy one.
-struct TempJobDir<'a>(&'a Path);
-
-impl Drop for TempJobDir<'_> {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(self.0);
-    }
+/// Per-job directory that PERSISTS across connections (unlike a temp-dir
+/// RAII guard that deletes on every drop): a mid-transfer disconnect / read
+/// timeout must leave already-received segments on disk so a later
+/// reconnect's `resume_from_seq` has something to load. Cleanup is therefore
+/// explicit, not automatic — call [`cleanup_job_dir`] only at the specific
+/// points in `run_job_loop` where the job has reached a state from which no
+/// future connection can meaningfully resume: a `Result` was produced, a
+/// terminal `Error` (see [`TERMINAL_JOB_ERROR_CODES`]), or a `Cancel`.
+fn job_dir_path(app_data: &Path, job_id: &str) -> PathBuf {
+    app_data.join("fungwire").join("jobs").join(job_id)
 }
+
+fn cleanup_job_dir(job_dir: &Path) {
+    let _ = fs::remove_dir_all(job_dir);
+}
+
+/// `JobFailure::Failed` codes after which resuming from the persisted job
+/// dir can never succeed, so it must be deleted immediately instead of kept
+/// around for a reconnect: the manifest itself is inconsistent
+/// (`manifest_mismatch`), a segment's bytes don't match its declared
+/// checksum (`checksum_mismatch`), a chunk declared an impossible length
+/// (`chunk_length`), transcription itself failed (`transcribe_failed`), or
+/// the worker's on-disk state and the client's `resume_from_seq` have
+/// diverged (`resume_gap` — see `receive_and_transcribe`'s preload loop).
+/// Everything else (`transport_error`, `unexpected_control`, `bad_seq`,
+/// `io_error`, ...) is treated as potentially transient: the directory is
+/// left in place so the next connection can resume.
+const TERMINAL_JOB_ERROR_CODES: &[&str] = &[
+    "manifest_mismatch",
+    "checksum_mismatch",
+    "chunk_length",
+    "transcribe_failed",
+    "resume_gap",
+];
 
 /// Real job loop: exchanges `Heartbeat`/`JobStart`/`Cancel` control messages
 /// with an already-authenticated peer until it disconnects. Only
@@ -279,6 +301,7 @@ pub(crate) fn run_job_loop(
                 segment_count,
                 profile,
                 checksums,
+                resume_from_seq,
                 ..
             } => {
                 if operation != "transcript.transcribe" {
@@ -292,38 +315,52 @@ pub(crate) fn run_job_loop(
                     continue;
                 }
 
+                let job_dir = job_dir_path(app_data, &job_id);
                 jobs.fetch_add(1, Ordering::SeqCst);
                 let outcome = receive_and_transcribe(
                     channel,
                     runtime,
-                    app_data,
+                    &job_dir,
                     &job_id,
                     &expected_manifest_hash,
                     &checksums,
                     segment_count,
+                    resume_from_seq,
                     &profile,
                 );
                 jobs.fetch_sub(1, Ordering::SeqCst);
 
                 match outcome {
                     Ok((duration_ms, segments)) => {
-                        channel
-                            .send(&Control::Result {
-                                job_id,
-                                duration_ms,
-                                segments,
-                            })
-                            .map_err(|e| e.to_string())?;
+                        // The job is genuinely done regardless of whether
+                        // this final send succeeds, so clean up before
+                        // propagating a possible transport error from it —
+                        // otherwise a dead peer that never reads the Result
+                        // would leave a completed job's directory behind
+                        // forever.
+                        let send_result = channel.send(&Control::Result {
+                            job_id: job_id.clone(),
+                            duration_ms,
+                            segments,
+                        });
+                        cleanup_job_dir(&job_dir);
+                        send_result.map_err(|e| e.to_string())?;
                     }
-                    Err(JobFailure::Cancelled) => return Ok(()),
+                    Err(JobFailure::Cancelled) => {
+                        cleanup_job_dir(&job_dir);
+                        return Ok(());
+                    }
                     Err(JobFailure::Failed(code, message)) => {
-                        channel
-                            .send(&Control::Error {
-                                job_id,
-                                code,
-                                message,
-                            })
-                            .map_err(|e| e.to_string())?;
+                        let terminal = TERMINAL_JOB_ERROR_CODES.contains(&code.as_str());
+                        let send_result = channel.send(&Control::Error {
+                            job_id: job_id.clone(),
+                            code,
+                            message,
+                        });
+                        if terminal {
+                            cleanup_job_dir(&job_dir);
+                        }
+                        send_result.map_err(|e| e.to_string())?;
                     }
                 }
             }
@@ -333,10 +370,27 @@ pub(crate) fn run_job_loop(
     }
 }
 
-/// Receives `segment_count` chunks for one job, verifies them against the
-/// manifest, transcribes each segment separately, and returns the combined
-/// result. Every return path (including `?`/early returns on error or
-/// cancel) drops `_cleanup`, deleting the job's temp directory.
+/// Receives the not-yet-acked chunks for one job (`resume_from_seq..
+/// segment_count`; segments `0..resume_from_seq` are reloaded from
+/// `job_dir`, which persists across connections — see [`job_dir_path`]),
+/// verifies everything against the manifest, transcribes each segment
+/// separately, and returns the combined result. Cleanup of `job_dir` is the
+/// caller's (`run_job_loop`'s) responsibility, not this function's — see
+/// [`TERMINAL_JOB_ERROR_CODES`] for which outcomes warrant it.
+///
+/// ## Resume (`resume_from_seq`)
+/// The client computes `resume_from_seq = last_acked_seq + 1` and, on a
+/// reconnect, sends `Chunk`s only for `seq >= resume_from_seq` (see
+/// `fungwire_client::attempt_transfer`). So that the worker's expectations
+/// match, segments `0..resume_from_seq` are loaded back from
+/// `job_dir/segment-<seq>.m4a` (written by a *previous* connection's call to
+/// this function against the same `job_id`) and re-verified against
+/// `checksums[seq]` before the receive loop below ever runs. If any of those
+/// files is missing or fails its checksum, the worker's persisted state and
+/// the client's `resume_from_seq` have diverged — there is no safe partial
+/// recovery, so this returns `Error{code:"resume_gap"}` and the client is
+/// expected to restart the whole job from seq 0 (see
+/// `fungwire_client::run_transfer`'s handling of that code).
 ///
 /// ## Chunk reassembly
 /// The sender splits each segment into ≤`NOISE_MAX_PLAINTEXT`-byte
@@ -377,11 +431,12 @@ pub(crate) fn run_job_loop(
 fn receive_and_transcribe(
     channel: &mut NoiseChannel<TcpStream>,
     runtime: &WhisperRuntime,
-    app_data: &Path,
+    job_dir: &Path,
     job_id: &str,
     expected_manifest_hash: &str,
     checksums: &[String],
     segment_count: u32,
+    resume_from_seq: u32,
     profile: &str,
 ) -> Result<(i64, Vec<Segment>), JobFailure> {
     if checksums.len() != segment_count as usize {
@@ -399,16 +454,46 @@ fn receive_and_transcribe(
             "JobStart checksums do not hash to its own manifest_hash".into(),
         ));
     }
+    if resume_from_seq > segment_count {
+        return Err(JobFailure::Failed(
+            "resume_gap".into(),
+            format!("resume_from_seq {resume_from_seq} exceeds segment_count {segment_count}"),
+        ));
+    }
 
-    let job_dir = app_data.join("fungwire").join(job_id);
-    fs::create_dir_all(&job_dir)
-        .map_err(|e| JobFailure::Failed("io_error".into(), format!("temp dir: {e}")))?;
-    let _cleanup = TempJobDir(&job_dir);
+    fs::create_dir_all(job_dir)
+        .map_err(|e| JobFailure::Failed("io_error".into(), format!("job dir: {e}")))?;
 
     let mut received_checksums: Vec<Option<String>> = vec![None; segment_count as usize];
     let mut seg_paths: Vec<Option<PathBuf>> = vec![None; segment_count as usize];
 
-    for _ in 0..segment_count {
+    // Preload segments 0..resume_from_seq from the persistent job dir (see
+    // the doc comment above): these were already accepted and acked on a
+    // prior connection, so the client will not resend them.
+    for seq in 0..resume_from_seq {
+        let idx = seq as usize;
+        let seg_path = job_dir.join(format!("segment-{seq}.m4a"));
+        let bytes = match fs::read(&seg_path) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return Err(JobFailure::Failed(
+                    "resume_gap".into(),
+                    format!("segment {seq} missing from persisted job dir ({e}); client must restart from seq 0"),
+                ))
+            }
+        };
+        let digest: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+        if checksums[idx] != digest {
+            return Err(JobFailure::Failed(
+                "resume_gap".into(),
+                format!("segment {seq} on disk does not match manifest checksum; client must restart from seq 0"),
+            ));
+        }
+        received_checksums[idx] = Some(digest);
+        seg_paths[idx] = Some(seg_path);
+    }
+
+    for _ in resume_from_seq..segment_count {
         let control = channel
             .recv_control()
             .map_err(|e| JobFailure::Failed("transport_error".into(), e.to_string()))?;
@@ -941,10 +1026,10 @@ mod tests {
             "job loop should send Error and exit cleanly: {result:?}"
         );
 
-        let job_dir = server_app_data.path().join("fungwire").join("job-oversized");
+        let job_dir = job_dir_path(server_app_data.path(), "job-oversized");
         assert!(
             !job_dir.exists(),
-            "temp dir must be cleaned up after an oversized-chunk rejection"
+            "job dir must be cleaned up after an oversized-chunk rejection (terminal error)"
         );
     }
 
@@ -1013,10 +1098,270 @@ mod tests {
             "cancel mid-transfer should end the loop cleanly: {result:?}"
         );
 
-        let job_dir = server_app_data.path().join("fungwire").join("job-cancel");
+        let job_dir = job_dir_path(server_app_data.path(), "job-cancel");
         assert!(
             !job_dir.exists(),
-            "temp dir must be cleaned up after a mid-transfer cancel"
+            "job dir must be cleaned up after a mid-transfer cancel"
+        );
+    }
+
+    /// True K>0 resume across a real reconnect: the first connection is
+    /// driven (by hand, as initiator) through `JobStart{resume_from_seq: 0}`
+    /// and Chunks for segments 0 and 1 — so `last_acked_seq` genuinely
+    /// reaches 1 (K=1), not -1 — and is then dropped *before* segment 2 is
+    /// sent, exercising the real `receive_and_transcribe` on a live
+    /// `TcpStream` via `handle_connection`. That first connection must end
+    /// in an error (its peer vanished mid-wait for the next Chunk) but must
+    /// leave segments 0 and 1 persisted under the job's directory. A second
+    /// connection then resumes with `JobStart{resume_from_seq: 2}` against
+    /// the *same* `job_id` and `app_data`: the worker must reload segments 0
+    /// and 1 from disk (re-verifying their checksums), receive only segment
+    /// 2 over the wire, and still produce a `Result` covering all three
+    /// segments — proving the persistent per-job directory survives a
+    /// connection drop and `resume_from_seq` is honored end-to-end, not
+    /// ignored. Segment 1 is 70,000 bytes (> `NOISE_MAX_PLAINTEXT`), so both
+    /// the original receive and the resumed reload must handle a
+    /// multi-sub-frame / on-disk segment correctly.
+    #[test]
+    fn resume_from_seq_reloads_persisted_segments_after_reconnect_and_completes() {
+        let server_app_data = tempfile::tempdir().unwrap();
+        let client_app_data = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(server_app_data.path()).unwrap();
+        ensure_identity_in_dir(client_app_data.path()).unwrap();
+        pair_device(server_app_data.path(), "device-resume-k", client_app_data.path());
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let job_id = "job-resume-k";
+
+        let checksum_of = |bytes: &[u8]| -> String {
+            Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+        };
+        let seg0: Vec<u8> = (0..1024u32).map(|i| (i % 256) as u8).collect();
+        let seg1: Vec<u8> = (0..70_000u32).map(|i| ((i * 3) % 256) as u8).collect();
+        let seg2: Vec<u8> = (0..2048u32).map(|i| ((i * 7) % 256) as u8).collect();
+        assert!(seg1.len() > crate::fungwire::NOISE_MAX_PLAINTEXT);
+        let checksums = vec![checksum_of(&seg0), checksum_of(&seg1), checksum_of(&seg2)];
+        let manifest = manifest_hash(&checksums);
+
+        let server_app_data_path = server_app_data.path().to_path_buf();
+        let server_thread = thread::spawn(move || {
+            // First connection: real `handle_connection`, but the peer
+            // vanishes before segment 2, so this must end in an error while
+            // leaving the job dir's already-accepted segments on disk.
+            let (_genesis_path1, storage1) = open_genesis();
+            let jobs1 = Arc::new(AtomicUsize::new(0));
+            let runtime1 = test_whisper_runtime();
+            let (stream1, _) = listener.accept().unwrap();
+            let first_result =
+                handle_connection(stream1, &storage1, &server_app_data_path, &runtime1, &jobs1);
+            assert!(
+                first_result.is_err(),
+                "first connection must end in a transport error once the peer drops mid-transfer"
+            );
+
+            // Second connection: real `handle_connection` again, same
+            // app_data/job_id, must resume and complete for real.
+            let (_genesis_path2, storage2) = open_genesis();
+            let jobs2 = Arc::new(AtomicUsize::new(0));
+            let runtime2 = test_whisper_runtime();
+            let (stream2, _) = listener.accept().unwrap();
+            handle_connection(stream2, &storage2, &server_app_data_path, &runtime2, &jobs2)
+        });
+
+        // --- First connection: seq 0 and seq 1 only, then drop. ---
+        let client_stream1 = TcpStream::connect(addr).unwrap();
+        let mut channel1 = initiator_handshake(
+            client_stream1,
+            "device-resume-k",
+            client_app_data.path(),
+            server_app_data.path(),
+        );
+        channel1
+            .send(&Control::JobStart {
+                job_id: job_id.into(),
+                operation: "transcript.transcribe".into(),
+                manifest_hash: manifest.clone(),
+                segment_count: 3,
+                total_bytes: (seg0.len() + seg1.len() + seg2.len()) as u64,
+                profile: "cpu".into(),
+                resume_from_seq: 0,
+                checksums: checksums.clone(),
+            })
+            .unwrap();
+
+        for (seq, bytes) in [(0u32, &seg0), (1u32, &seg1)] {
+            channel1
+                .send(&Control::Chunk {
+                    job_id: job_id.into(),
+                    seq,
+                    len: bytes.len() as u32,
+                })
+                .unwrap();
+            for part in bytes.chunks(crate::fungwire::NOISE_MAX_PLAINTEXT) {
+                channel1.send_bytes(part).unwrap();
+            }
+            match channel1.recv_control().unwrap() {
+                Control::ChunkAck { seq: acked, .. } => assert_eq!(acked, seq),
+                other => panic!("expected ChunkAck({seq}), got {other:?}"),
+            }
+            match channel1.recv_control().unwrap() {
+                Control::Progress { stage, .. } => assert_eq!(stage, "receiving"),
+                other => panic!("expected receiving Progress, got {other:?}"),
+            }
+        }
+
+        // K=1: last_acked_seq is genuinely 1 here. Drop before segment 2 —
+        // this is the real mid-transfer disconnect the fix is for.
+        drop(channel1);
+
+        // --- Second connection: resume from seq 2. ---
+        let client_stream2 = TcpStream::connect(addr).unwrap();
+        let mut channel2 = initiator_handshake(
+            client_stream2,
+            "device-resume-k",
+            client_app_data.path(),
+            server_app_data.path(),
+        );
+        channel2
+            .send(&Control::JobStart {
+                job_id: job_id.into(),
+                operation: "transcript.transcribe".into(),
+                manifest_hash: manifest.clone(),
+                segment_count: 3,
+                total_bytes: (seg0.len() + seg1.len() + seg2.len()) as u64,
+                profile: "cpu".into(),
+                resume_from_seq: 2,
+                checksums: checksums.clone(),
+            })
+            .unwrap();
+        channel2
+            .send(&Control::Chunk {
+                job_id: job_id.into(),
+                seq: 2,
+                len: seg2.len() as u32,
+            })
+            .unwrap();
+        for part in seg2.chunks(crate::fungwire::NOISE_MAX_PLAINTEXT) {
+            channel2.send_bytes(part).unwrap();
+        }
+
+        match channel2.recv_control().unwrap() {
+            Control::ChunkAck { seq, .. } => assert_eq!(seq, 2),
+            other => panic!("expected ChunkAck(2), got {other:?}"),
+        }
+        match channel2.recv_control().unwrap() {
+            Control::Progress { stage, percent, .. } => {
+                assert_eq!(stage, "receiving");
+                assert_eq!(percent, 100, "all 3 segments now accounted for");
+            }
+            other => panic!("expected receiving Progress, got {other:?}"),
+        }
+        // Transcription runs once per segment (3 segments total: 2 reloaded
+        // from disk + 1 received this connection).
+        for _ in 0..3 {
+            match channel2.recv_control().unwrap() {
+                Control::Progress { stage, .. } => assert_eq!(stage, "transcribing"),
+                other => panic!("expected transcribing Progress, got {other:?}"),
+            }
+        }
+        match channel2.recv_control().unwrap() {
+            Control::Result {
+                job_id: result_job_id,
+                duration_ms,
+                segments,
+            } => {
+                assert_eq!(result_job_id, job_id);
+                assert_eq!(duration_ms, 3000, "fake_transcribe.py returns 1000ms per segment call");
+                assert_eq!(segments.len(), 3, "all three segments must be transcribed");
+                assert_eq!(segments[0].start_ms, 0);
+                assert_eq!(segments[1].start_ms, 5000, "segment 1 offset by one 5s window");
+                assert_eq!(segments[2].start_ms, 10000, "segment 2 offset by two 5s windows");
+            }
+            other => panic!("expected Result, got {other:?}"),
+        }
+
+        drop(channel2);
+        let result = server_thread.join().unwrap();
+        assert!(result.is_ok(), "resumed job loop should exit cleanly: {result:?}");
+
+        let job_dir = job_dir_path(server_app_data.path(), job_id);
+        assert!(
+            !job_dir.exists(),
+            "job dir must be cleaned up after the job completes successfully"
+        );
+    }
+
+    /// A `resume_from_seq` that exceeds `segment_count` (here: claiming 5
+    /// already-acked segments against a brand-new job dir that has never
+    /// received a byte) must be rejected up front as `Error{code:
+    /// "resume_gap"}` rather than the worker trying to preload/read segments
+    /// that were never written and hanging or panicking. This is the
+    /// "worker's on-disk state and the client's resume_from_seq have
+    /// diverged" branch described on `receive_and_transcribe`'s doc comment.
+    #[test]
+    fn resume_from_seq_out_of_range_is_rejected_as_resume_gap() {
+        let server_app_data = tempfile::tempdir().unwrap();
+        let client_app_data = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(server_app_data.path()).unwrap();
+        ensure_identity_in_dir(client_app_data.path()).unwrap();
+        pair_device(server_app_data.path(), "device-resume-gap", client_app_data.path());
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (_genesis_path, storage) = open_genesis();
+        let jobs = Arc::new(AtomicUsize::new(0));
+        let runtime = test_whisper_runtime();
+
+        let server_app_data_path = server_app_data.path().to_path_buf();
+        let server_thread = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            handle_connection(stream, &storage, &server_app_data_path, &runtime, &jobs)
+        });
+
+        let client_stream = TcpStream::connect(addr).unwrap();
+        let mut channel = initiator_handshake(
+            client_stream,
+            "device-resume-gap",
+            client_app_data.path(),
+            server_app_data.path(),
+        );
+
+        // resume_from_seq (5) claims 5 already-acked segments exist on a
+        // brand-new job dir that has never seen a single byte -- the worker
+        // must reject this as a broken resume chain, not hang waiting for
+        // Chunks that will never come at the wrong offset.
+        let checksums = vec!["0".repeat(64); 5];
+        let manifest = manifest_hash(&checksums);
+        channel
+            .send(&Control::JobStart {
+                job_id: "job-resume-gap".into(),
+                operation: "transcript.transcribe".into(),
+                manifest_hash: manifest,
+                segment_count: 5,
+                total_bytes: 0,
+                profile: "cpu".into(),
+                resume_from_seq: 5,
+                checksums,
+            })
+            .unwrap();
+
+        match channel.recv_control().unwrap() {
+            Control::Error { job_id, code, .. } => {
+                assert_eq!(job_id, "job-resume-gap");
+                assert_eq!(code, "resume_gap");
+            }
+            other => panic!("expected Error{{code: resume_gap}}, got {other:?}"),
+        }
+
+        drop(channel);
+        let result = server_thread.join().unwrap();
+        assert!(result.is_ok(), "resume_gap should be sent and the loop exit cleanly: {result:?}");
+
+        let job_dir = job_dir_path(server_app_data.path(), "job-resume-gap");
+        assert!(
+            !job_dir.exists(),
+            "job dir must be cleaned up after a resume_gap rejection (terminal error)"
         );
     }
 }

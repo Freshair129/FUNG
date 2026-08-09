@@ -417,6 +417,35 @@ pub(crate) fn install(storage: &Storage) -> Result<(), String> {
     Ok(())
 }
 
+/// SQLite has no Json/Boolean storage classes, so the retired `fung.db`
+/// holds JSON as TEXT (`'[]'`, `'{}'`) and booleans as INTEGER 0/1. Genesis
+/// enforces column types strictly (REL_TYPE_MISMATCH), which made every
+/// legacy import crash the app at startup — the marker file was never
+/// written, so it crashed on every subsequent launch too. Convert values to
+/// the target column's type instead of passing raw SQLite storage through.
+fn coerce_legacy_value(value: Value, column_type: &RelationalColumnType) -> Value {
+    use RelationalColumnType::{Boolean, Integer, Json, Real};
+    match (column_type, value) {
+        (Json, Value::String(raw)) => {
+            serde_json::from_str::<Value>(&raw).unwrap_or(Value::String(raw))
+        }
+        (Boolean, Value::Number(number)) => {
+            json!(number.as_i64().map(|n| n != 0).unwrap_or(false))
+        }
+        (Boolean, Value::String(raw)) => json!(raw == "true" || raw == "1"),
+        (Real, Value::Number(number)) if number.is_i64() => {
+            json!(number.as_i64().map(|n| n as f64).unwrap_or(0.0))
+        }
+        (Integer, Value::Number(number)) if number.is_f64() => {
+            match number.as_f64() {
+                Some(float) if float.fract() == 0.0 => json!(float as i64),
+                _ => Value::Number(number),
+            }
+        }
+        (_, value) => value,
+    }
+}
+
 /// One-way compatibility import. The retired SQLite file is opened read-only;
 /// every imported row becomes a normal signed Genesis transaction.
 pub(crate) fn import_legacy_sqlite(storage: &Storage, path: &Path) -> Result<usize, String> {
@@ -448,7 +477,7 @@ pub(crate) fn import_legacy_sqlite(storage: &Storage, path: &Path) -> Result<usi
             let mut object = serde_json::Map::new();
             for (index, column) in columns.iter().enumerate() {
                 let value = match row.get_ref(index)? { ValueRef::Null => Value::Null, ValueRef::Integer(value) => json!(value), ValueRef::Real(value) => json!(value), ValueRef::Text(value) => Value::String(String::from_utf8_lossy(value).into_owned()), ValueRef::Blob(value) => Value::Array(value.iter().copied().map(Value::from).collect()) };
-                object.insert(column.name.clone(), value);
+                object.insert(column.name.clone(), coerce_legacy_value(value, &column.column_type));
             }
             if table.name == "mobile_recording_checkpoints" && !object.contains_key("id") { if let Some(value) = object.get("recording_id").cloned() { object.insert("id".to_string(), value); } }
             Ok(Value::Object(object))
@@ -937,6 +966,52 @@ mod tests {
         .unwrap();
         install(&storage).unwrap();
         (path, storage)
+    }
+
+    /// Reproduces the startup crash-loop: legacy SQLite stores JSON columns
+    /// as TEXT and booleans as INTEGER; before `coerce_legacy_value` the
+    /// import hit REL_TYPE_MISMATCH on the first jobs/model_providers row,
+    /// the completion marker was never written, and every launch re-crashed.
+    #[test]
+    fn legacy_import_coerces_text_json_and_integer_booleans() {
+        let sqlite_path = std::env::temp_dir().join(format!("fung-legacy-{}.db", Uuid::new_v4()));
+        let connection = Connection::open(&sqlite_path).unwrap();
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, storage_path TEXT NOT NULL,
+                    active_recording_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+                CREATE TABLE jobs (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, type TEXT NOT NULL,
+                    status TEXT NOT NULL, progress INTEGER NOT NULL, input_refs_json TEXT NOT NULL,
+                    output_refs_json TEXT NOT NULL, provider_id TEXT, error_code TEXT, error_message TEXT,
+                    attempt_no INTEGER NOT NULL, started_at TEXT, finished_at TEXT,
+                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+                CREATE TABLE model_providers (id TEXT PRIMARY KEY, label TEXT NOT NULL,
+                    runtime_location TEXT NOT NULL, kind TEXT NOT NULL, enabled INTEGER NOT NULL,
+                    config_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+                INSERT INTO projects VALUES ('p1', 'Legacy', 'C:/tmp', NULL, '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z');
+                INSERT INTO jobs VALUES ('j1', 'p1', 'transcript.transcribe', 'queued', 0, '["C:/a.wav"]', '[]',
+                    NULL, NULL, NULL, 1, NULL, NULL, '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z');
+                INSERT INTO model_providers VALUES ('ollama-summary-intent', 'Ollama', 'local', 'summary_intent',
+                    1, '{"endpoint":"http://127.0.0.1:11434"}', '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z');
+                "#,
+            )
+            .unwrap();
+        drop(connection);
+
+        let (genesis_path, storage) = open();
+        let imported = import_legacy_sqlite(&storage, &sqlite_path)
+            .expect("legacy import must survive TEXT json and INTEGER booleans");
+        assert!(imported >= 3, "expected all legacy rows to import, got {imported}");
+
+        let jobs = query(&storage, "jobs", &["id", "input_refs_json"], vec![], 10).unwrap();
+        assert_eq!(jobs.len(), 1);
+        let providers = query(&storage, "model_providers", &["id", "enabled", "config_json"], vec![], 10).unwrap();
+        assert_eq!(providers.len(), 1);
+
+        let _ = std::fs::remove_file(&sqlite_path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(genesis_path);
     }
 
     #[test]

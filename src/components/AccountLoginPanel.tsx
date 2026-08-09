@@ -1,12 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { LogIn, LogOut, MonitorSmartphone, RefreshCw } from "lucide-react";
+import { LogIn, LogOut, MonitorSmartphone, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
-import {
-  beginGoogleLogin,
-  beginLoopbackFallbackLogin,
-  listenForAuthCallback,
-} from "../lib/authFlow";
+import { beginLoopbackFallbackLogin, listenForAuthCallback } from "../lib/authFlow";
 import { invoke } from "@tauri-apps/api/core";
 import "./AccountLoginPanel.css";
 
@@ -15,17 +11,18 @@ interface DeviceIdentity {
   created: boolean;
 }
 
-const DEVICE_ID_KEY = "fung.device.id";
-const FALLBACK_DELAY_MS = 120_000;
+interface AccountLoginPanelProps {
+  onClose?: () => void;
+}
 
-export function AccountLoginPanel() {
+const DEVICE_ID_KEY = "fung.device.id";
+
+export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showFallback, setShowFallback] = useState(false);
   const [deviceLabel, setDeviceLabel] = useState("FUNG Desktop");
   const [registered, setRegistered] = useState(false);
-  const fallbackTimer = useRef<number | null>(null);
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
@@ -33,14 +30,11 @@ export function AccountLoginPanel() {
     let cleanup: (() => void) | undefined;
     void listenForAuthCallback((err) => {
       setBusy(false);
-      setShowFallback(false);
-      if (fallbackTimer.current) window.clearTimeout(fallbackTimer.current);
       setError(err ? `เข้าสู่ระบบไม่สำเร็จ: ${err}` : null);
     }).then((fn) => { cleanup = fn; });
     return () => {
       sub.subscription.unsubscribe();
       cleanup?.();
-      if (fallbackTimer.current) window.clearTimeout(fallbackTimer.current);
     };
   }, []);
 
@@ -101,19 +95,16 @@ export function AccountLoginPanel() {
     setBusy(true);
     setError(null);
     try {
-      await beginGoogleLogin();
-      fallbackTimer.current = window.setTimeout(() => setShowFallback(true), FALLBACK_DELAY_MS);
-    } catch (e) {
-      setBusy(false);
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, []);
-
-  const handleFallback = useCallback(async () => {
-    setError(null);
-    try {
+      // Loopback is the primary (and only) desktop login path: registering
+      // the fung:// scheme alone does not make Windows deliver deep links to
+      // this running instance — Windows spawns a fresh process for the
+      // custom-scheme URL instead, and forwarding it to the already-running
+      // app needs single-instance handling we're not adding this phase
+      // (backlog). The loopback HTTP listener works today, so use it
+      // directly instead of waiting on a deep link that will never arrive.
       await beginLoopbackFallbackLogin();
     } catch (e) {
+      setBusy(false);
       setError(e instanceof Error ? e.message : String(e));
     }
   }, []);
@@ -128,6 +119,11 @@ export function AccountLoginPanel() {
       <header className="account-login-header">
         <MonitorSmartphone size={18} />
         <h3>บัญชี FUNG</h3>
+        {onClose && (
+          <button type="button" className="account-login-close" onClick={onClose} aria-label="ปิด">
+            <X size={16} />
+          </button>
+        )}
       </header>
       {session ? (
         <div className="account-login-signed-in">
@@ -152,11 +148,6 @@ export function AccountLoginPanel() {
           <button type="button" className="account-login-btn" onClick={handleLogin} disabled={busy}>
             <LogIn size={15} /> {busy ? "รอการยืนยันในเบราว์เซอร์…" : "เข้าสู่ระบบด้วย Google"}
           </button>
-          {showFallback && (
-            <button type="button" className="account-login-btn account-login-btn-secondary" onClick={handleFallback}>
-              <RefreshCw size={15} /> ลองวิธีสำรอง (loopback)
-            </button>
-          )}
         </div>
       )}
       {error && <p className="account-login-error">{error}</p>}

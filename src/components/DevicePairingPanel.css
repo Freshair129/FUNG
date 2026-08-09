@@ -1,27 +1,19 @@
 /* src/components/DevicePairingPanel.css */
 
 /*
- * Mirrors AccountLoginPanel.css's approach: the component (Task 7 brief,
- * Step 1) is a single top-level <section> with no overlay/card wrapper and
- * no onClose prop. App.tsx renders it directly below AccountLoginPanel
- * inside the same "accountLoginPanelOpen" state, so it does not need its
- * own fixed/centered backdrop treatment — it simply sits as a second card
- * beneath the login panel's fixed, centered card. See DevicePairingPanel
- * rendering block for the stacking approach.
+ * Renders as a plain card, not its own fixed overlay. App.tsx stacks this
+ * panel together with AccountLoginPanel inside one shared backdrop
+ * (".account-login-overlay" / ".account-login-stack", defined in
+ * AccountLoginPanel.css) so there is exactly one backdrop below both panels
+ * and neither one can paint over or block clicks on the other (C2 +
+ * tracked-#2).
  */
 .device-pairing-panel {
-  position: fixed;
-  left: 50%;
-  top: calc(50% + 200px);
-  transform: translate(-50%, 0);
-  width: min(520px, 90vw);
-  z-index: 199;
+  width: 100%;
   background: #fffdf8;
   border: 1px solid rgba(32, 35, 40, .12);
   border-radius: 20px;
   padding: 28px 32px;
-  max-height: 60vh;
-  overflow-y: auto;
   color: #191a1d;
   box-shadow: 0 28px 70px rgba(25, 26, 29, .3);
 }
@@ -36,6 +28,23 @@
 .device-pairing-header h3 {
   font-size: 18px;
   margin: 0;
+}
+
+.device-pairing-close {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: #f0e8dc;
+  color: #5f6268;
+  cursor: pointer;
+  padding: 0;
+}
+.device-pairing-close:hover {
+  background: #ecdfcc;
 }
 
 .device-pairing-list {
@@ -176,6 +185,8 @@
   border-color: rgba(255, 255, 255, .11);
   box-shadow: 0 28px 70px rgba(0, 0, 0, .5);
 }
+.theme-dark .device-pairing-close { background: #2f2b25; color: #c3bbad; }
+.theme-dark .device-pairing-close:hover { background: #443e35; }
 .theme-dark .device-pairing-empty,
 .theme-dark .device-pairing-item {
   background: linear-gradient(145deg, #2f2b25, #1d1b18);
@@ -223,13 +234,6 @@
 
 @media (max-width: 620px) {
   .device-pairing-panel {
-    left: 50%;
-    top: auto;
-    bottom: 12px;
-    transform: translate(-50%, 0);
     border-radius: 18px;
-    width: calc(100% - 24px);
-    max-width: none;
-    max-height: 50vh;
   }
 }

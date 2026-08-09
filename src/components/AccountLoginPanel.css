@@ -1,43 +1,42 @@
 /* src/components/AccountLoginPanel.css */
 
 /*
- * The component (Task 6 brief, Step 1) is a single top-level <section> with
- * no separate overlay/card wrapper and no onClose prop — unlike
- * ExternalAccountPanel / TtsProviderPanel, which render a fixed ".*-overlay"
- * div around an inner card. To keep the given component code untouched while
- * still surfacing it as a centered, dismissable-by-toggle panel (see App.tsx
- * wiring notes in task-6-report.md), the overlay + card styling is folded
- * into this single selector: a fixed, centered card with a dimmed backdrop
- * painted via ::before.
+ * Overlay + stack wrapper for AccountLoginPanel and DevicePairingPanel,
+ * unified per Phase 1 review fix (C2 + tracked-#2). App.tsx renders both
+ * panels together inside a single ".account-login-overlay" backdrop and
+ * ".account-login-stack" scroll container, so there is exactly one backdrop
+ * (below both panels) and one click-outside-to-close target. Each panel is
+ * a plain card with its own dismiss (X) button wired to the same onClose.
+ * This replaces the old per-panel ::before fixed backdrop, which painted
+ * over (and stole clicks from) the lower-z-index DevicePairingPanel.
  */
-.account-login-panel {
-  /* Centered via fixed inset + auto margins rather than a translate()
-     transform — a transform on this element would establish a containing
-     block for the fixed-positioned ::before backdrop below, breaking its
-     inset:0 full-viewport coverage. */
+.account-login-overlay {
   position: fixed;
   inset: 0;
-  margin: auto;
-  width: min(520px, 90vw);
-  height: max-content;
   z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(25, 26, 29, .38);
+  backdrop-filter: blur(10px);
+}
+
+.account-login-stack {
+  display: grid;
+  gap: 16px;
+  width: min(520px, 90vw);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.account-login-panel {
   background: #fffdf8;
   border: 1px solid rgba(32, 35, 40, .12);
   border-radius: 20px;
   padding: 28px 32px;
-  max-height: 80vh;
-  overflow-y: auto;
   color: #191a1d;
   box-shadow: 0 28px 70px rgba(25, 26, 29, .3);
-}
-
-.account-login-panel::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background: rgba(25, 26, 29, .38);
-  backdrop-filter: blur(10px);
 }
 
 .account-login-header {
@@ -50,6 +49,23 @@
 .account-login-header h3 {
   font-size: 18px;
   margin: 0;
+}
+
+.account-login-close {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: #f0e8dc;
+  color: #5f6268;
+  cursor: pointer;
+  padding: 0;
+}
+.account-login-close:hover {
+  background: #ecdfcc;
 }
 
 .account-login-signed-in,
@@ -118,12 +134,14 @@
   margin: 12px 0 0;
   padding: 8px 12px;
   border-radius: 8px;
-  background: rgba(179, 38, 30, .12);
-  color: #b3261e;
+  background: rgba(140, 68, 68, .12);
+  color: #8c4444;
   font-size: 12px;
 }
 
 /* ── Dark theme ── */
+
+.theme-dark .account-login-overlay { background: rgba(0, 0, 0, .55); }
 
 .theme-dark .account-login-panel {
   background: linear-gradient(145deg, #26231f, #171615 72%, #11100f);
@@ -131,6 +149,8 @@
   border-color: rgba(255, 255, 255, .11);
   box-shadow: 0 28px 70px rgba(0, 0, 0, .5);
 }
+.theme-dark .account-login-close { background: #2f2b25; color: #c3bbad; }
+.theme-dark .account-login-close:hover { background: #443e35; }
 .theme-dark .account-login-email,
 .theme-dark .account-login-label,
 .theme-dark .account-login-status {
@@ -156,5 +176,7 @@
 }
 
 @media (max-width: 620px) {
-  .account-login-panel { border-radius: 18px; width: 100%; max-width: none; }
+  .account-login-overlay { padding: 12px; align-items: end; }
+  .account-login-stack { width: 100%; max-width: none; }
+  .account-login-panel { border-radius: 18px; }
 }

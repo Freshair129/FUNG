@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link2, RefreshCw, Trash2 } from "lucide-react";
+import { Link2, RefreshCw, Trash2, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { supabase } from "../lib/supabase";
 import { hashPairingCode } from "../lib/authFlow";
@@ -24,13 +24,17 @@ type PairingState =
 const DEVICE_ID_KEY = "fung.device.id";
 const POLL_MS = 2000;
 
+interface DevicePairingPanelProps {
+  onClose?: () => void;
+}
+
 function generateCode(): string {
   const buf = new Uint32Array(1);
   crypto.getRandomValues(buf);
   return String(buf[0] % 1_000_000).padStart(6, "0");
 }
 
-export function DevicePairingPanel() {
+export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
   const [paired, setPaired] = useState<PairedDeviceRow[]>([]);
   const [pairing, setPairing] = useState<PairingState>({ kind: "idle" });
   const [now, setNow] = useState(Date.now());
@@ -50,8 +54,12 @@ export function DevicePairingPanel() {
   }, [refreshLocal]);
 
   // Revocation propagation: verify each local peer still exists in the cloud.
+  // Guarded on an active session so a logged-out or different-account state
+  // can never wipe the local paired-device list (I4).
   useEffect(() => {
     void (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) return;
       const local = await invoke<PairedDeviceRow[]>("paired_device_list").catch(() => []);
       const active = local.filter((d) => !d.revoked_at);
       if (active.length === 0) return;
@@ -66,6 +74,53 @@ export function DevicePairingPanel() {
       }
       void refreshLocal();
     })();
+  }, [refreshLocal]);
+
+  // I5: reconcile against sessions this device initiated and confirmed on the
+  // server but whose responder never made it into the local paired-device
+  // list (e.g. the panel was closed mid-handshake, before the poll picked up
+  // the confirmation). Runs once on mount; only proceeds once this device's
+  // id is known.
+  useEffect(() => {
+    const myDeviceId = localStorage.getItem(DEVICE_ID_KEY);
+    if (!myDeviceId) return;
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("pairing_sessions")
+        .select("id, responder_device_id")
+        .eq("initiator_device_id", myDeviceId)
+        .eq("status", "confirmed");
+      if (cancelled) return;
+      if (error) { console.error("Pairing reconciliation query failed:", error); return; }
+      const local = await invoke<PairedDeviceRow[]>("paired_device_list").catch(() => []);
+      if (cancelled) return;
+      const known = new Set(local.map((d) => d.id));
+      for (const row of data ?? []) {
+        if (!row.responder_device_id || known.has(row.responder_device_id)) continue;
+        const { data: peer, error: peerError } = await supabase
+          .from("devices")
+          .select("id, device_label, platform, public_key_fingerprint")
+          .eq("id", row.responder_device_id)
+          .single();
+        if (cancelled) return;
+        if (peerError || !peer) {
+          console.error("Reconciliation: failed to load paired peer device:", peerError);
+          continue;
+        }
+        await invoke("paired_device_upsert", {
+          device: {
+            id: peer.id,
+            name: peer.device_label,
+            platform: peer.platform,
+            fingerprint: peer.public_key_fingerprint,
+            pairing_session_id: row.id,
+          },
+        });
+      }
+      if (!cancelled) void refreshLocal();
+    })();
+    return () => { cancelled = true; };
   }, [refreshLocal]);
 
   // Countdown tick while waiting.
@@ -104,16 +159,14 @@ export function DevicePairingPanel() {
     const sessionId = crypto.randomUUID();
     const code = generateCode();
     const codeHash = await hashPairingCode(sessionId, code);
-    // Opportunistic cleanup of stale sessions (spec §6).
-    await supabase
-      .from("pairing_sessions")
-      .delete()
-      .lt("expires_at", new Date(Date.now() - 86_400_000).toISOString());
-    const { error } = await supabase.from("pairing_sessions").insert({
-      id: sessionId,
-      user_id: userId,
-      initiator_device_id: myDeviceId,
-      code_hash: codeHash,
+    // Session creation (and the opportunistic stale-session sweep, spec §6)
+    // now goes through the security-definer create_pairing_session RPC —
+    // clients no longer have direct insert/delete on pairing_sessions.
+    // user_id is set server-side from auth.uid(), not sent here.
+    const { error } = await supabase.rpc("create_pairing_session", {
+      p_session_id: sessionId,
+      p_code_hash: codeHash,
+      p_initiator_device_id: myDeviceId,
     });
     if (error) {
       setPairing({ kind: "error", message: `สร้างรหัสไม่สำเร็จ: ${error.message}` });
@@ -216,6 +269,11 @@ export function DevicePairingPanel() {
       <header className="device-pairing-header">
         <Link2 size={18} />
         <h3>อุปกรณ์ที่จับคู่</h3>
+        {onClose && (
+          <button type="button" className="device-pairing-close" onClick={onClose} aria-label="ปิด">
+            <X size={16} />
+          </button>
+        )}
       </header>
 
       <ul className="device-pairing-list">

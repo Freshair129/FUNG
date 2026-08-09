@@ -499,6 +499,7 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
 
   const [mcpEnabled, setMcpState] = useState(false);
   const [mcpBind, setMcpBind] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
   const ThemeIcon = theme === "system" ? Monitor : theme === "dark" ? Moon : Sun;
   const themeLabel = theme === "system" ? "ตามระบบ" : theme === "dark" ? "มืด" : "สว่าง";
 
@@ -517,9 +518,14 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
     };
   }, []);
 
-  // Auto-register this Android device once a session exists (select-then-insert, like desktop).
+  // Re-validate this Android device's row on every session change (I7): a
+  // device revoked from the desktop side must be re-registered here rather
+  // than trusting the locally cached device id forever. Only the INSERT is
+  // skipped when the row already exists (select-then-insert-else-update, like
+  // desktop's AccountLoginPanel) — the select-by-fingerprint itself always
+  // runs.
   useEffect(() => {
-    if (!session || myDeviceId) return;
+    if (!session) return;
     let cancelled = false;
     setRegistering(true);
     void (async () => {
@@ -534,6 +540,8 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
         if (selErr) throw selErr;
         let deviceId = existing?.id as string | undefined;
         if (!deviceId) {
+          // Missing row: either first run, or this device was revoked —
+          // re-register it under the current session either way.
           const { data: inserted, error: insErr } = await supabase
             .from("devices")
             .insert({
@@ -569,7 +577,7 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
       }
     })();
     return () => { cancelled = true; };
-  }, [session, myDeviceId]);
+  }, [session]);
 
   // Revocation check on screen focus: paired peers must still exist in the cloud.
   useEffect(() => {
@@ -663,7 +671,11 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
         p_responder_device_id: myDeviceId,
       });
       if (rpcError) throw rpcError;
-      if (result === "confirmed") {
+      // "already_confirmed" is a replayed confirmation of a session this
+      // exact call already completed server-side (e.g. the client retried
+      // after losing the response) — finish the local pairing the same way
+      // as a fresh "confirmed" instead of surfacing it as an error.
+      if (result === "confirmed" || result === "already_confirmed") {
         const desktop = desktops.find((item) => item.id === selectedDesktopId);
         const name = desktop?.device_label ?? "FUNG Desktop";
         const trimmedEndpoint = endpoint.trim();
@@ -702,6 +714,31 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
     const result = await setMcpEnabled(!mcpEnabled, false);
     setMcpState(result.enabled);
     setMcpBind(result.bind);
+  };
+
+  // I6: revoking a paired device from mobile must propagate to the cloud
+  // "devices" row too, not just the local snapshot — otherwise the desktop
+  // side never learns it was revoked. Legacy local-only entries (no
+  // cloudDeviceId) fall back to the old local-only removal.
+  const handleRemoveDevice = async (device: DeviceState) => {
+    setRevokeError(null);
+    if (device.cloudDeviceId) {
+      const { error } = await supabase.from("devices").delete().eq("id", device.cloudDeviceId);
+      if (error) {
+        console.error("Cloud device revoke failed:", error);
+        setRevokeError("เพิกถอนอุปกรณ์บนคลาวด์ไม่สำเร็จ ลองใหม่อีกครั้ง");
+        return;
+      }
+      if (session) {
+        await supabase.from("device_audit_events").insert({
+          user_id: session.user.id,
+          device_id: device.cloudDeviceId,
+          event_type: "device_revoked",
+          metadata: { name: device.name },
+        });
+      }
+    }
+    setSnapshot(removeDevice(snapshot, device.id));
   };
 
   const appearancePanel = (
@@ -752,10 +789,11 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
               <em className={`m-trust-chip ${trustChipClass(device.trustState)}`}>{trustChipLabel(device.trustState)}</em>
               {device.endpoint && <span><Wifi size={14} /> {device.endpoint}</span>}
             </div>
-            <button onClick={() => setSnapshot(removeDevice(snapshot, device.id))} aria-label="เพิกถอนอุปกรณ์"><Trash2 size={19} /></button>
+            <button onClick={() => void handleRemoveDevice(device)} aria-label="เพิกถอนอุปกรณ์"><Trash2 size={19} /></button>
           </article>
         ))}
       </section>
+      {revokeError && <div className="m-inline-alert" role="alert"><strong>เพิกถอนไม่สำเร็จ</strong><span>{revokeError}</span></div>}
       {appearancePanel}
       <section className="m-mcp-panel"><div className="m-panel-heading"><span><LockKeyhole size={22} /></span><div><strong>MCP บนมือถือ</strong><p>{mcpEnabled ? `เปิดเฉพาะเครื่องนี้ · ${mcpBind}` : "ปิดอยู่ ไม่มีเครื่องมือเข้าถึงข้อมูล"}</p></div><button className={`m-toggle ${mcpEnabled ? "is-on" : ""}`} aria-label={mcpEnabled ? "ปิด MCP" : "เปิด MCP"} aria-pressed={mcpEnabled} onClick={() => void toggleMcp()}><i /></button></div><small>ทุก capability ต้องได้รับอนุญาตเป็นรายโปรเจกต์ และระบบจะหยุดเมื่อ lifecycle ไม่อนุญาต</small></section>
       {pairing && (

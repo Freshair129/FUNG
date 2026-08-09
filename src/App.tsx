@@ -1070,10 +1070,16 @@ export function App() {
       {zoomPanelOpen && <ZoomPanel onClose={() => setZoomPanelOpen(false)} />}
       {ttsPanelOpen && <TtsProviderPanel onClose={() => setTtsPanelOpen(false)} />}
       {accountLoginPanelOpen && (
-        <>
-          <AccountLoginPanel />
-          <DevicePairingPanel />
-        </>
+        <div
+          className="account-login-overlay"
+          role="presentation"
+          onClick={() => setAccountLoginPanelOpen(false)}
+        >
+          <div className="account-login-stack" onClick={(event) => event.stopPropagation()}>
+            <AccountLoginPanel onClose={() => setAccountLoginPanelOpen(false)} />
+            <DevicePairingPanel onClose={() => setAccountLoginPanelOpen(false)} />
+          </div>
+        </div>
       )}
       <div className="ambient-grid" data-tauri-drag-region aria-hidden="true" />
 

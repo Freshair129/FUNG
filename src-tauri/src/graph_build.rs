@@ -211,11 +211,32 @@ fn call_llm(endpoint: &str, model: &str, prompt: &str) -> Result<String, String>
             "stream": false,
             "format": "json",
         }))
-        .send().map_err(|e| format!("LLM endpoint unreachable at {endpoint}: {e}"))?;
+        .send().map_err(|e| send_error_message(endpoint, &e))?;
     if !response.status().is_success() {
         return Err(format!("LLM endpoint returned {}", response.status()));
     }
     response.json::<ChatResponse>().map(|r| r.message.content).map_err(|e| e.to_string())
+}
+
+/// Error text for a failed `send()` in [`call_llm`].
+///
+/// A timeout and a connection failure are NOT the same condition and must not
+/// share wording: `cloud_executor::is_connection_error` matches on
+/// "LLM endpoint unreachable" to decide whether to retry the prompt in the
+/// cloud, and a slow-but-working Ollama is a *reachable* endpoint — shipping
+/// that user's transcript to a cloud provider because their machine was busy
+/// would violate the local-first contract. Mirrors the `e.is_timeout()` idiom
+/// `cloud_executor::custom_llm` already uses for the same distinction.
+///
+/// Factored out of `call_llm` so the mapping is testable against real
+/// `reqwest::Error`s without waiting out the 600s production timeout above;
+/// see `a_slow_but_reachable_endpoint_is_a_timeout_not_a_connection_failure`.
+fn send_error_message(endpoint: &str, e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        format!("LLM endpoint timed out at {endpoint}: {e}")
+    } else {
+        format!("LLM endpoint unreachable at {endpoint}: {e}")
+    }
 }
 
 /// Spawns the graph.build job for a recording whose transcript is ready.
@@ -409,7 +430,11 @@ fn run_graph_build(
     // The fallback itself lives in cloud_executor.rs, which is the module
     // allowed to handle key-bearing cloud configs; see the guard note there.
     let cloud = crate::cloud_executor::first_configured_llm_provider();
-    let raw = crate::cloud_executor::call_llm_with_fallback(
+    // `runtime_location` is reported back by the fallback because only it
+    // knows which transport actually produced the text; recording a hardcoded
+    // "local" here would make the model_runs audit row false for every
+    // cloud-fallback build.
+    let (raw, runtime_location) = crate::cloud_executor::call_llm_with_fallback(
         || call_llm(&endpoint, &model, &prompt),
         &prompt, cloud.as_ref(), &policy, calls_today, &policy_conn,
     )?;
@@ -421,7 +446,7 @@ fn run_graph_build(
     // The prior extraction's cleanup deletes and the fresh insert land in one
     // commit — only now that the new extraction has actually parsed.
     let mut mutations = cleanup;
-    mutations.push(genesis_adapter::upsert("model_runs", serde_json::json!({"id": model_run_id, "recording_id": recording_id, "provider_id": "ollama-summary-intent", "model_name": model, "task_kind": "graph_extraction", "runtime_location": "local", "input_ref": recording_id, "output_ref": format!("graph:{recording_id}"), "parameters_json": {"endpoint": endpoint}, "created_at": timestamp})));
+    mutations.push(genesis_adapter::upsert("model_runs", serde_json::json!({"id": model_run_id, "recording_id": recording_id, "provider_id": "ollama-summary-intent", "model_name": model, "task_kind": "graph_extraction", "runtime_location": runtime_location, "input_ref": recording_id, "output_ref": format!("graph:{recording_id}"), "parameters_json": {"endpoint": endpoint}, "created_at": timestamp})));
     mutations.extend(extraction_mutations(project_id, recording_id, &model_run_id, &extraction, &segment_ids, &timestamp));
     genesis_adapter::commit_rows(storage, mutations)
 }
@@ -618,6 +643,91 @@ mod tests {
         assert!(
             !crate::cloud_executor::is_connection_error(&bad_response),
             "a bad response must NOT be treated as a connection failure: {bad_response}",
+        );
+    }
+
+    /// Third case of the same contract, split out because `call_llm`'s
+    /// production timeout is 600s and no test may wait that out.
+    ///
+    /// A slow-but-reachable Ollama is NOT an unreachable one. Before the fix
+    /// both conditions produced the same "LLM endpoint unreachable" text, so a
+    /// busy local model silently shipped the user's transcript to a cloud
+    /// provider. This drives the *production* mapping helper
+    /// (`send_error_message`, which `call_llm` uses verbatim) with two real
+    /// `reqwest::Error`s — one refused connection, one genuine client timeout
+    /// against a server that accepts and then says nothing — and asserts they
+    /// classify differently. Nothing here is a restatement of the mapping: the
+    /// errors and the mapping are both the real ones, only the client's 1s
+    /// timeout is test-local.
+    #[test]
+    fn a_slow_but_reachable_endpoint_is_a_timeout_not_a_connection_failure() {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(1))
+            .build()
+            .unwrap();
+
+        // Accepts the connection, reads the request, then holds the socket
+        // open without answering until well past the client's 1s deadline.
+        // Holding it (rather than dropping it) is what makes this a timeout
+        // instead of a connection reset.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = std::io::Read::read(&mut stream, &mut buf);
+                std::thread::sleep(std::time::Duration::from_secs(5));
+            }
+        });
+
+        let endpoint = format!("http://{addr}");
+        let timeout_error = client
+            .post(format!("{endpoint}/api/chat"))
+            .json(&serde_json::json!({"model": "llama3.1:8b", "messages": []}))
+            .send()
+            .expect_err("a server that never answers must time the client out");
+        assert!(
+            timeout_error.is_timeout(),
+            "sanity: reqwest must actually report this as a timeout, else the \
+             distinction the fix relies on does not exist: {timeout_error}",
+        );
+        let timed_out = send_error_message(&endpoint, &timeout_error);
+        assert!(
+            timed_out.contains("LLM endpoint timed out"),
+            "a timeout must say so: {timed_out}",
+        );
+        assert!(
+            !crate::cloud_executor::is_connection_error(&timed_out),
+            "a slow but reachable Ollama must NOT trigger the cloud fallback: {timed_out}",
+        );
+
+        // Same helper, same call site, genuinely refused connection: still
+        // classified as unreachable. Proves the split did not break the case
+        // the fallback exists for.
+        // Deliberately a much longer deadline than the timeout half above.
+        // On Windows a loopback connect to a closed port does not surface the
+        // refusal instantly (the stack retransmits the SYN first), so a 1s
+        // budget races it and reqwest reports the client deadline instead of
+        // the refusal — measured on this host. 30s is far past that race and
+        // still nowhere near call_llm's 600s; if a host ever exceeded it the
+        // test fails loudly rather than quietly asserting the wrong thing.
+        let refusing_client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap();
+        let refused_error = refusing_client
+            .post("http://127.0.0.1:1/api/chat")
+            .json(&serde_json::json!({"model": "llama3.1:8b", "messages": []}))
+            .send()
+            .expect_err("port 1 must refuse the connection");
+        assert!(
+            !refused_error.is_timeout(),
+            "sanity: a refused connection is not a timeout: {refused_error}",
+        );
+        let unreachable = send_error_message("http://127.0.0.1:1", &refused_error);
+        assert!(
+            crate::cloud_executor::is_connection_error(&unreachable),
+            "a genuinely unreachable Ollama must still be recognised: {unreachable}",
         );
     }
 }

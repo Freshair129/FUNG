@@ -241,10 +241,15 @@ fn custom_llm(endpoint: &str, api_key: &str, prompt: &str) -> Result<String, Str
 // calls [`call_llm_with_fallback`] and never sees a `CloudProviderConfig`.
 
 /// True only for the specific failure this fallback exists to catch — Ollama
-/// not running / not reachable. A malformed-response error (bad status,
-/// unparseable body) is NOT masked by a silent cloud retry; it surfaces as a
-/// real bug, matching `graph_build::call_llm`'s pre-existing behavior for
-/// those cases.
+/// not running / not reachable. Two other local failures must NOT be masked by
+/// a silent cloud retry, and both surface unchanged instead:
+/// - a malformed response (bad status, unparseable body) — a real bug,
+///   matching `graph_build::call_llm`'s pre-existing behavior;
+/// - a **timeout** ("LLM endpoint timed out at …") — the endpoint answered the
+///   connection and was simply slow, so it is reachable by definition.
+///   Sending that user's transcript to a cloud provider because their own
+///   machine was busy would break the local-first promise, which is exactly
+///   why `call_llm` words the two `send()` failures differently.
 ///
 /// This keys off the message `call_llm` builds for a failed `send()`, so the
 /// two must not drift apart; `graph_build`'s
@@ -272,6 +277,12 @@ pub(crate) fn first_configured_llm_provider() -> Option<CloudProviderConfig> {
     None
 }
 
+/// `runtime_location` value recorded on the `model_runs` audit row when the
+/// extraction came from the user's own machine.
+pub(crate) const RUNTIME_LOCAL: &str = "local";
+/// `runtime_location` value recorded when the cloud fallback actually ran.
+pub(crate) const RUNTIME_CLOUD: &str = "cloud";
+
 /// Wraps a local LLM call with the tier-3 cloud fallback.
 ///
 /// `local_call` is the caller's own local-first attempt — in practice
@@ -286,6 +297,12 @@ pub(crate) fn first_configured_llm_provider() -> Option<CloudProviderConfig> {
 /// the same connection it was read from so that a successful dispatch can
 /// charge the day's budget here — the only place that knows the cloud path
 /// actually ran.
+///
+/// On success returns `(text, runtime_location)` where the second element is
+/// [`RUNTIME_LOCAL`] or [`RUNTIME_CLOUD`]. Only this function knows which
+/// transport produced the text, so the caller cannot record an honest
+/// `model_runs.runtime_location` without being told — before this, every
+/// audit row claimed "local" even for a cloud-fallback build.
 pub(crate) fn call_llm_with_fallback(
     local_call: impl FnOnce() -> Result<String, String>,
     prompt: &str,
@@ -293,9 +310,9 @@ pub(crate) fn call_llm_with_fallback(
     policy: &crate::policy::TierPolicy,
     calls_today: u32,
     policy_conn: &rusqlite::Connection,
-) -> Result<String, String> {
+) -> Result<(String, &'static str), String> {
     match local_call() {
-        Ok(text) => Ok(text),
+        Ok(text) => Ok((text, RUNTIME_LOCAL)),
         Err(e) if is_connection_error(&e) => {
             let Some(config) = cloud else { return Err(e) };
             match crate::policy::decide_cloud_tier(policy, crate::cloud_config::CloudTaskKind::Llm, calls_today, true) {
@@ -306,7 +323,7 @@ pub(crate) fn call_llm_with_fallback(
                     if result.is_ok() {
                         let _ = crate::policy::increment_calls_today(policy_conn, crate::cloud_config::CloudTaskKind::Llm);
                     }
-                    result
+                    result.map(|text| (text, RUNTIME_CLOUD))
                 }
                 crate::policy::TierDecision::Blocked { reason } => {
                     Err(format!("Ollama unreachable and cloud fallback blocked ({reason}): {e}"))
@@ -429,6 +446,9 @@ mod tests {
     const LOCAL_UNREACHABLE: &str = "LLM endpoint unreachable at http://127.0.0.1:11434: connection refused";
     /// The message `call_llm` produces when Ollama answers, badly.
     const LOCAL_BAD_STATUS: &str = "LLM endpoint returned 500 Internal Server Error";
+    /// The message `call_llm` produces when Ollama is listening but too slow.
+    /// Reachable — so this must NOT be treated as a connection failure.
+    const LOCAL_TIMEOUT: &str = "LLM endpoint timed out at http://127.0.0.1:11434: operation timed out";
 
     fn llm_cloud_policy(enabled: bool) -> crate::policy::TierPolicy {
         crate::policy::TierPolicy { stt_cloud_enabled: false, llm_cloud_enabled: enabled, daily_cap: 20 }
@@ -448,6 +468,45 @@ mod tests {
         }
     }
 
+    /// `is_connection_error` is a substring match, so the three messages
+    /// `call_llm` can produce must be classified deliberately, not by
+    /// accident. The timeout case is the one that matters: "timed out" and
+    /// "unreachable" are different conditions and only the latter may reach
+    /// the cloud.
+    #[test]
+    fn only_a_genuine_connection_failure_is_classified_as_one() {
+        assert!(is_connection_error(LOCAL_UNREACHABLE));
+        assert!(
+            !is_connection_error(LOCAL_TIMEOUT),
+            "a reachable-but-slow endpoint is not an unreachable one",
+        );
+        assert!(!is_connection_error(LOCAL_BAD_STATUS));
+    }
+
+    /// The behavioural half of the same fix: a timed-out local call must fail
+    /// the build with its own error, never silently ship the prompt to a cloud
+    /// provider — even with cloud enabled, configured, and a working stub
+    /// endpoint standing by.
+    #[test]
+    fn a_local_timeout_is_never_retried_in_the_cloud() {
+        let cloud_config = stub_cloud_provider();
+        let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+
+        let result = call_llm_with_fallback(
+            || Err(LOCAL_TIMEOUT.to_string()),
+            "prompt", Some(&cloud_config), &llm_cloud_policy(true), 0, &policy_conn,
+        );
+
+        assert_eq!(
+            result.unwrap_err(), LOCAL_TIMEOUT,
+            "a slow local Ollama must surface as a timeout, not as a cloud result",
+        );
+        assert_eq!(
+            llm_calls_today(&policy_conn), 0,
+            "no cloud dispatch happened, so the counter must not move",
+        );
+    }
+
     #[test]
     fn ollama_connection_failure_falls_back_to_cloud_when_enabled_and_configured() {
         let cloud_config = stub_cloud_provider();
@@ -458,7 +517,10 @@ mod tests {
             "prompt", Some(&cloud_config), &llm_cloud_policy(true), 0, &policy_conn,
         );
 
-        assert_eq!(result.unwrap(), "cloud extraction result");
+        assert_eq!(
+            result.unwrap(), ("cloud extraction result".to_string(), RUNTIME_CLOUD),
+            "a cloud-served extraction must report itself as cloud, or the model_runs audit row lies",
+        );
         assert_eq!(
             llm_calls_today(&policy_conn), 1,
             "a successful cloud dispatch must consume one of the day's budgeted calls",
@@ -537,7 +599,10 @@ mod tests {
             "prompt", Some(&cloud_config), &llm_cloud_policy(true), 0, &policy_conn,
         );
 
-        assert_eq!(result.unwrap(), "local extraction result");
+        assert_eq!(
+            result.unwrap(), ("local extraction result".to_string(), RUNTIME_LOCAL),
+            "a locally-served extraction must report itself as local",
+        );
         assert_eq!(llm_calls_today(&policy_conn), 0);
     }
 

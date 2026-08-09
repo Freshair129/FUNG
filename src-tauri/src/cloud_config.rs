@@ -169,33 +169,90 @@ mod tests {
 
     #[test]
     fn no_source_file_serializes_cloud_config_into_genesis_or_supabase_paths() {
-        // Static check: CloudProviderConfig must never be passed to
-        // genesis_adapter::commit_rows/upsert, nor referenced from any .ts
-        // file that also imports the supabase client. This is a coarse but
-        // effective guard — a real leak would require a source line matching
-        // both conditions, which this test makes structurally awkward to add
-        // by accident.
-        let src_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        for entry in walk_rs_files(&src_dir) {
+        // Static check enforcing: CloudProviderConfig (Rust) and cloud config slots
+        // (TS) must never coexist with Supabase, GenesisBlockDB, or localStorage.
+        //
+        // Checks:
+        // 1. .rs files containing CloudProviderConfig must NOT contain:
+        //    - genesis_adapter::commit_rows or genesis_adapter::upsert
+        //    - "supabase" (any case)
+        //    - "localStorage"
+        //    Exception: this file (cloud_config.rs) is exempt.
+        // 2. .ts/.tsx files importing supabase client must NOT contain:
+        //    - "cloud_config" or "apiKey" in supabase insert/upsert/update chains
+        //    This is a coarse but effective guard: a real leak would require both
+        //    conditions, which this test makes structurally awkward to add by accident.
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest_dir.parent().expect("CARGO_MANIFEST_DIR is src-tauri");
+
+        // Walk .rs files in src-tauri/src
+        let rs_src_dir = manifest_dir.join("src");
+        for entry in walk_source_files(&rs_src_dir, &["rs"]) {
             let contents = std::fs::read_to_string(&entry).unwrap_or_default();
-            if contents.contains("CloudProviderConfig") {
+            let file_name = entry.file_name().unwrap_or_default().to_string_lossy();
+
+            if contents.contains("CloudProviderConfig") && file_name != "cloud_config.rs" {
+                // Check for genesis_adapter violations
                 assert!(
-                    !contents.contains("genesis_adapter::commit_rows") || entry.file_name().unwrap() == "cloud_config.rs",
+                    !contents.contains("genesis_adapter::commit_rows"),
                     "{entry:?} references both CloudProviderConfig and genesis_adapter::commit_rows"
+                );
+                assert!(
+                    !contents.contains("genesis_adapter::upsert"),
+                    "{entry:?} references both CloudProviderConfig and genesis_adapter::upsert"
+                );
+
+                // Check for supabase violations (case-insensitive)
+                let lower = contents.to_lowercase();
+                assert!(
+                    !lower.contains("supabase"),
+                    "{entry:?} references both CloudProviderConfig and supabase"
+                );
+
+                // Check for localStorage violations
+                assert!(
+                    !contents.contains("localStorage"),
+                    "{entry:?} references both CloudProviderConfig and localStorage"
+                );
+            }
+        }
+
+        // Walk .ts/.tsx files in src/
+        let ts_src_dir = repo_root.join("src");
+        for entry in walk_source_files(&ts_src_dir, &["ts", "tsx"]) {
+            let contents = std::fs::read_to_string(&entry).unwrap_or_default();
+
+            // Check if file imports supabase client (common patterns)
+            let has_supabase_import = contents.contains("from \"../lib/supabase\"") ||
+                                      contents.contains("from '../lib/supabase'") ||
+                                      contents.contains("from \"@supabase/supabase-js\"") ||
+                                      contents.contains("from '@supabase/supabase-js'");
+
+            if has_supabase_import {
+                // If it imports supabase, it must not contain cloud_config or apiKey
+                // in the context of data insertion (supabase.from(...).insert/upsert/update)
+                assert!(
+                    !contents.contains("cloud_config") && !contents.contains("apiKey"),
+                    "{entry:?} imports supabase client but also references cloud_config or apiKey"
                 );
             }
         }
     }
 
-    fn walk_rs_files(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    fn walk_source_files(
+        dir: &std::path::Path,
+        extensions: &[&str],
+    ) -> Vec<std::path::PathBuf> {
         let mut out = Vec::new();
         let Ok(read_dir) = std::fs::read_dir(dir) else { return out };
         for entry in read_dir.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                out.extend(walk_rs_files(&path));
-            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
-                out.push(path);
+                out.extend(walk_source_files(&path, extensions));
+            } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if extensions.contains(&ext) {
+                    out.push(path);
+                }
             }
         }
         out

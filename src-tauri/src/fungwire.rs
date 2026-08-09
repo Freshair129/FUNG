@@ -43,6 +43,16 @@ pub fn read_frame(r: &mut impl Read, max: usize) -> io::Result<Vec<u8>> {
     Ok(buf)
 }
 
+/// Default for [`Control::JobStart`]'s `executor` field when a peer's
+/// `JobStart` JSON omits it entirely — i.e. a mobile client built before
+/// Phase 3's BYOM cloud keys existed. Running on the desktop's own local
+/// faster-whisper pipeline is exactly what those peers already expected, so
+/// decoding an old message must keep doing that; the cloud path is only ever
+/// entered when a peer asks for it by name.
+fn default_executor() -> String {
+    "local".to_string()
+}
+
 /// All control-channel messages exchanged over the FUNGWIRE tunnel, tagged
 /// by `type` in JSON for forward-compatible decoding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +75,17 @@ pub enum Control {
         /// rejects the job if it doesn't match, then verifies each received
         /// segment's own digest against `checksums[seq]` as it arrives.
         checksums: Vec<String>,
+        /// Which executor the desktop should run this job on: `"local"` (the
+        /// on-device faster-whisper pipeline) or `"cloud"` (BYOM cloud STT
+        /// through the desktop user's own API key, gated by that desktop's
+        /// tier policy — see `fungwire_server::dispatch_cloud_stt`). Any
+        /// other value is treated as `"local"`.
+        ///
+        /// Defaulted rather than required so a pre-Phase-3 client, whose
+        /// `JobStart` JSON has no `executor` key at all, still decodes here
+        /// and still transcribes locally (see [`default_executor`]).
+        #[serde(default = "default_executor")]
+        executor: String,
     },
     Chunk {
         job_id: String,
@@ -323,6 +344,7 @@ mod tests {
             profile: "cpu".into(),
             resume_from_seq: 0,
             checksums: vec!["a".into(), "b".into(), "c".into()],
+            executor: "local".into(),
         };
         let bytes = c.encode();
         match Control::decode(&bytes).unwrap() {
@@ -335,6 +357,20 @@ mod tests {
                 assert_eq!(segment_count, 3);
             }
             _ => panic!("wrong variant"),
+        }
+    }
+
+    /// Wire tolerance for pre-Phase-3 peers: a `JobStart` serialized before
+    /// `executor` existed has no such key at all, and must still decode —
+    /// as a LOCAL job, never a cloud one.
+    #[test]
+    fn job_start_without_executor_decodes_as_local() {
+        let legacy = br#"{"type":"JobStart","job_id":"j-old","operation":"transcript.transcribe",
+            "manifest_hash":"abc","segment_count":1,"total_bytes":10,"profile":"cpu",
+            "resume_from_seq":0,"checksums":["a"]}"#;
+        match Control::decode(legacy).expect("legacy JobStart must still decode") {
+            Control::JobStart { executor, .. } => assert_eq!(executor, "local"),
+            other => panic!("wrong variant: {other:?}"),
         }
     }
 

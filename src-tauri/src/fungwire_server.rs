@@ -78,6 +78,22 @@ pub(crate) struct FungwireStatus {
     pub(crate) bind: Option<String>,
     pub(crate) active_jobs: usize,
     pub(crate) connected_peers: usize,
+    /// Whether this desktop's tier policy currently permits cloud STT. Read
+    /// straight from the policy row rather than cached alongside the server's
+    /// runtime state, because it is independent of the server being on: the
+    /// mobile UI gates its "ส่งขึ้นคลาวด์" affordance on this, and the answer
+    /// must reflect the toggle's value right now.
+    pub(crate) stt_cloud_enabled: bool,
+}
+
+/// Reads the STT-cloud toggle out of the tier policy stored under
+/// `data_root`. Shared by every [`FungwireStatus`] construction site so the
+/// reported value can never drift between "server just enabled", "server
+/// already running" and "server off".
+fn stt_cloud_enabled(data_root: &Path) -> AppResult<bool> {
+    let conn = crate::paired_devices_connection_at(data_root)?;
+    let policy = crate::policy::load_policy(&conn).map_err(crate::AppError::InvalidInput)?;
+    Ok(policy.stt_cloud_enabled)
 }
 
 #[tauri::command]
@@ -96,6 +112,7 @@ pub(crate) fn fungwire_server_set_enabled(
             bind: None,
             active_jobs: 0,
             connected_peers: 0,
+            stt_cloud_enabled: stt_cloud_enabled(&state.data_root)?,
         });
     }
 
@@ -105,6 +122,7 @@ pub(crate) fn fungwire_server_set_enabled(
             bind: Some(control.bind.clone()),
             active_jobs: control.active_jobs.load(Ordering::SeqCst),
             connected_peers: control.connected_peers.load(Ordering::SeqCst),
+            stt_cloud_enabled: stt_cloud_enabled(&state.data_root)?,
         });
     }
 
@@ -193,24 +211,28 @@ pub(crate) fn fungwire_server_set_enabled(
         bind: Some(bind),
         active_jobs: 0,
         connected_peers: 0,
+        stt_cloud_enabled: stt_cloud_enabled(&state.data_root)?,
     })
 }
 
 #[tauri::command]
 pub(crate) fn fungwire_status(state: State<'_, AppState>) -> AppResult<FungwireStatus> {
     let guard = state.fungwire.lock().expect("fungwire mutex poisoned");
+    let stt_cloud_enabled = stt_cloud_enabled(&state.data_root)?;
     Ok(match guard.as_ref() {
         Some(control) => FungwireStatus {
             enabled: true,
             bind: Some(control.bind.clone()),
             active_jobs: control.active_jobs.load(Ordering::SeqCst),
             connected_peers: control.connected_peers.load(Ordering::SeqCst),
+            stt_cloud_enabled,
         },
         None => FungwireStatus {
             enabled: false,
             bind: None,
             active_jobs: 0,
             connected_peers: 0,
+            stt_cloud_enabled,
         },
     })
 }
@@ -419,6 +441,28 @@ const TERMINAL_JOB_ERROR_CODES: &[&str] = &[
     "resume_gap",
 ];
 
+/// Process-global override for [`resolve_stt_cloud_config`], set only by this
+/// module's own tests.
+///
+/// Cloud API keys live exclusively in the OS credential store
+/// (`cloud_config::load_cloud_config`), which an integration test cannot
+/// stand up: writing a real keyring entry would touch the developer's actual
+/// credential store, and CI runners have no keyring backend at all — which is
+/// exactly why `cloud_config.rs`'s own tests deliberately skip their keyring
+/// roundtrip. This is a `static` rather than a `thread_local!` because the
+/// server under test runs on a *different* thread from the test body (see
+/// `handle_connection`'s per-connection thread).
+#[cfg(test)]
+static TEST_STT_CLOUD_CONFIG: std::sync::Mutex<Option<crate::cloud_config::CloudProviderConfig>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(test)]
+fn set_test_stt_cloud_config(config: Option<crate::cloud_config::CloudProviderConfig>) {
+    *TEST_STT_CLOUD_CONFIG
+        .lock()
+        .expect("test cloud config mutex poisoned") = config;
+}
+
 /// Real job loop: exchanges `Heartbeat`/`JobStart`/`Cancel` control messages
 /// with an already-authenticated peer until it disconnects. Only
 /// `transcript.transcribe` is wired; any other `operation` gets a
@@ -461,6 +505,7 @@ pub(crate) fn run_job_loop(
                 profile: _mobile_profile,
                 checksums,
                 resume_from_seq,
+                executor,
                 ..
             } => {
                 if operation != "transcript.transcribe" {
@@ -485,6 +530,8 @@ pub(crate) fn run_job_loop(
                     &checksums,
                     segment_count,
                     resume_from_seq,
+                    &executor,
+                    app_data,
                 );
                 jobs.fetch_sub(1, Ordering::SeqCst);
 
@@ -616,6 +663,18 @@ pub(crate) fn run_job_loop(
 /// `Progress{stage:"transcribing", percent:100}` is sent once parsing
 /// succeeds, as a definitive "done" marker independent of whatever the last
 /// worker-reported percent happened to be.
+///
+/// ## Executor (`executor`)
+/// Everything above — receive, checksum, manifest verification, the
+/// `ChunkAck`/`Progress{stage:"receiving"}` frames — is executor-independent
+/// and runs identically either way. Only the final "turn these segment files
+/// into a transcript" step differs: `executor == "cloud"` hands off to
+/// [`dispatch_cloud_stt`] once every segment is on disk and verified;
+/// anything else (including the `"local"` a pre-Phase-3 peer gets by default,
+/// see `fungwire::default_executor`) falls through to the local
+/// faster-whisper pipeline below, unchanged. `data_root` is threaded in
+/// alongside for the cloud branch only — it is where the tier policy and the
+/// daily cloud-call counter live.
 #[allow(clippy::too_many_arguments)]
 fn receive_and_transcribe(
     channel: &mut NoiseChannel<TcpStream>,
@@ -626,6 +685,8 @@ fn receive_and_transcribe(
     checksums: &[String],
     segment_count: u32,
     resume_from_seq: u32,
+    executor: &str,
+    data_root: &Path,
 ) -> Result<(i64, Vec<Segment>), JobFailure> {
     if checksums.len() != segment_count as usize {
         return Err(JobFailure::Failed(
@@ -787,6 +848,14 @@ fn receive_and_transcribe(
     }
     let seg_paths: Vec<PathBuf> = seg_paths.into_iter().flatten().collect();
 
+    // Cloud executor: every segment is now received, checksummed and on disk,
+    // exactly as the local path would have left it -- only the transcription
+    // step itself is replaced. Branching here (rather than earlier) is what
+    // keeps the two paths sharing one verified receive implementation.
+    if executor == "cloud" {
+        return dispatch_cloud_stt(channel, job_id, job_dir, &seg_paths, data_root, runtime);
+    }
+
     // Desktop picks its own profile -- never the mobile-sent
     // `JobStart.profile` (Final review #5). This is the same helper
     // `import_and_transcribe`'s `run_transcription` uses.
@@ -904,6 +973,237 @@ fn receive_and_transcribe(
         .map_err(|e| JobFailure::Failed("transport_error".into(), e.to_string()))?;
 
     Ok((output.duration_ms, segments))
+}
+
+/// Resolves which cloud STT provider this desktop should use: the OpenAI slot
+/// first, then the "custom" slot. Those are the only two STT slots
+/// `cloud_config` defines — Anthropic has no STT product, so it has no
+/// `cloud-stt-anthropic` entry to consult.
+///
+/// `Ok(None)` means the user simply has not configured a cloud STT key. That
+/// is not an error here: it is fed to `decide_cloud_tier` as
+/// `key_configured: false`, which turns it into a `no_key_configured` block
+/// alongside the other policy reasons, so the peer gets one consistent
+/// "cloud is not available and here's why" answer.
+fn resolve_stt_cloud_config() -> Result<Option<crate::cloud_config::CloudProviderConfig>, String> {
+    #[cfg(test)]
+    {
+        if let Some(config) = TEST_STT_CLOUD_CONFIG
+            .lock()
+            .expect("test cloud config mutex poisoned")
+            .clone()
+        {
+            return Ok(Some(config));
+        }
+    }
+
+    let openai_slot = crate::cloud_config::cloud_config_slot(
+        "openai",
+        crate::cloud_config::CloudTaskKind::Stt,
+    );
+    if let Some(config) = crate::cloud_config::load_cloud_config(&openai_slot)? {
+        return Ok(Some(config));
+    }
+    let custom_slot = crate::cloud_config::cloud_config_slot(
+        "custom",
+        crate::cloud_config::CloudTaskKind::Stt,
+    );
+    crate::cloud_config::load_cloud_config(&custom_slot)
+}
+
+/// Cloud-executor path for a FUNGWIRE STT job, reached from
+/// [`receive_and_transcribe`] once every segment has arrived and been
+/// verified against the manifest. Only how the transcript is *produced*
+/// differs from the local path: the `Progress`/`Result`/`Error` frames on the
+/// wire and the [`JobFailure`] shape returned to [`run_job_loop`] are the same
+/// ones the local path already uses.
+///
+/// ## Policy is consulted before anything leaves the machine
+/// `decide_cloud_tier` runs first, against the desktop's own tier policy: the
+/// STT-cloud toggle, whether a key is configured at all, and the daily cap.
+/// A `Blocked` decision returns that decision's reason verbatim as the error
+/// code (`cloud_disabled`, `no_key_configured`, `cap_reached`) with no network
+/// call and no audio upload. The daily counter is incremented only *after*
+/// `dispatch_stt` comes back with a transcript, so a failed call never eats
+/// the user's quota.
+///
+/// ## One file, not many (the concat step)
+/// FUNG's local pipeline is built around many short segments; every cloud STT
+/// API takes exactly one audio file. A multi-segment job is therefore joined
+/// into a single `concat.wav` first, by the same `scripts/transcribe.py` the
+/// local path already shells out to, in its `--concat-only` mode — which
+/// decodes and re-writes the audio rather than byte-concatenating it, because
+/// m4a segments cannot simply be appended. That work is skipped entirely for
+/// a single-segment job, which uploads the one received segment as it is.
+///
+/// ## Keepalives
+/// A cloud round trip is allowed up to 120s (`cloud_executor`'s STT timeout),
+/// twice the mobile client's 60s socket read timeout, so the dispatch runs on
+/// its own thread while the main thread — the only owner of `channel` — keeps
+/// sending `Progress{stage:"transcribing"}` at most
+/// [`TRANSCRIBE_KEEPALIVE_INTERVAL`] apart. This is the same structure, and
+/// for the same reason, as the local path's worker-thread + keepalive loop.
+/// The percent stays at 50 for the whole call because a cloud provider
+/// reports no incremental progress; the definitive `percent: 100` marker is
+/// sent on success exactly as the local path sends it.
+///
+/// ## Failure codes are deliberately non-terminal
+/// None of the codes returned here appear in [`TERMINAL_JOB_ERROR_CODES`], so
+/// a failed cloud job keeps its received segments on disk. That is the point:
+/// `cap_reached`, `no_key_configured` and `cloud_dispatch_failed` are all
+/// states a user resolves and retries (tomorrow, after adding a key, or by
+/// re-running the job on the local executor), and re-uploading the audio over
+/// the LAN to get back to the same place would be wasted work. The 24h sweep
+/// ([`sweep_stale_job_dirs`]) bounds how long those files linger if no retry
+/// ever comes.
+fn dispatch_cloud_stt(
+    channel: &mut NoiseChannel<TcpStream>,
+    job_id: &str,
+    job_dir: &Path,
+    seg_paths: &[PathBuf],
+    data_root: &Path,
+    runtime: &WhisperRuntime,
+) -> Result<(i64, Vec<Segment>), JobFailure> {
+    let policy_conn = crate::paired_devices_connection_at(data_root)
+        .map_err(|e| JobFailure::Failed("io_error".into(), e.to_string()))?;
+    let policy = crate::policy::load_policy(&policy_conn)
+        .map_err(|e| JobFailure::Failed("policy_error".into(), e))?;
+    let calls_today =
+        crate::policy::calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt)
+            .map_err(|e| JobFailure::Failed("policy_error".into(), e))?;
+    let config = resolve_stt_cloud_config()
+        .map_err(|e| JobFailure::Failed("policy_error".into(), e))?;
+
+    let decision = crate::policy::decide_cloud_tier(
+        &policy,
+        crate::cloud_config::CloudTaskKind::Stt,
+        calls_today,
+        config.is_some(),
+    );
+    let config = match decision {
+        crate::policy::TierDecision::Blocked { reason } => {
+            return Err(JobFailure::Failed(
+                reason.to_string(),
+                "cloud tier blocked by policy".into(),
+            ));
+        }
+        crate::policy::TierDecision::Allow => {
+            config.expect("decide_cloud_tier only returns Allow when key_configured was true")
+        }
+    };
+
+    channel
+        .send(&Control::Progress {
+            job_id: job_id.to_string(),
+            percent: 50,
+            stage: "transcribing".into(),
+        })
+        .map_err(|e| JobFailure::Failed("transport_error".into(), e.to_string()))?;
+
+    let audio_path = if seg_paths.len() == 1 {
+        seg_paths[0].clone()
+    } else {
+        // Same newline-delimited manifest-file contract the local path uses
+        // (and for the same reason: hundreds of positional paths would
+        // overflow the ~32KB Windows command-line limit).
+        let manifest_path = job_dir.join("segments.txt");
+        let manifest_contents = seg_paths
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(&manifest_path, manifest_contents)
+            .map_err(|e| JobFailure::Failed("io_error".into(), format!("segment manifest: {e}")))?;
+        let concat_path = job_dir.join("concat.wav");
+        let args = vec![
+            "--manifest".to_string(),
+            manifest_path.to_string_lossy().to_string(),
+            "--concat-only".to_string(),
+            concat_path.to_string_lossy().to_string(),
+        ];
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        // The production `WhisperRuntime` threaded down from `AppState`, not a
+        // test-only one: `runtime.script` is the packaged `transcribe.py` and
+        // `runtime.python` the bundled venv interpreter, resolved once at
+        // startup by `whisper_runtime`.
+        crate::run_python_worker(runtime, &runtime.script, &arg_refs, None, |_| {})
+            .map_err(|e| JobFailure::Failed("concat_failed".into(), e))?;
+        concat_path
+    };
+
+    // Dispatch on its own thread so the socket keeps getting keepalive frames
+    // for the whole round trip (see this function's doc comment). Nothing is
+    // ever *sent* on `done_tx`; it exists only so that dropping it at the end
+    // of the worker closure wakes the loop below with `Disconnected`.
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    let dispatch_config = config.clone();
+    let dispatch_path = audio_path.clone();
+    let worker: thread::JoinHandle<Result<Vec<Segment>, String>> = thread::spawn(move || {
+        let result = crate::cloud_executor::dispatch_stt(&dispatch_config, &dispatch_path);
+        drop(done_tx);
+        result
+    });
+
+    // A keepalive that fails means the peer is gone. We record it and stop
+    // writing, but keep waiting for the worker rather than returning
+    // immediately: the request is already in flight and will consume the
+    // user's quota whether or not anyone is left to receive the answer, so
+    // bailing out here would under-count `calls_today` against the daily cap.
+    let mut transport_error: Option<String> = None;
+    loop {
+        match done_rx.recv_timeout(TRANSCRIBE_KEEPALIVE_INTERVAL) {
+            // Nothing is ever sent on this channel; both arms just mean
+            // "still running, tick the keepalive".
+            Ok(()) | Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => break, // dispatch finished
+        }
+        if transport_error.is_some() {
+            continue;
+        }
+        if let Err(e) = channel.send(&Control::Progress {
+            job_id: job_id.to_string(),
+            percent: 50,
+            stage: "transcribing".into(),
+        }) {
+            transport_error = Some(e.to_string());
+        }
+    }
+
+    let segments = worker
+        .join()
+        .map_err(|_| {
+            JobFailure::Failed(
+                "cloud_dispatch_failed".into(),
+                "cloud dispatch thread panicked".into(),
+            )
+        })?
+        .map_err(|e| JobFailure::Failed("cloud_dispatch_failed".into(), e))?;
+
+    // Success: the call happened and counts against today's cap, even if the
+    // peer disappeared while it was in flight.
+    crate::policy::increment_calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt)
+        .map_err(|e| JobFailure::Failed("policy_error".into(), e))?;
+
+    if let Some(e) = transport_error {
+        return Err(JobFailure::Failed("transport_error".into(), e));
+    }
+
+    channel
+        .send(&Control::Progress {
+            job_id: job_id.to_string(),
+            percent: 100,
+            stage: "transcribing".into(),
+        })
+        .map_err(|e| JobFailure::Failed("transport_error".into(), e.to_string()))?;
+
+    // Audio duration, matching what the local path puts in this field
+    // (`WhisperOutput.duration_ms` is the transcribed audio's length, not how
+    // long transcription took) -- so `Control::Result.duration_ms` means the
+    // same thing to the client regardless of which executor produced it. The
+    // last segment's end offset is the closest thing a cloud provider gives
+    // us; an empty transcript reports 0.
+    let duration_ms = segments.last().map(|s| s.end_ms).unwrap_or(0);
+    Ok((duration_ms, segments))
 }
 
 #[cfg(test)]
@@ -1184,6 +1484,7 @@ mod tests {
                 profile: "cpu".into(),
                 resume_from_seq: 0,
                 checksums,
+                executor: "local".to_string(),
             })
             .unwrap();
         channel
@@ -1281,6 +1582,7 @@ mod tests {
                 profile: "cpu".into(),
                 resume_from_seq: 0,
                 checksums,
+                executor: "local".to_string(),
             })
             .unwrap();
         channel
@@ -1386,6 +1688,7 @@ mod tests {
                 profile: "cpu".into(),
                 resume_from_seq: 0,
                 checksums,
+                executor: "local".to_string(),
             })
             .unwrap();
         channel
@@ -1469,6 +1772,7 @@ mod tests {
                 profile: "cpu".into(),
                 resume_from_seq: 0,
                 checksums,
+                executor: "local".to_string(),
             })
             .unwrap();
         // Cancel instead of sending the Chunk the server is waiting for.
@@ -1574,6 +1878,7 @@ mod tests {
                 profile: "cpu".into(),
                 resume_from_seq: 0,
                 checksums: checksums.clone(),
+                executor: "local".to_string(),
             })
             .unwrap();
 
@@ -1620,6 +1925,7 @@ mod tests {
                 profile: "cpu".into(),
                 resume_from_seq: 2,
                 checksums: checksums.clone(),
+                executor: "local".to_string(),
             })
             .unwrap();
         channel2
@@ -1692,6 +1998,184 @@ mod tests {
         );
     }
 
+    /// Spawns a one-shot HTTP server on 127.0.0.1 standing in for a "custom"
+    /// cloud STT provider: it answers any request with one fixed segment in
+    /// the `Vec<Segment>` shape `cloud_executor::custom_stt` parses. Returns
+    /// the bound `127.0.0.1:<port>`.
+    fn one_shot_stt_server() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 8192];
+                let _ = std::io::Read::read(&mut stream, &mut buf);
+                let body =
+                    r#"[{"start_ms":0,"end_ms":1000,"text":"cloud result","confidence":1.0}]"#;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+                // Drain whatever the client is still writing before dropping
+                // the socket: closing it under a half-sent request makes
+                // Windows reset the connection, which reqwest surfaces as a
+                // send error even though the response was already written.
+                let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+                let _ = std::io::Read::read(&mut stream, &mut buf);
+            }
+        });
+        addr
+    }
+
+    /// A `JobStart` with `executor: "cloud"` must never reach the local
+    /// Whisper pipeline: it dispatches through `cloud_executor` against the
+    /// stub above, and comes back in exactly the same `Result` frame shape
+    /// the local path produces.
+    ///
+    /// The desktop's runtime here is still `test_whisper_runtime()`, pointed
+    /// at `fake_transcribe.py`, which always answers with the fixed text
+    /// `"hi"`. So asserting the `Result` carries the *stub's* `"cloud result"`
+    /// text is what actually proves the local pipeline was bypassed, rather
+    /// than merely that some transcript came back.
+    #[test]
+    fn cloud_executor_job_dispatches_via_cloud_executor_not_local_pipeline() {
+        let server_app_data = tempfile::tempdir().unwrap();
+        let client_app_data = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(server_app_data.path()).unwrap();
+        ensure_identity_in_dir(client_app_data.path()).unwrap();
+        pair_device(server_app_data.path(), "device-cloud", client_app_data.path());
+
+        // The tier policy lives in the desktop's own `paired_devices.db` --
+        // the very database `dispatch_cloud_stt` opens from `data_root`.
+        let policy_conn = paired_devices_connection_at(server_app_data.path()).unwrap();
+        crate::policy::save_policy(
+            &policy_conn,
+            &crate::policy::TierPolicy {
+                stt_cloud_enabled: true,
+                llm_cloud_enabled: false,
+                daily_cap: 20,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            crate::policy::calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt)
+                .unwrap(),
+            0,
+            "counter must start at zero so the +1 below is unambiguous"
+        );
+
+        let addr = one_shot_stt_server();
+        set_test_stt_cloud_config(Some(crate::cloud_config::CloudProviderConfig::Custom {
+            endpoint: format!("http://{addr}/stt"),
+            api_key: "test-key".into(),
+            task_kind: crate::cloud_config::CloudTaskKind::Stt,
+        }));
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server_addr = listener.local_addr().unwrap();
+        let (_genesis_path, storage) = open_genesis();
+        let jobs = Arc::new(AtomicUsize::new(0));
+        let runtime = test_whisper_runtime();
+
+        let server_app_data_path = server_app_data.path().to_path_buf();
+        let server_thread = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            handle_connection(stream, &storage, &server_app_data_path, &runtime, &jobs)
+        });
+
+        let client_stream = TcpStream::connect(server_addr).unwrap();
+        let mut channel = initiator_handshake(
+            client_stream,
+            "device-cloud",
+            client_app_data.path(),
+            server_app_data.path(),
+        );
+
+        // One segment only: the single-file fast path, so this test needs no
+        // Python at all (the concat step is only reached for 2+ segments).
+        let seg_bytes: Vec<u8> = (0..256u32).map(|i| (i % 256) as u8).collect();
+        let checksum: String = Sha256::digest(&seg_bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let checksums = vec![checksum];
+        let manifest = manifest_hash(&checksums);
+
+        channel
+            .send(&Control::JobStart {
+                job_id: "job-cloud".into(),
+                operation: "transcript.transcribe".into(),
+                manifest_hash: manifest,
+                segment_count: 1,
+                total_bytes: seg_bytes.len() as u64,
+                profile: "cpu".into(),
+                resume_from_seq: 0,
+                checksums,
+                executor: "cloud".to_string(),
+            })
+            .unwrap();
+        channel
+            .send(&Control::Chunk {
+                job_id: "job-cloud".into(),
+                seq: 0,
+                len: seg_bytes.len() as u32,
+            })
+            .unwrap();
+        channel.send_bytes(&seg_bytes).unwrap();
+
+        // Receiving half of the protocol is shared with the local path and
+        // must be byte-for-byte identical.
+        match channel.recv_control().unwrap() {
+            Control::ChunkAck { seq, .. } => assert_eq!(seq, 0),
+            other => panic!("expected ChunkAck, got {other:?}"),
+        }
+        match channel.recv_control().unwrap() {
+            Control::Progress { stage, .. } => assert_eq!(stage, "receiving"),
+            other => panic!("expected receiving Progress, got {other:?}"),
+        }
+
+        let transcribing_percents = recv_transcribing_progress_until_done(&mut channel);
+        assert_eq!(
+            *transcribing_percents.last().unwrap(),
+            100,
+            "the cloud path must end on the same definitive 100% marker: \
+             {transcribing_percents:?}"
+        );
+
+        match channel.recv_control().unwrap() {
+            Control::Result {
+                job_id, segments, ..
+            } => {
+                assert_eq!(job_id, "job-cloud");
+                assert_eq!(segments.len(), 1);
+                assert_eq!(
+                    segments[0].text, "cloud result",
+                    "must be the stub cloud provider's transcript, not fake_transcribe.py's \"hi\""
+                );
+                assert_eq!(segments[0].end_ms, 1000);
+            }
+            other => panic!("expected Result, got {other:?}"),
+        }
+
+        drop(channel);
+        let result = server_thread.join().unwrap();
+        assert!(result.is_ok(), "cloud job loop should exit cleanly: {result:?}");
+
+        assert_eq!(
+            crate::policy::calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt)
+                .unwrap(),
+            1,
+            "one successful cloud dispatch must bump the daily counter exactly once"
+        );
+        assert!(
+            !job_dir_path(server_app_data.path(), "job-cloud").exists(),
+            "job dir must be cleaned up after the cloud job completes"
+        );
+
+        set_test_stt_cloud_config(None);
+    }
+
     /// A `resume_from_seq` that exceeds `segment_count` (here: claiming 5
     /// already-acked segments against a brand-new job dir that has never
     /// received a byte) must be rejected up front as `Error{code:
@@ -1743,6 +2227,7 @@ mod tests {
                 profile: "cpu".into(),
                 resume_from_seq: 5,
                 checksums,
+                executor: "local".to_string(),
             })
             .unwrap();
 

@@ -509,6 +509,12 @@ fn attempt_transfer(
         profile: "cpu".to_string(),
         resume_from_seq: resume_from,
         checksums: checksums.to_vec(),
+        // The mobile side does not choose the executor: cloud STT is a
+        // desktop-owned decision (the API key, the tier policy and the daily
+        // cap all live on the desktop — see `fungwire_server::
+        // dispatch_cloud_stt`), so this client always asks for the local
+        // pipeline. A later task's mobile UI is what may send "cloud" here.
+        executor: "local".to_string(),
     }) {
         return AttemptOutcome::TransportError(e.to_string());
     }

@@ -1862,8 +1862,12 @@ pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<St
     let mut chunk_count = 0usize;
     let mut segment_count = 0usize;
     let mut samples: Vec<String> = Vec::new();
+    // Mirrors the coordinator: two interleaved channel timelines mean the
+    // last-written chunk is not necessarily the longest one.
+    let mut max_end_ms: i64 = 0;
     while let Ok(chunk) = chunk_rx.recv() {
         let chunk_timestamp = now();
+        max_end_ms = max_end_ms.max(chunk.end_ms);
         capture_record = genesis_adapter::append_capture_chunk(
             &storage,
             &capture_record,
@@ -1913,6 +1917,7 @@ pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<St
         }
     }
     worker.shutdown();
+    capture_record.duration_ms = capture_record.duration_ms.max(max_end_ms);
     genesis_adapter::finish_capture(&storage, &capture_record, &now())?;
 
     note(&mut report, &format!(

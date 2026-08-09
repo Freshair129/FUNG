@@ -228,20 +228,34 @@ pub(crate) fn spawn_capture_thread(
         };
         let device_name = device.name().unwrap_or_else(|_| "unknown device".into());
 
-        let supported = match device.default_input_config() {
+        // WASAPI loopback records a *render* endpoint through an input
+        // stream, and cpal turns on AUDCLNT_STREAMFLAGS_LOOPBACK by itself
+        // whenever `build_input_stream` targets an `eRender` device. What it
+        // does NOT do is describe that device's input side: both
+        // `default_input_config()` and `supported_input_configs()` are gated
+        // on `eCapture`, so a render endpoint answers "not supported" and an
+        // empty list. Loopback delivers the render mix format, so ask the
+        // output side for the format and hand it to `build_input_stream`.
+        let supported = match kind {
+            ChannelKind::Mic => device.default_input_config(),
+            ChannelKind::SystemLoopback => device.default_output_config(),
+        };
+        let supported = match supported {
             Ok(config) => config,
-            Err(first_error) => {
-                // Some drivers only report loopback formats via enumeration.
-                match device
-                    .supported_input_configs()
-                    .ok()
-                    .and_then(|mut configs| configs.next())
-                    .map(|range| range.with_max_sample_rate())
-                {
+            Err(config_error) => {
+                // Fall back to enumeration on the matching side; some drivers
+                // report no default but still advertise usable ranges.
+                let enumerated = match kind {
+                    ChannelKind::Mic => device.supported_input_configs().ok().and_then(|mut c| c.next()),
+                    ChannelKind::SystemLoopback => {
+                        device.supported_output_configs().ok().and_then(|mut c| c.next())
+                    }
+                };
+                match enumerated.map(|range| range.with_max_sample_rate()) {
                     Some(config) => config,
                     None => {
                         let _ = ready_tx.send(Err(format!(
-                            "อุปกรณ์ '{device_name}' ไม่รองรับการจับเสียง ({first_error})"
+                            "อุปกรณ์ '{device_name}' ไม่รองรับการจับเสียง ({config_error})"
                         )));
                         return;
                     }
@@ -647,11 +661,19 @@ fn spawn_coordinator(
         };
 
         let mut chunk_paths_without_transcript: Vec<String> = Vec::new();
+        // `append_capture_chunk` stamps the recording's duration with the
+        // chunk it just wrote. That is exact for mobile's single channel, but
+        // here mic and system keep independent timelines and interleave, so
+        // the stored duration ends up being whichever channel happened to
+        // write last. Track the real high-water mark and correct the row when
+        // the session closes.
+        let mut max_end_ms: i64 = 0;
 
         // Ledger first, transcription second, for every chunk until all
         // channel threads hang up.
         while let Ok(chunk) = chunk_rx.recv() {
             let timestamp = now();
+            max_end_ms = max_end_ms.max(chunk.end_ms);
             match genesis_adapter::append_capture_chunk(
                 &storage,
                 &capture_record,
@@ -722,6 +744,7 @@ fn spawn_coordinator(
         }
 
         let finished_at = now();
+        capture_record.duration_ms = capture_record.duration_ms.max(max_end_ms);
         if let Err(error) = genesis_adapter::finish_capture(&storage, &capture_record, &finished_at) {
             emit_status(&app, &recording_id, "error", Some(error), None, None);
         }
@@ -897,13 +920,14 @@ pub(crate) fn live_meeting_start(
         }
     }
 
-    // Resolve or create the project.
-    let (project_id, storage_path) = match project_id {
+    // Resolve or create the project. Only the id travels onward: the capture
+    // rows reference the project, they never rewrite it.
+    let project_id = match project_id {
         Some(id) => {
             let rows = genesis_adapter::query(
                 &state.genesis,
                 "projects",
-                &["id", "storage_path"],
+                &["id"],
                 vec![genesis_adapter::eq("projects", "id", serde_json::json!(id))],
                 1,
             )
@@ -911,10 +935,7 @@ pub(crate) fn live_meeting_start(
             let row = rows
                 .first()
                 .ok_or_else(|| AppError::InvalidInput(format!("ไม่พบโปรเจกต์ {id}")))?;
-            (
-                genesis_adapter::string(row, "projects.id").map_err(AppError::Genesis)?,
-                genesis_adapter::string(row, "projects.storage_path").map_err(AppError::Genesis)?,
-            )
+            genesis_adapter::string(row, "projects.id").map_err(AppError::Genesis)?
         }
         None => {
             let id = Uuid::new_v4().to_string();
@@ -926,7 +947,7 @@ pub(crate) fn live_meeting_start(
                 serde_json::json!({"id": id, "name": name, "storage_path": storage_path, "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp}),
             )])
             .map_err(AppError::Genesis)?;
-            (id, storage_path)
+            id
         }
     };
 
@@ -957,7 +978,6 @@ pub(crate) fn live_meeting_start(
         &timestamp,
     )
     .map_err(AppError::Genesis)?;
-    let _ = &storage_path; // resolved above for the project lookup only
 
     let job_id = Uuid::new_v4().to_string();
     genesis_adapter::commit_rows(&state.genesis, vec![

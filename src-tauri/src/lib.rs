@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 mod device_identity;
 mod fungwire;
+mod fungwire_client;
 mod fungwire_server;
 mod genesis_adapter;
 mod graph_build;
@@ -1643,6 +1644,9 @@ pub fn run() {
             mobile::mobile_mcp_set_enabled,
             fungwire_server::fungwire_server_set_enabled,
             fungwire_server::fungwire_status,
+            fungwire_client::fungwire_desktop_reachable,
+            fungwire_client::fungwire_delegate_transcription,
+            fungwire_client::fungwire_job_poll,
             tts_provider_register,
             tts_provider_update,
             tts_provider_toggle,

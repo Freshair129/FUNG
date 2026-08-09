@@ -1675,6 +1675,263 @@ fn auth_loopback_listen(app: tauri::AppHandle) -> AppResult<u16> {
     Ok(port)
 }
 
+/// Temporary diagnostic used by `bin/dbcheck.rs` only — remove together with
+/// that binary once the v8 migration issue is resolved.
+#[doc(hidden)]
+pub fn __debug_db_probe(path: &str) -> Result<String, String> {
+    let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
+        path: path.to_string(),
+        page_cache_mb: Some(16),
+        read_only: Some(false),
+        vector_dim: Some(384),
+    })
+    .map_err(|error| format!("open failed: {error}"))?;
+
+    let mut report = String::new();
+
+    // Rows most likely to hold a string inside a Json-typed column.
+    match genesis_adapter::query(&storage, "model_providers", &["id", "kind", "config_json"], vec![], 100) {
+        Ok(rows) => {
+            report.push_str(&format!("model_providers rows: {}\n", rows.len()));
+            for row in rows {
+                let id = row.get("model_providers.id").and_then(serde_json::Value::as_str).unwrap_or("?");
+                let kind = row.get("model_providers.kind").and_then(serde_json::Value::as_str).unwrap_or("?");
+                let config = row.get("model_providers.config_json");
+                let type_name = match config {
+                    Some(serde_json::Value::String(_)) => "STRING",
+                    Some(serde_json::Value::Object(_)) => "object",
+                    Some(serde_json::Value::Array(_)) => "array",
+                    Some(serde_json::Value::Null) | None => "null/missing",
+                    _ => "other",
+                };
+                report.push_str(&format!("  {id} ({kind}) config_json = {type_name}\n"));
+            }
+        }
+        Err(error) => report.push_str(&format!("model_providers query failed: {error}\n")),
+    }
+
+    report.push_str("running install()...\n");
+    match genesis_adapter::install(&storage) {
+        Ok(()) => report.push_str("install OK\n"),
+        Err(error) => report.push_str(&format!("install FAILED: {error}\n")),
+    }
+
+    if let Some(legacy) = std::env::args().nth(2) {
+        report.push_str(&format!("importing legacy sqlite {legacy} ...\n"));
+        match genesis_adapter::import_legacy_sqlite(&storage, std::path::Path::new(&legacy)) {
+            Ok(count) => report.push_str(&format!("legacy import OK: {count} rows\n")),
+            Err(error) => report.push_str(&format!("legacy import FAILED: {error}\n")),
+        }
+    }
+
+    let seeded_at = now();
+    let seed = genesis_adapter::commit_rows(&storage, vec![
+        genesis_adapter::upsert("model_providers", serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":"http://127.0.0.1:11434"},"created_at":seeded_at,"updated_at":seeded_at})),
+    ]);
+    match seed {
+        Ok(()) => report.push_str("seed OK\n"),
+        Err(error) => report.push_str(&format!("seed FAILED: {error}\n")),
+    }
+
+    Ok(report)
+}
+
+/// Headless end-to-end smoke of the Live Meeting pipeline on REAL hardware:
+/// capture (mic + WASAPI loopback) → durable chunk ledger → persistent
+/// whisper worker → transcript segments → summary (Ollama) → Markdown export.
+/// Used by `bin/live_smoke.rs`; also the LM-01 acceptance harness, so keep it
+/// in sync with the command-path behavior in `live_meeting.rs`.
+#[doc(hidden)]
+pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<String>) -> Result<String, String> {
+    use live_meeting::{spawn_capture_thread, ChannelKind, LiveWorker, CHANNEL_MIC, CHANNEL_SYSTEM};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    let mut report = String::new();
+    let dir = PathBuf::from(work_dir);
+    let chunks_dir = dir.join("chunks");
+    std::fs::create_dir_all(&chunks_dir).map_err(|error| error.to_string())?;
+
+    let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
+        path: dir.join("genesisdb").display().to_string(),
+        page_cache_mb: Some(32),
+        read_only: Some(false),
+        vector_dim: Some(384),
+    })
+    .map_err(|error| format!("open storage: {error}"))?;
+    genesis_adapter::install(&storage)?;
+
+    let project_id = "smoke-project";
+    let recording_id = "smoke-recording";
+    let timestamp = now();
+    genesis_adapter::commit_rows(&storage, vec![
+        genesis_adapter::upsert("model_providers", serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":"http://127.0.0.1:11434"},"created_at":timestamp,"updated_at":timestamp})),
+        genesis_adapter::upsert("projects", serde_json::json!({"id":project_id,"name":"Live smoke","storage_path":dir.display().to_string(),"active_recording_id":null,"created_at":timestamp,"updated_at":timestamp})),
+        genesis_adapter::upsert("speakers", serde_json::json!({"id":format!("{project_id}::speaker::me"),"project_id":project_id,"key":"me","display_name":"เรา","confidence":null,"created_at":timestamp,"updated_at":timestamp})),
+        genesis_adapter::upsert("speakers", serde_json::json!({"id":format!("{project_id}::speaker::them"),"project_id":project_id,"key":"them","display_name":"อีกฝ่าย","confidence":null,"created_at":timestamp,"updated_at":timestamp})),
+    ])?;
+    let mut capture_record = live_meeting::start_desktop_capture(
+        &storage,
+        project_id,
+        recording_id,
+        &chunks_dir.display().to_string(),
+        &timestamp,
+    )?;
+
+    // Progress must survive a killed process: append every stage to a file.
+    let report_path = dir.join("smoke-report.txt");
+    let note = |report: &mut String, line: &str| {
+        report.push_str(line);
+        report.push('\n');
+        let _ = std::fs::write(&report_path, report.as_bytes());
+        eprintln!("[smoke] {line}");
+    };
+
+    // Whisper worker FIRST: its first run may download the model, and that
+    // wait must not silently extend the capture window.
+    let root = source_root();
+    let runtime = WhisperRuntime {
+        python: root.join(".venv-whisper").join("Scripts").join("python.exe"),
+        script: root.join("scripts").join("transcribe.py"),
+        cuda_bin: root.join("runtime").join("cuda12").join("bin"),
+    };
+    let mut worker = LiveWorker::spawn(&runtime, language.as_deref())?;
+    worker.wait_ready()?;
+    note(&mut report, "whisper live worker: ready");
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let (chunk_tx, chunk_rx) = std::sync::mpsc::channel();
+
+    if capture_secs == 0 {
+        // Inject mode: treat prepared WAV files in {work_dir}/inject as mic
+        // chunks — proves ledger→whisper→segments→summary deterministically,
+        // independent of room acoustics and device quirks.
+        let inject_dir = dir.join("inject");
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&inject_dir)
+            .map_err(|error| format!("inject dir missing: {error}"))?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().map(|ext| ext == "wav").unwrap_or(false))
+            .collect();
+        files.sort();
+        let mut cursor_ms: i64 = 0;
+        for path in files {
+            let reader = hound::WavReader::open(&path).map_err(|error| error.to_string())?;
+            let spec = reader.spec();
+            let duration_ms =
+                (reader.duration() as i64) * 1000 / spec.sample_rate.max(1) as i64;
+            let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
+            let checksum = {
+                use sha2::Digest;
+                let mut hasher = sha2::Sha256::new();
+                hasher.update(&bytes);
+                format!("{:x}", hasher.finalize())
+            };
+            let _ = chunk_tx.send(live_meeting::RawChunk {
+                channel: CHANNEL_MIC,
+                chunk_id: Uuid::new_v4().to_string(),
+                file_path: path.display().to_string(),
+                start_ms: cursor_ms,
+                end_ms: cursor_ms + duration_ms,
+                byte_size: bytes.len() as i64,
+                checksum,
+            });
+            cursor_ms += duration_ms;
+        }
+        note(&mut report, "inject mode: queued prepared WAV chunks");
+    } else {
+        let mic = spawn_capture_thread(ChannelKind::Mic, CHANNEL_MIC, stop.clone(), chunk_tx.clone(), chunks_dir.clone());
+        match &mic {
+            Ok(ready) => note(&mut report, &format!("mic device: {}", ready.device_name)),
+            Err(error) => note(&mut report, &format!("mic UNAVAILABLE: {error}")),
+        }
+        let system = spawn_capture_thread(ChannelKind::SystemLoopback, CHANNEL_SYSTEM, stop.clone(), chunk_tx.clone(), chunks_dir.clone());
+        match &system {
+            Ok(ready) => note(&mut report, &format!("loopback device: {}", ready.device_name)),
+            Err(error) => note(&mut report, &format!("loopback UNAVAILABLE: {error}")),
+        }
+        if mic.is_err() && system.is_err() {
+            return Err(format!("no capture channel available\n{report}"));
+        }
+        note(&mut report, &format!("capturing for {capture_secs}s..."));
+        std::thread::sleep(Duration::from_secs(capture_secs));
+        stop.store(true, Ordering::SeqCst);
+    }
+    drop(chunk_tx);
+
+    let mut chunk_count = 0usize;
+    let mut segment_count = 0usize;
+    let mut samples: Vec<String> = Vec::new();
+    while let Ok(chunk) = chunk_rx.recv() {
+        let chunk_timestamp = now();
+        capture_record = genesis_adapter::append_capture_chunk(
+            &storage,
+            &capture_record,
+            genesis_adapter::AudioChunk {
+                id: &chunk.chunk_id,
+                file_path: &chunk.file_path,
+                start_ms: chunk.start_ms,
+                end_ms: chunk.end_ms,
+                byte_size: chunk.byte_size,
+                checksum: &chunk.checksum,
+                timestamp: &chunk_timestamp,
+            },
+        )?;
+        chunk_count += 1;
+        match worker.transcribe_chunk(&chunk) {
+            Ok(response) => {
+                if let Some(error) = response.error {
+                    report.push_str(&format!("chunk {} error: {error}\n", chunk.chunk_id));
+                    continue;
+                }
+                let speaker_key = if chunk.channel == CHANNEL_MIC { "me" } else { "them" };
+                let mut mutations = Vec::new();
+                for segment in &response.segments {
+                    let seg_timestamp = now();
+                    mutations.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({
+                        "id": Uuid::new_v4().to_string(),
+                        "project_id": project_id,
+                        "recording_id": recording_id,
+                        "speaker_id": format!("{project_id}::speaker::{speaker_key}"),
+                        "start_ms": chunk.start_ms + segment.start_ms,
+                        "end_ms": chunk.start_ms + segment.end_ms,
+                        "text": segment.text,
+                        "confidence": segment.confidence,
+                        "created_at": seg_timestamp,
+                        "updated_at": seg_timestamp,
+                    })));
+                    segment_count += 1;
+                    if samples.len() < 10 {
+                        samples.push(format!("[{}] {}", chunk.channel, segment.text));
+                    }
+                }
+                if !mutations.is_empty() {
+                    genesis_adapter::commit_rows(&storage, mutations)?;
+                }
+            }
+            Err(error) => report.push_str(&format!("worker failure: {error}\n")),
+        }
+    }
+    worker.shutdown();
+    genesis_adapter::finish_capture(&storage, &capture_record, &now())?;
+
+    note(&mut report, &format!(
+        "chunks: {chunk_count} (ledger duration {} ms), segments: {segment_count}",
+        capture_record.duration_ms
+    ));
+    for sample in samples.clone() {
+        note(&mut report, &format!("  {sample}"));
+    }
+
+    note(&mut report, "generating summaries (Ollama)...");
+    match meeting_intel::generate_summaries_and_export(&storage, project_id, recording_id) {
+        Ok(export_path) => note(&mut report, &format!("summary + export: OK -> {export_path}")),
+        Err(error) => note(&mut report, &format!("summary + export FAILED: {error}")),
+    }
+
+    Ok(report)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

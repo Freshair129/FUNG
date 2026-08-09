@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { supabase } from "../lib/supabase";
-import type { DelegatedJob, EffectNode, GraphEdge, GraphNode, MobileNote, StorySequence, TimelineData, VoiceProfile } from "./model";
+import type { DelegatedExecutor, DelegatedJob, EffectNode, GraphEdge, GraphNode, MobileNote, StorySequence, TimelineData, VoiceProfile } from "./model";
 
 const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -253,18 +253,49 @@ export async function delegateTranscription(
   desktopDeviceId: string,
   endpoint: string,
   ownDeviceId: string,
+  executor: DelegatedExecutor = "local",
 ): Promise<{ jobId: string } | null> {
   if (!isTauri()) return null;
-  return invoke<{ jobId: string }>("fungwire_delegate_transcription", { projectId, recordingId, desktopDeviceId, endpoint, ownDeviceId });
+  return invoke<{ jobId: string }>("fungwire_delegate_transcription", { projectId, recordingId, desktopDeviceId, endpoint, ownDeviceId, executor });
 }
 
-// `fungwire_job_poll` (Rust `JobPollOutput`) only reports `{ state, progress,
-// error }` — it doesn't echo back the job id, operation, or executor, so
+type DesktopStatusProbe = {
+  sttCloudEnabled: boolean;
+};
+
+/** Reads whether the PAIRED DESKTOP (not this mobile device) currently has
+ * its STT cloud tier enabled. The setting — like the API key it spends — is
+ * owned exclusively by the device that holds the keys (spec §10), so mobile
+ * can only ever read it, never toggle it: there is no writing counterpart to
+ * this function anywhere in the mobile bridge, by design.
+ *
+ * `ownDeviceId` is required for the same reason `desktopReachable` needs it:
+ * the probe dials the desktop over FUNGWIRE, and the wire protocol's opening
+ * `Control::Hello{device_id}` must carry an id the desktop's
+ * `paired_devices.db` recognises as the caller (see `fungwire_client.rs`'s
+ * module doc). Returns false on ANY failure — desktop unreachable, not
+ * paired, an older desktop that doesn't answer `StatusRequest` — matching
+ * `desktopReachable`'s fail-closed convention: an unknown policy must never
+ * surface a cloud affordance. */
+export async function desktopCloudEnabled(deviceId: string, endpoint: string, ownDeviceId: string): Promise<boolean> {
+  if (!isTauri()) return false;
+  try {
+    const status = await invoke<DesktopStatusProbe>("fungwire_desktop_status_probe", { desktopDeviceId: deviceId, endpoint, ownDeviceId });
+    return status.sttCloudEnabled;
+  } catch {
+    return false;
+  }
+}
+
+// `fungwire_job_poll` (Rust `JobPollOutput`) reports `{ state, progress,
+// executor, error }` — it doesn't echo back the job id or operation, so
 // those are filled in from what the caller already knows rather than from
-// the wire response.
+// the wire response. `executor` IS read from the row (Genesis schema v7's
+// `delegated_jobs.executor`) so the cloud provenance badge doesn't depend on
+// the caller still holding the choice it made at delegation time.
 export async function pollDelegatedJob(jobId: string): Promise<DelegatedJob | null> {
   if (!isTauri()) return null;
-  const result = await invoke<{ state: DelegatedJob["state"]; progress: number; error: string | null }>("fungwire_job_poll", { jobId });
+  const result = await invoke<{ state: DelegatedJob["state"]; progress: number; executor: string | null; error: string | null }>("fungwire_job_poll", { jobId });
   if (!result) return null;
   return {
     id: jobId,
@@ -272,6 +303,7 @@ export async function pollDelegatedJob(jobId: string): Promise<DelegatedJob | nu
     state: result.state,
     progress: result.progress,
     executorDeviceId: null,
+    executor: result.executor === "cloud" ? "cloud" : result.executor === "local" ? "local" : undefined,
     error: result.error ?? undefined,
   };
 }

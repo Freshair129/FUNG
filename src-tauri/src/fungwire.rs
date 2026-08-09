@@ -116,6 +116,30 @@ pub enum Control {
     },
     Heartbeat,
     HeartbeatAck,
+    /// Phase 3 status probe: asks an already-authenticated desktop what its
+    /// own cloud-tier policy currently says, so the mobile UI can decide
+    /// whether to offer a cloud delegate action at all.
+    ///
+    /// Deliberately carries NO `device_id`: unlike the cleartext
+    /// [`Control::Hello`] that opens a connection, this travels inside the
+    /// completed Noise KK session, where the caller's identity is already
+    /// proven cryptographically. Re-stating it here would add a field the
+    /// receiver must either ignore or — worse — trust over the handshake.
+    StatusRequest,
+    /// Answer to [`Control::StatusRequest`].
+    ///
+    /// A deliberate *subset* of `fungwire_server::FungwireStatus`, not a
+    /// mirror of it: `enabled` is trivially true for anyone who got far
+    /// enough to ask, `bind` is the address the asker just dialled, and
+    /// `connected_peers`/`active_jobs` are desktop-local diagnostics with no
+    /// consumer on the mobile side. Only the policy bit crosses the wire.
+    StatusReply {
+        /// Whether the answering desktop's tier policy currently permits
+        /// cloud STT. Purely informational to the peer — the desktop
+        /// re-checks this (plus its key and daily cap) when a cloud job
+        /// actually arrives, so a `true` here is never a standing grant.
+        stt_cloud_enabled: bool,
+    },
 }
 
 /// A single transcript segment carried in a [`Control::Result`] message.
@@ -371,6 +395,32 @@ mod tests {
         match Control::decode(legacy).expect("legacy JobStart must still decode") {
             Control::JobStart { executor, .. } => assert_eq!(executor, "local"),
             other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    /// The Phase 3 status-probe pair must survive the same tagged-JSON
+    /// round-trip as every other control message — including `StatusRequest`,
+    /// which is a *unit* variant and so serializes to nothing but its tag.
+    #[test]
+    fn status_request_and_reply_roundtrip() {
+        match Control::decode(&Control::StatusRequest.encode())
+            .expect("StatusRequest must decode")
+        {
+            Control::StatusRequest => {}
+            other => panic!("wrong variant: {other:?}"),
+        }
+        for enabled in [true, false] {
+            let encoded = Control::StatusReply {
+                stt_cloud_enabled: enabled,
+            }
+            .encode();
+            match Control::decode(&encoded).expect("StatusReply must decode") {
+                Control::StatusReply { stt_cloud_enabled } => assert_eq!(
+                    stt_cloud_enabled, enabled,
+                    "the policy bit must survive the round-trip unchanged"
+                ),
+                other => panic!("wrong variant: {other:?}"),
+            }
         }
     }
 

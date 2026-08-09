@@ -500,6 +500,23 @@ pub(crate) fn run_job_loop(
             Control::Heartbeat => {
                 channel.send(&Control::HeartbeatAck).map_err(|e| e.to_string())?;
             }
+            // Phase 3 status probe. Answered right here alongside
+            // `Heartbeat`, rather than anywhere near the `JobStart` arm
+            // below: it starts no job, touches neither `jobs` nor the job
+            // directory, and leaves the loop free for the next message. A
+            // failure to read the policy is reported as `stt_cloud_enabled:
+            // false` rather than tearing the connection down — the honest
+            // answer to "may I use cloud STT?" when this desktop cannot even
+            // read its own policy is "no", and that is exactly what the
+            // job-side check would conclude too.
+            Control::StatusRequest => {
+                let enabled = stt_cloud_enabled(app_data).unwrap_or(false);
+                channel
+                    .send(&Control::StatusReply {
+                        stt_cloud_enabled: enabled,
+                    })
+                    .map_err(|e| e.to_string())?;
+            }
             Control::JobStart {
                 job_id,
                 operation,
@@ -1451,6 +1468,102 @@ mod tests {
             .into_transport_mode()
             .expect("initiator must reach transport mode");
         NoiseChannel::new(client_stream, transport)
+    }
+
+    /// Drives one Phase 3 status probe against the real `handle_connection`:
+    /// pairs a client, writes a tier policy whose `stt_cloud_enabled` is
+    /// `policy_enabled`, handshakes, sends `Control::StatusRequest`, and
+    /// returns the `stt_cloud_enabled` the desktop answered with.
+    ///
+    /// Also asserts the two properties that make this a *probe* rather than a
+    /// job: the active-jobs counter is never touched, and the connection
+    /// stays usable afterwards (a second request is answered on the same
+    /// channel) — answering a status request must not consume the job loop.
+    fn probe_status_over_loopback(policy_enabled: bool) -> bool {
+        let server_app_data = tempfile::tempdir().unwrap();
+        let client_app_data = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(server_app_data.path()).unwrap();
+        ensure_identity_in_dir(client_app_data.path()).unwrap();
+        pair_device(server_app_data.path(), "device-status", client_app_data.path());
+
+        let policy_conn = paired_devices_connection_at(server_app_data.path()).unwrap();
+        crate::policy::save_policy(
+            &policy_conn,
+            &crate::policy::TierPolicy {
+                stt_cloud_enabled: policy_enabled,
+                llm_cloud_enabled: false,
+                daily_cap: 20,
+            },
+        )
+        .unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (_genesis_path, storage) = open_genesis();
+        let jobs = Arc::new(AtomicUsize::new(0));
+        let observed_jobs = jobs.clone();
+        let runtime = test_whisper_runtime();
+
+        let server_app_data_path = server_app_data.path().to_path_buf();
+        let server_thread = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            handle_connection(stream, &storage, &server_app_data_path, &runtime, &jobs)
+        });
+
+        let client_stream = TcpStream::connect(addr).unwrap();
+        // Bound the wait: an unimplemented (or pre-Phase-3) server silently
+        // ignores unknown control messages, and without this the test would
+        // block forever rather than fail.
+        client_stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut channel = initiator_handshake(
+            client_stream,
+            "device-status",
+            client_app_data.path(),
+            server_app_data.path(),
+        );
+
+        channel.send(&Control::StatusRequest).unwrap();
+        let answered = match channel.recv_control().expect("desktop must answer StatusRequest") {
+            Control::StatusReply { stt_cloud_enabled } => stt_cloud_enabled,
+            other => panic!("expected StatusReply, got {other:?}"),
+        };
+        assert_eq!(
+            observed_jobs.load(Ordering::SeqCst),
+            0,
+            "a status probe must never register as an active job"
+        );
+
+        // Same channel, second request: the job loop must still be running.
+        channel.send(&Control::StatusRequest).unwrap();
+        match channel.recv_control().expect("connection must survive a status probe") {
+            Control::StatusReply { stt_cloud_enabled } => assert_eq!(stt_cloud_enabled, answered),
+            other => panic!("expected a second StatusReply, got {other:?}"),
+        }
+
+        drop(channel);
+        let result = server_thread.join().unwrap();
+        assert!(result.is_ok(), "status-probe connection should end cleanly: {result:?}");
+        answered
+    }
+
+    #[test]
+    fn status_request_reports_cloud_enabled_policy() {
+        assert!(
+            probe_status_over_loopback(true),
+            "a desktop with stt_cloud_enabled must report it to the paired mobile"
+        );
+    }
+
+    /// The fail-closed half: mobile must be told "off" rather than left to
+    /// assume, so it never offers a cloud affordance the desktop would refuse.
+    #[test]
+    fn status_request_reports_cloud_disabled_policy() {
+        assert!(
+            !probe_status_over_loopback(false),
+            "a desktop with cloud STT off must report false, not silence"
+        );
     }
 
     /// Reads controls from `channel` until a `Progress{stage:"transcribing",

@@ -2014,6 +2014,7 @@ pub fn run() {
             fungwire_server::fungwire_status,
             fungwire_local_endpoint,
             fungwire_client::fungwire_desktop_reachable,
+            fungwire_client::fungwire_desktop_status_probe,
             fungwire_client::fungwire_delegate_transcription,
             fungwire_client::fungwire_job_poll,
             cloud_commands::cloud_config_set,

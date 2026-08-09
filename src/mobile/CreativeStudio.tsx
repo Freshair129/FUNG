@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft, AudioLines, Bookmark, Bot, Check, ChevronRight, CloudDownload, Crop,
+  ArrowLeft, AudioLines, Bookmark, Bot, Check, ChevronRight, CloudDownload, CloudUpload, Crop,
   GripVertical, Leaf, Mic2, Monitor, Move, Pause, Play, Plus, Redo2, Scissors,
   Send, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Square, Undo2, Upload,
   VolumeX, WandSparkles, X,
 } from "lucide-react";
 import type {
-  CreativeStudioState, DelegatedJob, EffectKind, EffectNode, ModelPackage, StoryClip, StorySequence,
+  CreativeStudioState, DelegatedExecutor, DelegatedJob, EffectKind, EffectNode, ModelPackage, StoryClip, StorySequence,
   TimelineData,
 } from "./model";
-import { createStory, delegateTranscription, desktopEndpoint, desktopReachable, moveStoryClip, onDeviceAiStatus, pollDelegatedJob, queryStory, reviewRefinement, setAgentVoiceGrant, splitStoryClip, startProcessingJob, storyHistory, trimStoryClip, updateEffectChain, type OnDeviceAiStatus } from "./bridge";
+import { createStory, delegateTranscription, desktopCloudEnabled, desktopEndpoint, desktopReachable, moveStoryClip, onDeviceAiStatus, pollDelegatedJob, queryStory, reviewRefinement, setAgentVoiceGrant, splitStoryClip, startProcessingJob, storyHistory, trimStoryClip, updateEffectChain, type OnDeviceAiStatus } from "./bridge";
 import { listModelProviders, type ModelProvider } from "../tauri";
 
 const STUDIO_KEY = "fung.mobile.creative-studio.v1";
@@ -29,6 +29,13 @@ const DELEGATE_POLL_MS = 1_500;
 // re-run while this screen is open, so a desktop that comes back online is
 // noticed without requiring a remount.
 const DESKTOP_REACHABLE_POLL_MS = 5_000;
+// How often the desktop's cloud-tier policy is re-read while this screen is
+// open. Deliberately slower than the reachability probe: the policy is a
+// setting a human toggles on the desktop, not a link state that flaps, and
+// each probe is a full TCP + Noise handshake — re-running it as often as the
+// reachability probe would double the dial rate for information that changes
+// on human timescales.
+const DESKTOP_CLOUD_POLICY_POLL_MS = 15_000;
 const delegateStateLabel = (state: DelegatedJob["state"]) => ({
   queued: "รอคิว", running: "กำลังถอดเสียง", paused: "หยุดชั่วคราว",
   completed: "เสร็จสิ้น", failed: "ล้มเหลว", cancelled: "ยกเลิกแล้ว",
@@ -210,6 +217,7 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
   const [selectedTtsId, setSelectedTtsId] = useState<string>("");
   const [desktopEndpointValue, setDesktopEndpointValue] = useState<string | null>(null);
   const [desktopReachableValue, setDesktopReachableValue] = useState<boolean | null>(null);
+  const [cloudDelegateAvailable, setCloudDelegateAvailable] = useState(false);
   const [delegatedJob, setDelegatedJob] = useState<DelegatedJob | null>(null);
   const [delegating, setDelegating] = useState(false);
   const [delegateError, setDelegateError] = useState<string | null>(null);
@@ -251,6 +259,29 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [pairedDesktopId, desktopEndpointValue]);
 
+  // Read the paired desktop's cloud-tier policy (spec §10). READ ONLY: the
+  // key and the toggle both live on the desktop, so this screen exposes no
+  // way to change the answer — it only decides whether the cloud delegate
+  // action is offered at all. Gated on the desktop already being reachable so
+  // an offline desktop isn't dialled twice, and fail-closed (any error leaves
+  // the action hidden) via `desktopCloudEnabled`'s own catch.
+  useEffect(() => {
+    if (!pairedDesktopId || !desktopEndpointValue || desktopReachableValue !== true) {
+      setCloudDelegateAvailable(false);
+      return;
+    }
+    let cancelled = false;
+    const probe = () => {
+      const ownDeviceId = localStorage.getItem(DEVICE_ID_KEY);
+      if (!ownDeviceId) { if (!cancelled) setCloudDelegateAvailable(false); return; }
+      void desktopCloudEnabled(pairedDesktopId, desktopEndpointValue, ownDeviceId)
+        .then((enabled) => { if (!cancelled) setCloudDelegateAvailable(enabled); });
+    };
+    probe();
+    const timer = window.setInterval(probe, DESKTOP_CLOUD_POLICY_POLL_MS);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [pairedDesktopId, desktopEndpointValue, desktopReachableValue]);
+
   // Poll the delegated job every 1.5s until it leaves queued/running.
   useEffect(() => {
     if (!delegatedJob || (delegatedJob.state !== "queued" && delegatedJob.state !== "running")) return;
@@ -273,7 +304,12 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
   const showDelegateRecommendation = localAiDeferred && desktopReachableValue === true;
   const showNoDesktopNotice = localAiDeferred && desktopReachableValue === false;
 
-  const delegateToDesktop = async () => {
+  // `executor` is the mobile user's REQUEST, not a decision: the desktop
+  // still re-checks its own tier policy, key availability and daily cap
+  // before any audio leaves it (see `fungwire_server::dispatch_cloud_stt`),
+  // and answers `Control::Error{code:"cloud_disabled"}` if the policy has
+  // since been turned off.
+  const delegateToDesktop = async (executor: DelegatedExecutor) => {
     // Double-submit guard (I8): a job already in flight, or a submit already
     // in progress, must not be able to fire a second delegate.
     if (desktopJobBusy || !pairedDesktopId || !recordingId || !desktopEndpointValue) return;
@@ -282,9 +318,9 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
     setDelegating(true);
     setDelegateError(null);
     try {
-      const result = await delegateTranscription(state.story.projectId, recordingId, pairedDesktopId, desktopEndpointValue, ownDeviceId);
+      const result = await delegateTranscription(state.story.projectId, recordingId, pairedDesktopId, desktopEndpointValue, ownDeviceId, executor);
       if (result) {
-        setDelegatedJob({ id: result.jobId, operation: "transcript.transcribe", state: "queued", progress: 0, executorDeviceId: pairedDesktopId });
+        setDelegatedJob({ id: result.jobId, operation: "transcript.transcribe", state: "queued", progress: 0, executorDeviceId: pairedDesktopId, executor });
       } else {
         setDelegateError("ส่งงานไม่สำเร็จ ลองใหม่");
       }
@@ -341,14 +377,27 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
           {showDelegateRecommendation && <p className="m-delegate-recommend"><Sparkles size={14} />อุปกรณ์นี้ประมวลผลเองไม่ไหว — ส่งไปที่ FUNG Desktop</p>}
           {showNoDesktopNotice && <p className="m-delegate-error">อุปกรณ์นี้ประมวลผลเองไม่ไหว และไม่พบ FUNG Desktop ที่เชื่อมต่อได้ในขณะนี้</p>}
           {desktopReachableValue && (
-            <button type="button" className="m-delegate-button" disabled={desktopJobBusy} onClick={() => void delegateToDesktop()}>
+            <button type="button" className="m-delegate-button" disabled={desktopJobBusy} onClick={() => void delegateToDesktop("local")}>
               <Send size={16} />{delegating ? "กำลังส่งงาน…" : "ถอดเสียงบน FUNG Desktop"}
+            </button>
+          )}
+          {desktopReachableValue && cloudDelegateAvailable && (
+            <button type="button" className="m-delegate-button is-cloud" disabled={desktopJobBusy} onClick={() => void delegateToDesktop("cloud")}>
+              <CloudUpload size={16} />ถอดเสียงบนคลาวด์ผ่าน FUNG Desktop
             </button>
           )}
           {delegatedJob && (
             <div className="m-delegate-progress">
               <div className="m-delegate-progress-bar"><i style={{ width: `${delegatedJob.progress}%` }} /></div>
-              <span>{delegateStateLabel(delegatedJob.state)} · {delegatedJob.progress}%</span>
+              <span>
+                {/* Provenance marker, not a status: it claims the finished
+                    transcript actually came back from a cloud provider, so it
+                    waits for `completed` rather than appearing the moment a
+                    cloud run is merely requested (a run the desktop's policy
+                    may still refuse). */}
+                {delegatedJob.executor === "cloud" && delegatedJob.state === "completed" && <span className="m-delegate-cloud-badge">☁ คลาวด์</span>}
+                {delegateStateLabel(delegatedJob.state)} · {delegatedJob.progress}%
+              </span>
             </div>
           )}
           {(delegatedJob?.error ?? delegateError) && <p className="m-delegate-error">{delegatedJob?.error ?? delegateError}</p>}

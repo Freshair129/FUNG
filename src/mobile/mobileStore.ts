@@ -122,6 +122,33 @@ export function upsertPairedDevice(
   return next;
 }
 
+// Genesis's `paired_devices.trust_state` (written by the Rust fungwire
+// client on every reachability probe / delegate handshake) and this
+// mobileStore snapshot's `trustState` are two different stores that started
+// out in sync at pairing time but otherwise never talk to each other —
+// nothing previously kept the snapshot's flag in step with reality. Callers
+// probe live via `desktopReachable(...)` (see MobileApp.tsx) and report the
+// result here so the Devices screen chip and any other reader of
+// `trustState` reflect the ACTUAL probe outcome rather than a stale flag
+// frozen at pairing time. Mirrors `mark_peer_unreachable`/
+// `mark_peer_reachable` in `fungwire_client.rs`: a `"revoked"` device is
+// never resurrected by a reachability result, and a no-op transition
+// returns the same snapshot reference so callers can skip re-rendering.
+export function setDeviceReachability(snapshot: MobileSnapshot, cloudDeviceId: string, reachable: boolean): MobileSnapshot {
+  let changed = false;
+  const devices = snapshot.devices.map((device) => {
+    if (device.cloudDeviceId !== cloudDeviceId || device.trustState === "revoked") return device;
+    const trustState: DeviceState["trustState"] = reachable ? "paired" : "unreachable";
+    if (device.trustState === trustState) return device;
+    changed = true;
+    return { ...device, trustState, lastSeenAt: reachable ? now() : device.lastSeenAt };
+  });
+  if (!changed) return snapshot;
+  const next = { ...snapshot, devices };
+  saveSnapshot(next);
+  return next;
+}
+
 export function markDeviceRevoked(snapshot: MobileSnapshot, cloudDeviceId: string): MobileSnapshot {
   const next = {
     ...snapshot,

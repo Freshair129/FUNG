@@ -45,6 +45,7 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
     void (async () => {
       try {
         const identity = await invoke<DeviceIdentity>("device_identity_ensure");
+        const publicKey = await invoke<string>("device_public_key");
         const { data: existing, error: selErr } = await supabase
           .from("devices")
           .select("id, device_label")
@@ -65,6 +66,14 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
             .single();
           if (insErr) throw insErr;
           deviceId = inserted.id as string;
+          // public_key is not covered by the INSERT grant (only user_id,
+          // device_label, platform, public_key_fingerprint are) — set it via
+          // a follow-up UPDATE, which the grant does cover.
+          const { error: pkErr } = await supabase
+            .from("devices")
+            .update({ public_key: publicKey })
+            .eq("id", deviceId);
+          if (pkErr) console.error("Failed to set device public key:", pkErr);
           await supabase.from("device_audit_events").insert({
             user_id: session.user.id,
             device_id: deviceId,
@@ -74,7 +83,7 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
         } else {
           await supabase
             .from("devices")
-            .update({ last_seen_at: new Date().toISOString() })
+            .update({ last_seen_at: new Date().toISOString(), public_key: publicKey })
             .eq("id", deviceId);
         }
         if (!cancelled && deviceId) {

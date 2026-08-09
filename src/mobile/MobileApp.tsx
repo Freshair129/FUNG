@@ -32,8 +32,8 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
-import { addNote, loadSnapshot, markDeviceRevoked, removeDevice, saveSnapshot, upsertPairedDevice } from "./mobileStore";
-import { appendCaptureSegment, controlNativeRecorder, deviceIdentityEnsure, finishCapture, loadPlaybackSegment, nativeRecorderStatus, pairingComplete, persistNote, queryGraph, reconcileNativeCapture, setMcpEnabled, startCapture, startNativeRecorder } from "./bridge";
+import { addNote, loadSnapshot, markDeviceRevoked, removeDevice, saveSnapshot, setDeviceReachability, upsertPairedDevice } from "./mobileStore";
+import { appendCaptureSegment, controlNativeRecorder, desktopEndpoint, desktopReachable, deviceIdentityEnsure, devicePublicKey, finishCapture, loadPlaybackSegment, nativeRecorderStatus, pairingComplete, persistNote, queryGraph, reconcileNativeCapture, setMcpEnabled, startCapture, startNativeRecorder } from "./bridge";
 import { acquireCaptureBackend, CaptureStartError, resumeCaptureClock } from "./captureOrchestration";
 import type { CaptureState, DeviceState, EpistemicStatus, MobileNote, MobileSnapshot, MobileTab, ThemePreference } from "./model";
 import { TimelineScreen } from "./TimelineScreen";
@@ -42,6 +42,11 @@ import { beginGoogleLogin, listenForAuthCallback } from "../lib/authFlow";
 import "./mobile.css";
 
 const DEVICE_ID_KEY = "fung.device.id";
+// How often the app-wide reachability probe (fungwire_desktop_reachable)
+// re-checks the current paired/unreachable desktop, refreshing this
+// mobileStore's cached trustState from the ACTUAL Genesis/probe result
+// instead of leaving it frozen at whatever it was set to at pairing time.
+const DESKTOP_REACHABILITY_POLL_MS = 10_000;
 
 const idleCapture: CaptureState = {
   state: "idle",
@@ -469,6 +474,7 @@ function GraphScreen({ snapshot }: ScreenProps) {
 interface DesktopCandidate {
   id: string;
   device_label: string;
+  public_key: string | null;
 }
 
 const trustChipLabel = (state: DeviceState["trustState"]) =>
@@ -532,6 +538,7 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
       try {
         const identity = await deviceIdentityEnsure();
         if (!identity) throw new Error("device identity unavailable");
+        const publicKey = await devicePublicKey();
         const { data: existing, error: selErr } = await supabase
           .from("devices")
           .select("id")
@@ -554,6 +561,14 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
             .single();
           if (insErr) throw insErr;
           deviceId = inserted.id as string;
+          // public_key is not covered by the INSERT grant (only user_id,
+          // device_label, platform, public_key_fingerprint are) — set it via
+          // a follow-up UPDATE, which the grant does cover.
+          const { error: pkErr } = await supabase
+            .from("devices")
+            .update({ public_key: publicKey })
+            .eq("id", deviceId);
+          if (pkErr) console.error("Failed to set device public key:", pkErr);
           await supabase.from("device_audit_events").insert({
             user_id: session.user.id,
             device_id: deviceId,
@@ -561,7 +576,7 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
             metadata: { platform: "android" },
           });
         } else {
-          await supabase.from("devices").update({ last_seen_at: new Date().toISOString() }).eq("id", deviceId);
+          await supabase.from("devices").update({ last_seen_at: new Date().toISOString(), public_key: publicKey }).eq("id", deviceId);
         }
         if (!cancelled && deviceId) {
           localStorage.setItem(DEVICE_ID_KEY, deviceId);
@@ -609,7 +624,7 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
     void (async () => {
       const { data, error } = await supabase
         .from("devices")
-        .select("id, device_label")
+        .select("id, device_label, public_key")
         .eq("platform", "windows")
         .is("revoked_at", null);
       if (cancelled) return;
@@ -679,7 +694,7 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
         const desktop = desktops.find((item) => item.id === selectedDesktopId);
         const name = desktop?.device_label ?? "FUNG Desktop";
         const trimmedEndpoint = endpoint.trim();
-        await pairingComplete(selectedDesktopId, name, trimmedEndpoint, pending.id);
+        await pairingComplete(selectedDesktopId, name, trimmedEndpoint, pending.id, desktop?.public_key ?? null);
         setSnapshot(upsertPairedDevice(snapshot, {
           cloudDeviceId: selectedDesktopId,
           name,
@@ -873,9 +888,42 @@ export function MobileApp() {
     saveSnapshot(next);
   };
 
+  // Keep the currently paired/unreachable desktop's local trustState in
+  // sync with the ACTUAL Genesis/probe result (fungwire_desktop_reachable),
+  // not just the flag this snapshot was given once at pairing time — those
+  // are two different stores (see mobileStore.ts's setDeviceReachability).
+  // Re-probing on an interval is what lets a desktop that was previously
+  // unreachable (e.g. mid-restart) show as paired again here once it comes
+  // back, and what lets a truly-down desktop show an honest "unreachable"
+  // chip instead of staying "paired" forever.
+  const reachabilityCandidateId = snapshot.devices.find(
+    (device) => device.cloudDeviceId && (device.trustState === "paired" || device.trustState === "unreachable"),
+  )?.cloudDeviceId;
+  useEffect(() => {
+    const myDeviceId = localStorage.getItem(DEVICE_ID_KEY);
+    if (!myDeviceId || !reachabilityCandidateId) return;
+    const cloudDeviceId = reachabilityCandidateId;
+    let cancelled = false;
+    const probe = () => {
+      void desktopEndpoint(cloudDeviceId)
+        .then((endpoint) => {
+          if (cancelled || !endpoint) return null;
+          return desktopReachable(cloudDeviceId, endpoint, myDeviceId);
+        })
+        .then((reachable) => {
+          if (cancelled || reachable === null) return;
+          setSnapshotState((current) => setDeviceReachability(current, cloudDeviceId, reachable));
+        })
+        .catch(() => undefined);
+    };
+    probe();
+    const timer = window.setInterval(probe, DESKTOP_REACHABILITY_POLL_MS);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [reachabilityCandidateId]);
+
   const cycleTheme = () => setTheme((current) => current === "system" ? "light" : current === "light" ? "dark" : "system");
   const props = useMemo<ScreenProps>(() => ({ snapshot, setSnapshot, capture, setCapture, go: setTab, theme, cycleTheme }), [snapshot, capture, theme]);
-  const screen = tab === "home" ? <HomeScreen {...props} /> : tab === "notes" ? <NotesScreen {...props} /> : tab === "timeline" ? <TimelineScreen projectId={snapshot.projectId} desktopAvailable={snapshot.devices.some((device) => device.trustState === "paired")} onRecord={() => setTab("voice")} /> : tab === "graph" ? <GraphScreen {...props} /> : tab === "devices" ? <DevicesScreen {...props} /> : <CaptureScreen {...props} />;
+  const screen = tab === "home" ? <HomeScreen {...props} /> : tab === "notes" ? <NotesScreen {...props} /> : tab === "timeline" ? <TimelineScreen projectId={snapshot.projectId} pairedDesktop={snapshot.devices.find((device) => device.trustState === "paired") ?? null} onRecord={() => setTab("voice")} /> : tab === "graph" ? <GraphScreen {...props} /> : tab === "devices" ? <DevicesScreen {...props} /> : <CaptureScreen {...props} />;
 
   return (
     <div className={`m-app ${dark ? "m-theme-dark" : ""}`}>

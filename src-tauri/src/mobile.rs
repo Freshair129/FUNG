@@ -802,13 +802,18 @@ pub(crate) fn mobile_graph_query(
 /// `confirm_pairing` RPC. `peer_device_id` is the cloud `devices.id` for the
 /// counterpart device, and `pairing_session_id` is carried through as the
 /// `pairing_proof_hash` — a reference to the verified session, not a locally
-/// computed proof (unlike the fake path this replaces).
+/// computed proof (unlike the fake path this replaces). `public_key` is the
+/// desktop peer's base64 ed25519 verifying key (Supabase `devices.public_key`,
+/// Task 5), cached locally so the Noise KK handshake has both static keys
+/// without a network round-trip; `None` when the caller could not fetch it
+/// (e.g. the peer registered before Task 5 shipped).
 fn pairing_complete_inner(
     storage: &genesis_block_native::Storage,
     peer_device_id: &str,
     name: &str,
     endpoint: &str,
     pairing_session_id: &str,
+    public_key: Option<&str>,
 ) -> AppResult<()> {
     let peer_device_id = peer_device_id.trim();
     let pairing_session_id = pairing_session_id.trim();
@@ -852,7 +857,7 @@ fn pairing_complete_inner(
     crate::genesis_adapter::commit_rows(storage, vec![crate::genesis_adapter::upsert("paired_devices", serde_json::json!({
         "id": peer_device_id, "name": name, "endpoint": endpoint, "trust_state": "paired",
         "pairing_proof_hash": pairing_session_id, "capabilities_json": [],
-        "created_at": created_at, "updated_at": timestamp
+        "created_at": created_at, "updated_at": timestamp, "public_key": public_key
     }))]).map_err(AppError::Genesis)?;
     Ok(())
 }
@@ -863,6 +868,7 @@ pub(crate) fn mobile_pairing_complete(
     name: String,
     endpoint: String,
     pairing_session_id: String,
+    public_key: Option<String>,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
     pairing_complete_inner(
@@ -871,6 +877,7 @@ pub(crate) fn mobile_pairing_complete(
         &name,
         &endpoint,
         &pairing_session_id,
+        public_key.as_deref(),
     )
 }
 
@@ -1990,7 +1997,7 @@ mod tests {
     #[test]
     fn pairing_complete_upserts_verified_row() {
         let (path, storage) = open_genesis();
-        pairing_complete_inner(&storage, "cloud-dev-1", "FUNG Desktop", "192.168.1.20:8765", "sess-uuid-1")
+        pairing_complete_inner(&storage, "cloud-dev-1", "FUNG Desktop", "192.168.1.20:8765", "sess-uuid-1", None)
             .expect("pairing complete");
         let rows = crate::genesis_adapter::query(
             &storage,
@@ -2011,9 +2018,37 @@ mod tests {
     }
 
     #[test]
+    fn pairing_complete_stores_peer_public_key() {
+        let (path, storage) = open_genesis();
+        pairing_complete_inner(
+            &storage,
+            "cloud-dev-1b",
+            "FUNG Desktop",
+            "192.168.1.20:8765",
+            "sess-uuid-1b",
+            Some("cGVlci1wdWJsaWMta2V5LWJhc2U2NA=="),
+        )
+        .expect("pairing complete with public key");
+        let rows = crate::genesis_adapter::query(
+            &storage,
+            "paired_devices",
+            &["id", "public_key"],
+            vec![crate::genesis_adapter::eq("paired_devices", "id", serde_json::json!("cloud-dev-1b"))],
+            1,
+        )
+        .expect("query paired_devices");
+        let row = rows.first().expect("paired_devices row must exist");
+        assert_eq!(
+            row.get("paired_devices.public_key").and_then(serde_json::Value::as_str),
+            Some("cGVlci1wdWJsaWMta2V5LWJhc2U2NA==")
+        );
+        drop(storage); let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
     fn pairing_complete_allows_empty_endpoint() {
         let (path, storage) = open_genesis();
-        pairing_complete_inner(&storage, "cloud-dev-2", "FUNG Desktop 2", "", "sess-uuid-2")
+        pairing_complete_inner(&storage, "cloud-dev-2", "FUNG Desktop 2", "", "sess-uuid-2", None)
             .expect("pairing complete with empty endpoint");
         let rows = crate::genesis_adapter::query(
             &storage,
@@ -2031,7 +2066,7 @@ mod tests {
     #[test]
     fn pairing_complete_rejects_blank_peer_device_id() {
         let (path, storage) = open_genesis();
-        let error = pairing_complete_inner(&storage, "  ", "FUNG Desktop", "192.168.1.20:8765", "sess-uuid-3")
+        let error = pairing_complete_inner(&storage, "  ", "FUNG Desktop", "192.168.1.20:8765", "sess-uuid-3", None)
             .expect_err("blank peer device id must be rejected");
         assert!(matches!(error, AppError::InvalidInput(_)));
         drop(storage); let _ = std::fs::remove_dir_all(path);
@@ -2040,7 +2075,7 @@ mod tests {
     #[test]
     fn pairing_complete_rejects_blank_pairing_session_id() {
         let (path, storage) = open_genesis();
-        let error = pairing_complete_inner(&storage, "cloud-dev-3", "FUNG Desktop", "192.168.1.20:8765", "")
+        let error = pairing_complete_inner(&storage, "cloud-dev-3", "FUNG Desktop", "192.168.1.20:8765", "", None)
             .expect_err("blank pairing session id must be rejected");
         assert!(matches!(error, AppError::InvalidInput(_)));
         drop(storage); let _ = std::fs::remove_dir_all(path);
@@ -2051,11 +2086,11 @@ mod tests {
         let (path, storage) = open_genesis();
         let too_long = "x".repeat(121);
         let empty_name_error =
-            pairing_complete_inner(&storage, "cloud-dev-4", "  ", "192.168.1.20:8765", "sess-uuid-4")
+            pairing_complete_inner(&storage, "cloud-dev-4", "  ", "192.168.1.20:8765", "sess-uuid-4", None)
                 .expect_err("empty name must be rejected");
         assert!(matches!(empty_name_error, AppError::InvalidInput(_)));
         let too_long_error =
-            pairing_complete_inner(&storage, "cloud-dev-4", &too_long, "192.168.1.20:8765", "sess-uuid-4")
+            pairing_complete_inner(&storage, "cloud-dev-4", &too_long, "192.168.1.20:8765", "sess-uuid-4", None)
                 .expect_err("121-char name must be rejected");
         assert!(matches!(too_long_error, AppError::InvalidInput(_)));
         drop(storage); let _ = std::fs::remove_dir_all(path);
@@ -2064,7 +2099,7 @@ mod tests {
     #[test]
     fn pairing_complete_preserves_created_at_on_repair() {
         let (path, storage) = open_genesis();
-        pairing_complete_inner(&storage, "cloud-dev-5", "FUNG Desktop", "192.168.1.20:8765", "sess-uuid-5a")
+        pairing_complete_inner(&storage, "cloud-dev-5", "FUNG Desktop", "192.168.1.20:8765", "sess-uuid-5a", None)
             .expect("first pairing");
         let first = crate::genesis_adapter::query(&storage, "paired_devices", &["created_at"], vec![crate::genesis_adapter::eq("paired_devices", "id", serde_json::json!("cloud-dev-5"))], 1)
             .expect("query first")
@@ -2072,7 +2107,7 @@ mod tests {
             .next()
             .and_then(|row| row.get("paired_devices.created_at").and_then(serde_json::Value::as_str).map(str::to_owned))
             .expect("first created_at");
-        pairing_complete_inner(&storage, "cloud-dev-5", "FUNG Desktop", "192.168.1.20:9999", "sess-uuid-5b")
+        pairing_complete_inner(&storage, "cloud-dev-5", "FUNG Desktop", "192.168.1.20:9999", "sess-uuid-5b", None)
             .expect("re-pairing");
         let rows = crate::genesis_adapter::query(&storage, "paired_devices", &["created_at", "endpoint", "pairing_proof_hash"], vec![crate::genesis_adapter::eq("paired_devices", "id", serde_json::json!("cloud-dev-5"))], 1)
             .expect("query second");

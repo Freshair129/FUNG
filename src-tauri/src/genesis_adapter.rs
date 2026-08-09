@@ -280,7 +280,7 @@ fn schema_v4() -> RelationalSchemaPackage {
     package
 }
 
-pub(crate) fn schema() -> RelationalSchemaPackage {
+fn schema_v5() -> RelationalSchemaPackage {
     use RelationalColumnType::{Integer, Text};
     let mut package = schema_v4();
     package.schema_version = 5;
@@ -302,13 +302,40 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
     package
 }
 
+/// Phase 2 FUNGWIRE: the mobile side of a pairing needs the desktop peer's
+/// ed25519 public key cached locally for the Noise KK handshake, mirroring
+/// desktop's `paired_devices.db` (see Task 5 report). Column is nullable —
+/// rows written before this task, or pairings completed before the peer's
+/// key was fetched, simply carry `public_key = NULL`.
+pub(crate) fn schema() -> RelationalSchemaPackage {
+    use RelationalColumnType::Text;
+    let mut package = schema_v5();
+    package.schema_version = 6;
+    package.previous_version = Some(5);
+    if let Some(paired_devices) = package
+        .tables
+        .iter_mut()
+        .find(|candidate| candidate.name == "paired_devices")
+    {
+        paired_devices.columns.push(nullable("public_key", Text));
+    }
+    package
+}
+
 /// Registers the schema chain stepwise. Genesis requires a fresh database to
 /// start at version 1 and advance one version at a time; on an existing
 /// database the already-registered steps report a version conflict, which is
 /// expected and skipped. Any other error — and any failure on the final
 /// (current) package — is fatal.
 pub(crate) fn install(storage: &Storage) -> Result<(), String> {
-    let packages = [schema_v1(), schema_v2(), schema_v3(), schema_v4(), schema()];
+    let packages = [
+        schema_v1(),
+        schema_v2(),
+        schema_v3(),
+        schema_v4(),
+        schema_v5(),
+        schema(),
+    ];
     let last_index = packages.len() - 1;
     for (index, package) in packages.into_iter().enumerate() {
         match storage.register_relational_schema(package) {
@@ -912,6 +939,7 @@ mod tests {
         storage.register_relational_schema(schema_v2()).unwrap();
         storage.register_relational_schema(schema_v3()).unwrap();
         storage.register_relational_schema(schema_v4()).unwrap();
+        storage.register_relational_schema(schema_v5()).unwrap();
         storage.register_relational_schema(schema()).unwrap();
         install(&storage).unwrap();
 
@@ -997,6 +1025,27 @@ mod tests {
         let rows = query(&storage, "tts_test_results", &["id", "status", "latency_ms"], vec![eq("tts_test_results", "id", json!("test-1"))], 1).unwrap();
         assert_eq!(rows[0]["tts_test_results.status"], "ok");
         assert_eq!(rows[0]["tts_test_results.latency_ms"], 812);
+        // Re-install after a stepped upgrade must stay idempotent.
+        storage.register_relational_schema(schema()).unwrap();
+        install(&storage).unwrap();
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn schema_v6_adds_paired_devices_public_key_and_upgrade_is_idempotent() {
+        let (path, storage) = open();
+        commit_rows(&storage, vec![
+            upsert("paired_devices", json!({"id": "peer-1", "name": "FUNG Desktop", "endpoint": "192.168.1.20:8765", "trust_state": "paired", "pairing_proof_hash": "sess-uuid-1", "capabilities_json": [], "created_at": "t", "updated_at": "t", "public_key": "cGVlci1wdWJsaWMta2V5"})),
+        ]).unwrap();
+        let rows = query(&storage, "paired_devices", &["id", "public_key"], vec![eq("paired_devices", "id", json!("peer-1"))], 1).unwrap();
+        assert_eq!(rows[0]["paired_devices.public_key"], "cGVlci1wdWJsaWMta2V5");
+        // Rows written without a public_key (nullable) must still be readable.
+        commit_rows(&storage, vec![
+            upsert("paired_devices", json!({"id": "peer-2", "name": "FUNG Desktop 2", "endpoint": "192.168.1.21:8765", "trust_state": "paired", "pairing_proof_hash": "sess-uuid-2", "capabilities_json": [], "created_at": "t", "updated_at": "t", "public_key": null})),
+        ]).unwrap();
+        let rows = query(&storage, "paired_devices", &["id", "public_key"], vec![eq("paired_devices", "id", json!("peer-2"))], 1).unwrap();
+        assert!(rows[0]["paired_devices.public_key"].is_null());
         // Re-install after a stepped upgrade must stay idempotent.
         storage.register_relational_schema(schema()).unwrap();
         install(&storage).unwrap();

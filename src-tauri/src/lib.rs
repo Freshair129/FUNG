@@ -1555,7 +1555,7 @@ pub fn run() {
             mobile::mobile_voice_profiles_query,
             mobile::mobile_agent_voice_grant_set,
             mobile::mobile_agent_voice_stop,
-            mobile::mobile_pair_desktop,
+            mobile::mobile_pairing_complete,
             mobile::mobile_voice_parse,
             mobile::mobile_mcp_set_enabled,
             tts_provider_register,

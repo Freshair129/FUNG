@@ -113,14 +113,20 @@ export async function pairingComplete(
   name: string,
   endpoint: string,
   pairingSessionId: string,
+  publicKey: string | null,
 ): Promise<void> {
   if (!isTauri()) return;
-  await invoke("mobile_pairing_complete", { peerDeviceId, name, endpoint, pairingSessionId });
+  await invoke("mobile_pairing_complete", { peerDeviceId, name, endpoint, pairingSessionId, publicKey });
 }
 
 export async function deviceIdentityEnsure(): Promise<{ fingerprint: string; created: boolean } | null> {
   if (!isTauri()) return null;
   return invoke("device_identity_ensure");
+}
+
+export async function devicePublicKey(): Promise<string | null> {
+  if (!isTauri()) return null;
+  return invoke<string>("device_public_key");
 }
 
 export async function setMcpEnabled(enabled: boolean, exposeLan: boolean): Promise<{ enabled: boolean; bind: string | null }> {

@@ -253,6 +253,7 @@ pub(crate) struct PairedDeviceInput {
     pub(crate) platform: String,
     pub(crate) fingerprint: String,
     pub(crate) pairing_session_id: String,
+    pub(crate) public_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -264,6 +265,7 @@ pub(crate) struct PairedDeviceRow {
     pub(crate) paired_at: String,
     pub(crate) revoked_at: Option<String>,
     pub(crate) pairing_session_id: String,
+    pub(crate) public_key: Option<String>,
 }
 
 fn ensure_paired_devices_table(conn: &Connection) -> AppResult<()> {
@@ -276,21 +278,35 @@ fn ensure_paired_devices_table(conn: &Connection) -> AppResult<()> {
           fingerprint TEXT NOT NULL,
           paired_at TEXT NOT NULL,
           revoked_at TEXT,
-          pairing_session_id TEXT NOT NULL
+          pairing_session_id TEXT NOT NULL,
+          public_key TEXT
         );
         "#,
     )?;
+    // CREATE TABLE IF NOT EXISTS is a no-op on a paired_devices.db written
+    // before this task, so a fresh column definition above never reaches an
+    // existing table. SQLite has no ADD COLUMN IF NOT EXISTS, so probe via
+    // PRAGMA table_info and ALTER only when the column is actually missing.
+    let has_public_key = conn
+        .prepare("PRAGMA table_info(paired_devices)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(Result::ok)
+        .any(|column_name| column_name == "public_key");
+    if !has_public_key {
+        conn.execute("ALTER TABLE paired_devices ADD COLUMN public_key TEXT", [])?;
+    }
     Ok(())
 }
 
 fn upsert_paired_device(conn: &Connection, device: PairedDeviceInput) -> AppResult<()> {
     conn.execute(
         r#"
-        INSERT INTO paired_devices (id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id)
-        VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)
+        INSERT INTO paired_devices (id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id, public_key)
+        VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
-            revoked_at = NULL
+            revoked_at = NULL,
+            public_key = excluded.public_key
         "#,
         params![
             device.id,
@@ -299,6 +315,7 @@ fn upsert_paired_device(conn: &Connection, device: PairedDeviceInput) -> AppResu
             device.fingerprint,
             now(),
             device.pairing_session_id,
+            device.public_key,
         ],
     )?;
     Ok(())
@@ -306,7 +323,7 @@ fn upsert_paired_device(conn: &Connection, device: PairedDeviceInput) -> AppResu
 
 fn list_paired_devices(conn: &Connection) -> AppResult<Vec<PairedDeviceRow>> {
     let mut statement = conn.prepare(
-        "SELECT id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id \
+        "SELECT id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id, public_key \
          FROM paired_devices ORDER BY paired_at DESC",
     )?;
     let rows = statement
@@ -319,6 +336,7 @@ fn list_paired_devices(conn: &Connection) -> AppResult<Vec<PairedDeviceRow>> {
                 paired_at: row.get(4)?,
                 revoked_at: row.get(5)?,
                 pairing_session_id: row.get(6)?,
+                public_key: row.get(7)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -1617,6 +1635,7 @@ mod paired_device_tests {
                 platform: "android".into(),
                 fingerprint: "ab".repeat(32),
                 pairing_session_id: "sess-1".into(),
+                public_key: Some("cGVlci1wdWJsaWMta2V5LWJhc2U2NA==".into()),
             },
         )
         .unwrap();
@@ -1626,10 +1645,55 @@ mod paired_device_tests {
         assert_eq!(rows[0].name, "Pixel");
         assert_eq!(rows[0].platform, "android");
         assert!(rows[0].revoked_at.is_none());
+        assert_eq!(
+            rows[0].public_key.as_deref(),
+            Some("cGVlci1wdWJsaWMta2V5LWJhc2U2NA==")
+        );
 
         revoke_paired_device(&storage, "dev-1").unwrap();
         let rows = list_paired_devices(&storage).unwrap();
         assert!(rows[0].revoked_at.is_some());
+    }
+
+    #[test]
+    fn ensure_paired_devices_table_backfills_public_key_column_on_legacy_db() {
+        // Simulates a paired_devices.db created before this task: the table
+        // exists but has no public_key column. ensure_paired_devices_table
+        // must ALTER it in place rather than relying on CREATE TABLE IF NOT
+        // EXISTS (which is a no-op once the table already exists).
+        let storage = Connection::open_in_memory().expect("open in-memory sqlite");
+        storage
+            .execute_batch(
+                r#"
+                CREATE TABLE paired_devices (
+                  id TEXT PRIMARY KEY,
+                  name TEXT NOT NULL,
+                  platform TEXT NOT NULL,
+                  fingerprint TEXT NOT NULL,
+                  paired_at TEXT NOT NULL,
+                  revoked_at TEXT,
+                  pairing_session_id TEXT NOT NULL
+                );
+                "#,
+            )
+            .unwrap();
+
+        ensure_paired_devices_table(&storage).expect("backfill public_key column");
+
+        upsert_paired_device(
+            &storage,
+            PairedDeviceInput {
+                id: "dev-legacy".into(),
+                name: "Legacy Pixel".into(),
+                platform: "android".into(),
+                fingerprint: "cd".repeat(32),
+                pairing_session_id: "sess-legacy".into(),
+                public_key: Some("bGVnYWN5LXB1YmxpYy1rZXk=".into()),
+            },
+        )
+        .unwrap();
+        let rows = list_paired_devices(&storage).unwrap();
+        assert_eq!(rows[0].public_key.as_deref(), Some("bGVnYWN5LXB1YmxpYy1rZXk="));
     }
 
     #[test]
@@ -1643,6 +1707,7 @@ mod paired_device_tests {
                 platform: "android".into(),
                 fingerprint: "ab".repeat(32),
                 pairing_session_id: "sess-1".into(),
+                public_key: None,
             },
         )
         .unwrap();
@@ -1656,6 +1721,7 @@ mod paired_device_tests {
                 platform: "android".into(),
                 fingerprint: "ab".repeat(32),
                 pairing_session_id: "sess-2".into(),
+                public_key: None,
             },
         )
         .unwrap();
@@ -1681,6 +1747,7 @@ mod paired_device_tests {
                 platform: "android".into(),
                 fingerprint: "aa".repeat(32),
                 pairing_session_id: "sess-1".into(),
+                public_key: None,
             },
         )
         .unwrap();
@@ -1698,6 +1765,7 @@ mod paired_device_tests {
                 platform: "ios".into(),
                 fingerprint: "bb".repeat(32),
                 pairing_session_id: "sess-2".into(),
+                public_key: None,
             },
         )
         .unwrap();

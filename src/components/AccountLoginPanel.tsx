@@ -45,6 +45,7 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
     void (async () => {
       try {
         const identity = await invoke<DeviceIdentity>("device_identity_ensure");
+        const publicKey = await invoke<string>("device_public_key");
         const { data: existing, error: selErr } = await supabase
           .from("devices")
           .select("id, device_label")
@@ -60,6 +61,7 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
               device_label: deviceLabel,
               platform: "windows",
               public_key_fingerprint: identity.fingerprint,
+              public_key: publicKey,
             })
             .select("id")
             .single();
@@ -74,7 +76,7 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
         } else {
           await supabase
             .from("devices")
-            .update({ last_seen_at: new Date().toISOString() })
+            .update({ last_seen_at: new Date().toISOString(), public_key: publicKey })
             .eq("id", deviceId);
         }
         if (!cancelled && deviceId) {

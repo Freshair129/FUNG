@@ -33,7 +33,7 @@ import {
   X,
 } from "lucide-react";
 import { addNote, loadSnapshot, markDeviceRevoked, removeDevice, saveSnapshot, upsertPairedDevice } from "./mobileStore";
-import { appendCaptureSegment, controlNativeRecorder, deviceIdentityEnsure, finishCapture, loadPlaybackSegment, nativeRecorderStatus, pairingComplete, persistNote, queryGraph, reconcileNativeCapture, setMcpEnabled, startCapture, startNativeRecorder } from "./bridge";
+import { appendCaptureSegment, controlNativeRecorder, deviceIdentityEnsure, devicePublicKey, finishCapture, loadPlaybackSegment, nativeRecorderStatus, pairingComplete, persistNote, queryGraph, reconcileNativeCapture, setMcpEnabled, startCapture, startNativeRecorder } from "./bridge";
 import { acquireCaptureBackend, CaptureStartError, resumeCaptureClock } from "./captureOrchestration";
 import type { CaptureState, DeviceState, EpistemicStatus, MobileNote, MobileSnapshot, MobileTab, ThemePreference } from "./model";
 import { TimelineScreen } from "./TimelineScreen";
@@ -469,6 +469,7 @@ function GraphScreen({ snapshot }: ScreenProps) {
 interface DesktopCandidate {
   id: string;
   device_label: string;
+  public_key: string | null;
 }
 
 const trustChipLabel = (state: DeviceState["trustState"]) =>
@@ -532,6 +533,7 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
       try {
         const identity = await deviceIdentityEnsure();
         if (!identity) throw new Error("device identity unavailable");
+        const publicKey = await devicePublicKey();
         const { data: existing, error: selErr } = await supabase
           .from("devices")
           .select("id")
@@ -549,6 +551,7 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
               device_label: "FUNG Mobile",
               platform: "android",
               public_key_fingerprint: identity.fingerprint,
+              public_key: publicKey,
             })
             .select("id")
             .single();
@@ -561,7 +564,7 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
             metadata: { platform: "android" },
           });
         } else {
-          await supabase.from("devices").update({ last_seen_at: new Date().toISOString() }).eq("id", deviceId);
+          await supabase.from("devices").update({ last_seen_at: new Date().toISOString(), public_key: publicKey }).eq("id", deviceId);
         }
         if (!cancelled && deviceId) {
           localStorage.setItem(DEVICE_ID_KEY, deviceId);
@@ -609,7 +612,7 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
     void (async () => {
       const { data, error } = await supabase
         .from("devices")
-        .select("id, device_label")
+        .select("id, device_label, public_key")
         .eq("platform", "windows")
         .is("revoked_at", null);
       if (cancelled) return;
@@ -679,7 +682,7 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
         const desktop = desktops.find((item) => item.id === selectedDesktopId);
         const name = desktop?.device_label ?? "FUNG Desktop";
         const trimmedEndpoint = endpoint.trim();
-        await pairingComplete(selectedDesktopId, name, trimmedEndpoint, pending.id);
+        await pairingComplete(selectedDesktopId, name, trimmedEndpoint, pending.id, desktop?.public_key ?? null);
         setSnapshot(upsertPairedDevice(snapshot, {
           cloudDeviceId: selectedDesktopId,
           name,

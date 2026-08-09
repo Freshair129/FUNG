@@ -358,6 +358,13 @@ pub(crate) fn run_job_loop(
 ///    below, this is redundant when everything is honest, but it means a
 ///    bug that skips the per-segment check still gets caught here.
 ///
+/// Integrity note: the per-segment checksums and manifest_hash both originate
+/// from the sender's JobStart. These checks detect transport
+/// corruption/truncation/reordering, NOT adversarial tampering by the peer —
+/// the peer is already mutually authenticated as a paired device by the
+/// Noise KK handshake, which is the trust boundary. Do not rely on this
+/// manifest as a content-authenticity anchor against a malicious peer.
+///
 /// ## Transcription (v1: per-segment, no muxing)
 /// m4a segments cannot be byte-concatenated into one file. Instead each
 /// segment is transcribed independently via the existing
@@ -412,6 +419,20 @@ fn receive_and_transcribe(
                     return Err(JobFailure::Failed(
                         "bad_seq".into(),
                         format!("seq {seq} is out of range for segment_count {segment_count}"),
+                    ));
+                }
+
+                // Bound the peer-declared length before allocating anything:
+                // `len` comes straight off the wire from `Control::Chunk`, and
+                // without this check a compromised-but-authenticated peer
+                // could send `len: u32::MAX` and force a ~4GB allocation here
+                // (OOM/abort) before a single byte is even read. A real audio
+                // segment is a few hundred KB, far under CHUNK_MAX (4 MiB), so
+                // this rejects only impossible/hostile lengths.
+                if len as usize > CHUNK_MAX {
+                    return Err(JobFailure::Failed(
+                        "chunk_length".into(),
+                        format!("segment {seq} declared len {len} exceeds cap {CHUNK_MAX}"),
                     ));
                 }
 
@@ -839,6 +860,92 @@ mod tests {
         drop(channel);
         let result = server_thread.join().unwrap();
         assert!(result.is_ok(), "job loop should exit cleanly: {result:?}");
+    }
+
+    /// A `Chunk` whose peer-declared `len` exceeds `CHUNK_MAX` must be
+    /// rejected with `Control::Error{code:"chunk_length"}` *before* the
+    /// reassembly buffer is allocated — i.e. the server must never attempt
+    /// `Vec::with_capacity(len)` for a hostile `len`. We never send any body
+    /// bytes for this chunk: if the server tried to `recv_bytes` waiting for
+    /// `len` bytes instead of rejecting up front, this test would hang/time
+    /// out rather than pass, which is what proves the check runs
+    /// pre-allocation and pre-read.
+    #[test]
+    fn oversized_chunk_len_is_rejected_before_allocation() {
+        let server_app_data = tempfile::tempdir().unwrap();
+        let client_app_data = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(server_app_data.path()).unwrap();
+        ensure_identity_in_dir(client_app_data.path()).unwrap();
+        pair_device(server_app_data.path(), "device-oversized", client_app_data.path());
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (_genesis_path, storage) = open_genesis();
+        let jobs = Arc::new(AtomicUsize::new(0));
+        let runtime = test_whisper_runtime();
+
+        let server_app_data_path = server_app_data.path().to_path_buf();
+        let server_thread = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            handle_connection(stream, &storage, &server_app_data_path, &runtime, &jobs)
+        });
+
+        let client_stream = TcpStream::connect(addr).unwrap();
+        let mut channel = initiator_handshake(
+            client_stream,
+            "device-oversized",
+            client_app_data.path(),
+            server_app_data.path(),
+        );
+
+        // The checksum value itself is never reached (the len check fires
+        // first), so any well-formed placeholder is fine.
+        let checksums = vec!["0".repeat(64)];
+        let manifest = manifest_hash(&checksums);
+        let bogus_len = (crate::fungwire::CHUNK_MAX as u32).saturating_add(1);
+
+        channel
+            .send(&Control::JobStart {
+                job_id: "job-oversized".into(),
+                operation: "transcript.transcribe".into(),
+                manifest_hash: manifest,
+                segment_count: 1,
+                total_bytes: bogus_len as u64,
+                profile: "cpu".into(),
+                resume_from_seq: 0,
+                checksums,
+            })
+            .unwrap();
+        channel
+            .send(&Control::Chunk {
+                job_id: "job-oversized".into(),
+                seq: 0,
+                len: bogus_len,
+            })
+            .unwrap();
+        // Deliberately send no body bytes: a correct server rejects based on
+        // `len` alone, without ever calling `recv_bytes`.
+
+        match channel.recv_control().unwrap() {
+            Control::Error { job_id, code, .. } => {
+                assert_eq!(job_id, "job-oversized");
+                assert_eq!(code, "chunk_length");
+            }
+            other => panic!("expected Error{{code: chunk_length}}, got {other:?}"),
+        }
+
+        drop(channel);
+        let result = server_thread.join().unwrap();
+        assert!(
+            result.is_ok(),
+            "job loop should send Error and exit cleanly: {result:?}"
+        );
+
+        let job_dir = server_app_data.path().join("fungwire").join("job-oversized");
+        assert!(
+            !job_dir.exists(),
+            "temp dir must be cleaned up after an oversized-chunk rejection"
+        );
     }
 
     /// A `Cancel` sent instead of the expected `Chunk` mid-transfer must end

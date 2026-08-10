@@ -6,6 +6,7 @@ import {
   Check,
   ChevronRight,
   CircleStop,
+  Cloud,
   FileText,
   HardDrive,
   Home,
@@ -33,7 +34,7 @@ import {
   X,
 } from "lucide-react";
 import { addNote, loadSnapshot, markDeviceRevoked, removeDevice, saveSnapshot, setDeviceReachability, upsertPairedDevice } from "./mobileStore";
-import { appendCaptureSegment, controlNativeRecorder, desktopEndpoint, desktopReachable, deviceIdentityEnsure, devicePublicKey, finishCapture, loadPlaybackSegment, nativeRecorderStatus, pairingComplete, persistNote, queryGraph, reconcileNativeCapture, setMcpEnabled, startCapture, startNativeRecorder } from "./bridge";
+import { appendCaptureSegment, controlNativeRecorder, desktopCloudEnabled, desktopEndpoint, desktopReachable, deviceIdentityEnsure, devicePublicKey, finishCapture, loadPlaybackSegment, nativeRecorderStatus, pairingComplete, persistNote, queryGraph, reconcileNativeCapture, setMcpEnabled, startCapture, startNativeRecorder } from "./bridge";
 import { acquireCaptureBackend, CaptureStartError, resumeCaptureClock } from "./captureOrchestration";
 import type { CaptureState, DeviceState, EpistemicStatus, MobileNote, MobileSnapshot, MobileTab, ThemePreference } from "./model";
 import { TimelineScreen } from "./TimelineScreen";
@@ -506,6 +507,9 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
   const [mcpEnabled, setMcpState] = useState(false);
   const [mcpBind, setMcpBind] = useState<string | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
+  // null = not known yet (no paired desktop, or it hasn't answered) — the
+  // card is hidden entirely rather than guessing a value.
+  const [pairedDesktopCloudEnabled, setPairedDesktopCloudEnabled] = useState<boolean | null>(null);
   const ThemeIcon = theme === "system" ? Monitor : theme === "dark" ? Moon : Sun;
   const themeLabel = theme === "system" ? "ตามระบบ" : theme === "dark" ? "มืด" : "สว่าง";
 
@@ -616,6 +620,24 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per screen mount ("on focus"); snapshot is read fresh inside.
   }, [session]);
+
+  // Read-only mirror of the paired desktop's cloud tier (spec §10). The API
+  // keys and the tier toggle live on the desktop and only there, so this
+  // screen reports the desktop's answer and offers no control that could
+  // change it — there is deliberately no writing counterpart to
+  // `desktopCloudEnabled` in the mobile bridge.
+  const pairedCloudDeviceId = snapshot.devices.find(
+    (device) => device.trustState === "paired" && device.cloudDeviceId,
+  )?.cloudDeviceId ?? null;
+  useEffect(() => {
+    if (!pairedCloudDeviceId || !myDeviceId) { setPairedDesktopCloudEnabled(null); return; }
+    let cancelled = false;
+    void desktopEndpoint(pairedCloudDeviceId)
+      .then((endpoint) => (endpoint ? desktopCloudEnabled(pairedCloudDeviceId, endpoint, myDeviceId) : null))
+      .then((enabled) => { if (!cancelled) setPairedDesktopCloudEnabled(enabled); })
+      .catch(() => { if (!cancelled) setPairedDesktopCloudEnabled(null); });
+    return () => { cancelled = true; };
+  }, [pairedCloudDeviceId, myDeviceId]);
 
   // Fetch this account's desktop devices whenever the pairing sheet opens.
   useEffect(() => {
@@ -807,6 +829,16 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
             <button onClick={() => void handleRemoveDevice(device)} aria-label="เพิกถอนอุปกรณ์"><Trash2 size={19} /></button>
           </article>
         ))}
+        {pairedDesktopCloudEnabled !== null && (
+          <article className={`m-device-cloud-policy-card ${pairedDesktopCloudEnabled ? "is-on" : ""}`}>
+            <span className="m-device-icon"><Cloud size={19} /></span>
+            <div>
+              <strong>ระดับคลาวด์ของ Desktop</strong>
+              <span>{pairedDesktopCloudEnabled ? "เปิดใช้งาน" : "ปิดใช้งาน"}</span>
+              <small>ตั้งค่าและคีย์ทั้งหมดอยู่บน FUNG Desktop · มือถืออ่านได้อย่างเดียว</small>
+            </div>
+          </article>
+        )}
       </section>
       {revokeError && <div className="m-inline-alert" role="alert"><strong>เพิกถอนไม่สำเร็จ</strong><span>{revokeError}</span></div>}
       {appearancePanel}

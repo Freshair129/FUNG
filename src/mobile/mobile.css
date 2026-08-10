@@ -194,6 +194,14 @@
 .m-device-row em.m-trust-chip { justify-self: start; margin-top: 3px; padding: 2px 9px; border-radius: 999px; font-size: 9px; font-weight: 650; font-style: normal; color: var(--m-sage); background: color-mix(in srgb, var(--m-sage) 12%, transparent); }
 .m-device-row em.m-trust-chip.is-unreachable { color: var(--m-metal); background: color-mix(in srgb, var(--m-metal) 16%, transparent); }
 .m-device-row em.m-trust-chip.is-revoked { color: var(--m-danger); background: color-mix(in srgb, var(--m-danger) 12%, transparent); }
+/* Same box model as .m-device-row so the read-only cloud-tier card sits in
+   the device list as a sibling of the desktop rows, minus the trailing
+   action column — it reports the desktop's setting and is not actionable. */
+.m-device-cloud-policy-card { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 13px; padding: 15px; border-radius: 18px; background: var(--m-surface); border: 1px solid var(--m-line); }
+.m-device-cloud-policy-card strong, .m-device-cloud-policy-card span, .m-device-cloud-policy-card small { display: block; }
+.m-device-cloud-policy-card > div > span { margin-top: 3px; color: var(--m-metal); font-size: 11px; font-weight: 650; }
+.m-device-cloud-policy-card.is-on > div > span { color: var(--m-sage); }
+.m-device-cloud-policy-card small { margin-top: 4px; color: var(--m-muted); font-size: 10px; line-height: 1.45; }
 
 .m-timeline-screen { padding-left: 14px; padding-right: 14px; }
 .m-timeline-header { margin-bottom: 11px; padding: 0 10px; align-items: center; }
@@ -334,7 +342,10 @@
 .m-delegate-progress { display: grid; gap: 4px; }
 .m-delegate-progress-bar { height: 6px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--m-ink) 8%, transparent); }
 .m-delegate-progress-bar i { display: block; height: 100%; border-radius: 999px; background: var(--m-indigo); transition: width 240ms ease; }
-.m-delegate-progress span { color: var(--m-muted); font-size: 9px; text-align: right; }
+.m-delegate-button.is-cloud { border-color: color-mix(in srgb, var(--m-sage) 45%, transparent); color: var(--m-sage); background: color-mix(in srgb, var(--m-sage) 9%, transparent); }
+.m-delegate-button.is-cloud:disabled { color: var(--m-muted); border-color: var(--m-line); background: color-mix(in srgb, var(--m-ink) 6%, transparent); }
+.m-delegate-progress span { display: flex; align-items: center; justify-content: flex-end; gap: 6px; color: var(--m-muted); font-size: 9px; text-align: right; }
+.m-delegate-cloud-badge { padding: 2px 8px; border-radius: 999px; color: var(--m-sage); background: color-mix(in srgb, var(--m-sage) 12%, transparent); font-size: 9px; font-weight: 650; }
 .m-delegate-error { margin: 0; color: var(--m-danger); font-size: 10px; }
 .m-refinement-diff { margin-top: 8px; overflow: hidden; border: 1px solid var(--m-line); border-radius: 12px; }
 .m-refinement-diff > div { min-height: 47px; padding: 9px; display: grid; grid-template-columns: 78px 1fr; align-items: center; gap: 8px; border-bottom: 1px solid var(--m-line); }

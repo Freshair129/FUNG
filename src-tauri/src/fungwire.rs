@@ -43,6 +43,16 @@ pub fn read_frame(r: &mut impl Read, max: usize) -> io::Result<Vec<u8>> {
     Ok(buf)
 }
 
+/// Default for [`Control::JobStart`]'s `executor` field when a peer's
+/// `JobStart` JSON omits it entirely — i.e. a mobile client built before
+/// Phase 3's BYOM cloud keys existed. Running on the desktop's own local
+/// faster-whisper pipeline is exactly what those peers already expected, so
+/// decoding an old message must keep doing that; the cloud path is only ever
+/// entered when a peer asks for it by name.
+fn default_executor() -> String {
+    "local".to_string()
+}
+
 /// All control-channel messages exchanged over the FUNGWIRE tunnel, tagged
 /// by `type` in JSON for forward-compatible decoding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +75,17 @@ pub enum Control {
         /// rejects the job if it doesn't match, then verifies each received
         /// segment's own digest against `checksums[seq]` as it arrives.
         checksums: Vec<String>,
+        /// Which executor the desktop should run this job on: `"local"` (the
+        /// on-device faster-whisper pipeline) or `"cloud"` (BYOM cloud STT
+        /// through the desktop user's own API key, gated by that desktop's
+        /// tier policy — see `fungwire_server::dispatch_cloud_stt`). Any
+        /// other value is treated as `"local"`.
+        ///
+        /// Defaulted rather than required so a pre-Phase-3 client, whose
+        /// `JobStart` JSON has no `executor` key at all, still decodes here
+        /// and still transcribes locally (see [`default_executor`]).
+        #[serde(default = "default_executor")]
+        executor: String,
     },
     Chunk {
         job_id: String,
@@ -95,6 +116,30 @@ pub enum Control {
     },
     Heartbeat,
     HeartbeatAck,
+    /// Phase 3 status probe: asks an already-authenticated desktop what its
+    /// own cloud-tier policy currently says, so the mobile UI can decide
+    /// whether to offer a cloud delegate action at all.
+    ///
+    /// Deliberately carries NO `device_id`: unlike the cleartext
+    /// [`Control::Hello`] that opens a connection, this travels inside the
+    /// completed Noise KK session, where the caller's identity is already
+    /// proven cryptographically. Re-stating it here would add a field the
+    /// receiver must either ignore or — worse — trust over the handshake.
+    StatusRequest,
+    /// Answer to [`Control::StatusRequest`].
+    ///
+    /// A deliberate *subset* of `fungwire_server::FungwireStatus`, not a
+    /// mirror of it: `enabled` is trivially true for anyone who got far
+    /// enough to ask, `bind` is the address the asker just dialled, and
+    /// `connected_peers`/`active_jobs` are desktop-local diagnostics with no
+    /// consumer on the mobile side. Only the policy bit crosses the wire.
+    StatusReply {
+        /// Whether the answering desktop's tier policy currently permits
+        /// cloud STT. Purely informational to the peer — the desktop
+        /// re-checks this (plus its key and daily cap) when a cloud job
+        /// actually arrives, so a `true` here is never a standing grant.
+        stt_cloud_enabled: bool,
+    },
 }
 
 /// A single transcript segment carried in a [`Control::Result`] message.
@@ -323,6 +368,7 @@ mod tests {
             profile: "cpu".into(),
             resume_from_seq: 0,
             checksums: vec!["a".into(), "b".into(), "c".into()],
+            executor: "local".into(),
         };
         let bytes = c.encode();
         match Control::decode(&bytes).unwrap() {
@@ -335,6 +381,46 @@ mod tests {
                 assert_eq!(segment_count, 3);
             }
             _ => panic!("wrong variant"),
+        }
+    }
+
+    /// Wire tolerance for pre-Phase-3 peers: a `JobStart` serialized before
+    /// `executor` existed has no such key at all, and must still decode —
+    /// as a LOCAL job, never a cloud one.
+    #[test]
+    fn job_start_without_executor_decodes_as_local() {
+        let legacy = br#"{"type":"JobStart","job_id":"j-old","operation":"transcript.transcribe",
+            "manifest_hash":"abc","segment_count":1,"total_bytes":10,"profile":"cpu",
+            "resume_from_seq":0,"checksums":["a"]}"#;
+        match Control::decode(legacy).expect("legacy JobStart must still decode") {
+            Control::JobStart { executor, .. } => assert_eq!(executor, "local"),
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    /// The Phase 3 status-probe pair must survive the same tagged-JSON
+    /// round-trip as every other control message — including `StatusRequest`,
+    /// which is a *unit* variant and so serializes to nothing but its tag.
+    #[test]
+    fn status_request_and_reply_roundtrip() {
+        match Control::decode(&Control::StatusRequest.encode())
+            .expect("StatusRequest must decode")
+        {
+            Control::StatusRequest => {}
+            other => panic!("wrong variant: {other:?}"),
+        }
+        for enabled in [true, false] {
+            let encoded = Control::StatusReply {
+                stt_cloud_enabled: enabled,
+            }
+            .encode();
+            match Control::decode(&encoded).expect("StatusReply must decode") {
+                Control::StatusReply { stt_cloud_enabled } => assert_eq!(
+                    stt_cloud_enabled, enabled,
+                    "the policy bit must survive the round-trip unchanged"
+                ),
+                other => panic!("wrong variant: {other:?}"),
+            }
         }
     }
 

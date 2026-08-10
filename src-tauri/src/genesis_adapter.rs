@@ -307,7 +307,7 @@ fn schema_v5() -> RelationalSchemaPackage {
 /// desktop's `paired_devices.db` (see Task 5 report). Column is nullable —
 /// rows written before this task, or pairings completed before the peer's
 /// key was fetched, simply carry `public_key = NULL`.
-pub(crate) fn schema() -> RelationalSchemaPackage {
+fn schema_v6() -> RelationalSchemaPackage {
     use RelationalColumnType::Text;
     let mut package = schema_v5();
     package.schema_version = 6;
@@ -319,6 +319,69 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
     {
         paired_devices.columns.push(nullable("public_key", Text));
     }
+    package
+}
+
+/// Phase 3 BYOM: the desktop FUNGWIRE worker needs to record, per delegated
+/// job, whether it ran on the local pipeline or via a cloud provider — the
+/// mobile client persists this so the "☁ คลาวด์" badge (spec §10) survives
+/// an app restart/reconnect, not just the in-flight wire manifest.
+fn schema_v7() -> RelationalSchemaPackage {
+    use RelationalColumnType::Text;
+    let mut package = schema_v6();
+    package.schema_version = 7;
+    package.previous_version = Some(6);
+    if let Some(delegated_jobs) = package
+        .tables
+        .iter_mut()
+        .find(|candidate| candidate.name == "delegated_jobs")
+    {
+        delegated_jobs.columns.push(nullable("executor", Text));
+    }
+    package
+}
+
+/// Live Meeting MVP: `summaries` and `export_artifacts` are specified in the
+/// entity contract (and existed in the retired SQLite DDL) but never had
+/// Genesis tables — nothing could persist a summary or an export until now.
+/// Column sets mirror the contract exactly; `export_artifacts.source_layer_id`
+/// stays a plain nullable text ref because `audio_layers` has no Genesis
+/// table yet.
+pub(crate) fn schema() -> RelationalSchemaPackage {
+    use RelationalColumnType::{Json, Text};
+    let mut package = schema_v7();
+    package.schema_version = 8;
+    package.previous_version = Some(7);
+    package.tables.extend([
+        table(
+            "summaries",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("kind", Text),
+                required("content", Text),
+                required("evidence_refs_json", Json),
+                required("model_run_id", Text),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![fk("project_id", "projects"), fk("model_run_id", "model_runs")],
+            vec![],
+        ),
+        table(
+            "export_artifacts",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("kind", Text),
+                required("file_path", Text),
+                nullable("source_layer_id", Text),
+                required("created_at", Text),
+            ],
+            vec![fk("project_id", "projects")],
+            vec![],
+        ),
+    ]);
     package
 }
 
@@ -334,6 +397,8 @@ pub(crate) fn install(storage: &Storage) -> Result<(), String> {
         schema_v3(),
         schema_v4(),
         schema_v5(),
+        schema_v6(),
+        schema_v7(),
         schema(),
     ];
     let last_index = packages.len() - 1;
@@ -350,6 +415,35 @@ pub(crate) fn install(storage: &Storage) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// SQLite has no Json/Boolean storage classes, so the retired `fung.db`
+/// holds JSON as TEXT (`'[]'`, `'{}'`) and booleans as INTEGER 0/1. Genesis
+/// enforces column types strictly (REL_TYPE_MISMATCH), which made every
+/// legacy import crash the app at startup — the marker file was never
+/// written, so it crashed on every subsequent launch too. Convert values to
+/// the target column's type instead of passing raw SQLite storage through.
+fn coerce_legacy_value(value: Value, column_type: &RelationalColumnType) -> Value {
+    use RelationalColumnType::{Boolean, Integer, Json, Real};
+    match (column_type, value) {
+        (Json, Value::String(raw)) => {
+            serde_json::from_str::<Value>(&raw).unwrap_or(Value::String(raw))
+        }
+        (Boolean, Value::Number(number)) => {
+            json!(number.as_i64().map(|n| n != 0).unwrap_or(false))
+        }
+        (Boolean, Value::String(raw)) => json!(raw == "true" || raw == "1"),
+        (Real, Value::Number(number)) if number.is_i64() => {
+            json!(number.as_i64().map(|n| n as f64).unwrap_or(0.0))
+        }
+        (Integer, Value::Number(number)) if number.is_f64() => {
+            match number.as_f64() {
+                Some(float) if float.fract() == 0.0 => json!(float as i64),
+                _ => Value::Number(number),
+            }
+        }
+        (_, value) => value,
+    }
 }
 
 /// One-way compatibility import. The retired SQLite file is opened read-only;
@@ -383,7 +477,7 @@ pub(crate) fn import_legacy_sqlite(storage: &Storage, path: &Path) -> Result<usi
             let mut object = serde_json::Map::new();
             for (index, column) in columns.iter().enumerate() {
                 let value = match row.get_ref(index)? { ValueRef::Null => Value::Null, ValueRef::Integer(value) => json!(value), ValueRef::Real(value) => json!(value), ValueRef::Text(value) => Value::String(String::from_utf8_lossy(value).into_owned()), ValueRef::Blob(value) => Value::Array(value.iter().copied().map(Value::from).collect()) };
-                object.insert(column.name.clone(), value);
+                object.insert(column.name.clone(), coerce_legacy_value(value, &column.column_type));
             }
             if table.name == "mobile_recording_checkpoints" && !object.contains_key("id") { if let Some(value) = object.get("recording_id").cloned() { object.insert("id".to_string(), value); } }
             Ok(Value::Object(object))
@@ -874,6 +968,52 @@ mod tests {
         (path, storage)
     }
 
+    /// Reproduces the startup crash-loop: legacy SQLite stores JSON columns
+    /// as TEXT and booleans as INTEGER; before `coerce_legacy_value` the
+    /// import hit REL_TYPE_MISMATCH on the first jobs/model_providers row,
+    /// the completion marker was never written, and every launch re-crashed.
+    #[test]
+    fn legacy_import_coerces_text_json_and_integer_booleans() {
+        let sqlite_path = std::env::temp_dir().join(format!("fung-legacy-{}.db", Uuid::new_v4()));
+        let connection = Connection::open(&sqlite_path).unwrap();
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, storage_path TEXT NOT NULL,
+                    active_recording_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+                CREATE TABLE jobs (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, type TEXT NOT NULL,
+                    status TEXT NOT NULL, progress INTEGER NOT NULL, input_refs_json TEXT NOT NULL,
+                    output_refs_json TEXT NOT NULL, provider_id TEXT, error_code TEXT, error_message TEXT,
+                    attempt_no INTEGER NOT NULL, started_at TEXT, finished_at TEXT,
+                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+                CREATE TABLE model_providers (id TEXT PRIMARY KEY, label TEXT NOT NULL,
+                    runtime_location TEXT NOT NULL, kind TEXT NOT NULL, enabled INTEGER NOT NULL,
+                    config_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+                INSERT INTO projects VALUES ('p1', 'Legacy', 'C:/tmp', NULL, '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z');
+                INSERT INTO jobs VALUES ('j1', 'p1', 'transcript.transcribe', 'queued', 0, '["C:/a.wav"]', '[]',
+                    NULL, NULL, NULL, 1, NULL, NULL, '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z');
+                INSERT INTO model_providers VALUES ('ollama-summary-intent', 'Ollama', 'local', 'summary_intent',
+                    1, '{"endpoint":"http://127.0.0.1:11434"}', '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z');
+                "#,
+            )
+            .unwrap();
+        drop(connection);
+
+        let (genesis_path, storage) = open();
+        let imported = import_legacy_sqlite(&storage, &sqlite_path)
+            .expect("legacy import must survive TEXT json and INTEGER booleans");
+        assert!(imported >= 3, "expected all legacy rows to import, got {imported}");
+
+        let jobs = query(&storage, "jobs", &["id", "input_refs_json"], vec![], 10).unwrap();
+        assert_eq!(jobs.len(), 1);
+        let providers = query(&storage, "model_providers", &["id", "enabled", "config_json"], vec![], 10).unwrap();
+        assert_eq!(providers.len(), 1);
+
+        let _ = std::fs::remove_file(&sqlite_path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(genesis_path);
+    }
+
     #[test]
     fn note_and_relation_share_genesis_row_graph_commit_path() {
         let (path, storage) = open();
@@ -940,7 +1080,7 @@ mod tests {
         storage.register_relational_schema(schema_v3()).unwrap();
         storage.register_relational_schema(schema_v4()).unwrap();
         storage.register_relational_schema(schema_v5()).unwrap();
-        storage.register_relational_schema(schema()).unwrap();
+        storage.register_relational_schema(schema_v6()).unwrap();
         install(&storage).unwrap();
 
         drop(storage);
@@ -1046,6 +1186,38 @@ mod tests {
         ]).unwrap();
         let rows = query(&storage, "paired_devices", &["id", "public_key"], vec![eq("paired_devices", "id", json!("peer-2"))], 1).unwrap();
         assert!(rows[0]["paired_devices.public_key"].is_null());
+        // Re-install after a stepped upgrade must stay idempotent.
+        storage.register_relational_schema(schema()).unwrap();
+        install(&storage).unwrap();
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn schema_v7_adds_delegated_jobs_executor_and_upgrade_is_idempotent() {
+        let (path, storage) = open();
+        commit_rows(&storage, vec![
+            upsert("projects", json!({"id": "proj-1", "name": "Test Project", "storage_path": "test-path", "created_at": "t", "updated_at": "t"})),
+            upsert("delegated_jobs", json!({
+                "id": "job-1", "project_id": "proj-1", "executor_device_id": null,
+                "operation": "transcript.transcribe", "state": "queued", "progress": 0,
+                "input_manifest_hash": "abc123", "checkpoint_json": null,
+                "observed_at": "t", "created_at": "t", "updated_at": "t", "executor": "cloud"
+            })),
+        ]).unwrap();
+        let rows = query(&storage, "delegated_jobs", &["id", "executor"], vec![eq("delegated_jobs", "id", json!("job-1"))], 1).unwrap();
+        assert_eq!(rows[0]["delegated_jobs.executor"], "cloud");
+        // Rows written without executor (nullable) must still be readable.
+        commit_rows(&storage, vec![
+            upsert("delegated_jobs", json!({
+                "id": "job-2", "project_id": "proj-1", "executor_device_id": null,
+                "operation": "transcript.transcribe", "state": "queued", "progress": 0,
+                "input_manifest_hash": "def456", "checkpoint_json": null,
+                "observed_at": "t", "created_at": "t", "updated_at": "t", "executor": null
+            })),
+        ]).unwrap();
+        let rows = query(&storage, "delegated_jobs", &["id", "executor"], vec![eq("delegated_jobs", "id", json!("job-2"))], 1).unwrap();
+        assert!(rows[0]["delegated_jobs.executor"].is_null());
         // Re-install after a stepped upgrade must stay idempotent.
         storage.register_relational_schema(schema()).unwrap();
         install(&storage).unwrap();

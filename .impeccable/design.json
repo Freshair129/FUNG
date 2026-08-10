@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-09T00:00:00+07:00",
+  "title": "Design System: FUNG",
+  "extensions": {
+    "colorMeta": {
+      "porcelain": {
+        "role": "neutral",
+        "displayName": "Porcelain Field",
+        "canonical": "#f4f1ea",
+        "tonalRamp": ["#332d25", "#50463a", "#706354", "#91816e", "#b1a18d", "#d0c1ae", "#e8dfd3", "#f4f1ea"]
+      },
+      "evidence-indigo": {
+        "role": "primary",
+        "displayName": "Evidence Indigo",
+        "canonical": "#3d4f82",
+        "tonalRamp": ["#13182a", "#202945", "#2d3b61", "#3d4f82", "#5c6d9f", "#8291ba", "#b3bdd8", "#e3e7f2"]
+      },
+      "local-sage": {
+        "role": "secondary",
+        "displayName": "Local Sage",
+        "canonical": "#6e897d",
+        "tonalRamp": ["#202a26", "#34443d", "#4d6359", "#6e897d", "#8fa89c", "#b1c4b9", "#d1ded6", "#edf3ef"]
+      },
+      "destructive-signal": {
+        "role": "tertiary",
+        "displayName": "Destructive Signal",
+        "canonical": "#b34b4b",
+        "tonalRamp": ["#3a1719", "#5a2528", "#7d3437", "#b34b4b", "#cb7170", "#dd9795", "#edc2c0", "#fae7e5"]
+      }
+    },
+    "typographyMeta": {
+      "ui": { "displayName": "Desktop UI", "purpose": "Compact controls, labels and desktop workspace text." },
+      "thai-web": { "displayName": "Thai Web", "purpose": "Thai-first web and long-form reading surfaces." }
+    },
+    "shadows": [
+      { "name": "panel-material", "value": "8px 12px 24px rgba(92, 78, 58, 0.2), -5px -5px 14px rgba(255, 255, 255, 0.68)", "purpose": "Outer command deck material only." },
+      { "name": "pressed-control", "value": "inset 4px 4px 10px rgba(128, 112, 92, 0.18), inset -4px -4px 10px rgba(255, 255, 255, 0.74)", "purpose": "Selected or pressed control without layout movement." }
+    ],
+    "motion": [
+      { "name": "state-standard", "value": "160ms ease", "purpose": "Hover, selected and toggle feedback only." },
+      { "name": "reduced-motion", "value": "none", "purpose": "Applied under prefers-reduced-motion." }
+    ],
+    "breakpoints": [
+      { "name": "desktop-compact", "value": "1200px" },
+      { "name": "desktop-standard", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "One dominant action for the active Meeting Mode stage.",
+      "html": "<button class=\"ds-action\">Start recording</button>",
+      "css": ".ds-action{min-height:42px;padding:0 12px;border:0;border-radius:999px;background:var(--indigo,#3d4f82);color:#fff;font:600 13px/1.2 system-ui,sans-serif;cursor:pointer;transition:transform 160ms ease,filter 160ms ease}.ds-action:hover{filter:brightness(.94)}.ds-action:focus-visible{outline:3px solid rgba(61,79,130,.35);outline-offset:3px}.ds-action:active{transform:translateY(1px)}"
+    },
+    {
+      "name": "Signal Card",
+      "kind": "card",
+      "refersTo": "signal-card",
+      "description": "A panel-owned status summary with a meaningful next state.",
+      "html": "<button class=\"ds-signal\"><span>Capture safety</span><strong>Ready</strong><small>Chunk autosave is active.</small></button>",
+      "css": ".ds-signal{display:grid;gap:7px;width:100%;min-height:118px;padding:12px;border:1px solid rgba(32,35,40,.08);border-radius:8px;background:linear-gradient(145deg,#fffdf7,#e6dac8);color:var(--graphite,#5f6268);text-align:left;font:400 12px/1.35 system-ui,sans-serif;cursor:pointer}.ds-signal strong{color:var(--ink,#191a1d);font-size:18px;line-height:1.1}.ds-signal small{font-size:12px}.ds-signal:hover,.ds-signal:focus-visible{border-color:rgba(110,137,125,.42);box-shadow:inset 4px 4px 10px rgba(128,112,92,.18),inset -4px -4px 10px rgba(255,255,255,.74)}.ds-signal:focus-visible{outline:3px solid rgba(61,79,130,.35);outline-offset:2px}"
+    },
+    {
+      "name": "Segmented Stage Control",
+      "kind": "nav",
+      "refersTo": "segmented-active",
+      "description": "A compact stage switch for bounded workflow modes.",
+      "html": "<nav class=\"ds-segmented\" aria-label=\"Meeting stage\"><button class=\"ds-segment is-active\" aria-current=\"page\">Capture</button><button class=\"ds-segment\">Review</button><button class=\"ds-segment\">Recap</button></nav>",
+      "css": ".ds-segmented{display:inline-grid;grid-auto-flow:column;gap:4px;padding:4px;border:1px solid rgba(30,32,37,.08);border-radius:999px;background:rgba(255,255,255,.82)}.ds-segment{min-width:48px;height:28px;padding:0 8px;border:0;border-radius:999px;background:transparent;color:var(--graphite,#5f6268);font:600 11px/1.1 system-ui,sans-serif;cursor:pointer}.ds-segment:hover{color:var(--ink,#191a1d)}.ds-segment.is-active{background:var(--indigo,#3d4f82);color:#fff}.ds-segment:focus-visible{outline:3px solid rgba(61,79,130,.35);outline-offset:2px}"
+    },
+    {
+      "name": "Semantic Status Badge",
+      "kind": "chip",
+      "refersTo": "local-sage",
+      "description": "A text-plus-colour label for local, inference or risk state.",
+      "html": "<span class=\"ds-badge\"><i></i> Local processing</span>",
+      "css": ".ds-badge{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 10px;border-radius:999px;background:rgba(110,137,125,.14);color:#52685f;font:600 12px/1 system-ui,sans-serif}.ds-badge i{width:8px;height:8px;border-radius:50%;background:currentColor}.ds-badge[data-state=\"inference\"]{background:rgba(61,79,130,.14);color:#3d4f82}.ds-badge[data-state=\"danger\"]{background:rgba(179,75,75,.14);color:#8d3636}"
+    },
+    {
+      "name": "Evidence Row",
+      "kind": "custom",
+      "refersTo": "transcript-row",
+      "description": "A stable transcript row that preserves timestamp, speaker and source state.",
+      "html": "<article class=\"ds-evidence\"><time>10:32</time><span class=\"ds-speaker\">Speaker 1</span><p>We should verify the export before the next review.</p><button aria-label=\"Pin evidence\">Pin</button></article>",
+      "css": ".ds-evidence{display:grid;grid-template-columns:42px max-content minmax(0,1fr) auto;align-items:start;gap:8px;padding:10px 12px;border-radius:8px;color:var(--ink,#191a1d);font:400 14px/1.45 system-ui,sans-serif}.ds-evidence:hover{background:rgba(61,79,130,.06)}.ds-evidence time{color:#848990;font-size:11px}.ds-speaker{padding:1px 7px;border:1px solid rgba(126,105,78,.25);border-radius:999px;color:#5f6268;font-size:10px;font-weight:600;line-height:1.6}.ds-evidence p{margin:0}.ds-evidence button{border:0;background:transparent;color:#3d4f82;font:600 11px/1 system-ui,sans-serif;cursor:pointer}.ds-evidence:focus-within{outline:3px solid rgba(61,79,130,.28);outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Evidence Desk",
+    "overview": "FUNG is a tactile desktop instrument for work that must remain understandable after the moment has passed. The working surface is a porcelain command deck, not a dashboard collage. Call.md may inform information hierarchy but FUNG implements its own Tauri/React, local-first and evidence-bound UI.",
+    "keyCharacteristics": ["Fixed operational hierarchy", "Explicit local and evidence state", "Shallow physical depth", "One dominant action per stage", "Familiar product controls"],
+    "rules": [
+      { "name": "Semantic Accent Rule", "body": "A semantic color appears only when it explains current state, action priority or provenance.", "section": "colors" },
+      { "name": "Evidence-First Type Rule", "body": "Timestamp, speaker label and inference boundary remain distinct from generated prose.", "section": "typography" },
+      { "name": "Ownership Before Polish Rule", "body": "Correct a surface's zone ownership before changing shadow, blur, opacity or colour.", "section": "elevation" }
+    ],
+    "dos": ["Do preserve the porcelain command-deck identity.", "Do show source, timestamp, provider and uncertainty with generated output.", "Do use Call.md only as a task-order and information-hierarchy reference."],
+    "donts": ["Don't copy Call.md branding, assets, code or VideoDB-specific UI.", "Don't add nested cards, gradient text or decorative glass layers.", "Don't label inference or speaker identity as fact without evidence."]
+  }
+}

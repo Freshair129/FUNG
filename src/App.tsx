@@ -54,6 +54,8 @@ import { ZoomPanel } from "./components/ZoomPanel";
 import { TtsProviderPanel } from "./components/TtsProviderPanel";
 import { AccountLoginPanel } from "./components/AccountLoginPanel";
 import { DevicePairingPanel } from "./components/DevicePairingPanel";
+import { LiveMeetingPanel } from "./components/LiveMeetingPanel";
+import { CloudProvidersPanel } from "./components/CloudProvidersPanel";
 
 function formatMs(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -653,6 +655,8 @@ export function App() {
   const [accountPanelOpen, setAccountPanelOpen] = useState(false);
   const [zoomPanelOpen, setZoomPanelOpen] = useState(false);
   const [ttsPanelOpen, setTtsPanelOpen] = useState(false);
+  const [cloudProvidersPanelOpen, setCloudProvidersPanelOpen] = useState(false);
+  const [liveMeetingOpen, setLiveMeetingOpen] = useState(false);
   const [accountLoginPanelOpen, setAccountLoginPanelOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [ttsPlaying, setTtsPlaying] = useState(false);
@@ -1040,16 +1044,10 @@ export function App() {
     }
 
     if (action.kind === "record") {
-      if (action.value === "start") {
-        if (!selectedProjectId) {
-          await handleNewProject();
-        }
-        setRecording(true);
-        activateTile("live-capture");
-        return;
-      }
-
-      setRecording((value) => !value);
+      // Real capture lives in the Live Meeting panel now — the old
+      // setRecording() toggle was UI state with no backend.
+      setLiveMeetingOpen(true);
+      activateTile("live-capture");
       return;
     }
 
@@ -1069,6 +1067,10 @@ export function App() {
       {accountPanelOpen && <ExternalAccountPanel onClose={() => setAccountPanelOpen(false)} onOpenPortal={openExternalAccountPortal} />}
       {zoomPanelOpen && <ZoomPanel onClose={() => setZoomPanelOpen(false)} />}
       {ttsPanelOpen && <TtsProviderPanel onClose={() => setTtsPanelOpen(false)} />}
+      {cloudProvidersPanelOpen && <CloudProvidersPanel onClose={() => setCloudProvidersPanelOpen(false)} />}
+      {liveMeetingOpen && (
+        <LiveMeetingPanel onClose={() => setLiveMeetingOpen(false)} projectId={selectedProjectId ?? null} />
+      )}
       {accountLoginPanelOpen && (
         <div
           className="account-login-overlay"
@@ -1458,6 +1460,15 @@ export function App() {
                 onClick={() => setTtsPanelOpen(true)}
               >
                 <Volume2 size={20} />
+              </button>
+              <button
+                type="button"
+                className="sidebar-action"
+                aria-label="ผู้ให้บริการคลาวด์"
+                title="ผู้ให้บริการคลาวด์"
+                onClick={() => setCloudProvidersPanelOpen(true)}
+              >
+                <Cloud size={20} />
               </button>
               <button
                 type="button"

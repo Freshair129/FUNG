@@ -92,6 +92,11 @@ pub(crate) struct DelegateJobOutput {
 pub(crate) struct JobPollOutput {
     pub(crate) state: String,
     pub(crate) progress: i64,
+    /// `"local"` / `"cloud"` as recorded at delegation time, or `None` for a
+    /// row written before Genesis schema v7 added the column. Reported here
+    /// so the mobile provenance badge reads the persisted fact rather than
+    /// whatever the UI happened to remember choosing.
+    pub(crate) executor: Option<String>,
     pub(crate) error: Option<String>,
 }
 
@@ -114,9 +119,28 @@ struct JobContext {
     project_id: String,
     recording_id: String,
     executor_device_id: String,
+    /// Which engine the desktop was asked to run this job on — `"local"` or
+    /// `"cloud"`, already normalized by [`normalize_executor`]. Lives on the
+    /// context rather than being passed alongside it because every writer of
+    /// the `delegated_jobs` row ([`update_job`]) and the one sender of
+    /// `Control::JobStart` ([`attempt_transfer`]) already take `&JobContext`.
+    executor: String,
     input_manifest_hash: String,
     observed_at: String,
     created_at: String,
+}
+
+/// Pins a caller-supplied executor to the two values the wire protocol and
+/// the `delegated_jobs.executor` column actually define. Anything else —
+/// a typo, a future value this build doesn't know, a hostile string — becomes
+/// `"local"`: the conservative choice, since `"local"` is the option that
+/// never sends audio off the desktop.
+fn normalize_executor(requested: &str) -> &'static str {
+    if requested == "cloud" {
+        "cloud"
+    } else {
+        "local"
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -249,6 +273,84 @@ pub(crate) fn fungwire_desktop_reachable(
     ))
 }
 
+/// What the mobile side learns from a paired desktop's
+/// [`Control::StatusReply`]. A subset of the desktop's own `FungwireStatus`
+/// — see `Control::StatusReply`'s doc for why the rest of that struct has no
+/// meaning to a remote peer.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DesktopStatusProbe {
+    pub(crate) stt_cloud_enabled: bool,
+}
+
+/// How long to wait for a [`Control::StatusReply`] after the handshake.
+///
+/// Much shorter than [`READ_TIMEOUT`], which is sized for a whole
+/// transcription job: answering a status request is a policy-row read, so a
+/// desktop that has not replied within seconds is not busy — it is a peer
+/// that does not understand `StatusRequest` at all (a build predating Phase
+/// 3, whose job loop silently ignores unknown control messages). Without
+/// this, that case would block a UI probe for the full 60s.
+const STATUS_PROBE_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Reads the paired desktop's cloud-tier policy over FUNGWIRE.
+///
+/// Connection setup is [`connect_and_handshake`] — the exact same peer
+/// lookup, X25519 key resolution and Noise KK initiator handshake
+/// [`desktop_reachable_inner`] performs, deliberately shared rather than
+/// re-derived. The only difference is what happens once the channel is up:
+/// one `StatusRequest` out, one `StatusReply` in.
+///
+/// Read-only by construction: there is no wire message that lets a mobile
+/// peer *change* this policy, because the keys it governs live on the
+/// desktop (spec §10).
+fn desktop_status_probe_inner(
+    storage: &genesis_block_native::Storage,
+    app_data: &Path,
+    desktop_device_id: &str,
+    endpoint: &str,
+    own_device_id: &str,
+) -> Result<DesktopStatusProbe, String> {
+    let peer_pub_b64 = lookup_peer_public_key(storage, desktop_device_id)?;
+    let own_secret = x25519_static_secret_in_dir(app_data).map_err(|e| e.to_string())?;
+    let peer_pub = x25519_public_from_ed25519_b64(&peer_pub_b64).map_err(|e| e.to_string())?;
+    let mut channel = connect_and_handshake(endpoint, own_device_id, &own_secret, &peer_pub)?;
+    channel
+        .get_mut()
+        .set_read_timeout(Some(STATUS_PROBE_READ_TIMEOUT))
+        .ok();
+    channel
+        .send(&Control::StatusRequest)
+        .map_err(|e| e.to_string())?;
+    match channel.recv_control().map_err(|e| e.to_string())? {
+        Control::StatusReply { stt_cloud_enabled } => {
+            // A completed exchange is at least as strong a liveness signal as
+            // `fungwire_desktop_reachable`'s bare handshake, so it resets an
+            // `unreachable` peer back to `paired` the same way.
+            mark_peer_reachable(storage, desktop_device_id);
+            Ok(DesktopStatusProbe { stt_cloud_enabled })
+        }
+        other => Err(format!("expected StatusReply, got {other:?}")),
+    }
+}
+
+#[tauri::command]
+pub(crate) fn fungwire_desktop_status_probe(
+    desktop_device_id: String,
+    endpoint: String,
+    own_device_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<DesktopStatusProbe> {
+    desktop_status_probe_inner(
+        &state.genesis,
+        &state.data_root,
+        &desktop_device_id,
+        &endpoint,
+        &own_device_id,
+    )
+    .map_err(AppError::InvalidInput)
+}
+
 // ---------------------------------------------------------------------
 // Step 2: delegation
 // ---------------------------------------------------------------------
@@ -328,6 +430,10 @@ fn update_job(
                 "operation": "transcript.transcribe",
                 "state": state_str,
                 "progress": progress.clamp(0, 100),
+                // Re-stated on every write: `upsert` replaces the whole row,
+                // so omitting this would blank the column the moment the job
+                // moved out of "queued".
+                "executor": ctx.executor,
                 "input_manifest_hash": ctx.input_manifest_hash,
                 "checkpoint_json": checkpoint,
                 "observed_at": ctx.observed_at,
@@ -509,6 +615,14 @@ fn attempt_transfer(
         profile: "cpu".to_string(),
         resume_from_seq: resume_from,
         checksums: checksums.to_vec(),
+        // The mobile side REQUESTS an executor; it does not decide one. The
+        // API key, the tier policy and the daily cap all live on the desktop
+        // (see `fungwire_server::dispatch_cloud_stt`), which re-checks every
+        // one of them before any audio leaves it and answers
+        // `Control::Error{code:"cloud_disabled"}` if the answer is no. Asking
+        // for "cloud" here can therefore never bypass a desktop's policy —
+        // it can only decline to use a policy that is already permissive.
+        executor: ctx.executor.clone(),
     }) {
         return AttemptOutcome::TransportError(e.to_string());
     }
@@ -667,6 +781,11 @@ fn run_transfer(
     let give_up_or_backoff = |reconnect_attempts: &mut u32, ctx: &JobContext, detail: &str| -> bool {
         *reconnect_attempts += 1;
         if reconnect_deadline.elapsed() >= reconnect_budget {
+            // A terminal job state is visible to pollers immediately. Update
+            // the paired-peer state first so observers can never see
+            // "failed because unreachable" while the peer still appears
+            // reachable.
+            mark_peer_unreachable(&storage, &desktop_device_id);
             let _ = update_job(
                 &storage,
                 ctx,
@@ -677,7 +796,6 @@ fn run_transfer(
                     reconnect_deadline.elapsed()
                 )),
             );
-            mark_peer_unreachable(&storage, &desktop_device_id);
             true
         } else {
             thread::sleep(backoff_delay(*reconnect_attempts));
@@ -751,6 +869,7 @@ fn delegate_transcription_inner(
     desktop_device_id: String,
     endpoint: String,
     own_device_id: String,
+    executor: String,
 ) -> AppResult<String> {
     delegate_transcription_inner_with_budget(
         storage,
@@ -760,6 +879,7 @@ fn delegate_transcription_inner(
         desktop_device_id,
         endpoint,
         own_device_id,
+        executor,
         RECONNECT_BUDGET,
     )
 }
@@ -777,8 +897,10 @@ fn delegate_transcription_inner_with_budget(
     desktop_device_id: String,
     endpoint: String,
     own_device_id: String,
+    executor: String,
     reconnect_budget: Duration,
 ) -> AppResult<String> {
+    let executor = normalize_executor(&executor).to_string();
     let valid = crate::genesis_adapter::query(
         &storage,
         "recordings",
@@ -821,6 +943,7 @@ fn delegate_transcription_inner_with_budget(
                 "operation": "transcript.transcribe",
                 "state": "queued",
                 "progress": 0,
+                "executor": executor,
                 "input_manifest_hash": manifest,
                 "checkpoint_json": null,
                 "observed_at": timestamp,
@@ -836,6 +959,7 @@ fn delegate_transcription_inner_with_budget(
         project_id: project_id.clone(),
         recording_id: recording_id.clone(),
         executor_device_id: desktop_device_id.clone(),
+        executor,
         input_manifest_hash: manifest.clone(),
         observed_at: timestamp.clone(),
         created_at: timestamp,
@@ -867,6 +991,7 @@ pub(crate) fn fungwire_delegate_transcription(
     desktop_device_id: String,
     endpoint: String,
     own_device_id: String,
+    executor: String,
     state: State<'_, AppState>,
 ) -> AppResult<DelegateJobOutput> {
     let job_id = delegate_transcription_inner(
@@ -877,6 +1002,7 @@ pub(crate) fn fungwire_delegate_transcription(
         desktop_device_id,
         endpoint,
         own_device_id,
+        executor,
     )?;
     Ok(DelegateJobOutput { job_id })
 }
@@ -892,7 +1018,7 @@ fn job_poll_inner(
     let row = crate::genesis_adapter::query(
         storage,
         "delegated_jobs",
-        &["state", "progress", "checkpoint_json"],
+        &["state", "progress", "executor", "checkpoint_json"],
         vec![crate::genesis_adapter::eq(
             "delegated_jobs",
             "id",
@@ -914,6 +1040,10 @@ fn job_poll_inner(
         .get("delegated_jobs.progress")
         .and_then(Value::as_i64)
         .unwrap_or(0);
+    let executor = row
+        .get("delegated_jobs.executor")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let error = row
         .get("delegated_jobs.checkpoint_json")
         .and_then(|checkpoint| checkpoint.get("error"))
@@ -923,6 +1053,7 @@ fn job_poll_inner(
     Ok(JobPollOutput {
         state: job_state,
         progress,
+        executor,
         error,
     })
 }
@@ -1150,6 +1281,75 @@ mod tests {
         let _ = std::fs::remove_dir_all(genesis_path);
     }
 
+    /// The mobile half of the Phase 3 status probe, against the real desktop
+    /// server: the policy written on the desktop side is what the mobile
+    /// command returns. Covers both values so a hardcoded answer can't pass.
+    #[test]
+    fn desktop_status_probe_inner_reads_the_desktops_cloud_policy() {
+        for policy_enabled in [true, false] {
+            let mobile_dir = tempfile::tempdir().unwrap();
+            let desktop_dir = tempfile::tempdir().unwrap();
+            ensure_identity_in_dir(mobile_dir.path()).unwrap();
+            ensure_identity_in_dir(desktop_dir.path()).unwrap();
+            let (genesis_path, mobile_storage) = open_genesis();
+            pair_desktop_on_mobile(&mobile_storage, "desktop-status", desktop_dir.path(), "paired");
+            pair_mobile_on_desktop(desktop_dir.path(), "mobile-status", mobile_dir.path());
+
+            let policy_conn = paired_devices_connection_at(desktop_dir.path()).unwrap();
+            crate::policy::save_policy(
+                &policy_conn,
+                &crate::policy::TierPolicy {
+                    stt_cloud_enabled: policy_enabled,
+                    llm_cloud_enabled: false,
+                    daily_cap: 20,
+                },
+            )
+            .unwrap();
+
+            let (addr, server_handle) = spawn_server(desktop_dir.path().to_path_buf());
+
+            let probe = desktop_status_probe_inner(
+                &mobile_storage,
+                mobile_dir.path(),
+                "desktop-status",
+                &addr.to_string(),
+                "mobile-status",
+            )
+            .expect("status probe against a paired, listening desktop must succeed");
+            assert_eq!(
+                probe.stt_cloud_enabled, policy_enabled,
+                "the probe must report the DESKTOP's policy, not a local default"
+            );
+
+            server_handle.join().unwrap().ok();
+            drop(mobile_storage);
+            let _ = std::fs::remove_dir_all(genesis_path);
+        }
+    }
+
+    /// An unknown/unpaired peer must fail the probe outright rather than
+    /// yielding a value — `bridge.ts`'s `desktopCloudEnabled` turns this Err
+    /// into a fail-closed `false`, which is only correct if a probe that
+    /// cannot establish trust never returns `Ok`.
+    #[test]
+    fn desktop_status_probe_inner_errors_for_unknown_peer() {
+        let mobile_dir = tempfile::tempdir().unwrap();
+        ensure_identity_in_dir(mobile_dir.path()).unwrap();
+        let (genesis_path, mobile_storage) = open_genesis();
+
+        let result = desktop_status_probe_inner(
+            &mobile_storage,
+            mobile_dir.path(),
+            "desktop-never-paired",
+            "127.0.0.1:1",
+            "mobile-status",
+        );
+        assert!(result.is_err(), "unpaired peer must not yield a policy answer");
+
+        drop(mobile_storage);
+        let _ = std::fs::remove_dir_all(genesis_path);
+    }
+
     #[test]
     fn desktop_reachable_inner_false_for_unknown_peer() {
         let mobile_dir = tempfile::tempdir().unwrap();
@@ -1206,6 +1406,7 @@ mod tests {
             "desktop-e2e".to_string(),
             addr.to_string(),
             "mobile-e2e".to_string(),
+            "local".to_string(),
         )
         .expect("delegate transcription");
 
@@ -1248,6 +1449,114 @@ mod tests {
         server_handle.join().unwrap().ok();
         drop(mobile_storage);
         let _ = std::fs::remove_dir_all(genesis_path);
+    }
+
+    /// The cloud delegate action's real contract. Three things must hold for
+    /// the "☁ คลาวด์" badge to mean anything:
+    ///  1. the executor the mobile UI picked is written onto the job row at
+    ///     delegation time (Genesis schema v7's `delegated_jobs.executor`),
+    ///  2. `job_poll_inner` reads it back, so the badge survives a remount
+    ///     rather than depending on in-memory component state, and
+    ///  3. it survives the run-to-completion `update_job` writes, which
+    ///     re-upsert the whole row and would otherwise blank the column.
+    ///
+    /// Run against the real loopback desktop so (3) is exercised by genuine
+    /// state transitions. The desktop's default tier policy has cloud STT
+    /// off, so a `"cloud"` job legitimately ends `failed` here — which is the
+    /// stronger case for (3) anyway: the executor must still be readable on a
+    /// job whose cloud dispatch was refused.
+    #[test]
+    fn delegated_job_persists_the_requested_executor() {
+        for executor in ["cloud", "local"] {
+            let mobile_dir = tempfile::tempdir().unwrap();
+            let desktop_dir = tempfile::tempdir().unwrap();
+            let segment_dir = tempfile::tempdir().unwrap();
+            ensure_identity_in_dir(mobile_dir.path()).unwrap();
+            ensure_identity_in_dir(desktop_dir.path()).unwrap();
+            let (genesis_path, mobile_storage) = open_genesis();
+            let mobile_storage = Arc::new(mobile_storage);
+
+            pair_desktop_on_mobile(&mobile_storage, "desktop-exec", desktop_dir.path(), "paired");
+            pair_mobile_on_desktop(desktop_dir.path(), "mobile-exec", mobile_dir.path());
+            seed_recording_with_segments(
+                &mobile_storage,
+                "proj-exec",
+                "rec-exec",
+                segment_dir.path(),
+                &[512],
+            );
+
+            let (addr, server_handle) = spawn_server(desktop_dir.path().to_path_buf());
+
+            let job_id = delegate_transcription_inner(
+                mobile_storage.clone(),
+                mobile_dir.path().to_path_buf(),
+                "proj-exec".to_string(),
+                "rec-exec".to_string(),
+                "desktop-exec".to_string(),
+                addr.to_string(),
+                "mobile-exec".to_string(),
+                executor.to_string(),
+            )
+            .expect("delegate transcription");
+
+            assert_eq!(
+                job_poll_inner(&mobile_storage, &job_id).unwrap().executor.as_deref(),
+                Some(executor),
+                "the requested executor must be on the row the instant the job is created"
+            );
+
+            let mut final_state = String::new();
+            for _ in 0..100 {
+                let poll = job_poll_inner(&mobile_storage, &job_id).expect("poll job");
+                if poll.state == "completed" || poll.state == "failed" {
+                    final_state = poll.state;
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+            assert!(!final_state.is_empty(), "job must reach a terminal state");
+            // The terminal state itself is the signal that the real executor
+            // value reached the wire: the loopback desktop's default policy
+            // (see `TierPolicy::default`) has cloud STT off, so a genuine
+            // `"cloud"` `Control::JobStart` is refused and the job ends
+            // `"failed"`, while a genuine `"local"` one runs the desktop's
+            // fake-whisper pipeline and ends `"completed"`. If
+            // `Control::JobStart`'s `executor` field were ever hardcoded back
+            // to `"local"` (its old pre-Task-10 value), the `"cloud"`
+            // iteration would silently complete instead of failing, and this
+            // assertion is what would catch that.
+            assert_eq!(
+                final_state,
+                if executor == "cloud" { "failed" } else { "completed" },
+                "a '{executor}' request must reach the desktop as '{executor}' and be handled \
+                 accordingly (cloud is refused by the loopback desktop's default policy; local \
+                 succeeds via the fake pipeline)"
+            );
+            assert_eq!(
+                job_poll_inner(&mobile_storage, &job_id).unwrap().executor.as_deref(),
+                Some(executor),
+                "the executor must survive every update_job write, not just the first"
+            );
+
+            server_handle.join().unwrap().ok();
+            drop(mobile_storage);
+            let _ = std::fs::remove_dir_all(genesis_path);
+        }
+    }
+
+    /// Anything that isn't literally `"cloud"` must be pinned to `"local"`
+    /// before it can reach the wire. The desktop already defends itself (it
+    /// treats an unknown `JobStart.executor` as local), but the value is also
+    /// persisted and read back as a provenance claim — so a junk value must
+    /// never be able to sit on a row and later render as a cloud badge.
+    #[test]
+    fn unknown_executor_values_normalize_to_local() {
+        assert_eq!(normalize_executor("cloud"), "cloud");
+        assert_eq!(normalize_executor("local"), "local");
+        assert_eq!(normalize_executor("Cloud"), "local");
+        assert_eq!(normalize_executor(""), "local");
+        assert_eq!(normalize_executor("gpu-farm"), "local");
     }
 
     // -------------------------------------------------------------
@@ -1339,6 +1648,7 @@ mod tests {
             "desktop-resume".to_string(),
             addr.to_string(),
             "mobile-resume".to_string(),
+            "local".to_string(),
         )
         .expect("delegate transcription");
 
@@ -1409,6 +1719,7 @@ mod tests {
             "desktop-unreachable".to_string(),
             addr.to_string(),
             "mobile-unreachable".to_string(),
+            "local".to_string(),
             SHORT_RECONNECT_BUDGET,
         )
         .expect("delegate transcription");

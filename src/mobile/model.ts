@@ -218,12 +218,25 @@ export type DeviceState = {
 // `fungwire_job_poll` command (see `src-tauri/src/fungwire_client.rs`'s
 // `JobPollOutput`) plus the identifying fields set at delegation time —
 // `state` matches the table's CHECK constraint exactly.
+// Which engine a delegated job runs on, once it reaches the desktop.
+// "cloud" is only ever honoured if that desktop's own tier policy permits it
+// (see `fungwire_server::dispatch_cloud_stt`) — asking for it is a request,
+// not an override.
+export type DelegatedExecutor = "local" | "cloud";
+
 export type DelegatedJob = {
   id: string;
   operation: string;
   state: "queued" | "running" | "paused" | "completed" | "failed" | "cancelled";
   progress: number;
   executorDeviceId: string | null;
+  // Which engine the paired desktop was asked to run this job on: its own
+  // local faster-whisper pipeline, or a BYOM cloud STT provider through the
+  // desktop's own API key. Persisted in `delegated_jobs.executor` (Genesis
+  // schema v7) and echoed back by `fungwire_job_poll`, so the "☁ คลาวด์"
+  // provenance badge survives a remount. Optional because rows written
+  // before schema v7 have no value at all.
+  executor?: DelegatedExecutor;
   error?: string;
 };
 

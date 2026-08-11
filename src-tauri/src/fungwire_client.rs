@@ -1079,6 +1079,13 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::atomic::AtomicUsize;
 
+    // The loopback e2e jobs run a real Python subprocess while the complete
+    // Rust suite is executing in parallel. Ten seconds was enough on a warm
+    // developer machine but was too tight for the Windows CI runner, where
+    // both jobs could still be running when the old bound expired. Keep the
+    // wait bounded while allowing normal CI process/IO startup variance.
+    const E2E_TERMINAL_POLL_ATTEMPTS: usize = 600; // 60s at 100ms per poll
+
     fn open_genesis() -> (std::path::PathBuf, Storage) {
         let path = std::env::temp_dir().join(format!("fungwire-client-test-{}", Uuid::new_v4()));
         let storage = Storage::open(OpenOptions {
@@ -1412,7 +1419,7 @@ mod tests {
 
         // Poll delegated_jobs until it leaves the running state (bounded).
         let mut final_state = String::new();
-        for _ in 0..100 {
+        for _ in 0..E2E_TERMINAL_POLL_ATTEMPTS {
             let poll = job_poll_inner(&mobile_storage, &job_id).expect("poll job");
             if poll.state == "completed" || poll.state == "failed" {
                 final_state = poll.state;
@@ -1507,7 +1514,7 @@ mod tests {
             );
 
             let mut final_state = String::new();
-            for _ in 0..100 {
+            for _ in 0..E2E_TERMINAL_POLL_ATTEMPTS {
                 let poll = job_poll_inner(&mobile_storage, &job_id).expect("poll job");
                 if poll.state == "completed" || poll.state == "failed" {
                     final_state = poll.state;
@@ -1653,7 +1660,7 @@ mod tests {
         .expect("delegate transcription");
 
         let mut final_state = String::new();
-        for _ in 0..100 {
+        for _ in 0..E2E_TERMINAL_POLL_ATTEMPTS {
             let poll = job_poll_inner(&mobile_storage, &job_id).expect("poll job");
             if poll.state == "completed" || poll.state == "failed" {
                 final_state = poll.state;

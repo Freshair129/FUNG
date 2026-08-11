@@ -1,7 +1,7 @@
 ---
-version: "0.4.0b"
+version: "0.4.1b"
 created_at: "2026-07-20T12:10:00+07:00,ATHER"
-last_update: "2026-07-21T04:18:10+07:00,ATHER"
+last_update: "2026-08-12T07:00:00+07:00,ATHER"
 status: "beta"
 superseded_by: null
 attributes:
@@ -25,6 +25,16 @@ attributes:
 FUNG Mobile มี runnable mobile surface, native segmented recording, pairing/MCP/Timeline/Stories/Processing/Agent Voice contracts และได้ cut over production runtime จาก FUNG-owned SQLite ไปใช้ GenesisBlockDB handle เดียวแล้ว ทุก production mutation ที่ wire แล้วผ่าน `GenesisTransaction`; legacy `fung.db` เปิดแบบ read-only เพื่อ import ครั้งเดียวและไม่ dual-write หลัง cutover
 
 สถานะนี้เป็น **implementation beta ไม่ใช่ release completion**: build และ automated suites ผ่าน แต่ APK Genesis-enabled ชุดล่าสุดยังไม่ได้ติดตั้ง/ทำ physical-device UAT ซ้ำ เพราะรอบตรวจนี้ไม่พบ Android device ผ่าน ADB และ upstream acceptance ส่วน physical artifact, independent projection rebuild, backup/restore, lock/integrity และ self-host ยังไม่ครบ
+
+## Current Phase 3 Candidate Overlay (2026-08-12)
+
+The mobile cloud-controls candidate on `codex/phase3-integration` has
+automated evidence of mobile `19/19`, Rust `186/186`, auth `5/5`,
+design-system `2/2`, and TypeScript/Vite build passing. The UI exposes the
+approved explicit Local/Cloud STT actions and authenticated status surface;
+the candidate is unmerged. Physical paired Android/Desktop UAT, real OpenAI
+STT, real Anthropic fallback, restart/reconnect/revocation, merge and
+post-merge CI remain open and are not promoted to `verified` here.
 
 ## Phase Matrix
 
@@ -209,10 +219,16 @@ The current implementation is suitable for code review, automated acceptance and
 - Added checksum-verified source playback segment transport and wired the mobile play control.
 - Rebuilt and verified the Android arm64 debug APK and updated automated evidence while keeping fresh physical-device UAT and U6/U8/U9/U10/U12 gaps explicit.
 
+### `0.4.0b` -> `0.4.1b`
+
+- Added current Phase 3 candidate evidence without upgrading physical,
+  provider, restart/reconnect or release gates.
+
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.4.1b | 2026-08-12 | beta | Added current Phase 3 candidate evidence without upgrading physical or release gates. | same commit | ATHER |
 | 0.1.0b | 2026-07-20 | need review | Initial implementation evidence and phase exit ledger | N/A — workspace is not an initialized Git repository | ATHER |
 | 0.1.1b | 2026-07-20 | need review | Android native foreground recorder and Rust reconciliation evidence | N/A — workspace is not an initialized Git repository | ATHER |
 | 0.2.0b | 2026-07-20 | need review | Persistent dark appearance and auditable speaker timeline implementation evidence | N/A — workspace is not an initialized Git repository | ATHER |

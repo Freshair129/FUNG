@@ -24,6 +24,9 @@ Add `--concat-only <output.wav>` to skip transcription entirely and instead
 decode+concatenate the given path(s)/manifest into one 16kHz mono WAV file
 (used by the FUNGWIRE desktop worker before a cloud STT dispatch, since cloud
 APIs accept one file, unlike this script's own multi-file --manifest input).
+When `faster_whisper` is unavailable, the concat path accepts only 16kHz mono
+16-bit WAV inputs and uses the stdlib `wave` decoder; other formats still
+require the bundled decoder.
 
 Progress lines are written to stderr as `PROGRESS <0-100>` so the caller can
 update job progress without parsing stdout; with multiple files, progress is
@@ -34,10 +37,9 @@ once processing completes, so partial stdout reads never yield invalid JSON.
 
 import argparse
 import json
+import os
 import sys
-
-from faster_whisper import WhisperModel
-
+import tempfile
 
 def main() -> int:
     # Windows pipes stdout through the console codepage (cp1252) by default,
@@ -83,24 +85,88 @@ def main() -> int:
 
     if args.concat_only:
         import wave
-        from faster_whisper.audio import decode_audio
+
+        try:
+            from faster_whisper.audio import decode_audio
+        except ModuleNotFoundError:
+            decode_audio = None
+
+        missing_paths = [audio_path for audio_path in audio_paths if not os.path.isfile(audio_path)]
+        if missing_paths:
+            parser.error(f"audio input not found: {missing_paths[0]}")
+
+        destination = os.path.abspath(args.concat_only)
+        destination_directory = os.path.dirname(destination)
+        if not os.path.isdir(destination_directory):
+            parser.error(f"concat output directory not found: {destination_directory}")
+        if os.path.isdir(destination):
+            parser.error(f"concat output path is a directory: {destination}")
+
+        def paths_alias(first_path: str, second_path: str) -> bool:
+            first_resolved = os.path.normcase(os.path.realpath(os.path.abspath(first_path)))
+            second_resolved = os.path.normcase(os.path.realpath(os.path.abspath(second_path)))
+            if first_resolved == second_resolved:
+                return True
+            try:
+                return os.path.samefile(first_path, second_path)
+            except OSError:
+                return False
+
+        protected_paths = list(audio_paths)
+        if args.manifest:
+            protected_paths.append(args.manifest)
+        for protected_path in protected_paths:
+            if paths_alias(destination, protected_path):
+                parser.error(f"concat output must not alias an input: {protected_path}")
 
         def report(pct: float) -> None:
             print(f"PROGRESS {max(0, min(100, round(pct)))}", file=sys.stderr, flush=True)
 
         report(1)
         total = len(audio_paths)
-        with wave.open(args.concat_only, "wb") as wav_file:
-            wav_file.setnchannels(1)
-            wav_file.setsampwidth(2)  # 16-bit
-            wav_file.setframerate(16000)
-            for index, audio_path in enumerate(audio_paths):
-                samples = decode_audio(audio_path, sampling_rate=16000)
-                pcm16 = (samples * 32767.0).clip(-32768, 32767).astype("int16")
-                wav_file.writeframes(pcm16.tobytes())
-                report(1 + (index + 1) / total * 98)
+        temp_path = None
+        try:
+            temp_fd, temp_path = tempfile.mkstemp(
+                prefix=f".{os.path.basename(destination)}.",
+                suffix=".tmp",
+                dir=destination_directory,
+            )
+            with os.fdopen(temp_fd, "w+b") as temp_file:
+                with wave.open(temp_file, "wb") as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)  # 16-bit
+                    wav_file.setframerate(16000)
+                    for index, audio_path in enumerate(audio_paths):
+                        if decode_audio is not None:
+                            samples = decode_audio(audio_path, sampling_rate=16000)
+                            pcm16 = (samples * 32767.0).clip(-32768, 32767).astype("int16")
+                            wav_file.writeframes(pcm16.tobytes())
+                        else:
+                            with wave.open(audio_path, "rb") as source_wav:
+                                if (
+                                    source_wav.getnchannels() != 1
+                                    or source_wav.getsampwidth() != 2
+                                    or source_wav.getframerate() != 16000
+                                ):
+                                    raise RuntimeError(
+                                        "faster_whisper is required to decode non-16kHz mono 16-bit WAV input"
+                                    )
+                                wav_file.writeframes(source_wav.readframes(source_wav.getnframes()))
+                        report(1 + (index + 1) / total * 98)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            os.replace(temp_path, destination)
+            temp_path = None
+        finally:
+            if temp_path:
+                try:
+                    os.unlink(temp_path)
+                except FileNotFoundError:
+                    pass
         report(100)
         return 0
+
+    from faster_whisper import WhisperModel
 
     device = args.device or ("cuda" if args.profile == "gpu" else "cpu")
     compute_type = args.compute_type or ("float16" if device == "cuda" else "int8")

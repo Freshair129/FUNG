@@ -18,6 +18,9 @@ mod cloud_config;
 mod cloud_executor;
 mod cloud_commands;
 mod device_identity;
+mod external_mcp;
+mod external_mcp_commands;
+mod external_mcp_transport;
 mod fungwire;
 mod fungwire_client;
 mod fungwire_server;
@@ -61,7 +64,8 @@ impl WhisperRuntime {
     /// D:\a\FUNG\FUNG\.venv-whisper\...`). Instead we resolve a real system
     /// python via `resolve_test_python`, which is present on both dev
     /// machines and CI runners, falling back to the bundled venv locally
-    /// when no system python is on PATH.
+    /// when no system python is on PATH. On Windows the Python Launcher
+    /// (`py.exe`) is accepted as the system interpreter as well.
     #[cfg(test)]
     pub(crate) fn for_test(_python: PathBuf, script: PathBuf) -> Self {
         Self {
@@ -77,11 +81,12 @@ impl WhisperRuntime {
 /// (Windows) or `which` (unix) rather than pulling in a crate, since this is
 /// test-only plumbing. Falls back to the bundled `.venv-whisper` interpreter
 /// (present in local dev checkouts, absent on CI) if no system interpreter
-/// resolves, so local test runs are unaffected either way.
+/// resolves, so local test runs are unaffected either way. Windows also
+/// probes the standard `py.exe` launcher when `python.exe` is not on PATH.
 #[cfg(test)]
 fn resolve_test_python() -> PathBuf {
     let (finder, names): (&str, &[&str]) = if cfg!(windows) {
-        ("where", &["python", "python3"])
+        ("where", &["python", "python3", "py"])
     } else {
         ("which", &["python3", "python"])
     };
@@ -217,6 +222,8 @@ pub(crate) struct AppState {
     pub(crate) mobile_gateway: Mutex<Option<mobile::MobileGatewayControl>>,
     pub(crate) fungwire: Mutex<Option<fungwire_server::FungwireServerControl>>,
     pub(crate) live: Mutex<Option<live_meeting::LiveSessionControl>>,
+    pub(crate) external_mcp: external_mcp_commands::ExternalMcpRuntime,
+    pub(crate) external_meeting_tools_enabled: bool,
 }
 
 impl AppState {
@@ -796,6 +803,11 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         mobile_gateway: Mutex::new(None),
         fungwire: Mutex::new(None),
         live: Mutex::new(None),
+        external_mcp: external_mcp_commands::ExternalMcpRuntime::default(),
+        external_meeting_tools_enabled: matches!(
+            env::var("FUNG_EXTERNAL_MEETING_TOOLS").as_deref(),
+            Ok("1")
+        ),
     })
 }
 
@@ -1979,6 +1991,14 @@ pub fn run() {
             meeting_intel::meeting_ask,
             meeting_intel::meeting_summaries,
             meeting_intel::generate_meeting_summary,
+            external_mcp_commands::external_connectors_list,
+            external_mcp_commands::external_connector_register,
+            external_mcp_commands::external_connector_disconnect,
+            external_mcp_commands::meeting_tool_suggest,
+            external_mcp_commands::meeting_tool_execute,
+            external_mcp_commands::meeting_tool_cancel,
+            external_mcp_commands::meeting_tool_revoke,
+            external_mcp_commands::meeting_tool_runs_list,
             mobile::mobile_capture_start,
             mobile::mobile_capture_append_segment,
             mobile::mobile_capture_reconcile_native,

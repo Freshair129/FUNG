@@ -1,5 +1,7 @@
 //! Desktop Live Meeting capture + live transcription (Meeting Mode MVP).
 //!
+//! @req FR-102, FR-103, FR-104, FR-114, NFR-101, NFR-104, NFR-109
+//!
 //! Design rules, in priority order:
 //! 1. **Persist before enrich** — every audio chunk becomes a durable WAV file
 //!    plus a Genesis ledger row (`audio_chunks` via the same

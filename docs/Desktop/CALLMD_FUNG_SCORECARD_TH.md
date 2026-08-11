@@ -1,9 +1,9 @@
 ---
-version: "0.1.0"
+version: "0.2.0b"
 created_at: "2026-08-09T00:00:00+07:00,CLAUDE"
-last_update: "2026-08-09T00:00:00+07:00,CLAUDE"
-status: "draft"
-superseded_by: null
+last_update: "2026-08-11T10:37:54+07:00,Agent: ATHER"
+status: "superseded"
+superseded_by: "docs/DOC_PREFLIGHT_2026-08-11.md"
 attributes:
   domain: "local-first-audio-ai"
   doc_type: "competitive-analysis"
@@ -13,6 +13,20 @@ related:
 ---
 
 # Call.md × FUNG — วิเคราะห์เทียบจากซอร์สโค้ดจริง พร้อมคะแนนและแผนดำเนินการ
+
+> **Historical implementation snapshot:** คะแนนและข้อความสถานะ FUNG ด้านล่างสะท้อนฐานที่ผู้เขียนตรวจ ณ 2026-08-09 และต้องไม่ใช้เป็น current implementation truth หลัง Live Meeting commits วันที่ 2026-08-10 เอกสาร current truth คือ `docs/Desktop/08-real-progress.md` และ `docs/DOC_PREFLIGHT_2026-08-11.md`
+
+## Current-State Correction — 2026-08-11
+
+| Claim in historical snapshot | Current code truth | Remaining boundary |
+|---|---|---|
+| Desktop อัดเสียงไม่ได้ | `live_meeting.rs` routes microphone plus optional WASAPI system audio and durable live chunks. | Real-device/recovery UAT must be reported separately from code existence. |
+| ไม่มี live intelligence | `meeting_intel.rs` routes current topic/open points/actions and manual local Knowledge Base Q&A. | External MCP/CRM lookup and automatic suggestions are absent. |
+| ไม่มี summary/export | Post-meeting overview, timeline/key points, decisions/actions, provenance, and Markdown export are routed. | Requires configured local model and current restart/evidence UAT. |
+| UI เป็น mock ทั้งหมด | `LiveMeetingPanel.tsx` is wired to Tauri events/commands. | Main dashboard still contains hard-coded demo/status content; fixed microphone rail entry is not wired to the real panel. |
+| Desktop MCP ไม่มี | Still true for external meeting tools. | `local-mcp-v1.yaml` is a contract only; controlled external retrieval needs the approved requirements/security design. |
+
+The original comparison remains useful as historical decision evidence, especially its rejection of auto-triggered MCP and its requirement for suggest → preview → approve. Its numeric readiness score must not be reused as a current score.
 
 ## 1. วัตถุประสงค์และขอบเขตหลักฐาน
 
@@ -232,10 +246,12 @@ README ใช้ภาษากลาง ๆ ("meeting intelligence") แต่ 
 
 | Version | การเปลี่ยนแปลง |
 | --- | --- |
+| 0.2.0b | ทำเครื่องหมาย snapshot เดิมเป็น historical/superseded และเพิ่ม current-state correction จาก Live Meeting code โดยไม่ลบหลักฐานเดิม |
 | 0.1.0 | ฉบับแรก: วิเคราะห์จากซอร์ส Call.md v1.0.4 ที่ `D:\call.md-main` + สถานะโค้ดจริงของ FUNG; เพิ่มหมวด "สิ่งที่ README ไม่ได้บอก", ตารางคะแนน 2 มุมมอง, ตารางตัดสินใจรายฟีเจอร์แบบมีคะแนน และแผน P0-P6 |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.0b | 2026-08-11 | superseded | Added a current-state correction and redirected implementation truth to the progress/preflight documents. | pending | ATHER |
 | 0.1.0 | 2026-08-09 | draft | เอกสารเทียบ Call.md × FUNG ภาษาไทย พร้อมคะแนนและแผนดำเนินการ อิงซอร์สโค้ดจริงทั้งสองฝั่ง | N/A — ยังไม่ commit | CLAUDE |

@@ -1,40 +1,62 @@
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
-import { LandingPage } from "./landing/LandingPage";
-import { MobileApp } from "./mobile/MobileApp";
-import { AuthCallback } from "./web/AuthCallback";
-import { AuthGuard } from "./web/AuthGuard";
-import { Dashboard } from "./web/Dashboard";
+import {
+  resolveBodySurface,
+  resolveRootRoute,
+  supabaseConfigured,
+} from "./lib/bootstrap";
 import "./styles.css";
+import "./web/LoadingScreen.css";
+
+const LandingPage = lazy(() =>
+  import("./landing/LandingPage").then((module) => ({ default: module.LandingPage })),
+);
+const MobileApp = lazy(() =>
+  import("./mobile/MobileApp").then((module) => ({ default: module.MobileApp })),
+);
+const AuthCallback = lazy(() =>
+  import("./web/AuthCallback").then((module) => ({ default: module.AuthCallback })),
+);
+const AuthGuard = lazy(() =>
+  import("./web/AuthGuard").then((module) => ({ default: module.AuthGuard })),
+);
+const Dashboard = lazy(() =>
+  import("./web/Dashboard").then((module) => ({ default: module.Dashboard })),
+);
 
 const params = new URLSearchParams(window.location.search);
 const path = window.location.pathname;
 const isTauriRuntime = "__TAURI_INTERNALS__" in window;
 const surface = params.get("surface");
+const mobileViewport = window.matchMedia(
+  "(pointer: coarse) and (max-width: 760px), (pointer: coarse) and (orientation: landscape) and (max-height: 760px)",
+).matches;
+const rootRoute = resolveRootRoute({ path, surface, isTauriRuntime, mobileViewport });
+
+function BootstrapState({ message, alert = false }: { message: string; alert?: boolean }) {
+  return (
+    <div className="loading-screen" role={alert ? "alert" : "status"}>
+      <p className="loading-message">{message}</p>
+    </div>
+  );
+}
 
 function RootRouter() {
-  // Tauri desktop runtime — always show the desktop app, no auth
-  if (isTauriRuntime) {
-    return <App />;
+  if (rootRoute === "desktop") return <App />;
+
+  if (!supabaseConfigured) {
+    return (
+      <BootstrapState
+        alert
+        message="ยังไม่ได้ตั้งค่า Supabase สำหรับ surface นี้ กรุณาตั้งค่า VITE_SUPABASE_URL และ VITE_SUPABASE_ANON_KEY"
+      />
+    );
   }
 
-  // OAuth callback — process tokens
-  if (path === "/auth/callback") {
-    return <AuthCallback />;
-  }
-
-  // /app with explicit surface — desktop/mobile app, no auth gate
-  if (path === "/app" && (surface === "desktop" || surface === "mobile")) {
-    const mobileViewport = window.matchMedia(
-      "(pointer: coarse) and (max-width: 760px), (pointer: coarse) and (orientation: landscape) and (max-height: 760px)",
-    ).matches;
-    const ProductApp = surface === "mobile" || (!surface && mobileViewport) ? MobileApp : App;
-    return <ProductApp />;
-  }
-
-  // /app without surface — web dashboard, requires auth
-  if (path === "/app") {
+  if (rootRoute === "mobile") return <MobileApp />;
+  if (rootRoute === "auth-callback") return <AuthCallback />;
+  if (rootRoute === "dashboard") {
     return (
       <AuthGuard>
         <Dashboard />
@@ -42,17 +64,15 @@ function RootRouter() {
     );
   }
 
-  // Landing page (default)
   return <LandingPage />;
 }
 
-document.body.dataset.surface =
-  path === "/" || (!isTauriRuntime && path !== "/app" && path !== "/auth/callback")
-    ? "landing"
-    : "app";
+document.body.dataset.surface = resolveBodySurface({ path, isTauriRuntime });
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <RootRouter />
+    <Suspense fallback={<BootstrapState message="กำลังเปิด FUNG…" />}>
+      <RootRouter />
+    </Suspense>
   </React.StrictMode>,
 );

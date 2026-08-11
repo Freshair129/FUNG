@@ -1,3 +1,4 @@
+// @req FR-102, FR-103, FR-104, FR-105, FR-115, NFR-104, NFR-106
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
@@ -14,6 +15,7 @@ import {
   type LiveTopicEvent,
   type SummaryRow,
 } from "../tauri";
+import { ExternalMeetingToolsPanel } from "./ExternalMeetingToolsPanel";
 import "./LiveMeetingPanel.css";
 
 function clock(ms: number): string {
@@ -333,6 +335,12 @@ export function LiveMeetingPanel({
                 </div>
               )}
             </div>
+
+            <ExternalMeetingToolsPanel
+              projectId={activeIds.projectId ?? projectId}
+              recordingId={activeIds.recordingId}
+              segments={segments}
+            />
           </section>
         </div>
 

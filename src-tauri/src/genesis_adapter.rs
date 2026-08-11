@@ -347,7 +347,7 @@ fn schema_v7() -> RelationalSchemaPackage {
 /// Column sets mirror the contract exactly; `export_artifacts.source_layer_id`
 /// stays a plain nullable text ref because `audio_layers` has no Genesis
 /// table yet.
-pub(crate) fn schema() -> RelationalSchemaPackage {
+fn schema_v8() -> RelationalSchemaPackage {
     use RelationalColumnType::{Json, Text};
     let mut package = schema_v7();
     package.schema_version = 8;
@@ -385,6 +385,116 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
     package
 }
 
+/// Controlled external MCP retrieval metadata. This schema stores connector
+/// identity, grants, immutable previews, runs, and sanitized results only.
+/// Credential values remain OS-keyring owned; `credential_ref` is a nullable
+/// non-secret locator so rows created before v9 continue to upgrade safely.
+pub(crate) fn schema() -> RelationalSchemaPackage {
+    use RelationalColumnType::{Integer, Json, Text};
+    let mut package = schema_v8();
+    package.schema_version = 9;
+    package.previous_version = Some(8);
+
+    if let Some(external_connections) = package
+        .tables
+        .iter_mut()
+        .find(|candidate| candidate.name == "external_connections")
+    {
+        external_connections.columns.extend([
+            nullable("transport", Text),
+            nullable("endpoint", Text),
+            nullable("credential_ref", Text),
+            nullable("capabilities_json", Json),
+        ]);
+    }
+
+    package.tables.extend([
+        table(
+            "meeting_tool_grants",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("recording_id", Text),
+                required("connector_id", Text),
+                required("capabilities_json", Json),
+                required("granted_at", Text),
+                required("expires_at", Text),
+                nullable("revoked_at", Text),
+            ],
+            vec![
+                fk("project_id", "projects"),
+                fk("recording_id", "recordings"),
+                fk("connector_id", "external_connections"),
+            ],
+            vec![],
+        ),
+        table(
+            "external_tool_previews",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("recording_id", Text),
+                required("connector_id", Text),
+                required("tool_name", Text),
+                required("capability", Text),
+                required("arguments_hash", Text),
+                required("approved_fields_json", Json),
+                required("evidence_refs_json", Json),
+                required("state", Text),
+                required("expires_at", Text),
+                required("created_at", Text),
+            ],
+            vec![
+                fk("project_id", "projects"),
+                fk("recording_id", "recordings"),
+                fk("connector_id", "external_connections"),
+            ],
+            vec![],
+        ),
+        table(
+            "external_tool_runs",
+            vec![
+                required("id", Text),
+                required("preview_id", Text),
+                required("project_id", Text),
+                required("recording_id", Text),
+                required("connector_id", Text),
+                required("tool_name", Text),
+                required("capability", Text),
+                required("request_hash", Text),
+                nullable("output_hash", Text),
+                required("status", Text),
+                required("started_at", Text),
+                nullable("finished_at", Text),
+                nullable("error_code", Text),
+                nullable("result_ref", Text),
+            ],
+            vec![
+                fk("preview_id", "external_tool_previews"),
+                fk("project_id", "projects"),
+                fk("recording_id", "recordings"),
+                fk("connector_id", "external_connections"),
+            ],
+            vec![],
+        ),
+        table(
+            "external_tool_results",
+            vec![
+                required("id", Text),
+                required("run_id", Text),
+                required("mime_type", Text),
+                required("sanitized_payload_json", Json),
+                required("source_refs_json", Json),
+                required("byte_size", Integer),
+                required("created_at", Text),
+            ],
+            vec![fk("run_id", "external_tool_runs")],
+            vec![],
+        ),
+    ]);
+    package
+}
+
 /// Registers the schema chain stepwise. Genesis requires a fresh database to
 /// start at version 1 and advance one version at a time; on an existing
 /// database the already-registered steps report a version conflict, which is
@@ -399,6 +509,7 @@ pub(crate) fn install(storage: &Storage) -> Result<(), String> {
         schema_v5(),
         schema_v6(),
         schema_v7(),
+        schema_v8(),
         schema(),
     ];
     let last_index = packages.len() - 1;
@@ -455,10 +566,10 @@ pub(crate) fn import_legacy_sqlite(storage: &Storage, path: &Path) -> Result<usi
     let package = schema();
     let priority = |name: &str| match name {
         "projects" => 0, "recordings" => 1, "paired_devices" | "model_providers" | "speakers" | "external_connections" => 2,
-        "notes" | "mobile_recording_checkpoints" | "audio_chunks" | "delegated_jobs" | "jobs" => 3,
+        "notes" | "mobile_recording_checkpoints" | "audio_chunks" | "delegated_jobs" | "jobs" | "meeting_tool_grants" | "external_tool_previews" => 3,
         "note_revisions" | "graph_nodes" | "model_runs" | "transcript_segments" | "story_sequences" | "voice_profiles" | "effect_chains" | "job_events" | "audit_events" => 4,
-        "graph_edges" | "speaker_turns" | "waveform_tiles" | "story_clips" | "transcript_refinement_proposals" | "agent_voice_grants" | "effect_nodes" | "external_imports" => 5,
-        "story_revisions" | "agent_voice_sessions" | "capability_grants" | "mutation_log" => 6,
+        "graph_edges" | "speaker_turns" | "waveform_tiles" | "story_clips" | "transcript_refinement_proposals" | "agent_voice_grants" | "effect_nodes" | "external_imports" | "external_tool_runs" => 5,
+        "story_revisions" | "agent_voice_sessions" | "capability_grants" | "mutation_log" | "external_tool_results" => 6,
         _ => 7,
     };
     let mut tables = package.tables.clone();
@@ -1219,6 +1330,68 @@ mod tests {
         let rows = query(&storage, "delegated_jobs", &["id", "executor"], vec![eq("delegated_jobs", "id", json!("job-2"))], 1).unwrap();
         assert!(rows[0]["delegated_jobs.executor"].is_null());
         // Re-install after a stepped upgrade must stay idempotent.
+        storage.register_relational_schema(schema()).unwrap();
+        install(&storage).unwrap();
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn schema_v9_adds_controlled_external_tool_tables_and_upgrade_is_idempotent() {
+        let (path, storage) = open();
+        commit_rows(&storage, vec![
+            upsert("projects", json!({
+                "id": "proj-mcp", "name": "MCP Test", "storage_path": "test-path",
+                "active_recording_id": null, "created_at": "t", "updated_at": "t"
+            })),
+            upsert("recordings", json!({
+                "id": "rec-mcp", "project_id": "proj-mcp", "source": "microphone",
+                "input_path": null, "canonical_audio_path": "recordings/rec-mcp.wav",
+                "status": "recording", "duration_ms": 0, "created_at": "t", "updated_at": "t"
+            })),
+            upsert("external_connections", json!({
+                "id": "connector-mcp", "provider": "local-mcp", "account_label": "Knowledge Base",
+                "status": "configured", "transport": "stdio", "endpoint": "C:/approved/mcp.exe",
+                "credential_ref": "fung/connector-mcp", "capabilities_json": ["documents.search"],
+                "created_at": "t", "updated_at": "t"
+            })),
+            upsert("meeting_tool_grants", json!({
+                "id": "grant-mcp", "project_id": "proj-mcp", "recording_id": "rec-mcp",
+                "connector_id": "connector-mcp", "capabilities_json": ["documents.search"],
+                "granted_at": "t", "expires_at": "t+5m", "revoked_at": null
+            })),
+            upsert("external_tool_previews", json!({
+                "id": "preview-mcp", "project_id": "proj-mcp", "recording_id": "rec-mcp",
+                "connector_id": "connector-mcp", "tool_name": "search_documents",
+                "capability": "documents.search", "arguments_hash": "sha256:req",
+                "approved_fields_json": ["query"], "evidence_refs_json": ["segment-7"],
+                "state": "previewed", "expires_at": "t+1m", "created_at": "t"
+            })),
+            upsert("external_tool_runs", json!({
+                "id": "run-mcp", "preview_id": "preview-mcp", "project_id": "proj-mcp",
+                "recording_id": "rec-mcp", "connector_id": "connector-mcp",
+                "tool_name": "search_documents", "capability": "documents.search",
+                "request_hash": "sha256:req", "output_hash": "sha256:out",
+                "status": "completed", "started_at": "t", "finished_at": "t+1s",
+                "error_code": null, "result_ref": "result-mcp"
+            })),
+            upsert("external_tool_results", json!({
+                "id": "result-mcp", "run_id": "run-mcp", "mime_type": "application/json",
+                "sanitized_payload_json": {"title": "Approved document"},
+                "source_refs_json": ["kb://document/42"], "byte_size": 29, "created_at": "t+1s"
+            })),
+        ]).unwrap();
+
+        let rows = query(
+            &storage,
+            "external_tool_results",
+            &["id", "run_id", "byte_size"],
+            vec![eq("external_tool_results", "id", json!("result-mcp"))],
+            1,
+        ).unwrap();
+        assert_eq!(rows[0]["external_tool_results.run_id"], "run-mcp");
+        assert_eq!(rows[0]["external_tool_results.byte_size"], 29);
+
         storage.register_relational_schema(schema()).unwrap();
         install(&storage).unwrap();
         drop(storage);

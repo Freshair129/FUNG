@@ -1,6 +1,8 @@
 //! Live-meeting intelligence: topic tracking, local-KB question answering,
 //! and the post-meeting summary/export pipeline.
 //!
+//! @req FR-104, FR-105, FR-115, NFR-101, NFR-104
+//!
 //! Every model output here runs on the local BYOM provider
 //! (`ollama-summary-intent`) and every *persisted* artifact carries
 //! provenance: summaries reference a `model_runs` row, and evidence refs

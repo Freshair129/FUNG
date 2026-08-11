@@ -1,6 +1,19 @@
+// @req FR-106, FR-108, FR-116
+// @tested tests/externalMeetingTools.test.mjs
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
+import type {
+  ConnectorCapability,
+  ExternalConnectorDisconnectReceipt,
+  ExternalConnectorRegisterInput,
+  ExternalConnectorSummary,
+  ExternalToolRun,
+  MeetingToolCancelReceipt,
+  MeetingToolExecutionEnvelope,
+  MeetingToolPreviewEnvelope,
+  MeetingToolRevokeReceipt,
+} from "./lib/externalMeetingTools";
 
 export type Health = {
   app: string;
@@ -423,4 +436,67 @@ export async function meetingSummaries(projectId: string): Promise<SummaryRow[]>
 export async function generateMeetingSummary(projectId: string, recordingId: string): Promise<void> {
   if (!canInvoke()) return;
   await invoke<void>("generate_meeting_summary", { projectId, recordingId });
+}
+
+export async function externalConnectorsList(): Promise<ExternalConnectorSummary[]> {
+  if (!canInvoke()) return [];
+  return invoke<ExternalConnectorSummary[]>("external_connectors_list");
+}
+
+export async function externalConnectorRegister(
+  input: ExternalConnectorRegisterInput,
+): Promise<ExternalConnectorSummary> {
+  if (!canInvoke()) throw new Error("External meeting tools require the desktop app");
+  return invoke<ExternalConnectorSummary>("external_connector_register", { input });
+}
+
+export async function externalConnectorDisconnect(
+  connectorId: string,
+): Promise<ExternalConnectorDisconnectReceipt> {
+  if (!canInvoke()) throw new Error("External meeting tools require the desktop app");
+  return invoke<ExternalConnectorDisconnectReceipt>("external_connector_disconnect", { connectorId });
+}
+
+export async function meetingToolSuggest(input: {
+  projectId: string;
+  recordingId: string;
+  connectorId: string;
+  capability: ConnectorCapability;
+  arguments: Record<string, unknown>;
+  evidenceRefs: string[];
+}): Promise<MeetingToolPreviewEnvelope> {
+  if (!canInvoke()) throw new Error("External meeting tools require the desktop app");
+  return invoke<MeetingToolPreviewEnvelope>("meeting_tool_suggest", { input });
+}
+
+export async function meetingToolExecute(input: {
+  runId: string;
+  previewId: string;
+  approvedPreviewHash: string;
+  arguments: Record<string, unknown>;
+}): Promise<MeetingToolExecutionEnvelope> {
+  if (!canInvoke()) throw new Error("External meeting tools require the desktop app");
+  return invoke<MeetingToolExecutionEnvelope>("meeting_tool_execute", { input });
+}
+
+export async function meetingToolCancel(runId: string): Promise<MeetingToolCancelReceipt> {
+  if (!canInvoke()) throw new Error("External meeting tools require the desktop app");
+  return invoke<MeetingToolCancelReceipt>("meeting_tool_cancel", { runId });
+}
+
+export async function meetingToolRevoke(input: {
+  grantId: string;
+  projectId: string;
+  recordingId: string;
+}): Promise<MeetingToolRevokeReceipt> {
+  if (!canInvoke()) throw new Error("External meeting tools require the desktop app");
+  return invoke<MeetingToolRevokeReceipt>("meeting_tool_revoke", { input });
+}
+
+export async function meetingToolRunsList(
+  projectId: string,
+  recordingId: string,
+): Promise<ExternalToolRun[]> {
+  if (!canInvoke()) return [];
+  return invoke<ExternalToolRun[]>("meeting_tool_runs_list", { projectId, recordingId });
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   Archive,
@@ -12,7 +12,6 @@ import {
   Mic,
   Minimize2,
   Moon,
-  Pause,
   Play,
   Power,
   Search,
@@ -52,10 +51,17 @@ import {
 import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
 import { ZoomPanel } from "./components/ZoomPanel";
 import { TtsProviderPanel } from "./components/TtsProviderPanel";
-import { AccountLoginPanel } from "./components/AccountLoginPanel";
-import { DevicePairingPanel } from "./components/DevicePairingPanel";
 import { LiveMeetingPanel } from "./components/LiveMeetingPanel";
 import { CloudProvidersPanel } from "./components/CloudProvidersPanel";
+import { supabaseConfigured } from "./lib/bootstrap";
+import "./components/AccountLoginPanel.css";
+
+const AccountLoginPanel = lazy(() =>
+  import("./components/AccountLoginPanel").then((module) => ({ default: module.AccountLoginPanel })),
+);
+const DevicePairingPanel = lazy(() =>
+  import("./components/DevicePairingPanel").then((module) => ({ default: module.DevicePairingPanel })),
+);
 
 function formatMs(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -1078,8 +1084,36 @@ export function App() {
           onClick={() => setAccountLoginPanelOpen(false)}
         >
           <div className="account-login-stack" onClick={(event) => event.stopPropagation()}>
-            <AccountLoginPanel onClose={() => setAccountLoginPanelOpen(false)} />
-            <DevicePairingPanel onClose={() => setAccountLoginPanelOpen(false)} />
+            {supabaseConfigured ? (
+              <Suspense
+                fallback={(
+                  <section className="account-login-panel" aria-label="กำลังเปิดบัญชี FUNG">
+                    <p className="account-login-status">กำลังเปิดบัญชีและอุปกรณ์…</p>
+                  </section>
+                )}
+              >
+                <AccountLoginPanel onClose={() => setAccountLoginPanelOpen(false)} />
+                <DevicePairingPanel onClose={() => setAccountLoginPanelOpen(false)} />
+              </Suspense>
+            ) : (
+              <section className="account-login-panel" aria-label="บัญชี FUNG ยังไม่พร้อมใช้งาน">
+                <header className="account-login-header">
+                  <UserCircle size={18} />
+                  <h3>บัญชี &amp; อุปกรณ์</h3>
+                  <button
+                    type="button"
+                    className="account-login-close"
+                    onClick={() => setAccountLoginPanelOpen(false)}
+                    aria-label="ปิด"
+                  >
+                    ×
+                  </button>
+                </header>
+                <p className="account-login-error">
+                  ยังไม่ได้ตั้งค่า Supabase — เพิ่ม VITE_SUPABASE_URL และ VITE_SUPABASE_ANON_KEY เพื่อเปิดใช้บัญชีและการจับคู่อุปกรณ์
+                </p>
+              </section>
+            )}
           </div>
         </div>
       )}
@@ -1403,11 +1437,16 @@ export function App() {
           <div className="fab fab-sidebar no-drag">
             <button
               type="button"
-              className={`sidebar-action ${recording ? "is-active" : ""}`}
-              aria-label="New recording"
-              onClick={() => setRecording((value) => !value)}
+              className={`sidebar-action ${liveMeetingOpen ? "is-active" : ""}`}
+              aria-label="Open Live Meeting"
+              onClick={() => {
+                setActiveAnchor("P1");
+                setActiveView(viewByAnchor.P1);
+                setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
+                setLiveMeetingOpen(true);
+              }}
             >
-              {recording ? <Pause size={20} /> : <Mic size={20} />}
+              <Mic size={20} />
             </button>
             <button
               type="button"

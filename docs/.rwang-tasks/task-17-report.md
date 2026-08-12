@@ -68,5 +68,5 @@ RCA: `.brain/rca/2026-08-12-rust-test-python-launcher-gap.md`.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.1.1b | 2026-08-12 | candidate | Post-merge-base regression passed; external/controller gates remain open. | pending sync commit | ATHER |
+| 0.1.1b | 2026-08-12 | candidate | Post-merge-base regression passed and the scoped follow-up merged in PR #10; external/provider/device gates remain open. | `cea2d93` | ATHER |
 | 0.1.0b | 2026-08-12 | candidate | Full local regression passed after test-runtime hardening; external/controller gates remain open. | same commit | ATHER |

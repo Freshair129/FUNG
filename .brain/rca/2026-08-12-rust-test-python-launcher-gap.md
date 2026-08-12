@@ -73,5 +73,5 @@ runtime path or secret/provider boundary changes are required.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
-| 0.1.1b | 2026-08-12 | candidate | Added post-merge-base 195/195 regression evidence without widening the fix scope. | pending sync commit | ATHER |
+| 0.1.1b | 2026-08-12 | candidate | Added post-merge-base 195/195 regression evidence without widening the fix scope; merged in PR #10 at `cea2d93`. | `cea2d93` | ATHER |
 | 0.1.0b | 2026-08-12 | candidate | Documented missing `py.exe` discovery and the 186-test regression evidence. | same commit | ATHER |

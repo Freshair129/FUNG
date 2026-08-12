@@ -1,7 +1,7 @@
 ---
-version: "0.2.5b"
+version: "0.2.6b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-08-12T03:12:00+07:00,Agent: ATHER"
+last_update: "2026-08-12T22:02:52+07:00,ATHER"
 status: "beta"
 superseded_by: null
 attributes:
@@ -18,14 +18,15 @@ FUNG has a working desktop-first foundation and a routed Live Meeting core. Spri
 
 This document separates implemented truth from planned capability.
 
-## Phase 3 sync candidate overlay (2026-08-12)
+## Phase 3 post-merge overlay (2026-08-12)
 
-The post-merge `origin/main` sync candidate keeps the routed Live Meeting and
-external-retrieval surfaces intact while adding the scoped Python worker
-hardening. Automated evidence is Rust `195/195`, Python concat `5/5`, mobile
-`4/4`, auth `5/5`, design-system `2/2`, and TypeScript/Vite build passing.
-Real provider/device UAT, merge authorization and post-merge CI remain open;
-this overlay does not promote Phase 3 to release-ready.
+The Phase 3 follow-up is merged into `main` at `cea2d93` (PR #10), keeping the
+routed Live Meeting and external-retrieval surfaces intact while adding the
+scoped Python worker hardening. Automated evidence is Rust `195/195`, Python
+concat `5/5`, mobile `4/4`, auth `5/5`, design-system `2/2`, and TypeScript/Vite
+build passing. Post-merge GitHub CI run `31609642060` passed for frontend and
+Rust. Real provider/device UAT and release/product gates remain open; this
+overlay does not promote Phase 3 to fully release-ready.
 
 ## Implemented
 
@@ -140,6 +141,7 @@ Screenshot artifacts from the latest UI validation:
 | Version | Change |
 | --- | --- |
 | 0.2.5b | Recorded 195/195 full Rust regression after the Windows Python launcher fallback, expanded all-26 source-intent annotation coverage, bounded relaunch persistence evidence, and exact visual/device/real-connector blockers. |
+| 0.2.6b | Recorded PR #10 merge at `cea2d93`, post-merge CI run `31609642060` passing, and the remaining real provider/device and release gates. |
 | 0.2.4b | Recorded Sprint 4 connector/operator UI, eight-command and grant provenance boundary, focused frontend/backend evidence, successful dev launch, and remaining visual/restart/device/real-connector gates. |
 | 0.2.3b | Recorded bounded Sprint 3 stdio execution, fixtures, isolation evidence, default-off flag, and unresolved full-suite environment failures. |
 | 0.2.2b | Recorded the tested Sprint 2 policy, preview hash, minimization, keyring, disconnect/revoke, audit, and sanitizer foundation; MCP transport and UI remain explicitly unimplemented. |
@@ -154,6 +156,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.6b | 2026-08-12 | beta | Phase 3 follow-up merged to `main`; post-merge frontend/Rust CI passed while provider/device and release gates remain open. | `cea2d93` | ATHER |
 | 0.2.5b | 2026-08-12 | beta | Closed the prior full Rust regression, expanded annotation intent, and recorded bounded restart smoke plus environment-bounded UAT blockers. | pending | ATHER |
 | 0.2.4b | 2026-08-11 | beta | Added verified Sprint 4 operator workflow and remaining UAT boundaries. | pending | ATHER |
 | 0.2.3b | 2026-08-11 | beta | Added verified Sprint 3 bounded stdio backend evidence and remaining UI/UAT gaps. | pending | ATHER |

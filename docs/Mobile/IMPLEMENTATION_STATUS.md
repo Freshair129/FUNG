@@ -1,7 +1,7 @@
 ---
-version: "0.4.1b"
+version: "0.4.2b"
 created_at: "2026-07-20T12:10:00+07:00,ATHER"
-last_update: "2026-08-12T07:00:00+07:00,ATHER"
+last_update: "2026-08-12T22:02:52+07:00,ATHER"
 status: "beta"
 superseded_by: null
 attributes:
@@ -26,15 +26,16 @@ FUNG Mobile มี runnable mobile surface, native segmented recording, pairing/
 
 สถานะนี้เป็น **implementation beta ไม่ใช่ release completion**: build และ automated suites ผ่าน แต่ APK Genesis-enabled ชุดล่าสุดยังไม่ได้ติดตั้ง/ทำ physical-device UAT ซ้ำ เพราะรอบตรวจนี้ไม่พบ Android device ผ่าน ADB และ upstream acceptance ส่วน physical artifact, independent projection rebuild, backup/restore, lock/integrity และ self-host ยังไม่ครบ
 
-## Current Phase 3 Candidate Overlay (2026-08-12)
+## Current Phase 3 Post-Merge Overlay (2026-08-12)
 
-The mobile cloud-controls sync candidate on `codex/phase3-integration` has
-automated evidence of mobile `4/4`, Rust `195/195`, auth `5/5`,
+The mobile cloud-controls follow-up is merged into `main` at `cea2d93` (PR #10)
+with automated evidence of mobile `4/4`, Rust `195/195`, auth `5/5`,
 design-system `2/2`, and TypeScript/Vite build passing. The UI exposes the
-approved explicit Local/Cloud STT actions and authenticated status surface;
-the candidate is unmerged. Physical paired Android/Desktop UAT, real OpenAI
-STT, real Anthropic fallback, restart/reconnect/revocation, merge and
-post-merge CI remain open and are not promoted to `verified` here.
+approved explicit Local/Cloud STT actions and authenticated status surface.
+Post-merge GitHub CI run `31609642060` passed for frontend and Rust. Physical
+paired Android/Desktop UAT, real OpenAI STT, real Anthropic fallback,
+restart/reconnect/revocation, and release gates remain open and are not
+promoted to `verified` here.
 
 ## Phase Matrix
 
@@ -224,10 +225,16 @@ The current implementation is suitable for code review, automated acceptance and
 - Added current Phase 3 candidate evidence without upgrading physical,
   provider, restart/reconnect or release gates.
 
+### `0.4.1b` -> `0.4.2b`
+
+- Recorded PR #10 merge at `cea2d93` and passing post-merge CI while keeping
+  physical/provider/restart/reconnect and release gates explicit.
+
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.4.2b | 2026-08-12 | beta | Recorded the merged Phase 3 follow-up and passing post-merge CI without upgrading physical/provider/release gates. | `cea2d93` | ATHER |
 | 0.4.1b | 2026-08-12 | beta | Added current Phase 3 candidate evidence without upgrading physical or release gates. | same commit | ATHER |
 | 0.1.0b | 2026-07-20 | need review | Initial implementation evidence and phase exit ledger | N/A — workspace is not an initialized Git repository | ATHER |
 | 0.1.1b | 2026-07-20 | need review | Android native foreground recorder and Rust reconciliation evidence | N/A — workspace is not an initialized Git repository | ATHER |

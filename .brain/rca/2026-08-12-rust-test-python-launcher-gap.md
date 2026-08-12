@@ -6,7 +6,7 @@ status: "candidate"
 superseded_by: null
 attributes:
   domain: "test-runtime"
-  scope: "D:\\FUNG codex/phase3-integration"
+  scope: "D:\\FUNG codex/phase3-integration sync candidate"
   doc_type: "rca"
 ---
 
@@ -15,10 +15,11 @@ attributes:
 ## Symptom
 
 The Phase 3 candidate's standard `cargo test -j 1 --manifest-path
-src-tauri/Cargo.toml` run failed six FUNGWIRE worker tests with
+src-tauri/Cargo.toml` run initially failed six FUNGWIRE worker tests with
 `FUNG Python runtime is missing at ...\\.venv-whisper\\Scripts\\python.exe`.
-The same suite passed 186/186 when the bundled debug-venv `Scripts` directory
-was prepended to `PATH`.
+The same candidate suite passed 186/186 when the bundled debug-venv `Scripts`
+directory was prepended to `PATH`; the post-merge-base sync candidate passes
+the complete Rust suite at 195/195.
 
 ## Evidence
 
@@ -66,9 +67,11 @@ runtime path or secret/provider boundary changes are required.
 | Version | Change |
 |---------|--------|
 | 0.1.0b | Recorded the Windows launcher discovery gap and its test-only fix. |
+| 0.1.1b | Added post-merge-base 195/195 regression evidence without widening the fix scope. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.1.1b | 2026-08-12 | candidate | Added post-merge-base 195/195 regression evidence without widening the fix scope. | pending sync commit | ATHER |
 | 0.1.0b | 2026-08-12 | candidate | Documented missing `py.exe` discovery and the 186-test regression evidence. | same commit | ATHER |

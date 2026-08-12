@@ -28,8 +28,8 @@ FUNG Mobile มี runnable mobile surface, native segmented recording, pairing/
 
 ## Current Phase 3 Candidate Overlay (2026-08-12)
 
-The mobile cloud-controls candidate on `codex/phase3-integration` has
-automated evidence of mobile `19/19`, Rust `186/186`, auth `5/5`,
+The mobile cloud-controls sync candidate on `codex/phase3-integration` has
+automated evidence of mobile `4/4`, Rust `195/195`, auth `5/5`,
 design-system `2/2`, and TypeScript/Vite build passing. The UI exposes the
 approved explicit Local/Cloud STT actions and authenticated status surface;
 the candidate is unmerged. Physical paired Android/Desktop UAT, real OpenAI

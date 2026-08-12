@@ -1,18 +1,21 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-08-12T07:00:00+07:00,ATHER"
-last_update: "2026-08-12T07:00:00+07:00,ATHER"
+last_update: "2026-08-12T08:00:00+07:00,ATHER"
 status: "candidate"
 superseded_by: null
 attributes:
   domain: "phase3-regression"
   doc_type: "verification-report"
-  scope: "codex/phase3-integration candidate"
+  scope: "codex/phase3-integration sync candidate on origin/main"
 ---
 
 # T17 — Phase 3 candidate regression and runtime hardening
 
 ## Verdict
+
+This rerun is on the post-merge `origin/main` base and includes the Live
+Meeting test surface that is absent from the earlier 186-test candidate.
 
 **PASS — automated candidate gates green.** The candidate remains unmerged and
 Controller-gated; this report does not claim real provider, physical-device,
@@ -36,9 +39,9 @@ RCA: `.brain/rca/2026-08-12-rust-test-python-launcher-gap.md`.
 
 | Gate | Command | Result |
 |---|---|---|
-| Rust full regression | `cargo test -j 1 --manifest-path src-tauri/Cargo.toml` | **186 passed, 0 failed** |
+| Rust full regression | `cargo test -j 1 --manifest-path src-tauri/Cargo.toml` | **195 passed, 0 failed** |
 | Python concat contract | `py -3 tests/transcribeConcatOnly.test.py` | **5 passed, 0 failed** |
-| Mobile lifecycle | `npm run test:mobile` | **19 passed, 0 failed** |
+| Mobile capture suite | `npm run test:mobile` | **4 passed, 0 failed** |
 | Auth flow | `npm run test:auth` | **5 passed, 0 failed** |
 | Design system | `npm run test:design-system` and `npm run design-system:check` | **2 passed; check passed** |
 | Frontend build | `npm run build` | **TypeScript/Vite passed** |
@@ -59,9 +62,11 @@ RCA: `.brain/rca/2026-08-12-rust-test-python-launcher-gap.md`.
 | Version | Change |
 |---|---|
 | 0.1.0b | Recorded the Phase 3 candidate regression matrix and closed the Windows test-runtime gaps. |
+| 0.1.1b | Re-ran the regression matrix on the post-merge `origin/main` base: Rust 195/195, Python 5/5, mobile 4/4, auth 5/5, design-system 2/2 and Vite build pass. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.1.1b | 2026-08-12 | candidate | Post-merge-base regression passed; external/controller gates remain open. | pending sync commit | ATHER |
 | 0.1.0b | 2026-08-12 | candidate | Full local regression passed after test-runtime hardening; external/controller gates remain open. | same commit | ATHER |

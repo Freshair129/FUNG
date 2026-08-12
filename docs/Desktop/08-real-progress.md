@@ -18,6 +18,15 @@ FUNG has a working desktop-first foundation and a routed Live Meeting core. Spri
 
 This document separates implemented truth from planned capability.
 
+## Phase 3 sync candidate overlay (2026-08-12)
+
+The post-merge `origin/main` sync candidate keeps the routed Live Meeting and
+external-retrieval surfaces intact while adding the scoped Python worker
+hardening. Automated evidence is Rust `195/195`, Python concat `5/5`, mobile
+`4/4`, auth `5/5`, design-system `2/2`, and TypeScript/Vite build passing.
+Real provider/device UAT, merge authorization and post-merge CI remain open;
+this overlay does not promote Phase 3 to release-ready.
+
 ## Implemented
 
 | Area | Current Truth |

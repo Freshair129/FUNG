@@ -13,8 +13,9 @@ test("desktop release metadata points to the stable latest Windows asset", () =>
   assert.equal(DESKTOP_RELEASE_VERSION, "0.1.0");
   assert.equal(
     DESKTOP_RELEASE_DOWNLOAD_URL,
-    "https://github.com/Freshair129/FUNG/releases/latest/download/FUNG-windows-x64-setup.exe",
+    "https://github.com/Freshair129/FUNG-Releases/releases/latest/download/FUNG-windows-x64-setup.exe",
   );
+  assert.doesNotMatch(DESKTOP_RELEASE_DOWNLOAD_URL, /Freshair129\/FUNG\/releases/);
 });
 
 test("Tauri release resources include the live worker and portable runtime", async () => {

@@ -1,7 +1,7 @@
 ---
-version: "0.2.7b"
+version: "0.2.8b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-08-14T11:17:00+07:00,ATHER"
+last_update: "2026-08-14T11:44:00+07:00,ATHER"
 status: "beta"
 superseded_by: null
 attributes:
@@ -17,6 +17,16 @@ attributes:
 FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke now proves the app window reopens and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
 
 This document separates implemented truth from planned capability.
+
+## Public Desktop distribution overlay (2026-08-14)
+
+`Freshair129/FUNG-Releases` is now the public binary-only Desktop channel. Its
+v0.1.0 latest URL downloaded anonymously as 515,089,576 bytes with SHA-256
+`f67a78e0b216628d19335646342eea20575d5c7b5a16cccf7daf32c6b780d414`,
+matching the installer that passed local and real-hardware gates. Release
+verification workflow run `31770231402` passed. The Landing cutover has a
+source regression that rejects the private `Freshair129/FUNG/releases` path;
+production deployment remains the final gate for this overlay.
 
 ## Desktop v0.1.0 release-candidate overlay (2026-08-14)
 
@@ -158,6 +168,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.8b | Recorded the public binary-only Desktop channel, anonymous full-download equality, release workflow pass, and Landing private-repository regression. |
 | 0.2.7b | Recorded the verified self-contained Desktop v0.1.0 release candidate, 30-second real-device transcript UAT, final installer hash, and remaining publication gates. |
 | 0.2.5b | Recorded 195/195 full Rust regression after the Windows Python launcher fallback, expanded all-26 source-intent annotation coverage, bounded relaunch persistence evidence, and exact visual/device/real-connector blockers. |
 | 0.2.6b | Recorded PR #10 merge at `cea2d93`, post-merge CI run `31609642060` passing, and the remaining real provider/device and release gates. |
@@ -175,6 +186,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.8b | 2026-08-14 | beta | Published and verified the public Desktop v0.1.0 channel; production Landing cutover remains the final gate. | pending | ATHER |
 | 0.2.7b | 2026-08-14 | beta | Verified the Windows CPU release candidate, real-device Live Meeting transcript, installer runtime, and production-style web CTA before publication. | pending | ATHER |
 | 0.2.6b | 2026-08-12 | beta | Phase 3 follow-up merged to `main`; post-merge frontend/Rust CI passed while provider/device and release gates remain open. | `cea2d93` | ATHER |
 | 0.2.5b | 2026-08-12 | beta | Closed the prior full Rust regression, expanded annotation intent, and recorded bounded restart smoke plus environment-bounded UAT blockers. | pending | ATHER |

@@ -12,6 +12,7 @@
     "test:design-system": "node --test tests/designSystemPublishing.test.mjs",
     "test:auth": "node --test --experimental-strip-types tests/authFlow.test.mjs",
     "test:desktop-bootstrap": "node --test --experimental-strip-types tests/desktopBootstrap.test.mjs",
+    "test:release": "node --test --experimental-strip-types tests/releaseDistribution.test.mjs",
     "test:external-tools": "node --test --experimental-strip-types tests/externalMeetingTools.test.mjs",
     "test:traceability": "node --test tests/traceabilityAnnotations.test.mjs",
     "build": "tsc && vite build",

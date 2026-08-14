@@ -49,8 +49,8 @@
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "resources": {
       "../.venv-whisper": ".venv-whisper",
-      "../runtime": "runtime",
-      "../scripts/transcribe.py": "scripts/transcribe.py"
+      "../scripts/transcribe.py": "scripts/transcribe.py",
+      "../scripts/transcribe_live.py": "scripts/transcribe_live.py"
     }
   }
 }

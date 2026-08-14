@@ -435,6 +435,9 @@ impl LiveWorker {
             .arg(&script)
             .arg("--profile")
             .arg(&effective_profile);
+        if let Some(model) = crate::bundled_whisper_model(runtime) {
+            command.env("FUNG_WHISPER_MODEL", model);
+        }
         if let Some(language) = language {
             command.arg("--language").arg(language);
         }

@@ -1,7 +1,7 @@
 ---
-version: "0.1.1b"
+version: "0.1.2b"
 created_at: "2026-08-14T09:54:30+07:00,ATHER"
-last_update: "2026-08-14T11:17:00+07:00,ATHER"
+last_update: "2026-08-14T11:42:00+07:00,ATHER"
 status: "beta"
 superseded_by: null
 attributes:
@@ -54,7 +54,7 @@ GitHub tag v0.1.0
         -> runtime/license/SHA-256 manifest
 
 Vercel production landing page
-  -> https://github.com/Freshair129/FUNG/releases/latest/download/
+  -> https://github.com/Freshair129/FUNG-Releases/releases/latest/download/
      FUNG-windows-x64-setup.exe
 ```
 
@@ -146,6 +146,7 @@ public-beta installer for this release.
 
 | Version | Change |
 | --- | --- |
+| 0.1.2b | Moved public binary distribution to the public `FUNG-Releases` repository because private source-repository assets require authentication. |
 | 0.1.1b | Recorded approval and the completed pre-publication verification gates. |
 | 0.1.0b | Initial CPU-baseline Live Meeting packaging, release, and website-download contract. |
 
@@ -153,5 +154,6 @@ public-beta installer for this release.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.1.2b | 2026-08-14 | beta | Cut public Desktop downloads over to the binary-only release repository and retained the stable latest-asset contract. | pending | ATHER |
 | 0.1.1b | 2026-08-14 | beta | Approved specification with local release, hardware, installer, and web-preview evidence. | pending | ATHER |
 | 0.1.0b | 2026-08-14 | candidate | Proposed the first self-contained Windows Live Meeting public beta and latest-release download flow. | pending | ATHER |

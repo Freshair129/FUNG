@@ -17,6 +17,9 @@ use uuid::Uuid;
 mod cloud_config;
 mod cloud_executor;
 mod cloud_commands;
+mod backup;
+mod backup_archive;
+mod filesystem_backup;
 mod device_identity;
 mod external_mcp;
 mod external_mcp_commands;
@@ -1973,6 +1976,8 @@ pub fn run() {
         .setup(|app| {
             let state = app_state(app)?;
             app.manage(state);
+            app.manage(filesystem_backup::FilesystemBackupState::default());
+            app.manage(backup::BackupJobState::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2061,6 +2066,13 @@ pub fn run() {
             cloud_commands::tier_policy_get,
             cloud_commands::tier_policy_set,
             cloud_commands::cloud_call_counts_today,
+            backup::backup_status,
+            backup::backup_list_archives,
+            backup::backup_generate_recovery_phrase,
+            backup::backup_run,
+            backup::backup_restore,
+            backup::backup_restore_select_target,
+            filesystem_backup::filesystem_backup_select_root,
             tts_provider_register,
             tts_provider_update,
             tts_provider_toggle,

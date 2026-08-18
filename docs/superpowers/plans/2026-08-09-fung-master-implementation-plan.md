@@ -6,12 +6,28 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.0.0 |
-| Date | 2026-08-09 |
-| Status | draft — pending Boss approval |
+| Version | 1.3.0b |
+| Date | 2026-08-14 |
+| Status | need review — Phase 3 controller acceptance pending; Phase 4 has tested in-memory crypto and a bounded filesystem adapter, but backup/restore proof remains open |
 | Author | Claude (Fable 5) + Boss |
 | Supersedes | none (first master plan) |
-| Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.0b, `docs/Desktop/08-real-progress.md` v0.1.3b, Sub-project B brainstorm decisions (2026-08-09) |
+| Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.2b, `docs/Desktop/08-real-progress.md` v0.2.6b, Sub-project B brainstorm decisions (2026-08-09) |
+
+---
+
+## 0. Current Delivery Overlay (2026-08-13)
+
+This roadmap retains its original dependency plan. The Phase Completion Tracker
+below is the current delivery truth: Phase 0–2 are completed, and Phase 3 code
+is merged with post-merge CI passing. Phase 3 is not yet accepted as fully
+complete because its real-desktop controller gate remains open. Phase 4's
+Google Drive production adapter is TODO. Phase 4 has a remote Genesis U9
+contract candidate pinned for development/test, dedicated empty filesystem
+proof roots, and a tested bounded filesystem adapter, but has not yet produced
+an encrypted backup or clean restore through the real Genesis job.
+The exact Rust library verification command now passes 212/212 tests on this
+host; the prior serial override timeout was a test-harness procedure issue,
+not a product failure. Phase 5 has not started.
 
 ---
 
@@ -452,8 +468,8 @@ Per phase:
 - [x] **Phase 0** — Stabilize & Automate (exit: CI green on fresh runner, main protected) — **DONE 2026-08-09**, PR #4 (`6248816`): frontend 24s ✅ / rust 12m21s ✅ on fresh runners; actual 1 day vs 1 week planned. Task 5 (branch protection) pending Boss. Bonus findings: FungLogo.tsx untracked-but-imported (fixed), tauri-build unconditional resource copy (fixed in CI).
 - [x] **Phase 1** — Sub-project B: Desktop Login + Device Pairing (exit: real pairing E2E + revoke) — **DONE**, PR #5 merged (`5219b90`).
 - [x] **Phase 2** — FUNGWIRE v1: LAN Tunnel + Job Worker (exit: delegated transcription E2E + resume) — **DONE 2026-08-09**, PR #6: frontend ✅ / rust ✅ CI green; 2-device LAN acceptance test passed (Boss-confirmed: delegate+progress, kill-mid-job resume, revoke rejection).
-- [ ] **Phase 3** — Sub-project F: BYOM Keys + 3-Tier Policy (exit: policy matrix proven, zero key leakage)
-- [ ] **Phase 4** — Sub-projects C + E: Cloud Storage + Mobile Login (exit: backup→restore proven, mobile signed in)
+- [ ] **Phase 3** — Sub-project F: BYOM Keys + 3-Tier Policy (exit: policy matrix proven, zero key leakage) — **IMPLEMENTATION COMPLETE / ACCEPTANCE PENDING**. PR #7 merged (`bdd5c6e`); post-merge worker hardening merged in PR #10 (`cea2d93`); CI run `31610747738` passed on `main`. Remaining controller gate: real desktop with an OpenAI key + recording, and an Anthropic key with Ollama stopped to prove cloud fallback.
+- [ ] **Phase 4** — Sub-projects C + E: Cloud Storage + Mobile Login (exit: backup→restore proven, mobile signed in) — **TESTED IN-MEMORY CRYPTO + BOUNDED FILESYSTEM ADAPTER / BACKUP-RESTORE PROOF OPEN**. Requirements: `docs/superpowers/specs/2026-08-13-phase-4-cloud-backup-mobile-account-requirements.md`; design: `docs/superpowers/specs/2026-08-13-phase-4-cloud-backup-mobile-account-design.md`; plan/audit: `docs/superpowers/plans/2026-08-13-phase-4-google-drive-backup-mobile-account.md`; crypto decision: `docs/superpowers/specs/2026-08-14-phase-4-archive-envelope-crypto-decision.md`. FUNG pins Genesis U9 candidate `27cbb285aea635e31311ef2053d21f16e915f1fb`; empty test roots are `D:\FUNG-Phase4-TestStorage` and `D:\FUNG-Phase4-TestRestore`; native `backup_status` remains unavailable until the Task 5 Genesis job is wired. The in-memory envelope has XChaCha20-Poly1305/Argon2id/BIP-39 vectors and failure tests, the native-internal filesystem adapter has nine boundary/atomicity/digest/opaque-status tests, and the exact full Rust library suite passes 212/212. Google Drive production OAuth/transport remains TODO. No Phase 4 archive in the approved external test root, clean restore, mobile-account proof, U9 closure, or release claim exists yet.
 - [ ] **Phase 5** — Hardening & Release (exit: signed APK + UAT evidence + gates dispositioned)
 
 ---

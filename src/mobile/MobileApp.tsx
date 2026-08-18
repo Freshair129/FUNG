@@ -40,6 +40,11 @@ import type { CaptureState, DeviceState, EpistemicStatus, MobileNote, MobileSnap
 import { TimelineScreen } from "./TimelineScreen";
 import { supabase } from "../lib/supabase";
 import { beginGoogleLogin, listenForAuthCallback } from "../lib/authFlow";
+import {
+  deviceCacheActionForSession,
+  reconcileMobileDevice,
+  type DevicesPort,
+} from "../lib/deviceReconcile";
 import "./mobile.css";
 
 const DEVICE_ID_KEY = "fung.device.id";
@@ -516,7 +521,15 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
   // Session subscription + deep-link auth callback (no loopback fallback on mobile).
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+      // Sign-out/revocation clears the cached device id immediately; a stale
+      // cache must never survive into the next account's session (R4-13).
+      if (deviceCacheActionForSession(Boolean(next)) === "clear") {
+        localStorage.removeItem(DEVICE_ID_KEY);
+        setMyDeviceId(null);
+      }
+      setSession(next);
+    });
     let cleanup: (() => void) | undefined;
     void listenForAuthCallback((err) => {
       setAuthBusy(false);
@@ -528,12 +541,11 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
     };
   }, []);
 
-  // Re-validate this Android device's row on every session change (I7): a
-  // device revoked from the desktop side must be re-registered here rather
-  // than trusting the locally cached device id forever. Only the INSERT is
-  // skipped when the row already exists (select-then-insert-else-update, like
-  // desktop's AccountLoginPanel) — the select-by-fingerprint itself always
-  // runs.
+  // Re-validate this Android device's row on every session change (I7/R4-11):
+  // the row is always resolved by (current user, fingerprint) — the cached
+  // device id is only a mirror of that result and is replaced when stale. A
+  // device revoked from the desktop side is re-registered here rather than
+  // trusting the locally cached id forever.
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
@@ -543,48 +555,62 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
         const identity = await deviceIdentityEnsure();
         if (!identity) throw new Error("device identity unavailable");
         const publicKey = await devicePublicKey();
-        const { data: existing, error: selErr } = await supabase
-          .from("devices")
-          .select("id")
-          .eq("public_key_fingerprint", identity.fingerprint)
-          .maybeSingle();
-        if (selErr) throw selErr;
-        let deviceId = existing?.id as string | undefined;
-        if (!deviceId) {
-          // Missing row: either first run, or this device was revoked —
-          // re-register it under the current session either way.
-          const { data: inserted, error: insErr } = await supabase
-            .from("devices")
-            .insert({
-              user_id: session.user.id,
-              device_label: "FUNG Mobile",
-              platform: "android",
-              public_key_fingerprint: identity.fingerprint,
-            })
-            .select("id")
-            .single();
-          if (insErr) throw insErr;
-          deviceId = inserted.id as string;
-          // public_key is not covered by the INSERT grant (only user_id,
-          // device_label, platform, public_key_fingerprint are) — set it via
-          // a follow-up UPDATE, which the grant does cover.
-          const { error: pkErr } = await supabase
-            .from("devices")
-            .update({ public_key: publicKey })
-            .eq("id", deviceId);
-          if (pkErr) console.error("Failed to set device public key:", pkErr);
-          await supabase.from("device_audit_events").insert({
-            user_id: session.user.id,
-            device_id: deviceId,
-            event_type: "device_registered",
-            metadata: { platform: "android" },
-          });
-        } else {
-          await supabase.from("devices").update({ last_seen_at: new Date().toISOString(), public_key: publicKey }).eq("id", deviceId);
-        }
-        if (!cancelled && deviceId) {
-          localStorage.setItem(DEVICE_ID_KEY, deviceId);
-          setMyDeviceId(deviceId);
+        const port: DevicesPort = {
+          findOwnedDevice: async (userId, fingerprint) => {
+            // Ownership filter is explicit even though RLS also scopes rows:
+            // a row from another account must never be reused (R4-11).
+            const { data, error } = await supabase
+              .from("devices")
+              .select("id")
+              .eq("user_id", userId)
+              .eq("public_key_fingerprint", fingerprint)
+              .maybeSingle();
+            if (error) throw error;
+            return data ? { id: data.id as string } : null;
+          },
+          insertDevice: async (userId, fingerprint) => {
+            const { data, error } = await supabase
+              .from("devices")
+              .insert({
+                user_id: userId,
+                device_label: "FUNG Mobile",
+                platform: "android",
+                public_key_fingerprint: fingerprint,
+              })
+              .select("id")
+              .single();
+            if (error) throw error;
+            return { id: data.id as string };
+          },
+          refreshDevice: async (deviceId, key) => {
+            // public_key is not covered by the INSERT grant (only user_id,
+            // device_label, platform, public_key_fingerprint are) — it is
+            // always set via UPDATE, which the grant does cover.
+            const { error } = await supabase
+              .from("devices")
+              .update({ last_seen_at: new Date().toISOString(), public_key: key })
+              .eq("id", deviceId);
+            if (error) console.error("Failed to refresh device row:", error);
+          },
+          auditRegistered: async (userId, deviceId) => {
+            await supabase.from("device_audit_events").insert({
+              user_id: userId,
+              device_id: deviceId,
+              event_type: "device_registered",
+              metadata: { platform: "android" },
+            });
+          },
+        };
+        const outcome = await reconcileMobileDevice(
+          port,
+          session.user.id,
+          identity.fingerprint,
+          publicKey,
+          localStorage.getItem(DEVICE_ID_KEY),
+        );
+        if (!cancelled) {
+          if (outcome.cacheStale) localStorage.setItem(DEVICE_ID_KEY, outcome.deviceId);
+          setMyDeviceId(outcome.deviceId);
         }
       } catch (error) {
         if (!cancelled) {

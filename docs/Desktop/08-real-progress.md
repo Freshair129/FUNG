@@ -1,7 +1,7 @@
 ---
-version: "0.2.8b"
+version: "0.2.10b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-08-14T11:44:00+07:00,ATHER"
+last_update: "2026-08-19T00:00:00+07:00,ATHER"
 status: "beta"
 superseded_by: null
 attributes:
@@ -14,7 +14,7 @@ attributes:
 
 ## Current Status
 
-FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke now proves the app window reopens and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
+FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The current source tree builds after dependency restoration, but the local `.venv-whisper` directory is empty and `py -3` cannot import `faster_whisper`, so live transcription is not currently UAT-ready on this machine. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
 
 This document separates implemented truth from planned capability.
 
@@ -79,6 +79,8 @@ overlay does not promote Phase 3 to fully release-ready.
 | External retrieval trust foundation | Default-deny grant policy, canonical preview hash, exact field minimization, zeroized OS-keyring lifecycle, connector disconnect/revoke, typed Genesis audit payloads, and hostile-result sanitization are implemented and tested. |
 | External retrieval backend | Allowlisted stdio MCP `2025-11-25` initialize/list/call, bounded process I/O, timeout/cancel/cleanup, durable one-time execution, all eight planned Tauri commands, and document/CRM fixture execution are implemented behind default-off `FUNG_EXTERNAL_MEETING_TOOLS=1`. |
 | External retrieval operator UI | `ExternalMeetingToolsPanel` is embedded in Live Meeting behind default-off `VITE_FUNG_EXTERNAL_MEETING_TOOLS=1` with connector list/register/disconnect, exact field and transcript-evidence selection, preview/deny/approve, running/cancel, meeting-scope revoke, sanitized result, inert source references, policy/evidence/time provenance, and run history. |
+| Phase 4 filesystem test backup | Genesis full export → XChaCha20-Poly1305/Argon2id encryption → atomic bounded-root write is wired end-to-end with clean-target restore, post-restore digest identity, and deep fixture verification. Desktop AccountSettings has a labelled development/test UI (root picker, one-time 24-word recovery-phrase display, restore confirmation); Google Drive production transport remains TODO. |
+| Mobile device reconciliation | The Android `devices` row is always resolved by (current user, fingerprint); the cached `fung.device.id` is only a mirror, replaced when stale and cleared on sign-out/revocation. Supabase RLS ownership policies were rechecked and required no migration. |
 | GPU runtime staging | `stage_gpu_runtime.ps1` stages FUNG-owned CUDA 12/cuDNN DLLs and writes a SHA-256 manifest. |
 | GPU worker launch | The transcription subprocess resolves FUNG resources at runtime, selects an explicit CPU/GPU profile, and prepends FUNG's CUDA directory to its own `PATH`. |
 
@@ -92,7 +94,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | Export UI | Signal card and queue affordance exists. | Needs real WAV/MP3/transcript export pipeline. |
 | Summary/intent UI | Summary/action output pipeline and display surface exist. | Intent-specific UI and complete evidence-span review remain incomplete. |
 | Live speaker attribution | Source channels map to editable `เรา`/`อีกฝ่าย` labels. | This is capture provenance, not arbitrary live multi-speaker diarization. |
-| Live intelligence runtime | Topic and summary routes exist. | Requires current real-device/local-model UAT and explicit unavailable/degraded UI verification. |
+| Live intelligence runtime | Topic and summary routes exist; capture can degrade without the worker. | Current machine has no bundled Whisper interpreter/model and `faster_whisper` is unavailable, so live transcription requires runtime installation plus UAT. |
 | Live Meeting entry | The fixed microphone rail now opens the real panel and its regression passes. | Current packaged-app interaction/UAT remains to be rerun after the prior bootstrap incident. |
 | External meeting retrieval | Backend plus operator workflow, stdio fixture transport, zero-process-before-approval, document/CRM reads, connector lifecycle, sanitized result rendering, recording-row isolation, and bounded relaunch persistence smoke are tested at unit/source/integration level. | Automated keyboard/1200×780 visual UAT, detailed connector health, artifact-wide secret scan, real-device capture-isolation UAT, summary/export review after restart, and real-connector UAT remain. |
 | GPU standalone release | DLL staging and child-process isolation are implemented. | Must build and run a copied packaged bundle with a speech fixture; NVIDIA redistribution approval remains a release gate. |
@@ -112,9 +114,9 @@ overlay does not promote Phase 3 to fully release-ready.
 
 | Check | Result |
 | --- | --- |
-| `npm run build` | Passed |
+| `npm run build` | Passed on 2026-08-14 after `npm ci` restored missing local CLI binaries |
 | `cargo check` | Passed |
-| `npm audit --audit-level=moderate` | Passed with 0 vulnerabilities |
+| `npm audit --audit-level=moderate` | **2 high vulnerabilities** (`nanoid`, `postcss`); production dependency remediation remains open |
 | SVG XML validation | Passed |
 | Browser layout check | Signals parent is `.panel-glass`; floating signal count is `0` |
 | Compact viewport check | `1200 x 780` rendered without body scroll |
@@ -129,12 +131,15 @@ overlay does not promote Phase 3 to fully release-ready.
 | External MCP Sprint 4 tests | Focused Rust cluster passed 23/23: trust contracts, stdio lifecycle/allowlist, timeout/cancel/cleanup, eight-command surface, connector/keyring/grant/disconnect lifecycle, document and CRM fixture calls, one-time execution, durable sanitized result/audit, failure terminalization, and active recording-row isolation. |
 | External tool frontend tests | Passed 5/5: default-off flag, exact argument minimization, UI state transitions, Thai capture-safe errors, eight-command client surface, revoke control, and Live Meeting embedding. |
 | Genesis v9 migration | Focused Rust integration test passed grant → preview → run → sanitized result round trip and reinstall idempotency. |
-| Full Rust library regression | Passed **195/195** after `resolve_test_python()` added the Windows `py.exe` launcher fallback; the six prior FUNGWIRE failures are now green. Existing compiler warnings are non-failing and unrelated to this fix. |
+| Full Rust library regression | Passed **217/217** on 2026-08-19 with the exact plan command (adds the Phase 4 backup-job/restore cluster); existing compiler warnings are non-failing and unrelated to this status. |
+| Phase 4 backup/restore tests | Focused Rust cluster passed: export→encrypt→write→clean-restore round trip with note/graph/audio-chunk identity, wrong-secret/tamper/missing-archive/existing-target preservation, plaintext-staging boundary rejection, job-serialization guard, and fail-closed status. Node `test:backup-flow` passed 10/10 (opaque picker contract, restore confirmation gate, truthful error text) and `test:device-reconcile` passed 6/6 (ownership lookup, duplicate avoidance, stale-cache replacement, sign-out clearing). |
+| Phase 4 clean-install/device gates | The real clean-install restore on the approved `D:\FUNG-Phase4-TestStorage`/`D:\FUNG-Phase4-TestRestore` roots and the physical Android/Dashboard identity check have not been run; U9 and release gates remain open. |
 | Auth/mobile/design regressions | Passed auth 5/5, mobile capture 4/4, and design-system publishing 2/2. |
 | Diff hygiene | `git diff --check` passed. Repository-wide `cargo fmt --check` still reports broad pre-existing formatting debt outside this scoped change. |
 | Rebuilt Desktop runtime | The debug `fung.exe` launched with title `FUNG`; a close/relaunch smoke observed PID 37720 then PID 9088 and non-zero window handles, with Genesis counts unchanged (`projects=1`, `recordings=1`, `transcript_segments=13`, `audit_events=1`). Windows Graphics Capture, browser screenshot, and keyboard automation remain unavailable, so visual/keyboard UAT is still open. |
 | Real connector/device diagnostics | Claude Desktop MCP registry is empty, no approved vendor endpoint/credential is configured, and `adb`/`scrcpy` are absent. The real-connector and physical-device gates remain blocked, not waived. |
 | Python worker syntax | `py_compile scripts/transcribe.py` passed. |
+| Current Whisper runtime availability | `scripts/transcribe_live.py` exists, but `.venv-whisper` is empty and `py -3` reports no `faster_whisper`; capture-only/degraded mode is the truthful current state until the runtime is installed. |
 
 Screenshot artifacts from the latest UI validation:
 
@@ -168,6 +173,8 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.10b | Recorded Phase 4 filesystem test backup/restore implementation and mobile device-reconciliation hardening with 217/217 Rust plus green focused Node evidence; clean-install restore and physical Android identity gates stay open. |
+| 0.2.9b | Truth-synced current frontend/Rust verification, the missing local Whisper runtime, and two high npm audit findings; desktop capture/transcription and release/UAT boundaries remain distinct. (Renumbered from a parallel 0.2.7b during the Phase 4 merge; `main` had assigned 0.2.7b/0.2.8b to the Desktop release records below.) |
 | 0.2.8b | Recorded the public binary-only Desktop channel, anonymous full-download equality, release workflow pass, and Landing private-repository regression. |
 | 0.2.7b | Recorded the verified self-contained Desktop v0.1.0 release candidate, 30-second real-device transcript UAT, final installer hash, and remaining publication gates. |
 | 0.2.5b | Recorded 195/195 full Rust regression after the Windows Python launcher fallback, expanded all-26 source-intent annotation coverage, bounded relaunch persistence evidence, and exact visual/device/real-connector blockers. |
@@ -186,6 +193,8 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.10b | 2026-08-19 | beta | Phase 4 Tasks 5–9 landed on `codex/phase-4-filesystem-test-backup`; automated backup/restore and reconciliation evidence recorded, release/U9 gates unchanged. | working-tree | ATHER |
+| 0.2.9b | 2026-08-14 | beta | Current desktop/web build and 212-test Rust evidence recorded; missing Whisper runtime and two high npm audit findings prevent a live-transcription/release claim. | working-tree | ATHER |
 | 0.2.8b | 2026-08-14 | beta | Published and verified the public Desktop v0.1.0 channel; production Landing cutover remains the final gate. | pending | ATHER |
 | 0.2.7b | 2026-08-14 | beta | Verified the Windows CPU release candidate, real-device Live Meeting transcript, installer runtime, and production-style web CTA before publication. | pending | ATHER |
 | 0.2.6b | 2026-08-12 | beta | Phase 3 follow-up merged to `main`; post-merge frontend/Rust CI passed while provider/device and release gates remain open. | `cea2d93` | ATHER |

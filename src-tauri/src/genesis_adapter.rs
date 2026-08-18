@@ -1064,7 +1064,7 @@ pub(crate) fn finish_capture(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use genesis_block_native::OpenOptions;
+    use genesis_block_native::{BackupExportRequest, BackupRestoreRequest, OpenOptions};
 
     fn open() -> (std::path::PathBuf, Storage) {
         let path = std::env::temp_dir().join(format!("fung-genesis-test-{}", Uuid::new_v4()));
@@ -1173,6 +1173,132 @@ mod tests {
         assert!(storage.node_view("note-b").is_some());
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn u9_clean_restore_preserves_fung_notes_and_graph_relations() {
+        let source_parent = tempfile::tempdir().unwrap();
+        let source_path = source_parent.path().join("source-genesis");
+        let storage = Storage::open(OpenOptions {
+            path: source_path.display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+        })
+        .unwrap();
+        install(&storage).unwrap();
+
+        let timestamp = "2026-08-14T00:00:00Z".to_string();
+        for id in ["backup-note-a", "backup-note-b"] {
+            commit_note(
+                &storage,
+                &crate::mobile::MobileNoteInput {
+                    id: id.to_string(),
+                    title: id.to_string(),
+                    body: "FUNG U9 fixture".to_string(),
+                    project_id: "backup-project".to_string(),
+                    created_at: timestamp.clone(),
+                    updated_at: timestamp.clone(),
+                    evidence_label: Some("fixture".to_string()),
+                },
+                "projects/backup-project",
+            )
+            .unwrap();
+        }
+        commit_relation(
+            &storage,
+            "backup-project",
+            &crate::mobile::GraphEdgeInput {
+                id: "backup-edge-a-b".to_string(),
+                source_id: "backup-note-a".to_string(),
+                target_id: "backup-note-b".to_string(),
+                predicate: "supports".to_string(),
+                status: "confirmed".to_string(),
+            },
+            &timestamp,
+        )
+        .unwrap();
+        let recording = start_capture(
+            &storage,
+            "backup-project",
+            "projects/backup-project",
+            "backup-recording",
+            "projects/backup-project/backup-recording/manifest.json",
+            &timestamp,
+        )
+        .unwrap();
+        append_capture_chunk(
+            &storage,
+            &recording,
+            AudioChunk {
+                id: "backup-audio-chunk",
+                file_path: "projects/backup-project/backup-recording/segment-000001.m4a",
+                start_ms: 0,
+                end_ms: 1_000,
+                byte_size: 128,
+                checksum: "fixture-sha256",
+                timestamp: &timestamp,
+            },
+        )
+        .unwrap();
+
+        let backup_parent = tempfile::tempdir().unwrap();
+        let bundle_path = backup_parent.path().join("fung-u9-fixture.genesis");
+        let source_frontier = storage.stable_frontier();
+        let bundle = storage
+            .export_backup(BackupExportRequest {
+                destination: bundle_path.clone(),
+            })
+            .unwrap();
+        assert_eq!(bundle.stable_frontier, source_frontier);
+
+        let restore_parent = tempfile::tempdir().unwrap();
+        let restore_path = restore_parent.path().join("restore-clean");
+        let restored_bundle = Storage::restore_backup(BackupRestoreRequest {
+            bundle_path,
+            target_root: restore_path.clone(),
+        })
+        .unwrap();
+        assert_eq!(restored_bundle.sha256, bundle.sha256);
+
+        let restored = Storage::open(OpenOptions {
+            path: restore_path.display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+        })
+        .unwrap();
+        let edges = query(
+            &restored,
+            "graph_edges",
+            &["id", "predicate"],
+            vec![eq("graph_edges", "project_id", json!("backup-project"))],
+            10,
+        )
+        .unwrap();
+        let chunks = query(
+            &restored,
+            "audio_chunks",
+            &["id", "file_path", "checksum"],
+            vec![eq(
+                "audio_chunks",
+                "recording_id",
+                json!("backup-recording"),
+            )],
+            10,
+        )
+        .unwrap();
+        assert_eq!(restored.stable_frontier(), source_frontier);
+        assert!(restored.node_view("backup-note-a").is_some());
+        assert!(restored.node_view("backup-note-b").is_some());
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0]["graph_edges.id"], "backup-edge-a-b");
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0]["audio_chunks.id"], "backup-audio-chunk");
+        assert_eq!(
+            chunks[0]["audio_chunks.file_path"],
+            "projects/backup-project/backup-recording/segment-000001.m4a"
+        );
     }
 
     #[test]

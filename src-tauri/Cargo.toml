@@ -17,12 +17,15 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 base64 = "0.22"
+argon2 = "=0.5.3"
+bip39 = "=2.2.2"
+chacha20poly1305 = { version = "=0.10.1", features = ["stream"] }
 chrono = { version = "0.4", features = ["serde"] }
 cpal = "0.16"
 hound = "3.5"
 curve25519-dalek = "4"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
-genesis-block-native = { git = "https://github.com/Freshair129/GenesisBlock.git", rev = "0502c6b971525b8d256e0a8236950a3997831f99", default-features = false, features = ["mobile"] }
+genesis-block-native = { git = "https://github.com/Freshair129/GenesisBlock.git", rev = "27cbb285aea635e31311ef2053d21f16e915f1fb", default-features = false, features = ["mobile"] }
 keyring = { version = "3", features = ["windows-native"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "multipart"] }
 rand = "0.8"

@@ -28,6 +28,7 @@ diagnostics and is drained by the caller.
 
 import argparse
 import json
+import os
 import sys
 
 from faster_whisper import WhisperModel
@@ -41,9 +42,17 @@ def main() -> int:
     sys.stdin.reconfigure(encoding="utf-8")
 
     parser = argparse.ArgumentParser(description="Persistent chunk transcriber for live meetings.")
-    parser.add_argument("--model", default="small", help="faster-whisper model size or repo id")
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("FUNG_WHISPER_MODEL", "small"),
+        help="faster-whisper model size, repo id, or bundled local model path",
+    )
     parser.add_argument("--language", default=None, help="Force a language code (e.g. th, en); omit to auto-detect")
-    parser.add_argument("--profile", default="gpu", choices=["cpu", "gpu"])
+    parser.add_argument(
+        "--profile",
+        default=os.environ.get("FUNG_TRANSCRIPTION_PROFILE", "cpu"),
+        choices=["cpu", "gpu"],
+    )
     args = parser.parse_args()
 
     device = "cuda" if args.profile == "gpu" else "cpu"

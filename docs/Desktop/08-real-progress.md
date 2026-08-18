@@ -1,5 +1,5 @@
 ---
-version: "0.2.8b"
+version: "0.2.10b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-08-19T00:00:00+07:00,ATHER"
 status: "beta"
@@ -17,6 +17,34 @@ attributes:
 FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The current source tree builds after dependency restoration, but the local `.venv-whisper` directory is empty and `py -3` cannot import `faster_whisper`, so live transcription is not currently UAT-ready on this machine. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
 
 This document separates implemented truth from planned capability.
+
+## Public Desktop distribution overlay (2026-08-14)
+
+`Freshair129/FUNG-Releases` is now the public binary-only Desktop channel. Its
+v0.1.0 latest URL downloaded anonymously as 515,089,576 bytes with SHA-256
+`f67a78e0b216628d19335646342eea20575d5c7b5a16cccf7daf32c6b780d414`,
+matching the installer that passed local and real-hardware gates. Release
+verification workflow run `31770231402` passed. The Landing cutover has a
+source regression that rejects the private `Freshair129/FUNG/releases` path;
+production deployment remains the final gate for this overlay.
+
+## Desktop v0.1.0 release-candidate overlay (2026-08-14)
+
+The isolated `codex/desktop-live-release` worktree now has a self-contained
+Windows x64 CPU release candidate: portable CPython 3.11.9, pinned
+`faster-whisper` 1.2.1 dependencies, pinned local `small` model, both worker
+scripts, licenses, and a SHA-256 manifest. A 30.082-second real-hardware run on
+the Fantech Leviosa microphone and Scarlett Solo system loopback produced 8
+durable chunks and 10 transcript segments. The final NSIS candidate installed,
+launched a visible `FUNG` window, and transcribed the speech fixture from its
+installed runtime with 0.9988 confidence.
+
+The final local asset is 515,089,576 bytes with SHA-256
+`f67a78e0b216628d19335646342eea20575d5c7b5a16cccf7daf32c6b780d414`.
+The production-style browser gate renders the version, approximate 491 MB
+size, unsigned SmartScreen notice, and stable latest-release URL with zero
+console errors. GitHub upload/hash equality and Vercel production promotion
+remain publication gates and are not claimed by this pre-tag record.
 
 ## Phase 3 post-merge overlay (2026-08-12)
 
@@ -145,8 +173,10 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
-| 0.2.8b | Recorded Phase 4 filesystem test backup/restore implementation and mobile device-reconciliation hardening with 217/217 Rust plus green focused Node evidence; clean-install restore and physical Android identity gates stay open. |
-| 0.2.7b | Truth-synced current frontend/Rust verification, the missing local Whisper runtime, and two high npm audit findings; desktop capture/transcription and release/UAT boundaries remain distinct. |
+| 0.2.10b | Recorded Phase 4 filesystem test backup/restore implementation and mobile device-reconciliation hardening with 217/217 Rust plus green focused Node evidence; clean-install restore and physical Android identity gates stay open. |
+| 0.2.9b | Truth-synced current frontend/Rust verification, the missing local Whisper runtime, and two high npm audit findings; desktop capture/transcription and release/UAT boundaries remain distinct. (Renumbered from a parallel 0.2.7b during the Phase 4 merge; `main` had assigned 0.2.7b/0.2.8b to the Desktop release records below.) |
+| 0.2.8b | Recorded the public binary-only Desktop channel, anonymous full-download equality, release workflow pass, and Landing private-repository regression. |
+| 0.2.7b | Recorded the verified self-contained Desktop v0.1.0 release candidate, 30-second real-device transcript UAT, final installer hash, and remaining publication gates. |
 | 0.2.5b | Recorded 195/195 full Rust regression after the Windows Python launcher fallback, expanded all-26 source-intent annotation coverage, bounded relaunch persistence evidence, and exact visual/device/real-connector blockers. |
 | 0.2.6b | Recorded PR #10 merge at `cea2d93`, post-merge CI run `31609642060` passing, and the remaining real provider/device and release gates. |
 | 0.2.4b | Recorded Sprint 4 connector/operator UI, eight-command and grant provenance boundary, focused frontend/backend evidence, successful dev launch, and remaining visual/restart/device/real-connector gates. |
@@ -163,8 +193,10 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
-| 0.2.8b | 2026-08-19 | beta | Phase 4 Tasks 5–9 landed on `codex/phase-4-filesystem-test-backup`; automated backup/restore and reconciliation evidence recorded, release/U9 gates unchanged. | working-tree | ATHER |
-| 0.2.7b | 2026-08-14 | beta | Current desktop/web build and 212-test Rust evidence recorded; missing Whisper runtime and two high npm audit findings prevent a live-transcription/release claim. | working-tree | ATHER |
+| 0.2.10b | 2026-08-19 | beta | Phase 4 Tasks 5–9 landed on `codex/phase-4-filesystem-test-backup`; automated backup/restore and reconciliation evidence recorded, release/U9 gates unchanged. | working-tree | ATHER |
+| 0.2.9b | 2026-08-14 | beta | Current desktop/web build and 212-test Rust evidence recorded; missing Whisper runtime and two high npm audit findings prevent a live-transcription/release claim. | working-tree | ATHER |
+| 0.2.8b | 2026-08-14 | beta | Published and verified the public Desktop v0.1.0 channel; production Landing cutover remains the final gate. | pending | ATHER |
+| 0.2.7b | 2026-08-14 | beta | Verified the Windows CPU release candidate, real-device Live Meeting transcript, installer runtime, and production-style web CTA before publication. | pending | ATHER |
 | 0.2.6b | 2026-08-12 | beta | Phase 3 follow-up merged to `main`; post-merge frontend/Rust CI passed while provider/device and release gates remain open. | `cea2d93` | ATHER |
 | 0.2.5b | 2026-08-12 | beta | Closed the prior full Rust regression, expanded annotation intent, and recorded bounded restart smoke plus environment-bounded UAT blockers. | pending | ATHER |
 | 0.2.4b | 2026-08-11 | beta | Added verified Sprint 4 operator workflow and remaining UAT boundaries. | pending | ATHER |

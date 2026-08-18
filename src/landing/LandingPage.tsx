@@ -17,6 +17,10 @@ import {
 } from "lucide-react";
 import ribbonAsset from "./assets/porcelain-memory-ribbon.png";
 import { supabase } from "../lib/supabase";
+import {
+  DESKTOP_RELEASE_DOWNLOAD_URL,
+  DESKTOP_RELEASE_VERSION,
+} from "../lib/release";
 import type { User } from "@supabase/supabase-js";
 import "./landing.css";
 
@@ -398,9 +402,10 @@ export function LandingPage() {
 
             <article className="demo-card demo-card-highlight">
               <small>Desktop demo</small>
-              <h3>à¸•à¸±à¸§à¹€à¸”à¹‚à¸¡ desktop à¸žà¸£à¹‰à¸­à¸¡à¹ƒà¸™à¹€à¸„à¸£à¸·à¹ˆà¸­à¸‡</h3>
-              <p>à¹ƒà¸Šà¹‰ installer à¸«à¸£à¸·à¸­à¹€à¸›à¸´à¸”à¸ˆà¸²à¸ runtime à¹ƒà¸™à¹€à¸„à¸£à¸·à¹ˆà¸­à¸‡à¹„à¸”à¹‰à¹€à¸¥à¸¢ à¸ªà¹ˆà¸§à¸™ production web à¸„à¸‡à¸‚à¹‰à¸­à¸„à¸§à¸²à¸¡à¹ƒà¸«à¹‰à¸•à¸£à¸‡à¸„à¸§à¸²à¸¡à¸ˆà¸£à¸´à¸‡à¹à¸¥à¸°à¹„à¸¡à¹ˆà¹à¸à¸¥à¹‰à¸‡à¸—à¸³à¹€à¸›à¹‡à¸™à¸”à¸²à¸§à¸™à¹Œà¹‚à¸«à¸¥à¸”à¸ˆà¸²à¸ cloud</p>
-              <a href="#privacy">à¸”à¸¹ privacy + local-first boundary <ArrowIcon /></a>
+              <h3>ดาวน์โหลด FUNG สำหรับ Windows</h3>
+              <p>เวอร์ชัน {DESKTOP_RELEASE_VERSION} สำหรับ Windows x64 · ขนาดดาวน์โหลดประมาณ 491 MB พร้อม Live Meeting และโมเดลถอดเสียงในเครื่อง ข้อมูลเสียงไม่ต้องส่งขึ้น cloud</p>
+              <p className="release-notice">Public beta · ตัวติดตั้งยังไม่ได้เซ็นโค้ด Windows จึงอาจแสดงคำเตือน SmartScreen</p>
+              <a href={DESKTOP_RELEASE_DOWNLOAD_URL}>ดาวน์โหลด FUNG สำหรับ Windows <Download size={17} /></a>
             </article>
           </div>
         </div>

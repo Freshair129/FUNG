@@ -160,13 +160,23 @@ pub(crate) const REQUIRED_CUDA_DLLS: [&str; 4] = [
 ];
 
 pub(crate) fn transcription_profile() -> Result<String, String> {
-    let profile = env::var("FUNG_TRANSCRIPTION_PROFILE").unwrap_or_else(|_| "gpu".to_string());
+    let configured = env::var("FUNG_TRANSCRIPTION_PROFILE").ok();
+    transcription_profile_from(configured.as_deref())
+}
+
+fn transcription_profile_from(configured: Option<&str>) -> Result<String, String> {
+    let profile = configured.unwrap_or("cpu").to_string();
     match profile.as_str() {
         "gpu" | "cpu" => Ok(profile),
         _ => Err(format!(
             "invalid FUNG_TRANSCRIPTION_PROFILE '{profile}'; use 'gpu' or 'cpu'"
         )),
     }
+}
+
+fn bundled_whisper_model(runtime: &WhisperRuntime) -> Option<PathBuf> {
+    let runtime_root = runtime.python.parent()?.parent()?;
+    Some(runtime_root.join("models").join("small"))
 }
 
 /// Opens the configured FUNG account portal in the system browser. OAuth is
@@ -1489,6 +1499,9 @@ pub(crate) fn run_python_worker(
 
     let mut command = Command::new(&runtime.python);
     command.arg(script).args(args);
+    if let Some(model) = bundled_whisper_model(runtime) {
+        command.env("FUNG_WHISPER_MODEL", model);
+    }
 
     if let Some(prefix) = path_prefix {
         let inherited_path = env::var_os("PATH").unwrap_or_default();
@@ -2073,6 +2086,29 @@ pub fn run() {
 #[cfg(test)]
 mod worker_tests {
     use super::*;
+
+    #[test]
+    fn public_release_defaults_to_cpu_and_keeps_explicit_gpu_override() {
+        assert_eq!(transcription_profile_from(None).unwrap(), "cpu");
+        assert_eq!(transcription_profile_from(Some("gpu")).unwrap(), "gpu");
+        assert!(transcription_profile_from(Some("auto")).is_err());
+    }
+
+    #[test]
+    fn portable_model_is_resolved_next_to_the_bundled_python_runtime() {
+        let runtime = WhisperRuntime {
+            python: PathBuf::from(r"C:\Program Files\FUNG\.venv-whisper\Scripts\python.exe"),
+            script: PathBuf::from(r"C:\Program Files\FUNG\scripts\transcribe.py"),
+            cuda_bin: PathBuf::new(),
+        };
+
+        assert_eq!(
+            bundled_whisper_model(&runtime),
+            Some(PathBuf::from(
+                r"C:\Program Files\FUNG\.venv-whisper\models\small"
+            ))
+        );
+    }
 
     #[test]
     fn append_bounded_caps_length_and_keeps_latest_line() {

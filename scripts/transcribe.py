@@ -60,9 +60,17 @@ def main() -> int:
         help="Path to a newline-delimited file of segment paths (used instead of positional "
         "audio_paths when the segment count is too large for argv, e.g. FUNGWIRE jobs).",
     )
-    parser.add_argument("--model", default="small", help="faster-whisper model size or repo id")
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("FUNG_WHISPER_MODEL", "small"),
+        help="faster-whisper model size, repo id, or bundled local model path",
+    )
     parser.add_argument("--language", default=None, help="Force a language code (e.g. th, en); omit to auto-detect")
-    parser.add_argument("--profile", default="gpu", choices=["cpu", "gpu"])
+    parser.add_argument(
+        "--profile",
+        default=os.environ.get("FUNG_TRANSCRIPTION_PROFILE", "cpu"),
+        choices=["cpu", "gpu"],
+    )
     parser.add_argument("--device", choices=["cpu", "cuda"], help="Override the selected profile for diagnostics only")
     parser.add_argument("--compute-type", default=None)
     parser.add_argument(

@@ -3,6 +3,7 @@ dist/
 .target-mobile/
 .toolchains/
 .venv-whisper/
+.runtime-cache/
 .playwright-cli/
 .codex/
 .agents/
@@ -22,6 +23,8 @@ src-tauri/gen/
 .vercel/
 runtime/cuda12/bin/*.dll
 runtime/manifest.json
+python-*-embed-amd64.zip
+whisper-runtime-report.json
 
 .vercel
 

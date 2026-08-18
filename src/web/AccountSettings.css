@@ -216,3 +216,88 @@
 .theme-dark .account-settings-placeholder {
   color: #9b9386;
 }
+
+/* Filesystem test backup (development/test) */
+.account-settings-backup-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #9b8f7d;
+}
+
+.account-settings-backup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.account-settings-backup-state {
+  font-size: 13px;
+  color: #6d675d;
+  flex: 1;
+}
+
+.account-settings-backup-meta {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #9b9386;
+  word-break: break-all;
+}
+
+.account-settings-backup-phrase {
+  margin-bottom: 10px;
+}
+
+.account-settings-backup-phrase-words {
+  display: block;
+  margin: 8px 0;
+  padding: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.05);
+  word-break: break-word;
+  user-select: all;
+}
+
+.account-settings-backup-archives {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-settings-backup-archive {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #6d675d;
+  word-break: break-all;
+}
+
+.account-settings-backup-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #6d675d;
+}
+
+.theme-dark .account-settings-backup-note,
+.theme-dark .account-settings-backup-meta {
+  color: #9b9386;
+}
+
+.theme-dark .account-settings-backup-state,
+.theme-dark .account-settings-backup-archive,
+.theme-dark .account-settings-backup-confirm {
+  color: #b5ada0;
+}
+
+.theme-dark .account-settings-backup-phrase-words {
+  background: rgba(255, 255, 255, 0.06);
+}

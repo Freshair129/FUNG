@@ -1,7 +1,7 @@
 ---
-version: "0.2.7b"
+version: "0.2.8b"
 created_at: "2026-08-13T00:00:00+07:00,ATHER"
-last_update: "2026-08-14T04:05:00+07:00,ATHER"
+last_update: "2026-08-19T00:00:00+07:00,ATHER"
 status: "beta"
 superseded_by: null
 attributes:
@@ -134,7 +134,7 @@ generic OAuth/token-exchange implementation while these gates are absent.
     command or provider transport was added.
   - _Requirements: R4-01, R4-04, R4-07, R4-07a, R4-10_
 
-- [ ] 5. Wire the Genesis export → encrypt → filesystem backup job.
+- [x] 5. Wire the Genesis export → encrypt → filesystem backup job.
   - Invoke only the Task 1 Genesis contract, produce a local manifest, encrypt,
     write through Task 4, and mark a backup verified only after the final file
     bytes and manifest digest match.
@@ -144,7 +144,7 @@ generic OAuth/token-exchange implementation while these gates are absent.
     the previous verified backup and reports a terminal non-secret reason.
   - _Requirements: R4-02, R4-03, R4-04, R4-06_
 
-- [ ] 6. Wire clean-target restore and post-restore verification.
+- [x] 6. Wire clean-target restore and post-restore verification.
   - Read to a temporary target, authenticate/decrypt before any mutation,
     invoke Genesis clean-target restore, then compare source and restored
     manifests, notes, graph identities, and managed artifacts.
@@ -155,7 +155,7 @@ generic OAuth/token-exchange implementation while these gates are absent.
     state.
   - _Requirements: R4-04, R4-05, R4-06_
 
-- [ ] 7. Replace the desktop Cloud Storage placeholder with a bounded test UI.
+- [x] 7. Replace the desktop Cloud Storage placeholder with a bounded test UI.
   - Add selected-root status, development/test label, recovery-secret acknowledgement, explicit backup
     action/progress/result, archive list, and clean-target restore confirmation
     to `AccountSettings`; do not render or log a secret after entry.
@@ -165,7 +165,7 @@ generic OAuth/token-exchange implementation while these gates are absent.
     unavailable state, progress, failure truth, and restore confirmation.
   - _Requirements: R4-01, R4-04, R4-10_
 
-- [ ] 8. Harden mobile account/device reconciliation without changing the model.
+- [x] 8. Harden mobile account/device reconciliation without changing the model.
   - Verify the cached `fung.device.id` belongs to the current authenticated user
     before reuse; refresh one existing Android row or create one row only when
     the session is valid; clear stale cache on sign-out/revocation.
@@ -175,7 +175,17 @@ generic OAuth/token-exchange implementation while these gates are absent.
     missing-session paths; Dashboard shows only current-account devices.
   - _Requirements: R4-11, R4-12, R4-13_
 
-- [ ] 9. Run closure verification and record truthful release boundaries.
+- [x] 9. Run closure verification and record truthful release boundaries.
+  - Observed evidence (2026-08-19): full Rust library suite 217/217 with the
+    exact plan command; `npx tsc --noEmit` clean; `git diff --check` clean;
+    focused Node suites auth 5/5, backup-flow 10/10, device-reconcile 6/6,
+    desktop-bootstrap 5/5, external-tools 5/5; secret scan found no
+    recovery-phrase persistence path in web/localStorage/console.
+  - Open gates recorded truthfully: real clean-install desktop restore on the
+    approved `D:\FUNG-Phase4-TestStorage` / `D:\FUNG-Phase4-TestRestore` roots
+    and the physical Android/Dashboard identity check have not been run in
+    this environment. U9 and release gates therefore stay open; the automated
+    fixture restore is implementation evidence, not clean-install proof.
   - Run focused Rust/Node suites, TypeScript build, `git diff --check`, and a
     credential/secret scan. Run a real clean-install restore using the approved
     local test archive and an Android/mobile account identity check.
@@ -212,6 +222,7 @@ generic OAuth/token-exchange implementation while these gates are absent.
 
 | Version | Change |
 | --- | --- |
+| 0.2.8b | Completed Tasks 5–9: backup job (export → encrypt → atomic write, failure-preserving), clean-target restore with post-restore digest identity and deep fixture verification, bounded desktop test UI with one-time recovery-phrase display and restore confirmation, ownership-verified mobile device reconciliation with sign-out cache clearing, and closure runs (Rust 217/217, tsc clean, focused Node suites green). Clean-install restore UAT and physical Android identity check remain open gates. |
 | 0.2.7b | Fixed the full-suite verification procedure: the exact plan command now passes all 212 Rust library tests in 27.19s; the prior serial override exceeded the shell timeout and caused a broken-pipe artifact. |
 | 0.2.6b | Implemented the bounded filesystem adapter with canonical root/layout checks, traversal/symlink rejection, atomic create-new staging, non-secret sidecar metadata, digest verification, and interrupted-write preservation tests; no UI/provider/restore orchestration was added. |
 | 0.2.5b | Added the approved Task 3 in-memory archive envelope with pinned XChaCha20-Poly1305, Argon2id, and BIP-39 dependencies plus vector and failure tests; filesystem write remains deferred. |
@@ -227,6 +238,7 @@ generic OAuth/token-exchange implementation while these gates are absent.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.2.8b | 2026-08-19 | beta | Tasks 5–9 implemented and verified with 217/217 Rust plus green focused Node suites; U9/release stay open pending clean-install restore and physical-device evidence. | working-tree | ATHER |
 | 0.2.7b | 2026-08-14 | beta | Full exact-plan Rust library suite passed 212/212; serial override timeout RCA recorded and verification command corrected. | working-tree | ATHER |
 | 0.2.6b | 2026-08-14 | beta | Task 4 bounded filesystem adapter and nine focused boundary/atomicity/digest/opaque-status tests passed; UI/provider/restore orchestration and clean-install proof remain open. | working-tree | ATHER |
 | 0.2.5b | 2026-08-14 | beta | Task 3 archive envelope and crypto/failure tests passed; no filesystem/provider write or restore orchestration exists. | working-tree | ATHER |

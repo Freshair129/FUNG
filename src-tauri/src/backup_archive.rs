@@ -26,6 +26,10 @@ use argon2::{AssociatedData, ParamsBuilder};
 
 pub(crate) const ARCHIVE_FORMAT_VERSION: u16 = 1;
 pub(crate) const ARCHIVE_CHUNK_SIZE: usize = 64 * 1024;
+/// Terminal state an envelope carries between encryption and transport write.
+/// `decrypt_archive` pins this exact value, so a transport that re-labels the
+/// persisted manifest must restore it before decryption.
+pub(crate) const ENCRYPTED_TERMINAL_STATE: &str = "encrypted_pending_transport";
 const MAGIC: &[u8; 8] = b"FUNGBK01";
 const STREAM_NONCE_SIZE: usize = 20;
 const SALT_SIZE: usize = 16;
@@ -262,7 +266,7 @@ pub(crate) fn encrypt_archive(
         stream_nonce_prefix: hex_encode(&stream_nonce_prefix),
         wrap_nonce: hex_encode(&wrap_nonce),
         wrapped_data_key: hex_encode(&wrapped_data_key),
-        terminal_state: "encrypted_pending_transport".to_owned(),
+        terminal_state: ENCRYPTED_TERMINAL_STATE.to_owned(),
     };
 
     Ok(ArchiveEnvelope { manifest, bytes })
@@ -487,7 +491,7 @@ fn validate_manifest(
         || manifest.kdf_iterations != KDF_ITERATIONS
         || manifest.kdf_parallelism != KDF_PARALLELISM
         || manifest.byte_count != bytes.len() as u64
-        || manifest.terminal_state != "encrypted_pending_transport"
+        || manifest.terminal_state != ENCRYPTED_TERMINAL_STATE
         || manifest.kdf_salt != hex_encode(&parsed.kdf_salt)
         || manifest.protected_header_digest != hex_encode(&parsed.protected_header_digest)
         || manifest.stream_nonce_prefix != hex_encode(&parsed.stream_nonce_prefix)

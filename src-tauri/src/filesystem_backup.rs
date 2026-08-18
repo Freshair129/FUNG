@@ -76,6 +76,14 @@ pub(crate) struct FilesystemBackupState {
     root: Arc<Mutex<Option<FilesystemRoot>>>,
 }
 
+impl FilesystemBackupState {
+    /// Snapshot of the currently selected root, if any. The root never leaves
+    /// native state; callers use it to derive bounded archive paths only.
+    pub(crate) fn current_root(&self) -> Option<FilesystemRoot> {
+        self.root.lock().ok().and_then(|current| current.clone())
+    }
+}
+
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum FilesystemRootTerminalState {
@@ -388,6 +396,47 @@ pub(crate) fn read_archive_record_at_root(
         return Err(FilesystemBackupError::DigestMismatch);
     }
     Ok(persisted.record)
+}
+
+/// Rebuild the in-memory envelope for a persisted archive so it can be
+/// authenticated and decrypted. The sidecar stores the manifest re-labelled
+/// `verified`; decryption pins the pre-transport terminal state, so it is
+/// restored here before the envelope leaves this adapter.
+pub(crate) fn read_archive_envelope_at_root(
+    root: &FilesystemRoot,
+    archive_id: &str,
+) -> Result<ArchiveEnvelope, FilesystemBackupError> {
+    let bytes = read_archive_at_root(root, archive_id, None)?;
+    let archive_id = validate_archive_id(archive_id)?;
+    let manifest_path = root
+        .manifests_dir
+        .join(format!("{archive_id}{MANIFEST_EXTENSION}"));
+    let manifest_path = canonical_file_inside_root(root, &manifest_path)?;
+    let manifest_bytes = fs::read(manifest_path).map_err(|_| FilesystemBackupError::Io)?;
+    let persisted: PersistedFilesystemManifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|_| FilesystemBackupError::InvalidManifest)?;
+    let mut manifest = persisted.archive;
+    manifest.terminal_state = crate::backup_archive::ENCRYPTED_TERMINAL_STATE.to_owned();
+    Ok(ArchiveEnvelope { manifest, bytes })
+}
+
+/// Enumerate the verified archives beneath the selected root, newest first.
+/// Records that fail digest or manifest validation are omitted rather than
+/// reported as restorable.
+pub(crate) fn list_archive_records_at_root(root: &FilesystemRoot) -> Vec<FilesystemArchiveRecord> {
+    let Ok(entries) = fs::read_dir(&root.manifests_dir) else {
+        return Vec::new();
+    };
+    let mut records: Vec<FilesystemArchiveRecord> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let archive_id = name.strip_suffix(MANIFEST_EXTENSION)?.to_owned();
+            read_archive_record_at_root(root, &archive_id).ok()
+        })
+        .collect();
+    records.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    records
 }
 
 fn ensure_child_dir(root: &Path, name: &str) -> Result<PathBuf, FilesystemBackupError> {

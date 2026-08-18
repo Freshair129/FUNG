@@ -1,0 +1,24 @@
+# Line-ending policy.
+#
+# The repository stores every text file with LF, and checks it out with LF on
+# every platform. This replaces the previous reliance on each developer's
+# `core.autocrlf` setting, which silently produced CRLF working-tree files on
+# Windows while the committed blobs stayed LF. Any tool that rewrote a file
+# with LF — Node's `writeFile`, cargo, most editors — then left it permanently
+# "modified" in `git status` with an empty `git diff`, which blocked
+# `git pull --ff-only` and broke the byte-exact comparison in
+# `scripts/render_mobile_design_system.mjs` check mode.
+#
+# Rust, Node, Vite, and PowerShell all read LF sources correctly on Windows,
+# so LF everywhere is safe; the two exceptions below are declared explicitly.
+* text=auto eol=lf
+
+# Windows shell entry points. cmd.exe is the least tolerant consumer in the
+# toolchain, so these keep CRLF in the working tree.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets: never convert line endings, never attempt a text diff.
+*.png binary
+*.ico binary
+*.icns binary

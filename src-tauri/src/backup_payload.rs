@@ -427,8 +427,8 @@ pub(crate) fn unpack(plaintext: &[u8]) -> Result<UnpackedPayload, PayloadError> 
         return Err(PayloadError::Malformed);
     }
 
-    let bundle_len = usize::try_from(manifest.genesis_bundle.byte_count)
-        .map_err(|_| PayloadError::Malformed)?;
+    let bundle_len =
+        usize::try_from(manifest.genesis_bundle.byte_count).map_err(|_| PayloadError::Malformed)?;
     let genesis_bundle = take(plaintext, &mut offset, bundle_len)?.to_vec();
     if sha256_hex(&genesis_bundle) != manifest.genesis_bundle.sha256 {
         return Err(PayloadError::DigestMismatch);

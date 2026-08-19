@@ -17,7 +17,11 @@ pub(crate) struct TierPolicy {
 
 impl Default for TierPolicy {
     fn default() -> Self {
-        Self { stt_cloud_enabled: false, llm_cloud_enabled: false, daily_cap: 20 }
+        Self {
+            stt_cloud_enabled: false,
+            llm_cloud_enabled: false,
+            daily_cap: 20,
+        }
     }
 }
 
@@ -48,13 +52,19 @@ pub(crate) fn decide_cloud_tier(
         CloudTaskKind::Llm => policy.llm_cloud_enabled,
     };
     if !enabled {
-        return TierDecision::Blocked { reason: "cloud_disabled" };
+        return TierDecision::Blocked {
+            reason: "cloud_disabled",
+        };
     }
     if !key_configured {
-        return TierDecision::Blocked { reason: "no_key_configured" };
+        return TierDecision::Blocked {
+            reason: "no_key_configured",
+        };
     }
     if calls_today >= policy.daily_cap {
-        return TierDecision::Blocked { reason: "cap_reached" };
+        return TierDecision::Blocked {
+            reason: "cap_reached",
+        };
     }
     TierDecision::Allow
 }
@@ -125,7 +135,11 @@ pub(crate) fn save_policy(conn: &Connection, policy: &TierPolicy) -> Result<(), 
            stt_cloud_enabled = excluded.stt_cloud_enabled, \
            llm_cloud_enabled = excluded.llm_cloud_enabled, \
            daily_cap = excluded.daily_cap",
-        params![policy.stt_cloud_enabled as i64, policy.llm_cloud_enabled as i64, policy.daily_cap],
+        params![
+            policy.stt_cloud_enabled as i64,
+            policy.llm_cloud_enabled as i64,
+            policy.daily_cap
+        ],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -165,47 +179,87 @@ mod tests {
 
     #[test]
     fn disabled_policy_blocks_regardless_of_cap_or_key() {
-        let policy = TierPolicy { stt_cloud_enabled: false, llm_cloud_enabled: false, daily_cap: 100 };
+        let policy = TierPolicy {
+            stt_cloud_enabled: false,
+            llm_cloud_enabled: false,
+            daily_cap: 100,
+        };
         assert_eq!(
             decide_cloud_tier(&policy, CloudTaskKind::Stt, 0, true),
-            TierDecision::Blocked { reason: "cloud_disabled" }
+            TierDecision::Blocked {
+                reason: "cloud_disabled"
+            }
         );
     }
 
     #[test]
     fn enabled_without_key_is_blocked() {
-        let policy = TierPolicy { stt_cloud_enabled: true, llm_cloud_enabled: false, daily_cap: 100 };
+        let policy = TierPolicy {
+            stt_cloud_enabled: true,
+            llm_cloud_enabled: false,
+            daily_cap: 100,
+        };
         assert_eq!(
             decide_cloud_tier(&policy, CloudTaskKind::Stt, 0, false),
-            TierDecision::Blocked { reason: "no_key_configured" }
+            TierDecision::Blocked {
+                reason: "no_key_configured"
+            }
         );
     }
 
     #[test]
     fn enabled_with_key_but_cap_reached_is_blocked() {
-        let policy = TierPolicy { stt_cloud_enabled: true, llm_cloud_enabled: false, daily_cap: 5 };
+        let policy = TierPolicy {
+            stt_cloud_enabled: true,
+            llm_cloud_enabled: false,
+            daily_cap: 5,
+        };
         assert_eq!(
             decide_cloud_tier(&policy, CloudTaskKind::Stt, 5, true),
-            TierDecision::Blocked { reason: "cap_reached" }
+            TierDecision::Blocked {
+                reason: "cap_reached"
+            }
         );
         // one under the cap is still allowed
-        assert_eq!(decide_cloud_tier(&policy, CloudTaskKind::Stt, 4, true), TierDecision::Allow);
+        assert_eq!(
+            decide_cloud_tier(&policy, CloudTaskKind::Stt, 4, true),
+            TierDecision::Allow
+        );
     }
 
     #[test]
     fn enabled_with_key_and_room_under_cap_is_allowed() {
-        let policy = TierPolicy { stt_cloud_enabled: true, llm_cloud_enabled: true, daily_cap: 20 };
-        assert_eq!(decide_cloud_tier(&policy, CloudTaskKind::Stt, 3, true), TierDecision::Allow);
-        assert_eq!(decide_cloud_tier(&policy, CloudTaskKind::Llm, 3, true), TierDecision::Allow);
+        let policy = TierPolicy {
+            stt_cloud_enabled: true,
+            llm_cloud_enabled: true,
+            daily_cap: 20,
+        };
+        assert_eq!(
+            decide_cloud_tier(&policy, CloudTaskKind::Stt, 3, true),
+            TierDecision::Allow
+        );
+        assert_eq!(
+            decide_cloud_tier(&policy, CloudTaskKind::Llm, 3, true),
+            TierDecision::Allow
+        );
     }
 
     #[test]
     fn task_kinds_are_independent() {
-        let policy = TierPolicy { stt_cloud_enabled: true, llm_cloud_enabled: false, daily_cap: 20 };
-        assert_eq!(decide_cloud_tier(&policy, CloudTaskKind::Stt, 0, true), TierDecision::Allow);
+        let policy = TierPolicy {
+            stt_cloud_enabled: true,
+            llm_cloud_enabled: false,
+            daily_cap: 20,
+        };
+        assert_eq!(
+            decide_cloud_tier(&policy, CloudTaskKind::Stt, 0, true),
+            TierDecision::Allow
+        );
         assert_eq!(
             decide_cloud_tier(&policy, CloudTaskKind::Llm, 0, true),
-            TierDecision::Blocked { reason: "cloud_disabled" }
+            TierDecision::Blocked {
+                reason: "cloud_disabled"
+            }
         );
     }
 
@@ -233,7 +287,11 @@ mod tests {
     #[test]
     fn save_then_load_roundtrips() {
         let conn = open_test_db();
-        let policy = TierPolicy { stt_cloud_enabled: true, llm_cloud_enabled: false, daily_cap: 50 };
+        let policy = TierPolicy {
+            stt_cloud_enabled: true,
+            llm_cloud_enabled: false,
+            daily_cap: 50,
+        };
         save_policy(&conn, &policy).unwrap();
         assert_eq!(load_policy(&conn).unwrap(), policy);
     }
@@ -241,8 +299,24 @@ mod tests {
     #[test]
     fn save_twice_updates_in_place() {
         let conn = open_test_db();
-        save_policy(&conn, &TierPolicy { stt_cloud_enabled: true, llm_cloud_enabled: false, daily_cap: 10 }).unwrap();
-        save_policy(&conn, &TierPolicy { stt_cloud_enabled: false, llm_cloud_enabled: true, daily_cap: 30 }).unwrap();
+        save_policy(
+            &conn,
+            &TierPolicy {
+                stt_cloud_enabled: true,
+                llm_cloud_enabled: false,
+                daily_cap: 10,
+            },
+        )
+        .unwrap();
+        save_policy(
+            &conn,
+            &TierPolicy {
+                stt_cloud_enabled: false,
+                llm_cloud_enabled: true,
+                daily_cap: 30,
+            },
+        )
+        .unwrap();
         let policy = load_policy(&conn).unwrap();
         assert!(!policy.stt_cloud_enabled);
         assert!(policy.llm_cloud_enabled);

@@ -195,24 +195,38 @@ pub const NOISE_MAX_MESSAGE: usize = 65535;
 
 /// Builds a Noise `KK` handshake state as the initiator, using `local`'s
 /// X25519 static secret and `remote`'s X25519 static public key.
-pub fn noise_initiator(local: &[u8; 32], remote: &[u8; 32]) -> Result<snow::HandshakeState, String> {
-    snow::Builder::new(NOISE_PARAMS.parse().map_err(|e| format!("noise params: {e}"))?)
-        .local_private_key(local)
-        .remote_public_key(remote)
-        .build_initiator()
-        .map_err(|e| format!("noise initiator: {e}"))
+pub fn noise_initiator(
+    local: &[u8; 32],
+    remote: &[u8; 32],
+) -> Result<snow::HandshakeState, String> {
+    snow::Builder::new(
+        NOISE_PARAMS
+            .parse()
+            .map_err(|e| format!("noise params: {e}"))?,
+    )
+    .local_private_key(local)
+    .remote_public_key(remote)
+    .build_initiator()
+    .map_err(|e| format!("noise initiator: {e}"))
 }
 
 /// Builds a Noise `KK` handshake state as the responder, using `local`'s
 /// X25519 static secret and `remote`'s expected X25519 static public key.
 /// If `remote` does not match the initiator's actual static key, the
 /// handshake's `read_message` call fails (mutual authentication).
-pub fn noise_responder(local: &[u8; 32], remote: &[u8; 32]) -> Result<snow::HandshakeState, String> {
-    snow::Builder::new(NOISE_PARAMS.parse().map_err(|e| format!("noise params: {e}"))?)
-        .local_private_key(local)
-        .remote_public_key(remote)
-        .build_responder()
-        .map_err(|e| format!("noise responder: {e}"))
+pub fn noise_responder(
+    local: &[u8; 32],
+    remote: &[u8; 32],
+) -> Result<snow::HandshakeState, String> {
+    snow::Builder::new(
+        NOISE_PARAMS
+            .parse()
+            .map_err(|e| format!("noise params: {e}"))?,
+    )
+    .local_private_key(local)
+    .remote_public_key(remote)
+    .build_responder()
+    .map_err(|e| format!("noise responder: {e}"))
 }
 
 /// Wraps a byte stream with a completed Noise transport session, framing
@@ -260,7 +274,7 @@ impl<S: Read + Write> NoiseChannel<S> {
         let n = self
             .transport
             .write_message(plain, &mut self.buf)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("noise encrypt: {e}")))?;
+            .map_err(|e| io::Error::other(format!("noise encrypt: {e}")))?;
         write_frame(&mut self.stream, &self.buf[..n])
     }
 
@@ -286,7 +300,7 @@ impl<S: Read + Write> NoiseChannel<S> {
         let n = self
             .transport
             .read_message(&frame, &mut self.buf)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("noise decrypt: {e}")))?;
+            .map_err(|e| io::Error::other(format!("noise decrypt: {e}")))?;
         Ok(self.buf[..n].to_vec())
     }
 
@@ -333,7 +347,11 @@ pub fn is_expired(age: Duration, ttl: Duration) -> bool {
 pub fn manifest_hash(segment_checksums: &[String]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(segment_checksums.join("\n").as_bytes());
-    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 #[cfg(test)]
@@ -352,7 +370,7 @@ mod tests {
     #[test]
     fn frame_over_cap_errors() {
         let mut buf = Vec::new();
-        write_frame(&mut buf, &vec![0u8; 100]).unwrap();
+        write_frame(&mut buf, &[0u8; 100]).unwrap();
         let mut cur = Cursor::new(buf);
         assert!(read_frame(&mut cur, 10).is_err());
     }
@@ -403,8 +421,7 @@ mod tests {
     /// which is a *unit* variant and so serializes to nothing but its tag.
     #[test]
     fn status_request_and_reply_roundtrip() {
-        match Control::decode(&Control::StatusRequest.encode())
-            .expect("StatusRequest must decode")
+        match Control::decode(&Control::StatusRequest.encode()).expect("StatusRequest must decode")
         {
             Control::StatusRequest => {}
             other => panic!("wrong variant: {other:?}"),
@@ -427,7 +444,10 @@ mod tests {
     #[test]
     fn is_expired_true_when_age_at_or_past_ttl() {
         let ttl = Duration::from_secs(60 * 60 * 24);
-        assert!(is_expired(ttl, ttl), "age exactly equal to ttl counts as expired");
+        assert!(
+            is_expired(ttl, ttl),
+            "age exactly equal to ttl counts as expired"
+        );
         assert!(is_expired(ttl + Duration::from_secs(1), ttl));
         assert!(is_expired(Duration::from_secs(60 * 60 * 24 * 7), ttl));
     }
@@ -450,15 +470,20 @@ mod tests {
     #[test]
     fn noise_kk_handshake_and_transport_roundtrip() {
         // Simulate two peers over an in-memory duplex using paired X25519 keys.
-        use crate::device_identity::{ensure_identity_in_dir, x25519_static_secret_in_dir, x25519_public_from_ed25519_b64, public_key_b64_in_dir};
+        use crate::device_identity::{
+            ensure_identity_in_dir, public_key_b64_in_dir, x25519_public_from_ed25519_b64,
+            x25519_static_secret_in_dir,
+        };
         let a = tempfile::tempdir().unwrap();
         let b = tempfile::tempdir().unwrap();
         ensure_identity_in_dir(a.path()).unwrap();
         ensure_identity_in_dir(b.path()).unwrap();
         let a_sec = x25519_static_secret_in_dir(a.path()).unwrap();
         let b_sec = x25519_static_secret_in_dir(b.path()).unwrap();
-        let a_pub = x25519_public_from_ed25519_b64(&public_key_b64_in_dir(a.path()).unwrap()).unwrap();
-        let b_pub = x25519_public_from_ed25519_b64(&public_key_b64_in_dir(b.path()).unwrap()).unwrap();
+        let a_pub =
+            x25519_public_from_ed25519_b64(&public_key_b64_in_dir(a.path()).unwrap()).unwrap();
+        let b_pub =
+            x25519_public_from_ed25519_b64(&public_key_b64_in_dir(b.path()).unwrap()).unwrap();
 
         let mut ini = noise_initiator(&a_sec, &b_pub).unwrap();
         let mut resp = noise_responder(&b_sec, &a_pub).unwrap();
@@ -480,19 +505,27 @@ mod tests {
 
     #[test]
     fn noise_kk_rejects_wrong_remote_static() {
-        use crate::device_identity::{ensure_identity_in_dir, x25519_static_secret_in_dir, x25519_public_from_ed25519_b64, public_key_b64_in_dir};
+        use crate::device_identity::{
+            ensure_identity_in_dir, public_key_b64_in_dir, x25519_public_from_ed25519_b64,
+            x25519_static_secret_in_dir,
+        };
         let a = tempfile::tempdir().unwrap();
         let b = tempfile::tempdir().unwrap();
         let c = tempfile::tempdir().unwrap();
-        for d in [&a,&b,&c] { ensure_identity_in_dir(d.path()).unwrap(); }
+        for d in [&a, &b, &c] {
+            ensure_identity_in_dir(d.path()).unwrap();
+        }
         let a_sec = x25519_static_secret_in_dir(a.path()).unwrap();
-        let b_pub = x25519_public_from_ed25519_b64(&public_key_b64_in_dir(b.path()).unwrap()).unwrap();
+        let b_pub =
+            x25519_public_from_ed25519_b64(&public_key_b64_in_dir(b.path()).unwrap()).unwrap();
         // Responder expects C, but initiator used B's key → handshake must fail.
         let c_sec = x25519_static_secret_in_dir(c.path()).unwrap();
-        let a_pub = x25519_public_from_ed25519_b64(&public_key_b64_in_dir(a.path()).unwrap()).unwrap();
+        let a_pub =
+            x25519_public_from_ed25519_b64(&public_key_b64_in_dir(a.path()).unwrap()).unwrap();
         let mut ini = noise_initiator(&a_sec, &b_pub).unwrap();
         let mut resp = noise_responder(&c_sec, &a_pub).unwrap();
-        let mut buf = [0u8; 1024]; let mut rbuf = [0u8; 1024];
+        let mut buf = [0u8; 1024];
+        let mut rbuf = [0u8; 1024];
         let n = ini.write_message(&[], &mut buf).unwrap();
         assert!(resp.read_message(&buf[..n], &mut rbuf).is_err());
     }

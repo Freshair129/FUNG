@@ -4,8 +4,8 @@ use genesis_block_native::{
     RelationalMutationKind, RelationalQuery, RelationalRowMutation, RelationalSchemaPackage,
     RelationalTable, Storage,
 };
-use serde_json::{json, Value};
 use rusqlite::{types::ValueRef, Connection, OpenFlags};
+use serde_json::{json, Value};
 use std::path::Path;
 use uuid::Uuid;
 
@@ -216,29 +216,415 @@ fn schema_v3() -> RelationalSchemaPackage {
     package.schema_version = 3;
     package.previous_version = Some(2);
     package.tables.extend([
-        table("paired_devices", vec![required("id", Text), required("name", Text), required("endpoint", Text), required("trust_state", Text), required("pairing_proof_hash", Text), required("capabilities_json", Json), required("created_at", Text), required("updated_at", Text)], vec![], vec![]),
-        table("capability_grants", vec![required("id", Text), required("device_id", Text), required("project_id", Text), required("capabilities_json", Json), nullable("expires_at", Text), nullable("revoked_at", Text), required("created_at", Text)], vec![fk("device_id", "paired_devices"), fk("project_id", "projects")], vec![]),
-        table("delegated_jobs", vec![required("id", Text), required("project_id", Text), nullable("executor_device_id", Text), required("operation", Text), required("state", Text), required("progress", Integer), required("input_manifest_hash", Text), nullable("checkpoint_json", Json), required("observed_at", Text), required("created_at", Text), required("updated_at", Text)], vec![fk("project_id", "projects"), fk("executor_device_id", "paired_devices")], vec![]),
-        table("speakers", vec![required("id", Text), required("project_id", Text), required("key", Text), required("display_name", Text), nullable("confidence", Real), required("created_at", Text), required("updated_at", Text)], vec![fk("project_id", "projects")], vec![]),
-        table("model_providers", vec![required("id", Text), required("label", Text), required("runtime_location", Text), required("kind", Text), required("enabled", Boolean), required("config_json", Json), required("created_at", Text), required("updated_at", Text)], vec![], vec![]),
-        table("model_runs", vec![required("id", Text), required("recording_id", Text), required("provider_id", Text), required("model_name", Text), required("task_kind", Text), required("runtime_location", Text), required("input_ref", Text), required("output_ref", Text), required("parameters_json", Json), required("created_at", Text)], vec![fk("recording_id", "recordings"), fk("provider_id", "model_providers")], vec![]),
-        table("speaker_turns", vec![required("id", Text), required("project_id", Text), required("recording_id", Text), required("speaker_id", Text), required("start_ms", Integer), required("end_ms", Integer), nullable("confidence", Real), required("status", Text), nullable("model_run_id", Text), required("overlap", Boolean), required("revision", Integer), required("created_at", Text), required("updated_at", Text)], vec![fk("project_id", "projects"), fk("recording_id", "recordings"), fk("speaker_id", "speakers"), fk("model_run_id", "model_runs")], vec![]),
-        table("speaker_timeline_revisions", vec![required("id", Text), required("project_id", Text), required("operation", Text), required("payload_json", Json), required("created_at", Text)], vec![fk("project_id", "projects")], vec![]),
-        table("waveform_tiles", vec![required("id", Text), required("recording_id", Text), required("zoom_level", Integer), required("tile_index", Integer), required("start_ms", Integer), required("end_ms", Integer), required("peaks_json", Json), required("checksum", Text), required("created_at", Text)], vec![fk("recording_id", "recordings")], vec![]),
-        table("story_sequences", vec![required("id", Text), required("project_id", Text), required("title", Text), required("duration_ms", Integer), required("current_revision", Integer), required("created_at", Text), required("updated_at", Text)], vec![fk("project_id", "projects")], vec![]),
-        table("story_clips", vec![required("id", Text), required("sequence_id", Text), nullable("source_turn_id", Text), required("source_recording_id", Text), required("source_start_ms", Integer), required("source_end_ms", Integer), required("timeline_start_ms", Integer), required("speaker_id", Text), nullable("effect_chain_id", Text), required("revision", Integer), required("created_at", Text), required("updated_at", Text)], vec![fk("sequence_id", "story_sequences"), fk("source_turn_id", "speaker_turns"), fk("source_recording_id", "recordings"), fk("speaker_id", "speakers")], vec![]),
-        table("story_revisions", vec![required("id", Text), required("sequence_id", Text), required("operation", Text), required("before_json", Json), required("after_json", Json), required("applied", Boolean), required("author_device_id", Text), required("created_at", Text)], vec![fk("sequence_id", "story_sequences")], vec![]),
-        table("voice_profiles", vec![required("id", Text), required("project_id", Text), required("display_name", Text), required("rights_basis", Text), required("rights_evidence_ref", Text), required("rights_state", Text), nullable("provider_id", Text), required("created_at", Text), required("updated_at", Text)], vec![fk("project_id", "projects"), fk("provider_id", "model_providers")], vec![]),
-        table("effect_chains", vec![required("id", Text), required("project_id", Text), required("owner_kind", Text), required("owner_id", Text), required("label", Text), required("bypassed", Boolean), required("created_at", Text), required("updated_at", Text)], vec![fk("project_id", "projects")], vec![]),
-        table("effect_nodes", vec![required("id", Text), required("chain_id", Text), required("position", Integer), required("kind", Text), required("parameters_json", Json), required("bypassed", Boolean), required("created_at", Text), required("updated_at", Text)], vec![fk("chain_id", "effect_chains")], vec![]),
-        table("model_packages", vec![required("id", Text), required("label", Text), required("provider_kind", Text), required("model_version", Text), required("size_bytes", Integer), nullable("checksum", Text), required("runtime_location", Text), required("install_state", Text), required("compatibility_json", Json), required("languages_json", Json), nullable("license_ref", Text), required("observed_at", Text)], vec![], vec![]),
-        table("transcript_segments", vec![required("id", Text), required("project_id", Text), required("recording_id", Text), nullable("speaker_id", Text), required("start_ms", Integer), required("end_ms", Integer), required("text", Text), nullable("confidence", Real), required("created_at", Text), required("updated_at", Text)], vec![fk("project_id", "projects"), fk("recording_id", "recordings"), fk("speaker_id", "speakers")], vec![]),
-        table("transcript_refinement_proposals", vec![required("id", Text), required("project_id", Text), nullable("transcript_segment_id", Text), required("original_text", Text), required("proposed_text", Text), required("policy", Text), nullable("model_run_id", Text), required("status", Text), nullable("reviewed_at", Text), required("created_at", Text), required("updated_at", Text)], vec![fk("project_id", "projects"), fk("transcript_segment_id", "transcript_segments"), fk("model_run_id", "model_runs")], vec![]),
-        table("agent_voice_grants", vec![required("id", Text), required("project_id", Text), required("mcp_client_id", Text), required("voice_profile_id", Text), required("capability", Text), required("granted_at", Text), nullable("expires_at", Text), nullable("revoked_at", Text)], vec![fk("project_id", "projects"), fk("voice_profile_id", "voice_profiles")], vec![]),
-        table("agent_voice_sessions", vec![required("id", Text), required("project_id", Text), required("mcp_client_id", Text), required("voice_profile_id", Text), required("grant_id", Text), required("requested_text_hash", Text), required("state", Text), required("retain_output", Boolean), nullable("stop_actor", Text), required("created_at", Text), required("updated_at", Text)], vec![fk("project_id", "projects"), fk("voice_profile_id", "voice_profiles"), fk("grant_id", "agent_voice_grants")], vec![]),
-        table("jobs", vec![required("id", Text), required("project_id", Text), required("type", Text), required("status", Text), required("progress", Integer), required("input_refs_json", Json), required("output_refs_json", Json), nullable("provider_id", Text), nullable("error_code", Text), nullable("error_message", Text), required("attempt_no", Integer), nullable("started_at", Text), nullable("finished_at", Text), required("created_at", Text), required("updated_at", Text)], vec![fk("project_id", "projects"), fk("provider_id", "model_providers")], vec![]),
-        table("job_events", vec![required("id", Text), required("job_id", Text), required("status", Text), required("message", Text), required("created_at", Text)], vec![fk("job_id", "jobs")], vec![]),
-        table("audit_events", vec![required("id", Text), required("project_id", Text), required("event_type", Text), required("actor", Text), required("payload_json", Json), required("created_at", Text)], vec![fk("project_id", "projects")], vec![]),
+        table(
+            "paired_devices",
+            vec![
+                required("id", Text),
+                required("name", Text),
+                required("endpoint", Text),
+                required("trust_state", Text),
+                required("pairing_proof_hash", Text),
+                required("capabilities_json", Json),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![],
+            vec![],
+        ),
+        table(
+            "capability_grants",
+            vec![
+                required("id", Text),
+                required("device_id", Text),
+                required("project_id", Text),
+                required("capabilities_json", Json),
+                nullable("expires_at", Text),
+                nullable("revoked_at", Text),
+                required("created_at", Text),
+            ],
+            vec![
+                fk("device_id", "paired_devices"),
+                fk("project_id", "projects"),
+            ],
+            vec![],
+        ),
+        table(
+            "delegated_jobs",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                nullable("executor_device_id", Text),
+                required("operation", Text),
+                required("state", Text),
+                required("progress", Integer),
+                required("input_manifest_hash", Text),
+                nullable("checkpoint_json", Json),
+                required("observed_at", Text),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![
+                fk("project_id", "projects"),
+                fk("executor_device_id", "paired_devices"),
+            ],
+            vec![],
+        ),
+        table(
+            "speakers",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("key", Text),
+                required("display_name", Text),
+                nullable("confidence", Real),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![fk("project_id", "projects")],
+            vec![],
+        ),
+        table(
+            "model_providers",
+            vec![
+                required("id", Text),
+                required("label", Text),
+                required("runtime_location", Text),
+                required("kind", Text),
+                required("enabled", Boolean),
+                required("config_json", Json),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![],
+            vec![],
+        ),
+        table(
+            "model_runs",
+            vec![
+                required("id", Text),
+                required("recording_id", Text),
+                required("provider_id", Text),
+                required("model_name", Text),
+                required("task_kind", Text),
+                required("runtime_location", Text),
+                required("input_ref", Text),
+                required("output_ref", Text),
+                required("parameters_json", Json),
+                required("created_at", Text),
+            ],
+            vec![
+                fk("recording_id", "recordings"),
+                fk("provider_id", "model_providers"),
+            ],
+            vec![],
+        ),
+        table(
+            "speaker_turns",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("recording_id", Text),
+                required("speaker_id", Text),
+                required("start_ms", Integer),
+                required("end_ms", Integer),
+                nullable("confidence", Real),
+                required("status", Text),
+                nullable("model_run_id", Text),
+                required("overlap", Boolean),
+                required("revision", Integer),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![
+                fk("project_id", "projects"),
+                fk("recording_id", "recordings"),
+                fk("speaker_id", "speakers"),
+                fk("model_run_id", "model_runs"),
+            ],
+            vec![],
+        ),
+        table(
+            "speaker_timeline_revisions",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("operation", Text),
+                required("payload_json", Json),
+                required("created_at", Text),
+            ],
+            vec![fk("project_id", "projects")],
+            vec![],
+        ),
+        table(
+            "waveform_tiles",
+            vec![
+                required("id", Text),
+                required("recording_id", Text),
+                required("zoom_level", Integer),
+                required("tile_index", Integer),
+                required("start_ms", Integer),
+                required("end_ms", Integer),
+                required("peaks_json", Json),
+                required("checksum", Text),
+                required("created_at", Text),
+            ],
+            vec![fk("recording_id", "recordings")],
+            vec![],
+        ),
+        table(
+            "story_sequences",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("title", Text),
+                required("duration_ms", Integer),
+                required("current_revision", Integer),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![fk("project_id", "projects")],
+            vec![],
+        ),
+        table(
+            "story_clips",
+            vec![
+                required("id", Text),
+                required("sequence_id", Text),
+                nullable("source_turn_id", Text),
+                required("source_recording_id", Text),
+                required("source_start_ms", Integer),
+                required("source_end_ms", Integer),
+                required("timeline_start_ms", Integer),
+                required("speaker_id", Text),
+                nullable("effect_chain_id", Text),
+                required("revision", Integer),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![
+                fk("sequence_id", "story_sequences"),
+                fk("source_turn_id", "speaker_turns"),
+                fk("source_recording_id", "recordings"),
+                fk("speaker_id", "speakers"),
+            ],
+            vec![],
+        ),
+        table(
+            "story_revisions",
+            vec![
+                required("id", Text),
+                required("sequence_id", Text),
+                required("operation", Text),
+                required("before_json", Json),
+                required("after_json", Json),
+                required("applied", Boolean),
+                required("author_device_id", Text),
+                required("created_at", Text),
+            ],
+            vec![fk("sequence_id", "story_sequences")],
+            vec![],
+        ),
+        table(
+            "voice_profiles",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("display_name", Text),
+                required("rights_basis", Text),
+                required("rights_evidence_ref", Text),
+                required("rights_state", Text),
+                nullable("provider_id", Text),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![
+                fk("project_id", "projects"),
+                fk("provider_id", "model_providers"),
+            ],
+            vec![],
+        ),
+        table(
+            "effect_chains",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("owner_kind", Text),
+                required("owner_id", Text),
+                required("label", Text),
+                required("bypassed", Boolean),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![fk("project_id", "projects")],
+            vec![],
+        ),
+        table(
+            "effect_nodes",
+            vec![
+                required("id", Text),
+                required("chain_id", Text),
+                required("position", Integer),
+                required("kind", Text),
+                required("parameters_json", Json),
+                required("bypassed", Boolean),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![fk("chain_id", "effect_chains")],
+            vec![],
+        ),
+        table(
+            "model_packages",
+            vec![
+                required("id", Text),
+                required("label", Text),
+                required("provider_kind", Text),
+                required("model_version", Text),
+                required("size_bytes", Integer),
+                nullable("checksum", Text),
+                required("runtime_location", Text),
+                required("install_state", Text),
+                required("compatibility_json", Json),
+                required("languages_json", Json),
+                nullable("license_ref", Text),
+                required("observed_at", Text),
+            ],
+            vec![],
+            vec![],
+        ),
+        table(
+            "transcript_segments",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("recording_id", Text),
+                nullable("speaker_id", Text),
+                required("start_ms", Integer),
+                required("end_ms", Integer),
+                required("text", Text),
+                nullable("confidence", Real),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![
+                fk("project_id", "projects"),
+                fk("recording_id", "recordings"),
+                fk("speaker_id", "speakers"),
+            ],
+            vec![],
+        ),
+        table(
+            "transcript_refinement_proposals",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                nullable("transcript_segment_id", Text),
+                required("original_text", Text),
+                required("proposed_text", Text),
+                required("policy", Text),
+                nullable("model_run_id", Text),
+                required("status", Text),
+                nullable("reviewed_at", Text),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![
+                fk("project_id", "projects"),
+                fk("transcript_segment_id", "transcript_segments"),
+                fk("model_run_id", "model_runs"),
+            ],
+            vec![],
+        ),
+        table(
+            "agent_voice_grants",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("mcp_client_id", Text),
+                required("voice_profile_id", Text),
+                required("capability", Text),
+                required("granted_at", Text),
+                nullable("expires_at", Text),
+                nullable("revoked_at", Text),
+            ],
+            vec![
+                fk("project_id", "projects"),
+                fk("voice_profile_id", "voice_profiles"),
+            ],
+            vec![],
+        ),
+        table(
+            "agent_voice_sessions",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("mcp_client_id", Text),
+                required("voice_profile_id", Text),
+                required("grant_id", Text),
+                required("requested_text_hash", Text),
+                required("state", Text),
+                required("retain_output", Boolean),
+                nullable("stop_actor", Text),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![
+                fk("project_id", "projects"),
+                fk("voice_profile_id", "voice_profiles"),
+                fk("grant_id", "agent_voice_grants"),
+            ],
+            vec![],
+        ),
+        table(
+            "jobs",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("type", Text),
+                required("status", Text),
+                required("progress", Integer),
+                required("input_refs_json", Json),
+                required("output_refs_json", Json),
+                nullable("provider_id", Text),
+                nullable("error_code", Text),
+                nullable("error_message", Text),
+                required("attempt_no", Integer),
+                nullable("started_at", Text),
+                nullable("finished_at", Text),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![
+                fk("project_id", "projects"),
+                fk("provider_id", "model_providers"),
+            ],
+            vec![],
+        ),
+        table(
+            "job_events",
+            vec![
+                required("id", Text),
+                required("job_id", Text),
+                required("status", Text),
+                required("message", Text),
+                required("created_at", Text),
+            ],
+            vec![fk("job_id", "jobs")],
+            vec![],
+        ),
+        table(
+            "audit_events",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("event_type", Text),
+                required("actor", Text),
+                required("payload_json", Json),
+                required("created_at", Text),
+            ],
+            vec![fk("project_id", "projects")],
+            vec![],
+        ),
     ]);
     package
 }
@@ -273,7 +659,10 @@ fn schema_v4() -> RelationalSchemaPackage {
                 required("payload_json", Json),
                 required("created_at", Text),
             ],
-            vec![fk("project_id", "projects"), fk("recording_id", "recordings")],
+            vec![
+                fk("project_id", "projects"),
+                fk("recording_id", "recordings"),
+            ],
             vec![],
         ),
     ]);
@@ -365,7 +754,10 @@ fn schema_v8() -> RelationalSchemaPackage {
                 required("created_at", Text),
                 required("updated_at", Text),
             ],
-            vec![fk("project_id", "projects"), fk("model_run_id", "model_runs")],
+            vec![
+                fk("project_id", "projects"),
+                fk("model_run_id", "model_runs"),
+            ],
             vec![],
         ),
         table(
@@ -547,12 +939,10 @@ fn coerce_legacy_value(value: Value, column_type: &RelationalColumnType) -> Valu
         (Real, Value::Number(number)) if number.is_i64() => {
             json!(number.as_i64().map(|n| n as f64).unwrap_or(0.0))
         }
-        (Integer, Value::Number(number)) if number.is_f64() => {
-            match number.as_f64() {
-                Some(float) if float.fract() == 0.0 => json!(float as i64),
-                _ => Value::Number(number),
-            }
-        }
+        (Integer, Value::Number(number)) if number.is_f64() => match number.as_f64() {
+            Some(float) if float.fract() == 0.0 => json!(float as i64),
+            _ => Value::Number(number),
+        },
         (_, value) => value,
     }
 }
@@ -560,43 +950,126 @@ fn coerce_legacy_value(value: Value, column_type: &RelationalColumnType) -> Valu
 /// One-way compatibility import. The retired SQLite file is opened read-only;
 /// every imported row becomes a normal signed Genesis transaction.
 pub(crate) fn import_legacy_sqlite(storage: &Storage, path: &Path) -> Result<usize, String> {
-    if !path.is_file() { return Ok(0); }
+    if !path.is_file() {
+        return Ok(0);
+    }
     let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|error| error.to_string())?;
     let package = schema();
     let priority = |name: &str| match name {
-        "projects" => 0, "recordings" => 1, "paired_devices" | "model_providers" | "speakers" | "external_connections" => 2,
-        "notes" | "mobile_recording_checkpoints" | "audio_chunks" | "delegated_jobs" | "jobs" | "meeting_tool_grants" | "external_tool_previews" => 3,
-        "note_revisions" | "graph_nodes" | "model_runs" | "transcript_segments" | "story_sequences" | "voice_profiles" | "effect_chains" | "job_events" | "audit_events" => 4,
-        "graph_edges" | "speaker_turns" | "waveform_tiles" | "story_clips" | "transcript_refinement_proposals" | "agent_voice_grants" | "effect_nodes" | "external_imports" | "external_tool_runs" => 5,
-        "story_revisions" | "agent_voice_sessions" | "capability_grants" | "mutation_log" | "external_tool_results" => 6,
+        "projects" => 0,
+        "recordings" => 1,
+        "paired_devices" | "model_providers" | "speakers" | "external_connections" => 2,
+        "notes"
+        | "mobile_recording_checkpoints"
+        | "audio_chunks"
+        | "delegated_jobs"
+        | "jobs"
+        | "meeting_tool_grants"
+        | "external_tool_previews" => 3,
+        "note_revisions"
+        | "graph_nodes"
+        | "model_runs"
+        | "transcript_segments"
+        | "story_sequences"
+        | "voice_profiles"
+        | "effect_chains"
+        | "job_events"
+        | "audit_events" => 4,
+        "graph_edges"
+        | "speaker_turns"
+        | "waveform_tiles"
+        | "story_clips"
+        | "transcript_refinement_proposals"
+        | "agent_voice_grants"
+        | "effect_nodes"
+        | "external_imports"
+        | "external_tool_runs" => 5,
+        "story_revisions"
+        | "agent_voice_sessions"
+        | "capability_grants"
+        | "mutation_log"
+        | "external_tool_results" => 6,
         _ => 7,
     };
     let mut tables = package.tables.clone();
     tables.sort_by_key(|table| priority(&table.name));
     let mut mutations = Vec::new();
     for table in tables {
-        let exists: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)", [&table.name], |row| row.get(0)).unwrap_or(false);
-        if !exists { continue; }
-        let mut column_statement = connection.prepare(&format!("PRAGMA table_info(\"{}\")", table.name)).map_err(|error| error.to_string())?;
-        let existing_columns = column_statement.query_map([], |row| row.get::<_, String>(1)).map_err(|error| error.to_string())?.filter_map(Result::ok).collect::<std::collections::HashSet<_>>();
-        let columns = table.columns.iter().filter(|column| existing_columns.contains(&column.name)).collect::<Vec<_>>();
-        if columns.is_empty() { continue; }
-        let sql = format!("SELECT {} FROM \"{}\"", columns.iter().map(|column| format!("\"{}\"", column.name)).collect::<Vec<_>>().join(","), table.name);
-        let mut statement = connection.prepare(&sql).map_err(|error| error.to_string())?;
-        let rows = statement.query_map([], |row| {
-            let mut object = serde_json::Map::new();
-            for (index, column) in columns.iter().enumerate() {
-                let value = match row.get_ref(index)? { ValueRef::Null => Value::Null, ValueRef::Integer(value) => json!(value), ValueRef::Real(value) => json!(value), ValueRef::Text(value) => Value::String(String::from_utf8_lossy(value).into_owned()), ValueRef::Blob(value) => Value::Array(value.iter().copied().map(Value::from).collect()) };
-                object.insert(column.name.clone(), coerce_legacy_value(value, &column.column_type));
-            }
-            if table.name == "mobile_recording_checkpoints" && !object.contains_key("id") { if let Some(value) = object.get("recording_id").cloned() { object.insert("id".to_string(), value); } }
-            Ok(Value::Object(object))
-        }).map_err(|error| error.to_string())?;
-        for row in rows { mutations.push(upsert(&table.name, row.map_err(|error| error.to_string())?)); }
+        let exists: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+                [&table.name],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+        if !exists {
+            continue;
+        }
+        let mut column_statement = connection
+            .prepare(&format!("PRAGMA table_info(\"{}\")", table.name))
+            .map_err(|error| error.to_string())?;
+        let existing_columns = column_statement
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|error| error.to_string())?
+            .filter_map(Result::ok)
+            .collect::<std::collections::HashSet<_>>();
+        let columns = table
+            .columns
+            .iter()
+            .filter(|column| existing_columns.contains(&column.name))
+            .collect::<Vec<_>>();
+        if columns.is_empty() {
+            continue;
+        }
+        let sql = format!(
+            "SELECT {} FROM \"{}\"",
+            columns
+                .iter()
+                .map(|column| format!("\"{}\"", column.name))
+                .collect::<Vec<_>>()
+                .join(","),
+            table.name
+        );
+        let mut statement = connection
+            .prepare(&sql)
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                let mut object = serde_json::Map::new();
+                for (index, column) in columns.iter().enumerate() {
+                    let value = match row.get_ref(index)? {
+                        ValueRef::Null => Value::Null,
+                        ValueRef::Integer(value) => json!(value),
+                        ValueRef::Real(value) => json!(value),
+                        ValueRef::Text(value) => {
+                            Value::String(String::from_utf8_lossy(value).into_owned())
+                        }
+                        ValueRef::Blob(value) => {
+                            Value::Array(value.iter().copied().map(Value::from).collect())
+                        }
+                    };
+                    object.insert(
+                        column.name.clone(),
+                        coerce_legacy_value(value, &column.column_type),
+                    );
+                }
+                if table.name == "mobile_recording_checkpoints" && !object.contains_key("id") {
+                    if let Some(value) = object.get("recording_id").cloned() {
+                        object.insert("id".to_string(), value);
+                    }
+                }
+                Ok(Value::Object(object))
+            })
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            mutations.push(upsert(&table.name, row.map_err(|error| error.to_string())?));
+        }
     }
     let count = mutations.len();
-    if count > 0 { commit_rows(storage, mutations)?; }
+    if count > 0 {
+        commit_rows(storage, mutations)?;
+    }
     Ok(count)
 }
 
@@ -621,7 +1094,10 @@ pub(crate) fn commit_rows(
                 namespace: NAMESPACE.to_string(),
                 mutations,
             }],
-            graph: BatchInput { nodes: vec![], edges: vec![] },
+            graph: BatchInput {
+                nodes: vec![],
+                edges: vec![],
+            },
             vectors: vec![],
         })
         .map(|_| ())
@@ -1113,11 +1589,21 @@ mod tests {
         let (genesis_path, storage) = open();
         let imported = import_legacy_sqlite(&storage, &sqlite_path)
             .expect("legacy import must survive TEXT json and INTEGER booleans");
-        assert!(imported >= 3, "expected all legacy rows to import, got {imported}");
+        assert!(
+            imported >= 3,
+            "expected all legacy rows to import, got {imported}"
+        );
 
         let jobs = query(&storage, "jobs", &["id", "input_refs_json"], vec![], 10).unwrap();
         assert_eq!(jobs.len(), 1);
-        let providers = query(&storage, "model_providers", &["id", "enabled", "config_json"], vec![], 10).unwrap();
+        let providers = query(
+            &storage,
+            "model_providers",
+            &["id", "enabled", "config_json"],
+            vec![],
+            10,
+        )
+        .unwrap();
         assert_eq!(providers.len(), 1);
 
         let _ = std::fs::remove_file(&sqlite_path);
@@ -1303,7 +1789,8 @@ mod tests {
 
     #[test]
     fn install_is_idempotent_after_a_prior_schema_upgrade() {
-        let path = std::env::temp_dir().join(format!("fung-genesis-upgrade-test-{}", Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("fung-genesis-upgrade-test-{}", Uuid::new_v4()));
         let storage = Storage::open(OpenOptions {
             path: path.display().to_string(),
             page_cache_mb: Some(16),
@@ -1370,10 +1857,18 @@ mod tests {
         connection.execute_batch("CREATE TABLE projects(id TEXT PRIMARY KEY,name TEXT NOT NULL,storage_path TEXT NOT NULL,active_recording_id TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL); INSERT INTO projects VALUES('legacy-project','Legacy','projects/legacy',NULL,'t','t');").unwrap();
         drop(connection);
         assert_eq!(import_legacy_sqlite(&storage, &legacy).unwrap(), 1);
-        let rows = query(&storage, "projects", &["id", "name"], vec![eq("projects", "id", json!("legacy-project"))], 1).unwrap();
+        let rows = query(
+            &storage,
+            "projects",
+            &["id", "name"],
+            vec![eq("projects", "id", json!("legacy-project"))],
+            1,
+        )
+        .unwrap();
         assert_eq!(rows[0]["projects.name"], "Legacy");
         assert_eq!(storage.stable_frontier(), 1);
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
@@ -1383,7 +1878,14 @@ mod tests {
         commit_rows(&storage, vec![
             upsert("external_connections", json!({"id": "zoom", "provider": "zoom", "account_label": "user@example.com", "status": "connected", "created_at": "t", "updated_at": "t"})),
         ]).unwrap();
-        let rows = query(&storage, "external_connections", &["id", "status"], vec![eq("external_connections", "id", json!("zoom"))], 1).unwrap();
+        let rows = query(
+            &storage,
+            "external_connections",
+            &["id", "status"],
+            vec![eq("external_connections", "id", json!("zoom"))],
+            1,
+        )
+        .unwrap();
         assert_eq!(rows[0]["external_connections.status"], "connected");
         // Re-install after a stepped upgrade must stay idempotent (mirrors existing v1->v3 test).
         storage.register_relational_schema(schema()).unwrap();
@@ -1399,7 +1901,14 @@ mod tests {
             upsert("model_providers", json!({"id": "tts-1", "label": "F5-TTS", "runtime_location": "local", "kind": "tts", "enabled": true, "config_json": "{}", "created_at": "t", "updated_at": "t"})),
             upsert("tts_test_results", json!({"id": "test-1", "provider_id": "tts-1", "status": "ok", "latency_ms": 812, "sample_audio_path": "/tmp/sample.wav", "error_message": null, "tested_at": "t"})),
         ]).unwrap();
-        let rows = query(&storage, "tts_test_results", &["id", "status", "latency_ms"], vec![eq("tts_test_results", "id", json!("test-1"))], 1).unwrap();
+        let rows = query(
+            &storage,
+            "tts_test_results",
+            &["id", "status", "latency_ms"],
+            vec![eq("tts_test_results", "id", json!("test-1"))],
+            1,
+        )
+        .unwrap();
         assert_eq!(rows[0]["tts_test_results.status"], "ok");
         assert_eq!(rows[0]["tts_test_results.latency_ms"], 812);
         // Re-install after a stepped upgrade must stay idempotent.
@@ -1415,13 +1924,27 @@ mod tests {
         commit_rows(&storage, vec![
             upsert("paired_devices", json!({"id": "peer-1", "name": "FUNG Desktop", "endpoint": "192.168.1.20:8765", "trust_state": "paired", "pairing_proof_hash": "sess-uuid-1", "capabilities_json": [], "created_at": "t", "updated_at": "t", "public_key": "cGVlci1wdWJsaWMta2V5"})),
         ]).unwrap();
-        let rows = query(&storage, "paired_devices", &["id", "public_key"], vec![eq("paired_devices", "id", json!("peer-1"))], 1).unwrap();
+        let rows = query(
+            &storage,
+            "paired_devices",
+            &["id", "public_key"],
+            vec![eq("paired_devices", "id", json!("peer-1"))],
+            1,
+        )
+        .unwrap();
         assert_eq!(rows[0]["paired_devices.public_key"], "cGVlci1wdWJsaWMta2V5");
         // Rows written without a public_key (nullable) must still be readable.
         commit_rows(&storage, vec![
             upsert("paired_devices", json!({"id": "peer-2", "name": "FUNG Desktop 2", "endpoint": "192.168.1.21:8765", "trust_state": "paired", "pairing_proof_hash": "sess-uuid-2", "capabilities_json": [], "created_at": "t", "updated_at": "t", "public_key": null})),
         ]).unwrap();
-        let rows = query(&storage, "paired_devices", &["id", "public_key"], vec![eq("paired_devices", "id", json!("peer-2"))], 1).unwrap();
+        let rows = query(
+            &storage,
+            "paired_devices",
+            &["id", "public_key"],
+            vec![eq("paired_devices", "id", json!("peer-2"))],
+            1,
+        )
+        .unwrap();
         assert!(rows[0]["paired_devices.public_key"].is_null());
         // Re-install after a stepped upgrade must stay idempotent.
         storage.register_relational_schema(schema()).unwrap();
@@ -1442,18 +1965,37 @@ mod tests {
                 "observed_at": "t", "created_at": "t", "updated_at": "t", "executor": "cloud"
             })),
         ]).unwrap();
-        let rows = query(&storage, "delegated_jobs", &["id", "executor"], vec![eq("delegated_jobs", "id", json!("job-1"))], 1).unwrap();
+        let rows = query(
+            &storage,
+            "delegated_jobs",
+            &["id", "executor"],
+            vec![eq("delegated_jobs", "id", json!("job-1"))],
+            1,
+        )
+        .unwrap();
         assert_eq!(rows[0]["delegated_jobs.executor"], "cloud");
         // Rows written without executor (nullable) must still be readable.
-        commit_rows(&storage, vec![
-            upsert("delegated_jobs", json!({
-                "id": "job-2", "project_id": "proj-1", "executor_device_id": null,
-                "operation": "transcript.transcribe", "state": "queued", "progress": 0,
-                "input_manifest_hash": "def456", "checkpoint_json": null,
-                "observed_at": "t", "created_at": "t", "updated_at": "t", "executor": null
-            })),
-        ]).unwrap();
-        let rows = query(&storage, "delegated_jobs", &["id", "executor"], vec![eq("delegated_jobs", "id", json!("job-2"))], 1).unwrap();
+        commit_rows(
+            &storage,
+            vec![upsert(
+                "delegated_jobs",
+                json!({
+                    "id": "job-2", "project_id": "proj-1", "executor_device_id": null,
+                    "operation": "transcript.transcribe", "state": "queued", "progress": 0,
+                    "input_manifest_hash": "def456", "checkpoint_json": null,
+                    "observed_at": "t", "created_at": "t", "updated_at": "t", "executor": null
+                }),
+            )],
+        )
+        .unwrap();
+        let rows = query(
+            &storage,
+            "delegated_jobs",
+            &["id", "executor"],
+            vec![eq("delegated_jobs", "id", json!("job-2"))],
+            1,
+        )
+        .unwrap();
         assert!(rows[0]["delegated_jobs.executor"].is_null());
         // Re-install after a stepped upgrade must stay idempotent.
         storage.register_relational_schema(schema()).unwrap();
@@ -1514,7 +2056,8 @@ mod tests {
             &["id", "run_id", "byte_size"],
             vec![eq("external_tool_results", "id", json!("result-mcp"))],
             1,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(rows[0]["external_tool_results.run_id"], "run-mcp");
         assert_eq!(rows[0]["external_tool_results.byte_size"], 29);
 

@@ -191,7 +191,8 @@ fn connect_and_handshake(
     write_frame(&mut stream, &buf[..n]).map_err(|e| e.to_string())?;
     let msg2 = read_frame(&mut stream, CTRL_MAX).map_err(|e| e.to_string())?;
     let mut rbuf = [0u8; 4096];
-    hs.read_message(&msg2, &mut rbuf).map_err(|e| e.to_string())?;
+    hs.read_message(&msg2, &mut rbuf)
+        .map_err(|e| e.to_string())?;
     let transport = hs.into_transport_mode().map_err(|e| e.to_string())?;
     Ok(NoiseChannel::new(stream, transport))
 }
@@ -591,11 +592,11 @@ fn attempt_transfer(
     resume_from: u32,
     last_acked: &mut i64,
 ) -> AttemptOutcome {
-    let mut channel =
-        match connect_and_handshake(endpoint, own_device_id, own_secret, peer_public) {
-            Ok(channel) => channel,
-            Err(e) => return AttemptOutcome::TransportError(e),
-        };
+    let mut channel = match connect_and_handshake(endpoint, own_device_id, own_secret, peer_public)
+    {
+        Ok(channel) => channel,
+        Err(e) => return AttemptOutcome::TransportError(e),
+    };
     // Handshake succeeded: reset an unreachable peer back to paired (spec
     // §7) as soon as we know the connection works, independent of whether
     // the rest of this job attempt goes on to succeed or fail.
@@ -669,9 +670,7 @@ fn attempt_transfer(
                 return AttemptOutcome::ServerError(code, message)
             }
             Ok(other) => {
-                return AttemptOutcome::TransportError(format!(
-                    "expected ChunkAck, got {other:?}"
-                ))
+                return AttemptOutcome::TransportError(format!("expected ChunkAck, got {other:?}"))
             }
             Err(e) => return AttemptOutcome::TransportError(e.to_string()),
         }
@@ -684,9 +683,7 @@ fn attempt_transfer(
                 return AttemptOutcome::ServerError(code, message)
             }
             Ok(other) => {
-                return AttemptOutcome::TransportError(format!(
-                    "expected Progress, got {other:?}"
-                ))
+                return AttemptOutcome::TransportError(format!("expected Progress, got {other:?}"))
             }
             Err(e) => return AttemptOutcome::TransportError(e.to_string()),
         }
@@ -778,30 +775,31 @@ fn run_transfer(
     // branches below: exceeding the budget marks the job failed and the
     // peer unreachable; otherwise sleeps the next backoff and lets the
     // caller's loop retry.
-    let give_up_or_backoff = |reconnect_attempts: &mut u32, ctx: &JobContext, detail: &str| -> bool {
-        *reconnect_attempts += 1;
-        if reconnect_deadline.elapsed() >= reconnect_budget {
-            // A terminal job state is visible to pollers immediately. Update
-            // the paired-peer state first so observers can never see
-            // "failed because unreachable" while the peer still appears
-            // reachable.
-            mark_peer_unreachable(&storage, &desktop_device_id);
-            let _ = update_job(
-                &storage,
-                ctx,
-                "failed",
-                0,
-                Some(&format!(
+    let give_up_or_backoff =
+        |reconnect_attempts: &mut u32, ctx: &JobContext, detail: &str| -> bool {
+            *reconnect_attempts += 1;
+            if reconnect_deadline.elapsed() >= reconnect_budget {
+                // A terminal job state is visible to pollers immediately. Update
+                // the paired-peer state first so observers can never see
+                // "failed because unreachable" while the peer still appears
+                // reachable.
+                mark_peer_unreachable(&storage, &desktop_device_id);
+                let _ = update_job(
+                    &storage,
+                    ctx,
+                    "failed",
+                    0,
+                    Some(&format!(
                     "unreachable after {reconnect_attempts} reconnect attempts over {:?}: {detail}",
                     reconnect_deadline.elapsed()
                 )),
-            );
-            true
-        } else {
-            thread::sleep(backoff_delay(*reconnect_attempts));
-            false
-        }
-    };
+                );
+                true
+            } else {
+                thread::sleep(backoff_delay(*reconnect_attempts));
+                false
+            }
+        };
 
     loop {
         let resume_from = (last_acked + 1) as u32;
@@ -836,7 +834,8 @@ fn run_transfer(
                 // permanently confused peer still gives up eventually
                 // instead of looping forever.
                 last_acked = -1;
-                if give_up_or_backoff(&mut reconnect_attempts, &ctx, &format!("{code}: {message}")) {
+                if give_up_or_backoff(&mut reconnect_attempts, &ctx, &format!("{code}: {message}"))
+                {
                     return;
                 }
                 // Loop back and try again from seq 0.
@@ -861,6 +860,7 @@ fn run_transfer(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn delegate_transcription_inner(
     storage: Arc<genesis_block_native::Storage>,
     app_data: PathBuf,
@@ -1072,7 +1072,9 @@ mod tests {
     use crate::device_identity::{
         ensure_identity_in_dir, public_key_b64_in_dir, x25519_static_secret_in_dir,
     };
-    use crate::{paired_devices_connection_at, upsert_paired_device, PairedDeviceInput, WhisperRuntime};
+    use crate::{
+        paired_devices_connection_at, upsert_paired_device, PairedDeviceInput, WhisperRuntime,
+    };
     use base64::Engine;
     use genesis_block_native::{OpenOptions, Storage};
     use sha2::{Digest, Sha256};
@@ -1151,12 +1153,19 @@ mod tests {
     /// *desktop's* `paired_devices.db` (the rusqlite store
     /// `fungwire_server::handle_connection` looks the caller up in) —
     /// mirrors `fungwire_server.rs`'s own `pair_device` test helper.
-    fn pair_mobile_on_desktop(desktop_app_data: &Path, own_device_id: &str, mobile_app_data: &Path) {
+    fn pair_mobile_on_desktop(
+        desktop_app_data: &Path,
+        own_device_id: &str,
+        mobile_app_data: &Path,
+    ) {
         let pub_b64 = public_key_b64_in_dir(mobile_app_data).unwrap();
         let raw = base64::engine::general_purpose::STANDARD
             .decode(&pub_b64)
             .unwrap();
-        let fingerprint: String = Sha256::digest(&raw).iter().map(|b| format!("{b:02x}")).collect();
+        let fingerprint: String = Sha256::digest(&raw)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         let conn = paired_devices_connection_at(desktop_app_data).unwrap();
         upsert_paired_device(
             &conn,
@@ -1179,7 +1188,10 @@ mod tests {
         let bytes: Vec<u8> = (0..byte_len).map(|i| (i % 256) as u8).collect();
         let path = dir.join(format!("segment-{sequence_no:06}.m4a"));
         fs::write(&path, &bytes).unwrap();
-        let checksum: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+        let checksum: String = Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         (path, checksum)
     }
 
@@ -1230,7 +1242,13 @@ mod tests {
         let runtime = test_whisper_runtime();
         let handle = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            crate::fungwire_server::handle_connection(stream, &storage, &server_app_data, &runtime, &jobs)
+            crate::fungwire_server::handle_connection(
+                stream,
+                &storage,
+                &server_app_data,
+                &runtime,
+                &jobs,
+            )
         });
         (addr, handle)
     }
@@ -1256,7 +1274,8 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         drop(listener);
 
-        let result = connect_and_handshake(&addr.to_string(), "mobile-x", &own_secret, &peer_public);
+        let result =
+            connect_and_handshake(&addr.to_string(), "mobile-x", &own_secret, &peer_public);
         assert!(result.is_err(), "closed port must not reach transport mode");
     }
 
@@ -1267,7 +1286,12 @@ mod tests {
         ensure_identity_in_dir(mobile_dir.path()).unwrap();
         ensure_identity_in_dir(desktop_dir.path()).unwrap();
         let (genesis_path, mobile_storage) = open_genesis();
-        pair_desktop_on_mobile(&mobile_storage, "desktop-reach", desktop_dir.path(), "paired");
+        pair_desktop_on_mobile(
+            &mobile_storage,
+            "desktop-reach",
+            desktop_dir.path(),
+            "paired",
+        );
         pair_mobile_on_desktop(desktop_dir.path(), "mobile-reach", mobile_dir.path());
 
         let (addr, server_handle) = spawn_server(desktop_dir.path().to_path_buf());
@@ -1279,7 +1303,10 @@ mod tests {
             &addr.to_string(),
             "mobile-reach",
         );
-        assert!(reachable, "paired desktop with an open port must be reachable");
+        assert!(
+            reachable,
+            "paired desktop with an open port must be reachable"
+        );
 
         // The server-side handshake test proves this closes cleanly; here we
         // only need the accept thread to finish before the test process exits.
@@ -1299,7 +1326,12 @@ mod tests {
             ensure_identity_in_dir(mobile_dir.path()).unwrap();
             ensure_identity_in_dir(desktop_dir.path()).unwrap();
             let (genesis_path, mobile_storage) = open_genesis();
-            pair_desktop_on_mobile(&mobile_storage, "desktop-status", desktop_dir.path(), "paired");
+            pair_desktop_on_mobile(
+                &mobile_storage,
+                "desktop-status",
+                desktop_dir.path(),
+                "paired",
+            );
             pair_mobile_on_desktop(desktop_dir.path(), "mobile-status", mobile_dir.path());
 
             let policy_conn = paired_devices_connection_at(desktop_dir.path()).unwrap();
@@ -1351,7 +1383,10 @@ mod tests {
             "127.0.0.1:1",
             "mobile-status",
         );
-        assert!(result.is_err(), "unpaired peer must not yield a policy answer");
+        assert!(
+            result.is_err(),
+            "unpaired peer must not yield a policy answer"
+        );
 
         drop(mobile_storage);
         let _ = std::fs::remove_dir_all(genesis_path);
@@ -1483,7 +1518,12 @@ mod tests {
             let (genesis_path, mobile_storage) = open_genesis();
             let mobile_storage = Arc::new(mobile_storage);
 
-            pair_desktop_on_mobile(&mobile_storage, "desktop-exec", desktop_dir.path(), "paired");
+            pair_desktop_on_mobile(
+                &mobile_storage,
+                "desktop-exec",
+                desktop_dir.path(),
+                "paired",
+            );
             pair_mobile_on_desktop(desktop_dir.path(), "mobile-exec", mobile_dir.path());
             seed_recording_with_segments(
                 &mobile_storage,
@@ -1508,7 +1548,10 @@ mod tests {
             .expect("delegate transcription");
 
             assert_eq!(
-                job_poll_inner(&mobile_storage, &job_id).unwrap().executor.as_deref(),
+                job_poll_inner(&mobile_storage, &job_id)
+                    .unwrap()
+                    .executor
+                    .as_deref(),
                 Some(executor),
                 "the requested executor must be on the row the instant the job is created"
             );
@@ -1535,13 +1578,20 @@ mod tests {
             // assertion is what would catch that.
             assert_eq!(
                 final_state,
-                if executor == "cloud" { "failed" } else { "completed" },
+                if executor == "cloud" {
+                    "failed"
+                } else {
+                    "completed"
+                },
                 "a '{executor}' request must reach the desktop as '{executor}' and be handled \
                  accordingly (cloud is refused by the loopback desktop's default policy; local \
                  succeeds via the fake pipeline)"
             );
             assert_eq!(
-                job_poll_inner(&mobile_storage, &job_id).unwrap().executor.as_deref(),
+                job_poll_inner(&mobile_storage, &job_id)
+                    .unwrap()
+                    .executor
+                    .as_deref(),
                 Some(executor),
                 "the executor must survive every update_job write, not just the first"
             );
@@ -1579,7 +1629,11 @@ mod tests {
     #[test]
     fn resume_offset_is_last_acked_plus_one() {
         let mut last_acked: i64 = -1;
-        assert_eq!((last_acked + 1) as u32, 0, "nothing acked yet -> resume from 0");
+        assert_eq!(
+            (last_acked + 1) as u32,
+            0,
+            "nothing acked yet -> resume from 0"
+        );
         last_acked = 4;
         assert_eq!((last_acked + 1) as u32, 5, "seq 4 acked -> resume from 5");
         last_acked = 0;
@@ -1607,7 +1661,12 @@ mod tests {
         let (genesis_path, mobile_storage) = open_genesis();
         let mobile_storage = Arc::new(mobile_storage);
 
-        pair_desktop_on_mobile(&mobile_storage, "desktop-resume", desktop_dir.path(), "paired");
+        pair_desktop_on_mobile(
+            &mobile_storage,
+            "desktop-resume",
+            desktop_dir.path(),
+            "paired",
+        );
         pair_mobile_on_desktop(desktop_dir.path(), "mobile-resume", mobile_dir.path());
         seed_recording_with_segments(
             &mobile_storage,
@@ -1705,7 +1764,12 @@ mod tests {
         let (genesis_path, mobile_storage) = open_genesis();
         let mobile_storage = Arc::new(mobile_storage);
 
-        pair_desktop_on_mobile(&mobile_storage, "desktop-unreachable", desktop_dir.path(), "paired");
+        pair_desktop_on_mobile(
+            &mobile_storage,
+            "desktop-unreachable",
+            desktop_dir.path(),
+            "paired",
+        );
         seed_recording_with_segments(
             &mobile_storage,
             "proj-unreachable",
@@ -1790,13 +1854,23 @@ mod tests {
         ensure_identity_in_dir(desktop_dir.path()).unwrap();
         let (genesis_path, mobile_storage) = open_genesis();
 
-        pair_desktop_on_mobile(&mobile_storage, "desktop-unreach-ok", desktop_dir.path(), "unreachable");
+        pair_desktop_on_mobile(
+            &mobile_storage,
+            "desktop-unreach-ok",
+            desktop_dir.path(),
+            "unreachable",
+        );
         assert!(
             lookup_peer_public_key(&mobile_storage, "desktop-unreach-ok").is_ok(),
             "an unreachable peer must still be dialable so a retry/probe can recover it"
         );
 
-        pair_desktop_on_mobile(&mobile_storage, "desktop-revoked", desktop_dir.path(), "revoked");
+        pair_desktop_on_mobile(
+            &mobile_storage,
+            "desktop-revoked",
+            desktop_dir.path(),
+            "revoked",
+        );
         assert!(
             lookup_peer_public_key(&mobile_storage, "desktop-revoked").is_err(),
             "a revoked peer must never be dialed again"
@@ -1820,7 +1894,12 @@ mod tests {
         ensure_identity_in_dir(mobile_dir.path()).unwrap();
         ensure_identity_in_dir(desktop_dir.path()).unwrap();
         let (genesis_path, mobile_storage) = open_genesis();
-        pair_desktop_on_mobile(&mobile_storage, "desktop-recover", desktop_dir.path(), "unreachable");
+        pair_desktop_on_mobile(
+            &mobile_storage,
+            "desktop-recover",
+            desktop_dir.path(),
+            "unreachable",
+        );
         pair_mobile_on_desktop(desktop_dir.path(), "mobile-recover", mobile_dir.path());
 
         let (addr, server_handle) = spawn_server(desktop_dir.path().to_path_buf());

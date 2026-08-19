@@ -19,12 +19,20 @@ pub(crate) struct CloudConfigInput {
 }
 
 #[tauri::command]
-pub(crate) fn cloud_config_set(input: CloudConfigInput) -> AppResult<cloud_config::CloudConfigValidation> {
+pub(crate) fn cloud_config_set(
+    input: CloudConfigInput,
+) -> AppResult<cloud_config::CloudConfigValidation> {
     let config = match input.provider.as_str() {
-        "anthropic" => cloud_config::CloudProviderConfig::Anthropic { api_key: input.api_key },
-        "openai" => cloud_config::CloudProviderConfig::OpenAi { api_key: input.api_key },
+        "anthropic" => cloud_config::CloudProviderConfig::Anthropic {
+            api_key: input.api_key,
+        },
+        "openai" => cloud_config::CloudProviderConfig::OpenAi {
+            api_key: input.api_key,
+        },
         "custom" => cloud_config::CloudProviderConfig::Custom {
-            endpoint: input.endpoint.ok_or_else(|| AppError::InvalidInput("endpoint required for custom provider".into()))?,
+            endpoint: input.endpoint.ok_or_else(|| {
+                AppError::InvalidInput("endpoint required for custom provider".into())
+            })?,
             api_key: input.api_key,
             task_kind: input.task_kind,
         },
@@ -40,7 +48,10 @@ pub(crate) fn cloud_config_set(input: CloudConfigInput) -> AppResult<cloud_confi
 }
 
 #[tauri::command]
-pub(crate) fn cloud_config_clear(provider: String, task_kind: cloud_config::CloudTaskKind) -> AppResult<()> {
+pub(crate) fn cloud_config_clear(
+    provider: String,
+    task_kind: cloud_config::CloudTaskKind,
+) -> AppResult<()> {
     let slot = cloud_config::cloud_config_slot(&provider, task_kind);
     cloud_config::delete_cloud_config(&slot).map_err(AppError::Cloud)
 }
@@ -65,8 +76,14 @@ pub(crate) fn cloud_config_status() -> AppResult<Vec<CloudConfigStatus>> {
     let mut out = Vec::with_capacity(slots.len());
     for (provider, task_kind) in slots {
         let slot = cloud_config::cloud_config_slot(provider, *task_kind);
-        let configured = cloud_config::load_cloud_config(&slot).map_err(AppError::Cloud)?.is_some();
-        out.push(CloudConfigStatus { provider: provider.to_string(), task_kind: *task_kind, configured });
+        let configured = cloud_config::load_cloud_config(&slot)
+            .map_err(AppError::Cloud)?
+            .is_some();
+        out.push(CloudConfigStatus {
+            provider: provider.to_string(),
+            task_kind: *task_kind,
+            configured,
+        });
     }
     Ok(out)
 }
@@ -78,7 +95,10 @@ pub(crate) fn tier_policy_get(state: State<'_, AppState>) -> AppResult<policy::T
 }
 
 #[tauri::command]
-pub(crate) fn tier_policy_set(state: State<'_, AppState>, policy: policy::TierPolicy) -> AppResult<policy::TierPolicy> {
+pub(crate) fn tier_policy_set(
+    state: State<'_, AppState>,
+    policy: policy::TierPolicy,
+) -> AppResult<policy::TierPolicy> {
     let conn = paired_devices_connection(&state)?;
     policy::save_policy(&conn, &policy).map_err(AppError::Cloud)?;
     Ok(policy)
@@ -95,8 +115,10 @@ pub(crate) struct CloudCallCounts {
 pub(crate) fn cloud_call_counts_today(state: State<'_, AppState>) -> AppResult<CloudCallCounts> {
     let conn = paired_devices_connection(&state)?;
     Ok(CloudCallCounts {
-        stt: policy::calls_today(&conn, cloud_config::CloudTaskKind::Stt).map_err(AppError::Cloud)?,
-        llm: policy::calls_today(&conn, cloud_config::CloudTaskKind::Llm).map_err(AppError::Cloud)?,
+        stt: policy::calls_today(&conn, cloud_config::CloudTaskKind::Stt)
+            .map_err(AppError::Cloud)?,
+        llm: policy::calls_today(&conn, cloud_config::CloudTaskKind::Llm)
+            .map_err(AppError::Cloud)?,
     })
 }
 

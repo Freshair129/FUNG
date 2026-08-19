@@ -14,8 +14,12 @@ pub(crate) enum CloudTaskKind {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "provider", rename_all = "snake_case")]
 pub(crate) enum CloudProviderConfig {
-    Anthropic { api_key: String },
-    OpenAi { api_key: String },
+    Anthropic {
+        api_key: String,
+    },
+    OpenAi {
+        api_key: String,
+    },
     Custom {
         endpoint: String,
         api_key: String,
@@ -28,7 +32,11 @@ impl std::fmt::Debug for CloudProviderConfig {
         match self {
             Self::Anthropic { .. } => write!(f, "Anthropic {{ api_key: <redacted> }}"),
             Self::OpenAi { .. } => write!(f, "OpenAi {{ api_key: <redacted> }}"),
-            Self::Custom { endpoint, task_kind, .. } => write!(
+            Self::Custom {
+                endpoint,
+                task_kind,
+                ..
+            } => write!(
                 f,
                 "Custom {{ endpoint: {endpoint:?}, api_key: <redacted>, task_kind: {task_kind:?} }}"
             ),
@@ -50,7 +58,10 @@ impl CloudProviderConfig {
             Self::Custom { api_key, .. } => api_key,
         };
         if key.trim().is_empty() {
-            return CloudConfigValidation { ok: false, error: Some("ต้องระบุ API key".into()) };
+            return CloudConfigValidation {
+                ok: false,
+                error: Some("ต้องระบุ API key".into()),
+            };
         }
         if let Self::Custom { endpoint, .. } = self {
             if !endpoint.starts_with("https://") {
@@ -60,7 +71,10 @@ impl CloudProviderConfig {
                 };
             }
         }
-        CloudConfigValidation { ok: true, error: None }
+        CloudConfigValidation {
+            ok: true,
+            error: None,
+        }
     }
 }
 
@@ -84,12 +98,16 @@ fn keyring_entry(slot: &str) -> Result<keyring::Entry, String> {
 
 pub(crate) fn save_cloud_config(slot: &str, config: &CloudProviderConfig) -> Result<(), String> {
     let payload = serde_json::to_string(config).map_err(|e| e.to_string())?;
-    keyring_entry(slot)?.set_password(&payload).map_err(|e| e.to_string())
+    keyring_entry(slot)?
+        .set_password(&payload)
+        .map_err(|e| e.to_string())
 }
 
 pub(crate) fn load_cloud_config(slot: &str) -> Result<Option<CloudProviderConfig>, String> {
     match keyring_entry(slot)?.get_password() {
-        Ok(payload) => serde_json::from_str(&payload).map(Some).map_err(|e| e.to_string()),
+        Ok(payload) => serde_json::from_str(&payload)
+            .map(Some)
+            .map_err(|e| e.to_string()),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(error.to_string()),
     }
@@ -138,7 +156,9 @@ mod tests {
 
     #[test]
     fn debug_never_exposes_the_key() {
-        let config = CloudProviderConfig::OpenAi { api_key: "sk-super-secret-value".into() };
+        let config = CloudProviderConfig::OpenAi {
+            api_key: "sk-super-secret-value".into(),
+        };
         let debug_output = format!("{config:?}");
         assert!(!debug_output.contains("sk-super-secret-value"));
         assert!(debug_output.contains("redacted"));
@@ -146,13 +166,21 @@ mod tests {
 
     #[test]
     fn slot_naming_distinguishes_task_kind() {
-        assert_eq!(cloud_config_slot("openai", CloudTaskKind::Stt), "cloud-stt-openai");
-        assert_eq!(cloud_config_slot("openai", CloudTaskKind::Llm), "cloud-llm-openai");
+        assert_eq!(
+            cloud_config_slot("openai", CloudTaskKind::Stt),
+            "cloud-stt-openai"
+        );
+        assert_eq!(
+            cloud_config_slot("openai", CloudTaskKind::Llm),
+            "cloud-llm-openai"
+        );
     }
 
     #[test]
     fn serde_roundtrip_anthropic() {
-        let config = CloudProviderConfig::Anthropic { api_key: "sk-ant-test".into() };
+        let config = CloudProviderConfig::Anthropic {
+            api_key: "sk-ant-test".into(),
+        };
         let json = serde_json::to_string(&config).unwrap();
         let parsed: CloudProviderConfig = serde_json::from_str(&json).unwrap();
         match parsed {
@@ -184,7 +212,9 @@ mod tests {
         //    This is a coarse but effective guard: a real leak would require both
         //    conditions, which this test makes structurally awkward to add by accident.
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let repo_root = manifest_dir.parent().expect("CARGO_MANIFEST_DIR is src-tauri");
+        let repo_root = manifest_dir
+            .parent()
+            .expect("CARGO_MANIFEST_DIR is src-tauri");
 
         // Walk .rs files in src-tauri/src
         let rs_src_dir = manifest_dir.join("src");
@@ -224,10 +254,10 @@ mod tests {
             let contents = std::fs::read_to_string(&entry).unwrap_or_default();
 
             // Check if file imports supabase client (common patterns)
-            let has_supabase_import = contents.contains("from \"../lib/supabase\"") ||
-                                      contents.contains("from '../lib/supabase'") ||
-                                      contents.contains("from \"@supabase/supabase-js\"") ||
-                                      contents.contains("from '@supabase/supabase-js'");
+            let has_supabase_import = contents.contains("from \"../lib/supabase\"")
+                || contents.contains("from '../lib/supabase'")
+                || contents.contains("from \"@supabase/supabase-js\"")
+                || contents.contains("from '@supabase/supabase-js'");
 
             if has_supabase_import {
                 // If it imports supabase, it must not contain cloud_config or apiKey
@@ -240,12 +270,11 @@ mod tests {
         }
     }
 
-    fn walk_source_files(
-        dir: &std::path::Path,
-        extensions: &[&str],
-    ) -> Vec<std::path::PathBuf> {
+    fn walk_source_files(dir: &std::path::Path, extensions: &[&str]) -> Vec<std::path::PathBuf> {
         let mut out = Vec::new();
-        let Ok(read_dir) = std::fs::read_dir(dir) else { return out };
+        let Ok(read_dir) = std::fs::read_dir(dir) else {
+            return out;
+        };
         for entry in read_dir.flatten() {
             let path = entry.path();
             if path.is_dir() {

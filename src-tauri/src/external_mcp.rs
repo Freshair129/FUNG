@@ -36,6 +36,10 @@ pub(crate) struct CredentialReference {
 
 pub(crate) trait ConnectorCredentialStore {
     fn set(&mut self, account: &str, secret: &str) -> Result<(), String>;
+    /// Part of the credential contract and exercised by its tests. Execution
+    /// resolves secrets through `resolve_connector_credential`, so no
+    /// production path calls this directly yet.
+    #[allow(dead_code)]
     fn get(&mut self, account: &str) -> Result<Option<String>, String>;
     fn delete(&mut self, account: &str) -> Result<(), String>;
 }
@@ -110,6 +114,9 @@ pub(crate) fn store_connector_credential(
     Ok(reference)
 }
 
+/// Retained with the credential contract: no connector requiring a secret is
+/// wired yet, so nothing calls this outside its tests.
+#[allow(dead_code)]
 pub(crate) fn resolve_connector_credential(
     store: &mut impl ConnectorCredentialStore,
     reference: &CredentialReference,
@@ -338,6 +345,9 @@ pub(crate) struct ExternalConnectorSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+// Specified in the external-retrieval contract. The operator UI drives
+// preview/approve directly, so nothing constructs a suggestion yet.
+#[allow(dead_code)]
 pub(crate) struct MeetingToolSuggestion {
     pub(crate) id: String,
     pub(crate) project_id: String,
@@ -438,6 +448,9 @@ impl ExternalMcpErrorCode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+// Contract error envelope. Commands return `ExternalMcpErrorCode` directly,
+// so the wrapper is unused until an surface needs the message alongside it.
+#[allow(dead_code)]
 pub(crate) struct ExternalMcpError {
     pub(crate) code: ExternalMcpErrorCode,
     pub(crate) message: String,
@@ -446,6 +459,9 @@ pub(crate) struct ExternalMcpError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// Audit vocabulary from the contract; only the variants on the wired
+// preview/run/result path are emitted so far.
+#[allow(dead_code)]
 pub(crate) enum ExternalAuditEventType {
     Suggestion,
     Preview,

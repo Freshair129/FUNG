@@ -29,10 +29,14 @@ pub(crate) struct ExtractedItem {
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Extraction {
-    #[serde(default)] pub(crate) topics: Vec<ExtractedItem>,
-    #[serde(default)] pub(crate) decisions: Vec<ExtractedItem>,
-    #[serde(default)] pub(crate) action_items: Vec<ExtractedItem>,
-    #[serde(default)] pub(crate) mentions: Vec<ExtractedItem>,
+    #[serde(default)]
+    pub(crate) topics: Vec<ExtractedItem>,
+    #[serde(default)]
+    pub(crate) decisions: Vec<ExtractedItem>,
+    #[serde(default)]
+    pub(crate) action_items: Vec<ExtractedItem>,
+    #[serde(default)]
+    pub(crate) mentions: Vec<ExtractedItem>,
 }
 
 pub(crate) fn parse_extraction(raw: &str) -> Result<Extraction, String> {
@@ -48,7 +52,11 @@ pub(crate) fn det_node_id(recording_id: &str, kind: &str, label: &str) -> String
 /// Ids of previously-extracted rows for this recording (prefix match done in
 /// Rust because genesis filters are equality-only). `column` is e.g.
 /// "graph_nodes.id"; `prefix` is `gx:{recording_id}:` or `gxe:{recording_id}:`.
-pub(crate) fn stale_extraction_ids(rows: &[serde_json::Value], column: &str, prefix: &str) -> Vec<String> {
+pub(crate) fn stale_extraction_ids(
+    rows: &[serde_json::Value],
+    column: &str,
+    prefix: &str,
+) -> Vec<String> {
     rows.iter()
         .filter_map(|row| row.get(column).and_then(serde_json::Value::as_str))
         .filter(|id| id.starts_with(prefix))
@@ -68,7 +76,11 @@ fn ensure_project_node(
         storage,
         "graph_nodes",
         &["id"],
-        vec![genesis_adapter::eq("graph_nodes", "id", serde_json::json!(project_id))],
+        vec![genesis_adapter::eq(
+            "graph_nodes",
+            "id",
+            serde_json::json!(project_id),
+        )],
         1,
     )?;
     if !existing.is_empty() {
@@ -78,7 +90,11 @@ fn ensure_project_node(
         storage,
         "projects",
         &["name"],
-        vec![genesis_adapter::eq("projects", "id", serde_json::json!(project_id))],
+        vec![genesis_adapter::eq(
+            "projects",
+            "id",
+            serde_json::json!(project_id),
+        )],
         1,
     )?
     .into_iter()
@@ -86,17 +102,23 @@ fn ensure_project_node(
     .map(|row| genesis_adapter::string(&row, "projects.name"))
     .transpose()?
     .unwrap_or_else(|| "Project".to_string());
-    genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("graph_nodes", serde_json::json!({
-        "id": project_id,
-        "project_id": project_id,
-        "entity_type": "project",
-        "entity_id": project_id,
-        "label": label,
-        "position_x": 50.0,
-        "position_y": 17.0,
-        "created_at": timestamp,
-        "updated_at": timestamp,
-    }))])
+    genesis_adapter::commit_rows(
+        storage,
+        vec![genesis_adapter::upsert(
+            "graph_nodes",
+            serde_json::json!({
+                "id": project_id,
+                "project_id": project_id,
+                "entity_type": "project",
+                "entity_id": project_id,
+                "label": label,
+                "position_x": 50.0,
+                "position_y": 17.0,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }),
+        )],
+    )
 }
 
 /// Structural layer: meeting node, speaker nodes, spoke_in + part_of edges.
@@ -110,8 +132,14 @@ pub(crate) fn structural_mutations(
     let meeting_node = format!("meeting:{recording_id}");
     let system_provenance = "{\"actor\":\"system\"}";
     let mut mutations = vec![
-        genesis_adapter::upsert("graph_nodes", serde_json::json!({"id": meeting_node, "project_id": project_id, "entity_type": "meeting", "entity_id": recording_id, "label": meeting_label, "position_x": 50.0, "position_y": 50.0, "created_at": timestamp, "updated_at": timestamp})),
-        genesis_adapter::upsert("graph_edges", serde_json::json!({"id": format!("edge:{meeting_node}:part_of"), "project_id": project_id, "source_node_id": meeting_node, "target_node_id": project_id, "predicate": "part_of", "epistemic_status": "confirmed", "provenance_json": system_provenance, "created_at": timestamp, "updated_at": timestamp})),
+        genesis_adapter::upsert(
+            "graph_nodes",
+            serde_json::json!({"id": meeting_node, "project_id": project_id, "entity_type": "meeting", "entity_id": recording_id, "label": meeting_label, "position_x": 50.0, "position_y": 50.0, "created_at": timestamp, "updated_at": timestamp}),
+        ),
+        genesis_adapter::upsert(
+            "graph_edges",
+            serde_json::json!({"id": format!("edge:{meeting_node}:part_of"), "project_id": project_id, "source_node_id": meeting_node, "target_node_id": project_id, "predicate": "part_of", "epistemic_status": "confirmed", "provenance_json": system_provenance, "created_at": timestamp, "updated_at": timestamp}),
+        ),
     ];
     for (speaker_id, display_name) in speakers {
         let speaker_node = format!("speaker:{speaker_id}");
@@ -149,9 +177,13 @@ pub(crate) fn extraction_mutations(
     ];
     for (kind, items) in groups {
         for item in items {
-            if item.label.trim().is_empty() { continue; }
+            if item.label.trim().is_empty() {
+                continue;
+            }
             let node_id = det_node_id(recording_id, kind, &item.label);
-            let evidence: Vec<&str> = item.evidence.iter()
+            let evidence: Vec<&str> = item
+                .evidence
+                .iter()
                 .filter_map(|index| segment_ids.get(*index).map(String::as_str))
                 .collect();
             let provenance = serde_json::json!({
@@ -161,7 +193,8 @@ pub(crate) fn extraction_mutations(
                 "confidence": item.confidence,
                 "owner": item.owner,
                 "kind": item.kind,
-            }).to_string();
+            })
+            .to_string();
             mutations.push(genesis_adapter::upsert("graph_nodes", serde_json::json!({"id": node_id, "project_id": project_id, "entity_type": kind, "entity_id": node_id, "label": item.label, "position_x": 70.0, "position_y": 30.0, "created_at": timestamp, "updated_at": timestamp})));
             mutations.push(genesis_adapter::upsert("graph_edges", serde_json::json!({"id": format!("gxe:{recording_id}:{}", &node_id[node_id.len() - 16..]), "project_id": project_id, "source_node_id": node_id, "target_node_id": meeting_node, "predicate": "extracted_from", "epistemic_status": "ai_proposed", "provenance_json": provenance, "created_at": timestamp, "updated_at": timestamp})));
         }
@@ -178,23 +211,49 @@ Labels must be in the transcript's language (Thai stays Thai). Evidence lists th
 Transcript:
 "#;
 
-pub(crate) fn llm_provider_config(storage: &genesis_block_native::Storage) -> Result<(String, String), String> {
-    let row = genesis_adapter::query(storage, "model_providers", &["config_json", "enabled"],
-        vec![genesis_adapter::eq("model_providers", "id", serde_json::json!("ollama-summary-intent"))], 1)?
-        .into_iter().next().ok_or_else(|| "summary/intent model provider is not configured".to_string())?;
-    let enabled = row.get("model_providers.enabled")
-        .and_then(|value| value.as_bool().or_else(|| value.as_i64().map(|number| number != 0)))
+pub(crate) fn llm_provider_config(
+    storage: &genesis_block_native::Storage,
+) -> Result<(String, String), String> {
+    let row = genesis_adapter::query(
+        storage,
+        "model_providers",
+        &["config_json", "enabled"],
+        vec![genesis_adapter::eq(
+            "model_providers",
+            "id",
+            serde_json::json!("ollama-summary-intent"),
+        )],
+        1,
+    )?
+    .into_iter()
+    .next()
+    .ok_or_else(|| "summary/intent model provider is not configured".to_string())?;
+    let enabled = row
+        .get("model_providers.enabled")
+        .and_then(|value| {
+            value
+                .as_bool()
+                .or_else(|| value.as_i64().map(|number| number != 0))
+        })
         .unwrap_or(false);
     if !enabled {
         return Err("summary/intent model provider is disabled".to_string());
     }
-    let config = row.get("model_providers.config_json").and_then(serde_json::Value::as_str)
+    let config = row
+        .get("model_providers.config_json")
+        .and_then(serde_json::Value::as_str)
         .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
         .unwrap_or(serde_json::Value::Null);
-    let endpoint = config.get("endpoint").and_then(serde_json::Value::as_str)
-        .unwrap_or("http://127.0.0.1:11434").to_string();
-    let model = config.get("model").and_then(serde_json::Value::as_str)
-        .unwrap_or("llama3.1:8b").to_string();
+    let endpoint = config
+        .get("endpoint")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("http://127.0.0.1:11434")
+        .to_string();
+    let model = config
+        .get("model")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("llama3.1:8b")
+        .to_string();
     let model = resolve_available_model(&endpoint, model);
     Ok((endpoint, model))
 }
@@ -235,11 +294,18 @@ fn resolve_available_model(endpoint: &str, configured: String) -> String {
 }
 
 pub(crate) fn call_llm(endpoint: &str, model: &str, prompt: &str) -> Result<String, String> {
-    #[derive(Deserialize)] struct ChatMessage { content: String }
-    #[derive(Deserialize)] struct ChatResponse { message: ChatMessage }
+    #[derive(Deserialize)]
+    struct ChatMessage {
+        content: String,
+    }
+    #[derive(Deserialize)]
+    struct ChatResponse {
+        message: ChatMessage,
+    }
     let response = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(600))
-        .build().map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())?
         .post(format!("{endpoint}/api/chat"))
         .json(&serde_json::json!({
             "model": model,
@@ -247,11 +313,15 @@ pub(crate) fn call_llm(endpoint: &str, model: &str, prompt: &str) -> Result<Stri
             "stream": false,
             "format": "json",
         }))
-        .send().map_err(|e| send_error_message(endpoint, &e))?;
+        .send()
+        .map_err(|e| send_error_message(endpoint, &e))?;
     if !response.status().is_success() {
         return Err(format!("LLM endpoint returned {}", response.status()));
     }
-    response.json::<ChatResponse>().map(|r| r.message.content).map_err(|e| e.to_string())
+    response
+        .json::<ChatResponse>()
+        .map(|r| r.message.content)
+        .map_err(|e| e.to_string())
 }
 
 /// Error text for a failed `send()` in [`call_llm`].
@@ -288,10 +358,19 @@ pub(crate) fn start_graph_build(
 ) {
     let job_id = Uuid::new_v4().to_string();
     let timestamp = now();
-    let seeded = genesis_adapter::commit_rows(&storage, vec![
-        genesis_adapter::upsert("jobs", serde_json::json!({"id": job_id, "project_id": project_id, "type": "graph.build", "status": "running", "progress": 0, "input_refs_json": [recording_id], "output_refs_json": [], "provider_id": null, "error_code": null, "error_message": null, "attempt_no": 1, "started_at": timestamp, "finished_at": null, "created_at": timestamp, "updated_at": timestamp})),
-        genesis_adapter::upsert("job_events", serde_json::json!({"id": Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": "building knowledge graph", "created_at": timestamp})),
-    ]);
+    let seeded = genesis_adapter::commit_rows(
+        &storage,
+        vec![
+            genesis_adapter::upsert(
+                "jobs",
+                serde_json::json!({"id": job_id, "project_id": project_id, "type": "graph.build", "status": "running", "progress": 0, "input_refs_json": [recording_id], "output_refs_json": [], "provider_id": null, "error_code": null, "error_message": null, "attempt_no": 1, "started_at": timestamp, "finished_at": null, "created_at": timestamp, "updated_at": timestamp}),
+            ),
+            genesis_adapter::upsert(
+                "job_events",
+                serde_json::json!({"id": Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": "building knowledge graph", "created_at": timestamp}),
+            ),
+        ],
+    );
     if let Err(message) = seeded {
         // The graph.build job row itself could not be created, so it has no
         // way to report its own failure and the build silently never
@@ -299,21 +378,35 @@ pub(crate) fn start_graph_build(
         // the zoom.import job, which may already have reported "completed")
         // so the failure isn't invisible.
         if let Some(import_job_id) = import_job_id {
-            let _ = genesis_adapter::commit_rows(&storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({
-                "id": Uuid::new_v4().to_string(),
-                "job_id": import_job_id,
-                "status": "failed",
-                "message": format!("graph build could not start: {message}"),
-                "created_at": now(),
-            }))]);
+            let _ = genesis_adapter::commit_rows(
+                &storage,
+                vec![genesis_adapter::upsert(
+                    "job_events",
+                    serde_json::json!({
+                        "id": Uuid::new_v4().to_string(),
+                        "job_id": import_job_id,
+                        "status": "failed",
+                        "message": format!("graph build could not start: {message}"),
+                        "created_at": now(),
+                    }),
+                )],
+            );
         }
         return;
     }
     std::thread::spawn(move || {
-        let outcome = run_graph_build(&storage, &project_id, &recording_id, &meeting_label, &job_id);
+        let outcome = run_graph_build(
+            &storage,
+            &project_id,
+            &recording_id,
+            &meeting_label,
+            &job_id,
+        );
         let _ = match outcome {
             Ok(()) => crate::set_job_status(&storage, &job_id, "completed", Some(100), None),
-            Err(message) => crate::set_job_status(&storage, &job_id, "failed", None, Some(&message)),
+            Err(message) => {
+                crate::set_job_status(&storage, &job_id, "failed", None, Some(&message))
+            }
         };
     });
 }
@@ -332,18 +425,37 @@ fn run_graph_build(
     // evidence-segment-id list used below and the LLM prompt. There is no
     // offset/cursor to page around this for a read that must return every
     // segment in one shot the way this prompt needs it.
-    let mut segment_rows = genesis_adapter::query(storage, "transcript_segments", &["id", "start_ms", "text", "speaker_id"],
-        vec![genesis_adapter::eq("transcript_segments", "recording_id", serde_json::json!(recording_id))], QUERY_ROW_CEILING)?;
-    segment_rows.sort_by_key(|row| row.get("transcript_segments.start_ms").and_then(serde_json::Value::as_i64).unwrap_or(0));
+    let mut segment_rows = genesis_adapter::query(
+        storage,
+        "transcript_segments",
+        &["id", "start_ms", "text", "speaker_id"],
+        vec![genesis_adapter::eq(
+            "transcript_segments",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+        QUERY_ROW_CEILING,
+    )?;
+    segment_rows.sort_by_key(|row| {
+        row.get("transcript_segments.start_ms")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0)
+    });
     if segment_rows.len() >= QUERY_ROW_CEILING as usize {
         let timestamp = now();
-        let _ = genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({
-            "id": Uuid::new_v4().to_string(),
-            "job_id": job_id,
-            "status": "running",
-            "message": "transcript exceeds the 1000-row query ceiling; graph extraction covers only the first 1000 segments",
-            "created_at": timestamp,
-        }))]);
+        let _ = genesis_adapter::commit_rows(
+            storage,
+            vec![genesis_adapter::upsert(
+                "job_events",
+                serde_json::json!({
+                    "id": Uuid::new_v4().to_string(),
+                    "job_id": job_id,
+                    "status": "running",
+                    "message": "transcript exceeds the 1000-row query ceiling; graph extraction covers only the first 1000 segments",
+                    "created_at": timestamp,
+                }),
+            )],
+        );
     }
 
     // Speakers for the `spoke_in` edges must be scoped to *this recording*,
@@ -355,45 +467,96 @@ fn run_graph_build(
     // from its transcript segments and speaker turns, then resolve display
     // names by pulling the project's speakers (capped, like every other
     // query here) and keeping only the ids that are actually in scope.
-    let mut recording_speaker_ids: std::collections::HashSet<String> = segment_rows.iter()
-        .filter_map(|row| row.get("transcript_segments.speaker_id").and_then(serde_json::Value::as_str))
+    let mut recording_speaker_ids: std::collections::HashSet<String> = segment_rows
+        .iter()
+        .filter_map(|row| {
+            row.get("transcript_segments.speaker_id")
+                .and_then(serde_json::Value::as_str)
+        })
         .map(str::to_owned)
         .collect();
-    let turn_rows = genesis_adapter::query(storage, "speaker_turns", &["speaker_id"],
-        vec![genesis_adapter::eq("speaker_turns", "recording_id", serde_json::json!(recording_id))], QUERY_ROW_CEILING)?;
+    let turn_rows = genesis_adapter::query(
+        storage,
+        "speaker_turns",
+        &["speaker_id"],
+        vec![genesis_adapter::eq(
+            "speaker_turns",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+        QUERY_ROW_CEILING,
+    )?;
     if turn_rows.len() >= QUERY_ROW_CEILING as usize {
         let timestamp = now();
-        let _ = genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({
-            "id": Uuid::new_v4().to_string(),
-            "job_id": job_id,
-            "status": "running",
-            "message": "recording's speaker turns exceed the 1000-row query ceiling; some turn-only speakers may be missing from the graph",
-            "created_at": timestamp,
-        }))]);
+        let _ = genesis_adapter::commit_rows(
+            storage,
+            vec![genesis_adapter::upsert(
+                "job_events",
+                serde_json::json!({
+                    "id": Uuid::new_v4().to_string(),
+                    "job_id": job_id,
+                    "status": "running",
+                    "message": "recording's speaker turns exceed the 1000-row query ceiling; some turn-only speakers may be missing from the graph",
+                    "created_at": timestamp,
+                }),
+            )],
+        );
     }
-    recording_speaker_ids.extend(turn_rows.iter()
-        .filter_map(|row| row.get("speaker_turns.speaker_id").and_then(serde_json::Value::as_str).map(str::to_owned)));
+    recording_speaker_ids.extend(turn_rows.iter().filter_map(|row| {
+        row.get("speaker_turns.speaker_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    }));
 
-    let speaker_rows = genesis_adapter::query(storage, "speakers", &["id", "display_name"],
-        vec![genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id))], QUERY_ROW_CEILING)?;
+    let speaker_rows = genesis_adapter::query(
+        storage,
+        "speakers",
+        &["id", "display_name"],
+        vec![genesis_adapter::eq(
+            "speakers",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
+        QUERY_ROW_CEILING,
+    )?;
     if speaker_rows.len() >= QUERY_ROW_CEILING as usize {
         let timestamp = now();
-        let _ = genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({
-            "id": Uuid::new_v4().to_string(),
-            "job_id": job_id,
-            "status": "running",
-            "message": "project speakers exceed the 1000-row query ceiling; some of this recording's speakers may be missing from the graph",
-            "created_at": timestamp,
-        }))]);
+        let _ = genesis_adapter::commit_rows(
+            storage,
+            vec![genesis_adapter::upsert(
+                "job_events",
+                serde_json::json!({
+                    "id": Uuid::new_v4().to_string(),
+                    "job_id": job_id,
+                    "status": "running",
+                    "message": "project speakers exceed the 1000-row query ceiling; some of this recording's speakers may be missing from the graph",
+                    "created_at": timestamp,
+                }),
+            )],
+        );
     }
-    let speakers: Vec<(String, String)> = speaker_rows.iter().filter_map(|row| {
-        let id = row.get("speakers.id")?.as_str()?.to_string();
-        if !recording_speaker_ids.contains(&id) { return None; }
-        Some((id, row.get("speakers.display_name")?.as_str()?.to_string()))
-    }).collect();
+    let speakers: Vec<(String, String)> = speaker_rows
+        .iter()
+        .filter_map(|row| {
+            let id = row.get("speakers.id")?.as_str()?.to_string();
+            if !recording_speaker_ids.contains(&id) {
+                return None;
+            }
+            Some((id, row.get("speakers.display_name")?.as_str()?.to_string()))
+        })
+        .collect();
     let timestamp = now();
     ensure_project_node(storage, project_id, &timestamp)?;
-    genesis_adapter::commit_rows(storage, structural_mutations(project_id, recording_id, meeting_label, &speakers, &timestamp))?;
+    genesis_adapter::commit_rows(
+        storage,
+        structural_mutations(
+            project_id,
+            recording_id,
+            meeting_label,
+            &speakers,
+            &timestamp,
+        ),
+    )?;
     let _ = crate::set_job_status(storage, job_id, "running", Some(20), None);
 
     // 2) Find (but do not yet delete) old extraction rows for this recording,
@@ -409,19 +572,45 @@ fn run_graph_build(
     // replacing them. There is no offset to page further into an
     // equality-only, non-deletable remainder, so this is a known limitation
     // rather than a silently-patched one.
-    let node_rows = genesis_adapter::query(storage, "graph_nodes", &["id"],
-        vec![genesis_adapter::eq("graph_nodes", "project_id", serde_json::json!(project_id))], QUERY_ROW_CEILING)?;
-    let edge_rows = genesis_adapter::query(storage, "graph_edges", &["id"],
-        vec![genesis_adapter::eq("graph_edges", "project_id", serde_json::json!(project_id))], QUERY_ROW_CEILING)?;
-    if node_rows.len() >= QUERY_ROW_CEILING as usize || edge_rows.len() >= QUERY_ROW_CEILING as usize {
+    let node_rows = genesis_adapter::query(
+        storage,
+        "graph_nodes",
+        &["id"],
+        vec![genesis_adapter::eq(
+            "graph_nodes",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
+        QUERY_ROW_CEILING,
+    )?;
+    let edge_rows = genesis_adapter::query(
+        storage,
+        "graph_edges",
+        &["id"],
+        vec![genesis_adapter::eq(
+            "graph_edges",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
+        QUERY_ROW_CEILING,
+    )?;
+    if node_rows.len() >= QUERY_ROW_CEILING as usize
+        || edge_rows.len() >= QUERY_ROW_CEILING as usize
+    {
         let timestamp = now();
-        let _ = genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({
-            "id": Uuid::new_v4().to_string(),
-            "job_id": job_id,
-            "status": "running",
-            "message": "project graph exceeds the 1000-row query ceiling; some superseded extraction rows may remain",
-            "created_at": timestamp,
-        }))]);
+        let _ = genesis_adapter::commit_rows(
+            storage,
+            vec![genesis_adapter::upsert(
+                "job_events",
+                serde_json::json!({
+                    "id": Uuid::new_v4().to_string(),
+                    "job_id": job_id,
+                    "status": "running",
+                    "message": "project graph exceeds the 1000-row query ceiling; some superseded extraction rows may remain",
+                    "created_at": timestamp,
+                }),
+            )],
+        );
     }
     // Computed here (queries happen where they always did) but NOT committed
     // yet: deleting the prior extraction before the LLM call means an
@@ -431,7 +620,11 @@ fn run_graph_build(
     // succeeded — extraction ids are deterministic, so delete+insert in one
     // batch is still idempotent.
     let mut cleanup = Vec::new();
-    for id in stale_extraction_ids(&edge_rows, "graph_edges.id", &format!("gxe:{recording_id}:")) {
+    for id in stale_extraction_ids(
+        &edge_rows,
+        "graph_edges.id",
+        &format!("gxe:{recording_id}:"),
+    ) {
         cleanup.push(genesis_adapter::delete("graph_edges", &id));
     }
     for id in stale_extraction_ids(&node_rows, "graph_nodes.id", &format!("gx:{recording_id}:")) {
@@ -442,12 +635,20 @@ fn run_graph_build(
     //    the user can retry — structural graph above is already committed,
     //    and the prior extraction (if any) is untouched since its cleanup
     //    hasn't been committed yet).
-    let segment_ids: Vec<String> = segment_rows.iter()
-        .filter_map(|row| row.get("transcript_segments.id").and_then(serde_json::Value::as_str).map(str::to_owned))
+    let segment_ids: Vec<String> = segment_rows
+        .iter()
+        .filter_map(|row| {
+            row.get("transcript_segments.id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
         .collect();
     let mut prompt = String::from(EXTRACTION_PROMPT_HEADER);
     for (index, row) in segment_rows.iter().enumerate() {
-        let text = row.get("transcript_segments.text").and_then(serde_json::Value::as_str).unwrap_or_default();
+        let text = row
+            .get("transcript_segments.text")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
         prompt.push_str(&format!("[{index}] {text}\n"));
     }
     let (endpoint, model) = llm_provider_config(storage)?;
@@ -458,11 +659,13 @@ fn run_graph_build(
     // Deriving it from the Storage already in hand keeps the path off
     // start_graph_build's signature, which runs on a detached worker thread
     // with no AppState in scope.
-    let data_root = storage.path.parent()
-        .ok_or_else(|| "cannot locate the app data directory from the graph storage path".to_string())?;
+    let data_root = storage.path.parent().ok_or_else(|| {
+        "cannot locate the app data directory from the graph storage path".to_string()
+    })?;
     let policy_conn = crate::paired_devices_connection_at(data_root).map_err(|e| e.to_string())?;
     let policy = crate::policy::load_policy(&policy_conn)?;
-    let calls_today = crate::policy::calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Llm)?;
+    let calls_today =
+        crate::policy::calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Llm)?;
     // The fallback itself lives in cloud_executor.rs, which is the module
     // allowed to handle key-bearing cloud configs; see the guard note there.
     let cloud = crate::cloud_executor::first_configured_llm_provider();
@@ -472,7 +675,11 @@ fn run_graph_build(
     // cloud-fallback build.
     let (raw, runtime_location) = crate::cloud_executor::call_llm_with_fallback(
         || call_llm(&endpoint, &model, &prompt),
-        &prompt, cloud.as_ref(), &policy, calls_today, &policy_conn,
+        &prompt,
+        cloud.as_ref(),
+        &policy,
+        calls_today,
+        &policy_conn,
     )?;
     let extraction = parse_extraction(&raw)?;
     let _ = crate::set_job_status(storage, job_id, "running", Some(80), None);
@@ -483,7 +690,14 @@ fn run_graph_build(
     // commit — only now that the new extraction has actually parsed.
     let mut mutations = cleanup;
     mutations.push(genesis_adapter::upsert("model_runs", serde_json::json!({"id": model_run_id, "recording_id": recording_id, "provider_id": "ollama-summary-intent", "model_name": model, "task_kind": "graph_extraction", "runtime_location": runtime_location, "input_ref": recording_id, "output_ref": format!("graph:{recording_id}"), "parameters_json": {"endpoint": endpoint}, "created_at": timestamp})));
-    mutations.extend(extraction_mutations(project_id, recording_id, &model_run_id, &extraction, &segment_ids, &timestamp));
+    mutations.extend(extraction_mutations(
+        project_id,
+        recording_id,
+        &model_run_id,
+        &extraction,
+        &segment_ids,
+        &timestamp,
+    ));
     genesis_adapter::commit_rows(storage, mutations)
 }
 
@@ -494,12 +708,26 @@ pub(crate) fn graph_build_start(
     recording_id: String,
     state: tauri::State<'_, crate::AppState>,
 ) -> crate::AppResult<()> {
-    let label = genesis_adapter::query(&state.genesis, "projects", &["name"],
-        vec![genesis_adapter::eq("projects", "id", serde_json::json!(project_id))], 1)
-        .map_err(crate::AppError::Genesis)?
-        .into_iter().next()
-        .and_then(|row| row.get("projects.name").and_then(serde_json::Value::as_str).map(str::to_owned))
-        .unwrap_or_else(|| "Meeting".to_string());
+    let label = genesis_adapter::query(
+        &state.genesis,
+        "projects",
+        &["name"],
+        vec![genesis_adapter::eq(
+            "projects",
+            "id",
+            serde_json::json!(project_id),
+        )],
+        1,
+    )
+    .map_err(crate::AppError::Genesis)?
+    .into_iter()
+    .next()
+    .and_then(|row| {
+        row.get("projects.name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    })
+    .unwrap_or_else(|| "Meeting".to_string());
     start_graph_build(state.genesis.clone(), project_id, recording_id, label, None);
     Ok(())
 }
@@ -541,30 +769,49 @@ mod tests {
             serde_json::json!({"graph_nodes.id": "meeting:rec-1"}),
             serde_json::json!({"graph_nodes.id": "some-note"}),
         ];
-        assert_eq!(stale_extraction_ids(&rows, "graph_nodes.id", "gx:rec-1:"), vec!["gx:rec-1:aaaa".to_string()]);
+        assert_eq!(
+            stale_extraction_ids(&rows, "graph_nodes.id", "gx:rec-1:"),
+            vec!["gx:rec-1:aaaa".to_string()]
+        );
     }
 
     #[test]
     fn extraction_mutations_carry_evidence_in_edge_provenance() {
         let extraction = parse_extraction(EXTRACTION_FIXTURE).unwrap();
-        let segment_ids = vec!["s0".to_string(), "s1".to_string(), "s2".to_string(), "s3".to_string()];
-        let mutations = extraction_mutations("p1", "rec-1", "run-1", &extraction, &segment_ids, "t");
+        let segment_ids = vec![
+            "s0".to_string(),
+            "s1".to_string(),
+            "s2".to_string(),
+            "s3".to_string(),
+        ];
+        let mutations =
+            extraction_mutations("p1", "rec-1", "run-1", &extraction, &segment_ids, "t");
         // 4 entities → 4 nodes + 4 edges.
         assert_eq!(mutations.len(), 8);
-        let edge = mutations.iter().find_map(|m| {
-            (m.table == "graph_edges").then(|| m.values.clone())
-        }).unwrap();
-        let provenance: serde_json::Value = serde_json::from_str(edge["provenance_json"].as_str().unwrap()).unwrap();
+        let edge = mutations
+            .iter()
+            .find_map(|m| (m.table == "graph_edges").then(|| m.values.clone()))
+            .unwrap();
+        let provenance: serde_json::Value =
+            serde_json::from_str(edge["provenance_json"].as_str().unwrap()).unwrap();
         assert_eq!(provenance["actor"], "ai");
-        assert!(provenance["evidenceSegmentIds"].as_array().unwrap().iter().all(|v| v.as_str().unwrap().starts_with('s')));
+        assert!(provenance["evidenceSegmentIds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v.as_str().unwrap().starts_with('s')));
         assert_eq!(edge["epistemic_status"], "ai_proposed");
     }
 
     fn open_storage() -> (std::path::PathBuf, genesis_block_native::Storage) {
         let path = std::env::temp_dir().join(format!("fung-graph-test-{}", Uuid::new_v4()));
         let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
-            path: path.display().to_string(), page_cache_mb: Some(16), read_only: Some(false), vector_dim: Some(4),
-        }).unwrap();
+            path: path.display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+        })
+        .unwrap();
         crate::genesis_adapter::install(&storage).unwrap();
         (path, storage)
     }
@@ -581,20 +828,47 @@ mod tests {
         ensure_project_node(&storage, "p1", "t").unwrap();
         crate::genesis_adapter::commit_rows(
             &storage,
-            structural_mutations("p1", "r1", "Weekly sync", &[("s1".to_string(), "Boss".to_string())], "t"),
+            structural_mutations(
+                "p1",
+                "r1",
+                "Weekly sync",
+                &[("s1".to_string(), "Boss".to_string())],
+                "t",
+            ),
         )
         .expect("structural commit must not violate the graph_edges foreign key");
 
-        let nodes = crate::genesis_adapter::query(&storage, "graph_nodes", &["id"],
-            vec![crate::genesis_adapter::eq("graph_nodes", "project_id", serde_json::json!("p1"))], 100).unwrap();
+        let nodes = crate::genesis_adapter::query(
+            &storage,
+            "graph_nodes",
+            &["id"],
+            vec![crate::genesis_adapter::eq(
+                "graph_nodes",
+                "project_id",
+                serde_json::json!("p1"),
+            )],
+            100,
+        )
+        .unwrap();
         // project + meeting + speaker
         assert_eq!(nodes.len(), 3);
-        let edges = crate::genesis_adapter::query(&storage, "graph_edges", &["id"],
-            vec![crate::genesis_adapter::eq("graph_edges", "project_id", serde_json::json!("p1"))], 100).unwrap();
+        let edges = crate::genesis_adapter::query(
+            &storage,
+            "graph_edges",
+            &["id"],
+            vec![crate::genesis_adapter::eq(
+                "graph_edges",
+                "project_id",
+                serde_json::json!("p1"),
+            )],
+            100,
+        )
+        .unwrap();
         // part_of + spoke_in
         assert_eq!(edges.len(), 2);
 
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
@@ -607,12 +881,26 @@ mod tests {
 
         ensure_project_node(&storage, "p1", "t2").unwrap();
 
-        let rows = crate::genesis_adapter::query(&storage, "graph_nodes", &["id", "label"],
-            vec![crate::genesis_adapter::eq("graph_nodes", "id", serde_json::json!("p1"))], 10).unwrap();
+        let rows = crate::genesis_adapter::query(
+            &storage,
+            "graph_nodes",
+            &["id", "label"],
+            vec![crate::genesis_adapter::eq(
+                "graph_nodes",
+                "id",
+                serde_json::json!("p1"),
+            )],
+            10,
+        )
+        .unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0]["graph_nodes.label"], "Renamed by user", "must not overwrite a user-edited label");
+        assert_eq!(
+            rows[0]["graph_nodes.label"], "Renamed by user",
+            "must not overwrite a user-edited label"
+        );
 
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
@@ -634,13 +922,31 @@ mod tests {
         // No model_providers row exists (e.g. Ollama not configured/running),
         // so llm_provider_config fails before any network call.
         let outcome = run_graph_build(&storage, "p1", "r1", "Weekly sync", "job-does-not-exist");
-        assert!(outcome.is_err(), "a missing LLM provider must fail the build");
+        assert!(
+            outcome.is_err(),
+            "a missing LLM provider must fail the build"
+        );
 
-        let nodes = crate::genesis_adapter::query(&storage, "graph_nodes", &["id"],
-            vec![crate::genesis_adapter::eq("graph_nodes", "id", serde_json::json!(prior_node_id))], 1).unwrap();
-        assert_eq!(nodes.len(), 1, "a failed LLM call must not delete the prior extraction");
+        let nodes = crate::genesis_adapter::query(
+            &storage,
+            "graph_nodes",
+            &["id"],
+            vec![crate::genesis_adapter::eq(
+                "graph_nodes",
+                "id",
+                serde_json::json!(prior_node_id),
+            )],
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            nodes.len(),
+            1,
+            "a failed LLM call must not delete the prior extraction"
+        );
 
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     /// The tier-3 cloud fallback decides whether to retry in the cloud by

@@ -15,7 +15,12 @@ fn truncated(body: &str) -> &str {
     if body.len() <= 500 {
         return body;
     }
-    let end = body.char_indices().take_while(|(i, _)| *i < 500).last().map(|(i, c)| i + c.len_utf8()).unwrap_or(0);
+    let end = body
+        .char_indices()
+        .take_while(|(i, _)| *i < 500)
+        .last()
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
     &body[..end]
 }
 
@@ -44,10 +49,15 @@ pub(crate) fn mime_for_audio_path(path: &Path) -> &'static str {
     }
 }
 
-pub(crate) fn dispatch_stt(config: &CloudProviderConfig, audio_path: &Path) -> Result<Vec<Segment>, String> {
+pub(crate) fn dispatch_stt(
+    config: &CloudProviderConfig,
+    audio_path: &Path,
+) -> Result<Vec<Segment>, String> {
     match config {
         CloudProviderConfig::OpenAi { api_key } => openai_stt(api_key, audio_path),
-        CloudProviderConfig::Custom { endpoint, api_key, .. } => custom_stt(endpoint, api_key, audio_path),
+        CloudProviderConfig::Custom {
+            endpoint, api_key, ..
+        } => custom_stt(endpoint, api_key, audio_path),
         CloudProviderConfig::Anthropic { .. } => Err("Anthropic ไม่มีบริการ STT".into()),
     }
 }
@@ -56,15 +66,23 @@ pub(crate) fn dispatch_llm(config: &CloudProviderConfig, prompt: &str) -> Result
     match config {
         CloudProviderConfig::Anthropic { api_key } => anthropic_llm(api_key, prompt),
         CloudProviderConfig::OpenAi { api_key } => openai_llm(api_key, prompt),
-        CloudProviderConfig::Custom { endpoint, api_key, .. } => custom_llm(endpoint, api_key, prompt),
+        CloudProviderConfig::Custom {
+            endpoint, api_key, ..
+        } => custom_llm(endpoint, api_key, prompt),
     }
 }
 
 fn openai_stt(api_key: &str, audio_path: &Path) -> Result<Vec<Segment>, String> {
     #[derive(serde::Deserialize)]
-    struct OpenAiSttSegment { start: f64, end: f64, text: String }
+    struct OpenAiSttSegment {
+        start: f64,
+        end: f64,
+        text: String,
+    }
     #[derive(serde::Deserialize)]
-    struct OpenAiSttResponse { segments: Vec<OpenAiSttSegment> }
+    struct OpenAiSttResponse {
+        segments: Vec<OpenAiSttSegment>,
+    }
 
     let file_name = audio_path
         .file_name()
@@ -90,7 +108,13 @@ fn openai_stt(api_key: &str, audio_path: &Path) -> Result<Vec<Segment>, String> 
         .header("Authorization", format!("Bearer {api_key}"))
         .multipart(form)
         .send()
-        .map_err(|e| if e.is_timeout() { "OpenAI STT ไม่ตอบสนองภายใน 120 วินาที".to_string() } else { format!("เชื่อมต่อ OpenAI STT ไม่ได้: {e}") })?;
+        .map_err(|e| {
+            if e.is_timeout() {
+                "OpenAI STT ไม่ตอบสนองภายใน 120 วินาที".to_string()
+            } else {
+                format!("เชื่อมต่อ OpenAI STT ไม่ได้: {e}")
+            }
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -98,7 +122,9 @@ fn openai_stt(api_key: &str, audio_path: &Path) -> Result<Vec<Segment>, String> 
         return Err(format!("OpenAI STT ตอบ {status}: {}", truncated(&body)));
     }
 
-    let parsed: OpenAiSttResponse = response.json().map_err(|e| format!("อ่าน response OpenAI STT ไม่ได้: {e}"))?;
+    let parsed: OpenAiSttResponse = response
+        .json()
+        .map_err(|e| format!("อ่าน response OpenAI STT ไม่ได้: {e}"))?;
     Ok(parsed
         .segments
         .into_iter()
@@ -123,21 +149,36 @@ fn custom_stt(endpoint: &str, api_key: &str, audio_path: &Path) -> Result<Vec<Se
         .header("Content-Type", mime_for_audio_path(audio_path))
         .body(bytes)
         .send()
-        .map_err(|e| if e.is_timeout() { "custom STT endpoint ไม่ตอบสนองภายใน 120 วินาที".to_string() } else { format!("เชื่อมต่อ custom STT endpoint ไม่ได้: {e}") })?;
+        .map_err(|e| {
+            if e.is_timeout() {
+                "custom STT endpoint ไม่ตอบสนองภายใน 120 วินาที".to_string()
+            } else {
+                format!("เชื่อมต่อ custom STT endpoint ไม่ได้: {e}")
+            }
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().unwrap_or_default();
-        return Err(format!("custom STT endpoint ตอบ {status}: {}", truncated(&body)));
+        return Err(format!(
+            "custom STT endpoint ตอบ {status}: {}",
+            truncated(&body)
+        ));
     }
-    response.json::<Vec<Segment>>().map_err(|e| format!("อ่าน response custom STT ไม่ได้: {e}"))
+    response
+        .json::<Vec<Segment>>()
+        .map_err(|e| format!("อ่าน response custom STT ไม่ได้: {e}"))
 }
 
 fn anthropic_llm(api_key: &str, prompt: &str) -> Result<String, String> {
     #[derive(serde::Deserialize)]
-    struct ContentBlock { text: String }
+    struct ContentBlock {
+        text: String,
+    }
     #[derive(serde::Deserialize)]
-    struct MessagesResponse { content: Vec<ContentBlock> }
+    struct MessagesResponse {
+        content: Vec<ContentBlock>,
+    }
 
     let client = reqwest::blocking::Client::builder()
         .timeout(LLM_TIMEOUT)
@@ -153,24 +194,43 @@ fn anthropic_llm(api_key: &str, prompt: &str) -> Result<String, String> {
             "messages": [{"role": "user", "content": prompt}],
         }))
         .send()
-        .map_err(|e| if e.is_timeout() { "Anthropic ไม่ตอบสนองภายใน 60 วินาที".to_string() } else { format!("เชื่อมต่อ Anthropic ไม่ได้: {e}") })?;
+        .map_err(|e| {
+            if e.is_timeout() {
+                "Anthropic ไม่ตอบสนองภายใน 60 วินาที".to_string()
+            } else {
+                format!("เชื่อมต่อ Anthropic ไม่ได้: {e}")
+            }
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().unwrap_or_default();
         return Err(format!("Anthropic ตอบ {status}: {}", truncated(&body)));
     }
-    let parsed: MessagesResponse = response.json().map_err(|e| format!("อ่าน response Anthropic ไม่ได้: {e}"))?;
-    parsed.content.into_iter().next().map(|c| c.text).ok_or_else(|| "Anthropic ตอบกลับไม่มีเนื้อหา".to_string())
+    let parsed: MessagesResponse = response
+        .json()
+        .map_err(|e| format!("อ่าน response Anthropic ไม่ได้: {e}"))?;
+    parsed
+        .content
+        .into_iter()
+        .next()
+        .map(|c| c.text)
+        .ok_or_else(|| "Anthropic ตอบกลับไม่มีเนื้อหา".to_string())
 }
 
 fn openai_llm(api_key: &str, prompt: &str) -> Result<String, String> {
     #[derive(serde::Deserialize)]
-    struct Choice { message: ChoiceMessage }
+    struct Choice {
+        message: ChoiceMessage,
+    }
     #[derive(serde::Deserialize)]
-    struct ChoiceMessage { content: String }
+    struct ChoiceMessage {
+        content: String,
+    }
     #[derive(serde::Deserialize)]
-    struct ChatResponse { choices: Vec<Choice> }
+    struct ChatResponse {
+        choices: Vec<Choice>,
+    }
 
     let client = reqwest::blocking::Client::builder()
         .timeout(LLM_TIMEOUT)
@@ -184,24 +244,41 @@ fn openai_llm(api_key: &str, prompt: &str) -> Result<String, String> {
             "messages": [{"role": "user", "content": prompt}],
         }))
         .send()
-        .map_err(|e| if e.is_timeout() { "OpenAI ไม่ตอบสนองภายใน 60 วินาที".to_string() } else { format!("เชื่อมต่อ OpenAI ไม่ได้: {e}") })?;
+        .map_err(|e| {
+            if e.is_timeout() {
+                "OpenAI ไม่ตอบสนองภายใน 60 วินาที".to_string()
+            } else {
+                format!("เชื่อมต่อ OpenAI ไม่ได้: {e}")
+            }
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().unwrap_or_default();
         return Err(format!("OpenAI ตอบ {status}: {}", truncated(&body)));
     }
-    let parsed: ChatResponse = response.json().map_err(|e| format!("อ่าน response OpenAI ไม่ได้: {e}"))?;
-    parsed.choices.into_iter().next().map(|c| c.message.content).ok_or_else(|| "OpenAI ตอบกลับไม่มีเนื้อหา".to_string())
+    let parsed: ChatResponse = response
+        .json()
+        .map_err(|e| format!("อ่าน response OpenAI ไม่ได้: {e}"))?;
+    parsed
+        .choices
+        .into_iter()
+        .next()
+        .map(|c| c.message.content)
+        .ok_or_else(|| "OpenAI ตอบกลับไม่มีเนื้อหา".to_string())
 }
 
 fn custom_llm(endpoint: &str, api_key: &str, prompt: &str) -> Result<String, String> {
     // Same {endpoint}/api/chat Ollama-shaped contract graph_build.rs::call_llm
     // already speaks — a "custom" LLM endpoint needs no new wire format.
     #[derive(serde::Deserialize)]
-    struct ChatMessage { content: String }
+    struct ChatMessage {
+        content: String,
+    }
     #[derive(serde::Deserialize)]
-    struct ChatResponse { message: ChatMessage }
+    struct ChatResponse {
+        message: ChatMessage,
+    }
 
     let client = reqwest::blocking::Client::builder()
         .timeout(LLM_TIMEOUT)
@@ -215,14 +292,26 @@ fn custom_llm(endpoint: &str, api_key: &str, prompt: &str) -> Result<String, Str
             "stream": false,
         }))
         .send()
-        .map_err(|e| if e.is_timeout() { "custom LLM endpoint ไม่ตอบสนองภายใน 60 วินาที".to_string() } else { format!("เชื่อมต่อ custom LLM endpoint ไม่ได้: {e}") })?;
+        .map_err(|e| {
+            if e.is_timeout() {
+                "custom LLM endpoint ไม่ตอบสนองภายใน 60 วินาที".to_string()
+            } else {
+                format!("เชื่อมต่อ custom LLM endpoint ไม่ได้: {e}")
+            }
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().unwrap_or_default();
-        return Err(format!("custom LLM endpoint ตอบ {status}: {}", truncated(&body)));
+        return Err(format!(
+            "custom LLM endpoint ตอบ {status}: {}",
+            truncated(&body)
+        ));
     }
-    response.json::<ChatResponse>().map(|r| r.message.content).map_err(|e| format!("อ่าน response custom LLM ไม่ได้: {e}"))
+    response
+        .json::<ChatResponse>()
+        .map(|r| r.message.content)
+        .map_err(|e| format!("อ่าน response custom LLM ไม่ได้: {e}"))
 }
 
 // ---- Tier-3 LLM cloud fallback (spec §8) ---------------------------------
@@ -333,13 +422,16 @@ pub(crate) fn call_llm_with_fallback(
                     // Charged only on success: a failed cloud round trip
                     // produced nothing, so it must not eat the daily cap.
                     if result.is_ok() {
-                        let _ = crate::policy::increment_calls_today(policy_conn, crate::cloud_config::CloudTaskKind::Llm);
+                        let _ = crate::policy::increment_calls_today(
+                            policy_conn,
+                            crate::cloud_config::CloudTaskKind::Llm,
+                        );
                     }
                     result.map(|text| (text, RUNTIME_CLOUD))
                 }
-                crate::policy::TierDecision::Blocked { reason } => {
-                    Err(format!("Ollama unreachable and cloud fallback blocked ({reason}): {e}"))
-                }
+                crate::policy::TierDecision::Blocked { reason } => Err(format!(
+                    "Ollama unreachable and cloud fallback blocked ({reason}): {e}"
+                )),
             }
         }
         Err(e) => Err(e),
@@ -374,9 +466,15 @@ mod tests {
 
     #[test]
     fn mime_for_audio_path_labels_wav_as_audio_wav() {
-        assert_eq!(mime_for_audio_path(Path::new("/tmp/concat.wav")), "audio/wav");
+        assert_eq!(
+            mime_for_audio_path(Path::new("/tmp/concat.wav")),
+            "audio/wav"
+        );
         // Extension casing comes from whoever named the file, not from us.
-        assert_eq!(mime_for_audio_path(Path::new("/tmp/CONCAT.WAV")), "audio/wav");
+        assert_eq!(
+            mime_for_audio_path(Path::new("/tmp/CONCAT.WAV")),
+            "audio/wav"
+        );
     }
 
     /// The single-segment FUNGWIRE cloud job uploads the phone's raw
@@ -384,18 +482,27 @@ mod tests {
     /// hard-coded `audio/wav` mislabelled.
     #[test]
     fn mime_for_audio_path_labels_m4a_as_audio_m4a() {
-        assert_eq!(mime_for_audio_path(Path::new("/tmp/segment-0.m4a")), "audio/m4a");
+        assert_eq!(
+            mime_for_audio_path(Path::new("/tmp/segment-0.m4a")),
+            "audio/m4a"
+        );
     }
 
     #[test]
     fn mime_for_audio_path_falls_back_to_wav_for_unknown_or_missing_extension() {
-        assert_eq!(mime_for_audio_path(Path::new("/tmp/audio.ogg")), "audio/wav");
+        assert_eq!(
+            mime_for_audio_path(Path::new("/tmp/audio.ogg")),
+            "audio/wav"
+        );
         assert_eq!(mime_for_audio_path(Path::new("/tmp/audio")), "audio/wav");
     }
 
     #[test]
     fn custom_stt_parses_segment_array() {
-        let addr = one_shot_server("HTTP/1.1 200 OK", r#"[{"start_ms":0,"end_ms":1200,"text":"hello","confidence":0.9}]"#);
+        let addr = one_shot_server(
+            "HTTP/1.1 200 OK",
+            r#"[{"start_ms":0,"end_ms":1200,"text":"hello","confidence":0.9}]"#,
+        );
         let dir = tempfile::tempdir().unwrap();
         let audio_path = dir.path().join("test.wav");
         std::fs::write(&audio_path, b"fake-wav-bytes").unwrap();
@@ -435,7 +542,9 @@ mod tests {
 
     #[test]
     fn anthropic_dispatch_stt_is_rejected_with_a_clear_message() {
-        let config = CloudProviderConfig::Anthropic { api_key: "sk-ant-test".into() };
+        let config = CloudProviderConfig::Anthropic {
+            api_key: "sk-ant-test".into(),
+        };
         let dir = tempfile::tempdir().unwrap();
         let audio_path = dir.path().join("test.wav");
         std::fs::write(&audio_path, b"x").unwrap();
@@ -455,15 +564,21 @@ mod tests {
     // independent.
 
     /// The message `call_llm` produces when Ollama is not listening.
-    const LOCAL_UNREACHABLE: &str = "LLM endpoint unreachable at http://127.0.0.1:11434: connection refused";
+    const LOCAL_UNREACHABLE: &str =
+        "LLM endpoint unreachable at http://127.0.0.1:11434: connection refused";
     /// The message `call_llm` produces when Ollama answers, badly.
     const LOCAL_BAD_STATUS: &str = "LLM endpoint returned 500 Internal Server Error";
     /// The message `call_llm` produces when Ollama is listening but too slow.
     /// Reachable — so this must NOT be treated as a connection failure.
-    const LOCAL_TIMEOUT: &str = "LLM endpoint timed out at http://127.0.0.1:11434: operation timed out";
+    const LOCAL_TIMEOUT: &str =
+        "LLM endpoint timed out at http://127.0.0.1:11434: operation timed out";
 
     fn llm_cloud_policy(enabled: bool) -> crate::policy::TierPolicy {
-        crate::policy::TierPolicy { stt_cloud_enabled: false, llm_cloud_enabled: enabled, daily_cap: 20 }
+        crate::policy::TierPolicy {
+            stt_cloud_enabled: false,
+            llm_cloud_enabled: enabled,
+            daily_cap: 20,
+        }
     }
 
     fn llm_calls_today(conn: &rusqlite::Connection) -> u32 {
@@ -472,7 +587,10 @@ mod tests {
 
     /// A stub cloud LLM endpoint speaking the Ollama-shaped custom contract.
     fn stub_cloud_provider() -> CloudProviderConfig {
-        let addr = one_shot_server("HTTP/1.1 200 OK", r#"{"message":{"content":"cloud extraction result"}}"#);
+        let addr = one_shot_server(
+            "HTTP/1.1 200 OK",
+            r#"{"message":{"content":"cloud extraction result"}}"#,
+        );
         CloudProviderConfig::Custom {
             endpoint: format!("http://{addr}"),
             api_key: "test-key".into(),
@@ -506,15 +624,21 @@ mod tests {
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_TIMEOUT.to_string()),
-            "prompt", Some(&cloud_config), &llm_cloud_policy(true), 0, &policy_conn,
+            "prompt",
+            Some(&cloud_config),
+            &llm_cloud_policy(true),
+            0,
+            &policy_conn,
         );
 
         assert_eq!(
-            result.unwrap_err(), LOCAL_TIMEOUT,
+            result.unwrap_err(),
+            LOCAL_TIMEOUT,
             "a slow local Ollama must surface as a timeout, not as a cloud result",
         );
         assert_eq!(
-            llm_calls_today(&policy_conn), 0,
+            llm_calls_today(&policy_conn),
+            0,
             "no cloud dispatch happened, so the counter must not move",
         );
     }
@@ -526,7 +650,11 @@ mod tests {
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_UNREACHABLE.to_string()),
-            "prompt", Some(&cloud_config), &llm_cloud_policy(true), 0, &policy_conn,
+            "prompt",
+            Some(&cloud_config),
+            &llm_cloud_policy(true),
+            0,
+            &policy_conn,
         );
 
         assert_eq!(
@@ -534,7 +662,8 @@ mod tests {
             "a cloud-served extraction must report itself as cloud, or the model_runs audit row lies",
         );
         assert_eq!(
-            llm_calls_today(&policy_conn), 1,
+            llm_calls_today(&policy_conn),
+            1,
             "a successful cloud dispatch must consume one of the day's budgeted calls",
         );
     }
@@ -550,14 +679,25 @@ mod tests {
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_UNREACHABLE.to_string()),
-            "prompt", Some(&cloud_config), &llm_cloud_policy(false), 0, &policy_conn,
+            "prompt",
+            Some(&cloud_config),
+            &llm_cloud_policy(false),
+            0,
+            &policy_conn,
         );
 
         let error = result.unwrap_err();
-        assert!(error.contains("Ollama"), "the blocked-fallback error must name Ollama: {error}");
-        assert!(error.contains("cloud_disabled"), "the block reason must be surfaced: {error}");
+        assert!(
+            error.contains("Ollama"),
+            "the blocked-fallback error must name Ollama: {error}"
+        );
+        assert!(
+            error.contains("cloud_disabled"),
+            "the block reason must be surfaced: {error}"
+        );
         assert_eq!(
-            llm_calls_today(&policy_conn), 0,
+            llm_calls_today(&policy_conn),
+            0,
             "a blocked fallback dispatches nothing, so it must not consume a call",
         );
     }
@@ -573,11 +713,18 @@ mod tests {
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_UNREACHABLE.to_string()),
-            "prompt", None, &llm_cloud_policy(true), 0, &policy_conn,
+            "prompt",
+            None,
+            &llm_cloud_policy(true),
+            0,
+            &policy_conn,
         );
 
         let error = result.unwrap_err();
-        assert!(error.contains("Ollama"), "the blocked-fallback error must name Ollama: {error}");
+        assert!(
+            error.contains("Ollama"),
+            "the blocked-fallback error must name Ollama: {error}"
+        );
         assert!(
             error.contains("no_key_configured"),
             "the block reason must be surfaced: {error}",
@@ -595,15 +742,21 @@ mod tests {
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_BAD_STATUS.to_string()),
-            "prompt", Some(&cloud_config), &llm_cloud_policy(true), 0, &policy_conn,
+            "prompt",
+            Some(&cloud_config),
+            &llm_cloud_policy(true),
+            0,
+            &policy_conn,
         );
 
         assert_eq!(
-            result.unwrap_err(), LOCAL_BAD_STATUS,
+            result.unwrap_err(),
+            LOCAL_BAD_STATUS,
             "a bad local response must surface as-is, not as a cloud result",
         );
         assert_eq!(
-            llm_calls_today(&policy_conn), 0,
+            llm_calls_today(&policy_conn),
+            0,
             "no cloud dispatch happened, so the counter must not move",
         );
     }
@@ -615,11 +768,16 @@ mod tests {
 
         let result = call_llm_with_fallback(
             || Ok("local extraction result".to_string()),
-            "prompt", Some(&cloud_config), &llm_cloud_policy(true), 0, &policy_conn,
+            "prompt",
+            Some(&cloud_config),
+            &llm_cloud_policy(true),
+            0,
+            &policy_conn,
         );
 
         assert_eq!(
-            result.unwrap(), ("local extraction result".to_string(), RUNTIME_LOCAL),
+            result.unwrap(),
+            ("local extraction result".to_string(), RUNTIME_LOCAL),
             "a locally-served extraction must report itself as local",
         );
         assert_eq!(llm_calls_today(&policy_conn), 0);
@@ -638,12 +796,17 @@ mod tests {
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_UNREACHABLE.to_string()),
-            "prompt", Some(&cloud_config), &llm_cloud_policy(true), 0, &policy_conn,
+            "prompt",
+            Some(&cloud_config),
+            &llm_cloud_policy(true),
+            0,
+            &policy_conn,
         );
 
         assert!(result.is_err());
         assert_eq!(
-            llm_calls_today(&policy_conn), 0,
+            llm_calls_today(&policy_conn),
+            0,
             "a cloud round trip that produced nothing must not eat the daily cap",
         );
     }
@@ -656,11 +819,18 @@ mod tests {
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_UNREACHABLE.to_string()),
-            "prompt", Some(&cloud_config), &policy, policy.daily_cap, &policy_conn,
+            "prompt",
+            Some(&cloud_config),
+            &policy,
+            policy.daily_cap,
+            &policy_conn,
         );
 
         let error = result.unwrap_err();
-        assert!(error.contains("cap_reached"), "the block reason must be surfaced: {error}");
+        assert!(
+            error.contains("cap_reached"),
+            "the block reason must be surfaced: {error}"
+        );
         assert_eq!(llm_calls_today(&policy_conn), 0);
     }
 }

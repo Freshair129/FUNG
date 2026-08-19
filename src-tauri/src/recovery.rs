@@ -51,12 +51,6 @@ pub(crate) struct InterruptedRecording {
     pub(crate) missing_files: usize,
 }
 
-impl InterruptedRecording {
-    pub(crate) fn is_recoverable(&self) -> bool {
-        !self.orphan_files.is_empty() || self.known_chunks > 0
-    }
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecoveryReport {
@@ -227,9 +221,7 @@ fn terminalize_stale_jobs(storage: &genesis_block_native::Storage) -> Result<usi
 /// because both are decisions about what the audio *is*, and the previous
 /// behaviour of silently finishing an interrupted capture is what made an
 /// interruption invisible.
-pub(crate) fn scan(
-    storage: &genesis_block_native::Storage,
-) -> Result<RecoveryReport, String> {
+pub(crate) fn scan(storage: &genesis_block_native::Storage) -> Result<RecoveryReport, String> {
     let mut report = RecoveryReport {
         stale_jobs_failed: terminalize_stale_jobs(storage)?,
         ..RecoveryReport::default()
@@ -486,7 +478,8 @@ mod tests {
         };
 
         let orphans = vec![write("mic-00003.wav", 800), write("system-00002.wav", 500)];
-        let high_water = BTreeMap::from([("mic".to_string(), 16_000), ("system".to_string(), 8_000)]);
+        let high_water =
+            BTreeMap::from([("mic".to_string(), 16_000), ("system".to_string(), 8_000)]);
 
         let planned = plan_adoptions(&orphans, &high_water);
         let mic = planned.iter().find(|(c, _, _, _)| c == "mic").unwrap();
@@ -582,11 +575,13 @@ mod tests {
             missing_files: 0,
         });
         assert!(report.needs_attention());
-        assert!(report.interrupted[0].is_recoverable());
+        assert!(!report.interrupted[0].orphan_files.is_empty());
     }
 
     #[test]
-    fn a_recording_with_nothing_on_disk_is_reported_but_not_recoverable() {
+    fn a_recording_with_nothing_on_disk_is_still_reported() {
+        // Worth surfacing even with nothing to adopt: the user needs to know a
+        // session was interrupted, not only that something can be salvaged.
         let empty = InterruptedRecording {
             recording_id: "r1".into(),
             project_id: "p1".into(),
@@ -595,6 +590,7 @@ mod tests {
             orphan_files: vec![],
             missing_files: 0,
         };
-        assert!(!empty.is_recoverable());
+        assert_eq!(empty.known_chunks, 0);
+        assert!(empty.orphan_files.is_empty());
     }
 }

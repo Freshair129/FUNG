@@ -14,18 +14,18 @@ use tauri_plugin_opener::OpenerExt;
 use thiserror::Error;
 use uuid::Uuid;
 
-mod cloud_config;
-mod cloud_executor;
-mod cloud_commands;
 mod audio_custody;
 mod backup;
 mod backup_archive;
 mod backup_payload;
-mod filesystem_backup;
+mod cloud_commands;
+mod cloud_config;
+mod cloud_executor;
 mod device_identity;
 mod external_mcp;
 mod external_mcp_commands;
 mod external_mcp_transport;
+mod filesystem_backup;
 mod fungwire;
 mod fungwire_client;
 mod fungwire_server;
@@ -802,7 +802,8 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
     genesis_adapter::install(&genesis).map_err(AppError::Genesis)?;
     let legacy_marker = genesis_path.join("legacy-fung-sqlite-import-v1.complete");
     if legacy_db_path.is_file() && !legacy_marker.is_file() {
-        genesis_adapter::import_legacy_sqlite(&genesis, &legacy_db_path).map_err(AppError::Genesis)?;
+        genesis_adapter::import_legacy_sqlite(&genesis, &legacy_db_path)
+            .map_err(AppError::Genesis)?;
         std::fs::write(&legacy_marker, now())?;
     }
     let seeded_at = now();
@@ -885,8 +886,42 @@ fn create_project(name: String, state: State<'_, AppState>) -> AppResult<Project
 
 #[tauri::command]
 fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
-    let mut projects = genesis_adapter::query(&state.genesis, "projects", &["id", "name", "storage_path", "active_recording_id", "created_at", "updated_at"], vec![], 1000).map_err(AppError::Genesis)?.into_iter().map(|row| Ok(Project { id: genesis_adapter::string(&row, "projects.id").map_err(AppError::Genesis)?, name: genesis_adapter::string(&row, "projects.name").map_err(AppError::Genesis)?, storage_path: genesis_adapter::string(&row, "projects.storage_path").map_err(AppError::Genesis)?, active_recording_id: row.get("projects.active_recording_id").and_then(serde_json::Value::as_str).map(str::to_owned), created_at: genesis_adapter::string(&row, "projects.created_at").map_err(AppError::Genesis)?, updated_at: genesis_adapter::string(&row, "projects.updated_at").map_err(AppError::Genesis)? })).collect::<AppResult<Vec<_>>>()?;
-    projects.sort_by_key(|project| std::cmp::Reverse((project.updated_at.clone(), project.created_at.clone())));
+    let mut projects = genesis_adapter::query(
+        &state.genesis,
+        "projects",
+        &[
+            "id",
+            "name",
+            "storage_path",
+            "active_recording_id",
+            "created_at",
+            "updated_at",
+        ],
+        vec![],
+        1000,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .map(|row| {
+        Ok(Project {
+            id: genesis_adapter::string(&row, "projects.id").map_err(AppError::Genesis)?,
+            name: genesis_adapter::string(&row, "projects.name").map_err(AppError::Genesis)?,
+            storage_path: genesis_adapter::string(&row, "projects.storage_path")
+                .map_err(AppError::Genesis)?,
+            active_recording_id: row
+                .get("projects.active_recording_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            created_at: genesis_adapter::string(&row, "projects.created_at")
+                .map_err(AppError::Genesis)?,
+            updated_at: genesis_adapter::string(&row, "projects.updated_at")
+                .map_err(AppError::Genesis)?,
+        })
+    })
+    .collect::<AppResult<Vec<_>>>()?;
+    projects.sort_by_key(|project| {
+        std::cmp::Reverse((project.updated_at.clone(), project.created_at.clone()))
+    });
     Ok(projects)
 }
 
@@ -931,25 +966,121 @@ fn create_job(
 
 #[tauri::command]
 fn list_jobs(state: State<'_, AppState>) -> AppResult<Vec<Job>> {
-    let mut jobs = genesis_adapter::query(&state.genesis, "jobs", &["id", "project_id", "type", "status", "progress", "input_refs_json", "output_refs_json", "provider_id", "error_code", "error_message", "started_at", "finished_at", "created_at", "updated_at"], vec![], 1000).map_err(AppError::Genesis)?.into_iter().map(job_from_row).collect::<AppResult<Vec<_>>>()?;
-    jobs.sort_by_key(|job| std::cmp::Reverse(job.created_at.clone())); jobs.truncate(30); Ok(jobs)
+    let mut jobs = genesis_adapter::query(
+        &state.genesis,
+        "jobs",
+        &[
+            "id",
+            "project_id",
+            "type",
+            "status",
+            "progress",
+            "input_refs_json",
+            "output_refs_json",
+            "provider_id",
+            "error_code",
+            "error_message",
+            "started_at",
+            "finished_at",
+            "created_at",
+            "updated_at",
+        ],
+        vec![],
+        1000,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .map(job_from_row)
+    .collect::<AppResult<Vec<_>>>()?;
+    jobs.sort_by_key(|job| std::cmp::Reverse(job.created_at.clone()));
+    jobs.truncate(30);
+    Ok(jobs)
 }
 
 fn job_from_row(row: serde_json::Value) -> AppResult<Job> {
-    let json_list = |key: &str| row.get(key).and_then(serde_json::Value::as_str).and_then(|value| serde_json::from_str(value).ok()).unwrap_or_default();
-    let optional = |key: &str| row.get(key).and_then(serde_json::Value::as_str).map(str::to_owned);
-    Ok(Job { id: genesis_adapter::string(&row, "jobs.id").map_err(AppError::Genesis)?, project_id: genesis_adapter::string(&row, "jobs.project_id").map_err(AppError::Genesis)?, job_type: genesis_adapter::string(&row, "jobs.type").map_err(AppError::Genesis)?, status: genesis_adapter::string(&row, "jobs.status").map_err(AppError::Genesis)?, progress: genesis_adapter::integer(&row, "jobs.progress").map_err(AppError::Genesis)?, input_refs: json_list("jobs.input_refs_json"), output_refs: json_list("jobs.output_refs_json"), provider_id: optional("jobs.provider_id"), error_code: optional("jobs.error_code"), error_message: optional("jobs.error_message"), started_at: optional("jobs.started_at"), finished_at: optional("jobs.finished_at"), created_at: genesis_adapter::string(&row, "jobs.created_at").map_err(AppError::Genesis)?, updated_at: genesis_adapter::string(&row, "jobs.updated_at").map_err(AppError::Genesis)? })
+    let json_list = |key: &str| {
+        row.get(key)
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| serde_json::from_str(value).ok())
+            .unwrap_or_default()
+    };
+    let optional = |key: &str| {
+        row.get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    };
+    Ok(Job {
+        id: genesis_adapter::string(&row, "jobs.id").map_err(AppError::Genesis)?,
+        project_id: genesis_adapter::string(&row, "jobs.project_id").map_err(AppError::Genesis)?,
+        job_type: genesis_adapter::string(&row, "jobs.type").map_err(AppError::Genesis)?,
+        status: genesis_adapter::string(&row, "jobs.status").map_err(AppError::Genesis)?,
+        progress: genesis_adapter::integer(&row, "jobs.progress").map_err(AppError::Genesis)?,
+        input_refs: json_list("jobs.input_refs_json"),
+        output_refs: json_list("jobs.output_refs_json"),
+        provider_id: optional("jobs.provider_id"),
+        error_code: optional("jobs.error_code"),
+        error_message: optional("jobs.error_message"),
+        started_at: optional("jobs.started_at"),
+        finished_at: optional("jobs.finished_at"),
+        created_at: genesis_adapter::string(&row, "jobs.created_at").map_err(AppError::Genesis)?,
+        updated_at: genesis_adapter::string(&row, "jobs.updated_at").map_err(AppError::Genesis)?,
+    })
 }
 
 #[tauri::command]
 fn list_model_providers(state: State<'_, AppState>) -> AppResult<Vec<ModelProvider>> {
-    let mut providers = genesis_adapter::query(&state.genesis, "model_providers", &["id", "label", "runtime_location", "kind", "enabled", "created_at", "updated_at"], vec![], 500).map_err(AppError::Genesis)?.into_iter().map(|row| Ok(ModelProvider { id: genesis_adapter::string(&row, "model_providers.id").map_err(AppError::Genesis)?, label: genesis_adapter::string(&row, "model_providers.label").map_err(AppError::Genesis)?, runtime_location: genesis_adapter::string(&row, "model_providers.runtime_location").map_err(AppError::Genesis)?, kind: genesis_adapter::string(&row, "model_providers.kind").map_err(AppError::Genesis)?, enabled: row.get("model_providers.enabled").and_then(|value| value.as_bool().or_else(|| value.as_i64().map(|number| number != 0))).unwrap_or(false), created_at: genesis_adapter::string(&row, "model_providers.created_at").map_err(AppError::Genesis)?, updated_at: genesis_adapter::string(&row, "model_providers.updated_at").map_err(AppError::Genesis)? })).collect::<AppResult<Vec<_>>>()?;
-    providers.sort_by_key(|provider| (provider.runtime_location.clone(), provider.label.clone())); Ok(providers)
+    let mut providers = genesis_adapter::query(
+        &state.genesis,
+        "model_providers",
+        &[
+            "id",
+            "label",
+            "runtime_location",
+            "kind",
+            "enabled",
+            "created_at",
+            "updated_at",
+        ],
+        vec![],
+        500,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .map(|row| {
+        Ok(ModelProvider {
+            id: genesis_adapter::string(&row, "model_providers.id").map_err(AppError::Genesis)?,
+            label: genesis_adapter::string(&row, "model_providers.label")
+                .map_err(AppError::Genesis)?,
+            runtime_location: genesis_adapter::string(&row, "model_providers.runtime_location")
+                .map_err(AppError::Genesis)?,
+            kind: genesis_adapter::string(&row, "model_providers.kind")
+                .map_err(AppError::Genesis)?,
+            enabled: row
+                .get("model_providers.enabled")
+                .and_then(|value| {
+                    value
+                        .as_bool()
+                        .or_else(|| value.as_i64().map(|number| number != 0))
+                })
+                .unwrap_or(false),
+            created_at: genesis_adapter::string(&row, "model_providers.created_at")
+                .map_err(AppError::Genesis)?,
+            updated_at: genesis_adapter::string(&row, "model_providers.updated_at")
+                .map_err(AppError::Genesis)?,
+        })
+    })
+    .collect::<AppResult<Vec<_>>>()?;
+    providers.sort_by_key(|provider| (provider.runtime_location.clone(), provider.label.clone()));
+    Ok(providers)
 }
 
 fn model_provider_row_enabled(row: &serde_json::Value) -> bool {
     row.get("model_providers.enabled")
-        .and_then(|value| value.as_bool().or_else(|| value.as_i64().map(|number| number != 0)))
+        .and_then(|value| {
+            value
+                .as_bool()
+                .or_else(|| value.as_i64().map(|number| number != 0))
+        })
         .unwrap_or(false)
 }
 
@@ -1038,8 +1169,21 @@ fn tts_provider_update(
     let rows = genesis_adapter::query(
         &state.genesis,
         "model_providers",
-        &["id", "label", "runtime_location", "kind", "enabled", "config_json", "created_at", "updated_at"],
-        vec![genesis_adapter::eq("model_providers", "id", serde_json::json!(input.provider_id))],
+        &[
+            "id",
+            "label",
+            "runtime_location",
+            "kind",
+            "enabled",
+            "config_json",
+            "created_at",
+            "updated_at",
+        ],
+        vec![genesis_adapter::eq(
+            "model_providers",
+            "id",
+            serde_json::json!(input.provider_id),
+        )],
         1,
     )
     .map_err(AppError::Genesis)?;
@@ -1054,12 +1198,15 @@ fn tts_provider_update(
     };
     let config_json = match input.config_json {
         Some(config_json) => config_json,
-        None => genesis_adapter::string(row, "model_providers.config_json").map_err(AppError::Genesis)?,
+        None => genesis_adapter::string(row, "model_providers.config_json")
+            .map_err(AppError::Genesis)?,
     };
-    let runtime_location = genesis_adapter::string(row, "model_providers.runtime_location").map_err(AppError::Genesis)?;
+    let runtime_location = genesis_adapter::string(row, "model_providers.runtime_location")
+        .map_err(AppError::Genesis)?;
     let kind = genesis_adapter::string(row, "model_providers.kind").map_err(AppError::Genesis)?;
     let enabled = model_provider_row_enabled(row);
-    let created_at = genesis_adapter::string(row, "model_providers.created_at").map_err(AppError::Genesis)?;
+    let created_at =
+        genesis_adapter::string(row, "model_providers.created_at").map_err(AppError::Genesis)?;
 
     genesis_adapter::commit_rows(
         &state.genesis,
@@ -1079,7 +1226,11 @@ fn tts_provider_update(
     )
     .map_err(AppError::Genesis)?;
 
-    Ok(tts_config::TtsValidation { ok: true, error: None, warnings: vec![] })
+    Ok(tts_config::TtsValidation {
+        ok: true,
+        error: None,
+        warnings: vec![],
+    })
 }
 
 #[tauri::command]
@@ -1093,8 +1244,21 @@ fn tts_provider_toggle(
     let rows = genesis_adapter::query(
         &state.genesis,
         "model_providers",
-        &["id", "label", "runtime_location", "kind", "enabled", "config_json", "created_at", "updated_at"],
-        vec![genesis_adapter::eq("model_providers", "id", serde_json::json!(provider_id))],
+        &[
+            "id",
+            "label",
+            "runtime_location",
+            "kind",
+            "enabled",
+            "config_json",
+            "created_at",
+            "updated_at",
+        ],
+        vec![genesis_adapter::eq(
+            "model_providers",
+            "id",
+            serde_json::json!(provider_id),
+        )],
         1,
     )
     .map_err(AppError::Genesis)?;
@@ -1104,10 +1268,13 @@ fn tts_provider_toggle(
         .ok_or_else(|| AppError::InvalidInput(format!("ไม่พบ provider: {provider_id}")))?;
 
     let label = genesis_adapter::string(row, "model_providers.label").map_err(AppError::Genesis)?;
-    let runtime_location = genesis_adapter::string(row, "model_providers.runtime_location").map_err(AppError::Genesis)?;
+    let runtime_location = genesis_adapter::string(row, "model_providers.runtime_location")
+        .map_err(AppError::Genesis)?;
     let kind = genesis_adapter::string(row, "model_providers.kind").map_err(AppError::Genesis)?;
-    let config_json = genesis_adapter::string(row, "model_providers.config_json").map_err(AppError::Genesis)?;
-    let created_at = genesis_adapter::string(row, "model_providers.created_at").map_err(AppError::Genesis)?;
+    let config_json =
+        genesis_adapter::string(row, "model_providers.config_json").map_err(AppError::Genesis)?;
+    let created_at =
+        genesis_adapter::string(row, "model_providers.created_at").map_err(AppError::Genesis)?;
 
     genesis_adapter::commit_rows(
         &state.genesis,
@@ -1163,13 +1330,17 @@ fn tts_provider_test(
         .first()
         .ok_or_else(|| AppError::InvalidInput(format!("ไม่พบ TTS provider: {provider_id}")))?;
 
-    let config_str = genesis_adapter::string(row, "model_providers.config_json").map_err(AppError::Genesis)?;
+    let config_str =
+        genesis_adapter::string(row, "model_providers.config_json").map_err(AppError::Genesis)?;
     let config: tts_config::TtsProviderConfig = serde_json::from_str(&config_str)
         .map_err(|e| AppError::InvalidInput(format!("config ไม่ถูกรูปแบบ: {e}")))?;
 
     let temp_dir = std::env::temp_dir().join("fung-tts");
     std::fs::create_dir_all(&temp_dir).map_err(|e| {
-        AppError::Io(std::io::Error::new(e.kind(), format!("สร้าง temp dir ไม่ได้: {e}")))
+        AppError::Io(std::io::Error::new(
+            e.kind(),
+            format!("สร้าง temp dir ไม่ได้: {e}"),
+        ))
     })?;
 
     let request = tts_executor::TtsSynthesisRequest {
@@ -1178,15 +1349,16 @@ fn tts_provider_test(
         ref_text: None,
     };
 
-    let (status, latency_ms, audio_path, message) = match tts_executor::dispatch(&config, &request, &temp_dir) {
-        Ok(result) => (
-            "ok".to_string(),
-            Some(result.latency_ms),
-            Some(result.audio_path.display().to_string()),
-            None,
-        ),
-        Err(e) => ("error".to_string(), None, None, Some(e)),
-    };
+    let (status, latency_ms, audio_path, message) =
+        match tts_executor::dispatch(&config, &request, &temp_dir) {
+            Ok(result) => (
+                "ok".to_string(),
+                Some(result.latency_ms),
+                Some(result.audio_path.display().to_string()),
+                None,
+            ),
+            Err(e) => ("error".to_string(), None, None, Some(e)),
+        };
 
     // Record the test result; a failure to persist it should not fail the whole test.
     let timestamp = now();
@@ -1207,7 +1379,12 @@ fn tts_provider_test(
         )],
     );
 
-    Ok(TtsTestOutput { status, latency_ms, audio_path, message })
+    Ok(TtsTestOutput {
+        status,
+        latency_ms,
+        audio_path,
+        message,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -1276,7 +1453,10 @@ fn tts_synthesize_text(
 
     let temp_dir = std::env::temp_dir().join("fung-tts");
     std::fs::create_dir_all(&temp_dir).map_err(|e| {
-        AppError::Io(std::io::Error::new(e.kind(), format!("สร้าง temp dir ไม่ได้: {e}")))
+        AppError::Io(std::io::Error::new(
+            e.kind(),
+            format!("สร้าง temp dir ไม่ได้: {e}"),
+        ))
     })?;
 
     let request = tts_executor::TtsSynthesisRequest {
@@ -1301,28 +1481,83 @@ fn list_transcript_segments(
     // Resolve speaker display names once per call: query the project's
     // speakers (capped like every other query against this engine) and build
     // an id -> display_name map, rather than a lookup per segment.
-    let speaker_rows = genesis_adapter::query(&state.genesis, "speakers", &["id", "display_name"],
-        vec![genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id.clone()))], 1000).map_err(AppError::Genesis)?;
-    let speaker_names: std::collections::HashMap<String, String> = speaker_rows.into_iter().filter_map(|row| {
-        Some((row.get("speakers.id")?.as_str()?.to_string(), row.get("speakers.display_name")?.as_str()?.to_string()))
-    }).collect();
-    let mut segments = genesis_adapter::query(&state.genesis, "transcript_segments", &["id", "project_id", "recording_id", "speaker_id", "start_ms", "end_ms", "text", "confidence", "created_at"], vec![genesis_adapter::eq("transcript_segments", "project_id", serde_json::json!(project_id))], 1000).map_err(AppError::Genesis)?.into_iter().map(|row| {
-        let speaker_id = row.get("transcript_segments.speaker_id").and_then(serde_json::Value::as_str).map(str::to_owned);
-        let speaker_name = speaker_id.as_ref().and_then(|id| speaker_names.get(id).cloned());
+    let speaker_rows = genesis_adapter::query(
+        &state.genesis,
+        "speakers",
+        &["id", "display_name"],
+        vec![genesis_adapter::eq(
+            "speakers",
+            "project_id",
+            serde_json::json!(project_id.clone()),
+        )],
+        1000,
+    )
+    .map_err(AppError::Genesis)?;
+    let speaker_names: std::collections::HashMap<String, String> = speaker_rows
+        .into_iter()
+        .filter_map(|row| {
+            Some((
+                row.get("speakers.id")?.as_str()?.to_string(),
+                row.get("speakers.display_name")?.as_str()?.to_string(),
+            ))
+        })
+        .collect();
+    let mut segments = genesis_adapter::query(
+        &state.genesis,
+        "transcript_segments",
+        &[
+            "id",
+            "project_id",
+            "recording_id",
+            "speaker_id",
+            "start_ms",
+            "end_ms",
+            "text",
+            "confidence",
+            "created_at",
+        ],
+        vec![genesis_adapter::eq(
+            "transcript_segments",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
+        1000,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .map(|row| {
+        let speaker_id = row
+            .get("transcript_segments.speaker_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        let speaker_name = speaker_id
+            .as_ref()
+            .and_then(|id| speaker_names.get(id).cloned());
         Ok(TranscriptSegment {
-            id: genesis_adapter::string(&row, "transcript_segments.id").map_err(AppError::Genesis)?,
-            project_id: genesis_adapter::string(&row, "transcript_segments.project_id").map_err(AppError::Genesis)?,
-            recording_id: genesis_adapter::string(&row, "transcript_segments.recording_id").map_err(AppError::Genesis)?,
+            id: genesis_adapter::string(&row, "transcript_segments.id")
+                .map_err(AppError::Genesis)?,
+            project_id: genesis_adapter::string(&row, "transcript_segments.project_id")
+                .map_err(AppError::Genesis)?,
+            recording_id: genesis_adapter::string(&row, "transcript_segments.recording_id")
+                .map_err(AppError::Genesis)?,
             speaker_id,
             speaker_name,
-            start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms").map_err(AppError::Genesis)?,
-            end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms").map_err(AppError::Genesis)?,
-            text: genesis_adapter::string(&row, "transcript_segments.text").map_err(AppError::Genesis)?,
-            confidence: row.get("transcript_segments.confidence").and_then(serde_json::Value::as_f64),
-            created_at: genesis_adapter::string(&row, "transcript_segments.created_at").map_err(AppError::Genesis)?,
+            start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms")
+                .map_err(AppError::Genesis)?,
+            end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms")
+                .map_err(AppError::Genesis)?,
+            text: genesis_adapter::string(&row, "transcript_segments.text")
+                .map_err(AppError::Genesis)?,
+            confidence: row
+                .get("transcript_segments.confidence")
+                .and_then(serde_json::Value::as_f64),
+            created_at: genesis_adapter::string(&row, "transcript_segments.created_at")
+                .map_err(AppError::Genesis)?,
         })
-    }).collect::<AppResult<Vec<_>>>()?;
-    segments.sort_by_key(|segment| segment.start_ms); Ok(segments)
+    })
+    .collect::<AppResult<Vec<_>>>()?;
+    segments.sort_by_key(|segment| segment.start_ms);
+    Ok(segments)
 }
 
 pub(crate) fn set_job_status(
@@ -1333,10 +1568,42 @@ pub(crate) fn set_job_status(
     error_message: Option<&str>,
 ) -> AppResult<()> {
     let timestamp = now();
-    let row = genesis_adapter::query(storage, "jobs", &["project_id", "type", "status", "progress", "input_refs_json", "output_refs_json", "provider_id", "error_code", "error_message", "attempt_no", "started_at", "finished_at", "created_at"], vec![genesis_adapter::eq("jobs", "id", serde_json::json!(job_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("job not found".to_string()))?;
+    let row = genesis_adapter::query(
+        storage,
+        "jobs",
+        &[
+            "project_id",
+            "type",
+            "status",
+            "progress",
+            "input_refs_json",
+            "output_refs_json",
+            "provider_id",
+            "error_code",
+            "error_message",
+            "attempt_no",
+            "started_at",
+            "finished_at",
+            "created_at",
+        ],
+        vec![genesis_adapter::eq("jobs", "id", serde_json::json!(job_id))],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("job not found".to_string()))?;
     let optional = |key: &str| row.get(key).cloned().unwrap_or(serde_json::Value::Null);
-    let started_at = if status == "running" && optional("jobs.started_at").is_null() { serde_json::Value::String(timestamp.clone()) } else { optional("jobs.started_at") };
-    let finished_at = if matches!(status, "completed" | "failed") { serde_json::Value::String(timestamp.clone()) } else { optional("jobs.finished_at") };
+    let started_at = if status == "running" && optional("jobs.started_at").is_null() {
+        serde_json::Value::String(timestamp.clone())
+    } else {
+        optional("jobs.started_at")
+    };
+    let finished_at = if matches!(status, "completed" | "failed") {
+        serde_json::Value::String(timestamp.clone())
+    } else {
+        optional("jobs.finished_at")
+    };
     genesis_adapter::commit_rows(storage, vec![
         genesis_adapter::upsert("jobs", serde_json::json!({"id":job_id,"project_id":genesis_adapter::string(&row,"jobs.project_id").map_err(AppError::Genesis)?,"type":genesis_adapter::string(&row,"jobs.type").map_err(AppError::Genesis)?,"status":status,"progress":progress.unwrap_or(genesis_adapter::integer(&row,"jobs.progress").map_err(AppError::Genesis)?),"input_refs_json":optional("jobs.input_refs_json"),"output_refs_json":optional("jobs.output_refs_json"),"provider_id":optional("jobs.provider_id"),"error_code":optional("jobs.error_code"),"error_message":error_message.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null),"attempt_no":genesis_adapter::integer(&row,"jobs.attempt_no").map_err(AppError::Genesis)?,"started_at":started_at,"finished_at":finished_at,"created_at":genesis_adapter::string(&row,"jobs.created_at").map_err(AppError::Genesis)?,"updated_at":timestamp})),
         genesis_adapter::upsert("job_events", serde_json::json!({"id":Uuid::new_v4().to_string(),"job_id":job_id,"status":status,"message":error_message.unwrap_or(status),"created_at":timestamp})),
@@ -1377,8 +1644,8 @@ async fn recovery_recover(
     let storage = Arc::clone(&state.genesis);
     let runtime = state.whisper_runtime_clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let adopted = recovery::recover_recording(&storage, &recording_id)
-            .map_err(AppError::Genesis)?;
+        let adopted =
+            recovery::recover_recording(&storage, &recording_id).map_err(AppError::Genesis)?;
         let project_id = genesis_adapter::capture(&storage, &recording_id)
             .map_err(AppError::Genesis)?
             .project_id;
@@ -1408,7 +1675,11 @@ fn project_storage_path(
         storage,
         "projects",
         &["storage_path"],
-        vec![genesis_adapter::eq("projects", "id", serde_json::json!(project_id))],
+        vec![genesis_adapter::eq(
+            "projects",
+            "id",
+            serde_json::json!(project_id),
+        )],
         1,
     )
     .map_err(AppError::Genesis)?;
@@ -1429,8 +1700,32 @@ fn audio_integrity_check(
     project_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<audio_custody::AudioIntegrityReport> {
-    audio_custody::verify_project_audio(&state.genesis, &project_id)
-        .map_err(|error| AppError::InvalidInput(error.to_string()))
+    let report = audio_custody::verify_project_audio(&state.genesis, &project_id)
+        .map_err(|error| AppError::InvalidInput(error.to_string()))?;
+    // A failed integrity check is a finding about the user's data, not a
+    // transient UI state: record it so it survives the window closing.
+    if !report.is_clean() {
+        let timestamp = now();
+        let _ = genesis_adapter::commit_rows(
+            &state.genesis,
+            vec![genesis_adapter::upsert(
+                "audit_events",
+                serde_json::json!({
+                    "id": Uuid::new_v4().to_string(),
+                    "project_id": project_id,
+                    "event_type": "audio_integrity.incomplete",
+                    "actor": "user",
+                    "payload_json": {
+                        "checked": report.checked,
+                        "missing": report.missing,
+                        "modified": report.modified,
+                    },
+                    "created_at": timestamp,
+                }),
+            )],
+        );
+    }
+    Ok(report)
 }
 
 /// Imports an audio/video file, transcribes it locally with faster-whisper,
@@ -1502,7 +1797,13 @@ fn import_and_transcribe(
         let progress_storage = worker_storage.clone();
         let progress_job_id = worker_job_id.clone();
         let outcome = run_transcription(&worker_runtime, &worker_file_path, move |pct| {
-            let _ = set_job_status(&progress_storage, &progress_job_id, "running", Some(pct), None);
+            let _ = set_job_status(
+                &progress_storage,
+                &progress_job_id,
+                "running",
+                Some(pct),
+                None,
+            );
         });
 
         match outcome {
@@ -1515,13 +1816,20 @@ fn import_and_transcribe(
                         mutations.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({"id":Uuid::new_v4().to_string(),"project_id":worker_project_id,"recording_id":worker_recording_id,"speaker_id":null,"start_ms":segment.start_ms,"end_ms":segment.end_ms,"text":segment.text,"confidence":segment.confidence,"created_at":seg_timestamp,"updated_at":seg_timestamp})));
                     }
                     mutations.push(genesis_adapter::upsert("recordings", serde_json::json!({"id":worker_recording_id,"project_id":worker_project_id,"source":"import","input_path":worker_input_path,"canonical_audio_path":worker_file_path,"status":"completed","duration_ms":output.duration_ms,"created_at":timestamp,"updated_at":timestamp})));
-                    genesis_adapter::commit_rows(&worker_storage, mutations).map_err(AppError::Genesis)?;
+                    genesis_adapter::commit_rows(&worker_storage, mutations)
+                        .map_err(AppError::Genesis)?;
                     Ok(())
                 })();
 
                 match insert_result {
                     Ok(()) => {
-                        let _ = set_job_status(&worker_storage, &worker_job_id, "completed", Some(100), None);
+                        let _ = set_job_status(
+                            &worker_storage,
+                            &worker_job_id,
+                            "completed",
+                            Some(100),
+                            None,
+                        );
                     }
                     Err(err) => {
                         let _ = set_job_status(
@@ -1535,7 +1843,13 @@ fn import_and_transcribe(
                 }
             }
             Err(message) => {
-                let _ = set_job_status(&worker_storage, &worker_job_id, "failed", None, Some(&message));
+                let _ = set_job_status(
+                    &worker_storage,
+                    &worker_job_id,
+                    "failed",
+                    None,
+                    Some(&message),
+                );
             }
         }
     });
@@ -1711,7 +2025,11 @@ pub(crate) fn run_diarization(
     file_path: &str,
     on_progress: impl Fn(i64) + Send + 'static,
 ) -> Result<zoom_sync::DiarizeOutput, String> {
-    let script = runtime.script.parent().expect("scripts dir").join("diarize.py");
+    let script = runtime
+        .script
+        .parent()
+        .expect("scripts dir")
+        .join("diarize.py");
     let raw = run_python_worker(runtime, &script, &[file_path], None, on_progress)?;
     serde_json::from_str(raw.trim())
         .map_err(|err| format!("failed to parse diarization output: {err}"))
@@ -1742,7 +2060,11 @@ fn start_local_api(state: State<'_, AppState>) -> AppResult<String> {
     Ok(bind)
 }
 
-fn handle_api_stream(mut stream: TcpStream, storage: &genesis_block_native::Storage, genesis_path: &std::path::Path) {
+fn handle_api_stream(
+    mut stream: TcpStream,
+    storage: &genesis_block_native::Storage,
+    genesis_path: &std::path::Path,
+) {
     let mut buffer = [0; 1024];
     let read = stream.read(&mut buffer).unwrap_or(0);
     let request = String::from_utf8_lossy(&buffer[..read]);
@@ -1829,12 +2151,24 @@ pub fn __debug_db_probe(path: &str) -> Result<String, String> {
     let mut report = String::new();
 
     // Rows most likely to hold a string inside a Json-typed column.
-    match genesis_adapter::query(&storage, "model_providers", &["id", "kind", "config_json"], vec![], 100) {
+    match genesis_adapter::query(
+        &storage,
+        "model_providers",
+        &["id", "kind", "config_json"],
+        vec![],
+        100,
+    ) {
         Ok(rows) => {
             report.push_str(&format!("model_providers rows: {}\n", rows.len()));
             for row in rows {
-                let id = row.get("model_providers.id").and_then(serde_json::Value::as_str).unwrap_or("?");
-                let kind = row.get("model_providers.kind").and_then(serde_json::Value::as_str).unwrap_or("?");
+                let id = row
+                    .get("model_providers.id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?");
+                let kind = row
+                    .get("model_providers.kind")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?");
                 let config = row.get("model_providers.config_json");
                 let type_name = match config {
                     Some(serde_json::Value::String(_)) => "STRING",
@@ -1864,9 +2198,13 @@ pub fn __debug_db_probe(path: &str) -> Result<String, String> {
     }
 
     let seeded_at = now();
-    let seed = genesis_adapter::commit_rows(&storage, vec![
-        genesis_adapter::upsert("model_providers", serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":"http://127.0.0.1:11434"},"created_at":seeded_at,"updated_at":seeded_at})),
-    ]);
+    let seed = genesis_adapter::commit_rows(
+        &storage,
+        vec![genesis_adapter::upsert(
+            "model_providers",
+            serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":"http://127.0.0.1:11434"},"created_at":seeded_at,"updated_at":seeded_at}),
+        )],
+    );
     match seed {
         Ok(()) => report.push_str("seed OK\n"),
         Err(error) => report.push_str(&format!("seed FAILED: {error}\n")),
@@ -1881,8 +2219,14 @@ pub fn __debug_db_probe(path: &str) -> Result<String, String> {
 /// Used by `bin/live_smoke.rs`; also the LM-01 acceptance harness, so keep it
 /// in sync with the command-path behavior in `live_meeting.rs`.
 #[doc(hidden)]
-pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<String>) -> Result<String, String> {
-    use live_meeting::{spawn_capture_thread, CaptureEvent, ChannelKind, LiveWorker, CHANNEL_MIC, CHANNEL_SYSTEM};
+pub fn __debug_live_smoke(
+    work_dir: &str,
+    capture_secs: u64,
+    language: Option<String>,
+) -> Result<String, String> {
+    use live_meeting::{
+        spawn_capture_thread, CaptureEvent, ChannelKind, LiveWorker, CHANNEL_MIC, CHANNEL_SYSTEM,
+    };
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
@@ -1903,12 +2247,27 @@ pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<St
     let project_id = "smoke-project";
     let recording_id = "smoke-recording";
     let timestamp = now();
-    genesis_adapter::commit_rows(&storage, vec![
-        genesis_adapter::upsert("model_providers", serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":"http://127.0.0.1:11434"},"created_at":timestamp,"updated_at":timestamp})),
-        genesis_adapter::upsert("projects", serde_json::json!({"id":project_id,"name":"Live smoke","storage_path":dir.display().to_string(),"active_recording_id":null,"created_at":timestamp,"updated_at":timestamp})),
-        genesis_adapter::upsert("speakers", serde_json::json!({"id":format!("{project_id}::speaker::me"),"project_id":project_id,"key":"me","display_name":"เรา","confidence":null,"created_at":timestamp,"updated_at":timestamp})),
-        genesis_adapter::upsert("speakers", serde_json::json!({"id":format!("{project_id}::speaker::them"),"project_id":project_id,"key":"them","display_name":"อีกฝ่าย","confidence":null,"created_at":timestamp,"updated_at":timestamp})),
-    ])?;
+    genesis_adapter::commit_rows(
+        &storage,
+        vec![
+            genesis_adapter::upsert(
+                "model_providers",
+                serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":"http://127.0.0.1:11434"},"created_at":timestamp,"updated_at":timestamp}),
+            ),
+            genesis_adapter::upsert(
+                "projects",
+                serde_json::json!({"id":project_id,"name":"Live smoke","storage_path":dir.display().to_string(),"active_recording_id":null,"created_at":timestamp,"updated_at":timestamp}),
+            ),
+            genesis_adapter::upsert(
+                "speakers",
+                serde_json::json!({"id":format!("{project_id}::speaker::me"),"project_id":project_id,"key":"me","display_name":"เรา","confidence":null,"created_at":timestamp,"updated_at":timestamp}),
+            ),
+            genesis_adapter::upsert(
+                "speakers",
+                serde_json::json!({"id":format!("{project_id}::speaker::them"),"project_id":project_id,"key":"them","display_name":"อีกฝ่าย","confidence":null,"created_at":timestamp,"updated_at":timestamp}),
+            ),
+        ],
+    )?;
     let mut capture_record = live_meeting::start_desktop_capture(
         &storage,
         project_id,
@@ -1930,7 +2289,10 @@ pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<St
     // wait must not silently extend the capture window.
     let root = source_root();
     let runtime = WhisperRuntime {
-        python: root.join(".venv-whisper").join("Scripts").join("python.exe"),
+        python: root
+            .join(".venv-whisper")
+            .join("Scripts")
+            .join("python.exe"),
         script: root.join("scripts").join("transcribe.py"),
         cuda_bin: root.join("runtime").join("cuda12").join("bin"),
     };
@@ -1957,8 +2319,7 @@ pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<St
         for path in files {
             let reader = hound::WavReader::open(&path).map_err(|error| error.to_string())?;
             let spec = reader.spec();
-            let duration_ms =
-                (reader.duration() as i64) * 1000 / spec.sample_rate.max(1) as i64;
+            let duration_ms = (reader.duration() as i64) * 1000 / spec.sample_rate.max(1) as i64;
             let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
             let checksum = {
                 use sha2::Digest;
@@ -1979,14 +2340,29 @@ pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<St
         }
         note(&mut report, "inject mode: queued prepared WAV chunks");
     } else {
-        let mic = spawn_capture_thread(ChannelKind::Mic, CHANNEL_MIC, stop.clone(), chunk_tx.clone(), chunks_dir.clone());
+        let mic = spawn_capture_thread(
+            ChannelKind::Mic,
+            CHANNEL_MIC,
+            stop.clone(),
+            chunk_tx.clone(),
+            chunks_dir.clone(),
+        );
         match &mic {
             Ok(ready) => note(&mut report, &format!("mic device: {}", ready.device_name)),
             Err(error) => note(&mut report, &format!("mic UNAVAILABLE: {error}")),
         }
-        let system = spawn_capture_thread(ChannelKind::SystemLoopback, CHANNEL_SYSTEM, stop.clone(), chunk_tx.clone(), chunks_dir.clone());
+        let system = spawn_capture_thread(
+            ChannelKind::SystemLoopback,
+            CHANNEL_SYSTEM,
+            stop.clone(),
+            chunk_tx.clone(),
+            chunks_dir.clone(),
+        );
         match &system {
-            Ok(ready) => note(&mut report, &format!("loopback device: {}", ready.device_name)),
+            Ok(ready) => note(
+                &mut report,
+                &format!("loopback device: {}", ready.device_name),
+            ),
             Err(error) => note(&mut report, &format!("loopback UNAVAILABLE: {error}")),
         }
         if mic.is_err() && system.is_err() {
@@ -2008,13 +2384,17 @@ pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<St
         let chunk = match event {
             CaptureEvent::Chunk(chunk) => chunk,
             CaptureEvent::ChunkWriteFailed { channel, error } => {
-                report.push_str(&format!("chunk write failed on {channel}: {error}
-"));
+                report.push_str(&format!(
+                    "chunk write failed on {channel}: {error}
+"
+                ));
                 continue;
             }
             CaptureEvent::StreamFailed { channel, error } => {
-                report.push_str(&format!("stream fault on {channel}: {error}
-"));
+                report.push_str(&format!(
+                    "stream fault on {channel}: {error}
+"
+                ));
                 continue;
             }
         };
@@ -2040,22 +2420,29 @@ pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<St
                     report.push_str(&format!("chunk {} error: {error}\n", chunk.chunk_id));
                     continue;
                 }
-                let speaker_key = if chunk.channel == CHANNEL_MIC { "me" } else { "them" };
+                let speaker_key = if chunk.channel == CHANNEL_MIC {
+                    "me"
+                } else {
+                    "them"
+                };
                 let mut mutations = Vec::new();
                 for segment in &response.segments {
                     let seg_timestamp = now();
-                    mutations.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({
-                        "id": Uuid::new_v4().to_string(),
-                        "project_id": project_id,
-                        "recording_id": recording_id,
-                        "speaker_id": format!("{project_id}::speaker::{speaker_key}"),
-                        "start_ms": chunk.start_ms + segment.start_ms,
-                        "end_ms": chunk.start_ms + segment.end_ms,
-                        "text": segment.text,
-                        "confidence": segment.confidence,
-                        "created_at": seg_timestamp,
-                        "updated_at": seg_timestamp,
-                    })));
+                    mutations.push(genesis_adapter::upsert(
+                        "transcript_segments",
+                        serde_json::json!({
+                            "id": Uuid::new_v4().to_string(),
+                            "project_id": project_id,
+                            "recording_id": recording_id,
+                            "speaker_id": format!("{project_id}::speaker::{speaker_key}"),
+                            "start_ms": chunk.start_ms + segment.start_ms,
+                            "end_ms": chunk.start_ms + segment.end_ms,
+                            "text": segment.text,
+                            "confidence": segment.confidence,
+                            "created_at": seg_timestamp,
+                            "updated_at": seg_timestamp,
+                        }),
+                    ));
                     segment_count += 1;
                     if samples.len() < 10 {
                         samples.push(format!("[{}] {}", chunk.channel, segment.text));
@@ -2072,17 +2459,23 @@ pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<St
     capture_record.duration_ms = capture_record.duration_ms.max(max_end_ms);
     genesis_adapter::finish_capture(&storage, &capture_record, &now())?;
 
-    note(&mut report, &format!(
-        "chunks: {chunk_count} (ledger duration {} ms), segments: {segment_count}",
-        capture_record.duration_ms
-    ));
+    note(
+        &mut report,
+        &format!(
+            "chunks: {chunk_count} (ledger duration {} ms), segments: {segment_count}",
+            capture_record.duration_ms
+        ),
+    );
     for sample in samples.clone() {
         note(&mut report, &format!("  {sample}"));
     }
 
     note(&mut report, "generating summaries (Ollama)...");
     match meeting_intel::generate_summaries_and_export(&storage, project_id, recording_id) {
-        Ok(export_path) => note(&mut report, &format!("summary + export: OK -> {export_path}")),
+        Ok(export_path) => note(
+            &mut report,
+            &format!("summary + export: OK -> {export_path}"),
+        ),
         Err(error) => note(&mut report, &format!("summary + export FAILED: {error}")),
     }
 
@@ -2281,12 +2674,9 @@ mod worker_tests {
         // Sandboxed/CI runners often have no route to the public internet, so
         // this must tolerate `None` — it must never panic, and any `Some`
         // must not be the loopback address.
-        match primary_lan_ipv4() {
-            Some(ip) => {
-                let parsed: std::net::Ipv4Addr = ip.parse().expect("must be a valid IPv4 string");
-                assert!(!parsed.is_loopback(), "must not report loopback: {ip}");
-            }
-            None => {}
+        if let Some(ip) = primary_lan_ipv4() {
+            let parsed: std::net::Ipv4Addr = ip.parse().expect("must be a valid IPv4 string");
+            assert!(!parsed.is_loopback(), "must not report loopback: {ip}");
         }
     }
 }
@@ -2370,7 +2760,10 @@ mod paired_device_tests {
         )
         .unwrap();
         let rows = list_paired_devices(&storage).unwrap();
-        assert_eq!(rows[0].public_key.as_deref(), Some("bGVnYWN5LXB1YmxpYy1rZXk="));
+        assert_eq!(
+            rows[0].public_key.as_deref(),
+            Some("bGVnYWN5LXB1YmxpYy1rZXk=")
+        );
     }
 
     #[test]
@@ -2449,6 +2842,9 @@ mod paired_device_tests {
 
         let rows = list_paired_devices(&storage).unwrap();
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].id, "dev-2", "most recently paired device is listed first");
+        assert_eq!(
+            rows[0].id, "dev-2",
+            "most recently paired device is listed first"
+        );
     }
 }

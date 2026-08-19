@@ -366,7 +366,9 @@ fn chunk_count_for(plaintext_len: usize) -> Result<u32, ArchiveError> {
         1
     } else {
         (plaintext_len / ARCHIVE_CHUNK_SIZE)
-            .checked_add(usize::from(plaintext_len % ARCHIVE_CHUNK_SIZE != 0))
+            .checked_add(usize::from(
+                !plaintext_len.is_multiple_of(ARCHIVE_CHUNK_SIZE),
+            ))
             .ok_or(ArchiveError::TooLarge)?
     };
     if count > MAX_CHUNK_COUNT as usize || count > u32::MAX as usize {

@@ -73,7 +73,9 @@ pub(crate) fn spawn_topic_tracker(
                     .rev()
                     .collect()
             };
-            let Some(newest) = window.last() else { continue };
+            let Some(newest) = window.last() else {
+                continue;
+            };
             if newest.end_ms <= last_seen_end_ms {
                 continue; // nothing new was said since the last tick
             }
@@ -229,27 +231,43 @@ pub(crate) fn meeting_ask(
     let (endpoint, model) = llm_provider_config(&state.genesis).map_err(AppError::Genesis)?;
     let keywords = keyword_candidates(&question, &endpoint, &model);
 
-    let project_names: std::collections::HashMap<String, String> =
-        genesis_adapter::query(&state.genesis, "projects", &["id", "name"], vec![], ENGINE_ROW_CAP)
-            .map_err(AppError::Genesis)?
-            .into_iter()
-            .filter_map(|row| {
-                Some((
-                    row.get("projects.id")?.as_str()?.to_string(),
-                    row.get("projects.name")?.as_str()?.to_string(),
-                ))
-            })
-            .collect();
+    let project_names: std::collections::HashMap<String, String> = genesis_adapter::query(
+        &state.genesis,
+        "projects",
+        &["id", "name"],
+        vec![],
+        ENGINE_ROW_CAP,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .filter_map(|row| {
+        Some((
+            row.get("projects.id")?.as_str()?.to_string(),
+            row.get("projects.name")?.as_str()?.to_string(),
+        ))
+    })
+    .collect();
 
     // Past transcripts (optionally narrowed to one project).
     let segment_filter = match &project_id {
-        Some(id) => vec![genesis_adapter::eq("transcript_segments", "project_id", serde_json::json!(id))],
+        Some(id) => vec![genesis_adapter::eq(
+            "transcript_segments",
+            "project_id",
+            serde_json::json!(id),
+        )],
         None => vec![],
     };
     let segment_rows = genesis_adapter::query(
         &state.genesis,
         "transcript_segments",
-        &["id", "project_id", "recording_id", "start_ms", "text", "created_at"],
+        &[
+            "id",
+            "project_id",
+            "recording_id",
+            "start_ms",
+            "text",
+            "created_at",
+        ],
         segment_filter,
         ENGINE_ROW_CAP,
     )
@@ -349,7 +367,15 @@ pub(crate) fn meeting_ask(
         live.as_ref()
             .map(|session| {
                 let guard = session.recent.lock().expect("recent buffer mutex poisoned");
-                guard.iter().rev().take(10).cloned().collect::<Vec<_>>().into_iter().rev().collect()
+                guard
+                    .iter()
+                    .rev()
+                    .take(10)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect()
             })
             .unwrap_or_default()
     };
@@ -383,7 +409,10 @@ pub(crate) fn meeting_ask(
     let live_block = if live_tail.is_empty() {
         String::new()
     } else {
-        format!("\n\nบริบทที่กำลังคุยกันตอนนี้ (อ้างอิงไม่ได้ ใช้เข้าใจคำถามเท่านั้น):\n{}", render_window(&live_tail))
+        format!(
+            "\n\nบริบทที่กำลังคุยกันตอนนี้ (อ้างอิงไม่ได้ ใช้เข้าใจคำถามเท่านั้น):\n{}",
+            render_window(&live_tail)
+        )
     };
     let prompt = format!(
         "คุณเป็นผู้ช่วยค้นข้อมูลระหว่างประชุม ตอบคำถามโดยใช้ข้อมูลจากหลักฐานที่ให้เท่านั้น \
@@ -400,12 +429,20 @@ pub(crate) fn meeting_ask(
     let refs: Vec<usize> = value
         .get("refs")
         .and_then(serde_json::Value::as_array)
-        .map(|items| items.iter().filter_map(|item| item.as_u64().map(|n| n as usize)).collect())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_u64().map(|n| n as usize))
+                .collect()
+        })
         .unwrap_or_default();
     let cited: Vec<AskSource> = if refs.is_empty() {
         sources.into_iter().take(5).collect()
     } else {
-        sources.into_iter().filter(|source| refs.contains(&source.n)).collect()
+        sources
+            .into_iter()
+            .filter(|source| refs.contains(&source.n))
+            .collect()
     };
 
     Ok(AskAnswer {
@@ -445,7 +482,11 @@ fn load_segments(
         storage,
         "speakers",
         &["id", "display_name"],
-        vec![genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id))],
+        vec![genesis_adapter::eq(
+            "speakers",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
         ENGINE_ROW_CAP,
     )?
     .into_iter()
@@ -461,7 +502,11 @@ fn load_segments(
         storage,
         "transcript_segments",
         &["id", "recording_id", "speaker_id", "start_ms", "text"],
-        vec![genesis_adapter::eq("transcript_segments", "recording_id", serde_json::json!(recording_id))],
+        vec![genesis_adapter::eq(
+            "transcript_segments",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
         ENGINE_ROW_CAP,
     )?
     .into_iter()
@@ -474,7 +519,9 @@ fn load_segments(
                 .and_then(|id| speaker_names.get(id))
                 .cloned()
                 .unwrap_or_else(|| "ไม่ระบุ".to_string()),
-            start_ms: row.get("transcript_segments.start_ms").and_then(serde_json::Value::as_i64)?,
+            start_ms: row
+                .get("transcript_segments.start_ms")
+                .and_then(serde_json::Value::as_i64)?,
             text: row.get("transcript_segments.text")?.as_str()?.to_string(),
         })
     })
@@ -483,7 +530,11 @@ fn load_segments(
     Ok(segments)
 }
 
-fn refs_to_segment_ids(value: &serde_json::Value, key: &str, segments: &[SegmentView]) -> Vec<String> {
+fn refs_to_segment_ids(
+    value: &serde_json::Value,
+    key: &str,
+    segments: &[SegmentView],
+) -> Vec<String> {
     let mut ids: Vec<String> = value
         .get(key)
         .and_then(serde_json::Value::as_array)
@@ -491,7 +542,11 @@ fn refs_to_segment_ids(value: &serde_json::Value, key: &str, segments: &[Segment
             items
                 .iter()
                 .filter_map(|item| item.as_u64())
-                .filter_map(|index| segments.get(index as usize).map(|segment| segment.id.clone()))
+                .filter_map(|index| {
+                    segments
+                        .get(index as usize)
+                        .map(|segment| segment.id.clone())
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -549,16 +604,27 @@ pub(crate) fn generate_summaries_and_export(
 ) -> Result<String, String> {
     let segments = load_segments(storage, project_id, recording_id)?;
     if segments.is_empty() {
-        return Err("ยังไม่มี transcript ของเซสชันนี้ — ถ้าถอดสดล้มเหลว ให้ถอดจากไฟล์ chunk ย้อนหลังก่อน".to_string());
+        return Err(
+            "ยังไม่มี transcript ของเซสชันนี้ — ถ้าถอดสดล้มเหลว ให้ถอดจากไฟล์ chunk ย้อนหลังก่อน".to_string(),
+        );
     }
     let (endpoint, model) = llm_provider_config(storage)?;
 
     let job_id = Uuid::new_v4().to_string();
     let created = now();
-    genesis_adapter::commit_rows(storage, vec![
-        genesis_adapter::upsert("jobs", serde_json::json!({"id": job_id, "project_id": project_id, "type": "summary.generate", "status": "running", "progress": 0, "input_refs_json": [recording_id], "output_refs_json": [], "provider_id": "ollama-summary-intent", "error_code": null, "error_message": null, "attempt_no": 1, "started_at": created, "finished_at": null, "created_at": created, "updated_at": created})),
-        genesis_adapter::upsert("job_events", serde_json::json!({"id": Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": "summary.generate started", "created_at": created})),
-    ])?;
+    genesis_adapter::commit_rows(
+        storage,
+        vec![
+            genesis_adapter::upsert(
+                "jobs",
+                serde_json::json!({"id": job_id, "project_id": project_id, "type": "summary.generate", "status": "running", "progress": 0, "input_refs_json": [recording_id], "output_refs_json": [], "provider_id": "ollama-summary-intent", "error_code": null, "error_message": null, "attempt_no": 1, "started_at": created, "finished_at": null, "created_at": created, "updated_at": created}),
+            ),
+            genesis_adapter::upsert(
+                "job_events",
+                serde_json::json!({"id": Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": "summary.generate started", "created_at": created}),
+            ),
+        ],
+    )?;
 
     let transcript_block = segments
         .iter()
@@ -582,7 +648,11 @@ pub(crate) fn generate_summaries_and_export(
             "{shared_rules} รูปแบบ: {{\"story\": \"ย่อหน้าสรุปเรื่องราวการประชุมทั้งหมด 4-8 ประโยค\", \"refs\": [0,1]}}\n\nTranscript:\n{transcript_block}"
         ))?;
         let story_value = tolerant_json(&raw);
-        let story = story_value.get("story").and_then(serde_json::Value::as_str).unwrap_or(raw.trim()).to_string();
+        let story = story_value
+            .get("story")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(raw.trim())
+            .to_string();
         let story_refs = refs_to_segment_ids(&story_value, "refs", &segments);
 
         // 2) timeline — key points in order.
@@ -590,7 +660,10 @@ pub(crate) fn generate_summaries_and_export(
             "{shared_rules} รูปแบบ: {{\"points\": [{{\"point\": \"ประเด็นสำคัญ\", \"refs\": [3]}}]}} เรียงตามลำดับเวลา 4-10 ข้อ\n\nTranscript:\n{transcript_block}"
         ))?;
         let points_value = tolerant_json(&raw);
-        let points = points_value.get("points").cloned().unwrap_or(serde_json::json!([]));
+        let points = points_value
+            .get("points")
+            .cloned()
+            .unwrap_or(serde_json::json!([]));
         let points_refs = collect_item_refs(&points, &segments);
 
         // 3) decisions_actions — decisions made + tasks owned.
@@ -598,7 +671,10 @@ pub(crate) fn generate_summaries_and_export(
             "{shared_rules} รูปแบบ: {{\"items\": [{{\"item\": \"งานหรือข้อตัดสินใจ\", \"owner\": \"ชื่อผู้รับผิดชอบถ้าระบุใน transcript ไม่งั้น null\", \"refs\": [5]}}]}}\n\nTranscript:\n{transcript_block}"
         ))?;
         let actions_value = tolerant_json(&raw);
-        let actions = actions_value.get("items").cloned().unwrap_or(serde_json::json!([]));
+        let actions = actions_value
+            .get("items")
+            .cloned()
+            .unwrap_or(serde_json::json!([]));
         let actions_refs = collect_item_refs(&actions, &segments);
 
         // Persist: one model_run + one summary row per kind.
@@ -606,8 +682,16 @@ pub(crate) fn generate_summaries_and_export(
         let mut persisted: Vec<(String, String)> = Vec::new(); // (kind, content)
         for (kind, content, refs) in [
             ("whole_story", story.clone(), story_refs),
-            ("timeline", serde_json::to_string(&points).unwrap_or_else(|_| "[]".into()), points_refs),
-            ("decisions_actions", serde_json::to_string(&actions).unwrap_or_else(|_| "[]".into()), actions_refs),
+            (
+                "timeline",
+                serde_json::to_string(&points).unwrap_or_else(|_| "[]".into()),
+                points_refs,
+            ),
+            (
+                "decisions_actions",
+                serde_json::to_string(&actions).unwrap_or_else(|_| "[]".into()),
+                actions_refs,
+            ),
         ] {
             let timestamp = now();
             let model_run_id = Uuid::new_v4().to_string();
@@ -618,17 +702,21 @@ pub(crate) fn generate_summaries_and_export(
                 "input_ref": recording_id, "output_ref": format!("summary:{summary_id}"),
                 "parameters_json": {"endpoint": endpoint}, "created_at": timestamp,
             })));
-            mutations.push(genesis_adapter::upsert("summaries", serde_json::json!({
-                "id": summary_id, "project_id": project_id, "kind": kind, "content": content,
-                "evidence_refs_json": refs, "model_run_id": model_run_id,
-                "created_at": timestamp, "updated_at": timestamp,
-            })));
+            mutations.push(genesis_adapter::upsert(
+                "summaries",
+                serde_json::json!({
+                    "id": summary_id, "project_id": project_id, "kind": kind, "content": content,
+                    "evidence_refs_json": refs, "model_run_id": model_run_id,
+                    "created_at": timestamp, "updated_at": timestamp,
+                }),
+            ));
             persisted.push((kind.to_string(), content));
         }
         genesis_adapter::commit_rows(storage, mutations)?;
 
         // Markdown export closes the loop.
-        let export_path = write_markdown_export(storage, project_id, recording_id, &persisted, &segments)?;
+        let export_path =
+            write_markdown_export(storage, project_id, recording_id, &persisted, &segments)?;
         Ok(export_path)
     })();
 
@@ -644,7 +732,12 @@ pub(crate) fn generate_summaries_and_export(
 }
 
 fn format_clock(ms: i64) -> String {
-    format!("{}:{:02}:{:02}", ms / 3_600_000, (ms / 60_000) % 60, (ms / 1000) % 60)
+    format!(
+        "{}:{:02}:{:02}",
+        ms / 3_600_000,
+        (ms / 60_000) % 60,
+        (ms / 1000) % 60
+    )
 }
 
 fn write_markdown_export(
@@ -658,7 +751,11 @@ fn write_markdown_export(
         storage,
         "projects",
         &["name", "storage_path"],
-        vec![genesis_adapter::eq("projects", "id", serde_json::json!(project_id))],
+        vec![genesis_adapter::eq(
+            "projects",
+            "id",
+            serde_json::json!(project_id),
+        )],
         1,
     )?
     .into_iter()
@@ -693,10 +790,15 @@ fn write_markdown_export(
                 body.push_str("## การตัดสินใจและงานที่ต้องทำ\n\n");
                 if let Ok(items) = serde_json::from_str::<serde_json::Value>(content) {
                     for item in items.as_array().cloned().unwrap_or_default() {
-                        let text = item.get("item").and_then(serde_json::Value::as_str).unwrap_or("");
+                        let text = item
+                            .get("item")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("");
                         let owner = item.get("owner").and_then(serde_json::Value::as_str);
                         match owner {
-                            Some(owner) if !owner.is_empty() => body.push_str(&format!("- [ ] {text} — **{owner}**\n")),
+                            Some(owner) if !owner.is_empty() => {
+                                body.push_str(&format!("- [ ] {text} — **{owner}**\n"))
+                            }
                             _ => body.push_str(&format!("- [ ] {text}\n")),
                         }
                     }
@@ -709,20 +811,32 @@ fn write_markdown_export(
 
     body.push_str("## Transcript ฉบับเต็ม\n\n");
     for segment in segments {
-        body.push_str(&format!("- `{}` **{}**: {}\n", format_clock(segment.start_ms), segment.speaker, segment.text));
+        body.push_str(&format!(
+            "- `{}` **{}**: {}\n",
+            format_clock(segment.start_ms),
+            segment.speaker,
+            segment.text
+        ));
     }
 
     let exports_dir = std::path::PathBuf::from(&storage_path).join("exports");
-    std::fs::create_dir_all(&exports_dir).map_err(|error| format!("create exports dir failed: {error}"))?;
-    let file_path = exports_dir.join(format!("meeting-{}.md", &recording_id[..8.min(recording_id.len())]));
+    std::fs::create_dir_all(&exports_dir)
+        .map_err(|error| format!("create exports dir failed: {error}"))?;
+    let file_path = exports_dir.join(format!(
+        "meeting-{}.md",
+        &recording_id[..8.min(recording_id.len())]
+    ));
     std::fs::write(&file_path, body).map_err(|error| format!("write export failed: {error}"))?;
 
     let timestamp = now();
-    genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert(
-        "export_artifacts",
-        // kind 'txt': the contract enum has no dedicated markdown kind yet.
-        serde_json::json!({"id": Uuid::new_v4().to_string(), "project_id": project_id, "kind": "txt", "file_path": file_path.display().to_string(), "source_layer_id": null, "created_at": timestamp}),
-    )])?;
+    genesis_adapter::commit_rows(
+        storage,
+        vec![genesis_adapter::upsert(
+            "export_artifacts",
+            // kind 'txt': the contract enum has no dedicated markdown kind yet.
+            serde_json::json!({"id": Uuid::new_v4().to_string(), "project_id": project_id, "kind": "txt", "file_path": file_path.display().to_string(), "source_layer_id": null, "created_at": timestamp}),
+        )],
+    )?;
 
     Ok(file_path.display().to_string())
 }
@@ -750,7 +864,11 @@ pub(crate) fn meeting_summaries(
         &state.genesis,
         "summaries",
         &["id", "kind", "content", "evidence_refs_json", "created_at"],
-        vec![genesis_adapter::eq("summaries", "project_id", serde_json::json!(project_id))],
+        vec![genesis_adapter::eq(
+            "summaries",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
         200,
     )
     .map_err(AppError::Genesis)?
@@ -770,9 +888,11 @@ pub(crate) fn meeting_summaries(
         Ok(SummaryRow {
             id: genesis_adapter::string(&row, "summaries.id").map_err(AppError::Genesis)?,
             kind: genesis_adapter::string(&row, "summaries.kind").map_err(AppError::Genesis)?,
-            content: genesis_adapter::string(&row, "summaries.content").map_err(AppError::Genesis)?,
+            content: genesis_adapter::string(&row, "summaries.content")
+                .map_err(AppError::Genesis)?,
             evidence_count,
-            created_at: genesis_adapter::string(&row, "summaries.created_at").map_err(AppError::Genesis)?,
+            created_at: genesis_adapter::string(&row, "summaries.created_at")
+                .map_err(AppError::Genesis)?,
         })
     })
     .collect::<AppResult<Vec<_>>>()?;
@@ -802,8 +922,13 @@ mod tests {
 
     #[test]
     fn tolerant_json_recovers_object_wrapped_in_prose() {
-        let value = tolerant_json("แน่นอนครับ นี่คือผลลัพธ์ {\"topic\": \"งบประมาณ\", \"openPoints\": []} หวังว่าช่วยได้");
-        assert_eq!(value.get("topic").and_then(serde_json::Value::as_str), Some("งบประมาณ"));
+        let value = tolerant_json(
+            "แน่นอนครับ นี่คือผลลัพธ์ {\"topic\": \"งบประมาณ\", \"openPoints\": []} หวังว่าช่วยได้",
+        );
+        assert_eq!(
+            value.get("topic").and_then(serde_json::Value::as_str),
+            Some("งบประมาณ")
+        );
     }
 
     #[test]
@@ -816,8 +941,18 @@ mod tests {
     #[test]
     fn refs_map_to_segment_ids_and_dedupe() {
         let segments = vec![
-            SegmentView { id: "seg-a".into(), speaker: "เรา".into(), start_ms: 0, text: "หนึ่ง".into() },
-            SegmentView { id: "seg-b".into(), speaker: "อีกฝ่าย".into(), start_ms: 1000, text: "สอง".into() },
+            SegmentView {
+                id: "seg-a".into(),
+                speaker: "เรา".into(),
+                start_ms: 0,
+                text: "หนึ่ง".into(),
+            },
+            SegmentView {
+                id: "seg-b".into(),
+                speaker: "อีกฝ่าย".into(),
+                start_ms: 1000,
+                text: "สอง".into(),
+            },
         ];
         let value = serde_json::json!({"refs": [0, 1, 1, 9]});
         let ids = refs_to_segment_ids(&value, "refs", &segments);

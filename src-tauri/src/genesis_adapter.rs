@@ -781,7 +781,7 @@ fn schema_v8() -> RelationalSchemaPackage {
 /// identity, grants, immutable previews, runs, and sanitized results only.
 /// Credential values remain OS-keyring owned; `credential_ref` is a nullable
 /// non-secret locator so rows created before v9 continue to upgrade safely.
-pub(crate) fn schema() -> RelationalSchemaPackage {
+fn schema_v9() -> RelationalSchemaPackage {
     use RelationalColumnType::{Integer, Json, Text};
     let mut package = schema_v8();
     package.schema_version = 9;
@@ -887,6 +887,46 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
     package
 }
 
+/// Two columns the transcript pipeline had been doing without.
+///
+/// `recordings.language` — the language a session was captured in was handed
+/// to the whisper worker and then forgotten, so any later pass over the same
+/// audio (the catch-up transcription, a recovered recording) ran with no
+/// language at all. Whisper re-detects per chunk, and on a short or noisy
+/// chunk that produces confident text in the wrong language rather than an
+/// error, which is worse than no text.
+///
+/// `audio_chunks.transcribed_at` — a chunk counted as needing transcription
+/// whenever no segment covered it, which is indistinguishable from a chunk
+/// that *was* transcribed and turned out to be silence. Those re-queued on
+/// every catch-up pass forever. The stamp records that the transcriber has
+/// seen the chunk, which is a different fact from whether it produced words.
+///
+/// Both nullable, so existing rows keep working. A recording written before
+/// this carries `language = NULL` and behaves exactly as it does today, and a
+/// chunk with `transcribed_at = NULL` that already has segments is still
+/// recognised as covered. Only a pre-existing *silent* chunk is offered once
+/// more, and that pass stamps it — the migration heals itself rather than
+/// needing a backfill.
+pub(crate) fn schema() -> RelationalSchemaPackage {
+    use RelationalColumnType::Text;
+    let mut package = schema_v9();
+    package.schema_version = 10;
+    package.previous_version = Some(9);
+    for (table_name, column) in [
+        ("recordings", "language"),
+        ("audio_chunks", "transcribed_at"),
+    ] {
+        let target = package
+            .tables
+            .iter_mut()
+            .find(|candidate| candidate.name == table_name)
+            .expect("table must exist in the previous schema version");
+        target.columns.push(nullable(column, Text));
+    }
+    package
+}
+
 /// Registers the schema chain stepwise. Genesis requires a fresh database to
 /// start at version 1 and advance one version at a time; on an existing
 /// database the already-registered steps report a version conflict, which is
@@ -902,6 +942,7 @@ pub(crate) fn install(storage: &Storage) -> Result<(), String> {
         schema_v6(),
         schema_v7(),
         schema_v8(),
+        schema_v9(),
         schema(),
     ];
     let last_index = packages.len() - 1;
@@ -1323,6 +1364,18 @@ pub(crate) struct CaptureRecord {
     pub(crate) safe_offset_ms: i64,
     pub(crate) segment_count: i64,
     pub(crate) created_at: String,
+    /// Fields below are carried purely so the row can be written back intact.
+    ///
+    /// `append_capture_chunk` and `finish_capture` rewrite the whole
+    /// `recordings` row on every chunk, and an upsert with a column missing
+    /// clears it. `source` and `input_path` were being hardcoded to
+    /// `"microphone"` and `null` on each rewrite, so adopting orphaned audio
+    /// into an imported recording silently relabelled it as a live capture
+    /// and dropped the path it was imported from. `language` would have hit
+    /// the same wall on the very first chunk.
+    pub(crate) source: String,
+    pub(crate) input_path: Option<String>,
+    pub(crate) language: Option<String>,
 }
 
 pub(crate) fn string(row: &Value, key: &str) -> Result<String, String> {
@@ -1350,6 +1403,9 @@ pub(crate) fn capture(storage: &Storage, recording_id: &str) -> Result<CaptureRe
             "duration_ms",
             "created_at",
             "updated_at",
+            "source",
+            "input_path",
+            "language",
         ],
         vec![eq("recordings", "id", json!(recording_id))],
         1,
@@ -1380,7 +1436,24 @@ pub(crate) fn capture(storage: &Storage, recording_id: &str) -> Result<CaptureRe
         safe_offset_ms: integer(&checkpoint, "mobile_recording_checkpoints.safe_offset_ms")?,
         segment_count: integer(&checkpoint, "mobile_recording_checkpoints.segment_count")?,
         created_at: string(&recording, "recordings.created_at")?,
+        // `source` predates this read and is required by the schema, but a
+        // row imported from the retired SQLite database can still be missing
+        // it; defaulting to "microphone" preserves the value the rewrites
+        // used to hardcode rather than failing a capture over provenance.
+        source: string(&recording, "recordings.source")
+            .unwrap_or_else(|_| "microphone".to_string()),
+        input_path: optional_string(&recording, "recordings.input_path"),
+        language: optional_string(&recording, "recordings.language"),
     })
+}
+
+/// A nullable text column as `Option<String>`, with an absent column and a
+/// JSON null treated the same: both mean "not set".
+pub(crate) fn optional_string(row: &Value, key: &str) -> Option<String> {
+    row.get(key)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .filter(|value| !value.is_empty())
 }
 
 pub(crate) fn active_capture(
@@ -1430,7 +1503,12 @@ pub(crate) fn start_capture(
                 "status": "recording",
                 "duration_ms": 0,
                 "created_at": timestamp,
-                "updated_at": timestamp
+                "updated_at": timestamp,
+                // The mobile shell has no language selector, so its captures
+                // are transcribed with whisper's own detection. Written
+                // explicitly rather than omitted so the column's absence is
+                // a statement, not an oversight.
+                "language": null
             }),
         ),
         upsert(
@@ -1447,6 +1525,83 @@ pub(crate) fn start_capture(
     ]);
     commit_rows(storage, mutations)?;
     capture(storage, recording_id)
+}
+
+/// The language a recording was captured in, or `None` when it was captured
+/// without one and whisper detected per chunk.
+///
+/// Read from the ledger rather than threaded through call frames, so every
+/// later pass over the same audio — the catch-up transcription, a recovery,
+/// a re-run queued by the job engine — reaches the same answer the live
+/// session used.
+pub(crate) fn recording_language(storage: &Storage, recording_id: &str) -> Option<String> {
+    query(
+        storage,
+        "recordings",
+        &["language"],
+        vec![eq("recordings", "id", json!(recording_id))],
+        1,
+    )
+    .ok()?
+    .first()
+    .and_then(|row| optional_string(row, "recordings.language"))
+}
+
+/// Records that the transcriber has processed a chunk.
+///
+/// Distinct from "the chunk has words": a chunk of silence produces no
+/// segments, and without this stamp it looked identical to a chunk that had
+/// never been transcribed, so every catch-up pass offered it again forever.
+///
+/// Reads the row before writing because Genesis upserts replace the whole
+/// row — the same reason `set_job_status` does. A chunk that has vanished is
+/// not an error here: the caller has already produced its segments, and
+/// failing the transcription over a bookkeeping write would lose them.
+pub(crate) fn mark_chunk_transcribed(
+    storage: &Storage,
+    chunk_id: &str,
+    timestamp: &str,
+) -> Result<(), String> {
+    let Some(row) = query(
+        storage,
+        "audio_chunks",
+        &[
+            "id",
+            "recording_id",
+            "sequence_no",
+            "file_path",
+            "start_ms",
+            "end_ms",
+            "byte_size",
+            "checksum",
+            "created_at",
+        ],
+        vec![eq("audio_chunks", "id", json!(chunk_id))],
+        1,
+    )?
+    .into_iter()
+    .next() else {
+        return Ok(());
+    };
+    let field = |key: &str| row.get(key).cloned().unwrap_or(Value::Null);
+    commit_rows(
+        storage,
+        vec![upsert(
+            "audio_chunks",
+            json!({
+                "id": chunk_id,
+                "recording_id": field("audio_chunks.recording_id"),
+                "sequence_no": field("audio_chunks.sequence_no"),
+                "file_path": field("audio_chunks.file_path"),
+                "start_ms": field("audio_chunks.start_ms"),
+                "end_ms": field("audio_chunks.end_ms"),
+                "byte_size": field("audio_chunks.byte_size"),
+                "checksum": field("audio_chunks.checksum"),
+                "created_at": field("audio_chunks.created_at"),
+                "transcribed_at": timestamp
+            }),
+        )],
+    )
 }
 
 pub(crate) struct AudioChunk<'a> {
@@ -1498,13 +1653,14 @@ pub(crate) fn append_capture_chunk(
                 json!({
                     "id": current.recording_id,
                     "project_id": current.project_id,
-                    "source": "microphone",
-                    "input_path": null,
+                    "source": current.source,
+                    "input_path": current.input_path,
                     "canonical_audio_path": current.canonical_audio_path,
                     "status": current.status,
                     "duration_ms": chunk.end_ms,
                     "created_at": current.created_at,
-                    "updated_at": chunk.timestamp
+                    "updated_at": chunk.timestamp,
+                    "language": current.language
                 }),
             ),
         ],
@@ -1524,13 +1680,14 @@ pub(crate) fn finish_capture(
             json!({
                 "id": current.recording_id,
                 "project_id": current.project_id,
-                "source": "microphone",
-                "input_path": null,
+                "source": current.source,
+                "input_path": current.input_path,
                 "canonical_audio_path": current.canonical_audio_path,
                 "status": "completed",
                 "duration_ms": current.duration_ms,
                 "created_at": current.created_at,
-                "updated_at": timestamp
+                "updated_at": timestamp,
+                "language": current.language
             }),
         )],
     )?;
@@ -1785,6 +1942,164 @@ mod tests {
             chunks[0]["audio_chunks.file_path"],
             "projects/backup-project/backup-recording/segment-000001.m4a"
         );
+    }
+
+    #[test]
+    fn marking_a_chunk_transcribed_keeps_the_rest_of_its_row() {
+        // The stamp is written by re-upserting the whole row, so a field left
+        // out is a field erased — and `file_path` and `checksum` are how the
+        // audio is found and verified.
+        let (_path, storage) = open();
+        let timestamp = "2026-08-19T11:00:00Z";
+        commit_rows(&storage, vec![
+            upsert("projects", json!({"id": "p", "name": "P", "storage_path": "C:/p", "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp})),
+            upsert("recordings", json!({"id": "r", "project_id": "p", "source": "microphone", "input_path": null, "canonical_audio_path": "C:/p/r", "status": "completed", "duration_ms": 0, "created_at": timestamp, "updated_at": timestamp})),
+            upsert("audio_chunks", json!({"id": "c", "recording_id": "r", "sequence_no": 3, "file_path": "C:/p/r/mic-00003.wav", "start_ms": 100, "end_ms": 2100, "byte_size": 42, "checksum": "deadbeef", "created_at": timestamp})),
+        ]).unwrap();
+
+        mark_chunk_transcribed(&storage, "c", "2026-08-19T12:00:00Z").unwrap();
+
+        let row = query(
+            &storage,
+            "audio_chunks",
+            &[
+                "id",
+                "recording_id",
+                "sequence_no",
+                "file_path",
+                "start_ms",
+                "end_ms",
+                "byte_size",
+                "checksum",
+                "created_at",
+                "transcribed_at",
+            ],
+            vec![eq("audio_chunks", "id", json!("c"))],
+            1,
+        )
+        .unwrap()
+        .into_iter()
+        .next()
+        .expect("chunk must still exist");
+        assert_eq!(
+            optional_string(&row, "audio_chunks.transcribed_at").as_deref(),
+            Some("2026-08-19T12:00:00Z")
+        );
+        assert_eq!(row["audio_chunks.file_path"], "C:/p/r/mic-00003.wav");
+        assert_eq!(row["audio_chunks.checksum"], "deadbeef");
+        assert_eq!(row["audio_chunks.sequence_no"], 3);
+        assert_eq!(row["audio_chunks.byte_size"], 42);
+    }
+
+    #[test]
+    fn stamping_a_chunk_that_is_gone_is_not_an_error() {
+        // The caller has already committed the transcript by this point.
+        // Failing here would report a successful transcription as a failure
+        // and hand the chunk back to be transcribed a second time.
+        let (_path, storage) = open();
+        assert!(mark_chunk_transcribed(&storage, "no-such-chunk", "2026-08-19T12:00:00Z").is_ok());
+    }
+
+    #[test]
+    fn adopting_audio_into_an_imported_recording_keeps_its_provenance() {
+        // `append_capture_chunk` used to hardcode source="microphone" and
+        // input_path=null on every rewrite, so recovering orphaned audio into
+        // an imported recording relabelled it a live capture and dropped the
+        // file it came from — derived state overwriting evidence.
+        let (_path, storage) = open();
+        let timestamp = "2026-08-19T11:00:00Z";
+        commit_rows(&storage, vec![
+            upsert("projects", json!({"id": "p", "name": "P", "storage_path": "C:/p", "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp})),
+            upsert("recordings", json!({"id": "r", "project_id": "p", "source": "import", "input_path": "D:/incoming/meeting.m4a", "canonical_audio_path": "C:/p/r", "status": "recording", "duration_ms": 0, "created_at": timestamp, "updated_at": timestamp, "language": "th"})),
+            upsert("mobile_recording_checkpoints", json!({"id": "r", "recording_id": "r", "safe_offset_ms": 0, "segment_count": 0, "last_checksum": null, "updated_at": timestamp})),
+        ]).unwrap();
+
+        let record = capture(&storage, "r").unwrap();
+        let record = append_capture_chunk(
+            &storage,
+            &record,
+            AudioChunk {
+                id: "c",
+                file_path: "C:/p/r/mic-00001.wav",
+                start_ms: 0,
+                end_ms: 1000,
+                byte_size: 8,
+                checksum: "aa",
+                timestamp: "2026-08-19T12:00:00Z",
+            },
+        )
+        .unwrap();
+        let finished = finish_capture(&storage, &record, "2026-08-19T12:00:00Z").unwrap();
+
+        assert_eq!(finished.source, "import");
+        assert_eq!(
+            finished.input_path.as_deref(),
+            Some("D:/incoming/meeting.m4a")
+        );
+        assert_eq!(finished.language.as_deref(), Some("th"));
+    }
+
+    #[test]
+    fn an_absent_or_empty_nullable_column_reads_as_unset() {
+        // A recording written before the column existed and one written with
+        // an empty string must both mean "no language chosen"; treating the
+        // empty string as a language would pass "" to the whisper worker.
+        let row = json!({"recordings.language": "", "recordings.source": "import"});
+        assert_eq!(optional_string(&row, "recordings.language"), None);
+        assert_eq!(optional_string(&row, "recordings.missing"), None);
+        assert_eq!(
+            optional_string(&row, "recordings.source").as_deref(),
+            Some("import")
+        );
+    }
+
+    #[test]
+    fn the_schema_chain_advances_one_version_at_a_time() {
+        // Genesis requires a fresh database to start at version 1 and move up
+        // one step at a time, and `install` skips a step that reports a
+        // version conflict. A new package that forgets to bump its version,
+        // or one left out of the list, therefore fails silently on an
+        // existing database and only shows up as a missing column much later.
+        let chain = [
+            schema_v1(),
+            schema_v2(),
+            schema_v3(),
+            schema_v4(),
+            schema_v5(),
+            schema_v6(),
+            schema_v7(),
+            schema_v8(),
+            schema_v9(),
+            schema(),
+        ];
+        for (index, package) in chain.iter().enumerate() {
+            let expected = index as u32 + 1;
+            assert_eq!(
+                package.schema_version, expected,
+                "step {index} must register as version {expected}"
+            );
+            assert_eq!(
+                package.previous_version,
+                if index == 0 { None } else { Some(expected - 1) },
+                "step {index} must follow the one before it"
+            );
+        }
+    }
+
+    #[test]
+    fn the_current_schema_carries_the_transcript_columns() {
+        // Both are read by name at runtime; a package that dropped one would
+        // compile and then fail every capture with a missing-column error.
+        let package = schema();
+        let column_exists = |table_name: &str, column: &str| {
+            package
+                .tables
+                .iter()
+                .find(|candidate| candidate.name == table_name)
+                .is_some_and(|table| table.columns.iter().any(|c| c.name == column))
+        };
+        assert!(column_exists("recordings", "language"));
+        assert!(column_exists("audio_chunks", "transcribed_at"));
     }
 
     #[test]

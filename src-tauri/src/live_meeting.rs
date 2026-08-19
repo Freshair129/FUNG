@@ -726,6 +726,7 @@ pub(crate) fn start_desktop_capture(
     recording_id: &str,
     manifest_path: &str,
     timestamp: &str,
+    language: Option<&str>,
 ) -> Result<genesis_adapter::CaptureRecord, String> {
     genesis_adapter::commit_rows(
         storage,
@@ -742,6 +743,10 @@ pub(crate) fn start_desktop_capture(
                     "duration_ms": 0,
                     "created_at": timestamp,
                     "updated_at": timestamp,
+                    // Stored, not just handed to the worker: every later pass
+                    // over this audio needs the same answer, and until now
+                    // the choice died with the session.
+                    "language": language,
                 }),
             ),
             genesis_adapter::upsert(
@@ -1228,6 +1233,7 @@ fn chunks_missing_transcript(
             "end_ms",
             "byte_size",
             "checksum",
+            "transcribed_at",
         ],
         vec![genesis_adapter::eq(
             "audio_chunks",
@@ -1268,10 +1274,20 @@ fn chunks_missing_transcript(
         if !std::path::Path::new(&file_path).is_file() {
             continue;
         }
+        // The transcriber has already seen this chunk. Silence is a real
+        // answer, and re-offering it every pass made a quiet meeting look
+        // permanently unfinished.
+        if genesis_adapter::optional_string(row, "audio_chunks.transcribed_at").is_some() {
+            continue;
+        }
         let speaker_key = if channel == CHANNEL_MIC { "me" } else { "them" };
         let speaker_id = speaker_id_for(project_id, speaker_key);
         let start_ms = integer("audio_chunks.start_ms");
         let end_ms = integer("audio_chunks.end_ms");
+        // Rows written before `transcribed_at` existed carry NULL, so a chunk
+        // that does have text is still recognised by its segments. Only a
+        // pre-existing silent chunk is offered once more, and this pass
+        // stamps it.
         let already = covered
             .iter()
             .any(|(id, at)| *id == speaker_id && *at >= start_ms && *at < end_ms.max(start_ms + 1));
@@ -1299,12 +1315,10 @@ fn chunks_missing_transcript(
 /// safe and unreadable at the same time. This is the same catch-up pass a
 /// degraded live session runs at its end, aimed at a recording that already
 /// finished.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn fill_transcript_gaps(
     app: &tauri::AppHandle,
     storage: &genesis_block_native::Storage,
     runtime: &WhisperRuntime,
-    language: Option<&str>,
     project_id: &str,
     recording_id: &str,
 ) -> GapFillOutcome {
@@ -1323,12 +1337,17 @@ pub(crate) fn fill_transcript_gaps(
 
     let total = missing.len();
     let recent: SharedRecent = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+    // Read from the ledger rather than taken as an argument: the callers of
+    // this pass — recovery, the job engine — are not the session that chose
+    // the language, and passing `None` from them meant a recovered Thai
+    // meeting was re-transcribed with per-chunk detection.
+    let language = genesis_adapter::recording_language(storage, recording_id);
     let still = transcribe_pending_chunks(
         app,
         storage,
         &recent,
         runtime,
-        language,
+        language.as_deref(),
         project_id,
         recording_id,
         &missing,
@@ -1424,6 +1443,12 @@ fn transcribe_pending_chunks(
     total - recovered
 }
 
+/// Writes a chunk's transcript and marks the chunk as transcribed.
+///
+/// The stamp goes on whether or not the worker returned any text. A chunk of
+/// silence produces no segments, and without the stamp it is indistinguishable
+/// from one that was never transcribed — which is why every catch-up pass
+/// used to offer the same silent chunks again.
 fn persist_and_emit_segments(
     app: &tauri::AppHandle,
     storage: &genesis_block_native::Storage,
@@ -1478,13 +1503,35 @@ fn persist_and_emit_segments(
             confidence: segment.confidence,
         });
     }
+    // Stamping is what stops a silent chunk being offered again forever, and
+    // it must not run ahead of the text: a chunk marked transcribed whose
+    // segments failed to commit would lose its words with no trace and no
+    // second attempt.
+    let stamp = |storage: &genesis_block_native::Storage| {
+        if let Err(error) =
+            genesis_adapter::mark_chunk_transcribed(storage, &chunk.chunk_id, &now())
+        {
+            // The transcript is already safe; failing to record that fact
+            // only costs a repeated pass, so it is reported rather than
+            // treated as a transcription failure.
+            eprintln!(
+                "[live] could not mark chunk {} transcribed: {error}",
+                chunk.chunk_id
+            );
+        }
+    };
+
     if mutations.is_empty() {
+        // Silence is an answer. Before this the chunk looked identical to one
+        // that had never been through the transcriber.
+        stamp(storage);
         return;
     }
     if let Err(error) = genesis_adapter::commit_rows(storage, mutations) {
         eprintln!("[live] transcript segment commit failed: {error}");
         return;
     }
+    stamp(storage);
     {
         let mut window = recent.lock().expect("recent buffer mutex poisoned");
         for event in &events {
@@ -1675,6 +1722,7 @@ pub(crate) fn live_meeting_start(
         &recording_id,
         &session_dir.display().to_string(),
         &timestamp,
+        language.as_deref(),
     )
     .map_err(AppError::Genesis)?;
 
@@ -1875,6 +1923,154 @@ mod tests {
         (project_id, recording_id)
     }
 
+    /// The project a capture is recorded into. Created separately because
+    /// `start_desktop_capture` must not touch it.
+    fn seed_project(storage: &Storage, project_id: &str, path: &std::path::Path) {
+        let timestamp = now();
+        genesis_adapter::commit_rows(storage, vec![
+            genesis_adapter::upsert("projects", serde_json::json!({"id": project_id, "name": "Lang", "storage_path": path.display().to_string(), "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp})),
+        ]).unwrap();
+    }
+
+    #[test]
+    fn a_transcribed_chunk_with_no_words_is_not_offered_again() {
+        // A chunk of silence produces no segments, so coverage-by-segment
+        // alone re-queued it on every catch-up pass — a quiet meeting looked
+        // permanently unfinished and the whisper worker was restarted to
+        // re-transcribe audio that had nothing in it.
+        let (path, storage) = open_storage();
+        let dir = path.join("chunks");
+        let (project_id, recording_id) = seed_two_channel_recording(&storage, &dir);
+
+        assert_eq!(
+            chunks_missing_transcript(&storage, &project_id, &recording_id)
+                .unwrap()
+                .len(),
+            2
+        );
+
+        // The transcriber saw the microphone chunk and it held silence.
+        genesis_adapter::mark_chunk_transcribed(&storage, "chunk-mic", &now()).unwrap();
+
+        let missing = chunks_missing_transcript(&storage, &project_id, &recording_id).unwrap();
+        assert_eq!(
+            missing
+                .iter()
+                .map(|chunk| chunk.chunk_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["chunk-system"],
+            "only the chunk the transcriber has not seen is still pending"
+        );
+    }
+
+    #[test]
+    fn a_chunk_transcribed_before_the_stamp_existed_is_still_recognised() {
+        // Rows written before `transcribed_at` carry NULL. One that produced
+        // text must not be re-transcribed just because it has no stamp, or
+        // the migration would duplicate every existing recording's segments.
+        let (path, storage) = open_storage();
+        let dir = path.join("chunks");
+        let (project_id, recording_id) = seed_two_channel_recording(&storage, &dir);
+        let timestamp = now();
+        genesis_adapter::commit_rows(
+            &storage,
+            vec![genesis_adapter::upsert(
+                "transcript_segments",
+                serde_json::json!({
+                    "id": "seg-legacy",
+                    "project_id": project_id,
+                    "recording_id": recording_id,
+                    "speaker_id": speaker_id_for(&project_id, "me"),
+                    "start_ms": 10,
+                    "end_ms": 900,
+                    "text": "มีข้อความอยู่แล้ว",
+                    "confidence": null,
+                    "created_at": timestamp,
+                    "updated_at": timestamp,
+                }),
+            )],
+        )
+        .unwrap();
+
+        let missing = chunks_missing_transcript(&storage, &project_id, &recording_id).unwrap();
+        assert_eq!(
+            missing
+                .iter()
+                .map(|chunk| chunk.chunk_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["chunk-system"],
+            "an unstamped chunk that has segments is still covered"
+        );
+    }
+
+    #[test]
+    fn the_session_language_survives_the_rows_rewritten_on_every_chunk() {
+        // `append_capture_chunk` and `finish_capture` rewrite the whole
+        // recordings row, so a column they do not carry is cleared on the
+        // first chunk. That is what would have made storing the language
+        // pointless.
+        let (path, storage) = open_storage();
+        // `start_desktop_capture` deliberately does not create the project —
+        // that is what keeps it off the mobile helper that renames one.
+        seed_project(&storage, "lang-project", &path);
+        let record = start_desktop_capture(
+            &storage,
+            "lang-project",
+            "lang-recording",
+            &path.display().to_string(),
+            &now(),
+            Some("th"),
+        )
+        .unwrap();
+        assert_eq!(record.language.as_deref(), Some("th"));
+
+        let chunk_path = path.join("mic-00001.wav");
+        let record = genesis_adapter::append_capture_chunk(
+            &storage,
+            &record,
+            genesis_adapter::AudioChunk {
+                id: "lang-chunk",
+                file_path: &chunk_path.display().to_string(),
+                start_ms: 0,
+                end_ms: 2000,
+                byte_size: 4,
+                checksum: "cc",
+                timestamp: &now(),
+            },
+        )
+        .unwrap();
+        genesis_adapter::finish_capture(&storage, &record, &now()).unwrap();
+
+        assert_eq!(
+            genesis_adapter::recording_language(&storage, "lang-recording").as_deref(),
+            Some("th"),
+            "the catch-up pass reads this back; clearing it would re-detect per chunk"
+        );
+    }
+
+    #[test]
+    fn a_session_started_without_a_language_reports_none_not_a_guess() {
+        // "auto" is a real choice. Storing a default here would tell every
+        // later pass the user picked a language they never picked.
+        let (path, storage) = open_storage();
+        // `start_desktop_capture` deliberately does not create the project —
+        // that is what keeps it off the mobile helper that renames one.
+        seed_project(&storage, "auto-project", &path);
+        start_desktop_capture(
+            &storage,
+            "auto-project",
+            "auto-recording",
+            &path.display().to_string(),
+            &now(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            genesis_adapter::recording_language(&storage, "auto-recording"),
+            None
+        );
+    }
+
     #[test]
     fn a_chunk_is_only_covered_by_text_from_its_own_channel() {
         // The two channels share one timeline. Matching on time alone would
@@ -2062,8 +2258,15 @@ mod tests {
         )
         .expect("seed project");
 
-        let record = start_desktop_capture(&storage, "p1", "r1", "C:/tmp/p1/live/r1", timestamp)
-            .expect("start desktop capture");
+        let record = start_desktop_capture(
+            &storage,
+            "p1",
+            "r1",
+            "C:/tmp/p1/live/r1",
+            timestamp,
+            Some("th"),
+        )
+        .expect("start desktop capture");
         assert_eq!(record.status, "recording");
         assert_eq!(record.segment_count, 0);
 

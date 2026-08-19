@@ -1,6 +1,10 @@
 // @req FR-106, FR-108, FR-116
 // @tested tests/externalMeetingTools.test.mjs
 import { invoke } from "@tauri-apps/api/core";
+import {
+  EMPTY_MEETING_SUMMARIES as EMPTY_SUMMARIES,
+  type MeetingSummaries as MeetingSummariesShape,
+} from "./lib/meetingSummaries";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
@@ -428,13 +432,13 @@ export type AskAnswer = {
   searchedRowsCapped: boolean;
 };
 
-export type SummaryRow = {
-  id: string;
-  kind: string;
-  content: string;
-  evidenceCount: number;
-  createdAt: string;
-};
+// Response shapes live in ./lib/meetingSummaries so they can be loaded
+// outside a browser; re-exported here so callers keep one import site.
+export type {
+  MeetingSummaries,
+  SummaryRow,
+} from "./lib/meetingSummaries";
+export { EMPTY_MEETING_SUMMARIES } from "./lib/meetingSummaries";
 
 export async function liveMeetingStart(options?: {
   projectId?: string;
@@ -466,9 +470,15 @@ export async function meetingAsk(question: string, projectId?: string): Promise<
   return invoke<AskAnswer>("meeting_ask", { question, projectId: projectId ?? null });
 }
 
-export async function meetingSummaries(projectId: string): Promise<SummaryRow[]> {
-  if (!canInvoke()) return [];
-  return invoke<SummaryRow[]>("meeting_summaries", { projectId });
+export async function meetingSummaries(
+  projectId: string,
+  recordingId: string,
+): Promise<MeetingSummariesShape> {
+  if (!canInvoke()) return EMPTY_SUMMARIES;
+  return invoke<MeetingSummariesShape>("meeting_summaries", {
+    projectId,
+    recordingId,
+  });
 }
 
 export async function generateMeetingSummary(projectId: string, recordingId: string): Promise<void> {

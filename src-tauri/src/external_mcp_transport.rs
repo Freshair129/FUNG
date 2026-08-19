@@ -17,6 +17,19 @@ const MAX_MCP_MESSAGE_BYTES: usize = 256 * 1024;
 const MAX_MCP_STDERR_BYTES: u64 = 64 * 1024;
 const MAX_MCP_EXECUTION: Duration = Duration::from_secs(15);
 
+/// Budget for launching the connector process and completing the MCP
+/// handshake, held separately from the caller's execution timeout.
+///
+/// Measured on Windows, spawning a freshly written unsigned executable costs
+/// ~1.3s (malware scan on first exec) while the whole initialize/list/call
+/// exchange costs ~48ms. Charging that startup to `limits.timeout` meant a
+/// caller asking for "2 seconds of tool time" mostly bought process launch,
+/// and a slow-booting connector reported `ToolTimeout` — blaming the tool for
+/// time the tool never got. Total wall clock stays bounded by
+/// [`MAX_MCP_EXECUTION`] regardless of how the two phases divide it, so the
+/// "an external process can never hang indefinitely" property is unchanged.
+const MCP_STARTUP_GRACE: Duration = Duration::from_secs(10);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AllowedStdioTool {
     pub(crate) name: String,
@@ -304,7 +317,10 @@ fn execute_stdio_tool_inner(
     if limits.timeout.is_zero() || !arguments.is_object() {
         return Err(ExternalMcpErrorCode::ConnectorUnhealthy);
     }
-    let deadline = Instant::now() + limits.timeout.min(MAX_MCP_EXECUTION);
+    // One absolute ceiling for the whole exchange, then two phases inside it.
+    let started = Instant::now();
+    let hard_deadline = started + MAX_MCP_EXECUTION;
+    let startup_deadline = (started + MCP_STARTUP_GRACE).min(hard_deadline);
     let mut process = spawn_stdio(config)?;
 
     process.send(&serde_json::json!({
@@ -317,7 +333,7 @@ fn execute_stdio_tool_inner(
             "clientInfo": {"name":"FUNG","version":env!("CARGO_PKG_VERSION")}
         }
     }))?;
-    let initialized = process.response(1, deadline, cancellation)?;
+    let initialized = process.response(1, startup_deadline, cancellation)?;
     if initialized.get("protocolVersion").and_then(Value::as_str) != Some(MCP_PROTOCOL_VERSION)
         || initialized
             .get("capabilities")
@@ -336,6 +352,9 @@ fn execute_stdio_tool_inner(
         "method":"tools/list",
         "params":{}
     }))?;
+    // The connector is up and speaking MCP; from here the caller's timeout
+    // bounds the work it actually asked for.
+    let deadline = (Instant::now() + limits.timeout).min(hard_deadline);
     let listed = process.response(2, deadline, cancellation)?;
     let tools = listed
         .get("tools")
@@ -420,6 +439,16 @@ mod tests {
     use std::sync::OnceLock;
     use std::time::{Duration, Instant};
 
+    /// True when `built` exists and is at least as new as `source`, i.e. the
+    /// compiled fixture already reflects the current source.
+    fn is_newer_than(built: &PathBuf, source: &PathBuf) -> bool {
+        let modified = |path: &PathBuf| std::fs::metadata(path).and_then(|meta| meta.modified());
+        match (modified(built), modified(source)) {
+            (Ok(built_at), Ok(source_at)) => built_at >= source_at,
+            _ => false,
+        }
+    }
+
     fn fixture_executable() -> PathBuf {
         static FIXTURE: OnceLock<PathBuf> = OnceLock::new();
         FIXTURE
@@ -437,6 +466,15 @@ mod tests {
                     .join("tests")
                     .join("fixtures")
                     .join("fake_external_mcp.rs");
+                // `OnceLock` is per-process, so every `cargo test` run used to
+                // recompile and rewrite this binary. On Windows a freshly
+                // written unsigned executable pays a full malware scan on its
+                // first exec — measured at ~1.3s, against tool budgets of two
+                // seconds — which made every fixture-spawning test racy. Reuse
+                // a binary that is already newer than its source.
+                if is_newer_than(&executable, &source) {
+                    return executable;
+                }
                 let status =
                     Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
                         .arg(&source)
@@ -535,6 +573,32 @@ mod tests {
                 }]
             })
         );
+        assert_eq!(output.source_refs, vec!["kb://documents/42"]);
+    }
+
+    #[test]
+    fn connector_startup_is_not_charged_to_the_caller_execution_budget() {
+        // Regression: the deadline used to start before `spawn_stdio`, so a
+        // caller asking for N milliseconds of *tool* time actually bought
+        // process launch plus handshake. Measured, that was ~1.3s of spawn
+        // against ~48ms of protocol work, which made every fixture-spawning
+        // test racy and, in production, reported `ToolTimeout` for time the
+        // tool never received.
+        //
+        // The fixture takes 400ms to answer `initialize`; the execution budget
+        // here is 150ms. It must still succeed, because that budget only
+        // covers `tools/list` and `tools/call`.
+        let output = execute_stdio_tool(
+            &fixture_config("slow-start"),
+            "search_documents",
+            ConnectorCapability::DocumentsSearch,
+            &serde_json::json!({"query":"contract"}),
+            ExternalExecutionLimits {
+                timeout: Duration::from_millis(150),
+            },
+            &ExternalCancellation::new(),
+        )
+        .expect("slow startup must not be billed to the tool timeout");
         assert_eq!(output.source_refs, vec!["kb://documents/42"]);
     }
 

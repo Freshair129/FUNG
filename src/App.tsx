@@ -37,6 +37,7 @@ import {
   listProjects,
   listTranscriptSegments,
   minimizeWindow,
+  nativeInvoke,
   openExternalAccountPortal,
   pickAudioOrVideoFile,
   renameSpeaker,
@@ -61,6 +62,11 @@ const AccountLoginPanel = lazy(() =>
 );
 const DevicePairingPanel = lazy(() =>
   import("./components/DevicePairingPanel").then((module) => ({ default: module.DevicePairingPanel })),
+);
+// Backup needs no Supabase session, so it sits outside the `supabaseConfigured`
+// branch below: a local-only install must still be able to back itself up.
+const BackupPanel = lazy(() =>
+  import("./components/BackupPanel").then((module) => ({ default: module.BackupPanel })),
 );
 
 function formatMs(ms: number): string {
@@ -1114,6 +1120,15 @@ export function App() {
                 </p>
               </section>
             )}
+            <Suspense
+              fallback={(
+                <section className="account-login-panel" aria-label="กำลังเปิดการสำรองข้อมูล">
+                  <p className="account-login-status">กำลังเปิดการสำรองข้อมูล…</p>
+                </section>
+              )}
+            >
+              <BackupPanel invoke={nativeInvoke} />
+            </Suspense>
           </div>
         </div>
       )}

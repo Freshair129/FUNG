@@ -7,9 +7,13 @@
 //! and the current local Genesis state untouched.
 
 use crate::backup_archive::{self, ArchiveError};
+use crate::backup_payload::{
+    self, AudioInventory, AudioRestoreSummary, AudioRole, PayloadError,
+};
 use crate::filesystem_backup::{
     self, FilesystemArchiveRecord, FilesystemBackupError, FilesystemBackupState, FilesystemRoot,
 };
+use std::collections::HashSet;
 use genesis_block_native::{BackupExportRequest, BackupRestoreRequest, Storage};
 use serde::Serialize;
 use std::fs;
@@ -51,7 +55,29 @@ pub(crate) enum BackupJobError {
     VerificationFailed,
     #[error("backup staging failed")]
     StagingFailed,
+    #[error("audio inventory could not be read from Genesis: {0}")]
+    AudioInventoryFailed(String),
+    #[error(
+        "{0} has more than {GENESIS_QUERY_LIMIT} rows, above what GenesisBlockDB can enumerate in \
+         one query, so this archive would omit audio without saying so"
+    )]
+    AudioInventoryTooLarge(String),
+    #[error("backup payload failed: {0}")]
+    PayloadFailed(PayloadError),
+    #[error("audio could not be restored into the target: {0}")]
+    AudioRestoreFailed(PayloadError),
 }
+
+/// GenesisBlockDB rejects any relational query whose limit falls outside
+/// `1..1000` (`REL_QUERY_LIMIT_EXCEEDED`), supports equality filters only, and
+/// exposes no offset — so there is no way to page a large table.
+///
+/// The inventory works around that by reading chunks one recording at a time,
+/// which keeps ordinary projects well inside the bound. A read that *does*
+/// saturate is treated as a failure rather than a partial inventory: silently
+/// dropping the overflow would reproduce the exact defect this module exists
+/// to close — an archive that reports success while omitting audio.
+const GENESIS_QUERY_LIMIT: u32 = 1000;
 
 /// Guard that serializes backup/restore jobs and always releases the flag.
 struct JobGuard(Arc<AtomicBool>);
@@ -123,15 +149,162 @@ pub(crate) struct RestoreParentStatus {
 pub(crate) struct RestoreResult {
     archive_id: String,
     restored_bundle_sha256: String,
+    /// What the restore actually put on disk beside the ledger. A caller that
+    /// only reads `terminal_state` would present an audio-less restore as a
+    /// whole project.
+    audio: AudioRestoreSummary,
     terminal_state: String,
 }
 
-/// Export the full Genesis snapshot, encrypt it under the recovery phrase,
-/// and write the archive beneath the bounded root. The archive is `verified`
-/// only after the committed bytes match the manifest digest (enforced by the
-/// filesystem adapter). The plaintext bundle only ever exists inside
-/// `work_dir`, which must be outside the selected backup root, and is removed
-/// before returning.
+/// What one completed backup wrote, including how much source audio it
+/// carried.
+///
+/// The archive record alone cannot answer "is my audio in here?", and a UI
+/// that only shows the record would let a database-only archive read as a
+/// complete project backup. The audio summary travels with it so every
+/// surface reports the same truth.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BackupRunReport {
+    pub(crate) record: FilesystemArchiveRecord,
+    pub(crate) audio: AudioBackupSummary,
+}
+
+#[derive(Debug, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AudioBackupSummary {
+    pub(crate) stored_file_count: usize,
+    pub(crate) stored_byte_count: u64,
+    /// Files the ledger references that this archive could not carry, because
+    /// they were unreadable or had already changed since capture.
+    pub(crate) omitted_file_count: usize,
+}
+
+/// Reads every audio file the ledger references, in one pass over
+/// `audio_chunks` plus the `recordings` rows that carry whole-file sources.
+///
+/// Chunks are the durable capture unit; `canonical_audio_path` covers imports,
+/// which have no chunk rows and would otherwise contribute nothing. Both are
+/// deduplicated by absolute source path, so a recording whose canonical path
+/// is also a chunk path is packed once.
+fn collect_audio_inventory(storage: &Storage) -> Result<AudioInventory, BackupJobError> {
+    let text = |row: &serde_json::Value, key: &str| -> Option<String> {
+        row.get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .filter(|value| !value.is_empty())
+    };
+
+    let recording_rows = crate::genesis_adapter::query(
+        storage,
+        "recordings",
+        &["id", "canonical_audio_path"],
+        vec![],
+        GENESIS_QUERY_LIMIT,
+    )
+    .map_err(BackupJobError::AudioInventoryFailed)?;
+    if recording_rows.len() as u32 >= GENESIS_QUERY_LIMIT {
+        return Err(BackupJobError::AudioInventoryTooLarge("recordings".into()));
+    }
+
+    let mut inventory = AudioInventory::default();
+    let mut claimed_paths: HashSet<String> = HashSet::new();
+    let mut seen_sources: HashSet<String> = HashSet::new();
+
+    let mut absorb = |source_path: String,
+                      recording_id: &str,
+                      role: AudioRole,
+                      expected: Option<String>,
+                      inventory: &mut AudioInventory| {
+        // One file can be named by both a chunk row and a canonical path;
+        // pack it once.
+        if !seen_sources.insert(source_path.clone()) {
+            return;
+        }
+        let relative =
+            backup_payload::relative_path_for(recording_id, role, &source_path, &mut claimed_paths);
+        match backup_payload::stage_audio_file(
+            &source_path,
+            recording_id,
+            role,
+            expected.as_deref(),
+            relative,
+        ) {
+            Ok(staged) => inventory.staged.push(staged),
+            Err(entry) => inventory.omitted.push(entry),
+        }
+    };
+
+    for recording in &recording_rows {
+        let Some(recording_id) = text(recording, "recordings.id") else {
+            continue;
+        };
+
+        // Chunks are read per recording because the engine has no offset and
+        // caps one query at GENESIS_QUERY_LIMIT rows.
+        let chunk_rows = crate::genesis_adapter::query(
+            storage,
+            "audio_chunks",
+            &["file_path", "checksum"],
+            vec![crate::genesis_adapter::eq(
+                "audio_chunks",
+                "recording_id",
+                serde_json::json!(recording_id),
+            )],
+            GENESIS_QUERY_LIMIT,
+        )
+        .map_err(BackupJobError::AudioInventoryFailed)?;
+        if chunk_rows.len() as u32 >= GENESIS_QUERY_LIMIT {
+            return Err(BackupJobError::AudioInventoryTooLarge(format!(
+                "recording {recording_id}"
+            )));
+        }
+        for chunk in &chunk_rows {
+            let Some(file_path) = text(chunk, "audio_chunks.file_path") else {
+                continue;
+            };
+            let checksum = text(chunk, "audio_chunks.checksum");
+            absorb(
+                file_path,
+                &recording_id,
+                AudioRole::Chunk,
+                checksum,
+                &mut inventory,
+            );
+        }
+
+        // Live captures store a session *directory* in `canonical_audio_path`
+        // and keep their audio in chunk rows; imports store the source file
+        // itself and have no chunks. Only a real file belongs in the archive.
+        let Some(canonical) = text(recording, "recordings.canonical_audio_path") else {
+            continue;
+        };
+        if Path::new(&canonical).is_file() {
+            absorb(
+                canonical,
+                &recording_id,
+                AudioRole::Canonical,
+                None,
+                &mut inventory,
+            );
+        }
+    }
+
+    Ok(inventory)
+}
+
+/// Export the full Genesis snapshot, pack it together with every audio file
+/// the ledger references, encrypt the result under the recovery phrase, and
+/// write the archive beneath the bounded root. The archive is `verified` only
+/// after the committed bytes match the manifest digest (enforced by the
+/// filesystem adapter). The plaintext only ever exists inside `work_dir`,
+/// which must be outside the selected backup root, and is removed before
+/// returning.
+///
+/// `source_manifest_digest` stays the *Genesis bundle* digest even though the
+/// encrypted payload is now a container, so the post-restore identity check in
+/// [`run_restore_job`] keeps comparing like with like across archive
+/// generations.
 pub(crate) fn run_backup_job(
     storage: &Storage,
     root: &FilesystemRoot,
@@ -139,7 +312,7 @@ pub(crate) fn run_backup_job(
     archive_id: &str,
     created_at: &str,
     recovery_phrase: &str,
-) -> Result<FilesystemArchiveRecord, BackupJobError> {
+) -> Result<BackupRunReport, BackupJobError> {
     if work_dir.starts_with(root.owned_root()) {
         return Err(BackupJobError::StagingFailed);
     }
@@ -154,10 +327,21 @@ pub(crate) fn run_backup_job(
             destination: bundle_path.clone(),
         })
         .map_err(|_| BackupJobError::ExportFailed);
-    let record = export_result.and_then(|bundle| {
-        let plaintext = Zeroizing::new(
+    let report = export_result.and_then(|bundle| {
+        let bundle_bytes = Zeroizing::new(
             fs::read(&bundle_path).map_err(|_| BackupJobError::StagingFailed)?,
         );
+        let inventory = collect_audio_inventory(storage)?;
+        let audio = AudioBackupSummary {
+            stored_file_count: inventory.stored_count(),
+            stored_byte_count: inventory.stored_bytes(),
+            omitted_file_count: inventory.omitted_count(),
+        };
+        let plaintext = Zeroizing::new(
+            backup_payload::pack(&bundle_bytes, &inventory)
+                .map_err(BackupJobError::PayloadFailed)?,
+        );
+        drop(inventory);
         let envelope = backup_archive::encrypt_archive(
             archive_id,
             &bundle.sha256,
@@ -169,12 +353,13 @@ pub(crate) fn run_backup_job(
             ArchiveError::InvalidRecoveryPhrase => BackupJobError::InvalidRecoveryPhrase,
             _ => BackupJobError::EncryptionFailed,
         })?;
-        filesystem_backup::write_encrypted_archive_at_root(root, &envelope)
-            .map_err(BackupJobError::WriteFailed)
+        let record = filesystem_backup::write_encrypted_archive_at_root(root, &envelope)
+            .map_err(BackupJobError::WriteFailed)?;
+        Ok(BackupRunReport { record, audio })
     });
     // Always remove the plaintext bundle, success or failure.
     let _ = fs::remove_file(&bundle_path);
-    record
+    report
 }
 
 /// Read, authenticate, and decrypt an archive, then invoke Genesis restore
@@ -220,12 +405,17 @@ pub(crate) fn run_restore_job(
         return Err(BackupJobError::RestoreTargetExists);
     }
 
+    // Split the container before touching the restore target. A malformed or
+    // digest-mismatched payload must fail here, while nothing has been
+    // created on disk yet.
+    let payload = backup_payload::unpack(&plaintext).map_err(BackupJobError::PayloadFailed)?;
+
     fs::create_dir_all(work_dir).map_err(|_| BackupJobError::StagingFailed)?;
     let bundle_path = work_dir.join(format!("{archive_id}.restore.genesis"));
     if bundle_path.exists() {
         return Err(BackupJobError::StagingFailed);
     }
-    let restore_result = fs::write(&bundle_path, plaintext.as_slice())
+    let restore_result = fs::write(&bundle_path, payload.genesis_bundle.as_slice())
         .map_err(|_| BackupJobError::StagingFailed)
         .and_then(|_| {
             Storage::restore_backup(BackupRestoreRequest {
@@ -238,9 +428,17 @@ pub(crate) fn run_restore_job(
             if restored.sha256 != expected_bundle_digest {
                 return Err(BackupJobError::VerificationFailed);
             }
+            // Audio lands only after the ledger it belongs to has been
+            // restored and proven identical, so a half-written target is
+            // never reported as a restore.
+            let audio = backup_payload::extract_audio(&target_root, &payload)
+                .map_err(BackupJobError::AudioRestoreFailed)?;
+            backup_payload::write_audio_manifest(&target_root, &payload)
+                .map_err(BackupJobError::AudioRestoreFailed)?;
             Ok(RestoreResult {
                 archive_id: archive_id.to_owned(),
                 restored_bundle_sha256: restored.sha256,
+                audio,
                 terminal_state: "restored".to_owned(),
             })
         });
@@ -309,7 +507,7 @@ pub(crate) async fn backup_run(
     app_state: tauri::State<'_, crate::AppState>,
     fs_state: tauri::State<'_, FilesystemBackupState>,
     job_state: tauri::State<'_, BackupJobState>,
-) -> Result<FilesystemArchiveRecord, String> {
+) -> Result<BackupRunReport, String> {
     let recovery_phrase = Zeroizing::new(recovery_phrase);
     let guard = JobGuard::acquire(&job_state.job_running).map_err(|error| error.to_string())?;
     let root = fs_state
@@ -444,6 +642,10 @@ mod tests {
         bip39::Mnemonic::from_entropy(&[7u8; 32]).unwrap().to_string()
     }
 
+    /// Bytes the fixture chunk holds on disk. Real content, so the round trip
+    /// proves audio survives rather than proving a row survives.
+    const FIXTURE_AUDIO: &[u8] = b"RIFF....fixture capture chunk bytes....WAVEfmt ";
+
     fn open_fixture_storage(parent: &TempDir) -> Storage {
         let path = parent.path().join("source-genesis");
         let storage = Storage::open(OpenOptions {
@@ -493,16 +695,23 @@ mod tests {
             &timestamp,
         )
         .unwrap();
+        // A real file at a real absolute path: `collect_audio_inventory` reads
+        // from disk, so a fabricated path would only ever exercise the
+        // omitted-file branch.
+        let audio_dir = parent.path().join("source-audio");
+        std::fs::create_dir_all(&audio_dir).unwrap();
+        let audio_path = audio_dir.join("segment-000001.wav");
+        std::fs::write(&audio_path, FIXTURE_AUDIO).unwrap();
         crate::genesis_adapter::append_capture_chunk(
             &storage,
             &recording,
             crate::genesis_adapter::AudioChunk {
                 id: "job-audio-chunk",
-                file_path: "projects/job-project/job-recording/segment-000001.m4a",
+                file_path: &audio_path.display().to_string(),
                 start_ms: 0,
                 end_ms: 1_000,
-                byte_size: 128,
-                checksum: "fixture-sha256",
+                byte_size: FIXTURE_AUDIO.len() as i64,
+                checksum: &crate::backup_payload::sha256_hex(FIXTURE_AUDIO),
                 timestamp: &timestamp,
             },
         )
@@ -540,7 +749,7 @@ mod tests {
         let phrase = test_phrase();
         let source_frontier = fixture.storage.stable_frontier();
 
-        let record = run_backup_job(
+        let report = run_backup_job(
             &fixture.storage,
             &fixture.root,
             fixture.work.path(),
@@ -549,8 +758,17 @@ mod tests {
             &phrase,
         )
         .unwrap();
-        assert_eq!(record.terminal_state, "verified");
-        assert_eq!(record.archive_id, "job-archive-1");
+        assert_eq!(report.record.terminal_state, "verified");
+        assert_eq!(report.record.archive_id, "job-archive-1");
+        // The archive carried the chunk bytes, not merely its row.
+        assert_eq!(
+            report.audio,
+            AudioBackupSummary {
+                stored_file_count: 1,
+                stored_byte_count: FIXTURE_AUDIO.len() as u64,
+                omitted_file_count: 0,
+            }
+        );
         // The plaintext staging bundle must be gone after the job.
         assert!(!fixture.work.path().join("job-archive-1.genesis").exists());
         // Status truth: the verified archive is discoverable from disk alone.
@@ -566,6 +784,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(restore.terminal_state, "restored");
+        assert_eq!(restore.audio.restored_file_count, 1);
+        assert_eq!(restore.audio.omitted_file_count, 0);
 
         // Deep post-restore verification: the clean target reproduces the
         // fixture notes, graph relation, and audio-chunk metadata.
@@ -608,7 +828,96 @@ mod tests {
         )
         .unwrap();
         assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0]["audio_chunks.checksum"], "fixture-sha256");
+        assert_eq!(
+            chunks[0]["audio_chunks.checksum"],
+            json!(crate::backup_payload::sha256_hex(FIXTURE_AUDIO))
+        );
+
+        // The point of the whole change: source audio is present on the
+        // restored machine, byte-identical, not merely described by a row.
+        let restored_audio = restored_path.join("audio/job-recording/chunks/segment-000001.wav");
+        assert!(
+            restored_audio.is_file(),
+            "restored target must contain the capture chunk, not just its metadata"
+        );
+        assert_eq!(std::fs::read(&restored_audio).unwrap(), FIXTURE_AUDIO);
+
+        // The manifest beside it maps every archived file back to its original
+        // path, so a person recovering a project can relink by hand.
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(restored_path.join("audio-manifest.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manifest.as_array().unwrap().len(), 1);
+        assert_eq!(
+            manifest[0]["relativePath"],
+            json!("audio/job-recording/chunks/segment-000001.wav")
+        );
+    }
+
+    fn fixture_chunk_path(storage: &Storage) -> String {
+        crate::genesis_adapter::query(storage, "audio_chunks", &["file_path"], vec![], 10).unwrap()
+            [0]["audio_chunks.file_path"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn a_backup_reports_audio_the_ledger_references_but_disk_no_longer_holds() {
+        // Truthfulness over convenience: one unreadable chunk must not fail
+        // every future backup, and must not be silently dropped either.
+        let fixture = job_fixture();
+        std::fs::remove_file(fixture_chunk_path(&fixture.storage)).unwrap();
+
+        let report = run_backup_job(
+            &fixture.storage,
+            &fixture.root,
+            fixture.work.path(),
+            "job-archive-missing",
+            "2026-08-19T00:50:00Z",
+            &test_phrase(),
+        )
+        .unwrap();
+        assert_eq!(
+            report.audio,
+            AudioBackupSummary {
+                stored_file_count: 0,
+                stored_byte_count: 0,
+                omitted_file_count: 1,
+            }
+        );
+
+        // The restore repeats the same account rather than reporting a clean
+        // recovery of a project whose audio was already gone.
+        let restore = run_restore_job(
+            &fixture.root,
+            fixture.restore_parent.path(),
+            fixture.work.path(),
+            "job-archive-missing",
+            &test_phrase(),
+        )
+        .unwrap();
+        assert_eq!(restore.audio.restored_file_count, 0);
+        assert_eq!(restore.audio.omitted_file_count, 1);
+    }
+
+    #[test]
+    fn audio_changed_since_capture_is_omitted_rather_than_stored_under_a_false_digest() {
+        let fixture = job_fixture();
+        std::fs::write(fixture_chunk_path(&fixture.storage), b"replaced after capture").unwrap();
+
+        let report = run_backup_job(
+            &fixture.storage,
+            &fixture.root,
+            fixture.work.path(),
+            "job-archive-tampered",
+            "2026-08-19T00:55:00Z",
+            &test_phrase(),
+        )
+        .unwrap();
+        assert_eq!(report.audio.stored_file_count, 0);
+        assert_eq!(report.audio.omitted_file_count, 1);
     }
 
     #[test]
@@ -726,7 +1035,7 @@ mod tests {
         );
         let records = filesystem_backup::list_archive_records_at_root(&fixture.root);
         assert_eq!(records.len(), 1);
-        assert_eq!(records[0], first);
+        assert_eq!(records[0], first.record);
         // No plaintext bundle remains in staging after a failed job.
         assert!(!fixture.work.path().join("job-archive-4.genesis").exists());
     }

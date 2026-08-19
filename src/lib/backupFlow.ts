@@ -31,10 +31,33 @@ export type PickerStatus = {
   selectedTargetId?: string | null;
 };
 
+/** What a restore actually wrote beside the ledger. Reported so a caller can
+ * never present an audio-less restore as a whole project. */
+export type AudioRestoreSummary = {
+  restoredFileCount: number;
+  restoredByteCount: number;
+  omittedFileCount: number;
+};
+
 export type RestoreResult = {
   archiveId: string;
   restoredBundleSha256: string;
+  audio: AudioRestoreSummary;
   terminalState: string;
+};
+
+/** How much source audio one archive carried. The archive record alone cannot
+ * answer that, and a database-only archive must not read as a complete
+ * project backup. */
+export type AudioBackupSummary = {
+  storedFileCount: number;
+  storedByteCount: number;
+  omittedFileCount: number;
+};
+
+export type BackupRunReport = {
+  record: BackupArchiveRecord;
+  audio: AudioBackupSummary;
 };
 
 export type BackupOverview = {
@@ -85,10 +108,38 @@ export async function generateRecoveryPhrase(invoke: InvokeFn): Promise<string> 
 export async function runBackup(
   invoke: InvokeFn,
   recoveryPhrase: string,
-): Promise<BackupArchiveRecord> {
+): Promise<BackupRunReport> {
   const phrase = recoveryPhrase.trim();
   if (!phrase) throw new Error("missing_recovery_phrase");
-  return invoke<BackupArchiveRecord>("backup_run", { recoveryPhrase: phrase });
+  return invoke<BackupRunReport>("backup_run", { recoveryPhrase: phrase });
+}
+
+/** Human-readable byte size for the archive/audio counters. */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "-";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
+/** One sentence stating exactly what an archive carried, including audio the
+ * ledger referenced but the archive could not store. */
+export function describeAudioBackup(audio: AudioBackupSummary): string {
+  const stored = `เสียงต้นฉบับ ${audio.storedFileCount} ไฟล์ (${formatBytes(audio.storedByteCount)})`;
+  if (audio.omittedFileCount === 0) return `${stored} — ครบตามที่บันทึกไว้`;
+  return `${stored} — ขาด ${audio.omittedFileCount} ไฟล์ที่อ่านไม่ได้หรือถูกแก้ไขไปแล้ว`;
+}
+
+/** Same for a completed restore. */
+export function describeAudioRestore(audio: AudioRestoreSummary): string {
+  const restored = `คืนไฟล์เสียง ${audio.restoredFileCount} ไฟล์ (${formatBytes(audio.restoredByteCount)})`;
+  if (audio.omittedFileCount === 0) return `${restored} — ครบตามที่ไฟล์สำรองบันทึกไว้`;
+  return `${restored} — ไฟล์สำรองระบุว่าขาดไปแล้ว ${audio.omittedFileCount} ไฟล์ตั้งแต่ตอนสำรอง`;
 }
 
 /** Restore requires an explicit confirmation from the user because it creates
@@ -135,6 +186,24 @@ export function describeBackupError(raw: unknown): string {
   }
   if (message.includes("verification failed")) {
     return "การตรวจสอบหลังกู้คืนไม่ผ่าน — ไม่รายงานว่ากู้คืนสำเร็จ";
+  }
+  if (message.includes("in-memory limit")) {
+    return "โปรเจกต์นี้มีเสียงรวมใหญ่เกินขนาดที่สำรองได้ในครั้งเดียว — ยังไม่รองรับการสำรองแบบสตรีม";
+  }
+  if (message.includes("audio files, above what one archive can enumerate")) {
+    return "โปรเจกต์นี้อ้างถึงไฟล์เสียงมากเกินกว่าที่ไฟล์สำรองเดียวจะรวบรวมได้";
+  }
+  if (message.includes("audio inventory could not be read")) {
+    return "อ่านรายการไฟล์เสียงจาก Genesis ไม่สำเร็จ — ไม่สำรองเพื่อไม่ให้ได้ไฟล์ที่ขาดเสียง";
+  }
+  if (message.includes("backup payload digest mismatch")) {
+    return "ข้อมูลในไฟล์สำรองไม่ตรงกับลายเซ็นที่บันทึกไว้ — ไม่กู้คืนข้อมูลที่อาจผิด";
+  }
+  if (message.includes("backup payload")) {
+    return "โครงสร้างข้อมูลในไฟล์สำรองไม่ถูกต้อง — ไม่กู้คืน";
+  }
+  if (message.includes("audio could not be restored")) {
+    return "เขียนไฟล์เสียงลงโฟลเดอร์กู้คืนไม่สำเร็จ — ไม่รายงานว่ากู้คืนสำเร็จ";
   }
   return "การทำงานล้มเหลว: " + (message || "ไม่ทราบสาเหตุ");
 }

@@ -2,6 +2,8 @@ import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import {
+  isMobileTauriPlatform,
+  requiresSupabaseConfig,
   resolveBodySurface,
   resolveRootRoute,
   supabaseConfigured,
@@ -32,7 +34,14 @@ const surface = params.get("surface");
 const mobileViewport = window.matchMedia(
   "(pointer: coarse) and (max-width: 760px), (pointer: coarse) and (orientation: landscape) and (max-height: 760px)",
 ).matches;
-const rootRoute = resolveRootRoute({ path, surface, isTauriRuntime, mobileViewport });
+const isMobilePlatform = isMobileTauriPlatform(window.navigator.userAgent);
+const rootRoute = resolveRootRoute({
+  path,
+  surface,
+  isTauriRuntime,
+  isMobilePlatform,
+  mobileViewport,
+});
 
 function BootstrapState({ message, alert = false }: { message: string; alert?: boolean }) {
   return (
@@ -45,7 +54,7 @@ function BootstrapState({ message, alert = false }: { message: string; alert?: b
 function RootRouter() {
   if (rootRoute === "desktop") return <App />;
 
-  if (!supabaseConfigured) {
+  if (!supabaseConfigured && requiresSupabaseConfig(rootRoute, isTauriRuntime)) {
     return (
       <BootstrapState
         alert

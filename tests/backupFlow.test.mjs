@@ -6,6 +6,8 @@ import {
   selectRestoreTarget,
   runBackup,
   runRestore,
+  describeAudioBackup,
+  describeAudioRestore,
   describeBackupError,
 } from "../src/lib/backupFlow.ts";
 
@@ -78,11 +80,15 @@ test("restore target selection mirrors the opaque picker contract", async () => 
   assert.equal(status.selectedTargetId, "opaque-2");
 });
 
+const completeAudio = { storedFileCount: 7, storedByteCount: 2048, omittedFileCount: 0 };
+const runReport = { record, audio: completeAudio };
+
 test("backup requires a recovery phrase and passes it through once", async () => {
-  const { invoke, calls } = fakeInvoke({ backup_run: record });
+  const { invoke, calls } = fakeInvoke({ backup_run: runReport });
   await assert.rejects(() => runBackup(invoke, "   "), /missing_recovery_phrase/);
   const result = await runBackup(invoke, " word ".repeat(1) + "phrase");
-  assert.equal(result.terminalState, "verified");
+  assert.equal(result.record.terminalState, "verified");
+  assert.equal(result.audio.storedFileCount, 7);
   const runCalls = calls.filter((c) => c.command === "backup_run");
   assert.equal(runCalls.length, 1);
   assert.equal(typeof runCalls[0].args.recoveryPhrase, "string");
@@ -106,6 +112,7 @@ test("confirmed restore passes archive id and phrase to the native command", asy
   const restoreResult = {
     archiveId: record.archiveId,
     restoredBundleSha256: "bb".repeat(32),
+    audio: { restoredFileCount: 7, restoredByteCount: 2048, omittedFileCount: 0 },
     terminalState: "restored",
   };
   const { invoke, calls } = fakeInvoke({ backup_restore: restoreResult });
@@ -125,4 +132,40 @@ test("error descriptions are truthful and never echo secret material", () => {
   assert.match(describeBackupError(new Error("post-restore verification failed")), /ไม่รายงานว่ากู้คืนสำเร็จ/);
   const fallback = describeBackupError(new Error("boom"));
   assert.match(fallback, /ล้มเหลว/);
+});
+
+test("a backup report states how much source audio the archive carried", () => {
+  // A database-only archive must never read as a complete project backup.
+  assert.match(describeAudioBackup(completeAudio), /7 ไฟล์/);
+  assert.match(describeAudioBackup(completeAudio), /ครบตามที่บันทึกไว้/);
+
+  const incomplete = { storedFileCount: 5, storedByteCount: 1024, omittedFileCount: 2 };
+  assert.match(describeAudioBackup(incomplete), /ขาด 2 ไฟล์/);
+  assert.doesNotMatch(describeAudioBackup(incomplete), /ครบ/);
+});
+
+test("a restore report states how much audio actually landed on disk", () => {
+  assert.match(
+    describeAudioRestore({ restoredFileCount: 7, restoredByteCount: 2048, omittedFileCount: 0 }),
+    /คืนไฟล์เสียง 7 ไฟล์/,
+  );
+  assert.match(
+    describeAudioRestore({ restoredFileCount: 5, restoredByteCount: 512, omittedFileCount: 2 }),
+    /ขาดไปแล้ว 2 ไฟล์/,
+  );
+});
+
+test("payload and inventory failures get truthful, non-secret text", () => {
+  assert.match(
+    describeBackupError(new Error("backup payload digest mismatch")),
+    /ไม่กู้คืนข้อมูลที่อาจผิด/,
+  );
+  assert.match(
+    describeBackupError(new Error("backup payload would be 9 bytes, above the 8 byte in-memory limit")),
+    /ใหญ่เกินขนาดที่สำรองได้/,
+  );
+  assert.match(
+    describeBackupError(new Error("audio inventory could not be read from Genesis")),
+    /ไม่สำรองเพื่อไม่ให้ได้ไฟล์ที่ขาดเสียง/,
+  );
 });

@@ -20,6 +20,11 @@ fn main() {
     for line in io::stdin().lock().lines() {
         let line = line.expect("read fixture request");
         if line.contains("\"method\":\"initialize\"") {
+            // Stands in for a real connector runtime that takes a while to
+            // come up (interpreter start, module import, malware scan).
+            if mode == "slow-start" {
+                std::thread::sleep(Duration::from_millis(400));
+            }
             send(
                 r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"fung-fixture","version":"1.0.0"}}}"#,
             );

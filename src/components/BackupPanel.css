@@ -1,0 +1,160 @@
+/* Backup panel — self-contained so the same markup renders correctly inside
+   the desktop account overlay and the web Account Settings page, neither of
+   which shares a stylesheet with the other. Tokens come from styles.css where
+   available, with literal fallbacks for the web surface. */
+
+.backup-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line, #d8ccba);
+  border-radius: 8px;
+  background: var(--porcelain-top, #fffaf0);
+  color: var(--ink, #191a1d);
+}
+
+.backup-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.backup-panel-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--graphite, #5f6268);
+}
+
+.backup-panel-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--graphite, #5f6268);
+}
+
+.backup-panel-meta {
+  margin: 0;
+  font-size: 11px;
+  color: var(--graphite-soft, #848990);
+}
+
+.backup-panel-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.backup-panel-state {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--graphite, #5f6268);
+}
+
+.backup-panel-input {
+  flex: 1 1 180px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink, #191a1d);
+  background: var(--porcelain, #f4f1ea);
+  border: 1px solid var(--line, #d8ccba);
+  border-radius: 999px;
+}
+
+.backup-panel-btn {
+  height: 32px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--evidence-indigo, #3d4f82);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.backup-panel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.backup-panel-btn:focus-visible,
+.backup-panel-input:focus-visible,
+.backup-panel-confirm input:focus-visible,
+.backup-panel-archive input:focus-visible {
+  outline: 2px solid var(--evidence-indigo, #3d4f82);
+  outline-offset: 2px;
+}
+
+.backup-panel-phrase {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--provenance-metal, #9a8260);
+  border-radius: 8px;
+  background: var(--porcelain, #f4f1ea);
+}
+
+.backup-panel-phrase-words {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  word-spacing: 2px;
+  overflow-wrap: anywhere;
+}
+
+.backup-panel-archives {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line, #d8ccba);
+}
+
+.backup-panel-archive,
+.backup-panel-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--graphite, #5f6268);
+}
+
+.backup-panel-archive span,
+.backup-panel-confirm span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.backup-panel-message {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.backup-panel-message.success {
+  color: var(--local-sage, #4f6c60);
+}
+
+.backup-panel-message.error {
+  color: var(--destructive-signal, #b34b4b);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backup-panel * {
+    transition: none !important;
+  }
+}

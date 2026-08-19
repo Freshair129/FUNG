@@ -1540,6 +1540,16 @@ mod tests {
         (directory, storage)
     }
 
+    /// True when `built` exists and is at least as new as `source`, i.e. the
+    /// compiled fixture already reflects the current source.
+    fn is_newer_than(built: &PathBuf, source: &PathBuf) -> bool {
+        let modified = |path: &PathBuf| std::fs::metadata(path).and_then(|meta| meta.modified());
+        match (modified(built), modified(source)) {
+            (Ok(built_at), Ok(source_at)) => built_at >= source_at,
+            _ => false,
+        }
+    }
+
     fn fixture_executable() -> PathBuf {
         static FIXTURE: OnceLock<PathBuf> = OnceLock::new();
         FIXTURE
@@ -1557,6 +1567,15 @@ mod tests {
                     .join("tests")
                     .join("fixtures")
                     .join("fake_external_mcp.rs");
+                // `OnceLock` is per-process, so every `cargo test` run used to
+                // recompile and rewrite this binary. On Windows a freshly
+                // written unsigned executable pays a full malware scan on its
+                // first exec — measured at ~1.3s, against tool budgets of two
+                // seconds — which made every fixture-spawning test racy. Reuse
+                // a binary that is already newer than its source.
+                if is_newer_than(&executable, &source) {
+                    return executable;
+                }
                 let status =
                     Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
                         .arg(&source)

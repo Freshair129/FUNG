@@ -1,7 +1,7 @@
 ---
-version: "0.2.10b"
+version: "0.2.11b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-08-19T00:00:00+07:00,ATHER"
+last_update: "2026-08-19T08:30:00+07:00,ATHER"
 status: "beta"
 superseded_by: null
 attributes:
@@ -17,6 +17,55 @@ attributes:
 FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The current source tree builds after dependency restoration, but the local `.venv-whisper` directory is empty and `py -3` cannot import `faster_whisper`, so live transcription is not currently UAT-ready on this machine. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
 
 This document separates implemented truth from planned capability.
+
+## Routing and backup-payload overlay (2026-08-19, PR #16 open)
+
+`fix/routing-predicate-and-backup-audio` is pushed and open as PR #16 with
+both CI jobs green (`frontend` 27s, `rust` 6m8s). It is **not merged**, so
+`main` does not yet carry any of the following.
+
+Two reachability defects and one timeout defect are closed at source level:
+
+- **Mobile surface on Android.** `resolveRootRoute` returned `"desktop"` for
+  every Tauri runtime with no platform branch, so the APK loaded the fixed
+  1280x780 desktop shell and the whole `src/mobile/` tree was unreachable on
+  the device it was written for. Routing now takes an `isMobilePlatform` input
+  derived from the webview user agent, and neither Tauri shell is gated on
+  Supabase any more. **This is code and unit-test evidence only — no physical
+  Android device has rendered the mobile surface since the change.**
+- **Backup UI reachability.** All seven backup commands were called only from
+  `src/web/AccountSettings.tsx`, a surface the Tauri runtime can never route
+  to and where `invoke` does not exist. The controls moved to a shared
+  `src/components/BackupPanel.tsx` mounted by both shells. This supersedes the
+  0.2.10b claim that "Desktop AccountSettings has a labelled development/test
+  UI" — no desktop AccountSettings existed when that was written.
+- **Backup contents.** `run_backup_job` encrypted the Genesis bundle and
+  nothing else, while every audio chunk lives as a loose file referenced by an
+  absolute path; there is no Genesis blob API call anywhere in the tree. A
+  "verified" archive was therefore a database-only backup. `backup_payload.rs`
+  now carries the bundle plus every audio file the ledger references under the
+  same authenticated envelope, records files that are unreadable or no longer
+  match their capture-time digest as explicitly omitted rather than dropping
+  them, and reports both counts through `BackupRunReport` / `RestoreResult`.
+  Pre-container archives still restore.
+- **Connector tool timeout.** `execute_stdio_tool` started its deadline before
+  `spawn_stdio`, so `limits.timeout` covered process launch and handshake.
+  Measured on this host, spawn was 1.34s against 48ms for the whole
+  initialize/list/call exchange. Startup now has its own budget; the caller's
+  timeout bounds the requested work; total stays capped by
+  `MAX_MCP_EXECUTION`. This also removed a long-standing suite flake, which
+  reproduced on `main` in 2 of 3 full runs.
+
+Two bounds are now named in errors rather than hit silently: the archive
+payload is capped at 2 GiB because the envelope encrypts from one in-memory
+buffer, and audio chunks are enumerated per recording because GenesisBlockDB
+rejects any query limit outside `1..1000` and offers no offset — a saturated
+read fails closed instead of truncating.
+
+Automated evidence on this host: Rust **238/238** across six consecutive full
+runs, all eight Node suites **46/46**, `npm run build` passing. Still open and
+not claimed here: physical Android render, real clean-install restore into the
+approved Phase 4 roots, U9 closure, and every release gate.
 
 ## Public Desktop distribution overlay (2026-08-14)
 
@@ -79,7 +128,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | External retrieval trust foundation | Default-deny grant policy, canonical preview hash, exact field minimization, zeroized OS-keyring lifecycle, connector disconnect/revoke, typed Genesis audit payloads, and hostile-result sanitization are implemented and tested. |
 | External retrieval backend | Allowlisted stdio MCP `2025-11-25` initialize/list/call, bounded process I/O, timeout/cancel/cleanup, durable one-time execution, all eight planned Tauri commands, and document/CRM fixture execution are implemented behind default-off `FUNG_EXTERNAL_MEETING_TOOLS=1`. |
 | External retrieval operator UI | `ExternalMeetingToolsPanel` is embedded in Live Meeting behind default-off `VITE_FUNG_EXTERNAL_MEETING_TOOLS=1` with connector list/register/disconnect, exact field and transcript-evidence selection, preview/deny/approve, running/cancel, meeting-scope revoke, sanitized result, inert source references, policy/evidence/time provenance, and run history. |
-| Phase 4 filesystem test backup | Genesis full export → XChaCha20-Poly1305/Argon2id encryption → atomic bounded-root write is wired end-to-end with clean-target restore, post-restore digest identity, and deep fixture verification. Desktop AccountSettings has a labelled development/test UI (root picker, one-time 24-word recovery-phrase display, restore confirmation); Google Drive production transport remains TODO. |
+| Phase 4 filesystem test backup | Genesis full export → XChaCha20-Poly1305/Argon2id encryption → atomic bounded-root write is wired end-to-end with clean-target restore, post-restore digest identity, and deep fixture verification. The backup controls live in a shared `BackupPanel` mounted by both shells (root picker, one-time 24-word recovery-phrase display, restore confirmation); before PR #16 they were reachable from no surface that could invoke them. Archives carry source audio with per-file digests and explicit omission accounting. Google Drive production transport remains TODO, and no clean-install restore has been run. |
 | Mobile device reconciliation | The Android `devices` row is always resolved by (current user, fingerprint); the cached `fung.device.id` is only a mirror, replaced when stale and cleared on sign-out/revocation. Supabase RLS ownership policies were rechecked and required no migration. |
 | GPU runtime staging | `stage_gpu_runtime.ps1` stages FUNG-owned CUDA 12/cuDNN DLLs and writes a SHA-256 manifest. |
 | GPU worker launch | The transcription subprocess resolves FUNG resources at runtime, selects an explicit CPU/GPU profile, and prepends FUNG's CUDA directory to its own `PATH`. |
@@ -96,13 +145,17 @@ overlay does not promote Phase 3 to fully release-ready.
 | Live speaker attribution | Source channels map to editable `เรา`/`อีกฝ่าย` labels. | This is capture provenance, not arbitrary live multi-speaker diarization. |
 | Live intelligence runtime | Topic and summary routes exist; capture can degrade without the worker. | Current machine has no bundled Whisper interpreter/model and `faster_whisper` is unavailable, so live transcription requires runtime installation plus UAT. |
 | Live Meeting entry | The fixed microphone rail now opens the real panel and its regression passes. | Current packaged-app interaction/UAT remains to be rerun after the prior bootstrap incident. |
+| Audio import | `import_and_transcribe` is implemented, registered, and reachable from the desktop UI; it transcribes a picked file and persists segments. Recorded as "not implemented" through 0.2.10b, which was wrong. | The source file is referenced in place — no copy into project storage, no chunking, no checksum — so moving or deleting it invalidates a recording the ledger still reports `completed`. No `model_runs` row is written, so imported transcripts carry no model provenance. |
 | External meeting retrieval | Backend plus operator workflow, stdio fixture transport, zero-process-before-approval, document/CRM reads, connector lifecycle, sanitized result rendering, recording-row isolation, and bounded relaunch persistence smoke are tested at unit/source/integration level. | Automated keyboard/1200×780 visual UAT, detailed connector health, artifact-wide secret scan, real-device capture-isolation UAT, summary/export review after restart, and real-connector UAT remain. |
 | GPU standalone release | DLL staging and child-process isolation are implemented. | Must build and run a copied packaged bundle with a speech fixture; NVIDIA redistribution approval remains a release gate. |
 
 ## Not Implemented Yet
 
-- Audio import parser.
-- Speaker diarization runtime integration.
+- Speaker diarization *integration*. The pyannote worker (`scripts/diarize.py`)
+  and the merge/persist path exist and are tested, but the only route into them
+  is Zoom mixed-audio import, and neither `diarize.py` nor its `torch`/
+  `pyannote.audio` dependencies are in `bundle.resources` or the pinned
+  runtime requirements — so no installed build can run diarization.
 - Noise reduction.
 - Source separation/layer generation.
 - Real transcript editor.
@@ -173,6 +226,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.11b | Recorded PR #16: mobile/desktop routing fix, reachable backup UI, audio-bearing backup payload, and the connector startup/timeout split. Corrected two 0.2.10b inaccuracies (desktop AccountSettings, audio import). Physical Android and clean-install restore stay open. |
 | 0.2.10b | Recorded Phase 4 filesystem test backup/restore implementation and mobile device-reconciliation hardening with 217/217 Rust plus green focused Node evidence; clean-install restore and physical Android identity gates stay open. |
 | 0.2.9b | Truth-synced current frontend/Rust verification, the missing local Whisper runtime, and two high npm audit findings; desktop capture/transcription and release/UAT boundaries remain distinct. (Renumbered from a parallel 0.2.7b during the Phase 4 merge; `main` had assigned 0.2.7b/0.2.8b to the Desktop release records below.) |
 | 0.2.8b | Recorded the public binary-only Desktop channel, anonymous full-download equality, release workflow pass, and Landing private-repository regression. |
@@ -193,6 +247,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.11b | 2026-08-19 | beta | PR #16 pushed and green but unmerged; routing, backup-payload and connector-timeout defects closed at source with 238/238 Rust and 46/46 Node evidence; device and restore gates unchanged. | `68f0201` | ATHER |
 | 0.2.10b | 2026-08-19 | beta | Phase 4 Tasks 5–9 landed on `codex/phase-4-filesystem-test-backup`; automated backup/restore and reconciliation evidence recorded, release/U9 gates unchanged. | working-tree | ATHER |
 | 0.2.9b | 2026-08-14 | beta | Current desktop/web build and 212-test Rust evidence recorded; missing Whisper runtime and two high npm audit findings prevent a live-transcription/release claim. | working-tree | ATHER |
 | 0.2.8b | 2026-08-14 | beta | Published and verified the public Desktop v0.1.0 channel; production Landing cutover remains the final gate. | pending | ATHER |

@@ -38,6 +38,7 @@ jobs:
       - run: npm run test:job-actions
       - run: npm run test:summary-scoping
       - run: npm run test:diarization
+      - run: npm run test:egress
 
   rust:
     runs-on: windows-latest

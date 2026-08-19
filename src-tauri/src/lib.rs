@@ -1982,10 +1982,25 @@ pub(crate) fn run_python_worker(
     if let Some(model) = bundled_whisper_model(runtime) {
         command.env("FUNG_WHISPER_MODEL", model);
     }
-    if let Some(hf_home) = hf_home {
-        // Only the worker that needs it gets a redirected cache, so the
-        // Whisper path keeps whatever environment it has always had.
-        command.env("HF_HOME", hf_home);
+    match hf_home {
+        // Only the worker that needs it gets a redirected cache.
+        Some(hf_home) => {
+            command.env("HF_HOME", hf_home);
+        }
+        // A worker handed no Hugging Face cache has no business reaching the
+        // hub, so the environment says so instead of a comment.
+        //
+        // The transcription worker loads a bundled model *by path*. If that
+        // path ever stops resolving -- a partial install, a runtime layout
+        // change, the script run by hand -- faster-whisper's own default is
+        // the string "small", which it resolves by downloading from
+        // huggingface.co. That would turn the one pass this product's
+        // local-first claim rests on into a silent network fetch, on the
+        // machine of someone who chose FUNG precisely so their audio would
+        // not leave it. Offline makes the same condition a legible error.
+        None => {
+            command.env("HF_HUB_OFFLINE", "1");
+        }
     }
 
     if let Some(prefix) = path_prefix {
@@ -2070,8 +2085,9 @@ pub(crate) fn run_transcription(
         &runtime.script,
         &[file_path, "--profile", &profile],
         path_prefix,
-        // Transcription loads a bundled model by path and never touches the
-        // Hugging Face hub, so it keeps whatever cache the environment has.
+        // Transcription loads a bundled model by path. Passing `None`
+        // both leaves the cache alone and pins the worker offline -- see
+        // `run_python_worker`.
         None,
         on_progress,
     )?;

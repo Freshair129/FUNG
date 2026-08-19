@@ -1076,6 +1076,197 @@ fn spawn_coordinator(
 /// Failure here is not fatal: the audio is already durable, and a recording
 /// with a partial transcript is a truthful state as long as it is stated.
 #[allow(clippy::too_many_arguments)]
+/// Rows read per query. GenesisBlockDB rejects any limit outside `1..1000`.
+const GAP_QUERY_LIMIT: u32 = 1000;
+
+/// Maps a chunk filename back to the capture channel that wrote it.
+///
+/// The channel decides which speaker a recovered segment is attributed to, so
+/// an unrecognised name yields `None` rather than a guess — mislabelling who
+/// spoke is worse than leaving a chunk untranscribed.
+pub(crate) fn channel_for_file_name(name: &str) -> Option<&'static str> {
+    match crate::recovery::parse_chunk_file_name(name)?.0.as_str() {
+        CHANNEL_MIC => Some(CHANNEL_MIC),
+        CHANNEL_SYSTEM => Some(CHANNEL_SYSTEM),
+        _ => None,
+    }
+}
+
+/// What filling a recording's transcript gaps achieved.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GapFillOutcome {
+    /// Chunks with no transcript covering them when the pass started.
+    pub(crate) chunks_missing_transcript: usize,
+    pub(crate) chunks_transcribed: usize,
+    pub(crate) still_missing: usize,
+    /// Set when the pass declined to run. Reported rather than silently
+    /// treated as "nothing to do".
+    pub(crate) skipped_reason: Option<String>,
+}
+
+/// Finds chunks of a recording that no transcript segment covers.
+///
+/// A chunk counts as covered when a segment attributed to *its channel's*
+/// speaker starts inside its time range — which is exactly what
+/// `persist_and_emit_segments` writes. Checking the speaker as well as the
+/// time matters: the two channels share a timeline, so a microphone chunk
+/// would otherwise look covered by system-audio text.
+fn chunks_missing_transcript(
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+    recording_id: &str,
+) -> Result<Vec<RawChunk>, String> {
+    let segments = genesis_adapter::query(
+        storage,
+        "transcript_segments",
+        &["speaker_id", "start_ms"],
+        vec![genesis_adapter::eq(
+            "transcript_segments",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+        GAP_QUERY_LIMIT,
+    )?;
+    // A truncated read would make already-transcribed chunks look empty and
+    // this pass would write their segments a second time. Refuse instead.
+    if segments.len() as u32 >= GAP_QUERY_LIMIT {
+        return Err(format!(
+            "recording has at least {GAP_QUERY_LIMIT} transcript segments, more than one query \
+             can enumerate — filling gaps could duplicate existing text"
+        ));
+    }
+    let covered: Vec<(String, i64)> = segments
+        .iter()
+        .map(|row| {
+            (
+                row.get("transcript_segments.speaker_id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                row.get("transcript_segments.start_ms")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(0),
+            )
+        })
+        .collect();
+
+    let chunks = genesis_adapter::query(
+        storage,
+        "audio_chunks",
+        &["id", "file_path", "start_ms", "end_ms", "byte_size", "checksum"],
+        vec![genesis_adapter::eq(
+            "audio_chunks",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+        GAP_QUERY_LIMIT,
+    )?;
+    if chunks.len() as u32 >= GAP_QUERY_LIMIT {
+        return Err(format!(
+            "recording has at least {GAP_QUERY_LIMIT} audio chunks, more than one query can \
+             enumerate"
+        ));
+    }
+
+    let mut missing = Vec::new();
+    for row in &chunks {
+        let text = |key: &str| {
+            row.get(key)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let integer = |key: &str| {
+            row.get(key)
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0)
+        };
+        let file_path = text("audio_chunks.file_path");
+        let name = std::path::Path::new(&file_path)
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let Some(channel) = channel_for_file_name(&name) else {
+            continue;
+        };
+        // Only chunks whose audio is actually present can be transcribed.
+        if !std::path::Path::new(&file_path).is_file() {
+            continue;
+        }
+        let speaker_key = if channel == CHANNEL_MIC { "me" } else { "them" };
+        let speaker_id = speaker_id_for(project_id, speaker_key);
+        let start_ms = integer("audio_chunks.start_ms");
+        let end_ms = integer("audio_chunks.end_ms");
+        let already = covered
+            .iter()
+            .any(|(id, at)| *id == speaker_id && *at >= start_ms && *at < end_ms.max(start_ms + 1));
+        if already {
+            continue;
+        }
+        missing.push(RawChunk {
+            channel,
+            chunk_id: text("audio_chunks.id"),
+            file_path,
+            start_ms,
+            end_ms,
+            byte_size: integer("audio_chunks.byte_size"),
+            checksum: text("audio_chunks.checksum"),
+        });
+    }
+    missing.sort_by_key(|chunk| (chunk.start_ms, chunk.channel));
+    Ok(missing)
+}
+
+/// Transcribes whatever text a recording is still missing.
+///
+/// Recovery adopts orphaned audio back into the ledger, but adoption alone
+/// leaves a recovered recording showing chunks with no words — the audio is
+/// safe and unreadable at the same time. This is the same catch-up pass a
+/// degraded live session runs at its end, aimed at a recording that already
+/// finished.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn fill_transcript_gaps(
+    app: &tauri::AppHandle,
+    storage: &genesis_block_native::Storage,
+    runtime: &WhisperRuntime,
+    language: Option<&str>,
+    project_id: &str,
+    recording_id: &str,
+) -> GapFillOutcome {
+    let missing = match chunks_missing_transcript(storage, project_id, recording_id) {
+        Ok(missing) => missing,
+        Err(reason) => {
+            return GapFillOutcome {
+                skipped_reason: Some(reason),
+                ..GapFillOutcome::default()
+            }
+        }
+    };
+    if missing.is_empty() {
+        return GapFillOutcome::default();
+    }
+
+    let total = missing.len();
+    let recent: SharedRecent = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+    let still = transcribe_pending_chunks(
+        app,
+        storage,
+        &recent,
+        runtime,
+        language,
+        project_id,
+        recording_id,
+        &missing,
+    );
+    GapFillOutcome {
+        chunks_missing_transcript: total,
+        chunks_transcribed: total - still,
+        still_missing: still,
+        skipped_reason: None,
+    }
+}
+
 fn transcribe_pending_chunks(
     app: &tauri::AppHandle,
     storage: &genesis_block_native::Storage,
@@ -1525,6 +1716,113 @@ mod tests {
         .expect("open storage");
         genesis_adapter::install(&storage).expect("install schema");
         (path, storage)
+    }
+
+    #[test]
+    fn a_chunk_filename_maps_only_to_a_real_capture_channel() {
+        // The channel decides which speaker recovered text is attributed to,
+        // so an unrecognised name must not be guessed at.
+        assert_eq!(channel_for_file_name("mic-00001.wav"), Some(CHANNEL_MIC));
+        assert_eq!(channel_for_file_name("system-00042.wav"), Some(CHANNEL_SYSTEM));
+        assert_eq!(channel_for_file_name("other-00001.wav"), None);
+        assert_eq!(channel_for_file_name("mic.wav"), None);
+        assert_eq!(channel_for_file_name("notes.txt"), None);
+    }
+
+    /// Builds a recording with two chunks — one per channel, same time range —
+    /// so coverage can be checked per channel rather than per timestamp.
+    fn seed_two_channel_recording(storage: &Storage, dir: &std::path::Path) -> (String, String) {
+        let project_id = "gap-project".to_string();
+        let recording_id = "gap-recording".to_string();
+        let timestamp = now();
+        std::fs::create_dir_all(dir).unwrap();
+        let mic_path = dir.join("mic-00001.wav");
+        let system_path = dir.join("system-00001.wav");
+        std::fs::write(&mic_path, b"mic audio").unwrap();
+        std::fs::write(&system_path, b"system audio").unwrap();
+
+        genesis_adapter::commit_rows(storage, vec![
+            genesis_adapter::upsert("projects", serde_json::json!({"id": project_id, "name": "Gap", "storage_path": dir.display().to_string(), "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp})),
+            genesis_adapter::upsert("recordings", serde_json::json!({"id": recording_id, "project_id": project_id, "source": "microphone", "input_path": null, "canonical_audio_path": dir.display().to_string(), "status": "completed", "duration_ms": 8000, "created_at": timestamp, "updated_at": timestamp})),
+            genesis_adapter::upsert("speakers", serde_json::json!({"id": speaker_id_for(&project_id, "me"), "project_id": project_id, "key": "me", "display_name": "เรา", "confidence": null, "created_at": timestamp, "updated_at": timestamp})),
+            genesis_adapter::upsert("speakers", serde_json::json!({"id": speaker_id_for(&project_id, "them"), "project_id": project_id, "key": "them", "display_name": "อีกฝ่าย", "confidence": null, "created_at": timestamp, "updated_at": timestamp})),
+            genesis_adapter::upsert("audio_chunks", serde_json::json!({"id": "chunk-mic", "recording_id": recording_id, "sequence_no": 1, "file_path": mic_path.display().to_string(), "start_ms": 0, "end_ms": 8000, "byte_size": 9, "checksum": "aa", "created_at": timestamp})),
+            genesis_adapter::upsert("audio_chunks", serde_json::json!({"id": "chunk-system", "recording_id": recording_id, "sequence_no": 2, "file_path": system_path.display().to_string(), "start_ms": 0, "end_ms": 8000, "byte_size": 12, "checksum": "bb", "created_at": timestamp})),
+        ]).unwrap();
+        (project_id, recording_id)
+    }
+
+    #[test]
+    fn a_chunk_is_only_covered_by_text_from_its_own_channel() {
+        // The two channels share one timeline. Matching on time alone would
+        // let system-audio text mark a microphone chunk as transcribed, and
+        // that chunk's words would be lost for good.
+        let (path, storage) = open_storage();
+        let dir = path.join("chunks");
+        let (project_id, recording_id) = seed_two_channel_recording(&storage, &dir);
+
+        // Nothing transcribed yet: both chunks need text.
+        let missing = chunks_missing_transcript(&storage, &project_id, &recording_id).unwrap();
+        assert_eq!(missing.len(), 2);
+
+        // Transcribe only the system channel, in the same time range.
+        let timestamp = now();
+        genesis_adapter::commit_rows(&storage, vec![genesis_adapter::upsert(
+            "transcript_segments",
+            serde_json::json!({
+                "id": "seg-1", "project_id": project_id, "recording_id": recording_id,
+                "speaker_id": speaker_id_for(&project_id, "them"),
+                "start_ms": 100, "end_ms": 900, "text": "จากอีกฝ่าย", "confidence": 0.9,
+                "created_at": timestamp, "updated_at": timestamp,
+            }),
+        )]).unwrap();
+
+        let missing = chunks_missing_transcript(&storage, &project_id, &recording_id).unwrap();
+        assert_eq!(missing.len(), 1, "only the microphone chunk should remain");
+        assert_eq!(missing[0].channel, CHANNEL_MIC);
+    }
+
+    #[test]
+    fn a_chunk_whose_audio_is_gone_is_not_offered_for_transcription() {
+        let (path, storage) = open_storage();
+        let dir = path.join("chunks");
+        let (project_id, recording_id) = seed_two_channel_recording(&storage, &dir);
+        std::fs::remove_file(dir.join("mic-00001.wav")).unwrap();
+
+        let missing = chunks_missing_transcript(&storage, &project_id, &recording_id).unwrap();
+        assert_eq!(missing.len(), 1);
+        assert_eq!(
+            missing[0].channel, CHANNEL_SYSTEM,
+            "a chunk with no file on disk cannot be transcribed and must not be queued"
+        );
+    }
+
+    #[test]
+    fn a_recording_with_full_coverage_reports_no_gaps() {
+        let (path, storage) = open_storage();
+        let dir = path.join("chunks");
+        let (project_id, recording_id) = seed_two_channel_recording(&storage, &dir);
+        let timestamp = now();
+        genesis_adapter::commit_rows(&storage, vec![
+            genesis_adapter::upsert("transcript_segments", serde_json::json!({"id": "seg-me", "project_id": project_id, "recording_id": recording_id, "speaker_id": speaker_id_for(&project_id, "me"), "start_ms": 10, "end_ms": 900, "text": "เรา", "confidence": 0.9, "created_at": timestamp, "updated_at": timestamp})),
+            genesis_adapter::upsert("transcript_segments", serde_json::json!({"id": "seg-them", "project_id": project_id, "recording_id": recording_id, "speaker_id": speaker_id_for(&project_id, "them"), "start_ms": 20, "end_ms": 900, "text": "อีกฝ่าย", "confidence": 0.9, "created_at": timestamp, "updated_at": timestamp})),
+        ]).unwrap();
+
+        let missing = chunks_missing_transcript(&storage, &project_id, &recording_id).unwrap();
+        assert!(missing.is_empty(), "a fully transcribed recording has no gaps to fill");
+    }
+
+    #[test]
+    fn a_gap_fill_that_declines_says_why_instead_of_reporting_nothing_to_do() {
+        // An empty outcome and a refused outcome must not look alike: one
+        // means the transcript is complete, the other means it was not checked.
+        let declined = GapFillOutcome {
+            skipped_reason: Some("too many segments to enumerate".into()),
+            ..GapFillOutcome::default()
+        };
+        assert_eq!(declined.chunks_missing_transcript, 0);
+        assert!(declined.skipped_reason.is_some());
+        assert!(GapFillOutcome::default().skipped_reason.is_none());
     }
 
     /// Regression: routing desktop capture through

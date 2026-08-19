@@ -26,6 +26,15 @@ jobs:
       - run: npm run test:mobile
       - run: npm run test:design-system
       - run: npm run test:auth
+      # Every suite runs. Six of these existed but were never wired in, so the
+      # assertions added with the capture, custody and recovery work had never
+      # executed on a runner — a suite that only passes locally is not a gate.
+      - run: npm run test:backup-flow
+      - run: npm run test:device-reconcile
+      - run: npm run test:desktop-bootstrap
+      - run: npm run test:external-tools
+      - run: npm run test:traceability
+      - run: npm run test:recovery
 
   rust:
     runs-on: windows-latest

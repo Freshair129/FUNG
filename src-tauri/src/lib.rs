@@ -34,6 +34,7 @@ mod genesis_adapter;
 mod graph_build;
 mod job_engine;
 mod live_meeting;
+mod local_diarization;
 mod meeting_intel;
 mod mobile;
 mod native_recorder;

@@ -111,16 +111,26 @@ pub(crate) enum JobKind {
     /// recording and label (`graph_build::det_node_id`) and deletes stale
     /// extractions for the recording before writing.
     GraphBuild,
+    /// Splits a locally captured meeting's far side into individual
+    /// speakers.
+    ///
+    /// Idempotent because the pass removes the previous *proposed* turns
+    /// before writing new ones, and re-labels segments in place by id rather
+    /// than deleting and re-inserting them — so a second run converges on the
+    /// same attribution instead of stacking a second proposal beside the
+    /// first or orphaning the evidence refs that cite those segments.
+    SpeakerDiarize,
 }
 
 impl JobKind {
     /// Every kind, so callers that need the whole set — `parse`, the
     /// `runnable_job_types` command the UI checks itself against — derive it
     /// from one list instead of each keeping their own copy to drift.
-    pub(crate) const ALL: [JobKind; 3] = [
+    pub(crate) const ALL: [JobKind; 4] = [
         JobKind::SummaryGenerate,
         JobKind::TranscriptRetry,
         JobKind::GraphBuild,
+        JobKind::SpeakerDiarize,
     ];
 
     /// The `jobs.type` string. These are the values already in existing
@@ -130,6 +140,7 @@ impl JobKind {
             JobKind::SummaryGenerate => "summary.generate",
             JobKind::TranscriptRetry => "transcript.retry",
             JobKind::GraphBuild => "graph.build",
+            JobKind::SpeakerDiarize => "speakers.diarize",
         }
     }
 
@@ -144,6 +155,7 @@ impl JobKind {
             JobKind::SummaryGenerate => "สรุปการประชุม",
             JobKind::TranscriptRetry => "ถอดเสียงส่วนที่ขาด",
             JobKind::GraphBuild => "สร้างกราฟความรู้",
+            JobKind::SpeakerDiarize => "แยกเสียงผู้พูด",
         }
     }
 
@@ -897,6 +909,37 @@ fn dispatch(
             )
             .map_err(|error| classify(&error))
         }
+        JobKind::SpeakerDiarize => {
+            let state = app.state::<crate::AppState>();
+            let runtime = state.whisper_runtime_clone();
+            let data_root = state.data_root.clone();
+            let outcome = crate::local_diarization::diarize_recording(
+                app,
+                storage,
+                &runtime,
+                &data_root,
+                &job.project_id,
+                recording_id,
+                |_| {},
+            );
+            if let Some(reason) = outcome.skipped_reason {
+                // Every decline here is a state the user has to change —
+                // install the dependencies, fetch the model, record some
+                // far-side audio. None of them clear by waiting.
+                return Err(JobFailure::permanent("diarization_skipped", reason));
+            }
+            if outcome.turns == 0 {
+                // The model ran and heard nobody. Reported as a failure
+                // rather than a silent success, because a transcript that
+                // still says "อีกฝ่าย" everywhere looks identical to one
+                // that was never diarized.
+                return Err(JobFailure::permanent(
+                    "no_speakers_found",
+                    "แยกเสียงผู้พูดแล้วแต่ไม่พบผู้พูดในเสียงฝั่งอีกฝ่าย".to_string(),
+                ));
+            }
+            Ok(())
+        }
         JobKind::TranscriptRetry => {
             let runtime = app.state::<crate::AppState>().whisper_runtime_clone();
             // The pass reads the recording's own language from the ledger, so
@@ -965,7 +1008,6 @@ mod tests {
         for inert in [
             "capture.marker",
             "speakers.lock",
-            "speakers.diarize",
             "review.evidence",
             "summary.recap",
             "summary.compare",

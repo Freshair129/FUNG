@@ -18,6 +18,7 @@ export const RUNNABLE_JOB_TYPES = [
   "summary.generate",
   "transcript.retry",
   "graph.build",
+  "speakers.diarize",
 ] as const;
 
 export type RunnableJobType = (typeof RUNNABLE_JOB_TYPES)[number];
@@ -51,7 +52,6 @@ const SUMMARY_ALIASES = ["summary.recap", "summary.intent", "summary.actions"];
 const UNAVAILABLE: Record<string, string> = {
   "capture.marker": "ยังไม่มีที่เก็บ marker — ต้องเพิ่มตารางก่อน",
   "speakers.lock": "ยังไม่มีการยืนยันผู้พูดแบบถาวร",
-  "speakers.diarize": "แยกเสียงผู้พูดยังทำได้เฉพาะตอนนำเข้าจาก Zoom เท่านั้น",
   "review.evidence": "ยังไม่มีการทำเครื่องหมายหลักฐาน",
   "summary.compare": "ยังเทียบสรุปข้ามครั้งไม่ได้",
   "export.render": "ส่งออกอัตโนมัติมากับสรุปการประชุมแล้ว",

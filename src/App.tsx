@@ -29,6 +29,7 @@ import {
   cancelJob,
   closeWindow,
   createJob,
+  diarizationStatus,
   createProject,
   getHealth,
   graphBuildStart,
@@ -1067,6 +1068,16 @@ export function App() {
     if (!selectedProjectId || !activeRecordingId) {
       setActionNotice("ต้องมีการบันทึกในโปรเจกต์นี้ก่อน");
       return;
+    }
+    if (plan.jobType === "speakers.diarize") {
+      // The dependencies are opt-in and the model is gated, so this job can
+      // be unrunnable for reasons the user can fix. Saying so at the click
+      // beats queueing work that fails on the worker minutes later.
+      const readiness = await diarizationStatus();
+      if (readiness && !readiness.available) {
+        setActionNotice(readiness.detail ?? "ยังแยกเสียงผู้พูดไม่ได้");
+        return;
+      }
     }
 
     try {

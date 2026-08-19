@@ -45,7 +45,6 @@ test("every button with no implementation says which one it is", () => {
   const inert = [
     "capture.marker",
     "speakers.lock",
-    "speakers.diarize",
     "review.evidence",
     "summary.compare",
     "export.render",

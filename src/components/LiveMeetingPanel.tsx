@@ -7,12 +7,14 @@ import {
   liveMeetingStatus,
   liveMeetingStop,
   meetingAsk,
+  EMPTY_MEETING_SUMMARIES,
   meetingSummaries,
   type AskAnswer,
   type LiveSegmentEvent,
   type LiveStatusEvent,
   type LiveSummaryEvent,
   type LiveTopicEvent,
+  type MeetingSummaries,
   type SummaryRow,
 } from "../tauri";
 import { ExternalMeetingToolsPanel } from "./ExternalMeetingToolsPanel";
@@ -51,7 +53,9 @@ export function LiveMeetingPanel({
   const [segments, setSegments] = useState<LiveSegmentEvent[]>([]);
   const [topic, setTopic] = useState<LiveTopicEvent | null>(null);
   const [summaryState, setSummaryState] = useState<LiveSummaryEvent | null>(null);
-  const [summaries, setSummaries] = useState<SummaryRow[]>([]);
+  const [summaries, setSummaries] = useState<MeetingSummaries>(
+    EMPTY_MEETING_SUMMARIES,
+  );
   const [captureSystem, setCaptureSystem] = useState(true);
   const [language, setLanguage] = useState<string>("auto");
   const [question, setQuestion] = useState("");
@@ -62,10 +66,16 @@ export function LiveMeetingPanel({
   const tickRef = useRef<number | null>(null);
   const activeProjectRef = useRef<string | null>(null);
 
-  const loadSummaries = useCallback(async (pid: string) => {
+  /**
+   * Loads the summaries of one recording.
+   *
+   * The recording id is now required. Asking by project alone returned every
+   * meeting in it, so a second session in the same project showed the
+   * previous meeting's recap under the current one's heading.
+   */
+  const loadSummaries = useCallback(async (pid: string, rid: string) => {
     try {
-      const rows = await meetingSummaries(pid);
-      setSummaries(rows);
+      setSummaries(await meetingSummaries(pid, rid));
     } catch {
       /* summaries are optional display data */
     }
@@ -109,8 +119,18 @@ export function LiveMeetingPanel({
 
     void listen<LiveSummaryEvent>("live-summary", (event) => {
       setSummaryState(event.payload);
-      if (event.payload.state === "ready" && activeProjectRef.current) {
-        void loadSummaries(activeProjectRef.current);
+      // The event names the recording that just finished, which is more
+      // reliable than the panel's own active ids: by the time a queued
+      // summary lands the session may already have been cleared.
+      if (
+        event.payload.state === "ready" &&
+        activeProjectRef.current &&
+        event.payload.recordingId
+      ) {
+        void loadSummaries(
+          activeProjectRef.current,
+          event.payload.recordingId,
+        );
       }
     }).then((fn) => unlisteners.push(fn));
 
@@ -135,7 +155,10 @@ export function LiveMeetingPanel({
     setSegments([]);
     setTopic(null);
     setSummaryState(null);
-    setSummaries([]);
+    // Starting a new session must clear the previous meeting's summaries,
+    // not just its rows: a stale "3 more in this project" count would
+    // describe a query that no longer applies.
+    setSummaries(EMPTY_MEETING_SUMMARIES);
     setElapsedMs(0);
     try {
       const output = await liveMeetingStart({
@@ -184,7 +207,10 @@ export function LiveMeetingPanel({
   };
 
   const running = phase === "starting" || phase === "listening" || phase === "degraded";
-  const summaryByKind = (kind: string) => summaries.find((row) => row.kind === kind);
+  // Rows arrive newest-first, so the first of each kind is the current one;
+  // the filter states that rather than relying on the order alone.
+  const summaryByKind = (kind: string) =>
+    summaries.rows.find((row) => row.kind === kind && !row.superseded);
   const story = summaryByKind("whole_story");
   const points = summaryByKind("timeline");
   const actions = summaryByKind("decisions_actions");
@@ -344,7 +370,7 @@ export function LiveMeetingPanel({
           </section>
         </div>
 
-        {(summaryState || summaries.length > 0) && (
+        {(summaryState || summaries.rows.length > 0) && (
           <section className="live-summary">
             <h3>
               สรุปหลังประชุม
@@ -390,6 +416,25 @@ export function LiveMeetingPanel({
             )}
             {summaryState?.exportPath && (
               <p className="live-model-tag">ไฟล์สรุป: {summaryState.exportPath}</p>
+            )}
+            {summaries.otherRecordings > 0 && (
+              <p className="live-model-tag">
+                มีสรุปอีก {summaries.otherRecordings} รายการในโปรเจกต์นี้
+                ที่เป็นของการบันทึกครั้งอื่น
+              </p>
+            )}
+            {summaries.rows.some((row) => row.superseded) && (
+              <p className="live-model-tag">
+                มีสรุปรุ่นเก่าของการบันทึกนี้อยู่{" "}
+                {summaries.rows.filter((row) => row.superseded).length} รายการ
+                — แสดงรุ่นล่าสุด
+              </p>
+            )}
+            {summaries.unattributable > 0 && summaries.attributionComplete && (
+              <p className="live-note live-note-error">
+                มีสรุป {summaries.unattributable} รายการในโปรเจกต์นี้
+                ที่ไม่มีข้อมูลว่ามาจากการบันทึกใด
+              </p>
             )}
           </section>
         )}

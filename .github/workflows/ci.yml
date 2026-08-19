@@ -36,6 +36,7 @@ jobs:
       - run: npm run test:traceability
       - run: npm run test:recovery
       - run: npm run test:job-actions
+      - run: npm run test:summary-scoping
 
   rust:
     runs-on: windows-latest

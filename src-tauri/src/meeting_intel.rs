@@ -9,6 +9,7 @@
 //! point at real `transcript_segments` ids. Mid-meeting topic ticks are
 //! ephemeral UI events by design — they are never stored as facts.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -21,6 +22,12 @@ use uuid::Uuid;
 use crate::graph_build::{call_llm, llm_provider_config};
 use crate::live_meeting::{RecentSegment, SharedRecent};
 use crate::{genesis_adapter, now, AppError, AppResult, AppState};
+
+/// GenesisBlockDB rejects any relational query with a limit above 1000 and
+/// offers no cursor, so a project past this many summaries or a ledger past
+/// this many model runs loses the tail. The previous read used 200, which
+/// was below the engine's own ceiling for no stated reason.
+const SUMMARY_QUERY_LIMIT: u32 = 1000;
 
 const TOPIC_INTERVAL: Duration = Duration::from_secs(45);
 const TOPIC_WINDOW_SEGMENTS: usize = 40;
@@ -866,7 +873,7 @@ fn write_markdown_export(
 // UI-facing commands
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SummaryRow {
     id: String,
@@ -874,51 +881,212 @@ pub(crate) struct SummaryRow {
     content: String,
     evidence_count: usize,
     created_at: String,
+    /// The recording this summary describes, resolved through its
+    /// `model_runs` row. The `summaries` table has no such column, which is
+    /// why the read used to be unable to say which meeting a recap came
+    /// from.
+    recording_id: String,
+    /// True when a newer summary of the same kind exists for this recording.
+    ///
+    /// Ledgers written before summary ids became deterministic can hold
+    /// several recaps of one meeting — the manual retry button appended one
+    /// per press. They are reported rather than hidden or deleted: the user
+    /// can see that an older version exists and which one is current.
+    superseded: bool,
 }
 
+/// One recording's summaries, plus what the query deliberately left out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingSummaries {
+    /// Newest first; within a kind, only the first is not superseded.
+    pub(crate) rows: Vec<SummaryRow>,
+    /// Summaries in the same project attributed to a *different* recording.
+    ///
+    /// Reported rather than silently dropped: the panel previously showed
+    /// every summary in the project as though they all belonged to the
+    /// session on screen, so a user who now sees fewer rows is owed the
+    /// reason.
+    pub(crate) other_recordings: usize,
+    /// Summaries in this project whose `model_runs` row could not be found,
+    /// so no recording can be established for them. A partially-committed
+    /// write leaves these behind, and they are invisible to every
+    /// recording-scoped read — including this one — so the count is the
+    /// only trace they have.
+    ///
+    /// Only meaningful when `attribution_complete`; see below.
+    pub(crate) unattributable: usize,
+    /// False when the `model_runs` read hit the engine's row ceiling.
+    ///
+    /// The ceiling means some runs were not read, so a summary counted as
+    /// `unattributable` may in fact belong to a recording whose run simply
+    /// fell off the end. Reporting the doubt is the only honest option:
+    /// folding those rows into `other_recordings` would assert a recording
+    /// this query never saw, and dropping the count would hide real orphans.
+    pub(crate) attribution_complete: bool,
+}
+
+/// Number of evidence segment ids a summary cites.
+///
+/// The column round-trips as either a JSON array or a string holding one,
+/// depending on how it was stored, so both shapes are read.
+fn evidence_count(row: &serde_json::Value) -> usize {
+    let Some(value) = row.get("summaries.evidence_refs_json") else {
+        return 0;
+    };
+    if let Some(array) = value.as_array() {
+        return array.len();
+    }
+    value
+        .as_str()
+        .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
+        .map(|refs| refs.len())
+        .unwrap_or(0)
+}
+
+/// Splits a project's summaries into the ones belonging to one recording and
+/// the ones that do not.
+///
+/// `runs_for_recording` holds the `model_runs` ids of the recording being
+/// asked about; `known_runs` holds every `model_runs` id in the ledger,
+/// which is what lets a genuinely orphaned summary be told apart from one
+/// that simply belongs to another meeting. Collapsing those two into "not
+/// mine" would hide a broken write behind a normal-looking count.
+///
+/// Pure, so the attribution rule — the part that decides whose recap the
+/// user is shown — is testable without a ledger.
+pub(crate) fn attribute_summaries(
+    summary_rows: &[serde_json::Value],
+    recording_id: &str,
+    runs_for_recording: &HashSet<String>,
+    known_runs: &HashSet<String>,
+    attribution_complete: bool,
+) -> MeetingSummaries {
+    let mut rows = Vec::new();
+    let mut other_recordings = 0usize;
+    let mut unattributable = 0usize;
+
+    for row in summary_rows {
+        let text = |key: &str| {
+            row.get(key)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let model_run_id = text("summaries.model_run_id");
+        if !runs_for_recording.contains(&model_run_id) {
+            if known_runs.contains(&model_run_id) {
+                other_recordings += 1;
+            } else {
+                unattributable += 1;
+            }
+            continue;
+        }
+        rows.push(SummaryRow {
+            id: text("summaries.id"),
+            kind: text("summaries.kind"),
+            content: text("summaries.content"),
+            evidence_count: evidence_count(row),
+            created_at: text("summaries.created_at"),
+            recording_id: recording_id.to_string(),
+            superseded: false,
+        });
+    }
+
+    // Newest first overall, which also puts the current summary of each kind
+    // ahead of its leftovers. Ties break on id so two writes landing in the
+    // same second keep a stable order across calls instead of swapping.
+    rows.sort_by(|a, b| {
+        b.created_at
+            .cmp(&a.created_at)
+            .then_with(|| b.id.cmp(&a.id))
+    });
+    let mut seen_kinds = HashSet::new();
+    for row in &mut rows {
+        row.superseded = !seen_kinds.insert(row.kind.clone());
+    }
+
+    MeetingSummaries {
+        rows,
+        other_recordings,
+        unattributable,
+        attribution_complete,
+    }
+}
+
+/// Every summary of one recording, and nothing from any other.
+///
+/// This used to take only a project id and return every summary in it. With
+/// one recording per project that was indistinguishable from correct; with
+/// two, the live panel showed the previous meeting's recap beside the
+/// current one and nothing in the response said which was which, because
+/// `summaries` has no `recording_id` column to filter on.
+///
+/// Attribution runs through `model_runs`, which does carry the recording, in
+/// a fixed three queries rather than one lookup per summary. Going through
+/// the run rows also covers summaries written before ids became
+/// deterministic, whose ids say nothing about which meeting they came from.
 #[tauri::command]
 pub(crate) fn meeting_summaries(
     project_id: String,
+    recording_id: String,
     state: State<'_, AppState>,
-) -> AppResult<Vec<SummaryRow>> {
-    let mut rows = genesis_adapter::query(
+) -> AppResult<MeetingSummaries> {
+    let run_ids = |filters: Vec<_>| -> AppResult<HashSet<String>> {
+        Ok(genesis_adapter::query(
+            &state.genesis,
+            "model_runs",
+            &["id"],
+            filters,
+            SUMMARY_QUERY_LIMIT,
+        )
+        .map_err(AppError::Genesis)?
+        .iter()
+        .filter_map(|row| row.get("model_runs.id").and_then(serde_json::Value::as_str))
+        .map(str::to_owned)
+        .collect())
+    };
+
+    let runs_for_recording = run_ids(vec![genesis_adapter::eq(
+        "model_runs",
+        "recording_id",
+        serde_json::json!(recording_id),
+    )])?;
+    // Genesis filters are equality-only with no `IN` and no join, so the
+    // second set is fetched whole and membership is decided in Rust. A
+    // ledger with more model runs than the ceiling returns a partial set,
+    // which is reported rather than quietly turning unread runs into
+    // orphans.
+    let known_runs = run_ids(vec![])?;
+    let attribution_complete = (known_runs.len() as u32) < SUMMARY_QUERY_LIMIT;
+
+    let summary_rows = genesis_adapter::query(
         &state.genesis,
         "summaries",
-        &["id", "kind", "content", "evidence_refs_json", "created_at"],
+        &[
+            "id",
+            "kind",
+            "content",
+            "evidence_refs_json",
+            "model_run_id",
+            "created_at",
+        ],
         vec![genesis_adapter::eq(
             "summaries",
             "project_id",
             serde_json::json!(project_id),
         )],
-        200,
+        SUMMARY_QUERY_LIMIT,
     )
-    .map_err(AppError::Genesis)?
-    .into_iter()
-    .map(|row| {
-        let evidence_count = row
-            .get("summaries.evidence_refs_json")
-            .and_then(serde_json::Value::as_str)
-            .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
-            .map(|refs| refs.len())
-            .or_else(|| {
-                row.get("summaries.evidence_refs_json")
-                    .and_then(serde_json::Value::as_array)
-                    .map(|refs| refs.len())
-            })
-            .unwrap_or(0);
-        Ok(SummaryRow {
-            id: genesis_adapter::string(&row, "summaries.id").map_err(AppError::Genesis)?,
-            kind: genesis_adapter::string(&row, "summaries.kind").map_err(AppError::Genesis)?,
-            content: genesis_adapter::string(&row, "summaries.content")
-                .map_err(AppError::Genesis)?,
-            evidence_count,
-            created_at: genesis_adapter::string(&row, "summaries.created_at")
-                .map_err(AppError::Genesis)?,
-        })
-    })
-    .collect::<AppResult<Vec<_>>>()?;
-    rows.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    Ok(rows)
+    .map_err(AppError::Genesis)?;
+
+    Ok(attribute_summaries(
+        &summary_rows,
+        &recording_id,
+        &runs_for_recording,
+        &known_runs,
+        attribution_complete,
+    ))
 }
 
 /// Manual retry surface for the post-meeting pipeline (e.g. Ollama was down
@@ -941,6 +1109,164 @@ pub(crate) fn generate_meeting_summary(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A summary row as the ledger returns it.
+    fn summary(id: &str, kind: &str, run: &str, created_at: &str) -> serde_json::Value {
+        serde_json::json!({
+            "summaries.id": id,
+            "summaries.kind": kind,
+            "summaries.content": format!("content of {id}"),
+            "summaries.evidence_refs_json": ["seg-1", "seg-2"],
+            "summaries.model_run_id": run,
+            "summaries.created_at": created_at,
+        })
+    }
+
+    fn ids(values: &[&str]) -> HashSet<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn another_meeting_in_the_same_project_is_not_shown_as_this_one() {
+        // The whole defect: `summaries` is keyed by project, so before this
+        // the panel rendered the previous session's recap under the current
+        // session's heading with nothing to tell them apart.
+        let rows = [
+            summary("s-mine", "whole_story", "run-mine", "2026-08-19T10:00:00Z"),
+            summary(
+                "s-theirs",
+                "whole_story",
+                "run-theirs",
+                "2026-08-19T09:00:00Z",
+            ),
+        ];
+        let result = attribute_summaries(
+            &rows,
+            "rec-mine",
+            &ids(&["run-mine"]),
+            &ids(&["run-mine", "run-theirs"]),
+            true,
+        );
+        assert_eq!(result.rows.len(), 1);
+        assert_eq!(result.rows[0].id, "s-mine");
+        assert_eq!(result.rows[0].recording_id, "rec-mine");
+        // Silently returning one row would look like the project only ever
+        // had one summary. The count is what makes the filtering visible.
+        assert_eq!(result.other_recordings, 1);
+        assert_eq!(result.unattributable, 0);
+    }
+
+    #[test]
+    fn a_summary_whose_model_run_is_gone_is_counted_not_ignored() {
+        // A partially-committed write leaves a summary no recording-scoped
+        // read can ever return. Folding it into `other_recordings` would
+        // dress a broken write up as a normal one.
+        let rows = [summary(
+            "s-orphan",
+            "timeline",
+            "run-vanished",
+            "2026-08-19T10:00:00Z",
+        )];
+        let result = attribute_summaries(
+            &rows,
+            "rec-mine",
+            &ids(&["run-mine"]),
+            &ids(&["run-mine"]),
+            true,
+        );
+        assert!(result.rows.is_empty());
+        assert_eq!(result.other_recordings, 0);
+        assert_eq!(result.unattributable, 1);
+    }
+
+    #[test]
+    fn older_duplicates_of_one_kind_are_marked_rather_than_dropped() {
+        // Ledgers written before summary ids became deterministic hold one
+        // recap per press of the retry button. The newest is current; the
+        // rest stay visible so nothing is deleted behind the user's back.
+        let rows = [
+            summary("s-old", "whole_story", "run-a", "2026-08-19T09:00:00Z"),
+            summary("s-new", "whole_story", "run-b", "2026-08-19T11:00:00Z"),
+            summary("s-only", "timeline", "run-a", "2026-08-19T10:00:00Z"),
+        ];
+        let result = attribute_summaries(
+            &rows,
+            "rec-mine",
+            &ids(&["run-a", "run-b"]),
+            &ids(&["run-a", "run-b"]),
+            true,
+        );
+        assert_eq!(
+            result
+                .rows
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["s-new", "s-only", "s-old"],
+            "newest first, regardless of kind"
+        );
+        let superseded = |id: &str| {
+            result
+                .rows
+                .iter()
+                .find(|row| row.id == id)
+                .expect("row must be present")
+                .superseded
+        };
+        assert!(!superseded("s-new"), "the newest recap is current");
+        assert!(superseded("s-old"), "the older recap is a leftover");
+        assert!(
+            !superseded("s-only"),
+            "the only summary of its kind is never superseded"
+        );
+    }
+
+    #[test]
+    fn two_summaries_written_in_the_same_second_keep_a_stable_order() {
+        // Without the id tiebreak the two could swap between calls, which
+        // would make `superseded` point at a different row each refresh.
+        let rows = [
+            summary("s-a", "whole_story", "run-a", "2026-08-19T10:00:00Z"),
+            summary("s-b", "whole_story", "run-a", "2026-08-19T10:00:00Z"),
+        ];
+        let runs = ids(&["run-a"]);
+        let first = attribute_summaries(&rows, "rec", &runs, &runs, true);
+        let reversed: Vec<_> = rows.iter().rev().cloned().collect();
+        let second = attribute_summaries(&reversed, "rec", &runs, &runs, true);
+        assert_eq!(first.rows, second.rows);
+    }
+
+    #[test]
+    fn a_truncated_model_run_read_says_so_instead_of_inventing_orphans() {
+        // With the run table truncated, a summary belonging to a recording
+        // whose run fell off the end is indistinguishable from a genuine
+        // orphan. The count still reports it, but the flag says not to trust
+        // it as evidence of a broken write.
+        let rows = [summary(
+            "s-other",
+            "timeline",
+            "run-unread",
+            "2026-08-19T10:00:00Z",
+        )];
+        let result = attribute_summaries(
+            &rows,
+            "rec-mine",
+            &ids(&["run-mine"]),
+            &ids(&["run-mine"]),
+            false,
+        );
+        assert_eq!(result.unattributable, 1);
+        assert!(!result.attribution_complete);
+    }
+
+    #[test]
+    fn evidence_counts_survive_both_shapes_the_column_takes() {
+        let as_array = serde_json::json!({"summaries.evidence_refs_json": ["a", "b", "c"]});
+        let as_string = serde_json::json!({"summaries.evidence_refs_json": "[\"a\",\"b\"]"});
+        assert_eq!(evidence_count(&as_array), 3);
+        assert_eq!(evidence_count(&as_string), 2);
+        assert_eq!(evidence_count(&serde_json::json!({})), 0);
+    }
 
     #[test]
     fn a_second_summary_run_rewrites_the_first_instead_of_adding_one() {

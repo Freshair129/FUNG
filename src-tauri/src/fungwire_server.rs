@@ -961,6 +961,7 @@ fn receive_and_transcribe(
             &worker_script,
             &arg_refs,
             None,
+            None,
             move |pct| {
                 let _ = progress_tx.send(pct);
             },
@@ -1295,7 +1296,7 @@ fn concat_and_dispatch_stt(
             concat_path.to_string_lossy().to_string(),
         ];
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        crate::run_python_worker(runtime, &runtime.script, &arg_refs, None, |_| {})
+        crate::run_python_worker(runtime, &runtime.script, &arg_refs, None, None, |_| {})
             .map_err(|e| JobFailure::Failed("concat_failed".into(), e))?;
         concat_path
     };
@@ -2947,8 +2948,14 @@ mod tests {
             output.to_string_lossy().to_string(),
         ];
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let result =
-            crate::run_python_worker(&runtime, &real_transcribe_script(), &arg_refs, None, |_| {});
+        let result = crate::run_python_worker(
+            &runtime,
+            &real_transcribe_script(),
+            &arg_refs,
+            None,
+            None,
+            |_| {},
+        );
         assert!(result.is_ok(), "concat-only failed: {result:?}");
         assert!(output.exists());
         assert!(std::fs::metadata(&output).unwrap().len() > 44); // more than just a WAV header

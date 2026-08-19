@@ -37,6 +37,7 @@ jobs:
       - run: npm run test:recovery
       - run: npm run test:job-actions
       - run: npm run test:summary-scoping
+      - run: npm run test:diarization
 
   rust:
     runs-on: windows-latest

@@ -944,6 +944,7 @@ pub(crate) fn zoom_import_recording(
 
     let ctx = ImportContext {
         storage: state.genesis.clone(),
+        data_root: state.data_root.clone(),
         jobs: state.jobs.clone(),
         whisper: state.whisper_runtime_clone(),
         job_id: job_id.clone(),
@@ -976,6 +977,10 @@ pub(crate) fn zoom_import_recording(
 
 pub(crate) struct ImportContext {
     pub(crate) storage: std::sync::Arc<genesis_block_native::Storage>,
+    /// Where the app keeps its data, and with it the Hugging Face cache the
+    /// diarization model is fetched into. Carried because the worker runs on
+    /// this thread, with no `AppHandle` to resolve it from.
+    pub(crate) data_root: std::path::PathBuf,
     /// The import's own thread is still hand-rolled; only the graph build it
     /// triggers goes through the engine. Carried here so the worker can
     /// queue that build without an `AppHandle`.
@@ -1166,7 +1171,7 @@ fn run_mixed_audio_path(ctx: &ImportContext) -> Result<(), String> {
         .collect();
 
     let (storage, job_id) = (ctx.storage.clone(), ctx.job_id.clone());
-    match crate::run_diarization(&ctx.whisper, &mixed, move |pct| {
+    match crate::run_diarization(&ctx.whisper, &ctx.data_root, &mixed, move |pct| {
         let _ = crate::set_job_status(
             &storage,
             &job_id,

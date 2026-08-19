@@ -1351,13 +1351,52 @@ fn recovery_scan(state: State<'_, AppState>) -> AppResult<recovery::RecoveryRepo
     recovery::scan(&state.genesis).map_err(AppError::Genesis)
 }
 
-/// Adopts a recording's orphaned audio into the ledger and closes it out.
+/// What recovering one recording achieved: what was adopted back into the
+/// ledger, and what text was produced for it.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecoveredRecording {
+    adopted: recovery::RecoveryOutcome,
+    transcript: live_meeting::GapFillOutcome,
+}
+
+/// Adopts a recording's orphaned audio into the ledger, then transcribes
+/// whatever text it is still missing.
+///
+/// Adoption alone leaves a recovered recording showing chunks with no words —
+/// audio that is safe and unreadable at the same time — so the two run as one
+/// user action. Transcription failure does not fail the recovery: the audio is
+/// already durable, and a recording with a partial transcript is a truthful
+/// state as long as it is reported.
 #[tauri::command]
-fn recovery_recover(
+async fn recovery_recover(
     recording_id: String,
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
-) -> AppResult<recovery::RecoveryOutcome> {
-    recovery::recover_recording(&state.genesis, &recording_id).map_err(AppError::Genesis)
+) -> AppResult<RecoveredRecording> {
+    let storage = Arc::clone(&state.genesis);
+    let runtime = state.whisper_runtime_clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let adopted = recovery::recover_recording(&storage, &recording_id)
+            .map_err(AppError::Genesis)?;
+        let project_id = genesis_adapter::capture(&storage, &recording_id)
+            .map_err(AppError::Genesis)?
+            .project_id;
+        let transcript = live_meeting::fill_transcript_gaps(
+            &app,
+            &storage,
+            &runtime,
+            None,
+            &project_id,
+            &recording_id,
+        );
+        Ok(RecoveredRecording {
+            adopted,
+            transcript,
+        })
+    })
+    .await
+    .map_err(|_| AppError::InvalidInput("recovery task did not complete".to_string()))?
 }
 
 /// A project's own storage root, which is where its audio belongs.

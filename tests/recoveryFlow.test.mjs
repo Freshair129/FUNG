@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  describeGapFill,
   describeRecovery,
   recoverRecording,
   scanForInterruptedRecordings,
@@ -18,15 +19,25 @@ function fakeInvoke(handlers) {
   return { invoke, calls };
 }
 
+const noGaps = {
+  chunksMissingTranscript: 0,
+  chunksTranscribed: 0,
+  stillMissing: 0,
+  skippedReason: null,
+};
+
 test("a recovery that adopted nothing does not read like a rescue", () => {
   // The recording still gets closed out, but claiming recovered audio when
   // none was found would misreport what happened.
   const text = describeRecovery({
-    recordingId: "r1",
-    adoptedChunks: 0,
-    adoptedBytes: 0,
-    unreadableFiles: 0,
-    durationMs: 42_000,
+    adopted: {
+      recordingId: "r1",
+      adoptedChunks: 0,
+      adoptedBytes: 0,
+      unreadableFiles: 0,
+      durationMs: 42_000,
+    },
+    transcript: noGaps,
   });
   assert.match(text, /ไม่มีไฟล์ค้างให้กู้คืน/);
   assert.doesNotMatch(text, /กู้คืนเสียง/);
@@ -34,11 +45,14 @@ test("a recovery that adopted nothing does not read like a rescue", () => {
 
 test("recovered audio is reported with its size and resulting duration", () => {
   const text = describeRecovery({
-    recordingId: "r1",
-    adoptedChunks: 6,
-    adoptedBytes: 3 * 1024 * 1024,
-    unreadableFiles: 0,
-    durationMs: 90_000,
+    adopted: {
+      recordingId: "r1",
+      adoptedChunks: 6,
+      adoptedBytes: 3 * 1024 * 1024,
+      unreadableFiles: 0,
+      durationMs: 90_000,
+    },
+    transcript: { chunksMissingTranscript: 6, chunksTranscribed: 6, stillMissing: 0, skippedReason: null },
   });
   assert.match(text, /กู้คืนเสียง 6 ช่วง/);
   assert.match(text, /3\.0 MB/);
@@ -47,11 +61,14 @@ test("recovered audio is reported with its size and resulting duration", () => {
 
 test("unreadable files are named rather than folded into the success count", () => {
   const text = describeRecovery({
-    recordingId: "r1",
-    adoptedChunks: 4,
-    adoptedBytes: 1024,
-    unreadableFiles: 2,
-    durationMs: 20_000,
+    adopted: {
+      recordingId: "r1",
+      adoptedChunks: 4,
+      adoptedBytes: 1024,
+      unreadableFiles: 2,
+      durationMs: 20_000,
+    },
+    transcript: noGaps,
   });
   assert.match(text, /กู้คืนเสียง 4 ช่วง/);
   assert.match(text, /อ่านไม่ได้ 2 ไฟล์/);
@@ -84,4 +101,45 @@ test("the scan passes through the native report unchanged", async () => {
   assert.equal(result.interrupted[0].orphanFiles.length, 2);
   assert.equal(result.staleJobsFailed, 3);
   assert.equal(calls[0].command, "recovery_scan");
+});
+
+test("recovered audio with no words is reported, not glossed over", () => {
+  // Adoption alone leaves a recording that is safe and unreadable at the same
+  // time; the transcript result has to be stated alongside it.
+  const text = describeRecovery({
+    adopted: {
+      recordingId: "r1",
+      adoptedChunks: 5,
+      adoptedBytes: 2048,
+      unreadableFiles: 0,
+      durationMs: 40_000,
+    },
+    transcript: {
+      chunksMissingTranscript: 5,
+      chunksTranscribed: 2,
+      stillMissing: 3,
+      skippedReason: null,
+    },
+  });
+  assert.match(text, /กู้คืนเสียง 5 ช่วง/);
+  assert.match(text, /ถอดความเพิ่ม 2 ช่วง/);
+  assert.match(text, /ยังขาดอีก 3 ช่วง/);
+});
+
+test("a gap-fill that declined is never reported as a complete transcript", () => {
+  // "Nothing to do" and "did not check" must not look alike.
+  const declined = describeGapFill({
+    chunksMissingTranscript: 0,
+    chunksTranscribed: 0,
+    stillMissing: 0,
+    skippedReason: "too many segments to enumerate",
+  });
+  assert.match(declined, /ยังไม่ได้ตรวจ/);
+  assert.doesNotMatch(declined, /ครบอยู่แล้ว/);
+
+  assert.match(describeGapFill(noGaps), /ครบอยู่แล้ว/);
+  assert.match(
+    describeGapFill({ chunksMissingTranscript: 4, chunksTranscribed: 4, stillMissing: 0, skippedReason: null }),
+    /ถอดความเพิ่ม 4 ช่วงจนครบ/,
+  );
 });

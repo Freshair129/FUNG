@@ -1772,7 +1772,7 @@ pub fn __debug_db_probe(path: &str) -> Result<String, String> {
 /// in sync with the command-path behavior in `live_meeting.rs`.
 #[doc(hidden)]
 pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<String>) -> Result<String, String> {
-    use live_meeting::{spawn_capture_thread, ChannelKind, LiveWorker, CHANNEL_MIC, CHANNEL_SYSTEM};
+    use live_meeting::{spawn_capture_thread, CaptureEvent, ChannelKind, LiveWorker, CHANNEL_MIC, CHANNEL_SYSTEM};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
@@ -1856,7 +1856,7 @@ pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<St
                 hasher.update(&bytes);
                 format!("{:x}", hasher.finalize())
             };
-            let _ = chunk_tx.send(live_meeting::RawChunk {
+            let _ = chunk_tx.send(CaptureEvent::Chunk(live_meeting::RawChunk {
                 channel: CHANNEL_MIC,
                 chunk_id: Uuid::new_v4().to_string(),
                 file_path: path.display().to_string(),
@@ -1864,7 +1864,7 @@ pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<St
                 end_ms: cursor_ms + duration_ms,
                 byte_size: bytes.len() as i64,
                 checksum,
-            });
+            }));
             cursor_ms += duration_ms;
         }
         note(&mut report, "inject mode: queued prepared WAV chunks");
@@ -1894,7 +1894,20 @@ pub fn __debug_live_smoke(work_dir: &str, capture_secs: u64, language: Option<St
     // Mirrors the coordinator: two interleaved channel timelines mean the
     // last-written chunk is not necessarily the longest one.
     let mut max_end_ms: i64 = 0;
-    while let Ok(chunk) = chunk_rx.recv() {
+    while let Ok(event) = chunk_rx.recv() {
+        let chunk = match event {
+            CaptureEvent::Chunk(chunk) => chunk,
+            CaptureEvent::ChunkWriteFailed { channel, error } => {
+                report.push_str(&format!("chunk write failed on {channel}: {error}
+"));
+                continue;
+            }
+            CaptureEvent::StreamFailed { channel, error } => {
+                report.push_str(&format!("stream fault on {channel}: {error}
+"));
+                continue;
+            }
+        };
         let chunk_timestamp = now();
         max_end_ms = max_end_ms.max(chunk.end_ms);
         capture_record = genesis_adapter::append_capture_chunk(

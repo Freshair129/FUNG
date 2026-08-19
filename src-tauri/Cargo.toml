@@ -44,6 +44,11 @@ uuid = { version = "1", features = ["v4", "serde"] }
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 zeroize = "1"
 
+# Free-space checks before and during capture. Already present transitively;
+# declared here because `live_meeting` calls GetDiskFreeSpaceExW directly.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
 tempfile = "3"
 

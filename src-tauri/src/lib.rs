@@ -22,6 +22,7 @@ mod cloud_commands;
 mod cloud_config;
 mod cloud_executor;
 mod device_identity;
+mod diarization;
 mod external_mcp;
 mod external_mcp_commands;
 mod external_mcp_transport;
@@ -1959,6 +1960,7 @@ pub(crate) fn run_python_worker(
     script: &std::path::Path,
     args: &[&str],
     path_prefix: Option<&std::path::Path>,
+    hf_home: Option<&std::path::Path>,
     on_progress: impl Fn(i64) + Send + 'static,
 ) -> Result<String, String> {
     if !runtime.python.exists() {
@@ -1978,6 +1980,11 @@ pub(crate) fn run_python_worker(
     command.arg(script).args(args);
     if let Some(model) = bundled_whisper_model(runtime) {
         command.env("FUNG_WHISPER_MODEL", model);
+    }
+    if let Some(hf_home) = hf_home {
+        // Only the worker that needs it gets a redirected cache, so the
+        // Whisper path keeps whatever environment it has always had.
+        command.env("HF_HOME", hf_home);
     }
 
     if let Some(prefix) = path_prefix {
@@ -2062,6 +2069,9 @@ pub(crate) fn run_transcription(
         &runtime.script,
         &[file_path, "--profile", &profile],
         path_prefix,
+        // Transcription loads a bundled model by path and never touches the
+        // Hugging Face hub, so it keeps whatever cache the environment has.
+        None,
         on_progress,
     )?;
 
@@ -2072,17 +2082,36 @@ pub(crate) fn run_transcription(
 /// Runs the pyannote diarization worker script. Path B calls this after
 /// transcribing the mixed file; a failure here must never take down the
 /// transcript (see `zoom_sync::run_mixed_audio_path`).
+/// Runs the local diarization worker over one audio file.
+///
+/// `data_root` is threaded through only to locate FUNG's Hugging Face cache:
+/// the gated pipeline is fetched once into the app's own directory rather
+/// than the user's global `~/.cache/huggingface`, so a local-first install
+/// keeps its weights with the rest of its data.
 pub(crate) fn run_diarization(
     runtime: &WhisperRuntime,
+    data_root: &std::path::Path,
     file_path: &str,
     on_progress: impl Fn(i64) + Send + 'static,
 ) -> Result<zoom_sync::DiarizeOutput, String> {
-    let script = runtime
-        .script
-        .parent()
-        .expect("scripts dir")
-        .join("diarize.py");
-    let raw = run_python_worker(runtime, &script, &[file_path], None, on_progress)?;
+    // Answer from the filesystem before paying for a subprocess. Without
+    // this the only signal a missing dependency produced was the worker's
+    // own `MODEL_ACCESS ...` line, several seconds and one process later.
+    let readiness = diarization::probe(runtime, data_root);
+    if let Some(blocker) = readiness.blocker {
+        return Err(format!("{}: {}", blocker.code(), blocker.detail()));
+    }
+
+    let script = diarization::worker_script(runtime)
+        .ok_or_else(|| "could not resolve the diarization worker path".to_string())?;
+    let raw = run_python_worker(
+        runtime,
+        &script,
+        &[file_path],
+        None,
+        Some(&diarization::hf_home(data_root)),
+        on_progress,
+    )?;
     serde_json::from_str(raw.trim())
         .map_err(|err| format!("failed to parse diarization output: {err}"))
 }
@@ -2611,6 +2640,7 @@ pub fn run() {
             zoom_sync::zoom_list_recordings,
             zoom_sync::zoom_import_recording,
             graph_build::graph_build_start,
+            diarization::diarization_status,
             live_meeting::live_meeting_start,
             live_meeting::live_meeting_stop,
             live_meeting::live_meeting_status,

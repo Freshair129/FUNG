@@ -151,11 +151,20 @@ overlay does not promote Phase 3 to fully release-ready.
 
 ## Not Implemented Yet
 
-- Speaker diarization *integration*. The pyannote worker (`scripts/diarize.py`)
-  and the merge/persist path exist and are tested, but the only route into them
-  is Zoom mixed-audio import, and neither `diarize.py` nor its `torch`/
-  `pyannote.audio` dependencies are in `bundle.resources` or the pinned
-  runtime requirements — so no installed build can run diarization.
+- Speaker diarization *reach*. `diarize.py` now ships in `bundle.resources`,
+  `scripts/stage_diarization_runtime.ps1` installs the `torch`/`pyannote.audio`
+  tree into the staged runtime, and `diarization_status` reports which
+  prerequisite is missing before a worker is spawned — so an installed build
+  can run diarization once the operator opts in. The dependencies stay out of
+  the default bundle deliberately: the tree is hundreds of megabytes and the
+  `pyannote/speaker-diarization-3.1` weights are gated per user on Hugging
+  Face, so they cannot be redistributed in an installer.
+  What remains is reach: the only route into diarization is still Zoom
+  mixed-audio import. A locally captured meeting cannot be diarized, because
+  its audio is per-channel chunks rather than one file, and deciding what to
+  feed the model (system channel alone, or a mixdown) changes what the speaker
+  timings mean. Neither the dependency install nor a diarization run has been
+  executed on a device.
 - Noise reduction.
 - Source separation/layer generation.
 - Real transcript editor.

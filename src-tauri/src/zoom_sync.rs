@@ -16,6 +16,10 @@ use crate::{genesis_adapter, now, AppError, AppResult, AppState};
 const KEYRING_SERVICE: &str = "FUNG";
 const KEYRING_USER: &str = "zoom-oauth";
 const ZOOM_AUTH_BASE: &str = "https://zoom.us";
+/// Deliberately says nothing about the URL itself -- it is credential-bearing
+/// and this message reaches job rows and the UI.
+const REFUSED_DOWNLOAD_HOST: &str =
+    "zoom returned a download URL outside zoom.us; refusing to send the account token there";
 pub(crate) const ZOOM_API_BASE: &str = "https://api.zoom.us/v2";
 
 /// Runaway guard only — a real 30-day window never approaches this. Hitting it
@@ -797,6 +801,35 @@ pub(crate) fn sanitize_component(value: &str) -> String {
         .collect()
 }
 
+/// Whether a URL Zoom handed back may carry the account's access token.
+///
+/// `download_url` arrives inside an API *response body*, and
+/// [`download_to_file`] attaches the OAuth bearer to whatever host it names.
+/// Nothing else in that path checks where it points, so this is the only
+/// place the question is asked. Zoom serves recordings from its own domains;
+/// a value pointing elsewhere is a signal, not a routine case, and the
+/// caller refuses rather than downloading -- fetching the wrong file without
+/// the token would be a quieter failure, not a safer one.
+///
+/// `http` is refused outright: the bearer would go out in cleartext.
+pub(crate) fn is_zoom_download_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    // Everything before the last `@` is userinfo, not the destination.
+    let authority = match authority.rsplit_once('@') {
+        Some((_userinfo, host)) => host,
+        None => authority,
+    };
+    let host = authority
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    host == "zoom.us" || host.ends_with(".zoom.us")
+}
+
 /// Streams `url` to `dest`, resuming with a Range request when a partial
 /// file exists. Never log `url` — it is credential-bearing.
 pub(crate) fn download_to_file(
@@ -1018,6 +1051,9 @@ fn run_import_worker(ctx: ImportContext, meeting: ZoomMeetingRecording) {
         // Refresh per download rather than carrying a single token for the
         // whole worker.
         let access_token = ensure_fresh_access_token(&ctx.client_id)?;
+        if !is_zoom_download_url(&mixed.download_url) {
+            return Err(REFUSED_DOWNLOAD_HOST.to_string());
+        }
         download_to_file(&access_token, &mixed.download_url, &ctx.mixed_path)?;
         let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "running", Some(15), None);
         let mut participants = Vec::new();
@@ -1033,6 +1069,9 @@ fn run_import_worker(ctx: ImportContext, meeting: ZoomMeetingRecording) {
                     .join("participants")
                     .join(format!("{index}-{}.m4a", sanitize_component(&display_name)));
                 let access_token = ensure_fresh_access_token(&ctx.client_id)?;
+                if !is_zoom_download_url(&file.download_url) {
+                    return Err(REFUSED_DOWNLOAD_HOST.to_string());
+                }
                 download_to_file(&access_token, &file.download_url, &dest)?;
                 participants.push((display_name, dest));
             }
@@ -1470,6 +1509,32 @@ mod tests {
             "abc%252F%252Fslash%253D%253D"
         );
         assert_eq!(encode_meeting_uuid("plainuuid"), "plainuuid");
+    }
+
+    #[test]
+    fn a_download_url_off_zoom_never_receives_the_account_token() {
+        // The URL comes from a response body. Every one of these is a host
+        // the bearer would otherwise have been handed.
+        assert!(!is_zoom_download_url("https://evil.example/rec/dl/x"));
+        assert!(!is_zoom_download_url(
+            "https://zoom.us.evil.example/rec/dl/x"
+        ));
+        assert!(!is_zoom_download_url("https://notzoom.us/rec/dl/x"));
+        // Userinfo cannot smuggle the expected host past the check.
+        assert!(!is_zoom_download_url(
+            "https://zoom.us@evil.example/rec/dl/x"
+        ));
+        // Cleartext would put the bearer on the wire.
+        assert!(!is_zoom_download_url("http://zoom.us/rec/dl/x"));
+    }
+
+    #[test]
+    fn zoom_own_download_hosts_still_pass() {
+        assert!(is_zoom_download_url("https://zoom.us/rec/dl/mixed"));
+        assert!(is_zoom_download_url(
+            "https://us02web.zoom.us/rec/download/x?y=1"
+        ));
+        assert!(is_zoom_download_url("https://ZOOM.US/rec/dl/mixed"));
     }
 
     #[test]

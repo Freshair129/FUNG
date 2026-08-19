@@ -21,6 +21,7 @@
     "test:job-actions": "node --test --experimental-strip-types tests/jobActions.test.mjs",
     "test:summary-scoping": "node --test --experimental-strip-types tests/summaryScoping.test.mjs",
     "test:diarization": "node --test tests/diarizationPackaging.test.mjs",
+    "test:egress": "node --test tests/egressRegister.test.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",

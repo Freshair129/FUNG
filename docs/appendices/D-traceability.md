@@ -64,7 +64,7 @@ and does not replace retained manual, code-inspection, or test-run mappings.
 
 | Req ID | Verification owner | Current status |
 |---|---|---|
-| NFR-101 | Offline/connector-kill integration + E2E | Local capture/isolation path implemented; network-disabled and device UAT remain |
+| NFR-101 | Offline/connector-kill integration + E2E | Every outbound path traced and registered in [E-egress-register](E-egress-register.md), pinned by `tests/egressRegister.test.mjs`; network-disabled and device UAT still remain — a source trace is not a run |
 | NFR-102 | Payload minimizer and zero-byte-before-approval tests | Exact field minimizer and zero fixture-process-before-approval assertion pass |
 | NFR-103 | Secret leak scan + keyring lifecycle tests | Keyring lifecycle and typed secret-field gates pass; whole-artifact scan remains S5 |
 | NFR-104 | Worker isolation + UI response measurement | Separate blocking worker and recording-row isolation pass; UI/device timing remains |

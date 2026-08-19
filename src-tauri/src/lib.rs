@@ -19,6 +19,7 @@ mod cloud_executor;
 mod cloud_commands;
 mod backup;
 mod backup_archive;
+mod backup_payload;
 mod filesystem_backup;
 mod device_identity;
 mod external_mcp;

@@ -94,6 +94,12 @@ const fallbackHealth: Health = {
 
 const canInvoke = () => Boolean("__TAURI_INTERNALS__" in window);
 
+/** Raw command bridge for panels that own their own error handling, or `null`
+ * when this surface is a plain browser and no command can run. */
+export const nativeInvoke = canInvoke()
+  ? (<T,>(command: string, args?: Record<string, unknown>) => invoke<T>(command, args))
+  : null;
+
 export async function getHealth(): Promise<Health> {
   if (!canInvoke()) return fallbackHealth;
   return invoke<Health>("app_health");

@@ -13,6 +13,7 @@
     "test:auth": "node --test --experimental-strip-types tests/authFlow.test.mjs",
     "test:backup-flow": "node --test --experimental-strip-types tests/backupFlow.test.mjs",
     "test:device-reconcile": "node --test --experimental-strip-types tests/deviceReconcile.test.mjs",
+    "test:recovery": "node --test --experimental-strip-types tests/recoveryFlow.test.mjs",
     "test:desktop-bootstrap": "node --test --experimental-strip-types tests/desktopBootstrap.test.mjs",
     "test:release": "node --test --experimental-strip-types tests/releaseDistribution.test.mjs",
     "test:external-tools": "node --test --experimental-strip-types tests/externalMeetingTools.test.mjs",

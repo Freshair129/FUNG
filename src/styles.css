@@ -812,6 +812,26 @@ button {
   color: white;
 }
 
+/* A button with nothing behind it must look like one. Before the job engine
+   these all looked live and filed a row that never ran. */
+.quick-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: inset 1px 1px 0 var(--bevel-light);
+}
+
+/* Why the last action did not run — the reason the inert buttons never gave. */
+.action-notice {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line-soft);
+  background: rgba(255, 253, 247, 0.72);
+  color: var(--graphite);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .segmented {
   display: inline-grid;
   grid-auto-flow: column;

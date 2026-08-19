@@ -345,73 +345,112 @@ fn send_error_message(endpoint: &str, e: &reqwest::Error) -> String {
     }
 }
 
-/// Spawns the graph.build job for a recording whose transcript is ready.
-/// `import_job_id`, when given, is the `zoom.import` (or other) job that
-/// triggered this build — used only to surface a seeding failure, since the
-/// import job may already have reported `completed` by the time this runs.
-pub(crate) fn start_graph_build(
-    storage: std::sync::Arc<genesis_block_native::Storage>,
-    project_id: String,
-    recording_id: String,
-    meeting_label: String,
-    import_job_id: Option<String>,
-) {
-    let job_id = Uuid::new_v4().to_string();
-    let timestamp = now();
-    let seeded = genesis_adapter::commit_rows(
-        &storage,
-        vec![
-            genesis_adapter::upsert(
-                "jobs",
-                serde_json::json!({"id": job_id, "project_id": project_id, "type": "graph.build", "status": "running", "progress": 0, "input_refs_json": [recording_id], "output_refs_json": [], "provider_id": null, "error_code": null, "error_message": null, "attempt_no": 1, "started_at": timestamp, "finished_at": null, "created_at": timestamp, "updated_at": timestamp}),
-            ),
-            genesis_adapter::upsert(
-                "job_events",
-                serde_json::json!({"id": Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": "building knowledge graph", "created_at": timestamp}),
-            ),
-        ],
-    );
-    if let Err(message) = seeded {
-        // The graph.build job row itself could not be created, so it has no
-        // way to report its own failure and the build silently never
-        // happens. Surface it against the job that triggered this (usually
-        // the zoom.import job, which may already have reported "completed")
-        // so the failure isn't invisible.
-        if let Some(import_job_id) = import_job_id {
-            let _ = genesis_adapter::commit_rows(
-                &storage,
-                vec![genesis_adapter::upsert(
-                    "job_events",
-                    serde_json::json!({
-                        "id": Uuid::new_v4().to_string(),
-                        "job_id": import_job_id,
-                        "status": "failed",
-                        "message": format!("graph build could not start: {message}"),
-                        "created_at": now(),
-                    }),
-                )],
-            );
-        }
-        return;
+/// The label the meeting node carries in the graph.
+///
+/// Resolved from the ledger rather than passed in by the caller, because a
+/// queued job has to be able to run itself: the Zoom importer used to hand
+/// the meeting topic down through four call frames, which meant the same
+/// build triggered from the retry button silently produced a
+/// differently-labelled meeting node. Zoom's topic is recovered from the
+/// `external_meeting_links` row it already writes; anything else falls back
+/// to the project name.
+pub(crate) fn meeting_label(
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+    recording_id: &str,
+) -> String {
+    let topic = genesis_adapter::query(
+        storage,
+        "external_meeting_links",
+        &["payload_json"],
+        vec![genesis_adapter::eq(
+            "external_meeting_links",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+        1,
+    )
+    .ok()
+    .and_then(|rows| rows.into_iter().next())
+    .and_then(|row| {
+        let raw = row.get("external_meeting_links.payload_json")?.clone();
+        let parsed = raw
+            .as_str()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+            .unwrap_or(raw);
+        parsed
+            .get("topic")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    })
+    .filter(|topic| !topic.trim().is_empty());
+    if let Some(topic) = topic {
+        return topic;
     }
-    std::thread::spawn(move || {
-        let outcome = run_graph_build(
-            &storage,
-            &project_id,
-            &recording_id,
-            &meeting_label,
-            &job_id,
-        );
-        let _ = match outcome {
-            Ok(()) => crate::set_job_status(&storage, &job_id, "completed", Some(100), None),
-            Err(message) => {
-                crate::set_job_status(&storage, &job_id, "failed", None, Some(&message))
-            }
-        };
-    });
+    genesis_adapter::query(
+        storage,
+        "projects",
+        &["name"],
+        vec![genesis_adapter::eq(
+            "projects",
+            "id",
+            serde_json::json!(project_id),
+        )],
+        1,
+    )
+    .ok()
+    .and_then(|rows| rows.into_iter().next())
+    .and_then(|row| {
+        row.get("projects.name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    })
+    .filter(|name| !name.trim().is_empty())
+    .unwrap_or_else(|| "Meeting".to_string())
 }
 
-fn run_graph_build(
+/// Queues a graph build for a recording whose transcript is ready.
+///
+/// This used to seed its own job row and spawn a detached thread, so a build
+/// that died with the process left a `running` row nothing would ever
+/// finish, and an LLM outage lost the extraction layer outright. The engine
+/// owns both now. `trigger_job_id`, when given, is the job that caused this
+/// one (usually `zoom.import`) — a queueing failure is reported against it
+/// because that job may already have said `completed`.
+pub(crate) fn queue_graph_build(
+    engine: &crate::job_engine::JobEngine,
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+    recording_id: &str,
+    trigger_job_id: Option<&str>,
+) {
+    let Err(message) = engine.enqueue(
+        crate::job_engine::JobKind::GraphBuild,
+        project_id,
+        Some(recording_id),
+    ) else {
+        return;
+    };
+    let Some(trigger_job_id) = trigger_job_id else {
+        eprintln!("[jobs] graph build could not be queued: {message}");
+        return;
+    };
+    let _ = genesis_adapter::commit_rows(
+        storage,
+        vec![genesis_adapter::upsert(
+            "job_events",
+            serde_json::json!({
+                "id": Uuid::new_v4().to_string(),
+                "job_id": trigger_job_id,
+                "status": "failed",
+                "message": format!("graph build could not be queued: {message}"),
+                "created_at": now(),
+            }),
+        )],
+    );
+}
+
+pub(crate) fn run_graph_build(
     storage: &genesis_block_native::Storage,
     project_id: &str,
     recording_id: &str,
@@ -702,34 +741,24 @@ fn run_graph_build(
 }
 
 /// Manual retry surface for a failed/never-run graph build.
+///
+/// Enqueues rather than spawning, so pressing it twice queues one build and
+/// a failed build is retried by policy instead of by the user noticing.
 #[tauri::command]
 pub(crate) fn graph_build_start(
     project_id: String,
     recording_id: String,
     state: tauri::State<'_, crate::AppState>,
 ) -> crate::AppResult<()> {
-    let label = genesis_adapter::query(
-        &state.genesis,
-        "projects",
-        &["name"],
-        vec![genesis_adapter::eq(
-            "projects",
-            "id",
-            serde_json::json!(project_id),
-        )],
-        1,
-    )
-    .map_err(crate::AppError::Genesis)?
-    .into_iter()
-    .next()
-    .and_then(|row| {
-        row.get("projects.name")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned)
-    })
-    .unwrap_or_else(|| "Meeting".to_string());
-    start_graph_build(state.genesis.clone(), project_id, recording_id, label, None);
-    Ok(())
+    state
+        .jobs
+        .enqueue(
+            crate::job_engine::JobKind::GraphBuild,
+            &project_id,
+            Some(&recording_id),
+        )
+        .map(|_| ())
+        .map_err(crate::AppError::Genesis)
 }
 
 #[cfg(test)]

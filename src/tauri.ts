@@ -27,6 +27,8 @@ export type Health = {
     running: boolean;
     bind: string | null;
   };
+  /** Jobs waiting or retrying in the engine's queue. */
+  pendingJobs: number;
 };
 
 export type Project = {
@@ -86,6 +88,7 @@ const fallbackHealth: Health = {
   genesisPath: "browser-preview",
   genesisStableFrontier: 0,
   storageAuthority: "browser preview",
+  pendingJobs: 0,
   localApi: {
     running: false,
     bind: null,
@@ -135,7 +138,11 @@ export async function listJobs(): Promise<Job[]> {
   return invoke<Job[]>("list_jobs");
 }
 
-export async function createJob(jobType: string, projectId?: string): Promise<Job> {
+export async function createJob(
+  jobType: string,
+  projectId?: string,
+  recordingId?: string,
+): Promise<Job> {
   if (!canInvoke()) {
     const now = new Date().toISOString();
     return {
@@ -155,7 +162,32 @@ export async function createJob(jobType: string, projectId?: string): Promise<Jo
       updatedAt: now,
     };
   }
-  return invoke<Job>("create_job", { jobType, projectId: projectId ?? null });
+  return invoke<Job>("create_job", {
+    jobType,
+    projectId: projectId ?? null,
+    recordingId: recordingId ?? null,
+  });
+}
+
+/**
+ * Outcomes of a cancel request. `requestedWhileRunning` matters: the job
+ * engine cannot interrupt a handler mid-call, so the work in flight still
+ * finishes on its own terms and the cancel applies when it returns.
+ */
+export type CancelOutcome =
+  | "cancelled"
+  | "requestedWhileRunning"
+  | "notPending";
+
+export async function cancelJob(jobId: string): Promise<CancelOutcome> {
+  if (!canInvoke()) return "notPending";
+  return invoke<CancelOutcome>("cancel_job", { jobId });
+}
+
+/** The job types this build can actually run, straight from the engine. */
+export async function runnableJobTypes(): Promise<string[]> {
+  if (!canInvoke()) return [];
+  return invoke<string[]>("runnable_job_types");
 }
 
 export async function listModelProviders(): Promise<ModelProvider[]> {

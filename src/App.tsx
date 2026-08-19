@@ -26,6 +26,7 @@ import {
   Wifi,
 } from "lucide-react";
 import {
+  cancelJob,
   closeWindow,
   createJob,
   createProject,
@@ -56,6 +57,11 @@ import { LiveMeetingPanel } from "./components/LiveMeetingPanel";
 import { CloudProvidersPanel } from "./components/CloudProvidersPanel";
 import { supabaseConfigured } from "./lib/bootstrap";
 import "./components/AccountLoginPanel.css";
+import {
+  isJobActionEnabled,
+  jobActionBlockedReason,
+  resolveJobAction,
+} from "./lib/jobActions";
 
 const AccountLoginPanel = lazy(() =>
   import("./components/AccountLoginPanel").then((module) => ({ default: module.AccountLoginPanel })),
@@ -665,6 +671,9 @@ export function App() {
   const [providers, setProviders] = useState<ModelProvider[]>([]);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [transcribing, setTranscribing] = useState(false);
+  /// Why the last action could not run. Shown instead of the silent
+  /// no-op the inert job buttons used to produce.
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [activeAnchor, setActiveAnchor] = useState<Anchor>("P2");
   const [activeView, setActiveView] = useState<ViewId>("review");
   const [theme, setTheme] = useState<ThemeMode>("light");
@@ -1028,19 +1037,56 @@ export function App() {
     }
   };
 
+  /// The recording a queued job would run against.
+  ///
+  /// There is no recording picker in this shell — the library list selects a
+  /// project — so the target is the project's active recording. A project
+  /// with none cannot have summary or transcript work queued against it, and
+  /// the button says so rather than filing a job with nothing to read.
+  const activeRecordingId = useMemo(
+    () =>
+      projects.find((project) => project.id === selectedProjectId)
+        ?.activeRecordingId ?? null,
+    [projects, selectedProjectId],
+  );
+
   const handleCreateJob = async (jobType: string) => {
-    if (jobType === "transcript.transcribe") {
+    setActionNotice(null);
+    const plan = resolveJobAction(jobType);
+
+    if (plan.kind === "unavailable") {
+      // Previously this wrote a job row nothing would ever run. Saying so is
+      // the whole improvement.
+      setActionNotice(plan.reason);
+      return;
+    }
+    if (plan.kind === "import") {
       await handleImportAndTranscribe();
       return;
     }
-
-    let projectId = selectedProjectId;
-    if (!projectId) {
-      const project = await createProject(`Session ${projects.length + 1}`);
-      projectId = project.id;
-      setSelectedRecording(project.id);
+    if (!selectedProjectId || !activeRecordingId) {
+      setActionNotice("ต้องมีการบันทึกในโปรเจกต์นี้ก่อน");
+      return;
     }
-    await createJob(jobType, projectId);
+
+    try {
+      await createJob(plan.jobType, selectedProjectId, activeRecordingId);
+    } catch (error) {
+      setActionNotice(`เข้าคิวไม่สำเร็จ: ${String(error)}`);
+      return;
+    }
+    await refresh();
+  };
+
+  const handleCancelJob = async (jobId: string) => {
+    const outcome = await cancelJob(jobId);
+    setActionNotice(
+      outcome === "cancelled"
+        ? "ยกเลิกงานที่รออยู่แล้ว"
+        : outcome === "requestedWhileRunning"
+          ? "งานกำลังทำงานอยู่ — จะหยุดเมื่อขั้นตอนปัจจุบันจบ"
+          : "ไม่พบงานที่รออยู่",
+    );
     await refresh();
   };
 
@@ -1048,6 +1094,19 @@ export function App() {
     await startLocalApi();
     await refresh();
   };
+
+  /// Only `job` actions can be unavailable; anchors, capture, and the local
+  /// API are always live, so they are enabled unconditionally rather than
+  /// routed through the job vocabulary.
+  const tileActionEnabled = (action: TileAction) =>
+    action.kind !== "job" ||
+    isJobActionEnabled(action.value, Boolean(activeRecordingId));
+
+  const tileActionTitle = (action: TileAction) =>
+    action.kind === "job"
+      ? (jobActionBlockedReason(action.value, Boolean(activeRecordingId)) ??
+        action.label)
+      : action.label;
 
   const performTileAction = async (action: TileAction) => {
     if (action.kind === "anchor") {
@@ -1229,11 +1288,17 @@ export function App() {
                     <strong>{currentTile.title}</strong>
                     <p>{currentTile.detail}</p>
                   </div>
+                  {actionNotice ? (
+                    <p className="action-notice" role="status">
+                      {actionNotice}
+                    </p>
+                  ) : null}
                   <div className="focus-detail-dock__actions">
                     <button
                       type="button"
                       className="quick-action quick-action--primary"
-                      disabled={transcribing}
+                      disabled={transcribing || !tileActionEnabled(currentTile.primaryAction)}
+                      title={tileActionTitle(currentTile.primaryAction)}
                       onClick={() => void performTileAction(currentTile.primaryAction)}
                     >
                       {primaryActionLabel}
@@ -1241,6 +1306,8 @@ export function App() {
                     <button
                       type="button"
                       className="quick-action"
+                      disabled={!tileActionEnabled(currentTile.secondaryAction)}
+                      title={tileActionTitle(currentTile.secondaryAction)}
                       onClick={() => void performTileAction(currentTile.secondaryAction)}
                     >
                       {currentTile.secondaryAction.label}
@@ -1300,11 +1367,17 @@ export function App() {
                   <p>{currentTile.detail}</p>
                 </div>
 
+                {actionNotice ? (
+                  <p className="action-notice" role="status">
+                    {actionNotice}
+                  </p>
+                ) : null}
                 <div className="quick-actions">
                   <button
                     type="button"
                     className="quick-action quick-action--primary"
-                    disabled={transcribing}
+                    disabled={transcribing || !tileActionEnabled(currentTile.primaryAction)}
+                    title={tileActionTitle(currentTile.primaryAction)}
                     onClick={() => void performTileAction(currentTile.primaryAction)}
                   >
                     {primaryActionLabel}
@@ -1312,6 +1385,8 @@ export function App() {
                   <button
                     type="button"
                     className="quick-action"
+                    disabled={!tileActionEnabled(currentTile.secondaryAction)}
+                    title={tileActionTitle(currentTile.secondaryAction)}
                     onClick={() => void performTileAction(currentTile.secondaryAction)}
                   >
                     {currentTile.secondaryAction.label}
@@ -1493,6 +1568,7 @@ export function App() {
               type="button"
               className="sidebar-action"
               aria-label="Storage"
+              title={jobActionBlockedReason("export.render", Boolean(activeRecordingId)) ?? "Storage"}
               onClick={() => void handleCreateJob("export.render")}
             >
               <HardDriveDownload size={20} />

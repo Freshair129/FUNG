@@ -944,12 +944,12 @@ pub(crate) fn zoom_import_recording(
 
     let ctx = ImportContext {
         storage: state.genesis.clone(),
+        jobs: state.jobs.clone(),
         whisper: state.whisper_runtime_clone(),
         job_id: job_id.clone(),
         project_id: project_id.clone(),
         recording_id: recording_id.clone(),
         meeting_uuid: meeting_uuid.clone(),
-        meeting_topic: meeting.topic.clone(),
         client_id,
         base_dir,
         mixed_path,
@@ -976,6 +976,10 @@ pub(crate) fn zoom_import_recording(
 
 pub(crate) struct ImportContext {
     pub(crate) storage: std::sync::Arc<genesis_block_native::Storage>,
+    /// The import's own thread is still hand-rolled; only the graph build it
+    /// triggers goes through the engine. Carried here so the worker can
+    /// queue that build without an `AppHandle`.
+    pub(crate) jobs: crate::job_engine::JobEngine,
     pub(crate) whisper: crate::WhisperRuntime,
     pub(crate) job_id: String,
     pub(crate) project_id: String,
@@ -983,7 +987,6 @@ pub(crate) struct ImportContext {
     /// Kept for provenance while the import runs; nothing reads it back yet.
     #[allow(dead_code)]
     pub(crate) meeting_uuid: String,
-    pub(crate) meeting_topic: String,
     pub(crate) client_id: String,
     pub(crate) base_dir: std::path::PathBuf,
     pub(crate) mixed_path: std::path::PathBuf,
@@ -1100,12 +1103,12 @@ fn run_processing_pipeline(ctx: ImportContext, participants: Vec<(String, std::p
     match outcome {
         Ok(()) => {
             let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "completed", Some(100), None);
-            crate::graph_build::start_graph_build(
-                ctx.storage.clone(),
-                ctx.project_id.clone(),
-                ctx.recording_id.clone(),
-                ctx.meeting_topic.clone(),
-                Some(ctx.job_id.clone()),
+            crate::graph_build::queue_graph_build(
+                &ctx.jobs,
+                &ctx.storage,
+                &ctx.project_id,
+                &ctx.recording_id,
+                Some(&ctx.job_id),
             );
         }
         Err(message) => {

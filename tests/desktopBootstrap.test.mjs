@@ -154,7 +154,9 @@ test("the desktop shell can reach the backup panel", async () => {
   // reachable from the app that can actually run them.
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   assert.match(appSource, /import\("\.\/components\/BackupPanel"\)/);
-  assert.match(appSource, /<BackupPanel invoke=\{nativeInvoke\} \/>/);
+  // Matches the mount and its native bridge without pinning the prop list, so
+  // adding a prop is not a test failure while removing the bridge still is.
+  assert.match(appSource, /<BackupPanel[^>]*invoke=\{nativeInvoke\}/);
 
   const panelSource = await readFile(
     new URL("../src/components/BackupPanel.tsx", import.meta.url),

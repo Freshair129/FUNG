@@ -8,6 +8,8 @@ import {
   runRestore,
   describeAudioBackup,
   describeAudioRestore,
+  describeAudioIntegrity,
+  checkAudioIntegrity,
   describeBackupError,
 } from "../src/lib/backupFlow.ts";
 
@@ -168,4 +170,46 @@ test("payload and inventory failures get truthful, non-secret text", () => {
     describeBackupError(new Error("audio inventory could not be read from Genesis")),
     /ไม่สำรองเพื่อไม่ให้ได้ไฟล์ที่ขาดเสียง/,
   );
+});
+
+const cleanIntegrity = {
+  checked: 12, intact: 12, relocated: 0, modified: 0, missing: 0, unverifiable: 0, problems: [],
+};
+
+test("an integrity check reports missing or modified audio as a failure", () => {
+  // This check exists to find exactly these two states; softening them would
+  // make a project with lost source audio read as verified.
+  const lost = { ...cleanIntegrity, intact: 9, missing: 3, problems: [] };
+  const result = describeAudioIntegrity(lost);
+  assert.equal(result.ok, false);
+  assert.match(result.text, /หาย 3 ไฟล์/);
+  assert.match(result.text, /ไม่ครบ/);
+
+  const changed = { ...cleanIntegrity, intact: 11, modified: 1 };
+  assert.equal(describeAudioIntegrity(changed).ok, false);
+});
+
+test("relocated chunks are reported but do not make a project unclean", () => {
+  // The audio is intact; only its location moved, and the row was repaired.
+  const moved = { ...cleanIntegrity, intact: 8, relocated: 4 };
+  const result = describeAudioIntegrity(moved);
+  assert.equal(result.ok, true);
+  assert.match(result.text, /ย้ายที่ 4 ไฟล์/);
+});
+
+test("a project with no audio is not reported as verified audio", () => {
+  const empty = { ...cleanIntegrity, checked: 0, intact: 0 };
+  const result = describeAudioIntegrity(empty);
+  assert.equal(result.ok, true);
+  assert.match(result.text, /ยังไม่มีไฟล์เสียง/);
+  assert.doesNotMatch(result.text, /ครบและตรงกับลายเซ็น/);
+});
+
+test("the integrity check refuses to run without a project", async () => {
+  const { invoke, calls } = fakeInvoke({ audio_integrity_check: cleanIntegrity });
+  await assert.rejects(() => checkAudioIntegrity(invoke, ""), /missing_project_id/);
+  assert.equal(calls.length, 0);
+  const report = await checkAudioIntegrity(invoke, "p1");
+  assert.equal(report.checked, 12);
+  assert.deepEqual(calls[0].args, { projectId: "p1" });
 });

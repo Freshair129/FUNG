@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use tauri::{Emitter, State};
 use uuid::Uuid;
 
@@ -569,35 +570,76 @@ fn collect_item_refs(items: &serde_json::Value, segments: &[SegmentView]) -> Vec
     ids
 }
 
-/// Generates the three summary kinds, persists them with model provenance,
-/// writes the Markdown export, and reports progress over `live-summary`
-/// events. Called by the live coordinator after capture ends; also reachable
-/// by a UI retry via `generate_meeting_summary`.
-pub(crate) fn run_post_meeting(
+/// Queues post-meeting summarisation for a recording.
+///
+/// Previously this ran the whole pipeline inline on the caller's thread and
+/// emitted the result directly, which meant a meeting that ended while
+/// Ollama was down lost its summary with no retry and no record — the only
+/// way back was the manual button. It now hands the work to the job engine,
+/// which owns attempts, backoff, and survival across a restart, and which
+/// emits the same `live-summary` states from the worker so the live panel's
+/// contract is unchanged.
+///
+/// Emitting `running` here rather than waiting for the worker keeps the
+/// panel honest about queued work: the user pressed stop and something is
+/// pending, even if the worker is still finishing a previous job.
+pub(crate) fn queue_post_meeting(
     app: &tauri::AppHandle,
-    storage: &genesis_block_native::Storage,
+    engine: &crate::job_engine::JobEngine,
     project_id: &str,
     recording_id: &str,
 ) {
-    let emit = |state: &str, detail: Option<String>, export_path: Option<String>| {
+    let emit = |state: &str, detail: Option<String>| {
         let _ = app.emit(
             "live-summary",
             LiveSummaryEvent {
                 recording_id: recording_id.to_string(),
                 state: state.to_string(),
                 detail,
-                export_path,
+                export_path: None,
             },
         );
     };
-    emit("running", Some("กำลังสรุปการประชุม...".to_string()), None);
-    match generate_summaries_and_export(storage, project_id, recording_id) {
-        Ok(export_path) => emit("ready", None, Some(export_path)),
-        Err(error) => emit("failed", Some(error), None),
+    match engine.enqueue(
+        crate::job_engine::JobKind::SummaryGenerate,
+        project_id,
+        Some(recording_id),
+    ) {
+        Ok(_) => emit("running", Some("กำลังสรุปการประชุม...".to_string())),
+        // A queue that cannot accept work is a failure the user must see;
+        // silently dropping it is how the summary went missing before.
+        Err(error) => emit("failed", Some(format!("เข้าคิวสรุปไม่สำเร็จ: {error}"))),
     }
 }
 
-pub(crate) fn generate_summaries_and_export(
+/// Deterministic id for one summary of one recording.
+///
+/// The `summaries` table has no `recording_id` column — the link runs through
+/// `model_run_id` — so before the job engine every run minted a fresh UUID
+/// and a retry *appended* a second recap beside the first rather than
+/// replacing it. Pressing the manual "generate summary" button twice already
+/// produced two, and a retrying engine would have made that routine.
+///
+/// Deriving the id from (project, recording, kind) makes the write an upsert
+/// in fact as well as in name, which is what lets `summary.generate` be
+/// registered as a retryable job at all. Mirrors `graph_build::det_node_id`.
+///
+/// This does not fix the *read* side: `meeting_summaries` is project-scoped,
+/// so two recordings in one project still return both meetings' summaries
+/// interleaved. That needs a schema column and is left alone here.
+pub(crate) fn summary_row_id(project_id: &str, recording_id: &str, kind: &str) -> String {
+    let digest = Sha256::digest(format!("{project_id}\u{1}{recording_id}\u{1}{kind}").as_bytes());
+    let hex: String = digest.iter().take(12).map(|b| format!("{b:02x}")).collect();
+    format!("sum:{hex}")
+}
+
+/// Generates the three summary kinds, persists them with model provenance,
+/// and writes the Markdown export. Returns the export path.
+///
+/// Owns no job row: its caller is the job engine, which owns status,
+/// attempts, and retry. Also called directly by the `__debug_live_smoke`
+/// harness, which reports through its own smoke log.
+pub(crate) fn summarize_and_export(
     storage: &genesis_block_native::Storage,
     project_id: &str,
     recording_id: &str,
@@ -609,22 +651,6 @@ pub(crate) fn generate_summaries_and_export(
         );
     }
     let (endpoint, model) = llm_provider_config(storage)?;
-
-    let job_id = Uuid::new_v4().to_string();
-    let created = now();
-    genesis_adapter::commit_rows(
-        storage,
-        vec![
-            genesis_adapter::upsert(
-                "jobs",
-                serde_json::json!({"id": job_id, "project_id": project_id, "type": "summary.generate", "status": "running", "progress": 0, "input_refs_json": [recording_id], "output_refs_json": [], "provider_id": "ollama-summary-intent", "error_code": null, "error_message": null, "attempt_no": 1, "started_at": created, "finished_at": null, "created_at": created, "updated_at": created}),
-            ),
-            genesis_adapter::upsert(
-                "job_events",
-                serde_json::json!({"id": Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": "summary.generate started", "created_at": created}),
-            ),
-        ],
-    )?;
 
     let transcript_block = segments
         .iter()
@@ -694,8 +720,11 @@ pub(crate) fn generate_summaries_and_export(
             ),
         ] {
             let timestamp = now();
-            let model_run_id = Uuid::new_v4().to_string();
-            let summary_id = Uuid::new_v4().to_string();
+            // Both ids are derived, not random, so a second attempt rewrites
+            // the same two rows instead of leaving the first attempt's output
+            // orphaned beside the second's.
+            let summary_id = summary_row_id(project_id, recording_id, kind);
+            let model_run_id = format!("run:{summary_id}");
             mutations.push(genesis_adapter::upsert("model_runs", serde_json::json!({
                 "id": model_run_id, "recording_id": recording_id, "provider_id": "ollama-summary-intent",
                 "model_name": model, "task_kind": format!("summary.generate:{kind}"), "runtime_location": "local",
@@ -720,14 +749,6 @@ pub(crate) fn generate_summaries_and_export(
         Ok(export_path)
     })();
 
-    match &result {
-        Ok(_) => {
-            let _ = crate::set_job_status(storage, &job_id, "completed", Some(100), None);
-        }
-        Err(error) => {
-            let _ = crate::set_job_status(storage, &job_id, "failed", None, Some(error));
-        }
-    }
     result
 }
 
@@ -902,6 +923,10 @@ pub(crate) fn meeting_summaries(
 
 /// Manual retry surface for the post-meeting pipeline (e.g. Ollama was down
 /// when the session ended).
+///
+/// Enqueues rather than spawning: the engine deduplicates, so pressing this
+/// three times queues one summarisation instead of three racing writes to
+/// the same rows.
 #[tauri::command]
 pub(crate) fn generate_meeting_summary(
     project_id: String,
@@ -909,16 +934,40 @@ pub(crate) fn generate_meeting_summary(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    let storage = state.genesis.clone();
-    std::thread::spawn(move || {
-        run_post_meeting(&app, &storage, &project_id, &recording_id);
-    });
+    queue_post_meeting(&app, &state.jobs, &project_id, &recording_id);
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_second_summary_run_rewrites_the_first_instead_of_adding_one() {
+        // This is what makes summary.generate safe to retry. Before the ids
+        // were derived, a retry appended a second recap and the project
+        // showed both.
+        let first = summary_row_id("proj", "rec", "whole_story");
+        assert_eq!(first, summary_row_id("proj", "rec", "whole_story"));
+
+        // Different recording, different project, and different kind must
+        // never collide — a collision would overwrite another meeting's
+        // summary with this one's.
+        assert_ne!(first, summary_row_id("proj", "rec-2", "whole_story"));
+        assert_ne!(first, summary_row_id("proj-2", "rec", "whole_story"));
+        assert_ne!(first, summary_row_id("proj", "rec", "timeline"));
+    }
+
+    #[test]
+    fn summary_ids_are_not_confusable_across_a_shifted_separator() {
+        // "a" + "bc" and "ab" + "c" must not hash alike; the unit separator
+        // is what prevents it, and a refactor that drops it would silently
+        // start overwriting the wrong rows.
+        assert_ne!(
+            summary_row_id("a", "bc", "timeline"),
+            summary_row_id("ab", "c", "timeline")
+        );
+    }
 
     #[test]
     fn tolerant_json_recovers_object_wrapped_in_prose() {

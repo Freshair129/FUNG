@@ -1119,9 +1119,13 @@ fn spawn_coordinator(
             None,
         );
 
-        // Post-meeting pipeline: summary → export. Runs on this same thread —
-        // the session is over, so there is nothing left to block.
-        meeting_intel::run_post_meeting(&app, &storage, &project_id, &recording_id);
+        // Post-meeting pipeline: summary → export. Queued rather than run
+        // here, so a meeting that ends while the local model is down keeps
+        // its summary as pending work instead of losing it to a thread that
+        // dies with the process.
+        if let Some(state) = app.try_state::<AppState>() {
+            meeting_intel::queue_post_meeting(&app, &state.jobs, &project_id, &recording_id);
+        }
 
         // Release the in-memory session slot last, so `live_meeting_status`
         // keeps answering "stopping" while the tail work runs.

@@ -33,6 +33,13 @@ const UNFINISHED_STATUSES: [&str; 3] = ["recording", "paused", "pending"];
 /// Job states that cannot survive a process exit. A job is owned by the
 /// process that runs it, and nothing resumes one across a restart, so any job
 /// still in these states at startup belongs to a run that is gone.
+/// Job states that no longer belong to a live process at startup.
+///
+/// The engine adopts these for the types it can run, so what is left here is
+/// every *other* type: rows written by code paths that still hand-roll their
+/// own threads (`zoom.import`, `recording.capture`) or by builds where a
+/// button filed a type nothing ever implemented. Nothing will pick those up,
+/// so leaving them non-terminal is a permanent spinner.
 const NON_SURVIVING_JOB_STATES: [&str; 4] = ["queued", "running", "paused", "retrying"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -199,6 +206,12 @@ fn terminalize_stale_jobs(storage: &genesis_block_native::Storage) -> Result<usi
                 continue;
             }
             let job_type = text(row, "jobs.type");
+            // Leave the engine's own work alone: it resumes these itself,
+            // and terminalising a queued row at startup is precisely the
+            // behaviour the durable queue exists to replace.
+            if crate::job_engine::JobKind::parse(&job_type).is_some() {
+                continue;
+            }
             let _ = crate::set_job_status(
                 storage,
                 &id,

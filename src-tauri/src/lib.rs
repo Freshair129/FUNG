@@ -31,6 +31,7 @@ mod fungwire_client;
 mod fungwire_server;
 mod genesis_adapter;
 mod graph_build;
+mod job_engine;
 mod live_meeting;
 mod meeting_intel;
 mod mobile;
@@ -238,6 +239,9 @@ pub(crate) struct AppState {
     pub(crate) mobile_gateway: Mutex<Option<mobile::MobileGatewayControl>>,
     pub(crate) fungwire: Mutex<Option<fungwire_server::FungwireServerControl>>,
     pub(crate) live: Mutex<Option<live_meeting::LiveSessionControl>>,
+    /// The durable job queue. Cloneable handle, not a lock: the worker owns
+    /// its own state, so a command that enqueues never blocks behind a job.
+    pub(crate) jobs: job_engine::JobEngine,
     pub(crate) external_mcp: external_mcp_commands::ExternalMcpRuntime,
     pub(crate) external_meeting_tools_enabled: bool,
 }
@@ -259,6 +263,10 @@ struct Health {
     genesis_stable_frontier: u64,
     storage_authority: String,
     local_api: LocalApiHealth,
+    /// Jobs waiting or retrying. A non-zero depth with nothing visible in
+    /// the UI is the signal that the worker is stuck, which is exactly the
+    /// state the old fire-and-forget threads could not report at all.
+    pending_jobs: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -811,9 +819,11 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         genesis_adapter::upsert("model_providers", serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":"http://127.0.0.1:11434"},"created_at":seeded_at,"updated_at":seeded_at})),
         genesis_adapter::upsert("model_providers", serde_json::json!({"id":"vllm-summary-intent","label":"vLLM","runtime_location":"local","kind":"summary_intent","enabled":false,"config_json":{"endpoint":"http://127.0.0.1:8000"},"created_at":seeded_at,"updated_at":seeded_at})),
     ]).map_err(AppError::Genesis)?;
+    let genesis = Arc::new(genesis);
     Ok(AppState {
         data_root: app_data_dir,
-        genesis: Arc::new(genesis),
+        jobs: job_engine::JobEngine::new(Arc::clone(&genesis)),
+        genesis,
         genesis_path,
         local_api: Mutex::new(None),
         whisper_runtime: whisper_runtime(app),
@@ -848,6 +858,7 @@ fn app_health(state: State<'_, AppState>) -> AppResult<Health> {
             running: bind.is_some(),
             bind,
         },
+        pending_jobs: state.jobs.queue_depth(),
     })
 }
 
@@ -925,43 +936,85 @@ fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
     Ok(projects)
 }
 
+/// Queues a job and returns the row that will run.
+///
+/// The old version accepted any type string and wrote a `queued` row. Since
+/// nothing consumed the queue, twelve UI buttons filed rows that sat until
+/// the next launch terminalised them — a spinner that meant nothing. It now
+/// refuses a type the engine has no handler for, so an unsupported action
+/// fails at the moment the user takes it rather than pretending to work.
+///
+/// Returns the existing job when an equivalent one is already pending, which
+/// is why the response carries the id rather than assuming a fresh one.
 #[tauri::command]
 fn create_job(
     job_type: String,
     project_id: Option<String>,
+    recording_id: Option<String>,
     state: State<'_, AppState>,
 ) -> AppResult<Job> {
-    let trimmed = job_type.trim();
-    if trimmed.is_empty() {
-        return Err(AppError::InvalidInput("job type is required".to_string()));
-    }
-    let project_id = project_id.ok_or_else(|| {
-        AppError::InvalidInput("project id is required for stateful jobs".to_string())
+    let kind = job_engine::JobKind::parse(&job_type).ok_or_else(|| {
+        AppError::InvalidInput(format!(
+            "'{}' is not a job this build can run",
+            job_type.trim()
+        ))
     })?;
+    let project_id =
+        project_id.ok_or_else(|| AppError::InvalidInput("job needs a project".to_string()))?;
+    let recording_id = recording_id.filter(|value| !value.trim().is_empty());
+    let id = state
+        .jobs
+        .enqueue(kind, &project_id, recording_id.as_deref())
+        .map_err(AppError::Genesis)?;
+    job_by_id(&state.genesis, &id)
+}
 
-    let id = Uuid::new_v4().to_string();
-    let timestamp = now();
-    genesis_adapter::commit_rows(&state.genesis, vec![
-        genesis_adapter::upsert("jobs", serde_json::json!({"id": id, "project_id": project_id, "type": trimmed, "status": "queued", "progress": 0, "input_refs_json": [], "output_refs_json": [], "provider_id": null, "error_code": null, "error_message": null, "attempt_no": 1, "started_at": null, "finished_at": null, "created_at": timestamp, "updated_at": timestamp})),
-        genesis_adapter::upsert("job_events", serde_json::json!({"id": Uuid::new_v4().to_string(), "job_id": id, "status": "queued", "message": "Job queued", "created_at": timestamp})),
-    ]).map_err(AppError::Genesis)?;
+/// Asks the engine to stop a job. The outcome distinguishes "it will not
+/// run" from "it is already running and cannot be interrupted", because
+/// reporting both as success is how a cancel button comes to mean nothing.
+#[tauri::command]
+fn cancel_job(job_id: String, state: State<'_, AppState>) -> AppResult<job_engine::CancelOutcome> {
+    Ok(state.jobs.cancel(&job_id))
+}
 
-    Ok(Job {
-        id,
-        project_id,
-        job_type: trimmed.to_string(),
-        status: "queued".to_string(),
-        progress: 0,
-        input_refs: Vec::new(),
-        output_refs: Vec::new(),
-        provider_id: None,
-        error_code: None,
-        error_message: None,
-        started_at: None,
-        finished_at: None,
-        created_at: timestamp.clone(),
-        updated_at: timestamp,
-    })
+/// The job types this build can actually run, for a UI that would otherwise
+/// have to hard-code the list and drift from it.
+#[tauri::command]
+fn runnable_job_types() -> Vec<&'static str> {
+    job_engine::JobKind::ALL
+        .into_iter()
+        .map(job_engine::JobKind::as_str)
+        .collect()
+}
+
+fn job_by_id(storage: &genesis_block_native::Storage, job_id: &str) -> AppResult<Job> {
+    genesis_adapter::query(
+        storage,
+        "jobs",
+        &[
+            "id",
+            "project_id",
+            "type",
+            "status",
+            "progress",
+            "input_refs_json",
+            "output_refs_json",
+            "provider_id",
+            "error_code",
+            "error_message",
+            "started_at",
+            "finished_at",
+            "created_at",
+            "updated_at",
+        ],
+        vec![genesis_adapter::eq("jobs", "id", serde_json::json!(job_id))],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("job not found".to_string()))
+    .and_then(job_from_row)
 }
 
 #[tauri::command]
@@ -2471,7 +2524,7 @@ pub fn __debug_live_smoke(
     }
 
     note(&mut report, "generating summaries (Ollama)...");
-    match meeting_intel::generate_summaries_and_export(&storage, project_id, recording_id) {
+    match meeting_intel::summarize_and_export(&storage, project_id, recording_id) {
         Ok(export_path) => note(
             &mut report,
             &format!("summary + export: OK -> {export_path}"),
@@ -2513,6 +2566,21 @@ pub fn run() {
             app.manage(state);
             app.manage(filesystem_backup::FilesystemBackupState::default());
             app.manage(backup::BackupJobState::default());
+
+            // The worker starts only now: its handlers reach back into
+            // AppState, so it must not run before the state is managed.
+            // Adoption follows, picking up whatever the last run left
+            // queued or was still running when it exited.
+            let engine = app.state::<AppState>().jobs.clone();
+            engine.start_worker(app.handle().clone());
+            match engine.adopt_pending() {
+                Ok(0) => {}
+                Ok(count) => eprintln!("[jobs] resumed {count} pending job(s)"),
+                // A failed adoption leaves the rows exactly as they were, so
+                // the next launch tries again — but it must not be silent,
+                // because until then that work is stalled.
+                Err(error) => eprintln!("[jobs] could not resume pending jobs: {error}"),
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2520,6 +2588,8 @@ pub fn run() {
             create_project,
             list_projects,
             create_job,
+            cancel_job,
+            runnable_job_types,
             list_jobs,
             list_model_providers,
             list_transcript_segments,
@@ -2617,8 +2687,18 @@ pub fn run() {
             tts_provider_test,
             tts_synthesize_text
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running FUNG");
+        .build(tauri::generate_context!())
+        .expect("error while running FUNG")
+        .run(|app, event| {
+            // Stop taking new work at exit. Anything still queued stays
+            // queued in the ledger and is adopted on the next launch —
+            // shutdown is not cancellation.
+            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                if let Some(state) = app.try_state::<AppState>() {
+                    state.jobs.shutdown();
+                }
+            }
+        });
 }
 
 #[cfg(test)]

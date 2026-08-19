@@ -31,6 +31,24 @@ use uuid::Uuid;
 use crate::{genesis_adapter, meeting_intel, now, AppError, AppResult, AppState, WhisperRuntime};
 
 const CHUNK_MS: u64 = 8_000;
+
+/// Capture writes uncompressed 16-bit mono WAV per channel. At 48 kHz with a
+/// microphone plus system loopback that is roughly 690 MB/hour, so a long
+/// meeting is measured in gigabytes and an unguarded session can fill the
+/// volume. Nothing detected that before: a full disk surfaced as a chunk
+/// write failure with no explanation, and previously not even that.
+///
+/// Refuse to start below this.
+const MIN_FREE_BYTES_TO_START: u64 = 2 * 1024 * 1024 * 1024;
+/// Warn, once, below this while recording.
+const LOW_DISK_WARN_BYTES: u64 = 1024 * 1024 * 1024;
+/// Stop the session below this, while there is still room to close every
+/// chunk cleanly. Stopping with the audio intact beats writing until the
+/// volume is full.
+const MIN_FREE_BYTES_TO_CONTINUE: u64 = 256 * 1024 * 1024;
+/// Chunks between free-space checks. Two channels at 8s chunks produce ~15
+/// per minute, so this is about a one-minute cadence.
+const DISK_CHECK_EVERY_CHUNKS: usize = 16;
 /// A trailing partial chunk shorter than this is dropped: whisper yields
 /// nothing useful for it and the ledger row would be noise.
 const MIN_FINAL_CHUNK_MS: u64 = 400;
@@ -128,6 +146,30 @@ pub(crate) struct RawChunk {
     pub(crate) checksum: String,
 }
 
+/// What a capture thread reports to the coordinator.
+///
+/// Chunk writes and the OS audio stream can both fail mid-session, and both
+/// used to be swallowed by `eprintln!` — a recording could lose audio, or go
+/// silent because the microphone was unplugged, while the UI still showed a
+/// healthy session. Faults travel on the same channel as chunks so the
+/// coordinator sees them in the order they happened, and so a capture thread
+/// still needs no access to Genesis or the app handle.
+pub(crate) enum CaptureEvent {
+    Chunk(RawChunk),
+    /// Audio was captured but could not be committed to disk. This is lost
+    /// source audio: the samples are already gone from the accumulator.
+    ChunkWriteFailed {
+        channel: &'static str,
+        error: String,
+    },
+    /// The OS reported an error on the audio stream — device removed, format
+    /// change, driver reset. Capture may continue but is no longer trustworthy.
+    StreamFailed {
+        channel: &'static str,
+        error: String,
+    },
+}
+
 fn sample_f32_to_i16(sample: f32) -> i16 {
     (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16
 }
@@ -149,6 +191,8 @@ fn build_stream<T: cpal::SizedSample + Send + 'static>(
     channels: usize,
     tx: mpsc::Sender<Vec<i16>>,
     convert: fn(T) -> i16,
+    channel: &'static str,
+    faults: mpsc::Sender<CaptureEvent>,
 ) -> Result<cpal::Stream, String> {
     device
         .build_input_stream(
@@ -164,10 +208,60 @@ fn build_stream<T: cpal::SizedSample + Send + 'static>(
                 }
                 let _ = tx.send(mono);
             },
-            |error| eprintln!("[live-capture] stream error: {error}"),
+            move |error| {
+                // Runs on the audio callback thread; sending is non-blocking
+                // and the coordinator turns this into user-visible state.
+                let _ = faults.send(CaptureEvent::StreamFailed {
+                    channel,
+                    error: error.to_string(),
+                });
+            },
             None,
         )
         .map_err(|error| format!("build_input_stream failed: {error}"))
+}
+
+/// Free bytes available on the volume that holds `path`.
+///
+/// `None` means "cannot tell" — an unsupported platform or a failed call. No
+/// caller may treat that as "full": refusing to record because a disk query
+/// failed would be worse than the problem it guards against.
+#[cfg(windows)]
+pub(crate) fn free_disk_bytes(path: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+    // The directory may not exist yet when this runs before a session; walk up
+    // to the nearest existing ancestor, which is on the same volume.
+    let mut probe = path;
+    while !probe.exists() {
+        probe = probe.parent()?;
+    }
+    let mut wide: Vec<u16> = probe.as_os_str().encode_wide().collect();
+    wide.push(0);
+
+    let mut available: u64 = 0;
+    // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives the call,
+    // and `available` is a valid writable u64. The other two out-params are
+    // optional per the API contract and passed as null.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(available)
+}
+
+#[cfg(not(windows))]
+pub(crate) fn free_disk_bytes(_path: &Path) -> Option<u64> {
+    None
+}
+
+fn human_gib(bytes: u64) -> String {
+    format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
 }
 
 fn write_chunk_wav(path: &Path, sample_rate: u32, samples: &[i16]) -> Result<(i64, String), String> {
@@ -206,7 +300,7 @@ pub(crate) fn spawn_capture_thread(
     kind: ChannelKind,
     channel: &'static str,
     stop: Arc<AtomicBool>,
-    chunk_tx: mpsc::Sender<RawChunk>,
+    chunk_tx: mpsc::Sender<CaptureEvent>,
     chunks_dir: PathBuf,
 ) -> Result<CaptureReady, String> {
     let (ready_tx, ready_rx) = mpsc::channel::<Result<String, String>>();
@@ -272,15 +366,18 @@ pub(crate) fn spawn_capture_thread(
 
         let (sample_tx, sample_rx) = mpsc::channel::<Vec<i16>>();
         let stream = match sample_format {
-            cpal::SampleFormat::F32 => {
-                build_stream::<f32>(&device, &stream_config, channels, sample_tx, sample_f32_to_i16)
-            }
-            cpal::SampleFormat::I16 => {
-                build_stream::<i16>(&device, &stream_config, channels, sample_tx, sample_i16_to_i16)
-            }
-            cpal::SampleFormat::U16 => {
-                build_stream::<u16>(&device, &stream_config, channels, sample_tx, sample_u16_to_i16)
-            }
+            cpal::SampleFormat::F32 => build_stream::<f32>(
+                &device, &stream_config, channels, sample_tx, sample_f32_to_i16,
+                channel, chunk_tx.clone(),
+            ),
+            cpal::SampleFormat::I16 => build_stream::<i16>(
+                &device, &stream_config, channels, sample_tx, sample_i16_to_i16,
+                channel, chunk_tx.clone(),
+            ),
+            cpal::SampleFormat::U16 => build_stream::<u16>(
+                &device, &stream_config, channels, sample_tx, sample_u16_to_i16,
+                channel, chunk_tx.clone(),
+            ),
             other => Err(format!("รูปแบบตัวอย่างเสียง {other:?} ยังไม่รองรับ")),
         };
         let stream = match stream {
@@ -312,7 +409,7 @@ pub(crate) fn spawn_capture_thread(
             let file_path = chunks_dir.join(format!("{channel}-{local_seq:05}.wav"));
             match write_chunk_wav(&file_path, sample_rate, &samples) {
                 Ok((byte_size, checksum)) => {
-                    let _ = chunk_tx.send(RawChunk {
+                    let _ = chunk_tx.send(CaptureEvent::Chunk(RawChunk {
                         channel,
                         chunk_id,
                         file_path: file_path.display().to_string(),
@@ -320,9 +417,13 @@ pub(crate) fn spawn_capture_thread(
                         end_ms,
                         byte_size,
                         checksum,
-                    });
+                    }));
                 }
-                Err(error) => eprintln!("[live-capture] {channel} chunk write failed: {error}"),
+                // These samples are gone. Report it instead of printing to a
+                // stderr no user reads.
+                Err(error) => {
+                    let _ = chunk_tx.send(CaptureEvent::ChunkWriteFailed { channel, error });
+                }
             }
         };
 
@@ -607,16 +708,100 @@ pub(crate) fn start_desktop_capture(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// How a finished capture must be reported.
+///
+/// Separated from the coordinator because this is the truthfulness rule, not
+/// plumbing: a session that lost source audio must never be recorded as a
+/// completed capture, and a transcript with gaps must say so. Both are easy to
+/// get wrong in a way no type checker catches.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct CaptureOutcome {
+    /// `Some` marks the job failed, carrying the durable reason. `None`
+    /// completes it.
+    pub(crate) failure_reason: Option<String>,
+    pub(crate) message: String,
+}
+
+pub(crate) fn capture_outcome(
+    duration_ms: i64,
+    lost_chunks: usize,
+    stream_faults: usize,
+    still_pending: usize,
+) -> CaptureOutcome {
+    let seconds = duration_ms / 1000;
+    if lost_chunks > 0 {
+        return CaptureOutcome {
+            failure_reason: Some(format!(
+                "{lost_chunks} audio chunk(s) could not be written to disk; \
+                 {stream_faults} audio stream fault(s)"
+            )),
+            message: format!(
+                "บันทึกจบแต่ไม่ครบ — เสียงหาย {lost_chunks} ช่วง ความยาวที่บันทึกได้ {seconds} วินาที"
+            ),
+        };
+    }
+    let mut message = format!("บันทึกเสร็จ ความยาว {seconds} วินาที");
+    if stream_faults > 0 {
+        message.push_str(&format!(" (พบสตรีมเสียงผิดพลาด {stream_faults} ครั้ง)"));
+    }
+    if still_pending > 0 {
+        message.push_str(&format!(" — ยังถอดความไม่ได้ {still_pending} ช่วง"));
+    }
+    CaptureOutcome {
+        failure_reason: None,
+        message,
+    }
+}
+
+/// Turns a capture fault into durable, user-visible state: an audit row that
+/// survives restart and a status event the panel renders. Both matter — a
+/// toast the user missed is not a record that audio was lost.
+#[allow(clippy::too_many_arguments)]
+fn record_capture_fault(
+    app: &tauri::AppHandle,
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+    recording_id: &str,
+    event_type: &str,
+    channel: &'static str,
+    error: &str,
+    message: String,
+) {
+    let timestamp = now();
+    let _ = genesis_adapter::commit_rows(
+        storage,
+        vec![genesis_adapter::upsert(
+            "audit_events",
+            serde_json::json!({
+                "id": Uuid::new_v4().to_string(),
+                "project_id": project_id,
+                "event_type": event_type,
+                "actor": "system",
+                "payload_json": {
+                    "recordingId": recording_id,
+                    "channel": channel,
+                    "error": error,
+                },
+                "created_at": timestamp,
+            }),
+        )],
+    );
+    emit_status(app, recording_id, "degraded", Some(message), None, None);
+}
+
+#[allow(clippy::too_many_arguments)]
 fn spawn_coordinator(
     app: tauri::AppHandle,
     storage: Arc<genesis_block_native::Storage>,
     runtime: WhisperRuntime,
     language: Option<String>,
-    chunk_rx: mpsc::Receiver<RawChunk>,
+    chunk_rx: mpsc::Receiver<CaptureEvent>,
     recent: SharedRecent,
     project_id: String,
     recording_id: String,
     job_id: String,
+    session_dir: PathBuf,
+    stop: Arc<AtomicBool>,
 ) {
     thread::spawn(move || {
         let mut capture_record = match genesis_adapter::capture(&storage, &recording_id) {
@@ -665,7 +850,16 @@ fn spawn_coordinator(
             }
         };
 
-        let mut chunk_paths_without_transcript: Vec<String> = Vec::new();
+        // Chunks whose audio is safely on disk but which the live worker never
+        // transcribed. The session-end catch-up pass below is what makes the
+        // degraded-mode promise ("will be transcribed after it ends") true.
+        let mut pending_transcription: Vec<RawChunk> = Vec::new();
+        // Faults are counted, not just displayed: the totals decide whether
+        // this capture may be reported as a clean recording.
+        let mut lost_chunks: usize = 0;
+        let mut stream_faults: usize = 0;
+        let mut chunks_since_disk_check: usize = 0;
+        let mut low_disk_warned = false;
         // `append_capture_chunk` stamps the recording's duration with the
         // chunk it just wrote. That is exact for mobile's single channel, but
         // here mic and system keep independent timelines and interleave, so
@@ -676,7 +870,38 @@ fn spawn_coordinator(
 
         // Ledger first, transcription second, for every chunk until all
         // channel threads hang up.
-        while let Ok(chunk) = chunk_rx.recv() {
+        while let Ok(event) = chunk_rx.recv() {
+            let chunk = match event {
+                CaptureEvent::Chunk(chunk) => chunk,
+                CaptureEvent::ChunkWriteFailed { channel, error } => {
+                    lost_chunks += 1;
+                    record_capture_fault(
+                        &app,
+                        &storage,
+                        &project_id,
+                        &recording_id,
+                        "live_meeting.chunk_write_failed",
+                        channel,
+                        &error,
+                        format!("เขียนไฟล์เสียงช่อง {channel} ไม่สำเร็จ ({error}) — เสียงช่วงนี้สูญหาย {lost_chunks} ช่วงแล้ว"),
+                    );
+                    continue;
+                }
+                CaptureEvent::StreamFailed { channel, error } => {
+                    stream_faults += 1;
+                    record_capture_fault(
+                        &app,
+                        &storage,
+                        &project_id,
+                        &recording_id,
+                        "live_meeting.stream_failed",
+                        channel,
+                        &error,
+                        format!("สตรีมเสียงช่อง {channel} ผิดพลาด ({error}) — ตรวจสอบอุปกรณ์เสียง"),
+                    );
+                    continue;
+                }
+            };
             let timestamp = now();
             max_end_ms = max_end_ms.max(chunk.end_ms);
             match genesis_adapter::append_capture_chunk(
@@ -707,8 +932,46 @@ fn spawn_coordinator(
                 }
             }
 
+            chunks_since_disk_check += 1;
+            if chunks_since_disk_check >= DISK_CHECK_EVERY_CHUNKS {
+                chunks_since_disk_check = 0;
+                if let Some(free) = free_disk_bytes(&session_dir) {
+                    if free < MIN_FREE_BYTES_TO_CONTINUE {
+                        record_capture_fault(
+                            &app,
+                            &storage,
+                            &project_id,
+                            &recording_id,
+                            "live_meeting.disk_exhausted",
+                            "session",
+                            &format!("{free} bytes free"),
+                            format!(
+                                "พื้นที่ดิสก์เหลือ {} — หยุดบันทึกเพื่อรักษาเสียงที่บันทึกไว้แล้ว",
+                                human_gib(free)
+                            ),
+                        );
+                        // Closes the capture threads; every chunk already cut
+                        // stays on disk and in the ledger.
+                        stop.store(true, Ordering::SeqCst);
+                    } else if free < LOW_DISK_WARN_BYTES && !low_disk_warned {
+                        low_disk_warned = true;
+                        emit_status(
+                            &app,
+                            &recording_id,
+                            "degraded",
+                            Some(format!(
+                                "พื้นที่ดิสก์เหลือน้อย {} — บันทึกต่อได้อีกไม่นาน",
+                                human_gib(free)
+                            )),
+                            None,
+                            None,
+                        );
+                    }
+                }
+            }
+
             let Some(active_worker) = worker.as_mut() else {
-                chunk_paths_without_transcript.push(chunk.file_path.clone());
+                pending_transcription.push(chunk);
                 continue;
             };
             match active_worker.transcribe_chunk(&chunk) {
@@ -739,7 +1002,7 @@ fn spawn_coordinator(
                     if let Some(dead) = worker.take() {
                         dead.shutdown();
                     }
-                    chunk_paths_without_transcript.push(chunk.file_path.clone());
+                    pending_transcription.push(chunk);
                 }
             }
         }
@@ -753,15 +1016,45 @@ fn spawn_coordinator(
         if let Err(error) = genesis_adapter::finish_capture(&storage, &capture_record, &finished_at) {
             emit_status(&app, &recording_id, "error", Some(error), None, None);
         }
-        let _ = crate::set_job_status(&storage, &job_id, "completed", Some(100), None);
-        emit_status(
-            &app,
-            &recording_id,
-            "stopped",
-            Some(format!("บันทึกเสร็จ ความยาว {} วินาที", capture_record.duration_ms / 1000)),
-            None,
-            None,
+
+        // Catch-up transcription. The degraded-mode message tells the user the
+        // audio "will be transcribed after it ends"; until this existed, the
+        // chunks were collected into a vector and dropped, so the app stated
+        // something it never did. Runs before the summary so recovered text is
+        // part of it, not missing from it.
+        let still_pending = if pending_transcription.is_empty() {
+            0
+        } else {
+            transcribe_pending_chunks(
+                &app,
+                &storage,
+                &recent,
+                &runtime,
+                language.as_deref(),
+                &project_id,
+                &recording_id,
+                &pending_transcription,
+            )
+        };
+
+        // A capture that lost source audio is not a completed capture. The job
+        // row is the durable record, so it must say so even if nobody was
+        // watching the status events.
+        let outcome = capture_outcome(
+            capture_record.duration_ms,
+            lost_chunks,
+            stream_faults,
+            still_pending,
         );
+        match &outcome.failure_reason {
+            Some(reason) => {
+                let _ = crate::set_job_status(&storage, &job_id, "failed", None, Some(reason));
+            }
+            None => {
+                let _ = crate::set_job_status(&storage, &job_id, "completed", Some(100), None);
+            }
+        }
+        emit_status(&app, &recording_id, "stopped", Some(outcome.message), None, None);
 
         // Post-meeting pipeline: summary → export. Runs on this same thread —
         // the session is over, so there is nothing left to block.
@@ -773,8 +1066,86 @@ fn spawn_coordinator(
             let mut live = state.live.lock().expect("live session mutex poisoned");
             *live = None;
         }
-        let _ = chunk_paths_without_transcript; // recorded for a future recover pass
     });
+}
+
+/// Transcribes chunks the live worker missed, after the session has ended.
+/// Returns how many are *still* untranscribed, so the caller can report the
+/// shortfall rather than implying the transcript is complete.
+///
+/// Failure here is not fatal: the audio is already durable, and a recording
+/// with a partial transcript is a truthful state as long as it is stated.
+#[allow(clippy::too_many_arguments)]
+fn transcribe_pending_chunks(
+    app: &tauri::AppHandle,
+    storage: &genesis_block_native::Storage,
+    recent: &SharedRecent,
+    runtime: &WhisperRuntime,
+    language: Option<&str>,
+    project_id: &str,
+    recording_id: &str,
+    pending: &[RawChunk],
+) -> usize {
+    let total = pending.len();
+    emit_status(
+        app,
+        recording_id,
+        "transcribing",
+        Some(format!("กำลังถอดความย้อนหลัง {total} ช่วงที่ค้างไว้")),
+        None,
+        None,
+    );
+
+    let worker = LiveWorker::spawn(runtime, language).and_then(|mut worker| {
+        worker.wait_ready()?;
+        Ok(worker)
+    });
+    let mut worker = match worker {
+        Ok(worker) => worker,
+        Err(error) => {
+            record_capture_fault(
+                app,
+                storage,
+                project_id,
+                recording_id,
+                "live_meeting.transcript_pending",
+                "session",
+                &error,
+                format!(
+                    "ถอดความย้อนหลังไม่ได้ ({error}) — เสียง {total} ช่วงยังอยู่ครบในเครื่อง แต่ยังไม่มีข้อความ"
+                ),
+            );
+            return total;
+        }
+    };
+
+    let mut recovered = 0usize;
+    for chunk in pending {
+        match worker.transcribe_chunk(chunk) {
+            Ok(response) if response.error.is_none() => {
+                persist_and_emit_segments(app, storage, recent, project_id, recording_id, chunk, response);
+                recovered += 1;
+            }
+            // A chunk the worker rejects stays counted as pending; the audio
+            // is still on disk and in the ledger.
+            Ok(_) => {}
+            Err(error) => {
+                record_capture_fault(
+                    app,
+                    storage,
+                    project_id,
+                    recording_id,
+                    "live_meeting.transcript_pending",
+                    chunk.channel,
+                    &error,
+                    format!("ตัวถอดความหยุดทำงานระหว่างถอดย้อนหลัง ({error})"),
+                );
+                break;
+            }
+        }
+    }
+    worker.shutdown();
+    total - recovered
 }
 
 fn persist_and_emit_segments(
@@ -968,6 +1339,18 @@ pub(crate) fn live_meeting_start(
     let chunks_dir = session_dir.join("chunks");
     std::fs::create_dir_all(&chunks_dir)?;
 
+    // Refuse rather than start a session the volume cannot hold. An unknown
+    // answer is not a refusal — see `free_disk_bytes`.
+    if let Some(free) = free_disk_bytes(&chunks_dir) {
+        if free < MIN_FREE_BYTES_TO_START {
+            return Err(AppError::InvalidInput(format!(
+                "พื้นที่ดิสก์เหลือ {} ซึ่งน้อยกว่าขั้นต่ำ {} สำหรับเริ่มบันทึก — ปล่อยพื้นที่ก่อนเริ่มประชุม",
+                human_gib(free),
+                human_gib(MIN_FREE_BYTES_TO_START)
+            )));
+        }
+    }
+
     // Channel provenance speakers (editable labels, not identities).
     let timestamp = now();
     genesis_adapter::commit_rows(&state.genesis, vec![
@@ -993,7 +1376,7 @@ pub(crate) fn live_meeting_start(
 
     let stop = Arc::new(AtomicBool::new(false));
     let recent: SharedRecent = Arc::new(Mutex::new(std::collections::VecDeque::new()));
-    let (chunk_tx, chunk_rx) = mpsc::channel::<RawChunk>();
+    let (chunk_tx, chunk_rx) = mpsc::channel::<CaptureEvent>();
 
     // Microphone is mandatory: without it there is no session.
     let mic_ready = spawn_capture_thread(
@@ -1046,6 +1429,8 @@ pub(crate) fn live_meeting_start(
         project_id.clone(),
         recording_id.clone(),
         job_id.clone(),
+        session_dir.clone(),
+        stop.clone(),
     );
 
     meeting_intel::spawn_topic_tracker(
@@ -1142,6 +1527,81 @@ mod tests {
     /// `genesis_adapter::start_capture` renamed the recorded project to
     /// "FUNG Mobile" (its `ensure_project_mutations` hardcodes that name), so
     /// the meeting export header reported the wrong meeting.
+    #[test]
+    fn a_capture_that_lost_audio_is_never_reported_as_completed() {
+        // The job row is the durable record. If it says "completed" after
+        // chunks failed to write, nothing downstream can tell the recording is
+        // short — and the user is told the session finished normally.
+        let lossy = capture_outcome(120_000, 3, 1, 0);
+        assert!(
+            lossy.failure_reason.is_some(),
+            "a capture that lost chunks must fail its job"
+        );
+        assert!(lossy.failure_reason.unwrap().contains("3 audio chunk(s)"));
+        assert!(lossy.message.contains("เสียงหาย 3 ช่วง"));
+
+        let clean = capture_outcome(120_000, 0, 0, 0);
+        assert_eq!(clean.failure_reason, None);
+        assert_eq!(clean.message, "บันทึกเสร็จ ความยาว 120 วินาที");
+    }
+
+    #[test]
+    fn a_stream_fault_is_surfaced_without_failing_an_otherwise_intact_capture() {
+        // A device glitch that cost no chunks is worth saying, but the audio
+        // is complete, so the job did complete.
+        let outcome = capture_outcome(60_000, 0, 2, 0);
+        assert_eq!(outcome.failure_reason, None);
+        assert!(outcome.message.contains("สตรีมเสียงผิดพลาด 2 ครั้ง"));
+    }
+
+    #[test]
+    fn an_incomplete_transcript_is_stated_rather_than_implied_complete() {
+        // Regression for the degraded-mode promise: chunks the catch-up pass
+        // could not transcribe must be counted in what the user is told.
+        let outcome = capture_outcome(60_000, 0, 0, 4);
+        assert_eq!(outcome.failure_reason, None);
+        assert!(outcome.message.contains("ยังถอดความไม่ได้ 4 ช่วง"));
+
+        let full = capture_outcome(60_000, 0, 0, 0);
+        assert!(!full.message.contains("ยังถอดความไม่ได้"));
+    }
+
+    #[test]
+    fn disk_thresholds_leave_room_to_close_the_session_cleanly() {
+        // Ordering is the whole guarantee: the stop threshold must sit above
+        // zero and below the warning, and starting must demand more headroom
+        // than continuing.
+        assert!(MIN_FREE_BYTES_TO_CONTINUE > 0);
+        assert!(LOW_DISK_WARN_BYTES > MIN_FREE_BYTES_TO_CONTINUE);
+        assert!(MIN_FREE_BYTES_TO_START > LOW_DISK_WARN_BYTES);
+        // Roughly 690 MB/hour of dual-channel WAV: the start floor must cover
+        // more than an hour so a normal meeting is not refused.
+        assert!(MIN_FREE_BYTES_TO_START > 690 * 1024 * 1024);
+    }
+
+    #[test]
+    fn free_space_is_readable_for_a_path_that_does_not_exist_yet() {
+        // The pre-start guard runs against a session directory that may not
+        // exist, so the probe has to walk up to a real ancestor rather than
+        // report "unknown" and silently disable the guard.
+        let temp = tempfile::tempdir().expect("temp dir");
+        let unborn = temp.path().join("projects").join("p1").join("live").join("r1");
+        assert!(!unborn.exists());
+
+        match free_disk_bytes(&unborn) {
+            Some(free) => assert!(free > 0, "an existing volume reports some free space"),
+            // Non-Windows builds answer "unknown" by design; callers must not
+            // treat that as a refusal.
+            None => assert!(!cfg!(windows), "windows must be able to answer"),
+        }
+    }
+
+    #[test]
+    fn human_gib_is_readable_at_the_sizes_the_guard_reports() {
+        assert_eq!(human_gib(2 * 1024 * 1024 * 1024), "2.0 GB");
+        assert_eq!(human_gib(256 * 1024 * 1024), "0.2 GB");
+    }
+
     #[test]
     fn starting_a_desktop_capture_preserves_the_project_name() {
         let (path, storage) = open_storage();

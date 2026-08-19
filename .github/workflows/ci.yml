@@ -23,15 +23,20 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # First, so an unwired suite fails before the wired ones spend
+      # four minutes reporting on a set that is missing one.
+      - run: npm run test:ci-coverage
       - run: npm run test:mobile
       - run: npm run test:design-system
       - run: npm run test:auth
-      # Every suite runs. Six of these existed but were never wired in, so the
-      # assertions added with the capture, custody and recovery work had never
-      # executed on a runner — a suite that only passes locally is not a gate.
+      # Every suite runs, and `test:ci-coverage` is what makes that a fact
+      # rather than a claim. This comment previously asserted it after six
+      # unwired suites were found, and was wrong when written: test:release
+      # already existed and was missed by the same sweep.
       - run: npm run test:backup-flow
       - run: npm run test:device-reconcile
       - run: npm run test:desktop-bootstrap
+      - run: npm run test:release
       - run: npm run test:external-tools
       - run: npm run test:traceability
       - run: npm run test:recovery

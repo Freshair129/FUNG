@@ -68,6 +68,11 @@ const DevicePairingPanel = lazy(() =>
 const BackupPanel = lazy(() =>
   import("./components/BackupPanel").then((module) => ({ default: module.BackupPanel })),
 );
+// Rendered at launch: an interrupted recording that nobody is told about is
+// indistinguishable from lost audio.
+const RecoveryNotice = lazy(() =>
+  import("./components/RecoveryNotice").then((module) => ({ default: module.RecoveryNotice })),
+);
 
 function formatMs(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
@@ -1079,6 +1084,9 @@ export function App() {
       {accountPanelOpen && <ExternalAccountPanel onClose={() => setAccountPanelOpen(false)} onOpenPortal={openExternalAccountPortal} />}
       {zoomPanelOpen && <ZoomPanel onClose={() => setZoomPanelOpen(false)} />}
       {ttsPanelOpen && <TtsProviderPanel onClose={() => setTtsPanelOpen(false)} />}
+      <Suspense fallback={null}>
+        <RecoveryNotice invoke={nativeInvoke} />
+      </Suspense>
       {cloudProvidersPanelOpen && <CloudProvidersPanel onClose={() => setCloudProvidersPanelOpen(false)} />}
       {liveMeetingOpen && (
         <LiveMeetingPanel onClose={() => setLiveMeetingOpen(false)} projectId={selectedProjectId ?? null} />

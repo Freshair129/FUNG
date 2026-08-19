@@ -37,6 +37,7 @@ mod mobile;
 mod native_recorder;
 mod on_device_ai;
 mod policy;
+mod recovery;
 mod speaker_merge;
 mod tts_config;
 mod tts_executor;
@@ -1343,6 +1344,22 @@ pub(crate) fn set_job_status(
     Ok(())
 }
 
+/// Re-runs the interrupted-recording scan. Cheap by construction — directory
+/// listings and row comparisons, no hashing — so the UI can call it freely.
+#[tauri::command]
+fn recovery_scan(state: State<'_, AppState>) -> AppResult<recovery::RecoveryReport> {
+    recovery::scan(&state.genesis).map_err(AppError::Genesis)
+}
+
+/// Adopts a recording's orphaned audio into the ledger and closes it out.
+#[tauri::command]
+fn recovery_recover(
+    recording_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<recovery::RecoveryOutcome> {
+    recovery::recover_recording(&state.genesis, &recording_id).map_err(AppError::Genesis)
+}
+
 /// A project's own storage root, which is where its audio belongs.
 fn project_storage_path(
     storage: &genesis_block_native::Storage,
@@ -2043,6 +2060,24 @@ pub fn run() {
         .plugin(on_device_ai::init())
         .setup(|app| {
             let state = app_state(app)?;
+            // Recovery runs before the window is usable so a crashed session
+            // is never presented as a healthy one. Detection only: stale jobs
+            // are terminalized and interrupted recordings are recorded, while
+            // adopting orphaned audio stays an explicit user action.
+            match recovery::scan(&state.genesis) {
+                Ok(report) => {
+                    if report.needs_attention() || report.stale_jobs_failed > 0 {
+                        eprintln!(
+                            "[recovery] {} interrupted recording(s), {} stale job(s) closed",
+                            report.interrupted.len(),
+                            report.stale_jobs_failed
+                        );
+                    }
+                }
+                // A failed scan must not stop the app from opening — the user
+                // still needs access to their existing projects.
+                Err(error) => eprintln!("[recovery] startup scan failed: {error}"),
+            }
             app.manage(state);
             app.manage(filesystem_backup::FilesystemBackupState::default());
             app.manage(backup::BackupJobState::default());
@@ -2058,6 +2093,8 @@ pub fn run() {
             list_transcript_segments,
             import_and_transcribe,
             audio_integrity_check,
+            recovery_scan,
+            recovery_recover,
             start_local_api,
             auth_loopback_listen,
             open_external_account_portal,

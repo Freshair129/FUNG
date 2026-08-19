@@ -1,0 +1,86 @@
+/* Recovery notice — self-contained so it renders correctly in the desktop
+   shell without depending on another component's stylesheet. */
+
+.recovery-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--destructive-signal, #b34b4b);
+  border-radius: 8px;
+  background: var(--porcelain-top, #fffaf0);
+  color: var(--ink, #191a1d);
+}
+
+.recovery-notice-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recovery-notice-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.recovery-notice-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--graphite, #5f6268);
+}
+
+.recovery-notice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recovery-notice-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.recovery-notice-detail {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--graphite, #5f6268);
+  overflow-wrap: anywhere;
+}
+
+.recovery-notice-btn {
+  height: 30px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--evidence-indigo, #3d4f82);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.recovery-notice-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recovery-notice-btn:focus-visible {
+  outline: 2px solid var(--evidence-indigo, #3d4f82);
+  outline-offset: 2px;
+}
+
+.recovery-notice-result {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--local-sage, #4f6c60);
+}

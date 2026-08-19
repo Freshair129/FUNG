@@ -1255,8 +1255,12 @@ fn recover_stale_capture(
     project_id: &str,
 ) -> Result<(), String> {
     if let Some(stale) = genesis_adapter::active_capture(storage, project_id)? {
-        let timestamp = now();
-        genesis_adapter::finish_capture(storage, &stale, &timestamp)?;
+        // Previously this just called `finish_capture`, which marked an
+        // interrupted session `completed` and discarded any audio written
+        // after the last committed chunk. Recover it properly instead: the
+        // orphaned chunks are adopted with digests, and the interruption is
+        // recorded rather than erased.
+        crate::recovery::recover_recording(storage, &stale.recording_id)?;
     }
     let jobs = genesis_adapter::query(
         storage,

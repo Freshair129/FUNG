@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test:ci-coverage": "node --test tests/ciCoverage.test.mjs",
     "test:mobile": "node --test --experimental-strip-types tests/captureOrchestration.test.mjs",
     "design-system:render": "node scripts/render_mobile_design_system.mjs render",
     "design-system:check": "node scripts/render_mobile_design_system.mjs check",

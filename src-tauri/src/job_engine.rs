@@ -899,14 +899,13 @@ fn dispatch(
         }
         JobKind::TranscriptRetry => {
             let runtime = app.state::<crate::AppState>().whisper_runtime_clone();
-            // Language is not persisted per recording, so the pass runs with
-            // whisper's own detection. Documented rather than guessed at:
-            // passing the wrong language would produce confident nonsense.
+            // The pass reads the recording's own language from the ledger, so
+            // a queued re-run transcribes with the setting the session was
+            // captured under rather than re-detecting per chunk.
             let outcome = crate::live_meeting::fill_transcript_gaps(
                 app,
                 storage,
                 &runtime,
-                None,
                 &job.project_id,
                 recording_id,
             );

@@ -1706,7 +1706,6 @@ async fn recovery_recover(
             &app,
             &storage,
             &runtime,
-            None,
             &project_id,
             &recording_id,
         );
@@ -2327,6 +2326,7 @@ pub fn __debug_live_smoke(
         recording_id,
         &chunks_dir.display().to_string(),
         &timestamp,
+        language.as_deref(),
     )?;
 
     // Progress must survive a killed process: append every stage to a file.

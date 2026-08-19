@@ -11,7 +11,12 @@ fn main() {
                 .next()
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("genesisdb"));
-            match Storage::open(OpenOptions { path: db_path.display().to_string(), page_cache_mb: Some(16), read_only: Some(false), vector_dim: Some(384) }) {
+            match Storage::open(OpenOptions {
+                path: db_path.display().to_string(),
+                page_cache_mb: Some(16),
+                read_only: Some(false),
+                vector_dim: Some(384),
+            }) {
                 Ok(storage) => {
                     println!(
                         "{{\"app\":\"FUNG\",\"databasePath\":\"{}\",\"storageAuthority\":\"GenesisBlockDB signed WAL\",\"stableFrontier\":{}}}",

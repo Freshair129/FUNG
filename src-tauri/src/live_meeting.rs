@@ -78,6 +78,9 @@ pub(crate) struct LiveSessionControl {
     pub(crate) stop: Arc<AtomicBool>,
     pub(crate) project_id: String,
     pub(crate) recording_id: String,
+    /// Carried so the session can be tied back to its job row by anything
+    /// inspecting live state; the coordinator owns the job it writes to.
+    #[allow(dead_code)]
     pub(crate) job_id: String,
     pub(crate) recent: SharedRecent,
     pub(crate) started_at: Instant,
@@ -264,15 +267,19 @@ fn human_gib(bytes: u64) -> String {
     format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
 }
 
-fn write_chunk_wav(path: &Path, sample_rate: u32, samples: &[i16]) -> Result<(i64, String), String> {
+fn write_chunk_wav(
+    path: &Path,
+    sample_rate: u32,
+    samples: &[i16],
+) -> Result<(i64, String), String> {
     let spec = hound::WavSpec {
         channels: 1,
         sample_rate,
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
-    let mut writer =
-        hound::WavWriter::create(path, spec).map_err(|error| format!("wav create failed: {error}"))?;
+    let mut writer = hound::WavWriter::create(path, spec)
+        .map_err(|error| format!("wav create failed: {error}"))?;
     for sample in samples {
         writer
             .write_sample(*sample)
@@ -342,10 +349,14 @@ pub(crate) fn spawn_capture_thread(
                 // Fall back to enumeration on the matching side; some drivers
                 // report no default but still advertise usable ranges.
                 let enumerated = match kind {
-                    ChannelKind::Mic => device.supported_input_configs().ok().and_then(|mut c| c.next()),
-                    ChannelKind::SystemLoopback => {
-                        device.supported_output_configs().ok().and_then(|mut c| c.next())
-                    }
+                    ChannelKind::Mic => device
+                        .supported_input_configs()
+                        .ok()
+                        .and_then(|mut c| c.next()),
+                    ChannelKind::SystemLoopback => device
+                        .supported_output_configs()
+                        .ok()
+                        .and_then(|mut c| c.next()),
                 };
                 match enumerated.map(|range| range.with_max_sample_rate()) {
                     Some(config) => config,
@@ -367,16 +378,31 @@ pub(crate) fn spawn_capture_thread(
         let (sample_tx, sample_rx) = mpsc::channel::<Vec<i16>>();
         let stream = match sample_format {
             cpal::SampleFormat::F32 => build_stream::<f32>(
-                &device, &stream_config, channels, sample_tx, sample_f32_to_i16,
-                channel, chunk_tx.clone(),
+                &device,
+                &stream_config,
+                channels,
+                sample_tx,
+                sample_f32_to_i16,
+                channel,
+                chunk_tx.clone(),
             ),
             cpal::SampleFormat::I16 => build_stream::<i16>(
-                &device, &stream_config, channels, sample_tx, sample_i16_to_i16,
-                channel, chunk_tx.clone(),
+                &device,
+                &stream_config,
+                channels,
+                sample_tx,
+                sample_i16_to_i16,
+                channel,
+                chunk_tx.clone(),
             ),
             cpal::SampleFormat::U16 => build_stream::<u16>(
-                &device, &stream_config, channels, sample_tx, sample_u16_to_i16,
-                channel, chunk_tx.clone(),
+                &device,
+                &stream_config,
+                channels,
+                sample_tx,
+                sample_u16_to_i16,
+                channel,
+                chunk_tx.clone(),
             ),
             other => Err(format!("รูปแบบตัวอย่างเสียง {other:?} ยังไม่รองรับ")),
         };
@@ -399,7 +425,10 @@ pub(crate) fn spawn_capture_thread(
         let mut written_samples: u64 = 0;
         let mut local_seq: u32 = 0;
 
-        let cut_chunk = |accumulator: &mut Vec<i16>, written_samples: &mut u64, local_seq: &mut u32, take: usize| {
+        let cut_chunk = |accumulator: &mut Vec<i16>,
+                         written_samples: &mut u64,
+                         local_seq: &mut u32,
+                         take: usize| {
             let samples: Vec<i16> = accumulator.drain(..take).collect();
             let start_ms = (*written_samples * 1000 / sample_rate as u64) as i64;
             *written_samples += samples.len() as u64;
@@ -434,7 +463,12 @@ pub(crate) fn spawn_capture_thread(
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
             while accumulator.len() >= samples_per_chunk {
-                cut_chunk(&mut accumulator, &mut written_samples, &mut local_seq, samples_per_chunk);
+                cut_chunk(
+                    &mut accumulator,
+                    &mut written_samples,
+                    &mut local_seq,
+                    samples_per_chunk,
+                );
             }
             if stop.load(Ordering::SeqCst) {
                 break;
@@ -447,7 +481,12 @@ pub(crate) fn spawn_capture_thread(
             accumulator.extend_from_slice(&batch);
         }
         while accumulator.len() >= samples_per_chunk {
-            cut_chunk(&mut accumulator, &mut written_samples, &mut local_seq, samples_per_chunk);
+            cut_chunk(
+                &mut accumulator,
+                &mut written_samples,
+                &mut local_seq,
+                samples_per_chunk,
+            );
         }
         if accumulator.len() >= min_final_samples {
             let take = accumulator.len();
@@ -479,7 +518,11 @@ pub(crate) struct WorkerSegment {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerResponse {
+    // Present in the worker's JSON and deserialized for shape fidelity: the
+    // coordinator correlates by request order, so it reads neither field.
+    #[allow(dead_code)]
     id: Option<String>,
+    #[allow(dead_code)]
     channel: Option<String>,
     #[serde(default)]
     pub(crate) start_ms: i64,
@@ -528,7 +571,10 @@ impl LiveWorker {
             ));
         }
         if !script.exists() {
-            return Err(format!("live worker script is missing at {}", script.display()));
+            return Err(format!(
+                "live worker script is missing at {}",
+                script.display()
+            ));
         }
 
         let mut command = Command::new(&runtime.python);
@@ -557,8 +603,14 @@ impl LiveWorker {
             .map_err(|error| format!("failed to launch live worker: {error}"))?;
 
         let stdin = child.stdin.take().ok_or("live worker stdin unavailable")?;
-        let stdout = child.stdout.take().ok_or("live worker stdout unavailable")?;
-        let stderr = child.stderr.take().ok_or("live worker stderr unavailable")?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or("live worker stdout unavailable")?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or("live worker stderr unavailable")?;
 
         // Drain stderr so the child never blocks on a full pipe; keep a
         // bounded tail for diagnostics.
@@ -616,7 +668,8 @@ impl LiveWorker {
             "channel": chunk.channel,
             "startMs": chunk.start_ms,
         });
-        writeln!(self.stdin, "{request}").map_err(|error| format!("worker stdin closed: {error}"))?;
+        writeln!(self.stdin, "{request}")
+            .map_err(|error| format!("worker stdin closed: {error}"))?;
         let deadline = Instant::now() + WORKER_CHUNK_TIMEOUT;
         loop {
             let remaining = deadline
@@ -830,7 +883,9 @@ fn spawn_coordinator(
                         &app,
                         &recording_id,
                         "degraded",
-                        Some(format!("ถอดสดใช้ไม่ได้ ({error}) — เสียงยังถูกบันทึกครบ และจะถอดหลังจบ")),
+                        Some(format!(
+                            "ถอดสดใช้ไม่ได้ ({error}) — เสียงยังถูกบันทึกครบ และจะถอดหลังจบ"
+                        )),
                         None,
                         None,
                     );
@@ -1013,7 +1068,8 @@ fn spawn_coordinator(
 
         let finished_at = now();
         capture_record.duration_ms = capture_record.duration_ms.max(max_end_ms);
-        if let Err(error) = genesis_adapter::finish_capture(&storage, &capture_record, &finished_at) {
+        if let Err(error) = genesis_adapter::finish_capture(&storage, &capture_record, &finished_at)
+        {
             emit_status(&app, &recording_id, "error", Some(error), None, None);
         }
 
@@ -1054,7 +1110,14 @@ fn spawn_coordinator(
                 let _ = crate::set_job_status(&storage, &job_id, "completed", Some(100), None);
             }
         }
-        emit_status(&app, &recording_id, "stopped", Some(outcome.message), None, None);
+        emit_status(
+            &app,
+            &recording_id,
+            "stopped",
+            Some(outcome.message),
+            None,
+            None,
+        );
 
         // Post-meeting pipeline: summary → export. Runs on this same thread —
         // the session is over, so there is nothing left to block.
@@ -1154,7 +1217,14 @@ fn chunks_missing_transcript(
     let chunks = genesis_adapter::query(
         storage,
         "audio_chunks",
-        &["id", "file_path", "start_ms", "end_ms", "byte_size", "checksum"],
+        &[
+            "id",
+            "file_path",
+            "start_ms",
+            "end_ms",
+            "byte_size",
+            "checksum",
+        ],
         vec![genesis_adapter::eq(
             "audio_chunks",
             "recording_id",
@@ -1267,6 +1337,9 @@ pub(crate) fn fill_transcript_gaps(
     }
 }
 
+// Every argument is a distinct collaborator the pass genuinely needs; a
+// context struct here would just move the same list behind one name.
+#[allow(clippy::too_many_arguments)]
 fn transcribe_pending_chunks(
     app: &tauri::AppHandle,
     storage: &genesis_block_native::Storage,
@@ -1314,7 +1387,15 @@ fn transcribe_pending_chunks(
     for chunk in pending {
         match worker.transcribe_chunk(chunk) {
             Ok(response) if response.error.is_none() => {
-                persist_and_emit_segments(app, storage, recent, project_id, recording_id, chunk, response);
+                persist_and_emit_segments(
+                    app,
+                    storage,
+                    recent,
+                    project_id,
+                    recording_id,
+                    chunk,
+                    response,
+                );
                 recovered += 1;
             }
             // A chunk the worker rejects stays counted as pending; the audio
@@ -1348,8 +1429,16 @@ fn persist_and_emit_segments(
     chunk: &RawChunk,
     response: WorkerResponse,
 ) {
-    let speaker_key = if chunk.channel == CHANNEL_MIC { "me" } else { "them" };
-    let speaker_label = if speaker_key == "me" { "เรา" } else { "อีกฝ่าย" };
+    let speaker_key = if chunk.channel == CHANNEL_MIC {
+        "me"
+    } else {
+        "them"
+    };
+    let speaker_label = if speaker_key == "me" {
+        "เรา"
+    } else {
+        "อีกฝ่าย"
+    };
     let speaker_id = speaker_id_for(project_id, speaker_key);
 
     let mut mutations = Vec::new();
@@ -1457,15 +1546,33 @@ fn recover_stale_capture(
         storage,
         "jobs",
         &["id", "type", "status"],
-        vec![genesis_adapter::eq("jobs", "project_id", serde_json::json!(project_id))],
+        vec![genesis_adapter::eq(
+            "jobs",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
         1000,
     )?;
     for row in jobs {
-        let job_type = row.get("jobs.type").and_then(serde_json::Value::as_str).unwrap_or("");
-        let status = row.get("jobs.status").and_then(serde_json::Value::as_str).unwrap_or("");
-        if job_type == "recording.capture" && matches!(status, "queued" | "running" | "paused" | "retrying") {
+        let job_type = row
+            .get("jobs.type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let status = row
+            .get("jobs.status")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if job_type == "recording.capture"
+            && matches!(status, "queued" | "running" | "paused" | "retrying")
+        {
             if let Some(id) = row.get("jobs.id").and_then(serde_json::Value::as_str) {
-                let _ = crate::set_job_status(storage, id, "failed", None, Some("interrupted: desktop session was not shut down cleanly"));
+                let _ = crate::set_job_status(
+                    storage,
+                    id,
+                    "failed",
+                    None,
+                    Some("interrupted: desktop session was not shut down cleanly"),
+                );
             }
         }
     }
@@ -1512,7 +1619,12 @@ pub(crate) fn live_meeting_start(
             let id = Uuid::new_v4().to_string();
             let timestamp = now();
             let name = format!("Live Meeting {}", &timestamp[..16]);
-            let storage_path = state.data_root.join("projects").join(&id).display().to_string();
+            let storage_path = state
+                .data_root
+                .join("projects")
+                .join(&id)
+                .display()
+                .to_string();
             genesis_adapter::commit_rows(&state.genesis, vec![genesis_adapter::upsert(
                 "projects",
                 serde_json::json!({"id": id, "name": name, "storage_path": storage_path, "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp}),
@@ -1589,7 +1701,9 @@ pub(crate) fn live_meeting_start(
             if let Ok(record) = genesis_adapter::capture(&state.genesis, &recording_id) {
                 let _ = genesis_adapter::finish_capture(&state.genesis, &record, &now());
             }
-            return Err(AppError::InvalidInput(format!("เปิดไมโครโฟนไม่สำเร็จ: {error}")));
+            return Err(AppError::InvalidInput(format!(
+                "เปิดไมโครโฟนไม่สำเร็จ: {error}"
+            )));
         }
     };
 
@@ -1675,7 +1789,9 @@ pub(crate) fn live_meeting_stop(state: State<'_, AppState>) -> AppResult<String>
             session.stop.store(true, Ordering::SeqCst);
             Ok(session.recording_id.clone())
         }
-        None => Err(AppError::InvalidInput("ไม่มีเซสชันประชุมสดที่กำลังทำงาน".to_string())),
+        None => Err(AppError::InvalidInput(
+            "ไม่มีเซสชันประชุมสดที่กำลังทำงาน".to_string(),
+        )),
     }
 }
 
@@ -1723,7 +1839,10 @@ mod tests {
         // The channel decides which speaker recovered text is attributed to,
         // so an unrecognised name must not be guessed at.
         assert_eq!(channel_for_file_name("mic-00001.wav"), Some(CHANNEL_MIC));
-        assert_eq!(channel_for_file_name("system-00042.wav"), Some(CHANNEL_SYSTEM));
+        assert_eq!(
+            channel_for_file_name("system-00042.wav"),
+            Some(CHANNEL_SYSTEM)
+        );
         assert_eq!(channel_for_file_name("other-00001.wav"), None);
         assert_eq!(channel_for_file_name("mic.wav"), None);
         assert_eq!(channel_for_file_name("notes.txt"), None);
@@ -1767,15 +1886,19 @@ mod tests {
 
         // Transcribe only the system channel, in the same time range.
         let timestamp = now();
-        genesis_adapter::commit_rows(&storage, vec![genesis_adapter::upsert(
-            "transcript_segments",
-            serde_json::json!({
-                "id": "seg-1", "project_id": project_id, "recording_id": recording_id,
-                "speaker_id": speaker_id_for(&project_id, "them"),
-                "start_ms": 100, "end_ms": 900, "text": "จากอีกฝ่าย", "confidence": 0.9,
-                "created_at": timestamp, "updated_at": timestamp,
-            }),
-        )]).unwrap();
+        genesis_adapter::commit_rows(
+            &storage,
+            vec![genesis_adapter::upsert(
+                "transcript_segments",
+                serde_json::json!({
+                    "id": "seg-1", "project_id": project_id, "recording_id": recording_id,
+                    "speaker_id": speaker_id_for(&project_id, "them"),
+                    "start_ms": 100, "end_ms": 900, "text": "จากอีกฝ่าย", "confidence": 0.9,
+                    "created_at": timestamp, "updated_at": timestamp,
+                }),
+            )],
+        )
+        .unwrap();
 
         let missing = chunks_missing_transcript(&storage, &project_id, &recording_id).unwrap();
         assert_eq!(missing.len(), 1, "only the microphone chunk should remain");
@@ -1809,7 +1932,10 @@ mod tests {
         ]).unwrap();
 
         let missing = chunks_missing_transcript(&storage, &project_id, &recording_id).unwrap();
-        assert!(missing.is_empty(), "a fully transcribed recording has no gaps to fill");
+        assert!(
+            missing.is_empty(),
+            "a fully transcribed recording has no gaps to fill"
+        );
     }
 
     #[test]
@@ -1868,18 +1994,18 @@ mod tests {
         assert!(!full.message.contains("ยังถอดความไม่ได้"));
     }
 
-    #[test]
-    fn disk_thresholds_leave_room_to_close_the_session_cleanly() {
-        // Ordering is the whole guarantee: the stop threshold must sit above
-        // zero and below the warning, and starting must demand more headroom
-        // than continuing.
+    // Threshold ordering is the whole guarantee, and it is knowable without
+    // running anything: the stop floor must sit above zero and below the
+    // warning, starting must demand more headroom than continuing, and the
+    // start floor must cover more than an hour of dual-channel WAV (~690
+    // MB/hour) so a normal meeting is never refused. Asserting it at compile
+    // time makes an unsafe edit fail the build rather than a test run.
+    const _: () = {
         assert!(MIN_FREE_BYTES_TO_CONTINUE > 0);
         assert!(LOW_DISK_WARN_BYTES > MIN_FREE_BYTES_TO_CONTINUE);
         assert!(MIN_FREE_BYTES_TO_START > LOW_DISK_WARN_BYTES);
-        // Roughly 690 MB/hour of dual-channel WAV: the start floor must cover
-        // more than an hour so a normal meeting is not refused.
         assert!(MIN_FREE_BYTES_TO_START > 690 * 1024 * 1024);
-    }
+    };
 
     #[test]
     fn free_space_is_readable_for_a_path_that_does_not_exist_yet() {
@@ -1887,14 +2013,22 @@ mod tests {
         // exist, so the probe has to walk up to a real ancestor rather than
         // report "unknown" and silently disable the guard.
         let temp = tempfile::tempdir().expect("temp dir");
-        let unborn = temp.path().join("projects").join("p1").join("live").join("r1");
+        let unborn = temp
+            .path()
+            .join("projects")
+            .join("p1")
+            .join("live")
+            .join("r1");
         assert!(!unborn.exists());
 
         match free_disk_bytes(&unborn) {
             Some(free) => assert!(free > 0, "an existing volume reports some free space"),
             // Non-Windows builds answer "unknown" by design; callers must not
             // treat that as a refusal.
-            None => assert!(!cfg!(windows), "windows must be able to answer"),
+            #[cfg(windows)]
+            None => panic!("windows must be able to report free space"),
+            #[cfg(not(windows))]
+            None => {}
         }
     }
 
@@ -1933,7 +2067,11 @@ mod tests {
             &storage,
             "projects",
             &["id", "name"],
-            vec![genesis_adapter::eq("projects", "id", serde_json::json!("p1"))],
+            vec![genesis_adapter::eq(
+                "projects",
+                "id",
+                serde_json::json!("p1"),
+            )],
             1,
         )
         .expect("query project");

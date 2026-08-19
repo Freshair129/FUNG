@@ -18,10 +18,7 @@ pub struct DeviceIdentity {
 }
 
 fn io_error(context: &str, error: impl std::fmt::Display) -> AppError {
-    AppError::Io(io::Error::new(
-        io::ErrorKind::Other,
-        format!("{context}: {error}"),
-    ))
+    AppError::Io(io::Error::other(format!("{context}: {error}")))
 }
 
 fn fingerprint_of(signing_key: &SigningKey) -> String {
@@ -151,7 +148,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let id = ensure_identity_in_dir(dir.path()).unwrap();
         assert_eq!(id.fingerprint.len(), 64);
-        assert!(id.fingerprint.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(id
+            .fingerprint
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
     }
 
     #[test]
@@ -159,8 +159,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let id = ensure_identity_in_dir(dir.path()).unwrap();
         let pub_b64 = public_key_b64_in_dir(dir.path()).unwrap();
-        let raw = base64::engine::general_purpose::STANDARD.decode(&pub_b64).unwrap();
-        let digest: String = sha2::Sha256::digest(&raw).iter().map(|b| format!("{b:02x}")).collect();
+        let raw = base64::engine::general_purpose::STANDARD
+            .decode(&pub_b64)
+            .unwrap();
+        let digest: String = sha2::Sha256::digest(&raw)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         assert_eq!(digest, id.fingerprint);
         assert_eq!(raw.len(), 32);
     }
@@ -175,8 +180,10 @@ mod tests {
         ensure_identity_in_dir(b.path()).unwrap();
         let a_sec = x25519_static_secret_in_dir(a.path()).unwrap();
         let b_sec = x25519_static_secret_in_dir(b.path()).unwrap();
-        let a_pub = x25519_public_from_ed25519_b64(&public_key_b64_in_dir(a.path()).unwrap()).unwrap();
-        let b_pub = x25519_public_from_ed25519_b64(&public_key_b64_in_dir(b.path()).unwrap()).unwrap();
+        let a_pub =
+            x25519_public_from_ed25519_b64(&public_key_b64_in_dir(a.path()).unwrap()).unwrap();
+        let b_pub =
+            x25519_public_from_ed25519_b64(&public_key_b64_in_dir(b.path()).unwrap()).unwrap();
         let ab = x25519_dalek::x25519(a_sec, b_pub);
         let ba = x25519_dalek::x25519(b_sec, a_pub);
         assert_eq!(ab, ba);

@@ -27,7 +27,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Read};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// Path segments that mark where a project's own audio tree begins. A chunk
@@ -285,7 +285,7 @@ pub(crate) fn classify_chunk(
     let Some(found) = resolve_chunk_path(project_storage, recorded_path) else {
         return (ChunkState::Missing, None);
     };
-    let moved = found != PathBuf::from(recorded_path);
+    let moved = found.as_path() != Path::new(recorded_path);
     let Some(expected) = expected_digest.filter(|digest| !digest.is_empty()) else {
         return (ChunkState::Unverifiable, Some(found));
     };
@@ -467,7 +467,10 @@ mod tests {
 
         // The project survives losing the original.
         fs::remove_file(&source).unwrap();
-        assert_eq!(fs::read(&custodied.stored_path).unwrap(), b"imported audio bytes");
+        assert_eq!(
+            fs::read(&custodied.stored_path).unwrap(),
+            b"imported audio bytes"
+        );
     }
 
     #[test]
@@ -519,7 +522,10 @@ mod tests {
             relocated_candidate(&project, "live/../../../etc/passwd"),
             None
         );
-        assert_eq!(relocated_candidate(&project, "/tmp/no-anchor/file.wav"), None);
+        assert_eq!(
+            relocated_candidate(&project, "/tmp/no-anchor/file.wav"),
+            None
+        );
     }
 
     #[test]
@@ -625,7 +631,8 @@ mod tests {
     fn an_import_name_cannot_choose_path_syntax() {
         let temp = TempDir::new().unwrap();
         let project = temp.path().join("p1");
-        let destination = import_destination(&project, "../../rec", Path::new("../../../evil .wav"));
+        let destination =
+            import_destination(&project, "../../rec", Path::new("../../../evil .wav"));
         assert!(destination.starts_with(&project));
         assert_eq!(
             destination,

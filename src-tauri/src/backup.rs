@@ -7,15 +7,13 @@
 //! and the current local Genesis state untouched.
 
 use crate::backup_archive::{self, ArchiveError};
-use crate::backup_payload::{
-    self, AudioInventory, AudioRestoreSummary, AudioRole, PayloadError,
-};
+use crate::backup_payload::{self, AudioInventory, AudioRestoreSummary, AudioRole, PayloadError};
 use crate::filesystem_backup::{
     self, FilesystemArchiveRecord, FilesystemBackupError, FilesystemBackupState, FilesystemRoot,
 };
-use std::collections::HashSet;
 use genesis_block_native::{BackupExportRequest, BackupRestoreRequest, Storage};
 use serde::Serialize;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -328,9 +326,8 @@ pub(crate) fn run_backup_job(
         })
         .map_err(|_| BackupJobError::ExportFailed);
     let report = export_result.and_then(|bundle| {
-        let bundle_bytes = Zeroizing::new(
-            fs::read(&bundle_path).map_err(|_| BackupJobError::StagingFailed)?,
-        );
+        let bundle_bytes =
+            Zeroizing::new(fs::read(&bundle_path).map_err(|_| BackupJobError::StagingFailed)?);
         let inventory = collect_audio_inventory(storage)?;
         let audio = AudioBackupSummary {
             stored_file_count: inventory.stored_count(),
@@ -379,8 +376,8 @@ pub(crate) fn run_restore_job(
     if parent_metadata.file_type().is_symlink() || !parent_metadata.is_dir() {
         return Err(BackupJobError::RestoreParentUnavailable);
     }
-    let restore_parent = fs::canonicalize(restore_parent)
-        .map_err(|_| BackupJobError::RestoreParentUnavailable)?;
+    let restore_parent =
+        fs::canonicalize(restore_parent).map_err(|_| BackupJobError::RestoreParentUnavailable)?;
     // Plaintext must never land beneath the encrypted-only backup root.
     if restore_parent.starts_with(root.owned_root()) || work_dir.starts_with(root.owned_root()) {
         return Err(BackupJobError::RestoreParentUnavailable);
@@ -392,12 +389,12 @@ pub(crate) fn run_restore_job(
 
     // Authenticate and decrypt fully before any restore-side mutation.
     let plaintext = Zeroizing::new(
-        backup_archive::decrypt_archive(&envelope, recovery_phrase).map_err(|error| {
-            match error {
+        backup_archive::decrypt_archive(&envelope, recovery_phrase).map_err(
+            |error| match error {
                 ArchiveError::InvalidRecoveryPhrase => BackupJobError::InvalidRecoveryPhrase,
                 _ => BackupJobError::AuthenticationFailed,
-            }
-        })?,
+            },
+        )?,
     );
 
     let target_root = restore_parent.join(format!("{RESTORE_TARGET_PREFIX}{archive_id}"));
@@ -477,9 +474,7 @@ fn new_archive_id() -> String {
 }
 
 #[tauri::command]
-pub(crate) fn backup_status(
-    fs_state: tauri::State<'_, FilesystemBackupState>,
-) -> BackupStatus {
+pub(crate) fn backup_status(fs_state: tauri::State<'_, FilesystemBackupState>) -> BackupStatus {
     status_for_root(fs_state.current_root())
 }
 
@@ -639,7 +634,9 @@ mod tests {
     use tempfile::TempDir;
 
     fn test_phrase() -> String {
-        bip39::Mnemonic::from_entropy(&[7u8; 32]).unwrap().to_string()
+        bip39::Mnemonic::from_entropy(&[7u8; 32])
+            .unwrap()
+            .to_string()
     }
 
     /// Bytes the fixture chunk holds on disk. Real content, so the round trip
@@ -905,7 +902,11 @@ mod tests {
     #[test]
     fn audio_changed_since_capture_is_omitted_rather_than_stored_under_a_false_digest() {
         let fixture = job_fixture();
-        std::fs::write(fixture_chunk_path(&fixture.storage), b"replaced after capture").unwrap();
+        std::fs::write(
+            fixture_chunk_path(&fixture.storage),
+            b"replaced after capture",
+        )
+        .unwrap();
 
         let report = run_backup_job(
             &fixture.storage,
@@ -935,7 +936,9 @@ mod tests {
         .unwrap();
 
         // Wrong secret fails before any restore-side mutation.
-        let wrong_phrase = bip39::Mnemonic::from_entropy(&[9u8; 32]).unwrap().to_string();
+        let wrong_phrase = bip39::Mnemonic::from_entropy(&[9u8; 32])
+            .unwrap()
+            .to_string();
         assert_eq!(
             run_restore_job(
                 &fixture.root,

@@ -448,9 +448,7 @@ pub(crate) fn mobile_capture_start(
     project_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<CaptureSession> {
-    let root = state
-        .data_root
-        .to_path_buf();
+    let root = state.data_root.to_path_buf();
     if let Some(active) = crate::genesis_adapter::active_capture(&state.genesis, &project_id)
         .map_err(AppError::Genesis)?
     {
@@ -643,15 +641,62 @@ pub(crate) fn mobile_capture_playback_segment(
     sequence: i64,
     state: State<'_, AppState>,
 ) -> AppResult<PlaybackSegment> {
-    if sequence <= 0 { return Err(AppError::InvalidInput("playback sequence must be positive".to_string())); }
-    let capture = crate::genesis_adapter::capture(&state.genesis, &recording_id).map_err(AppError::Genesis)?;
-    let row = crate::genesis_adapter::query(&state.genesis, "audio_chunks", &["sequence_no", "file_path", "start_ms", "end_ms", "checksum"], vec![crate::genesis_adapter::eq("audio_chunks", "recording_id", serde_json::json!(recording_id)), crate::genesis_adapter::eq("audio_chunks", "sequence_no", serde_json::json!(sequence))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("playback segment not found".to_string()))?;
+    if sequence <= 0 {
+        return Err(AppError::InvalidInput(
+            "playback sequence must be positive".to_string(),
+        ));
+    }
+    let capture = crate::genesis_adapter::capture(&state.genesis, &recording_id)
+        .map_err(AppError::Genesis)?;
+    let row = crate::genesis_adapter::query(
+        &state.genesis,
+        "audio_chunks",
+        &["sequence_no", "file_path", "start_ms", "end_ms", "checksum"],
+        vec![
+            crate::genesis_adapter::eq(
+                "audio_chunks",
+                "recording_id",
+                serde_json::json!(recording_id),
+            ),
+            crate::genesis_adapter::eq("audio_chunks", "sequence_no", serde_json::json!(sequence)),
+        ],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("playback segment not found".to_string()))?;
     let path = std::path::PathBuf::from(text_value(&row, "audio_chunks.file_path")?);
-    let root = state.data_root.join("projects").join(&capture.project_id).join("recordings").join(&recording_id);
-    if !path.starts_with(&root) || !path.is_file() { return Err(AppError::InvalidInput("playback segment escaped the recording sandbox or is missing".to_string())); }
+    let root = state
+        .data_root
+        .join("projects")
+        .join(&capture.project_id)
+        .join("recordings")
+        .join(&recording_id);
+    if !path.starts_with(&root) || !path.is_file() {
+        return Err(AppError::InvalidInput(
+            "playback segment escaped the recording sandbox or is missing".to_string(),
+        ));
+    }
     let bytes = fs::read(&path)?;
-    if sha256(&bytes) != text_value(&row, "audio_chunks.checksum")? { return Err(AppError::InvalidInput("playback segment checksum does not match Genesis metadata".to_string())); }
-    Ok(PlaybackSegment { sequence, duration_ms: int_value(&row, "audio_chunks.end_ms")? - int_value(&row, "audio_chunks.start_ms")?, mime_type: if path.extension().and_then(|value| value.to_str()) == Some("m4a") { "audio/mp4" } else { "audio/webm" }.to_string(), bytes, has_next: sequence < capture.segment_count })
+    if sha256(&bytes) != text_value(&row, "audio_chunks.checksum")? {
+        return Err(AppError::InvalidInput(
+            "playback segment checksum does not match Genesis metadata".to_string(),
+        ));
+    }
+    Ok(PlaybackSegment {
+        sequence,
+        duration_ms: int_value(&row, "audio_chunks.end_ms")?
+            - int_value(&row, "audio_chunks.start_ms")?,
+        mime_type: if path.extension().and_then(|value| value.to_str()) == Some("m4a") {
+            "audio/mp4"
+        } else {
+            "audio/webm"
+        }
+        .to_string(),
+        bytes,
+        has_next: sequence < capture.segment_count,
+    })
 }
 
 #[tauri::command]
@@ -854,11 +899,18 @@ fn pairing_complete_inner(
         .and_then(serde_json::Value::as_str)
         .unwrap_or(&timestamp)
         .to_string();
-    crate::genesis_adapter::commit_rows(storage, vec![crate::genesis_adapter::upsert("paired_devices", serde_json::json!({
-        "id": peer_device_id, "name": name, "endpoint": endpoint, "trust_state": "paired",
-        "pairing_proof_hash": pairing_session_id, "capabilities_json": [],
-        "created_at": created_at, "updated_at": timestamp, "public_key": public_key
-    }))]).map_err(AppError::Genesis)?;
+    crate::genesis_adapter::commit_rows(
+        storage,
+        vec![crate::genesis_adapter::upsert(
+            "paired_devices",
+            serde_json::json!({
+                "id": peer_device_id, "name": name, "endpoint": endpoint, "trust_state": "paired",
+                "pairing_proof_hash": pairing_session_id, "capabilities_json": [],
+                "created_at": created_at, "updated_at": timestamp, "public_key": public_key
+            }),
+        )],
+    )
+    .map_err(AppError::Genesis)?;
     Ok(())
 }
 
@@ -963,26 +1015,59 @@ pub(crate) struct DiarizationTurnInput {
 }
 
 fn text_value(row: &serde_json::Value, key: &str) -> AppResult<String> {
-    row.get(key).and_then(serde_json::Value::as_str).map(str::to_owned)
+    row.get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
         .ok_or_else(|| AppError::Genesis(format!("missing text column {key}")))
 }
 
 fn int_value(row: &serde_json::Value, key: &str) -> AppResult<i64> {
-    row.get(key).and_then(serde_json::Value::as_i64)
+    row.get(key)
+        .and_then(serde_json::Value::as_i64)
         .ok_or_else(|| AppError::Genesis(format!("missing integer column {key}")))
 }
 
 fn bool_value(row: &serde_json::Value, key: &str) -> bool {
-    row.get(key).and_then(|value| value.as_bool().or_else(|| value.as_i64().map(|number| number != 0))).unwrap_or(false)
+    row.get(key)
+        .and_then(|value| {
+            value
+                .as_bool()
+                .or_else(|| value.as_i64().map(|number| number != 0))
+        })
+        .unwrap_or(false)
 }
 
 fn json_value(row: &serde_json::Value, key: &str) -> serde_json::Value {
-    row.get(key).and_then(serde_json::Value::as_str).and_then(|value| serde_json::from_str(value).ok()).unwrap_or(serde_json::Value::Null)
+    row.get(key)
+        .and_then(serde_json::Value::as_str)
+        .and_then(|value| serde_json::from_str(value).ok())
+        .unwrap_or(serde_json::Value::Null)
 }
 
-fn timeline_output(storage: &genesis_block_native::Storage, project_id: &str) -> AppResult<TimelineOutput> {
-    let mut recordings = crate::genesis_adapter::query(storage, "recordings", &["id", "duration_ms", "updated_at"], vec![crate::genesis_adapter::eq("recordings", "project_id", serde_json::json!(project_id))], 100).map_err(AppError::Genesis)?;
-    recordings.sort_by_key(|row| std::cmp::Reverse(row.get("recordings.updated_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()));
+fn timeline_output(
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+) -> AppResult<TimelineOutput> {
+    let mut recordings = crate::genesis_adapter::query(
+        storage,
+        "recordings",
+        &["id", "duration_ms", "updated_at"],
+        vec![crate::genesis_adapter::eq(
+            "recordings",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
+        100,
+    )
+    .map_err(AppError::Genesis)?;
+    recordings.sort_by_key(|row| {
+        std::cmp::Reverse(
+            row.get("recordings.updated_at")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        )
+    });
     let Some(recording) = recordings.first() else {
         return Ok(TimelineOutput {
             recording_id: None,
@@ -994,26 +1079,126 @@ fn timeline_output(storage: &genesis_block_native::Storage, project_id: &str) ->
     };
     let recording_id = text_value(recording, "recordings.id")?;
     let duration_ms = int_value(recording, "recordings.duration_ms")?;
-    let mut turn_rows = crate::genesis_adapter::query(storage, "speaker_turns", &["id", "project_id", "recording_id", "speaker_id", "start_ms", "end_ms", "confidence", "status", "overlap", "revision"], vec![crate::genesis_adapter::eq("speaker_turns", "recording_id", serde_json::json!(recording_id))], 1000).map_err(AppError::Genesis)?;
-    turn_rows.sort_by_key(|row| (row.get("speaker_turns.start_ms").and_then(serde_json::Value::as_i64).unwrap_or_default(), row.get("speaker_turns.end_ms").and_then(serde_json::Value::as_i64).unwrap_or_default()));
-    let turns = turn_rows.into_iter().map(|row| Ok(TimelineTurn {
-        id: text_value(&row, "speaker_turns.id")?, project_id: text_value(&row, "speaker_turns.project_id")?, recording_id: text_value(&row, "speaker_turns.recording_id")?, speaker_id: text_value(&row, "speaker_turns.speaker_id")?,
-        start_ms: int_value(&row, "speaker_turns.start_ms")?, end_ms: int_value(&row, "speaker_turns.end_ms")?, confidence: row.get("speaker_turns.confidence").and_then(serde_json::Value::as_f64), status: text_value(&row, "speaker_turns.status")?,
-        overlap: bool_value(&row, "speaker_turns.overlap"), revision: int_value(&row, "speaker_turns.revision")?
-    })).collect::<AppResult<Vec<_>>>()?;
-    let speaker_ids: std::collections::HashSet<&str> = turns.iter().map(|turn| turn.speaker_id.as_str()).collect();
-    let mut speakers = crate::genesis_adapter::query(storage, "speakers", &["id", "project_id", "key", "display_name", "confidence"], vec![crate::genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id))], 500).map_err(AppError::Genesis)?.into_iter().filter(|row| row.get("speakers.id").and_then(serde_json::Value::as_str).is_some_and(|id| speaker_ids.contains(id))).map(|row| Ok(TimelineSpeaker { id: text_value(&row, "speakers.id")?, project_id: text_value(&row, "speakers.project_id")?, key: text_value(&row, "speakers.key")?, display_name: text_value(&row, "speakers.display_name")?, confidence: row.get("speakers.confidence").and_then(serde_json::Value::as_f64) })).collect::<AppResult<Vec<_>>>()?;
+    let mut turn_rows = crate::genesis_adapter::query(
+        storage,
+        "speaker_turns",
+        &[
+            "id",
+            "project_id",
+            "recording_id",
+            "speaker_id",
+            "start_ms",
+            "end_ms",
+            "confidence",
+            "status",
+            "overlap",
+            "revision",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "speaker_turns",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+        1000,
+    )
+    .map_err(AppError::Genesis)?;
+    turn_rows.sort_by_key(|row| {
+        (
+            row.get("speaker_turns.start_ms")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or_default(),
+            row.get("speaker_turns.end_ms")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or_default(),
+        )
+    });
+    let turns = turn_rows
+        .into_iter()
+        .map(|row| {
+            Ok(TimelineTurn {
+                id: text_value(&row, "speaker_turns.id")?,
+                project_id: text_value(&row, "speaker_turns.project_id")?,
+                recording_id: text_value(&row, "speaker_turns.recording_id")?,
+                speaker_id: text_value(&row, "speaker_turns.speaker_id")?,
+                start_ms: int_value(&row, "speaker_turns.start_ms")?,
+                end_ms: int_value(&row, "speaker_turns.end_ms")?,
+                confidence: row
+                    .get("speaker_turns.confidence")
+                    .and_then(serde_json::Value::as_f64),
+                status: text_value(&row, "speaker_turns.status")?,
+                overlap: bool_value(&row, "speaker_turns.overlap"),
+                revision: int_value(&row, "speaker_turns.revision")?,
+            })
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+    let speaker_ids: std::collections::HashSet<&str> =
+        turns.iter().map(|turn| turn.speaker_id.as_str()).collect();
+    let mut speakers = crate::genesis_adapter::query(
+        storage,
+        "speakers",
+        &["id", "project_id", "key", "display_name", "confidence"],
+        vec![crate::genesis_adapter::eq(
+            "speakers",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
+        500,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .filter(|row| {
+        row.get("speakers.id")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|id| speaker_ids.contains(id))
+    })
+    .map(|row| {
+        Ok(TimelineSpeaker {
+            id: text_value(&row, "speakers.id")?,
+            project_id: text_value(&row, "speakers.project_id")?,
+            key: text_value(&row, "speakers.key")?,
+            display_name: text_value(&row, "speakers.display_name")?,
+            confidence: row
+                .get("speakers.confidence")
+                .and_then(serde_json::Value::as_f64),
+        })
+    })
+    .collect::<AppResult<Vec<_>>>()?;
     speakers.sort_by(|a, b| a.key.cmp(&b.key));
-    let mut runs = crate::genesis_adapter::query(storage, "model_runs", &["runtime_location", "task_kind", "created_at"], vec![crate::genesis_adapter::eq("model_runs", "recording_id", serde_json::json!(recording_id))], 100).map_err(AppError::Genesis)?;
-    runs.retain(|row| row.get("model_runs.task_kind").and_then(serde_json::Value::as_str) == Some("diarization"));
-    runs.sort_by_key(|row| std::cmp::Reverse(row.get("model_runs.created_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()));
-    let source = runs.first().and_then(|row| row.get("model_runs.runtime_location")).and_then(serde_json::Value::as_str);
+    let mut runs = crate::genesis_adapter::query(
+        storage,
+        "model_runs",
+        &["runtime_location", "task_kind", "created_at"],
+        vec![crate::genesis_adapter::eq(
+            "model_runs",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+        100,
+    )
+    .map_err(AppError::Genesis)?;
+    runs.retain(|row| {
+        row.get("model_runs.task_kind")
+            .and_then(serde_json::Value::as_str)
+            == Some("diarization")
+    });
+    runs.sort_by_key(|row| {
+        std::cmp::Reverse(
+            row.get("model_runs.created_at")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        )
+    });
+    let source = runs
+        .first()
+        .and_then(|row| row.get("model_runs.runtime_location"))
+        .and_then(serde_json::Value::as_str);
     Ok(TimelineOutput {
         recording_id: Some(recording_id),
         duration_ms,
         speakers,
         turns,
-        source: if source.as_deref() == Some("lan") {
+        source: if source == Some("lan") {
             "desktop"
         } else {
             "local"
@@ -1027,7 +1212,10 @@ fn timeline_revision_mutation(
     operation: &str,
     payload: serde_json::Value,
 ) -> genesis_block_native::RelationalRowMutation {
-    crate::genesis_adapter::upsert("speaker_timeline_revisions", serde_json::json!({"id": Uuid::new_v4().to_string(), "project_id": project_id, "operation": operation, "payload_json": payload, "created_at": now()}))
+    crate::genesis_adapter::upsert(
+        "speaker_timeline_revisions",
+        serde_json::json!({"id": Uuid::new_v4().to_string(), "project_id": project_id, "operation": operation, "payload_json": payload, "created_at": now()}),
+    )
 }
 
 #[tauri::command]
@@ -1044,15 +1232,47 @@ pub(crate) fn mobile_diarization_start(
     recording_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<DiarizationJobOutput> {
-    let mut devices = crate::genesis_adapter::query(&state.genesis, "paired_devices", &["id", "updated_at"], vec![crate::genesis_adapter::eq("paired_devices", "trust_state", serde_json::json!("paired"))], 100).map_err(AppError::Genesis)?;
-    devices.sort_by_key(|row| std::cmp::Reverse(row.get("paired_devices.updated_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()));
-    let executor = devices.first().and_then(|row| row.get("paired_devices.id")).and_then(serde_json::Value::as_str).map(str::to_owned);
+    let mut devices = crate::genesis_adapter::query(
+        &state.genesis,
+        "paired_devices",
+        &["id", "updated_at"],
+        vec![crate::genesis_adapter::eq(
+            "paired_devices",
+            "trust_state",
+            serde_json::json!("paired"),
+        )],
+        100,
+    )
+    .map_err(AppError::Genesis)?;
+    devices.sort_by_key(|row| {
+        std::cmp::Reverse(
+            row.get("paired_devices.updated_at")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        )
+    });
+    let executor = devices
+        .first()
+        .and_then(|row| row.get("paired_devices.id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
     let Some(executor_device_id) = executor else {
         return Err(AppError::InvalidInput(
             "a paired FUNG Desktop is required for diarization".to_string(),
         ));
     };
-    let valid = crate::genesis_adapter::query(&state.genesis, "recordings", &["id"], vec![crate::genesis_adapter::eq("recordings", "id", serde_json::json!(recording_id)), crate::genesis_adapter::eq("recordings", "project_id", serde_json::json!(project_id))], 1).map_err(AppError::Genesis)?;
+    let valid = crate::genesis_adapter::query(
+        &state.genesis,
+        "recordings",
+        &["id"],
+        vec![
+            crate::genesis_adapter::eq("recordings", "id", serde_json::json!(recording_id)),
+            crate::genesis_adapter::eq("recordings", "project_id", serde_json::json!(project_id)),
+        ],
+        1,
+    )
+    .map_err(AppError::Genesis)?;
     if valid.is_empty() {
         return Err(AppError::InvalidInput(
             "recording does not belong to this project".to_string(),
@@ -1088,15 +1308,48 @@ pub(crate) fn mobile_processing_job_start(
             "unsupported processing operation or input reference".to_string(),
         ));
     }
-    let mut devices = crate::genesis_adapter::query(&state.genesis, "paired_devices", &["id", "updated_at"], vec![crate::genesis_adapter::eq("paired_devices", "trust_state", serde_json::json!("paired"))], 100).map_err(AppError::Genesis)?;
-    devices.sort_by_key(|row| std::cmp::Reverse(row.get("paired_devices.updated_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()));
-    let executor = devices.first().and_then(|row| row.get("paired_devices.id")).and_then(serde_json::Value::as_str).map(str::to_owned);
+    let mut devices = crate::genesis_adapter::query(
+        &state.genesis,
+        "paired_devices",
+        &["id", "updated_at"],
+        vec![crate::genesis_adapter::eq(
+            "paired_devices",
+            "trust_state",
+            serde_json::json!("paired"),
+        )],
+        100,
+    )
+    .map_err(AppError::Genesis)?;
+    devices.sort_by_key(|row| {
+        std::cmp::Reverse(
+            row.get("paired_devices.updated_at")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        )
+    });
+    let executor = devices
+        .first()
+        .and_then(|row| row.get("paired_devices.id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
     let Some(executor_device_id) = executor else {
         return Err(AppError::InvalidInput(
             "a paired FUNG Desktop is required for this processing job".to_string(),
         ));
     };
-    let project_exists = crate::genesis_adapter::query(&state.genesis, "projects", &["id"], vec![crate::genesis_adapter::eq("projects", "id", serde_json::json!(project_id))], 1).map_err(AppError::Genesis)?;
+    let project_exists = crate::genesis_adapter::query(
+        &state.genesis,
+        "projects",
+        &["id"],
+        vec![crate::genesis_adapter::eq(
+            "projects",
+            "id",
+            serde_json::json!(project_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?;
     if project_exists.is_empty() {
         return Err(AppError::InvalidInput("project does not exist".to_string()));
     }
@@ -1132,18 +1385,59 @@ pub(crate) fn mobile_diarization_import(
     let timestamp = now();
     let model_run_id = Uuid::new_v4().to_string();
     let mut mutations = Vec::new();
-    for row in crate::genesis_adapter::query(&state.genesis, "speaker_turns", &["id", "status"], vec![crate::genesis_adapter::eq("speaker_turns", "recording_id", serde_json::json!(recording_id))], 1000).map_err(AppError::Genesis)? {
-        if row.get("speaker_turns.status").and_then(serde_json::Value::as_str) == Some("proposed") {
-            mutations.push(crate::genesis_adapter::delete("speaker_turns", &text_value(&row, "speaker_turns.id")?));
+    for row in crate::genesis_adapter::query(
+        &state.genesis,
+        "speaker_turns",
+        &["id", "status"],
+        vec![crate::genesis_adapter::eq(
+            "speaker_turns",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+        1000,
+    )
+    .map_err(AppError::Genesis)?
+    {
+        if row
+            .get("speaker_turns.status")
+            .and_then(serde_json::Value::as_str)
+            == Some("proposed")
+        {
+            mutations.push(crate::genesis_adapter::delete(
+                "speaker_turns",
+                &text_value(&row, "speaker_turns.id")?,
+            ));
         }
     }
     mutations.push(crate::genesis_adapter::upsert("model_providers", serde_json::json!({"id": provider_id, "label": "FUNG Desktop", "runtime_location": "lan", "kind": "diarization", "enabled": true, "config_json": {}, "created_at": timestamp, "updated_at": timestamp})));
     mutations.push(crate::genesis_adapter::upsert("model_runs", serde_json::json!({"id": model_run_id, "recording_id": recording_id, "provider_id": provider_id, "model_name": "FUNG Desktop diarization", "task_kind": "diarization", "runtime_location": "lan", "input_ref": recording_id, "output_ref": format!("speaker-turns:{recording_id}"), "parameters_json": {}, "created_at": timestamp})));
-    let existing_speakers = crate::genesis_adapter::query(&state.genesis, "speakers", &["id", "key", "created_at"], vec![crate::genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id))], 500).map_err(AppError::Genesis)?;
+    let existing_speakers = crate::genesis_adapter::query(
+        &state.genesis,
+        "speakers",
+        &["id", "key", "created_at"],
+        vec![crate::genesis_adapter::eq(
+            "speakers",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
+        500,
+    )
+    .map_err(AppError::Genesis)?;
     for turn in turns {
-        let existing = existing_speakers.iter().find(|row| row.get("speakers.key").and_then(serde_json::Value::as_str) == Some(turn.speaker_key.as_str()));
-        let speaker_id = existing.and_then(|row| row.get("speakers.id")).and_then(serde_json::Value::as_str).map(str::to_owned).unwrap_or_else(|| Uuid::new_v4().to_string());
-        let created_at = existing.and_then(|row| row.get("speakers.created_at")).and_then(serde_json::Value::as_str).unwrap_or(&timestamp).to_string();
+        let existing = existing_speakers.iter().find(|row| {
+            row.get("speakers.key").and_then(serde_json::Value::as_str)
+                == Some(turn.speaker_key.as_str())
+        });
+        let speaker_id = existing
+            .and_then(|row| row.get("speakers.id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let created_at = existing
+            .and_then(|row| row.get("speakers.created_at"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(&timestamp)
+            .to_string();
         mutations.push(crate::genesis_adapter::upsert("speakers", serde_json::json!({"id": speaker_id, "project_id": project_id, "key": turn.speaker_key, "display_name": turn.display_name.unwrap_or_else(|| "ผู้พูด".to_string()), "confidence": turn.confidence, "created_at": created_at, "updated_at": timestamp})));
         mutations.push(crate::genesis_adapter::upsert("speaker_turns", serde_json::json!({"id": Uuid::new_v4().to_string(), "project_id": project_id, "recording_id": recording_id, "speaker_id": speaker_id, "start_ms": turn.start_ms, "end_ms": turn.end_ms, "confidence": turn.confidence, "status": "proposed", "model_run_id": model_run_id, "overlap": turn.overlap.unwrap_or(false), "revision": 1, "created_at": timestamp, "updated_at": timestamp})));
     }
@@ -1163,7 +1457,28 @@ pub(crate) fn mobile_speaker_rename(
             "speaker name must contain 1 to 80 characters".to_string(),
         ));
     }
-    let row = crate::genesis_adapter::query(&state.genesis, "speakers", &["id", "project_id", "key", "display_name", "confidence", "created_at"], vec![crate::genesis_adapter::eq("speakers", "id", serde_json::json!(speaker_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("speaker not found".to_string()))?;
+    let row = crate::genesis_adapter::query(
+        &state.genesis,
+        "speakers",
+        &[
+            "id",
+            "project_id",
+            "key",
+            "display_name",
+            "confidence",
+            "created_at",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "speakers",
+            "id",
+            serde_json::json!(speaker_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("speaker not found".to_string()))?;
     let project_id = text_value(&row, "speakers.project_id")?;
     let old_name = text_value(&row, "speakers.display_name")?;
     let timestamp = now();
@@ -1179,7 +1494,33 @@ pub(crate) fn mobile_speaker_turn_split(
     split_ms: i64,
     state: State<'_, AppState>,
 ) -> AppResult<TimelineOutput> {
-    let turn = crate::genesis_adapter::query(&state.genesis, "speaker_turns", &["project_id", "recording_id", "speaker_id", "start_ms", "end_ms", "confidence", "status", "model_run_id", "overlap", "revision", "created_at"], vec![crate::genesis_adapter::eq("speaker_turns", "id", serde_json::json!(turn_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("speaker turn not found".to_string()))?;
+    let turn = crate::genesis_adapter::query(
+        &state.genesis,
+        "speaker_turns",
+        &[
+            "project_id",
+            "recording_id",
+            "speaker_id",
+            "start_ms",
+            "end_ms",
+            "confidence",
+            "status",
+            "model_run_id",
+            "overlap",
+            "revision",
+            "created_at",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "speaker_turns",
+            "id",
+            serde_json::json!(turn_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("speaker turn not found".to_string()))?;
     let start_ms = int_value(&turn, "speaker_turns.start_ms")?;
     let end_ms = int_value(&turn, "speaker_turns.end_ms")?;
     if split_ms <= start_ms || split_ms >= end_ms {
@@ -1193,7 +1534,12 @@ pub(crate) fn mobile_speaker_turn_split(
     let recording_id = text_value(&turn, "speaker_turns.recording_id")?;
     let speaker_id = text_value(&turn, "speaker_turns.speaker_id")?;
     let revision = int_value(&turn, "speaker_turns.revision")? + 1;
-    let common = |id: &str, start: i64, end: i64, created: String| crate::genesis_adapter::upsert("speaker_turns", serde_json::json!({"id": id, "project_id": project_id, "recording_id": recording_id, "speaker_id": speaker_id, "start_ms": start, "end_ms": end, "confidence": turn.get("speaker_turns.confidence").cloned().unwrap_or(serde_json::Value::Null), "status": text_value(&turn, "speaker_turns.status").unwrap_or_else(|_| "proposed".to_string()), "model_run_id": turn.get("speaker_turns.model_run_id").cloned().unwrap_or(serde_json::Value::Null), "overlap": turn.get("speaker_turns.overlap").cloned().unwrap_or(serde_json::Value::Bool(false)), "revision": revision, "created_at": created, "updated_at": timestamp}));
+    let common = |id: &str, start: i64, end: i64, created: String| {
+        crate::genesis_adapter::upsert(
+            "speaker_turns",
+            serde_json::json!({"id": id, "project_id": project_id, "recording_id": recording_id, "speaker_id": speaker_id, "start_ms": start, "end_ms": end, "confidence": turn.get("speaker_turns.confidence").cloned().unwrap_or(serde_json::Value::Null), "status": text_value(&turn, "speaker_turns.status").unwrap_or_else(|_| "proposed".to_string()), "model_run_id": turn.get("speaker_turns.model_run_id").cloned().unwrap_or(serde_json::Value::Null), "overlap": turn.get("speaker_turns.overlap").cloned().unwrap_or(serde_json::Value::Bool(false)), "revision": revision, "created_at": created, "updated_at": timestamp}),
+        )
+    };
     crate::genesis_adapter::commit_rows(&state.genesis, vec![common(&turn_id, start_ms, split_ms, text_value(&turn, "speaker_turns.created_at")?), common(&new_id, split_ms, end_ms, timestamp.clone()), timeline_revision_mutation(&project_id, "split", serde_json::json!({"turnId": turn_id, "newTurnId": new_id, "splitMs": split_ms, "originalEndMs": end_ms}))]).map_err(AppError::Genesis)?;
     timeline_output(&state.genesis, &project_id)
 }
@@ -1210,14 +1556,63 @@ pub(crate) fn mobile_speaker_merge(
             "source and target speakers must differ".to_string(),
         ));
     }
-    let speakers = crate::genesis_adapter::query(&state.genesis, "speakers", &["id"], vec![crate::genesis_adapter::eq("speakers", "project_id", serde_json::json!(project_id))], 500).map_err(AppError::Genesis)?;
-    if ![source_speaker_id.as_str(), target_speaker_id.as_str()].iter().all(|id| speakers.iter().any(|row| row.get("speakers.id").and_then(serde_json::Value::as_str) == Some(*id))) {
+    let speakers = crate::genesis_adapter::query(
+        &state.genesis,
+        "speakers",
+        &["id"],
+        vec![crate::genesis_adapter::eq(
+            "speakers",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
+        500,
+    )
+    .map_err(AppError::Genesis)?;
+    if ![source_speaker_id.as_str(), target_speaker_id.as_str()]
+        .iter()
+        .all(|id| {
+            speakers
+                .iter()
+                .any(|row| row.get("speakers.id").and_then(serde_json::Value::as_str) == Some(*id))
+        })
+    {
         return Err(AppError::InvalidInput(
             "both speakers must belong to this project".to_string(),
         ));
     }
     let timestamp = now();
-    let rows = crate::genesis_adapter::query(&state.genesis, "speaker_turns", &["id", "project_id", "recording_id", "speaker_id", "start_ms", "end_ms", "confidence", "status", "model_run_id", "overlap", "revision", "created_at"], vec![crate::genesis_adapter::eq("speaker_turns", "project_id", serde_json::json!(project_id)), crate::genesis_adapter::eq("speaker_turns", "speaker_id", serde_json::json!(source_speaker_id))], 1000).map_err(AppError::Genesis)?;
+    let rows = crate::genesis_adapter::query(
+        &state.genesis,
+        "speaker_turns",
+        &[
+            "id",
+            "project_id",
+            "recording_id",
+            "speaker_id",
+            "start_ms",
+            "end_ms",
+            "confidence",
+            "status",
+            "model_run_id",
+            "overlap",
+            "revision",
+            "created_at",
+        ],
+        vec![
+            crate::genesis_adapter::eq(
+                "speaker_turns",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            crate::genesis_adapter::eq(
+                "speaker_turns",
+                "speaker_id",
+                serde_json::json!(source_speaker_id),
+            ),
+        ],
+        1000,
+    )
+    .map_err(AppError::Genesis)?;
     let mut mutations = rows.into_iter().map(|row| Ok(crate::genesis_adapter::upsert("speaker_turns", serde_json::json!({"id": text_value(&row, "speaker_turns.id")?, "project_id": project_id, "recording_id": text_value(&row, "speaker_turns.recording_id")?, "speaker_id": target_speaker_id, "start_ms": int_value(&row, "speaker_turns.start_ms")?, "end_ms": int_value(&row, "speaker_turns.end_ms")?, "confidence": row.get("speaker_turns.confidence").cloned().unwrap_or(serde_json::Value::Null), "status": text_value(&row, "speaker_turns.status")?, "model_run_id": row.get("speaker_turns.model_run_id").cloned().unwrap_or(serde_json::Value::Null), "overlap": row.get("speaker_turns.overlap").cloned().unwrap_or(serde_json::Value::Bool(false)), "revision": int_value(&row, "speaker_turns.revision")? + 1, "created_at": text_value(&row, "speaker_turns.created_at")?, "updated_at": timestamp})))).collect::<AppResult<Vec<_>>>()?;
     mutations.push(timeline_revision_mutation(&project_id, "merge", serde_json::json!({"sourceSpeakerId": source_speaker_id, "targetSpeakerId": target_speaker_id})));
     crate::genesis_adapter::commit_rows(&state.genesis, mutations).map_err(AppError::Genesis)?;
@@ -1229,7 +1624,33 @@ pub(crate) fn mobile_speaker_turn_confirm(
     turn_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    let row = crate::genesis_adapter::query(&state.genesis, "speaker_turns", &["project_id", "recording_id", "speaker_id", "start_ms", "end_ms", "confidence", "status", "model_run_id", "overlap", "revision", "created_at"], vec![crate::genesis_adapter::eq("speaker_turns", "id", serde_json::json!(turn_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("speaker turn not found".to_string()))?;
+    let row = crate::genesis_adapter::query(
+        &state.genesis,
+        "speaker_turns",
+        &[
+            "project_id",
+            "recording_id",
+            "speaker_id",
+            "start_ms",
+            "end_ms",
+            "confidence",
+            "status",
+            "model_run_id",
+            "overlap",
+            "revision",
+            "created_at",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "speaker_turns",
+            "id",
+            serde_json::json!(turn_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("speaker turn not found".to_string()))?;
     let project_id = text_value(&row, "speaker_turns.project_id")?;
     crate::genesis_adapter::commit_rows(&state.genesis, vec![crate::genesis_adapter::upsert("speaker_turns", serde_json::json!({"id": turn_id, "project_id": project_id, "recording_id": text_value(&row, "speaker_turns.recording_id")?, "speaker_id": text_value(&row, "speaker_turns.speaker_id")?, "start_ms": int_value(&row, "speaker_turns.start_ms")?, "end_ms": int_value(&row, "speaker_turns.end_ms")?, "confidence": row.get("speaker_turns.confidence").cloned().unwrap_or(serde_json::Value::Null), "status": "confirmed", "model_run_id": row.get("speaker_turns.model_run_id").cloned().unwrap_or(serde_json::Value::Null), "overlap": row.get("speaker_turns.overlap").cloned().unwrap_or(serde_json::Value::Bool(false)), "revision": int_value(&row, "speaker_turns.revision")? + 1, "created_at": text_value(&row, "speaker_turns.created_at")?, "updated_at": now()})), timeline_revision_mutation(&project_id, "confirm", serde_json::json!({"turnId": turn_id}))]).map_err(AppError::Genesis)
 }
@@ -1293,15 +1714,96 @@ pub(crate) struct VoiceProfileOutput {
     provider_available: bool,
 }
 
-fn story_clips(storage: &genesis_block_native::Storage, sequence_id: &str) -> AppResult<Vec<StoryClipOutput>> {
-    let mut rows = crate::genesis_adapter::query(storage, "story_clips", &["id", "source_turn_id", "source_recording_id", "source_start_ms", "source_end_ms", "timeline_start_ms", "speaker_id", "effect_chain_id", "revision"], vec![crate::genesis_adapter::eq("story_clips", "sequence_id", serde_json::json!(sequence_id))], 1000).map_err(AppError::Genesis)?;
-    rows.sort_by_key(|row| (row.get("story_clips.timeline_start_ms").and_then(serde_json::Value::as_i64).unwrap_or_default(), row.get("story_clips.id").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()));
-    rows.into_iter().map(|row| Ok(StoryClipOutput { id: text_value(&row, "story_clips.id")?, source_turn_id: row.get("story_clips.source_turn_id").and_then(serde_json::Value::as_str).map(str::to_owned), source_recording_id: text_value(&row, "story_clips.source_recording_id")?, source_start_ms: int_value(&row, "story_clips.source_start_ms")?, source_end_ms: int_value(&row, "story_clips.source_end_ms")?, timeline_start_ms: int_value(&row, "story_clips.timeline_start_ms")?, speaker_id: text_value(&row, "story_clips.speaker_id")?, effect_chain_id: row.get("story_clips.effect_chain_id").and_then(serde_json::Value::as_str).map(str::to_owned), revision: int_value(&row, "story_clips.revision")? })).collect()
+fn story_clips(
+    storage: &genesis_block_native::Storage,
+    sequence_id: &str,
+) -> AppResult<Vec<StoryClipOutput>> {
+    let mut rows = crate::genesis_adapter::query(
+        storage,
+        "story_clips",
+        &[
+            "id",
+            "source_turn_id",
+            "source_recording_id",
+            "source_start_ms",
+            "source_end_ms",
+            "timeline_start_ms",
+            "speaker_id",
+            "effect_chain_id",
+            "revision",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "story_clips",
+            "sequence_id",
+            serde_json::json!(sequence_id),
+        )],
+        1000,
+    )
+    .map_err(AppError::Genesis)?;
+    rows.sort_by_key(|row| {
+        (
+            row.get("story_clips.timeline_start_ms")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or_default(),
+            row.get("story_clips.id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        )
+    });
+    rows.into_iter()
+        .map(|row| {
+            Ok(StoryClipOutput {
+                id: text_value(&row, "story_clips.id")?,
+                source_turn_id: row
+                    .get("story_clips.source_turn_id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned),
+                source_recording_id: text_value(&row, "story_clips.source_recording_id")?,
+                source_start_ms: int_value(&row, "story_clips.source_start_ms")?,
+                source_end_ms: int_value(&row, "story_clips.source_end_ms")?,
+                timeline_start_ms: int_value(&row, "story_clips.timeline_start_ms")?,
+                speaker_id: text_value(&row, "story_clips.speaker_id")?,
+                effect_chain_id: row
+                    .get("story_clips.effect_chain_id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned),
+                revision: int_value(&row, "story_clips.revision")?,
+            })
+        })
+        .collect()
 }
 
-fn story_output(storage: &genesis_block_native::Storage, project_id: &str) -> AppResult<Option<StoryOutput>> {
-    let mut rows = crate::genesis_adapter::query(storage, "story_sequences", &["id", "title", "duration_ms", "current_revision", "updated_at"], vec![crate::genesis_adapter::eq("story_sequences", "project_id", serde_json::json!(project_id))], 100).map_err(AppError::Genesis)?;
-    rows.sort_by_key(|row| std::cmp::Reverse(row.get("story_sequences.updated_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()));
+fn story_output(
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+) -> AppResult<Option<StoryOutput>> {
+    let mut rows = crate::genesis_adapter::query(
+        storage,
+        "story_sequences",
+        &[
+            "id",
+            "title",
+            "duration_ms",
+            "current_revision",
+            "updated_at",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "story_sequences",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
+        100,
+    )
+    .map_err(AppError::Genesis)?;
+    rows.sort_by_key(|row| {
+        std::cmp::Reverse(
+            row.get("story_sequences.updated_at")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        )
+    });
     let Some(sequence) = rows.first() else {
         return Ok(None);
     };
@@ -1322,14 +1824,24 @@ fn story_revision_mutation(
     before: &str,
     after: &str,
 ) -> genesis_block_native::RelationalRowMutation {
-    crate::genesis_adapter::upsert("story_revisions", serde_json::json!({"id": Uuid::new_v4().to_string(), "sequence_id": sequence_id, "operation": operation, "before_json": before, "after_json": after, "applied": true, "author_device_id": "mobile-local", "created_at": now()}))
+    crate::genesis_adapter::upsert(
+        "story_revisions",
+        serde_json::json!({"id": Uuid::new_v4().to_string(), "sequence_id": sequence_id, "operation": operation, "before_json": before, "after_json": after, "applied": true, "author_device_id": "mobile-local", "created_at": now()}),
+    )
 }
 
-fn replacement_story_mutations(storage: &genesis_block_native::Storage, sequence_id: &str, snapshot: &str) -> AppResult<Vec<genesis_block_native::RelationalRowMutation>> {
+fn replacement_story_mutations(
+    storage: &genesis_block_native::Storage,
+    sequence_id: &str,
+    snapshot: &str,
+) -> AppResult<Vec<genesis_block_native::RelationalRowMutation>> {
     let clips: Vec<StoryClipOutput> = serde_json::from_str(snapshot)
         .map_err(|error| AppError::InvalidInput(format!("story snapshot is invalid: {error}")))?;
     let timestamp = now();
-    let mut mutations = story_clips(storage, sequence_id)?.into_iter().map(|clip| crate::genesis_adapter::delete("story_clips", &clip.id)).collect::<Vec<_>>();
+    let mut mutations = story_clips(storage, sequence_id)?
+        .into_iter()
+        .map(|clip| crate::genesis_adapter::delete("story_clips", &clip.id))
+        .collect::<Vec<_>>();
     for clip in clips {
         mutations.push(crate::genesis_adapter::upsert("story_clips", serde_json::json!({"id": clip.id, "sequence_id": sequence_id, "source_turn_id": clip.source_turn_id, "source_recording_id": clip.source_recording_id, "source_start_ms": clip.source_start_ms, "source_end_ms": clip.source_end_ms, "timeline_start_ms": clip.timeline_start_ms, "speaker_id": clip.speaker_id, "effect_chain_id": clip.effect_chain_id, "revision": clip.revision, "created_at": timestamp, "updated_at": timestamp})));
     }
@@ -1350,16 +1862,54 @@ pub(crate) fn mobile_story_create(
     if let Some(existing) = story_output(&state.genesis, &project_id)? {
         return Ok(existing);
     }
-    let mut recordings = crate::genesis_adapter::query(&state.genesis, "recordings", &["id", "duration_ms", "updated_at"], vec![crate::genesis_adapter::eq("recordings", "project_id", serde_json::json!(project_id))], 100).map_err(AppError::Genesis)?;
-    recordings.sort_by_key(|row| std::cmp::Reverse(row.get("recordings.updated_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()));
-    let recording = recordings.first().ok_or_else(|| AppError::InvalidInput("recording is required before creating a story".to_string()))?;
+    let mut recordings = crate::genesis_adapter::query(
+        &state.genesis,
+        "recordings",
+        &["id", "duration_ms", "updated_at"],
+        vec![crate::genesis_adapter::eq(
+            "recordings",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
+        100,
+    )
+    .map_err(AppError::Genesis)?;
+    recordings.sort_by_key(|row| {
+        std::cmp::Reverse(
+            row.get("recordings.updated_at")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        )
+    });
+    let recording = recordings.first().ok_or_else(|| {
+        AppError::InvalidInput("recording is required before creating a story".to_string())
+    })?;
     let recording_id = text_value(recording, "recordings.id")?;
     let duration_ms = int_value(recording, "recordings.duration_ms")?;
     let sequence_id = Uuid::new_v4().to_string();
     let timestamp = now();
-    let mut mutations = vec![crate::genesis_adapter::upsert("story_sequences", serde_json::json!({"id": sequence_id, "project_id": project_id, "title": title.trim(), "duration_ms": duration_ms, "current_revision": 1, "created_at": timestamp, "updated_at": timestamp}))];
-    let mut turns = crate::genesis_adapter::query(&state.genesis, "speaker_turns", &["id", "speaker_id", "start_ms", "end_ms"], vec![crate::genesis_adapter::eq("speaker_turns", "recording_id", serde_json::json!(recording_id))], 1000).map_err(AppError::Genesis)?;
-    turns.sort_by_key(|row| row.get("speaker_turns.start_ms").and_then(serde_json::Value::as_i64).unwrap_or_default());
+    let mut mutations = vec![crate::genesis_adapter::upsert(
+        "story_sequences",
+        serde_json::json!({"id": sequence_id, "project_id": project_id, "title": title.trim(), "duration_ms": duration_ms, "current_revision": 1, "created_at": timestamp, "updated_at": timestamp}),
+    )];
+    let mut turns = crate::genesis_adapter::query(
+        &state.genesis,
+        "speaker_turns",
+        &["id", "speaker_id", "start_ms", "end_ms"],
+        vec![crate::genesis_adapter::eq(
+            "speaker_turns",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+        1000,
+    )
+    .map_err(AppError::Genesis)?;
+    turns.sort_by_key(|row| {
+        row.get("speaker_turns.start_ms")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or_default()
+    });
     for turn in turns {
         let start_ms = int_value(&turn, "speaker_turns.start_ms")?;
         mutations.push(crate::genesis_adapter::upsert("story_clips", serde_json::json!({"id": Uuid::new_v4().to_string(), "sequence_id": sequence_id, "source_turn_id": text_value(&turn, "speaker_turns.id")?, "source_recording_id": recording_id, "source_start_ms": start_ms, "source_end_ms": int_value(&turn, "speaker_turns.end_ms")?, "timeline_start_ms": start_ms, "speaker_id": text_value(&turn, "speaker_turns.speaker_id")?, "effect_chain_id": null, "revision": 1, "created_at": timestamp, "updated_at": timestamp})));
@@ -1377,28 +1927,98 @@ pub(crate) fn mobile_story_query(
     story_output(&state.genesis, &project_id)
 }
 
-fn mutate_story_clip<F>(storage: &genesis_block_native::Storage, clip_id: &str, operation: &str, mutate: F) -> AppResult<StoryOutput>
-where F: FnOnce(&mut StoryClipOutput) -> AppResult<()> {
-    let clip_row = crate::genesis_adapter::query(storage, "story_clips", &["sequence_id", "created_at"], vec![crate::genesis_adapter::eq("story_clips", "id", serde_json::json!(clip_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("story clip not found".to_string()))?;
+fn mutate_story_clip<F>(
+    storage: &genesis_block_native::Storage,
+    clip_id: &str,
+    operation: &str,
+    mutate: F,
+) -> AppResult<StoryOutput>
+where
+    F: FnOnce(&mut StoryClipOutput) -> AppResult<()>,
+{
+    let clip_row = crate::genesis_adapter::query(
+        storage,
+        "story_clips",
+        &["sequence_id", "created_at"],
+        vec![crate::genesis_adapter::eq(
+            "story_clips",
+            "id",
+            serde_json::json!(clip_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("story clip not found".to_string()))?;
     let sequence_id = text_value(&clip_row, "story_clips.sequence_id")?;
-    let sequence = crate::genesis_adapter::query(storage, "story_sequences", &["project_id", "title", "duration_ms", "current_revision", "created_at"], vec![crate::genesis_adapter::eq("story_sequences", "id", serde_json::json!(sequence_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("story not found".to_string()))?;
+    let sequence = crate::genesis_adapter::query(
+        storage,
+        "story_sequences",
+        &[
+            "project_id",
+            "title",
+            "duration_ms",
+            "current_revision",
+            "created_at",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "story_sequences",
+            "id",
+            serde_json::json!(sequence_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("story not found".to_string()))?;
     let project_id = text_value(&sequence, "story_sequences.project_id")?;
     let mut clips = story_clips(storage, &sequence_id)?;
-    let before = serde_json::to_string(&clips).map_err(|error| AppError::InvalidInput(error.to_string()))?;
-    let clip = clips.iter_mut().find(|clip| clip.id == clip_id).ok_or_else(|| AppError::InvalidInput("story clip not found".to_string()))?;
+    let before =
+        serde_json::to_string(&clips).map_err(|error| AppError::InvalidInput(error.to_string()))?;
+    let clip = clips
+        .iter_mut()
+        .find(|clip| clip.id == clip_id)
+        .ok_or_else(|| AppError::InvalidInput("story clip not found".to_string()))?;
     mutate(clip)?;
     clip.revision += 1;
     let changed = clip.clone();
-    let after = serde_json::to_string(&clips).map_err(|error| AppError::InvalidInput(error.to_string()))?;
+    let after =
+        serde_json::to_string(&clips).map_err(|error| AppError::InvalidInput(error.to_string()))?;
     let timestamp = now();
-    let mut mutations = crate::genesis_adapter::query(storage, "story_revisions", &["id", "applied"], vec![crate::genesis_adapter::eq("story_revisions", "sequence_id", serde_json::json!(sequence_id))], 1000).map_err(AppError::Genesis)?.into_iter().filter(|row| row.get("story_revisions.applied").and_then(serde_json::Value::as_bool) == Some(false)).filter_map(|row| row.get("story_revisions.id").and_then(serde_json::Value::as_str).map(|id| crate::genesis_adapter::delete("story_revisions", id))).collect::<Vec<_>>();
+    let mut mutations = crate::genesis_adapter::query(
+        storage,
+        "story_revisions",
+        &["id", "applied"],
+        vec![crate::genesis_adapter::eq(
+            "story_revisions",
+            "sequence_id",
+            serde_json::json!(sequence_id),
+        )],
+        1000,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .filter(|row| {
+        row.get("story_revisions.applied")
+            .and_then(serde_json::Value::as_bool)
+            == Some(false)
+    })
+    .filter_map(|row| {
+        row.get("story_revisions.id")
+            .and_then(serde_json::Value::as_str)
+            .map(|id| crate::genesis_adapter::delete("story_revisions", id))
+    })
+    .collect::<Vec<_>>();
     mutations.extend([
         crate::genesis_adapter::upsert("story_clips", serde_json::json!({"id": changed.id, "sequence_id": sequence_id, "source_turn_id": changed.source_turn_id, "source_recording_id": changed.source_recording_id, "source_start_ms": changed.source_start_ms, "source_end_ms": changed.source_end_ms, "timeline_start_ms": changed.timeline_start_ms, "speaker_id": changed.speaker_id, "effect_chain_id": changed.effect_chain_id, "revision": changed.revision, "created_at": text_value(&clip_row, "story_clips.created_at")?, "updated_at": timestamp})),
         crate::genesis_adapter::upsert("story_sequences", serde_json::json!({"id": sequence_id, "project_id": project_id, "title": text_value(&sequence, "story_sequences.title")?, "duration_ms": int_value(&sequence, "story_sequences.duration_ms")?, "current_revision": int_value(&sequence, "story_sequences.current_revision")? + 1, "created_at": text_value(&sequence, "story_sequences.created_at")?, "updated_at": timestamp})),
         story_revision_mutation(&sequence_id, operation, &before, &after),
     ]);
     crate::genesis_adapter::commit_rows(storage, mutations).map_err(AppError::Genesis)?;
-    story_output(storage, &project_id)?.ok_or_else(|| AppError::InvalidInput("story not found".to_string()))
+    story_output(storage, &project_id)?
+        .ok_or_else(|| AppError::InvalidInput("story not found".to_string()))
 }
 
 #[tauri::command]
@@ -1412,7 +2032,10 @@ pub(crate) fn mobile_story_clip_move(
             "timeline start must be non-negative".to_string(),
         ));
     }
-    mutate_story_clip(&state.genesis, &clip_id, "move", |clip| { clip.timeline_start_ms = timeline_start_ms; Ok(()) })
+    mutate_story_clip(&state.genesis, &clip_id, "move", |clip| {
+        clip.timeline_start_ms = timeline_start_ms;
+        Ok(())
+    })
 }
 
 #[tauri::command]
@@ -1426,10 +2049,36 @@ pub(crate) fn mobile_story_clip_trim(
         return Err(AppError::InvalidInput("trim range is invalid".to_string()));
     }
     mutate_story_clip(&state.genesis, &clip_id, "trim", |clip| {
-        let Some(turn_id) = clip.source_turn_id.as_ref() else { return Err(AppError::InvalidInput("clip has no immutable source turn".to_string())); };
-        let turn = crate::genesis_adapter::query(&state.genesis, "speaker_turns", &["start_ms", "end_ms"], vec![crate::genesis_adapter::eq("speaker_turns", "id", serde_json::json!(turn_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("source turn not found".to_string()))?;
-        if source_start_ms < int_value(&turn, "speaker_turns.start_ms")? || source_end_ms > int_value(&turn, "speaker_turns.end_ms")? { return Err(AppError::InvalidInput("trim range must remain inside the immutable source turn".to_string())); }
-        clip.source_start_ms = source_start_ms; clip.source_end_ms = source_end_ms; Ok(())
+        let Some(turn_id) = clip.source_turn_id.as_ref() else {
+            return Err(AppError::InvalidInput(
+                "clip has no immutable source turn".to_string(),
+            ));
+        };
+        let turn = crate::genesis_adapter::query(
+            &state.genesis,
+            "speaker_turns",
+            &["start_ms", "end_ms"],
+            vec![crate::genesis_adapter::eq(
+                "speaker_turns",
+                "id",
+                serde_json::json!(turn_id),
+            )],
+            1,
+        )
+        .map_err(AppError::Genesis)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::InvalidInput("source turn not found".to_string()))?;
+        if source_start_ms < int_value(&turn, "speaker_turns.start_ms")?
+            || source_end_ms > int_value(&turn, "speaker_turns.end_ms")?
+        {
+            return Err(AppError::InvalidInput(
+                "trim range must remain inside the immutable source turn".to_string(),
+            ));
+        }
+        clip.source_start_ms = source_start_ms;
+        clip.source_end_ms = source_end_ms;
+        Ok(())
     })
 }
 
@@ -1439,7 +2088,32 @@ pub(crate) fn mobile_story_clip_split(
     split_source_ms: i64,
     state: State<'_, AppState>,
 ) -> AppResult<StoryOutput> {
-    let row = crate::genesis_adapter::query(&state.genesis, "story_clips", &["sequence_id", "source_turn_id", "source_recording_id", "source_start_ms", "source_end_ms", "timeline_start_ms", "speaker_id", "effect_chain_id", "revision", "created_at"], vec![crate::genesis_adapter::eq("story_clips", "id", serde_json::json!(clip_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("story clip not found".to_string()))?;
+    let row = crate::genesis_adapter::query(
+        &state.genesis,
+        "story_clips",
+        &[
+            "sequence_id",
+            "source_turn_id",
+            "source_recording_id",
+            "source_start_ms",
+            "source_end_ms",
+            "timeline_start_ms",
+            "speaker_id",
+            "effect_chain_id",
+            "revision",
+            "created_at",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "story_clips",
+            "id",
+            serde_json::json!(clip_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("story clip not found".to_string()))?;
     let start_ms = int_value(&row, "story_clips.source_start_ms")?;
     let end_ms = int_value(&row, "story_clips.source_end_ms")?;
     if split_source_ms <= start_ms || split_source_ms >= end_ms {
@@ -1448,16 +2122,52 @@ pub(crate) fn mobile_story_clip_split(
         ));
     }
     let sequence_id = text_value(&row, "story_clips.sequence_id")?;
-    let sequence = crate::genesis_adapter::query(&state.genesis, "story_sequences", &["project_id", "title", "duration_ms", "current_revision", "created_at"], vec![crate::genesis_adapter::eq("story_sequences", "id", serde_json::json!(sequence_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("story not found".to_string()))?;
+    let sequence = crate::genesis_adapter::query(
+        &state.genesis,
+        "story_sequences",
+        &[
+            "project_id",
+            "title",
+            "duration_ms",
+            "current_revision",
+            "created_at",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "story_sequences",
+            "id",
+            serde_json::json!(sequence_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("story not found".to_string()))?;
     let project_id = text_value(&sequence, "story_sequences.project_id")?;
     let mut clips = story_clips(&state.genesis, &sequence_id)?;
-    let before = serde_json::to_string(&clips).map_err(|error| AppError::InvalidInput(error.to_string()))?;
-    let original = clips.iter_mut().find(|clip| clip.id == clip_id).ok_or_else(|| AppError::InvalidInput("story clip not found".to_string()))?;
-    original.source_end_ms = split_source_ms; original.revision += 1;
+    let before =
+        serde_json::to_string(&clips).map_err(|error| AppError::InvalidInput(error.to_string()))?;
+    let original = clips
+        .iter_mut()
+        .find(|clip| clip.id == clip_id)
+        .ok_or_else(|| AppError::InvalidInput("story clip not found".to_string()))?;
+    original.source_end_ms = split_source_ms;
+    original.revision += 1;
     let changed = original.clone();
-    let new_clip = StoryClipOutput { id: Uuid::new_v4().to_string(), source_turn_id: changed.source_turn_id.clone(), source_recording_id: changed.source_recording_id.clone(), source_start_ms: split_source_ms, source_end_ms: end_ms, timeline_start_ms: changed.timeline_start_ms + (split_source_ms - start_ms), speaker_id: changed.speaker_id.clone(), effect_chain_id: changed.effect_chain_id.clone(), revision: changed.revision };
+    let new_clip = StoryClipOutput {
+        id: Uuid::new_v4().to_string(),
+        source_turn_id: changed.source_turn_id.clone(),
+        source_recording_id: changed.source_recording_id.clone(),
+        source_start_ms: split_source_ms,
+        source_end_ms: end_ms,
+        timeline_start_ms: changed.timeline_start_ms + (split_source_ms - start_ms),
+        speaker_id: changed.speaker_id.clone(),
+        effect_chain_id: changed.effect_chain_id.clone(),
+        revision: changed.revision,
+    };
     clips.push(new_clip.clone());
-    let after = serde_json::to_string(&clips).map_err(|error| AppError::InvalidInput(error.to_string()))?;
+    let after =
+        serde_json::to_string(&clips).map_err(|error| AppError::InvalidInput(error.to_string()))?;
     let timestamp = now();
     crate::genesis_adapter::commit_rows(&state.genesis, vec![
         crate::genesis_adapter::upsert("story_clips", serde_json::json!({"id": changed.id, "sequence_id": sequence_id, "source_turn_id": changed.source_turn_id, "source_recording_id": changed.source_recording_id, "source_start_ms": changed.source_start_ms, "source_end_ms": changed.source_end_ms, "timeline_start_ms": changed.timeline_start_ms, "speaker_id": changed.speaker_id, "effect_chain_id": changed.effect_chain_id, "revision": changed.revision, "created_at": text_value(&row, "story_clips.created_at")?, "updated_at": timestamp})),
@@ -1465,7 +2175,8 @@ pub(crate) fn mobile_story_clip_split(
         crate::genesis_adapter::upsert("story_sequences", serde_json::json!({"id": sequence_id, "project_id": project_id, "title": text_value(&sequence, "story_sequences.title")?, "duration_ms": int_value(&sequence, "story_sequences.duration_ms")?, "current_revision": int_value(&sequence, "story_sequences.current_revision")? + 1, "created_at": text_value(&sequence, "story_sequences.created_at")?, "updated_at": timestamp})),
         story_revision_mutation(&sequence_id, "split", &before, &after),
     ]).map_err(AppError::Genesis)?;
-    story_output(&state.genesis, &project_id)?.ok_or_else(|| AppError::InvalidInput("story not found".to_string()))
+    story_output(&state.genesis, &project_id)?
+        .ok_or_else(|| AppError::InvalidInput("story not found".to_string()))
 }
 
 fn story_history(
@@ -1473,17 +2184,72 @@ fn story_history(
     undo: bool,
     state: State<'_, AppState>,
 ) -> AppResult<StoryOutput> {
-    let sequence = crate::genesis_adapter::query(&state.genesis, "story_sequences", &["project_id", "title", "duration_ms", "current_revision", "created_at"], vec![crate::genesis_adapter::eq("story_sequences", "id", serde_json::json!(sequence_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("story not found".to_string()))?;
+    let sequence = crate::genesis_adapter::query(
+        &state.genesis,
+        "story_sequences",
+        &[
+            "project_id",
+            "title",
+            "duration_ms",
+            "current_revision",
+            "created_at",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "story_sequences",
+            "id",
+            serde_json::json!(sequence_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("story not found".to_string()))?;
     let project_id = text_value(&sequence, "story_sequences.project_id")?;
-    let mut revisions = crate::genesis_adapter::query(&state.genesis, "story_revisions", &["id", "before_json", "after_json", "applied", "operation", "author_device_id", "created_at"], vec![crate::genesis_adapter::eq("story_revisions", "sequence_id", serde_json::json!(sequence_id))], 1000).map_err(AppError::Genesis)?;
+    let mut revisions = crate::genesis_adapter::query(
+        &state.genesis,
+        "story_revisions",
+        &[
+            "id",
+            "before_json",
+            "after_json",
+            "applied",
+            "operation",
+            "author_device_id",
+            "created_at",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "story_revisions",
+            "sequence_id",
+            serde_json::json!(sequence_id),
+        )],
+        1000,
+    )
+    .map_err(AppError::Genesis)?;
     revisions.retain(|row| bool_value(row, "story_revisions.applied") == undo);
-    revisions.sort_by_key(|row| row.get("story_revisions.created_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string());
-    let revision = if undo { revisions.last() } else { revisions.first() };
+    revisions.sort_by_key(|row| {
+        row.get("story_revisions.created_at")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    });
+    let revision = if undo {
+        revisions.last()
+    } else {
+        revisions.first()
+    };
     let Some(revision) = revision else {
         return story_output(&state.genesis, &project_id)?
             .ok_or_else(|| AppError::InvalidInput("story not found".to_string()));
     };
-    let snapshot = text_value(revision, if undo { "story_revisions.before_json" } else { "story_revisions.after_json" })?;
+    let snapshot = text_value(
+        revision,
+        if undo {
+            "story_revisions.before_json"
+        } else {
+            "story_revisions.after_json"
+        },
+    )?;
     let mut mutations = replacement_story_mutations(&state.genesis, &sequence_id, &snapshot)?;
     let timestamp = now();
     mutations.push(crate::genesis_adapter::upsert("story_revisions", serde_json::json!({"id": text_value(revision, "story_revisions.id")?, "sequence_id": sequence_id, "operation": text_value(revision, "story_revisions.operation")?, "before_json": text_value(revision, "story_revisions.before_json")?, "after_json": text_value(revision, "story_revisions.after_json")?, "applied": !undo, "author_device_id": text_value(revision, "story_revisions.author_device_id")?, "created_at": text_value(revision, "story_revisions.created_at")?})));
@@ -1513,7 +2279,39 @@ pub(crate) fn mobile_story_redo(
 pub(crate) fn mobile_model_packages_query(
     state: State<'_, AppState>,
 ) -> AppResult<Vec<ModelPackageOutput>> {
-    let mut rows = crate::genesis_adapter::query(&state.genesis, "model_packages", &["id", "label", "model_version", "size_bytes", "runtime_location", "install_state", "compatibility_json", "languages_json", "observed_at"], vec![], 500).map_err(AppError::Genesis)?.into_iter().map(|row| Ok(ModelPackageOutput { id: text_value(&row, "model_packages.id")?, label: text_value(&row, "model_packages.label")?, model_version: text_value(&row, "model_packages.model_version")?, size_bytes: int_value(&row, "model_packages.size_bytes")?, runtime_location: text_value(&row, "model_packages.runtime_location")?, install_state: text_value(&row, "model_packages.install_state")?, compatibility: json_value(&row, "model_packages.compatibility_json"), languages: json_value(&row, "model_packages.languages_json"), observed_at: text_value(&row, "model_packages.observed_at")? })).collect::<AppResult<Vec<_>>>()?;
+    let mut rows = crate::genesis_adapter::query(
+        &state.genesis,
+        "model_packages",
+        &[
+            "id",
+            "label",
+            "model_version",
+            "size_bytes",
+            "runtime_location",
+            "install_state",
+            "compatibility_json",
+            "languages_json",
+            "observed_at",
+        ],
+        vec![],
+        500,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .map(|row| {
+        Ok(ModelPackageOutput {
+            id: text_value(&row, "model_packages.id")?,
+            label: text_value(&row, "model_packages.label")?,
+            model_version: text_value(&row, "model_packages.model_version")?,
+            size_bytes: int_value(&row, "model_packages.size_bytes")?,
+            runtime_location: text_value(&row, "model_packages.runtime_location")?,
+            install_state: text_value(&row, "model_packages.install_state")?,
+            compatibility: json_value(&row, "model_packages.compatibility_json"),
+            languages: json_value(&row, "model_packages.languages_json"),
+            observed_at: text_value(&row, "model_packages.observed_at")?,
+        })
+    })
+    .collect::<AppResult<Vec<_>>>()?;
     rows.sort_by(|a, b| a.label.cmp(&b.label));
     Ok(rows)
 }
@@ -1529,8 +2327,35 @@ pub(crate) fn mobile_refinement_review(
             "decision must be accepted or rejected".to_string(),
         ));
     }
-    let row = crate::genesis_adapter::query(&state.genesis, "transcript_refinement_proposals", &["project_id", "transcript_segment_id", "original_text", "proposed_text", "policy", "model_run_id", "status", "created_at"], vec![crate::genesis_adapter::eq("transcript_refinement_proposals", "id", serde_json::json!(proposal_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("refinement proposal not found".to_string()))?;
-    if text_value(&row, "transcript_refinement_proposals.status")? != "proposed" { return Err(AppError::InvalidInput("refinement proposal was already reviewed".to_string())); }
+    let row = crate::genesis_adapter::query(
+        &state.genesis,
+        "transcript_refinement_proposals",
+        &[
+            "project_id",
+            "transcript_segment_id",
+            "original_text",
+            "proposed_text",
+            "policy",
+            "model_run_id",
+            "status",
+            "created_at",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "transcript_refinement_proposals",
+            "id",
+            serde_json::json!(proposal_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("refinement proposal not found".to_string()))?;
+    if text_value(&row, "transcript_refinement_proposals.status")? != "proposed" {
+        return Err(AppError::InvalidInput(
+            "refinement proposal was already reviewed".to_string(),
+        ));
+    }
     let timestamp = now();
     crate::genesis_adapter::commit_rows(&state.genesis, vec![crate::genesis_adapter::upsert("transcript_refinement_proposals", serde_json::json!({"id": proposal_id, "project_id": text_value(&row, "transcript_refinement_proposals.project_id")?, "transcript_segment_id": row.get("transcript_refinement_proposals.transcript_segment_id").cloned().unwrap_or(serde_json::Value::Null), "original_text": text_value(&row, "transcript_refinement_proposals.original_text")?, "proposed_text": text_value(&row, "transcript_refinement_proposals.proposed_text")?, "policy": text_value(&row, "transcript_refinement_proposals.policy")?, "model_run_id": row.get("transcript_refinement_proposals.model_run_id").cloned().unwrap_or(serde_json::Value::Null), "status": decision, "reviewed_at": timestamp, "created_at": text_value(&row, "transcript_refinement_proposals.created_at")?, "updated_at": timestamp}))]).map_err(AppError::Genesis)?;
     Ok(())
@@ -1568,11 +2393,60 @@ pub(crate) fn mobile_effect_chain_update(
             "effect chain contains an invalid owner or parameter".to_string(),
         ));
     }
-    let existing = crate::genesis_adapter::query(&state.genesis, "effect_chains", &["id", "created_at"], vec![crate::genesis_adapter::eq("effect_chains", "project_id", serde_json::json!(project_id)), crate::genesis_adapter::eq("effect_chains", "owner_kind", serde_json::json!(owner_kind)), crate::genesis_adapter::eq("effect_chains", "owner_id", serde_json::json!(owner_id))], 1).map_err(AppError::Genesis)?.into_iter().next();
-    let chain_id = existing.as_ref().and_then(|row| row.get("effect_chains.id")).and_then(serde_json::Value::as_str).map(str::to_owned).unwrap_or_else(|| Uuid::new_v4().to_string());
+    let existing = crate::genesis_adapter::query(
+        &state.genesis,
+        "effect_chains",
+        &["id", "created_at"],
+        vec![
+            crate::genesis_adapter::eq(
+                "effect_chains",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            crate::genesis_adapter::eq(
+                "effect_chains",
+                "owner_kind",
+                serde_json::json!(owner_kind),
+            ),
+            crate::genesis_adapter::eq("effect_chains", "owner_id", serde_json::json!(owner_id)),
+        ],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next();
+    let chain_id = existing
+        .as_ref()
+        .and_then(|row| row.get("effect_chains.id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
     let timestamp = now();
-    let created_at = existing.as_ref().and_then(|row| row.get("effect_chains.created_at")).and_then(serde_json::Value::as_str).unwrap_or(&timestamp).to_string();
-    let mut mutations = crate::genesis_adapter::query(&state.genesis, "effect_nodes", &["id"], vec![crate::genesis_adapter::eq("effect_nodes", "chain_id", serde_json::json!(chain_id))], 100).map_err(AppError::Genesis)?.into_iter().filter_map(|row| row.get("effect_nodes.id").and_then(serde_json::Value::as_str).map(|id| crate::genesis_adapter::delete("effect_nodes", id))).collect::<Vec<_>>();
+    let created_at = existing
+        .as_ref()
+        .and_then(|row| row.get("effect_chains.created_at"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(&timestamp)
+        .to_string();
+    let mut mutations = crate::genesis_adapter::query(
+        &state.genesis,
+        "effect_nodes",
+        &["id"],
+        vec![crate::genesis_adapter::eq(
+            "effect_nodes",
+            "chain_id",
+            serde_json::json!(chain_id),
+        )],
+        100,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .filter_map(|row| {
+        row.get("effect_nodes.id")
+            .and_then(serde_json::Value::as_str)
+            .map(|id| crate::genesis_adapter::delete("effect_nodes", id))
+    })
+    .collect::<Vec<_>>();
     mutations.push(crate::genesis_adapter::upsert("effect_chains", serde_json::json!({"id": chain_id, "project_id": project_id, "owner_kind": owner_kind, "owner_id": owner_id, "label": label, "bypassed": false, "created_at": created_at, "updated_at": timestamp})));
     for node in nodes {
         mutations.push(crate::genesis_adapter::upsert("effect_nodes", serde_json::json!({"id": node.id, "chain_id": chain_id, "position": node.position, "kind": node.kind, "parameters_json": node.parameters, "bypassed": node.bypassed, "created_at": timestamp, "updated_at": timestamp})));
@@ -1586,7 +2460,37 @@ pub(crate) fn mobile_voice_profiles_query(
     project_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<Vec<VoiceProfileOutput>> {
-    let mut rows = crate::genesis_adapter::query(&state.genesis, "voice_profiles", &["id", "display_name", "rights_basis", "rights_state", "provider_id"], vec![crate::genesis_adapter::eq("voice_profiles", "project_id", serde_json::json!(project_id))], 500).map_err(AppError::Genesis)?.into_iter().map(|row| Ok(VoiceProfileOutput { id: text_value(&row, "voice_profiles.id")?, display_name: text_value(&row, "voice_profiles.display_name")?, rights_basis: text_value(&row, "voice_profiles.rights_basis")?, rights_state: text_value(&row, "voice_profiles.rights_state")?, provider_available: row.get("voice_profiles.provider_id").is_some_and(|value| !value.is_null()) })).collect::<AppResult<Vec<_>>>()?;
+    let mut rows = crate::genesis_adapter::query(
+        &state.genesis,
+        "voice_profiles",
+        &[
+            "id",
+            "display_name",
+            "rights_basis",
+            "rights_state",
+            "provider_id",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "voice_profiles",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
+        500,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .map(|row| {
+        Ok(VoiceProfileOutput {
+            id: text_value(&row, "voice_profiles.id")?,
+            display_name: text_value(&row, "voice_profiles.display_name")?,
+            rights_basis: text_value(&row, "voice_profiles.rights_basis")?,
+            rights_state: text_value(&row, "voice_profiles.rights_state")?,
+            provider_available: row
+                .get("voice_profiles.provider_id")
+                .is_some_and(|value| !value.is_null()),
+        })
+    })
+    .collect::<AppResult<Vec<_>>>()?;
     rows.sort_by(|a, b| a.display_name.cmp(&b.display_name));
     Ok(rows)
 }
@@ -1599,7 +2503,24 @@ pub(crate) fn mobile_agent_voice_grant_set(
     enabled: bool,
     state: State<'_, AppState>,
 ) -> AppResult<bool> {
-    let profile = crate::genesis_adapter::query(&state.genesis, "voice_profiles", &["rights_state"], vec![crate::genesis_adapter::eq("voice_profiles", "id", serde_json::json!(voice_profile_id)), crate::genesis_adapter::eq("voice_profiles", "project_id", serde_json::json!(project_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("voice profile not found".to_string()))?;
+    let profile = crate::genesis_adapter::query(
+        &state.genesis,
+        "voice_profiles",
+        &["rights_state"],
+        vec![
+            crate::genesis_adapter::eq("voice_profiles", "id", serde_json::json!(voice_profile_id)),
+            crate::genesis_adapter::eq(
+                "voice_profiles",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+        ],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("voice profile not found".to_string()))?;
     let rights = text_value(&profile, "voice_profiles.rights_state")?;
     if enabled && rights != "valid" {
         return Err(AppError::InvalidInput(
@@ -1607,8 +2528,38 @@ pub(crate) fn mobile_agent_voice_grant_set(
         ));
     }
     let timestamp = now();
-    let existing = crate::genesis_adapter::query(&state.genesis, "agent_voice_grants", &["id", "granted_at", "expires_at"], vec![crate::genesis_adapter::eq("agent_voice_grants", "project_id", serde_json::json!(project_id)), crate::genesis_adapter::eq("agent_voice_grants", "mcp_client_id", serde_json::json!(mcp_client_id)), crate::genesis_adapter::eq("agent_voice_grants", "voice_profile_id", serde_json::json!(voice_profile_id))], 1).map_err(AppError::Genesis)?.into_iter().next();
-    let id = existing.as_ref().and_then(|row| row.get("agent_voice_grants.id")).and_then(serde_json::Value::as_str).map(str::to_owned).unwrap_or_else(|| Uuid::new_v4().to_string());
+    let existing = crate::genesis_adapter::query(
+        &state.genesis,
+        "agent_voice_grants",
+        &["id", "granted_at", "expires_at"],
+        vec![
+            crate::genesis_adapter::eq(
+                "agent_voice_grants",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            crate::genesis_adapter::eq(
+                "agent_voice_grants",
+                "mcp_client_id",
+                serde_json::json!(mcp_client_id),
+            ),
+            crate::genesis_adapter::eq(
+                "agent_voice_grants",
+                "voice_profile_id",
+                serde_json::json!(voice_profile_id),
+            ),
+        ],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next();
+    let id = existing
+        .as_ref()
+        .and_then(|row| row.get("agent_voice_grants.id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
     crate::genesis_adapter::commit_rows(&state.genesis, vec![crate::genesis_adapter::upsert("agent_voice_grants", serde_json::json!({"id": id, "project_id": project_id, "mcp_client_id": mcp_client_id, "voice_profile_id": voice_profile_id, "capability": "voice.speak", "granted_at": if enabled { timestamp.clone() } else { existing.as_ref().and_then(|row| row.get("agent_voice_grants.granted_at")).and_then(serde_json::Value::as_str).unwrap_or(&timestamp).to_string() }, "expires_at": existing.as_ref().and_then(|row| row.get("agent_voice_grants.expires_at")).cloned().unwrap_or(serde_json::Value::Null), "revoked_at": if enabled { serde_json::Value::Null } else { serde_json::Value::String(timestamp) }}))]).map_err(AppError::Genesis)?;
     Ok(enabled)
 }
@@ -1618,7 +2569,30 @@ pub(crate) fn mobile_agent_voice_stop(
     session_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    let row = crate::genesis_adapter::query(&state.genesis, "agent_voice_sessions", &["project_id", "mcp_client_id", "voice_profile_id", "grant_id", "requested_text_hash", "state", "retain_output", "created_at"], vec![crate::genesis_adapter::eq("agent_voice_sessions", "id", serde_json::json!(session_id))], 1).map_err(AppError::Genesis)?.into_iter().next().ok_or_else(|| AppError::InvalidInput("voice session not found".to_string()))?;
+    let row = crate::genesis_adapter::query(
+        &state.genesis,
+        "agent_voice_sessions",
+        &[
+            "project_id",
+            "mcp_client_id",
+            "voice_profile_id",
+            "grant_id",
+            "requested_text_hash",
+            "state",
+            "retain_output",
+            "created_at",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "agent_voice_sessions",
+            "id",
+            serde_json::json!(session_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("voice session not found".to_string()))?;
     let current = text_value(&row, "agent_voice_sessions.state")?;
     if ["queued", "speaking", "muted"].contains(&current.as_str()) {
         crate::genesis_adapter::commit_rows(&state.genesis, vec![crate::genesis_adapter::upsert("agent_voice_sessions", serde_json::json!({"id": session_id, "project_id": text_value(&row, "agent_voice_sessions.project_id")?, "mcp_client_id": text_value(&row, "agent_voice_sessions.mcp_client_id")?, "voice_profile_id": text_value(&row, "agent_voice_sessions.voice_profile_id")?, "grant_id": text_value(&row, "agent_voice_sessions.grant_id")?, "requested_text_hash": text_value(&row, "agent_voice_sessions.requested_text_hash")?, "state": "stopped", "retain_output": bool_value(&row, "agent_voice_sessions.retain_output"), "stop_actor": "mobile-user", "created_at": text_value(&row, "agent_voice_sessions.created_at")?, "updated_at": now()}))]).map_err(AppError::Genesis)?;
@@ -1687,7 +2661,11 @@ pub(crate) fn mobile_mcp_set_enabled(
     })
 }
 
-fn handle_gateway_stream(mut stream: TcpStream, storage: &genesis_block_native::Storage, access_token: &str) {
+fn handle_gateway_stream(
+    mut stream: TcpStream,
+    storage: &genesis_block_native::Storage,
+    access_token: &str,
+) {
     let mut buffer = vec![0_u8; 64 * 1024];
     let read = stream.read(&mut buffer).unwrap_or(0);
     let raw = String::from_utf8_lossy(&buffer[..read]);
@@ -1754,7 +2732,10 @@ fn handle_gateway_stream(mut stream: TcpStream, storage: &genesis_block_native::
     );
 }
 
-fn gateway_tool_call(storage: &genesis_block_native::Storage, params_value: serde_json::Value) -> serde_json::Value {
+fn gateway_tool_call(
+    storage: &genesis_block_native::Storage,
+    params_value: serde_json::Value,
+) -> serde_json::Value {
     let name = params_value
         .get("name")
         .and_then(|value| value.as_str())
@@ -1762,21 +2743,83 @@ fn gateway_tool_call(storage: &genesis_block_native::Storage, params_value: serd
     let arguments = params_value.get("arguments").cloned().unwrap_or_default();
     let payload = match name {
         "fung.projects.list" => {
-            let mut rows = match crate::genesis_adapter::query(storage, "projects", &["id", "name", "updated_at"], vec![], 100) { Ok(rows) => rows, Err(error) => return tool_error(error) };
-            rows.sort_by_key(|row| std::cmp::Reverse(row.get("projects.updated_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()));
+            let mut rows = match crate::genesis_adapter::query(
+                storage,
+                "projects",
+                &["id", "name", "updated_at"],
+                vec![],
+                100,
+            ) {
+                Ok(rows) => rows,
+                Err(error) => return tool_error(error),
+            };
+            rows.sort_by_key(|row| {
+                std::cmp::Reverse(
+                    row.get("projects.updated_at")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                )
+            });
             serde_json::Value::Array(rows.into_iter().filter_map(|row| Some(serde_json::json!({"id":row.get("projects.id")?.as_str()?,"name":row.get("projects.name")?.as_str()?,"updatedAt":row.get("projects.updated_at")?.as_str()?}))).collect())
         }
         "fung.notes.search" => {
-            let query = arguments.get("query").and_then(|value| value.as_str()).unwrap_or_default();
-            let mut rows = match crate::genesis_adapter::query(storage, "notes", &["id", "title", "updated_at"], vec![], 1000) { Ok(rows) => rows, Err(error) => return tool_error(error) };
-            rows.retain(|row| row.get("notes.title").and_then(serde_json::Value::as_str).is_some_and(|title| title.to_lowercase().contains(&query.to_lowercase())));
-            rows.sort_by_key(|row| std::cmp::Reverse(row.get("notes.updated_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string())); rows.truncate(50);
+            let query = arguments
+                .get("query")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            let mut rows = match crate::genesis_adapter::query(
+                storage,
+                "notes",
+                &["id", "title", "updated_at"],
+                vec![],
+                1000,
+            ) {
+                Ok(rows) => rows,
+                Err(error) => return tool_error(error),
+            };
+            rows.retain(|row| {
+                row.get("notes.title")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|title| title.to_lowercase().contains(&query.to_lowercase()))
+            });
+            rows.sort_by_key(|row| {
+                std::cmp::Reverse(
+                    row.get("notes.updated_at")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                )
+            });
+            rows.truncate(50);
             serde_json::Value::Array(rows.into_iter().filter_map(|row| Some(serde_json::json!({"id":row.get("notes.id")?.as_str()?,"title":row.get("notes.title")?.as_str()?,"updatedAt":row.get("notes.updated_at")?.as_str()?}))).collect())
         }
         "fung.capture.status" => {
-            let mut rows = match crate::genesis_adapter::query(storage, "recordings", &["id", "project_id", "status", "duration_ms", "updated_at"], vec![], 1000) { Ok(rows) => rows, Err(error) => return tool_error(error) };
-            rows.retain(|row| matches!(row.get("recordings.status").and_then(serde_json::Value::as_str), Some("recording" | "paused")));
-            rows.sort_by_key(|row| std::cmp::Reverse(row.get("recordings.updated_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()));
+            let mut rows = match crate::genesis_adapter::query(
+                storage,
+                "recordings",
+                &["id", "project_id", "status", "duration_ms", "updated_at"],
+                vec![],
+                1000,
+            ) {
+                Ok(rows) => rows,
+                Err(error) => return tool_error(error),
+            };
+            rows.retain(|row| {
+                matches!(
+                    row.get("recordings.status")
+                        .and_then(serde_json::Value::as_str),
+                    Some("recording" | "paused")
+                )
+            });
+            rows.sort_by_key(|row| {
+                std::cmp::Reverse(
+                    row.get("recordings.updated_at")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                )
+            });
             rows.first().map(|row| serde_json::json!({"recordingId":row.get("recordings.id"),"projectId":row.get("recordings.project_id"),"state":row.get("recordings.status"),"safeOffsetMs":row.get("recordings.duration_ms")})).unwrap_or(serde_json::Value::Null)
         }
         "fung.voice.speak" => match queue_agent_voice(storage, &arguments) {
@@ -1822,30 +2865,122 @@ fn queue_agent_voice(
         );
     }
     let timestamp = now();
-    let grant = crate::genesis_adapter::query(storage, "agent_voice_grants", &["id", "capability", "expires_at", "revoked_at"], vec![crate::genesis_adapter::eq("agent_voice_grants", "project_id", serde_json::json!(project_id)), crate::genesis_adapter::eq("agent_voice_grants", "mcp_client_id", serde_json::json!(MCP_CLIENT_ID)), crate::genesis_adapter::eq("agent_voice_grants", "voice_profile_id", serde_json::json!(profile_id))], 1)?.into_iter().next();
-    let profile = crate::genesis_adapter::query(storage, "voice_profiles", &["rights_state", "provider_id"], vec![crate::genesis_adapter::eq("voice_profiles", "id", serde_json::json!(profile_id)), crate::genesis_adapter::eq("voice_profiles", "project_id", serde_json::json!(project_id))], 1)?.into_iter().next();
-    let valid_grant = grant.as_ref().is_some_and(|row| row.get("agent_voice_grants.capability").and_then(serde_json::Value::as_str) == Some("voice.speak") && row.get("agent_voice_grants.revoked_at").is_none_or(serde_json::Value::is_null) && row.get("agent_voice_grants.expires_at").and_then(serde_json::Value::as_str).is_none_or(|expiry| expiry > timestamp.as_str()));
-    let valid_profile = profile.as_ref().is_some_and(|row| row.get("voice_profiles.rights_state").and_then(serde_json::Value::as_str) == Some("valid") && row.get("voice_profiles.provider_id").is_some_and(|value| !value.is_null()));
+    let grant = crate::genesis_adapter::query(
+        storage,
+        "agent_voice_grants",
+        &["id", "capability", "expires_at", "revoked_at"],
+        vec![
+            crate::genesis_adapter::eq(
+                "agent_voice_grants",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            crate::genesis_adapter::eq(
+                "agent_voice_grants",
+                "mcp_client_id",
+                serde_json::json!(MCP_CLIENT_ID),
+            ),
+            crate::genesis_adapter::eq(
+                "agent_voice_grants",
+                "voice_profile_id",
+                serde_json::json!(profile_id),
+            ),
+        ],
+        1,
+    )?
+    .into_iter()
+    .next();
+    let profile = crate::genesis_adapter::query(
+        storage,
+        "voice_profiles",
+        &["rights_state", "provider_id"],
+        vec![
+            crate::genesis_adapter::eq("voice_profiles", "id", serde_json::json!(profile_id)),
+            crate::genesis_adapter::eq(
+                "voice_profiles",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+        ],
+        1,
+    )?
+    .into_iter()
+    .next();
+    let valid_grant = grant.as_ref().is_some_and(|row| {
+        row.get("agent_voice_grants.capability")
+            .and_then(serde_json::Value::as_str)
+            == Some("voice.speak")
+            && row
+                .get("agent_voice_grants.revoked_at")
+                .is_none_or(serde_json::Value::is_null)
+            && row
+                .get("agent_voice_grants.expires_at")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|expiry| expiry > timestamp.as_str())
+    });
+    let valid_profile = profile.as_ref().is_some_and(|row| {
+        row.get("voice_profiles.rights_state")
+            .and_then(serde_json::Value::as_str)
+            == Some("valid")
+            && row
+                .get("voice_profiles.provider_id")
+                .is_some_and(|value| !value.is_null())
+    });
     if !valid_grant || !valid_profile {
         return Err(
             "VOICE_NOT_GRANTED: a valid rights record, provider, and active MCP grant are required"
                 .to_string(),
         );
     }
-    let grant_id = grant.as_ref().and_then(|row| row.get("agent_voice_grants.id")).and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
-    let mut devices = crate::genesis_adapter::query(storage, "paired_devices", &["id", "updated_at"], vec![crate::genesis_adapter::eq("paired_devices", "trust_state", serde_json::json!("paired"))], 100)?;
-    devices.sort_by_key(|row| std::cmp::Reverse(row.get("paired_devices.updated_at").and_then(serde_json::Value::as_str).unwrap_or_default().to_string()));
-    let executor = devices.first().and_then(|row| row.get("paired_devices.id")).and_then(serde_json::Value::as_str).map(str::to_owned);
+    let grant_id = grant
+        .as_ref()
+        .and_then(|row| row.get("agent_voice_grants.id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let mut devices = crate::genesis_adapter::query(
+        storage,
+        "paired_devices",
+        &["id", "updated_at"],
+        vec![crate::genesis_adapter::eq(
+            "paired_devices",
+            "trust_state",
+            serde_json::json!("paired"),
+        )],
+        100,
+    )?;
+    devices.sort_by_key(|row| {
+        std::cmp::Reverse(
+            row.get("paired_devices.updated_at")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        )
+    });
+    let executor = devices
+        .first()
+        .and_then(|row| row.get("paired_devices.id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
     let Some(executor_id) = executor else {
         return Err("VOICE_PROVIDER_UNAVAILABLE: pair FUNG Desktop first".to_string());
     };
     let session_id = Uuid::new_v4().to_string();
     let job_id = Uuid::new_v4().to_string();
     let text_hash = sha256(text.as_bytes());
-    crate::genesis_adapter::commit_rows(storage, vec![
-        crate::genesis_adapter::upsert("agent_voice_sessions", serde_json::json!({"id": session_id, "project_id": project_id, "mcp_client_id": MCP_CLIENT_ID, "voice_profile_id": profile_id, "grant_id": grant_id, "requested_text_hash": text_hash, "state": "queued", "retain_output": retain_output, "stop_actor": null, "created_at": timestamp, "updated_at": timestamp})),
-        crate::genesis_adapter::upsert("delegated_jobs", serde_json::json!({"id": job_id, "project_id": project_id, "executor_device_id": executor_id, "operation": "voice.synthesize", "state": "queued", "progress": 0, "input_manifest_hash": text_hash, "checkpoint_json": {"sessionId": session_id, "voiceProfileId": profile_id, "retainOutput": retain_output}, "observed_at": timestamp, "created_at": timestamp, "updated_at": timestamp})),
-    ])?;
+    crate::genesis_adapter::commit_rows(
+        storage,
+        vec![
+            crate::genesis_adapter::upsert(
+                "agent_voice_sessions",
+                serde_json::json!({"id": session_id, "project_id": project_id, "mcp_client_id": MCP_CLIENT_ID, "voice_profile_id": profile_id, "grant_id": grant_id, "requested_text_hash": text_hash, "state": "queued", "retain_output": retain_output, "stop_actor": null, "created_at": timestamp, "updated_at": timestamp}),
+            ),
+            crate::genesis_adapter::upsert(
+                "delegated_jobs",
+                serde_json::json!({"id": job_id, "project_id": project_id, "executor_device_id": executor_id, "operation": "voice.synthesize", "state": "queued", "progress": 0, "input_manifest_hash": text_hash, "checkpoint_json": {"sessionId": session_id, "voiceProfileId": profile_id, "retainOutput": retain_output}, "observed_at": timestamp, "created_at": timestamp, "updated_at": timestamp}),
+            ),
+        ],
+    )?;
     Ok(
         serde_json::json!({"sessionId":session_id,"jobId":job_id,"state":"queued","retainOutput":retain_output}),
     )
@@ -1868,7 +3003,13 @@ mod tests {
 
     fn open_genesis() -> (std::path::PathBuf, Storage) {
         let path = std::env::temp_dir().join(format!("fung-mobile-test-{}", Uuid::new_v4()));
-        let storage = Storage::open(OpenOptions { path: path.display().to_string(), page_cache_mb: Some(16), read_only: Some(false), vector_dim: Some(4) }).expect("open GenesisBlockDB");
+        let storage = Storage::open(OpenOptions {
+            path: path.display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+        })
+        .expect("open GenesisBlockDB");
         crate::genesis_adapter::install(&storage).expect("install schema");
         (path, storage)
     }
@@ -1979,7 +3120,8 @@ mod tests {
     #[test]
     fn timeline_query_keeps_anonymous_turns_independent_from_transcript() {
         let (path, storage) = open_genesis();
-        let mut mutations = crate::genesis_adapter::ensure_project_mutations("p", "projects/p", "t");
+        let mut mutations =
+            crate::genesis_adapter::ensure_project_mutations("p", "projects/p", "t");
         mutations.extend([
             crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r","project_id":"p","source":"microphone","input_path":null,"canonical_audio_path":"r/manifest.json","status":"completed","duration_ms":90000,"created_at":"t","updated_at":"t"})),
             crate::genesis_adapter::upsert("speakers", serde_json::json!({"id":"s","project_id":"p","key":"speaker-1","display_name":"ผู้พูด 1","confidence":0.86,"created_at":"t","updated_at":"t"})),
@@ -1991,30 +3133,73 @@ mod tests {
         assert_eq!(output.speakers.len(), 1);
         assert_eq!(output.turns.len(), 1);
         assert_eq!(output.turns[0].status, "proposed");
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
     fn pairing_complete_upserts_verified_row() {
         let (path, storage) = open_genesis();
-        pairing_complete_inner(&storage, "cloud-dev-1", "FUNG Desktop", "192.168.1.20:8765", "sess-uuid-1", None)
-            .expect("pairing complete");
+        pairing_complete_inner(
+            &storage,
+            "cloud-dev-1",
+            "FUNG Desktop",
+            "192.168.1.20:8765",
+            "sess-uuid-1",
+            None,
+        )
+        .expect("pairing complete");
         let rows = crate::genesis_adapter::query(
             &storage,
             "paired_devices",
-            &["id", "name", "endpoint", "trust_state", "pairing_proof_hash", "capabilities_json"],
-            vec![crate::genesis_adapter::eq("paired_devices", "id", serde_json::json!("cloud-dev-1"))],
+            &[
+                "id",
+                "name",
+                "endpoint",
+                "trust_state",
+                "pairing_proof_hash",
+                "capabilities_json",
+            ],
+            vec![crate::genesis_adapter::eq(
+                "paired_devices",
+                "id",
+                serde_json::json!("cloud-dev-1"),
+            )],
             1,
         )
         .expect("query paired_devices");
         let row = rows.first().expect("paired_devices row must exist");
-        assert_eq!(row.get("paired_devices.id").and_then(serde_json::Value::as_str), Some("cloud-dev-1"));
-        assert_eq!(row.get("paired_devices.name").and_then(serde_json::Value::as_str), Some("FUNG Desktop"));
-        assert_eq!(row.get("paired_devices.endpoint").and_then(serde_json::Value::as_str), Some("192.168.1.20:8765"));
-        assert_eq!(row.get("paired_devices.trust_state").and_then(serde_json::Value::as_str), Some("paired"));
-        assert_eq!(row.get("paired_devices.pairing_proof_hash").and_then(serde_json::Value::as_str), Some("sess-uuid-1"));
-        assert_eq!(row.get("paired_devices.capabilities_json").cloned(), Some(serde_json::json!([])));
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        assert_eq!(
+            row.get("paired_devices.id")
+                .and_then(serde_json::Value::as_str),
+            Some("cloud-dev-1")
+        );
+        assert_eq!(
+            row.get("paired_devices.name")
+                .and_then(serde_json::Value::as_str),
+            Some("FUNG Desktop")
+        );
+        assert_eq!(
+            row.get("paired_devices.endpoint")
+                .and_then(serde_json::Value::as_str),
+            Some("192.168.1.20:8765")
+        );
+        assert_eq!(
+            row.get("paired_devices.trust_state")
+                .and_then(serde_json::Value::as_str),
+            Some("paired")
+        );
+        assert_eq!(
+            row.get("paired_devices.pairing_proof_hash")
+                .and_then(serde_json::Value::as_str),
+            Some("sess-uuid-1")
+        );
+        assert_eq!(
+            row.get("paired_devices.capabilities_json").cloned(),
+            Some(serde_json::json!([]))
+        );
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
@@ -2033,89 +3218,191 @@ mod tests {
             &storage,
             "paired_devices",
             &["id", "public_key"],
-            vec![crate::genesis_adapter::eq("paired_devices", "id", serde_json::json!("cloud-dev-1b"))],
+            vec![crate::genesis_adapter::eq(
+                "paired_devices",
+                "id",
+                serde_json::json!("cloud-dev-1b"),
+            )],
             1,
         )
         .expect("query paired_devices");
         let row = rows.first().expect("paired_devices row must exist");
         assert_eq!(
-            row.get("paired_devices.public_key").and_then(serde_json::Value::as_str),
+            row.get("paired_devices.public_key")
+                .and_then(serde_json::Value::as_str),
             Some("cGVlci1wdWJsaWMta2V5LWJhc2U2NA==")
         );
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
     fn pairing_complete_allows_empty_endpoint() {
         let (path, storage) = open_genesis();
-        pairing_complete_inner(&storage, "cloud-dev-2", "FUNG Desktop 2", "", "sess-uuid-2", None)
-            .expect("pairing complete with empty endpoint");
+        pairing_complete_inner(
+            &storage,
+            "cloud-dev-2",
+            "FUNG Desktop 2",
+            "",
+            "sess-uuid-2",
+            None,
+        )
+        .expect("pairing complete with empty endpoint");
         let rows = crate::genesis_adapter::query(
             &storage,
             "paired_devices",
             &["id", "endpoint"],
-            vec![crate::genesis_adapter::eq("paired_devices", "id", serde_json::json!("cloud-dev-2"))],
+            vec![crate::genesis_adapter::eq(
+                "paired_devices",
+                "id",
+                serde_json::json!("cloud-dev-2"),
+            )],
             1,
         )
         .expect("query paired_devices");
         let row = rows.first().expect("paired_devices row must exist");
-        assert_eq!(row.get("paired_devices.endpoint").and_then(serde_json::Value::as_str), Some(""));
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        assert_eq!(
+            row.get("paired_devices.endpoint")
+                .and_then(serde_json::Value::as_str),
+            Some("")
+        );
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
     fn pairing_complete_rejects_blank_peer_device_id() {
         let (path, storage) = open_genesis();
-        let error = pairing_complete_inner(&storage, "  ", "FUNG Desktop", "192.168.1.20:8765", "sess-uuid-3", None)
-            .expect_err("blank peer device id must be rejected");
+        let error = pairing_complete_inner(
+            &storage,
+            "  ",
+            "FUNG Desktop",
+            "192.168.1.20:8765",
+            "sess-uuid-3",
+            None,
+        )
+        .expect_err("blank peer device id must be rejected");
         assert!(matches!(error, AppError::InvalidInput(_)));
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
     fn pairing_complete_rejects_blank_pairing_session_id() {
         let (path, storage) = open_genesis();
-        let error = pairing_complete_inner(&storage, "cloud-dev-3", "FUNG Desktop", "192.168.1.20:8765", "", None)
-            .expect_err("blank pairing session id must be rejected");
+        let error = pairing_complete_inner(
+            &storage,
+            "cloud-dev-3",
+            "FUNG Desktop",
+            "192.168.1.20:8765",
+            "",
+            None,
+        )
+        .expect_err("blank pairing session id must be rejected");
         assert!(matches!(error, AppError::InvalidInput(_)));
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
     fn pairing_complete_rejects_invalid_name_length() {
         let (path, storage) = open_genesis();
         let too_long = "x".repeat(121);
-        let empty_name_error =
-            pairing_complete_inner(&storage, "cloud-dev-4", "  ", "192.168.1.20:8765", "sess-uuid-4", None)
-                .expect_err("empty name must be rejected");
+        let empty_name_error = pairing_complete_inner(
+            &storage,
+            "cloud-dev-4",
+            "  ",
+            "192.168.1.20:8765",
+            "sess-uuid-4",
+            None,
+        )
+        .expect_err("empty name must be rejected");
         assert!(matches!(empty_name_error, AppError::InvalidInput(_)));
-        let too_long_error =
-            pairing_complete_inner(&storage, "cloud-dev-4", &too_long, "192.168.1.20:8765", "sess-uuid-4", None)
-                .expect_err("121-char name must be rejected");
+        let too_long_error = pairing_complete_inner(
+            &storage,
+            "cloud-dev-4",
+            &too_long,
+            "192.168.1.20:8765",
+            "sess-uuid-4",
+            None,
+        )
+        .expect_err("121-char name must be rejected");
         assert!(matches!(too_long_error, AppError::InvalidInput(_)));
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
     fn pairing_complete_preserves_created_at_on_repair() {
         let (path, storage) = open_genesis();
-        pairing_complete_inner(&storage, "cloud-dev-5", "FUNG Desktop", "192.168.1.20:8765", "sess-uuid-5a", None)
-            .expect("first pairing");
-        let first = crate::genesis_adapter::query(&storage, "paired_devices", &["created_at"], vec![crate::genesis_adapter::eq("paired_devices", "id", serde_json::json!("cloud-dev-5"))], 1)
-            .expect("query first")
-            .into_iter()
-            .next()
-            .and_then(|row| row.get("paired_devices.created_at").and_then(serde_json::Value::as_str).map(str::to_owned))
-            .expect("first created_at");
-        pairing_complete_inner(&storage, "cloud-dev-5", "FUNG Desktop", "192.168.1.20:9999", "sess-uuid-5b", None)
-            .expect("re-pairing");
-        let rows = crate::genesis_adapter::query(&storage, "paired_devices", &["created_at", "endpoint", "pairing_proof_hash"], vec![crate::genesis_adapter::eq("paired_devices", "id", serde_json::json!("cloud-dev-5"))], 1)
-            .expect("query second");
+        pairing_complete_inner(
+            &storage,
+            "cloud-dev-5",
+            "FUNG Desktop",
+            "192.168.1.20:8765",
+            "sess-uuid-5a",
+            None,
+        )
+        .expect("first pairing");
+        let first = crate::genesis_adapter::query(
+            &storage,
+            "paired_devices",
+            &["created_at"],
+            vec![crate::genesis_adapter::eq(
+                "paired_devices",
+                "id",
+                serde_json::json!("cloud-dev-5"),
+            )],
+            1,
+        )
+        .expect("query first")
+        .into_iter()
+        .next()
+        .and_then(|row| {
+            row.get("paired_devices.created_at")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .expect("first created_at");
+        pairing_complete_inner(
+            &storage,
+            "cloud-dev-5",
+            "FUNG Desktop",
+            "192.168.1.20:9999",
+            "sess-uuid-5b",
+            None,
+        )
+        .expect("re-pairing");
+        let rows = crate::genesis_adapter::query(
+            &storage,
+            "paired_devices",
+            &["created_at", "endpoint", "pairing_proof_hash"],
+            vec![crate::genesis_adapter::eq(
+                "paired_devices",
+                "id",
+                serde_json::json!("cloud-dev-5"),
+            )],
+            1,
+        )
+        .expect("query second");
         let row = rows.first().expect("row still present");
-        assert_eq!(row.get("paired_devices.created_at").and_then(serde_json::Value::as_str), Some(first.as_str()));
-        assert_eq!(row.get("paired_devices.endpoint").and_then(serde_json::Value::as_str), Some("192.168.1.20:9999"));
-        assert_eq!(row.get("paired_devices.pairing_proof_hash").and_then(serde_json::Value::as_str), Some("sess-uuid-5b"));
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        assert_eq!(
+            row.get("paired_devices.created_at")
+                .and_then(serde_json::Value::as_str),
+            Some(first.as_str())
+        );
+        assert_eq!(
+            row.get("paired_devices.endpoint")
+                .and_then(serde_json::Value::as_str),
+            Some("192.168.1.20:9999")
+        );
+        assert_eq!(
+            row.get("paired_devices.pairing_proof_hash")
+                .and_then(serde_json::Value::as_str),
+            Some("sess-uuid-5b")
+        );
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
@@ -2170,6 +3457,7 @@ mod tests {
         )
         .expect_err("an absent grant must be denied");
         assert!(result.contains("VOICE_NOT_GRANTED"));
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 }

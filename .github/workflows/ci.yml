@@ -41,11 +41,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      # Formatting first: it needs no build, so a formatting-only failure
+      # reports in seconds instead of after a full compile.
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
       # tauri-build copies bundle.resources at build-script time (unconditionally,
       # regardless of the custom-protocol feature). .venv-whisper/ and runtime/ are
       # gitignored, so create them empty — empty dirs are skipped by ResourcePaths.
       - run: New-Item -ItemType Directory -Force .venv-whisper, runtime
+      # `-D warnings` covers dead code too, so an unused item has to be either
+      # removed or annotated with why it is kept. Every current exemption
+      # carries that reason inline.
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib --all-targets -- -D warnings
       - run: cargo test --manifest-path src-tauri/Cargo.toml

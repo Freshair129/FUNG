@@ -40,10 +40,18 @@ pub(crate) struct TtsValidation {
 
 impl TtsValidation {
     fn ok() -> Self {
-        Self { ok: true, error: None, warnings: vec![] }
+        Self {
+            ok: true,
+            error: None,
+            warnings: vec![],
+        }
     }
     fn invalid(msg: String) -> Self {
-        Self { ok: false, error: Some(msg), warnings: vec![] }
+        Self {
+            ok: false,
+            error: Some(msg),
+            warnings: vec![],
+        }
     }
 }
 
@@ -58,9 +66,7 @@ impl TtsProviderConfig {
             } => {
                 let venv = Path::new(venv_path);
                 if !venv.exists() {
-                    return TtsValidation::invalid(format!(
-                        "venv path ไม่มีอยู่: {venv_path}"
-                    ));
+                    return TtsValidation::invalid(format!("venv path ไม่มีอยู่: {venv_path}"));
                 }
                 let python = if cfg!(windows) {
                     venv.join("Scripts").join("python.exe")
@@ -75,20 +81,14 @@ impl TtsProviderConfig {
                 }
                 let script = Path::new(script_path);
                 if !script.exists() {
-                    return TtsValidation::invalid(format!(
-                        "script ไม่มีอยู่: {script_path}"
-                    ));
+                    return TtsValidation::invalid(format!("script ไม่มีอยู่: {script_path}"));
                 }
                 if script.extension().and_then(|e| e.to_str()) != Some("py") {
-                    return TtsValidation::invalid(format!(
-                        "script ต้องเป็นไฟล์ .py: {script_path}"
-                    ));
+                    return TtsValidation::invalid(format!("script ต้องเป็นไฟล์ .py: {script_path}"));
                 }
                 if let Some(mp) = model_path {
                     if !Path::new(mp).exists() {
-                        return TtsValidation::invalid(format!(
-                            "model path ไม่มีอยู่: {mp}"
-                        ));
+                        return TtsValidation::invalid(format!("model path ไม่มีอยู่: {mp}"));
                     }
                 }
                 TtsValidation::ok()
@@ -102,12 +102,13 @@ impl TtsProviderConfig {
                 }
                 let mut warnings = Vec::new();
                 if !is_private_ip(endpoint) {
-                    warnings.push(
-                        "endpoint ชี้ไปยัง public IP — ข้อมูลจะถูกส่งออกนอกเครือข่ายท้องถิ่น"
-                            .into(),
-                    );
+                    warnings.push("endpoint ชี้ไปยัง public IP — ข้อมูลจะถูกส่งออกนอกเครือข่ายท้องถิ่น".into());
                 }
-                TtsValidation { ok: true, error: None, warnings }
+                TtsValidation {
+                    ok: true,
+                    error: None,
+                    warnings,
+                }
             }
 
             Self::LocalBinary {
@@ -117,9 +118,7 @@ impl TtsProviderConfig {
             } => {
                 let bin = Path::new(binary_path);
                 if !bin.exists() {
-                    return TtsValidation::invalid(format!(
-                        "binary ไม่มีอยู่: {binary_path}"
-                    ));
+                    return TtsValidation::invalid(format!("binary ไม่มีอยู่: {binary_path}"));
                 }
                 if !args_template.contains("{text}") || !args_template.contains("{output}") {
                     return TtsValidation::invalid(
@@ -128,9 +127,7 @@ impl TtsProviderConfig {
                 }
                 if let Some(mp) = model_path {
                     if !Path::new(mp).exists() {
-                        return TtsValidation::invalid(format!(
-                            "model path ไม่มีอยู่: {mp}"
-                        ));
+                        return TtsValidation::invalid(format!("model path ไม่มีอยู่: {mp}"));
                     }
                 }
                 TtsValidation::ok()
@@ -155,7 +152,7 @@ pub(crate) fn is_private_ip(endpoint: &str) -> bool {
                 .split('.')
                 .nth(1)
                 .and_then(|s| s.parse::<u8>().ok())
-                .map_or(false, |n| (16..=31).contains(&n)))
+                .is_some_and(|n| (16..=31).contains(&n)))
 }
 
 #[cfg(test)]
@@ -200,7 +197,12 @@ mod tests {
     #[test]
     fn local_binary_template_missing_placeholders_is_invalid() {
         let config = TtsProviderConfig::LocalBinary {
-            binary_path: if cfg!(windows) { "C:\\Windows\\System32\\cmd.exe" } else { "/bin/sh" }.into(),
+            binary_path: if cfg!(windows) {
+                "C:\\Windows\\System32\\cmd.exe"
+            } else {
+                "/bin/sh"
+            }
+            .into(),
             model_path: None,
             args_template: "--speak something".into(), // missing {text} and {output}
         };
@@ -212,7 +214,12 @@ mod tests {
     #[test]
     fn local_binary_valid_template() {
         let config = TtsProviderConfig::LocalBinary {
-            binary_path: if cfg!(windows) { "C:\\Windows\\System32\\cmd.exe" } else { "/bin/sh" }.into(),
+            binary_path: if cfg!(windows) {
+                "C:\\Windows\\System32\\cmd.exe"
+            } else {
+                "/bin/sh"
+            }
+            .into(),
             model_path: None,
             args_template: "--text {text} --output {output}".into(),
         };

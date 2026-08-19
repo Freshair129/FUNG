@@ -113,7 +113,8 @@ pub(crate) fn init<R: Runtime>() -> TauriPlugin<R> {
         .setup(|app, _api| {
             #[cfg(target_os = "android")]
             let probe: AndroidProfileProbe<R> = AndroidProfileProbe {
-                handle: _api.register_android_plugin("dev.fung.local.aiprofile", "AiProfilePlugin")?,
+                handle: _api
+                    .register_android_plugin("dev.fung.local.aiprofile", "AiProfilePlugin")?,
             };
             #[cfg(not(target_os = "android"))]
             let probe: AndroidProfileProbe<R> = AndroidProfileProbe {
@@ -204,15 +205,19 @@ pub(crate) struct PackageManifest {
 impl PackageManifest {
     pub(crate) fn validate(&self) -> Result<(), &'static str> {
         if self.package_id.trim().is_empty()
-            || !self
-                .package_id
-                .chars()
-                .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit() || matches!(character, '.' | '-' | '_'))
+            || !self.package_id.chars().all(|character| {
+                character.is_ascii_lowercase()
+                    || character.is_ascii_digit()
+                    || matches!(character, '.' | '-' | '_')
+            })
         {
             return Err("package_id_invalid");
         }
         if self.artifact_sha256.len() != 64
-            || !self.artifact_sha256.chars().all(|character| character.is_ascii_hexdigit())
+            || !self
+                .artifact_sha256
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
         {
             return Err("artifact_sha256_invalid");
         }
@@ -272,22 +277,34 @@ pub(crate) fn admit_task(
     task: AiTaskKind,
 ) -> Admission {
     if tier == DeviceTier::Core {
-        return Admission::Deferred { reason: "device_tier_core" };
+        return Admission::Deferred {
+            reason: "device_tier_core",
+        };
     }
     if resources.capture_active {
-        return Admission::Deferred { reason: "capture_active" };
+        return Admission::Deferred {
+            reason: "capture_active",
+        };
     }
     if resources.thermal_status == ThermalStatus::Severe {
-        return Admission::Deferred { reason: "thermal_severe" };
+        return Admission::Deferred {
+            reason: "thermal_severe",
+        };
     }
     if resources.memory_pressure {
-        return Admission::Deferred { reason: "memory_pressure" };
+        return Admission::Deferred {
+            reason: "memory_pressure",
+        };
     }
     if resources.battery_percent < 20 && !resources.charging {
-        return Admission::Deferred { reason: "battery_low" };
+        return Admission::Deferred {
+            reason: "battery_low",
+        };
     }
     if task == AiTaskKind::Llm && tier == DeviceTier::AiLite {
-        return Admission::Deferred { reason: "device_tier_insufficient" };
+        return Admission::Deferred {
+            reason: "device_tier_insufficient",
+        };
     }
     Admission::Allowed
 }
@@ -317,11 +334,23 @@ mod tests {
 
     #[test]
     fn active_capture_or_severe_thermal_state_defers_heavy_inference() {
-        let capture = ResourceSnapshot { capture_active: true, ..ResourceSnapshot::idle() };
-        let thermal = ResourceSnapshot { thermal_status: ThermalStatus::Severe, ..ResourceSnapshot::idle() };
+        let capture = ResourceSnapshot {
+            capture_active: true,
+            ..ResourceSnapshot::idle()
+        };
+        let thermal = ResourceSnapshot {
+            thermal_status: ThermalStatus::Severe,
+            ..ResourceSnapshot::idle()
+        };
 
-        assert_eq!(admit_task(DeviceTier::AiPro, &capture, AiTaskKind::Stt).reason(), Some("capture_active"));
-        assert_eq!(admit_task(DeviceTier::AiPro, &thermal, AiTaskKind::Embedding).reason(), Some("thermal_severe"));
+        assert_eq!(
+            admit_task(DeviceTier::AiPro, &capture, AiTaskKind::Stt).reason(),
+            Some("capture_active")
+        );
+        assert_eq!(
+            admit_task(DeviceTier::AiPro, &thermal, AiTaskKind::Embedding).reason(),
+            Some("thermal_severe")
+        );
     }
 
     #[test]
@@ -338,8 +367,18 @@ mod tests {
         };
 
         assert!(valid.validate().is_ok());
-        assert!(PackageManifest { artifact_sha256: "bad".to_string(), ..valid.clone() }.validate().is_err());
-        assert!(PackageManifest { license_ref: String::new(), ..valid }.validate().is_err());
+        assert!(PackageManifest {
+            artifact_sha256: "bad".to_string(),
+            ..valid.clone()
+        }
+        .validate()
+        .is_err());
+        assert!(PackageManifest {
+            license_ref: String::new(),
+            ..valid
+        }
+        .validate()
+        .is_err());
     }
 
     #[test]

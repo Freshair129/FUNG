@@ -36,8 +36,12 @@ pub(crate) fn dispatch(
             device,
         } => {
             exec_python_script(
-                venv_path, script_path, model_path.as_deref(), device,
-                request, &output_path,
+                venv_path,
+                script_path,
+                model_path.as_deref(),
+                device,
+                request,
+                &output_path,
             )?;
         }
         TtsProviderConfig::RestApi {
@@ -52,8 +56,11 @@ pub(crate) fn dispatch(
             args_template,
         } => {
             exec_local_binary(
-                binary_path, model_path.as_deref(), args_template,
-                request, &output_path,
+                binary_path,
+                model_path.as_deref(),
+                args_template,
+                request,
+                &output_path,
             )?;
         }
     }
@@ -61,7 +68,10 @@ pub(crate) fn dispatch(
     validate_wav(&output_path)?;
 
     let latency_ms = start.elapsed().as_millis() as u64;
-    Ok(TtsSynthesisResult { audio_path: output_path, latency_ms })
+    Ok(TtsSynthesisResult {
+        audio_path: output_path,
+        latency_ms,
+    })
 }
 
 fn exec_python_script(
@@ -80,9 +90,12 @@ fn exec_python_script(
 
     let mut cmd = Command::new(&python);
     cmd.arg(script_path)
-        .arg("--text").arg(&request.text)
-        .arg("--output").arg(output_path)
-        .arg("--device").arg(match device {
+        .arg("--text")
+        .arg(&request.text)
+        .arg("--output")
+        .arg(output_path)
+        .arg("--device")
+        .arg(match device {
             TtsDevice::Cuda => "cuda",
             TtsDevice::Cpu => "cpu",
         });
@@ -139,7 +152,12 @@ fn exec_rest_api(
         let status = response.status();
         let body_text = response.text().unwrap_or_default();
         let truncated = if body_text.len() > 500 {
-            let end = body_text.char_indices().take_while(|(i, _)| *i < 500).last().map(|(i, c)| i + c.len_utf8()).unwrap_or(0);
+            let end = body_text
+                .char_indices()
+                .take_while(|(i, _)| *i < 500)
+                .last()
+                .map(|(i, c)| i + c.len_utf8())
+                .unwrap_or(0);
             &body_text[..end]
         } else {
             &body_text
@@ -147,9 +165,10 @@ fn exec_rest_api(
         return Err(format!("endpoint ตอบ {status}: {truncated}"));
     }
 
-    let bytes = response.bytes().map_err(|e| format!("อ่าน response ไม่ได้: {e}"))?;
-    std::fs::write(output_path, &bytes)
-        .map_err(|e| format!("เขียนไฟล์เสียงไม่ได้: {e}"))
+    let bytes = response
+        .bytes()
+        .map_err(|e| format!("อ่าน response ไม่ได้: {e}"))?;
+    std::fs::write(output_path, &bytes).map_err(|e| format!("เขียนไฟล์เสียงไม่ได้: {e}"))
 }
 
 fn exec_local_binary(
@@ -169,8 +188,8 @@ fn exec_local_binary(
     }
 
     let mut cmd = Command::new(binary_path);
-    for arg in shell_words::split(&args_str)
-        .map_err(|e| format!("parse args_template ผิดพลาด: {e}"))?
+    for arg in
+        shell_words::split(&args_str).map_err(|e| format!("parse args_template ผิดพลาด: {e}"))?
     {
         cmd.arg(arg);
     }
@@ -187,7 +206,7 @@ fn run_with_timeout(mut cmd: Command, label: &str) -> Result<(), String> {
 
     // Wait with timeout using a thread
     let (tx, rx) = std::sync::mpsc::channel();
-    let handle = std::thread::spawn(move || {
+    let _handle = std::thread::spawn(move || {
         let output = child.wait_with_output();
         let _ = tx.send(output);
     });
@@ -199,13 +218,20 @@ fn run_with_timeout(mut cmd: Command, label: &str) -> Result<(), String> {
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let truncated = if stderr.len() > 500 {
-                    let end = stderr.char_indices().take_while(|(i, _)| *i < 500).last().map(|(i, c)| i + c.len_utf8()).unwrap_or(0);
+                    let end = stderr
+                        .char_indices()
+                        .take_while(|(i, _)| *i < 500)
+                        .last()
+                        .map(|(i, c)| i + c.len_utf8())
+                        .unwrap_or(0);
                     &stderr[..end]
                 } else {
                     &stderr
                 };
-                Err(format!("{label} ล้มเหลว (exit {}): {truncated}",
-                    output.status.code().unwrap_or(-1)))
+                Err(format!(
+                    "{label} ล้มเหลว (exit {}): {truncated}",
+                    output.status.code().unwrap_or(-1)
+                ))
             }
         }
         Ok(Err(e)) => Err(format!("{label} error: {e}")),
@@ -220,14 +246,12 @@ pub(crate) fn validate_wav(path: &Path) -> Result<(), String> {
     if !path.exists() {
         return Err("ไม่พบไฟล์เสียงที่สร้าง".into());
     }
-    let meta = std::fs::metadata(path)
-        .map_err(|e| format!("อ่านข้อมูลไฟล์ไม่ได้: {e}"))?;
+    let meta = std::fs::metadata(path).map_err(|e| format!("อ่านข้อมูลไฟล์ไม่ได้: {e}"))?;
     if meta.len() == 0 {
         return Err("ไฟล์เสียงมีขนาด 0 bytes".into());
     }
     // Check RIFF/WAV header
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| format!("เปิดไฟล์ไม่ได้: {e}"))?;
+    let mut file = std::fs::File::open(path).map_err(|e| format!("เปิดไฟล์ไม่ได้: {e}"))?;
     let mut header = [0u8; 12];
     file.read_exact(&mut header)
         .map_err(|_| "ไฟล์เสียงสั้นเกินไป ไม่ใช่ WAV".to_string())?;
@@ -238,6 +262,9 @@ pub(crate) fn validate_wav(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+// No caller: synthesis returns its output path and the caller owns cleanup.
+// A deletion candidate rather than a contract obligation.
+#[allow(dead_code)]
 pub(crate) fn cleanup_temp(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
@@ -258,11 +285,11 @@ mod tests {
         f.write_all(b"WAVE").unwrap();
         f.write_all(b"fmt ").unwrap();
         f.write_all(&16u32.to_le_bytes()).unwrap(); // chunk size
-        f.write_all(&1u16.to_le_bytes()).unwrap();  // PCM
-        f.write_all(&1u16.to_le_bytes()).unwrap();  // mono
+        f.write_all(&1u16.to_le_bytes()).unwrap(); // PCM
+        f.write_all(&1u16.to_le_bytes()).unwrap(); // mono
         f.write_all(&16000u32.to_le_bytes()).unwrap(); // sample rate
         f.write_all(&32000u32.to_le_bytes()).unwrap(); // byte rate
-        f.write_all(&2u16.to_le_bytes()).unwrap();  // block align
+        f.write_all(&2u16.to_le_bytes()).unwrap(); // block align
         f.write_all(&16u16.to_le_bytes()).unwrap(); // bits per sample
         f.write_all(b"data").unwrap();
         f.write_all(&data_size.to_le_bytes()).unwrap();

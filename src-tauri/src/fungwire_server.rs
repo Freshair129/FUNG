@@ -198,7 +198,9 @@ pub(crate) fn fungwire_server_set_enabled(
                         // slot would leak and the cap would ratchet down to
                         // zero over time.
                         let _slot = ConnectionSlotGuard(peers);
-                        if let Err(e) = handle_connection(stream, &storage, &app_data, &runtime, &jobs) {
+                        if let Err(e) =
+                            handle_connection(stream, &storage, &app_data, &runtime, &jobs)
+                        {
                             eprintln!("fungwire connection ended: {e}");
                         }
                     });
@@ -270,9 +272,7 @@ pub(crate) fn handle_connection(
     runtime: &WhisperRuntime,
     jobs: &Arc<AtomicUsize>,
 ) -> Result<(), String> {
-    stream
-        .set_read_timeout(Some(Duration::from_secs(60)))
-        .ok();
+    stream.set_read_timeout(Some(Duration::from_secs(60))).ok();
 
     // 1) Frame 0: cleartext Hello carrying the claimed device_id.
     let hello_frame = read_frame(&mut stream, CTRL_MAX).map_err(|e| e.to_string())?;
@@ -293,7 +293,10 @@ pub(crate) fn handle_connection(
     let raw = base64::engine::general_purpose::STANDARD
         .decode(peer_public_key.trim())
         .map_err(|e| e.to_string())?;
-    let digest: String = Sha256::digest(&raw).iter().map(|b| format!("{b:02x}")).collect();
+    let digest: String = Sha256::digest(&raw)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     if digest != peer.fingerprint {
         return Err("peer key/fingerprint mismatch".into());
     }
@@ -510,7 +513,9 @@ pub(crate) fn run_job_loop(
         };
         match control {
             Control::Heartbeat => {
-                channel.send(&Control::HeartbeatAck).map_err(|e| e.to_string())?;
+                channel
+                    .send(&Control::HeartbeatAck)
+                    .map_err(|e| e.to_string())?;
             }
             // Phase 3 status probe. Answered right here alongside
             // `Heartbeat`, rather than anywhere near the `JobStart` arm
@@ -770,7 +775,10 @@ fn receive_and_transcribe(
                 ))
             }
         };
-        let digest: String = Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+        let digest: String = Sha256::digest(&bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         if checksums[idx] != digest {
             return Err(JobFailure::Failed(
                 "resume_gap".into(),
@@ -838,8 +846,9 @@ fn receive_and_transcribe(
                 }
 
                 let seg_path = job_dir.join(format!("segment-{seq}.m4a"));
-                fs::write(&seg_path, &acc)
-                    .map_err(|e| JobFailure::Failed("io_error".into(), format!("seg {seq}: {e}")))?;
+                fs::write(&seg_path, &acc).map_err(|e| {
+                    JobFailure::Failed("io_error".into(), format!("seg {seq}: {e}"))
+                })?;
                 received_checksums[idx] = Some(digest);
                 seg_paths[idx] = Some(seg_path);
 
@@ -870,7 +879,10 @@ fn receive_and_transcribe(
         }
     }
 
-    let ordered_checksums: Vec<String> = match received_checksums.into_iter().collect::<Option<Vec<String>>>() {
+    let ordered_checksums: Vec<String> = match received_checksums
+        .into_iter()
+        .collect::<Option<Vec<String>>>()
+    {
         Some(v) => v,
         None => {
             return Err(JobFailure::Failed(
@@ -921,9 +933,8 @@ fn receive_and_transcribe(
         .map(|p| p.to_string_lossy().to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    fs::write(&manifest_path, manifest_contents).map_err(|e| {
-        JobFailure::Failed("io_error".into(), format!("segment manifest: {e}"))
-    })?;
+    fs::write(&manifest_path, manifest_contents)
+        .map_err(|e| JobFailure::Failed("io_error".into(), format!("segment manifest: {e}")))?;
     let manifest_path_string = manifest_path.to_string_lossy().to_string();
     let worker_args: Vec<String> = vec![
         "--manifest".to_string(),
@@ -945,9 +956,15 @@ fn receive_and_transcribe(
     let worker_script = runtime.script.clone();
     let worker_handle: thread::JoinHandle<Result<String, String>> = thread::spawn(move || {
         let arg_refs: Vec<&str> = worker_args.iter().map(String::as_str).collect();
-        crate::run_python_worker(&worker_runtime, &worker_script, &arg_refs, None, move |pct| {
-            let _ = progress_tx.send(pct);
-        })
+        crate::run_python_worker(
+            &worker_runtime,
+            &worker_script,
+            &arg_refs,
+            None,
+            move |pct| {
+                let _ = progress_tx.send(pct);
+            },
+        )
     });
 
     let mut last_pct: u8 = 0;
@@ -1036,17 +1053,13 @@ fn resolve_stt_cloud_config() -> Result<Option<crate::cloud_config::CloudProvide
         }
     }
 
-    let openai_slot = crate::cloud_config::cloud_config_slot(
-        "openai",
-        crate::cloud_config::CloudTaskKind::Stt,
-    );
+    let openai_slot =
+        crate::cloud_config::cloud_config_slot("openai", crate::cloud_config::CloudTaskKind::Stt);
     if let Some(config) = crate::cloud_config::load_cloud_config(&openai_slot)? {
         return Ok(Some(config));
     }
-    let custom_slot = crate::cloud_config::cloud_config_slot(
-        "custom",
-        crate::cloud_config::CloudTaskKind::Stt,
-    );
+    let custom_slot =
+        crate::cloud_config::cloud_config_slot("custom", crate::cloud_config::CloudTaskKind::Stt);
     crate::cloud_config::load_cloud_config(&custom_slot)
 }
 
@@ -1120,8 +1133,8 @@ fn dispatch_cloud_stt(
     let calls_today =
         crate::policy::calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt)
             .map_err(|e| JobFailure::Failed("policy_error".into(), e))?;
-    let config = resolve_stt_cloud_config()
-        .map_err(|e| JobFailure::Failed("policy_error".into(), e))?;
+    let config =
+        resolve_stt_cloud_config().map_err(|e| JobFailure::Failed("policy_error".into(), e))?;
 
     let decision = crate::policy::decide_cloud_tier(
         &policy,
@@ -1181,6 +1194,10 @@ fn dispatch_cloud_stt(
     // user's quota whether or not anyone is left to receive the answer, so
     // bailing out here would under-count `calls_today` against the daily cap.
     let mut transport_error: Option<String> = None;
+    // Not a `while let`: the loop body runs on *both* the "still working" arms
+    // as well as ticking the keepalive, so collapsing it would drop the
+    // timeout arm that does the actual work.
+    #[allow(clippy::while_let_loop)]
     loop {
         match done_rx.recv_timeout(TRANSCRIBE_KEEPALIVE_INTERVAL) {
             // Nothing is ever sent on this channel; both arms just mean
@@ -1200,21 +1217,20 @@ fn dispatch_cloud_stt(
         }
     }
 
-    let segments = worker
-        .join()
-        .map_err(|_| {
-            JobFailure::Failed(
-                "cloud_dispatch_failed".into(),
-                "cloud worker thread panicked".into(),
-            )
-        })??;
+    let segments = worker.join().map_err(|_| {
+        JobFailure::Failed(
+            "cloud_dispatch_failed".into(),
+            "cloud worker thread panicked".into(),
+        )
+    })??;
 
     // Success: the call happened and counts against today's cap, even if the
     // peer disappeared while it was in flight. A successful cloud result is
     // not discarded merely because writing today's usage count failed -- the
     // spend guardrail is a rate limit, not a correctness invariant (mirrors
     // cloud_executor::call_llm_with_fallback's LLM path).
-    let _ = crate::policy::increment_calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt);
+    let _ =
+        crate::policy::increment_calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt);
 
     if let Some(e) = transport_error {
         return Err(JobFailure::Failed("transport_error".into(), e));
@@ -1272,7 +1288,7 @@ fn concat_and_dispatch_stt(
         fs::write(&manifest_path, manifest_contents)
             .map_err(|e| JobFailure::Failed("io_error".into(), format!("segment manifest: {e}")))?;
         let concat_path = job_dir.join("concat.wav");
-        let args = vec![
+        let args = [
             "--manifest".to_string(),
             manifest_path.to_string_lossy().to_string(),
             "--concat-only".to_string(),
@@ -1343,7 +1359,10 @@ mod tests {
         let raw = base64::engine::general_purpose::STANDARD
             .decode(&pub_b64)
             .unwrap();
-        let fingerprint: String = Sha256::digest(&raw).iter().map(|b| format!("{b:02x}")).collect();
+        let fingerprint: String = Sha256::digest(&raw)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         let conn = paired_devices_connection_at(server_app_data).unwrap();
         upsert_paired_device(
             &conn,
@@ -1498,7 +1517,11 @@ mod tests {
         let client_app_data = tempfile::tempdir().unwrap();
         ensure_identity_in_dir(server_app_data.path()).unwrap();
         ensure_identity_in_dir(client_app_data.path()).unwrap();
-        pair_device(server_app_data.path(), "device-status", client_app_data.path());
+        pair_device(
+            server_app_data.path(),
+            "device-status",
+            client_app_data.path(),
+        );
 
         let policy_conn = paired_devices_connection_at(server_app_data.path()).unwrap();
         crate::policy::save_policy(
@@ -1539,7 +1562,10 @@ mod tests {
         );
 
         channel.send(&Control::StatusRequest).unwrap();
-        let answered = match channel.recv_control().expect("desktop must answer StatusRequest") {
+        let answered = match channel
+            .recv_control()
+            .expect("desktop must answer StatusRequest")
+        {
             Control::StatusReply { stt_cloud_enabled } => stt_cloud_enabled,
             other => panic!("expected StatusReply, got {other:?}"),
         };
@@ -1551,14 +1577,20 @@ mod tests {
 
         // Same channel, second request: the job loop must still be running.
         channel.send(&Control::StatusRequest).unwrap();
-        match channel.recv_control().expect("connection must survive a status probe") {
+        match channel
+            .recv_control()
+            .expect("connection must survive a status probe")
+        {
             Control::StatusReply { stt_cloud_enabled } => assert_eq!(stt_cloud_enabled, answered),
             other => panic!("expected a second StatusReply, got {other:?}"),
         }
 
         drop(channel);
         let result = server_thread.join().unwrap();
-        assert!(result.is_ok(), "status-probe connection should end cleanly: {result:?}");
+        assert!(
+            result.is_ok(),
+            "status-probe connection should end cleanly: {result:?}"
+        );
         answered
     }
 
@@ -1622,7 +1654,11 @@ mod tests {
         let client_app_data = tempfile::tempdir().unwrap();
         ensure_identity_in_dir(server_app_data.path()).unwrap();
         ensure_identity_in_dir(client_app_data.path()).unwrap();
-        pair_device(server_app_data.path(), "device-progress", client_app_data.path());
+        pair_device(
+            server_app_data.path(),
+            "device-progress",
+            client_app_data.path(),
+        );
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -1828,7 +1864,11 @@ mod tests {
         let client_app_data = tempfile::tempdir().unwrap();
         ensure_identity_in_dir(server_app_data.path()).unwrap();
         ensure_identity_in_dir(client_app_data.path()).unwrap();
-        pair_device(server_app_data.path(), "device-oversized", client_app_data.path());
+        pair_device(
+            server_app_data.path(),
+            "device-oversized",
+            client_app_data.path(),
+        );
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -1910,7 +1950,11 @@ mod tests {
         let client_app_data = tempfile::tempdir().unwrap();
         ensure_identity_in_dir(server_app_data.path()).unwrap();
         ensure_identity_in_dir(client_app_data.path()).unwrap();
-        pair_device(server_app_data.path(), "device-cancel", client_app_data.path());
+        pair_device(
+            server_app_data.path(),
+            "device-cancel",
+            client_app_data.path(),
+        );
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -1997,14 +2041,21 @@ mod tests {
         let client_app_data = tempfile::tempdir().unwrap();
         ensure_identity_in_dir(server_app_data.path()).unwrap();
         ensure_identity_in_dir(client_app_data.path()).unwrap();
-        pair_device(server_app_data.path(), "device-resume-k", client_app_data.path());
+        pair_device(
+            server_app_data.path(),
+            "device-resume-k",
+            client_app_data.path(),
+        );
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let job_id = "job-resume-k";
 
         let checksum_of = |bytes: &[u8]| -> String {
-            Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+            Sha256::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
         };
         let seg0: Vec<u8> = (0..1024u32).map(|i| (i % 256) as u8).collect();
         let seg1: Vec<u8> = (0..70_000u32).map(|i| ((i * 3) % 256) as u8).collect();
@@ -2167,7 +2218,10 @@ mod tests {
 
         drop(channel2);
         let result = server_thread.join().unwrap();
-        assert!(result.is_ok(), "resumed job loop should exit cleanly: {result:?}");
+        assert!(
+            result.is_ok(),
+            "resumed job loop should exit cleanly: {result:?}"
+        );
 
         let job_dir = job_dir_path(server_app_data.path(), job_id);
         assert!(
@@ -2232,7 +2286,11 @@ mod tests {
         let client_app_data = tempfile::tempdir().unwrap();
         ensure_identity_in_dir(server_app_data.path()).unwrap();
         ensure_identity_in_dir(client_app_data.path()).unwrap();
-        pair_device(server_app_data.path(), "device-cloud", client_app_data.path());
+        pair_device(
+            server_app_data.path(),
+            "device-cloud",
+            client_app_data.path(),
+        );
 
         // The tier policy lives in the desktop's own `paired_devices.db` --
         // the very database `dispatch_cloud_stt` opens from `data_root`.
@@ -2348,7 +2406,10 @@ mod tests {
 
         drop(channel);
         let result = server_thread.join().unwrap();
-        assert!(result.is_ok(), "cloud job loop should exit cleanly: {result:?}");
+        assert!(
+            result.is_ok(),
+            "cloud job loop should exit cleanly: {result:?}"
+        );
 
         assert_eq!(
             crate::policy::calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt)
@@ -2409,7 +2470,11 @@ mod tests {
         let client_app_data = tempfile::tempdir().unwrap();
         ensure_identity_in_dir(server_app_data.path()).unwrap();
         ensure_identity_in_dir(client_app_data.path()).unwrap();
-        pair_device(server_app_data.path(), "device-blocked", client_app_data.path());
+        pair_device(
+            server_app_data.path(),
+            "device-blocked",
+            client_app_data.path(),
+        );
 
         let policy_conn = paired_devices_connection_at(server_app_data.path()).unwrap();
         crate::policy::save_policy(
@@ -2503,7 +2568,10 @@ mod tests {
 
         drop(channel);
         let result = server_thread.join().unwrap();
-        assert!(result.is_ok(), "blocked cloud job loop should exit cleanly: {result:?}");
+        assert!(
+            result.is_ok(),
+            "blocked cloud job loop should exit cleanly: {result:?}"
+        );
 
         assert!(
             !contacted.load(Ordering::SeqCst),
@@ -2541,7 +2609,11 @@ mod tests {
         let client_app_data = tempfile::tempdir().unwrap();
         ensure_identity_in_dir(server_app_data.path()).unwrap();
         ensure_identity_in_dir(client_app_data.path()).unwrap();
-        pair_device(server_app_data.path(), "device-cloud-counter-fail", client_app_data.path());
+        pair_device(
+            server_app_data.path(),
+            "device-cloud-counter-fail",
+            client_app_data.path(),
+        );
 
         let policy_conn = paired_devices_connection_at(server_app_data.path()).unwrap();
         crate::policy::save_policy(
@@ -2652,7 +2724,10 @@ mod tests {
 
         drop(channel);
         let result = server_thread.join().unwrap();
-        assert!(result.is_ok(), "cloud job loop should exit cleanly: {result:?}");
+        assert!(
+            result.is_ok(),
+            "cloud job loop should exit cleanly: {result:?}"
+        );
 
         set_test_stt_cloud_config(None);
     }
@@ -2670,7 +2745,11 @@ mod tests {
         let client_app_data = tempfile::tempdir().unwrap();
         ensure_identity_in_dir(server_app_data.path()).unwrap();
         ensure_identity_in_dir(client_app_data.path()).unwrap();
-        pair_device(server_app_data.path(), "device-resume-gap", client_app_data.path());
+        pair_device(
+            server_app_data.path(),
+            "device-resume-gap",
+            client_app_data.path(),
+        );
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -2722,7 +2801,10 @@ mod tests {
 
         drop(channel);
         let result = server_thread.join().unwrap();
-        assert!(result.is_ok(), "resume_gap should be sent and the loop exit cleanly: {result:?}");
+        assert!(
+            result.is_ok(),
+            "resume_gap should be sent and the loop exit cleanly: {result:?}"
+        );
 
         let job_dir = job_dir_path(server_app_data.path(), "job-resume-gap");
         assert!(
@@ -2765,10 +2847,7 @@ mod tests {
         fs::create_dir_all(&fresh).unwrap();
 
         let ttl = Duration::from_secs(60 * 60 * 24);
-        touch_dir_mtime(
-            &stale,
-            SystemTime::now() - ttl - Duration::from_secs(60),
-        );
+        touch_dir_mtime(&stale, SystemTime::now() - ttl - Duration::from_secs(60));
         // `fresh` keeps the mtime it got from `create_dir_all` a moment ago.
 
         sweep_stale_job_dirs(app_data.path(), ttl);
@@ -2849,7 +2928,11 @@ mod tests {
         write_minimal_wav(&seg0, 16_000); // 1 second of silence at 16kHz
         write_minimal_wav(&seg1, 16_000);
         let manifest = dir.path().join("segments.txt");
-        std::fs::write(&manifest, format!("{}\n{}\n", seg0.display(), seg1.display())).unwrap();
+        std::fs::write(
+            &manifest,
+            format!("{}\n{}\n", seg0.display(), seg1.display()),
+        )
+        .unwrap();
         let output = dir.path().join("concat.wav");
 
         let runtime = crate::WhisperRuntime {
@@ -2857,19 +2940,25 @@ mod tests {
             script: real_transcribe_script(),
             cuda_bin: std::path::PathBuf::new(),
         };
-        let args = vec![
-            "--manifest".to_string(), manifest.to_string_lossy().to_string(),
-            "--concat-only".to_string(), output.to_string_lossy().to_string(),
+        let args = [
+            "--manifest".to_string(),
+            manifest.to_string_lossy().to_string(),
+            "--concat-only".to_string(),
+            output.to_string_lossy().to_string(),
         ];
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        let result = crate::run_python_worker(&runtime, &real_transcribe_script(), &arg_refs, None, |_| {});
+        let result =
+            crate::run_python_worker(&runtime, &real_transcribe_script(), &arg_refs, None, |_| {});
         assert!(result.is_ok(), "concat-only failed: {result:?}");
         assert!(output.exists());
         assert!(std::fs::metadata(&output).unwrap().len() > 44); // more than just a WAV header
     }
 
     fn real_transcribe_script() -> std::path::PathBuf {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("scripts").join("transcribe.py")
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("scripts")
+            .join("transcribe.py")
     }
 
     /// Resolves a Python interpreter that genuinely has `faster_whisper`
@@ -2900,7 +2989,11 @@ mod tests {
             .join("..")
             .join(".venv-whisper")
             .join(if cfg!(windows) { "Scripts" } else { "bin" })
-            .join(if cfg!(windows) { "python.exe" } else { "python" });
+            .join(if cfg!(windows) {
+                "python.exe"
+            } else {
+                "python"
+            });
         if venv_python.exists() && has_faster_whisper(&venv_python) {
             return Some(venv_python);
         }

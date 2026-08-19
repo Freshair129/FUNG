@@ -50,12 +50,16 @@ fn keyring_entry() -> Result<keyring::Entry, String> {
 
 pub(crate) fn save_tokens(tokens: &TokenSet) -> Result<(), String> {
     let payload = serde_json::to_string(tokens).map_err(|e| e.to_string())?;
-    keyring_entry()?.set_password(&payload).map_err(|e| e.to_string())
+    keyring_entry()?
+        .set_password(&payload)
+        .map_err(|e| e.to_string())
 }
 
 pub(crate) fn load_tokens() -> Result<Option<TokenSet>, String> {
     match keyring_entry()?.get_password() {
-        Ok(payload) => serde_json::from_str(&payload).map(Some).map_err(|e| e.to_string()),
+        Ok(payload) => serde_json::from_str(&payload)
+            .map(Some)
+            .map_err(|e| e.to_string()),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(error.to_string()),
     }
@@ -79,17 +83,31 @@ pub(crate) fn pkce_challenge(verifier: &str) -> String {
 
 /// 64 chars from two simple UUIDs — valid PKCE verifier charset, no rand dep.
 pub(crate) fn new_verifier() -> String {
-    format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())
+    format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
 }
 
 fn url_encode(value: &str) -> String {
-    value.bytes().map(|b| match b {
-        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
-        other => format!("%{other:02X}"),
-    }).collect()
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            other => format!("%{other:02X}"),
+        })
+        .collect()
 }
 
-pub(crate) fn authorize_url(client_id: &str, redirect_uri: &str, state: &str, challenge: &str) -> String {
+pub(crate) fn authorize_url(
+    client_id: &str,
+    redirect_uri: &str,
+    state: &str,
+    challenge: &str,
+) -> String {
     format!(
         "{ZOOM_AUTH_BASE}/oauth/authorize?response_type=code&client_id={}&redirect_uri={}&state={}&code_challenge={}&code_challenge_method=S256",
         url_encode(client_id), url_encode(redirect_uri), url_encode(state), url_encode(challenge)
@@ -127,7 +145,9 @@ pub(crate) enum TokenEndpointError {
 impl TokenEndpointError {
     pub(crate) fn message(&self) -> &str {
         match self {
-            TokenEndpointError::Rejected(message) | TokenEndpointError::Transport(message) => message,
+            TokenEndpointError::Rejected(message) | TokenEndpointError::Transport(message) => {
+                message
+            }
         }
     }
 }
@@ -148,45 +168,66 @@ fn post_token_form_to(url: &str, form: &[(&str, &str)]) -> Result<TokenSet, Toke
     // RFC 6749 §5.2: 401 always means the grant is dead. Body may describe
     // the error; it never contains our secrets.
     if status.as_u16() == 401 {
-        return Err(TokenEndpointError::Rejected(format!("zoom token endpoint returned {status}")));
+        return Err(TokenEndpointError::Rejected(format!(
+            "zoom token endpoint returned {status}"
+        )));
     }
     if status.as_u16() == 400 {
         // Confirm invalid_grant in the body when we can read it; a 400 whose
         // body can't be read still falls back to Rejected — that status has
         // no other meaning per RFC 6749 §5.2.
         return match response.text() {
-            Ok(body) if body.contains("invalid_grant") => {
-                Err(TokenEndpointError::Rejected(format!("zoom token endpoint returned {status}")))
-            }
-            Ok(_) => Err(TokenEndpointError::Transport(format!("zoom token endpoint returned {status}"))),
-            Err(_) => Err(TokenEndpointError::Rejected(format!("zoom token endpoint returned {status}"))),
+            Ok(body) if body.contains("invalid_grant") => Err(TokenEndpointError::Rejected(
+                format!("zoom token endpoint returned {status}"),
+            )),
+            Ok(_) => Err(TokenEndpointError::Transport(format!(
+                "zoom token endpoint returned {status}"
+            ))),
+            Err(_) => Err(TokenEndpointError::Rejected(format!(
+                "zoom token endpoint returned {status}"
+            ))),
         };
     }
     if !status.is_success() {
         // Everything else non-success — the rest of the 4xx range (429 rate
         // limit, 407/408 from a local proxy) and any 5xx — is a transport
         // condition, not proof the refresh token is dead.
-        return Err(TokenEndpointError::Transport(format!("zoom token endpoint returned {status}")));
+        return Err(TokenEndpointError::Transport(format!(
+            "zoom token endpoint returned {status}"
+        )));
     }
-    response.json::<TokenResponse>().map(token_set_from_response)
-        .map_err(|e| TokenEndpointError::Transport(format!("zoom token response parse failed: {e}")))
+    response
+        .json::<TokenResponse>()
+        .map(token_set_from_response)
+        .map_err(|e| {
+            TokenEndpointError::Transport(format!("zoom token response parse failed: {e}"))
+        })
 }
 
 fn post_token_form(form: &[(&str, &str)]) -> Result<TokenSet, TokenEndpointError> {
     post_token_form_to(&format!("{ZOOM_AUTH_BASE}/oauth/token"), form)
 }
 
-pub(crate) fn exchange_code(client_id: &str, code: &str, redirect_uri: &str, verifier: &str) -> Result<TokenSet, String> {
+pub(crate) fn exchange_code(
+    client_id: &str,
+    code: &str,
+    redirect_uri: &str,
+    verifier: &str,
+) -> Result<TokenSet, String> {
     post_token_form(&[
         ("grant_type", "authorization_code"),
         ("code", code),
         ("redirect_uri", redirect_uri),
         ("client_id", client_id),
         ("code_verifier", verifier),
-    ]).map_err(|e| e.message().to_string())
+    ])
+    .map_err(|e| e.message().to_string())
 }
 
-pub(crate) fn refresh_tokens(client_id: &str, refresh_token: &str) -> Result<TokenSet, TokenEndpointError> {
+pub(crate) fn refresh_tokens(
+    client_id: &str,
+    refresh_token: &str,
+) -> Result<TokenSet, TokenEndpointError> {
     post_token_form(&[
         ("grant_type", "refresh_token"),
         ("refresh_token", refresh_token),
@@ -206,7 +247,10 @@ fn revoke_token(client_id: &str, token: &str) -> Result<(), String> {
         .send()
         .map_err(|e| format!("zoom revoke request failed: {e}"))?;
     if !response.status().is_success() {
-        return Err(format!("zoom revoke endpoint returned {}", response.status()));
+        return Err(format!(
+            "zoom revoke endpoint returned {}",
+            response.status()
+        ));
     }
     Ok(())
 }
@@ -237,9 +281,13 @@ pub(crate) fn ensure_fresh_access_token(client_id: &str) -> Result<String, Strin
 }
 
 pub(crate) fn parse_callback_request(first_line: &str) -> Result<(String, String), String> {
-    let path = first_line.strip_prefix("GET ").and_then(|rest| rest.split(' ').next())
+    let path = first_line
+        .strip_prefix("GET ")
+        .and_then(|rest| rest.split(' ').next())
         .ok_or_else(|| "not a GET request".to_string())?;
-    let query = path.strip_prefix("/zoom/callback?").ok_or_else(|| "unexpected path".to_string())?;
+    let query = path
+        .strip_prefix("/zoom/callback?")
+        .ok_or_else(|| "unexpected path".to_string())?;
     let mut code = None;
     let mut state = None;
     for pair in query.split('&') {
@@ -279,9 +327,7 @@ fn wait_for_callback(
             }
             Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 if std::time::Instant::now() >= deadline {
-                    return Err(
-                        "timed out waiting for the Zoom authorization callback".to_string()
-                    );
+                    return Err("timed out waiting for the Zoom authorization callback".to_string());
                 }
                 std::thread::sleep(std::time::Duration::from_millis(200));
             }
@@ -302,31 +348,74 @@ pub(crate) struct ZoomConnectionStatus {
     pub(crate) revoke_failed: bool,
 }
 
-fn write_connection(storage: &genesis_block_native::Storage, status: &str, account_label: &str) -> Result<(), String> {
+fn write_connection(
+    storage: &genesis_block_native::Storage,
+    status: &str,
+    account_label: &str,
+) -> Result<(), String> {
     let timestamp = now();
-    let created_at = genesis_adapter::query(storage, "external_connections", &["created_at"],
-        vec![genesis_adapter::eq("external_connections", "id", serde_json::json!("zoom"))], 1)?
-        .into_iter().next()
-        .and_then(|row| row.get("external_connections.created_at").and_then(serde_json::Value::as_str).map(str::to_owned))
-        .unwrap_or_else(|| timestamp.clone());
-    genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert("external_connections", serde_json::json!({
-        "id": "zoom", "provider": "zoom", "account_label": account_label,
-        "status": status, "created_at": created_at, "updated_at": timestamp,
-    }))])
+    let created_at = genesis_adapter::query(
+        storage,
+        "external_connections",
+        &["created_at"],
+        vec![genesis_adapter::eq(
+            "external_connections",
+            "id",
+            serde_json::json!("zoom"),
+        )],
+        1,
+    )?
+    .into_iter()
+    .next()
+    .and_then(|row| {
+        row.get("external_connections.created_at")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    })
+    .unwrap_or_else(|| timestamp.clone());
+    genesis_adapter::commit_rows(
+        storage,
+        vec![genesis_adapter::upsert(
+            "external_connections",
+            serde_json::json!({
+                "id": "zoom", "provider": "zoom", "account_label": account_label,
+                "status": status, "created_at": created_at, "updated_at": timestamp,
+            }),
+        )],
+    )
 }
 
-fn read_connection(storage: &genesis_block_native::Storage) -> Result<ZoomConnectionStatus, String> {
-    let row = genesis_adapter::query(storage, "external_connections", &["status", "account_label"],
-        vec![genesis_adapter::eq("external_connections", "id", serde_json::json!("zoom"))], 1)?
-        .into_iter().next();
+fn read_connection(
+    storage: &genesis_block_native::Storage,
+) -> Result<ZoomConnectionStatus, String> {
+    let row = genesis_adapter::query(
+        storage,
+        "external_connections",
+        &["status", "account_label"],
+        vec![genesis_adapter::eq(
+            "external_connections",
+            "id",
+            serde_json::json!("zoom"),
+        )],
+        1,
+    )?
+    .into_iter()
+    .next();
     Ok(match row {
         Some(row) => ZoomConnectionStatus {
             status: genesis_adapter::string(&row, "external_connections.status")?,
-            account_label: row.get("external_connections.account_label").and_then(serde_json::Value::as_str)
-                .filter(|label| !label.is_empty()).map(str::to_owned),
+            account_label: row
+                .get("external_connections.account_label")
+                .and_then(serde_json::Value::as_str)
+                .filter(|label| !label.is_empty())
+                .map(str::to_owned),
             revoke_failed: false,
         },
-        None => ZoomConnectionStatus { status: "disconnected".to_string(), account_label: None, revoke_failed: false },
+        None => ZoomConnectionStatus {
+            status: "disconnected".to_string(),
+            account_label: None,
+            revoke_failed: false,
+        },
     })
 }
 
@@ -337,15 +426,21 @@ pub(crate) fn client_id_from_env() -> AppResult<String> {
 
 fn fetch_account_email(access_token: &str) -> Result<String, String> {
     #[derive(serde::Deserialize)]
-    struct Me { email: String }
+    struct Me {
+        email: String,
+    }
     let response = reqwest::blocking::Client::new()
         .get(format!("{ZOOM_API_BASE}/users/me"))
         .bearer_auth(access_token)
-        .send().map_err(|e| format!("zoom users/me failed: {e}"))?;
+        .send()
+        .map_err(|e| format!("zoom users/me failed: {e}"))?;
     if !response.status().is_success() {
         return Err(format!("zoom users/me returned {}", response.status()));
     }
-    response.json::<Me>().map(|me| me.email).map_err(|e| e.to_string())
+    response
+        .json::<Me>()
+        .map(|me| me.email)
+        .map_err(|e| e.to_string())
 }
 
 /// Starts the OAuth flow: opens the system browser and spawns a background
@@ -354,24 +449,34 @@ fn fetch_account_email(access_token: &str) -> Result<String, String> {
 /// dropped by the worker thread on every exit path (success, auth error, or
 /// timeout), so it never outlives the flow. UI polls `zoom_connection_status`.
 #[tauri::command]
-pub(crate) fn zoom_connect(app: tauri::AppHandle, state: State<'_, AppState>) -> AppResult<ZoomConnectionStatus> {
+pub(crate) fn zoom_connect(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<ZoomConnectionStatus> {
     let client_id = client_id_from_env()?;
     let listener = TcpListener::bind("127.0.0.1:0")?;
-    listener
-        .set_nonblocking(true)
-        .map_err(|error| AppError::InvalidInput(format!("could not arm the callback listener: {error}")))?;
+    listener.set_nonblocking(true).map_err(|error| {
+        AppError::InvalidInput(format!("could not arm the callback listener: {error}"))
+    })?;
     let port = listener.local_addr()?.port();
     let redirect_uri = format!("http://127.0.0.1:{port}/zoom/callback");
     let verifier = new_verifier();
     let oauth_state = uuid::Uuid::new_v4().simple().to_string();
-    let url = authorize_url(&client_id, &redirect_uri, &oauth_state, &pkce_challenge(&verifier));
+    let url = authorize_url(
+        &client_id,
+        &redirect_uri,
+        &oauth_state,
+        &pkce_challenge(&verifier),
+    );
 
     let epoch = CONNECT_EPOCH.fetch_add(1, Ordering::SeqCst) + 1;
     write_connection(&state.genesis, "connecting", "").map_err(AppError::Genesis)?;
     if let Err(error) = app.opener().open_url(url, None::<&str>) {
         CONNECT_EPOCH.fetch_add(1, Ordering::SeqCst);
         write_connection(&state.genesis, "error", "").map_err(AppError::Genesis)?;
-        return Err(AppError::InvalidInput(format!("could not open browser: {error}")));
+        return Err(AppError::InvalidInput(format!(
+            "could not open browser: {error}"
+        )));
     }
 
     let storage = state.genesis.clone();
@@ -380,7 +485,9 @@ pub(crate) fn zoom_connect(app: tauri::AppHandle, state: State<'_, AppState>) ->
         let outcome = (|| -> Result<String, String> {
             let (mut stream, first_line) = wait_for_callback(&listener, deadline)?;
             let result = parse_callback_request(&first_line).and_then(|(code, returned_state)| {
-                if returned_state != oauth_state { return Err("oauth state mismatch".to_string()); }
+                if returned_state != oauth_state {
+                    return Err("oauth state mismatch".to_string());
+                }
                 exchange_code(&client_id, &code, &redirect_uri, &verifier)
             });
             let (body, out) = match result {
@@ -407,11 +514,17 @@ pub(crate) fn zoom_connect(app: tauri::AppHandle, state: State<'_, AppState>) ->
         };
     });
 
-    Ok(ZoomConnectionStatus { status: "connecting".to_string(), account_label: None, revoke_failed: false })
+    Ok(ZoomConnectionStatus {
+        status: "connecting".to_string(),
+        account_label: None,
+        revoke_failed: false,
+    })
 }
 
 #[tauri::command]
-pub(crate) fn zoom_connection_status(state: State<'_, AppState>) -> AppResult<ZoomConnectionStatus> {
+pub(crate) fn zoom_connection_status(
+    state: State<'_, AppState>,
+) -> AppResult<ZoomConnectionStatus> {
     let mut status = read_connection(&state.genesis).map_err(AppError::Genesis)?;
     // A "connected" row without stored tokens means the credential was
     // removed out-of-band; surface that truthfully.
@@ -498,7 +611,10 @@ pub(crate) fn summarize_meeting(meeting: &ZoomMeetingRecording) -> ZoomRecording
         topic: meeting.topic.clone(),
         start_time: meeting.start_time.clone(),
         duration_minutes: meeting.duration,
-        has_participant_audio: meeting.participant_audio_files.as_ref().is_some_and(|files| !files.is_empty()),
+        has_participant_audio: meeting
+            .participant_audio_files
+            .as_ref()
+            .is_some_and(|files| !files.is_empty()),
     }
 }
 
@@ -529,7 +645,10 @@ fn retry_after_seconds(response: &reqwest::blocking::Response) -> u64 {
 /// backoff resolves most hits without surfacing an error.
 const MAX_RATE_LIMIT_ATTEMPTS: u32 = 3;
 
-fn api_get_json<T: serde::de::DeserializeOwned>(access_token: &str, path_and_query: &str) -> Result<T, String> {
+fn api_get_json<T: serde::de::DeserializeOwned>(
+    access_token: &str,
+    path_and_query: &str,
+) -> Result<T, String> {
     let client = reqwest::blocking::Client::new();
     let mut attempt = 0u32;
     let response = loop {
@@ -537,9 +656,12 @@ fn api_get_json<T: serde::de::DeserializeOwned>(access_token: &str, path_and_que
         let response = client
             .get(format!("{ZOOM_API_BASE}{path_and_query}"))
             .bearer_auth(access_token)
-            .send().map_err(|e| format!("zoom api request failed: {e}"))?;
+            .send()
+            .map_err(|e| format!("zoom api request failed: {e}"))?;
         if response.status().as_u16() == 429 && attempt < MAX_RATE_LIMIT_ATTEMPTS {
-            std::thread::sleep(std::time::Duration::from_secs(retry_after_seconds(&response)));
+            std::thread::sleep(std::time::Duration::from_secs(retry_after_seconds(
+                &response,
+            )));
             continue;
         }
         break response;
@@ -551,7 +673,9 @@ fn api_get_json<T: serde::de::DeserializeOwned>(access_token: &str, path_and_que
     if !status.is_success() {
         return Err(format!("zoom api returned {status} for {path_and_query}"));
     }
-    response.json::<T>().map_err(|e| format!("zoom api response parse failed: {e}"))
+    response
+        .json::<T>()
+        .map_err(|e| format!("zoom api response parse failed: {e}"))
 }
 
 /// Decides whether paging may continue. Extracted so the runaway-guard policy
@@ -569,14 +693,20 @@ fn may_fetch_another_page(pages_fetched: usize, next_page_token: &str) -> bool {
 pub(crate) fn zoom_list_recordings() -> AppResult<Vec<ZoomRecordingSummary>> {
     let client_id = client_id_from_env()?;
     let access_token = ensure_fresh_access_token(&client_id).map_err(AppError::InvalidInput)?;
-    let from = (chrono::Utc::now() - chrono::Duration::days(30)).format("%Y-%m-%d").to_string();
+    let from = (chrono::Utc::now() - chrono::Duration::days(30))
+        .format("%Y-%m-%d")
+        .to_string();
     let mut summaries = Vec::new();
     let mut next_page_token = String::new();
     let mut pages_fetched = 0usize;
     let mut complete = false;
     loop {
-        let path = format!("/users/me/recordings?page_size=30&from={from}&next_page_token={}", url_encode(&next_page_token));
-        let page: ZoomRecordingsPage = api_get_json(&access_token, &path).map_err(AppError::InvalidInput)?;
+        let path = format!(
+            "/users/me/recordings?page_size=30&from={from}&next_page_token={}",
+            url_encode(&next_page_token)
+        );
+        let page: ZoomRecordingsPage =
+            api_get_json(&access_token, &path).map_err(AppError::InvalidInput)?;
         summaries.extend(page.meetings.iter().map(summarize_meeting));
         pages_fetched += 1;
         if page.next_page_token.is_empty() {
@@ -616,12 +746,18 @@ pub(crate) fn find_prior_import(
         storage,
         "external_imports",
         &["project_id", "recording_id", "provider", "external_uuid"],
-        vec![genesis_adapter::eq("external_imports", "external_uuid", serde_json::json!(uuid))],
+        vec![genesis_adapter::eq(
+            "external_imports",
+            "external_uuid",
+            serde_json::json!(uuid),
+        )],
         10,
     )?
     .into_iter()
     .find(|row| {
-        row.get("external_imports.provider").and_then(serde_json::Value::as_str) == Some("zoom")
+        row.get("external_imports.provider")
+            .and_then(serde_json::Value::as_str)
+            == Some("zoom")
     }) else {
         return Ok(None);
     };
@@ -631,7 +767,11 @@ pub(crate) fn find_prior_import(
         storage,
         "recordings",
         &["status"],
-        vec![genesis_adapter::eq("recordings", "id", serde_json::json!(recording_id))],
+        vec![genesis_adapter::eq(
+            "recordings",
+            "id",
+            serde_json::json!(recording_id),
+        )],
         1,
     )?
     .into_iter()
@@ -639,34 +779,53 @@ pub(crate) fn find_prior_import(
     .map(|row| genesis_adapter::string(&row, "recordings.status"))
     .transpose()?
     .unwrap_or_else(|| "pending".to_string());
-    Ok(Some(PriorImport { project_id, recording_id, recording_status }))
+    Ok(Some(PriorImport {
+        project_id,
+        recording_id,
+        recording_status,
+    }))
 }
 
 /// Windows-safe single path component: replaces separator/reserved chars.
 pub(crate) fn sanitize_component(value: &str) -> String {
-    value.chars().map(|c| match c {
-        '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '=' => '_',
-        other => other,
-    }).collect()
+    value
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '=' => '_',
+            other => other,
+        })
+        .collect()
 }
 
 /// Streams `url` to `dest`, resuming with a Range request when a partial
 /// file exists. Never log `url` — it is credential-bearing.
-pub(crate) fn download_to_file(access_token: &str, url: &str, dest: &std::path::Path) -> Result<(), String> {
-    if let Some(parent) = dest.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+pub(crate) fn download_to_file(
+    access_token: &str,
+    url: &str,
+    dest: &std::path::Path,
+) -> Result<(), String> {
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     let existing = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
     let client = reqwest::blocking::Client::new();
     let mut attempt = 0u32;
     let mut response = loop {
         attempt += 1;
         let mut request = client.get(url).bearer_auth(access_token);
-        if existing > 0 { request = request.header("Range", format!("bytes={existing}-")); }
+        if existing > 0 {
+            request = request.header("Range", format!("bytes={existing}-"));
+        }
         // reqwest::Error's Display embeds the request URL when one is set (as
         // it is here); strip it before formatting so the credential-bearing
         // download URL never reaches a job event or error string.
-        let response = request.send().map_err(|e| format!("zoom download failed: {}", e.without_url()))?;
+        let response = request
+            .send()
+            .map_err(|e| format!("zoom download failed: {}", e.without_url()))?;
         if response.status().as_u16() == 429 && attempt < MAX_RATE_LIMIT_ATTEMPTS {
-            std::thread::sleep(std::time::Duration::from_secs(retry_after_seconds(&response)));
+            std::thread::sleep(std::time::Duration::from_secs(retry_after_seconds(
+                &response,
+            )));
             continue;
         }
         break response;
@@ -682,9 +841,14 @@ pub(crate) fn download_to_file(access_token: &str, url: &str, dest: &std::path::
         return Err(format!("zoom download returned {status}"));
     }
     let mut file = std::fs::OpenOptions::new()
-        .create(true).write(true).append(append).truncate(!append)
-        .open(dest).map_err(|e| e.to_string())?;
-    std::io::copy(&mut response, &mut file).map_err(|e| format!("zoom download write failed: {e}"))?;
+        .create(true)
+        .write(true)
+        .append(append)
+        .truncate(!append)
+        .open(dest)
+        .map_err(|e| e.to_string())?;
+    std::io::copy(&mut response, &mut file)
+        .map_err(|e| format!("zoom download write failed: {e}"))?;
     Ok(())
 }
 
@@ -692,26 +856,52 @@ pub(crate) fn download_to_file(access_token: &str, url: &str, dest: &std::path::
 /// speaker attribution → graph build. Runs on a background thread; UI polls
 /// `list_jobs`.
 #[tauri::command]
-pub(crate) fn zoom_import_recording(meeting_uuid: String, state: State<'_, AppState>) -> AppResult<crate::Job> {
+pub(crate) fn zoom_import_recording(
+    meeting_uuid: String,
+    state: State<'_, AppState>,
+) -> AppResult<crate::Job> {
     let client_id = client_id_from_env()?;
     let prior = find_prior_import(&state.genesis, &meeting_uuid).map_err(AppError::Genesis)?;
-    if prior.as_ref().is_some_and(|import| import.recording_status == "completed") {
-        return Err(AppError::InvalidInput("recording is already imported".to_string()));
+    if prior
+        .as_ref()
+        .is_some_and(|import| import.recording_status == "completed")
+    {
+        return Err(AppError::InvalidInput(
+            "recording is already imported".to_string(),
+        ));
     }
     let resuming = prior.is_some();
     let (project_id, recording_id) = match &prior {
         Some(import) => (import.project_id.clone(), import.recording_id.clone()),
-        None => (uuid::Uuid::new_v4().to_string(), uuid::Uuid::new_v4().to_string()),
+        None => (
+            uuid::Uuid::new_v4().to_string(),
+            uuid::Uuid::new_v4().to_string(),
+        ),
     };
     let access_token = ensure_fresh_access_token(&client_id).map_err(AppError::InvalidInput)?;
-    let meeting: ZoomMeetingRecording =
-        api_get_json(&access_token, &format!("/meetings/{}/recordings", encode_meeting_uuid(&meeting_uuid)))
-            .map_err(AppError::InvalidInput)?;
+    let meeting: ZoomMeetingRecording = api_get_json(
+        &access_token,
+        &format!(
+            "/meetings/{}/recordings",
+            encode_meeting_uuid(&meeting_uuid)
+        ),
+    )
+    .map_err(AppError::InvalidInput)?;
 
     let job_id = uuid::Uuid::new_v4().to_string();
     let timestamp = now();
-    let storage_path = state.data_root.join("projects").join(&project_id).display().to_string();
-    let base_dir = state.data_root.join("projects").join(&project_id).join("zoom").join(sanitize_component(&meeting_uuid));
+    let storage_path = state
+        .data_root
+        .join("projects")
+        .join(&project_id)
+        .display()
+        .to_string();
+    let base_dir = state
+        .data_root
+        .join("projects")
+        .join(&project_id)
+        .join("zoom")
+        .join(sanitize_component(&meeting_uuid));
     let mixed_path = base_dir.join("mixed.m4a");
 
     let mut seed = Vec::new();
@@ -719,28 +909,34 @@ pub(crate) fn zoom_import_recording(meeting_uuid: String, state: State<'_, AppSt
         seed.push(genesis_adapter::upsert("projects", serde_json::json!({"id": project_id, "name": meeting.topic, "storage_path": storage_path, "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp})));
         // Every project needs its graph node: graph_edges.project/target FKs
         // reference it, so omitting it aborts any later graph commit.
-        seed.push(genesis_adapter::upsert("graph_nodes", serde_json::json!({
-            "id": project_id,
-            "project_id": project_id,
-            "entity_type": "project",
-            "entity_id": project_id,
-            "label": meeting.topic,
-            "position_x": 50.0,
-            "position_y": 17.0,
-            "created_at": timestamp,
-            "updated_at": timestamp,
-        })));
+        seed.push(genesis_adapter::upsert(
+            "graph_nodes",
+            serde_json::json!({
+                "id": project_id,
+                "project_id": project_id,
+                "entity_type": "project",
+                "entity_id": project_id,
+                "label": meeting.topic,
+                "position_x": 50.0,
+                "position_y": 17.0,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }),
+        ));
         seed.push(genesis_adapter::upsert("recordings", serde_json::json!({"id": recording_id, "project_id": project_id, "source": "import", "input_path": null, "canonical_audio_path": mixed_path.display().to_string(), "status": "pending", "duration_ms": 0, "created_at": timestamp, "updated_at": timestamp})));
         // Recorded upfront so a concurrent second call finds it immediately.
-        seed.push(genesis_adapter::upsert("external_imports", serde_json::json!({
-            "id": uuid::Uuid::new_v4().to_string(),
-            "project_id": project_id,
-            "provider": "zoom",
-            "external_uuid": meeting_uuid,
-            "recording_id": recording_id,
-            "payload_json": {"topic": meeting.topic},
-            "created_at": timestamp,
-        })));
+        seed.push(genesis_adapter::upsert(
+            "external_imports",
+            serde_json::json!({
+                "id": uuid::Uuid::new_v4().to_string(),
+                "project_id": project_id,
+                "provider": "zoom",
+                "external_uuid": meeting_uuid,
+                "recording_id": recording_id,
+                "payload_json": {"topic": meeting.topic},
+                "created_at": timestamp,
+            }),
+        ));
     }
     seed.push(genesis_adapter::upsert("jobs", serde_json::json!({"id": job_id, "project_id": project_id, "type": "zoom.import", "status": "running", "progress": 0, "input_refs_json": [meeting_uuid], "output_refs_json": [recording_id], "provider_id": null, "error_code": null, "error_message": null, "attempt_no": 1, "started_at": timestamp, "finished_at": null, "created_at": timestamp, "updated_at": timestamp})));
     seed.push(genesis_adapter::upsert("job_events", serde_json::json!({"id": uuid::Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": if resuming { "resuming zoom recording download" } else { "downloading zoom recording" }, "created_at": timestamp})));
@@ -761,11 +957,20 @@ pub(crate) fn zoom_import_recording(meeting_uuid: String, state: State<'_, AppSt
     std::thread::spawn(move || run_import_worker(ctx, meeting));
 
     Ok(crate::Job {
-        id: job_id, project_id, job_type: "zoom.import".to_string(), status: "running".to_string(),
-        progress: 0, input_refs: vec![meeting_uuid], output_refs: vec![recording_id],
-        provider_id: None, error_code: None, error_message: None,
-        started_at: Some(timestamp.clone()), finished_at: None,
-        created_at: timestamp.clone(), updated_at: timestamp,
+        id: job_id,
+        project_id,
+        job_type: "zoom.import".to_string(),
+        status: "running".to_string(),
+        progress: 0,
+        input_refs: vec![meeting_uuid],
+        output_refs: vec![recording_id],
+        provider_id: None,
+        error_code: None,
+        error_message: None,
+        started_at: Some(timestamp.clone()),
+        finished_at: None,
+        created_at: timestamp.clone(),
+        updated_at: timestamp,
     })
 }
 
@@ -775,6 +980,8 @@ pub(crate) struct ImportContext {
     pub(crate) job_id: String,
     pub(crate) project_id: String,
     pub(crate) recording_id: String,
+    /// Kept for provenance while the import runs; nothing reads it back yet.
+    #[allow(dead_code)]
     pub(crate) meeting_uuid: String,
     pub(crate) meeting_topic: String,
     pub(crate) client_id: String,
@@ -785,9 +992,19 @@ pub(crate) struct ImportContext {
 /// Phase 1 of the worker: downloads. Task 6/7 extend this with processing.
 fn run_import_worker(ctx: ImportContext, meeting: ZoomMeetingRecording) {
     let result = (|| -> Result<Vec<(String, std::path::PathBuf)>, String> {
-        let mixed = meeting.recording_files.iter()
-            .find(|f| f.recording_type.as_deref() == Some("audio_only") && f.file_type.eq_ignore_ascii_case("M4A"))
-            .or_else(|| meeting.recording_files.iter().find(|f| f.file_type.eq_ignore_ascii_case("MP4")))
+        let mixed = meeting
+            .recording_files
+            .iter()
+            .find(|f| {
+                f.recording_type.as_deref() == Some("audio_only")
+                    && f.file_type.eq_ignore_ascii_case("M4A")
+            })
+            .or_else(|| {
+                meeting
+                    .recording_files
+                    .iter()
+                    .find(|f| f.file_type.eq_ignore_ascii_case("MP4"))
+            })
             .ok_or_else(|| "no downloadable audio/video file on this recording".to_string())?;
         // Tokens last ~1 hour; a long multi-file import can outlive one.
         // Refresh per download rather than carrying a single token for the
@@ -798,8 +1015,15 @@ fn run_import_worker(ctx: ImportContext, meeting: ZoomMeetingRecording) {
         let mut participants = Vec::new();
         if let Some(files) = &meeting.participant_audio_files {
             for (index, file) in files.iter().enumerate() {
-                let display_name = file.file_name.strip_prefix("Audio only - ").unwrap_or(&file.file_name).to_string();
-                let dest = ctx.base_dir.join("participants").join(format!("{index}-{}.m4a", sanitize_component(&display_name)));
+                let display_name = file
+                    .file_name
+                    .strip_prefix("Audio only - ")
+                    .unwrap_or(&file.file_name)
+                    .to_string();
+                let dest = ctx
+                    .base_dir
+                    .join("participants")
+                    .join(format!("{index}-{}.m4a", sanitize_component(&display_name)));
                 let access_token = ensure_fresh_access_token(&ctx.client_id)?;
                 download_to_file(&access_token, &file.download_url, &dest)?;
                 participants.push((display_name, dest));
@@ -811,7 +1035,10 @@ fn run_import_worker(ctx: ImportContext, meeting: ZoomMeetingRecording) {
 
     match result {
         Ok(participants) => run_processing_pipeline(ctx, participants),
-        Err(message) => { let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "failed", None, Some(&message)); }
+        Err(message) => {
+            let _ =
+                crate::set_job_status(&ctx.storage, &ctx.job_id, "failed", None, Some(&message));
+        }
     }
 }
 
@@ -833,15 +1060,38 @@ fn run_processing_pipeline(ctx: ImportContext, participants: Vec<(String, std::p
                 let job_id = ctx.job_id.clone();
                 let base = 30 + (index as i64 * 55) / total;
                 let span = 55 / total;
-                let output = crate::run_transcription(&ctx.whisper, &path.display().to_string(), move |pct| {
-                    let _ = crate::set_job_status(&storage, &job_id, "running", Some(base + pct * span / 100), None);
-                })?;
+                let output = crate::run_transcription(
+                    &ctx.whisper,
+                    &path.display().to_string(),
+                    move |pct| {
+                        let _ = crate::set_job_status(
+                            &storage,
+                            &job_id,
+                            "running",
+                            Some(base + pct * span / 100),
+                            None,
+                        );
+                    },
+                )?;
                 outputs.push((index, display_name.clone(), output));
             }
-            let duration_ms = outputs.iter().map(|(_, _, output)| output.duration_ms).max().unwrap_or(0);
+            let duration_ms = outputs
+                .iter()
+                .map(|(_, _, output)| output.duration_ms)
+                .max()
+                .unwrap_or(0);
             let merged = crate::speaker_merge::merge_participant_outputs(outputs);
             let turns = crate::speaker_merge::group_turns(&merged, 1_500);
-            crate::speaker_merge::persist_attribution(&ctx.storage, &ctx.project_id, &ctx.recording_id, "local", "faster-whisper per-participant", &merged, &turns, duration_ms)?;
+            crate::speaker_merge::persist_attribution(
+                &ctx.storage,
+                &ctx.project_id,
+                &ctx.recording_id,
+                "local",
+                "faster-whisper per-participant",
+                &merged,
+                &turns,
+                duration_ms,
+            )?;
         } else {
             run_mixed_audio_path(&ctx)?; // Path B — implemented in Task 7.
         }
@@ -850,9 +1100,18 @@ fn run_processing_pipeline(ctx: ImportContext, participants: Vec<(String, std::p
     match outcome {
         Ok(()) => {
             let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "completed", Some(100), None);
-            crate::graph_build::start_graph_build(ctx.storage.clone(), ctx.project_id.clone(), ctx.recording_id.clone(), ctx.meeting_topic.clone(), Some(ctx.job_id.clone()));
+            crate::graph_build::start_graph_build(
+                ctx.storage.clone(),
+                ctx.project_id.clone(),
+                ctx.recording_id.clone(),
+                ctx.meeting_topic.clone(),
+                Some(ctx.job_id.clone()),
+            );
         }
-        Err(message) => { let _ = crate::set_job_status(&ctx.storage, &ctx.job_id, "failed", None, Some(&message)); }
+        Err(message) => {
+            let _ =
+                crate::set_job_status(&ctx.storage, &ctx.job_id, "failed", None, Some(&message));
+        }
     }
 }
 
@@ -869,6 +1128,8 @@ pub(crate) struct DiarizeTurn {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DiarizeOutput {
+    // Reported by the worker; attribution derives timing from the turns.
+    #[allow(dead_code)]
     pub(crate) duration_ms: i64,
     pub(crate) turns: Vec<DiarizeTurn>,
 }
@@ -880,37 +1141,88 @@ fn run_mixed_audio_path(ctx: &ImportContext) -> Result<(), String> {
     let mixed = ctx.mixed_path.display().to_string();
     let (storage, job_id) = (ctx.storage.clone(), ctx.job_id.clone());
     let whisper_output = crate::run_transcription(&ctx.whisper, &mixed, move |pct| {
-        let _ = crate::set_job_status(&storage, &job_id, "running", Some(30 + pct * 35 / 100), None);
+        let _ = crate::set_job_status(
+            &storage,
+            &job_id,
+            "running",
+            Some(30 + pct * 35 / 100),
+            None,
+        );
     })?;
-    let unassigned: Vec<crate::speaker_merge::AttributedSegment> = whisper_output.segments.iter().map(|segment| crate::speaker_merge::AttributedSegment {
-        speaker_key: None, display_name: None,
-        start_ms: segment.start_ms, end_ms: segment.end_ms,
-        text: segment.text.clone(), confidence: segment.confidence,
-    }).collect();
+    let unassigned: Vec<crate::speaker_merge::AttributedSegment> = whisper_output
+        .segments
+        .iter()
+        .map(|segment| crate::speaker_merge::AttributedSegment {
+            speaker_key: None,
+            display_name: None,
+            start_ms: segment.start_ms,
+            end_ms: segment.end_ms,
+            text: segment.text.clone(),
+            confidence: segment.confidence,
+        })
+        .collect();
 
     let (storage, job_id) = (ctx.storage.clone(), ctx.job_id.clone());
     match crate::run_diarization(&ctx.whisper, &mixed, move |pct| {
-        let _ = crate::set_job_status(&storage, &job_id, "running", Some(65 + pct * 30 / 100), None);
+        let _ = crate::set_job_status(
+            &storage,
+            &job_id,
+            "running",
+            Some(65 + pct * 30 / 100),
+            None,
+        );
     }) {
         Ok(diarize) => {
             let assigned = crate::speaker_merge::assign_by_overlap(&unassigned, &diarize.turns);
-            let mut turns: Vec<crate::speaker_merge::SpeakerTurn> = diarize.turns.iter().map(|turn| crate::speaker_merge::SpeakerTurn {
-                speaker_key: turn.speaker_key.clone(), display_name: turn.display_name.clone(),
-                start_ms: turn.start_ms, end_ms: turn.end_ms, confidence: turn.confidence, overlap: false,
-            }).collect();
+            let mut turns: Vec<crate::speaker_merge::SpeakerTurn> = diarize
+                .turns
+                .iter()
+                .map(|turn| crate::speaker_merge::SpeakerTurn {
+                    speaker_key: turn.speaker_key.clone(),
+                    display_name: turn.display_name.clone(),
+                    start_ms: turn.start_ms,
+                    end_ms: turn.end_ms,
+                    confidence: turn.confidence,
+                    overlap: false,
+                })
+                .collect();
             // Diarization does emit overlapping turns; compute the flag the
             // same way Path A does instead of hardcoding false.
             crate::speaker_merge::compute_overlaps(&mut turns);
-            crate::speaker_merge::persist_attribution(&ctx.storage, &ctx.project_id, &ctx.recording_id, "local", "pyannote/speaker-diarization-3.1", &assigned, &turns, whisper_output.duration_ms)
+            crate::speaker_merge::persist_attribution(
+                &ctx.storage,
+                &ctx.project_id,
+                &ctx.recording_id,
+                "local",
+                "pyannote/speaker-diarization-3.1",
+                &assigned,
+                &turns,
+                whisper_output.duration_ms,
+            )
         }
         Err(message) => {
             // Transcript must survive without diarization.
-            crate::speaker_merge::persist_attribution(&ctx.storage, &ctx.project_id, &ctx.recording_id, "local", "faster-whisper (no diarization)", &unassigned, &[], whisper_output.duration_ms)?;
+            crate::speaker_merge::persist_attribution(
+                &ctx.storage,
+                &ctx.project_id,
+                &ctx.recording_id,
+                "local",
+                "faster-whisper (no diarization)",
+                &unassigned,
+                &[],
+                whisper_output.duration_ms,
+            )?;
             let timestamp = now();
             // The transcript is already durable at this point; an audit-log
             // write failure here must not fail the import, so this is
             // best-effort rather than `?`.
-            let _ = genesis_adapter::commit_rows(&ctx.storage, vec![genesis_adapter::upsert("job_events", serde_json::json!({"id": uuid::Uuid::new_v4().to_string(), "job_id": ctx.job_id, "status": "running", "message": format!("diarization unavailable: {message}"), "created_at": timestamp}))]);
+            let _ = genesis_adapter::commit_rows(
+                &ctx.storage,
+                vec![genesis_adapter::upsert(
+                    "job_events",
+                    serde_json::json!({"id": uuid::Uuid::new_v4().to_string(), "job_id": ctx.job_id, "status": "running", "message": format!("diarization unavailable: {message}"), "created_at": timestamp}),
+                )],
+            );
             Ok(())
         }
     }
@@ -923,8 +1235,12 @@ mod tests {
     fn open_storage() -> (std::path::PathBuf, genesis_block_native::Storage) {
         let path = std::env::temp_dir().join(format!("fung-zoom-test-{}", uuid::Uuid::new_v4()));
         let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
-            path: path.display().to_string(), page_cache_mb: Some(16), read_only: Some(false), vector_dim: Some(4),
-        }).unwrap();
+            path: path.display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+        })
+        .unwrap();
         crate::genesis_adapter::install(&storage).unwrap();
         (path, storage)
     }
@@ -947,7 +1263,9 @@ mod tests {
             crate::genesis_adapter::upsert("external_imports", serde_json::json!({"id":"i1","project_id":"p1","provider":"zoom","external_uuid":"uuid-1","recording_id":"r1","payload_json":{},"created_at":"t"})),
         ]).unwrap();
 
-        let prior = find_prior_import(&storage, "uuid-1").unwrap().expect("prior import");
+        let prior = find_prior_import(&storage, "uuid-1")
+            .unwrap()
+            .expect("prior import");
         assert_eq!(prior.project_id, "p1");
         assert_eq!(prior.recording_id, "r1");
         // An unfinished import must be resumable, not rejected.
@@ -956,10 +1274,13 @@ mod tests {
         crate::genesis_adapter::commit_rows(&storage, vec![
             crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":10,"created_at":"t","updated_at":"t2"})),
         ]).unwrap();
-        let finished = find_prior_import(&storage, "uuid-1").unwrap().expect("prior import");
+        let finished = find_prior_import(&storage, "uuid-1")
+            .unwrap()
+            .expect("prior import");
         assert_eq!(finished.recording_status, "completed");
 
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
@@ -970,9 +1291,13 @@ mod tests {
             crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"pending","duration_ms":0,"created_at":"t","updated_at":"t"})),
             crate::genesis_adapter::upsert("external_imports", serde_json::json!({"id":"i1","project_id":"p1","provider":"other","external_uuid":"uuid-1","recording_id":"r1","payload_json":{},"created_at":"t"})),
         ]).unwrap();
-        assert!(find_prior_import(&storage, "uuid-1").unwrap().is_none(), "non-zoom provider must not match");
+        assert!(
+            find_prior_import(&storage, "uuid-1").unwrap().is_none(),
+            "non-zoom provider must not match"
+        );
         assert!(find_prior_import(&storage, "uuid-2").unwrap().is_none());
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
@@ -986,12 +1311,20 @@ mod tests {
     fn pkce_challenge_matches_rfc7636_vector() {
         // RFC 7636 appendix B test vector.
         let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
-        assert_eq!(pkce_challenge(verifier), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+        assert_eq!(
+            pkce_challenge(verifier),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
     }
 
     #[test]
     fn authorize_url_carries_pkce_and_state() {
-        let url = authorize_url("client123", "http://127.0.0.1:4567/zoom/callback", "st4te", "chall");
+        let url = authorize_url(
+            "client123",
+            "http://127.0.0.1:4567/zoom/callback",
+            "st4te",
+            "chall",
+        );
         assert!(url.starts_with("https://zoom.us/oauth/authorize?"));
         assert!(url.contains("response_type=code"));
         assert!(url.contains("client_id=client123"));
@@ -1010,8 +1343,12 @@ mod tests {
         assert!(!status.revoke_failed);
         let json = serde_json::to_value(&status).unwrap();
         assert_eq!(json.get("revokeFailed"), Some(&serde_json::json!(false)));
-        assert!(json.get("revoke_failed").is_none(), "must serialize camelCase, not snake_case");
-        drop(storage); let _ = std::fs::remove_dir_all(path);
+        assert!(
+            json.get("revoke_failed").is_none(),
+            "must serialize camelCase, not snake_case"
+        );
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]
@@ -1030,10 +1367,16 @@ mod tests {
     #[test]
     fn callback_parser_extracts_code_and_state() {
         let line = "GET /zoom/callback?code=abc123&state=xyz HTTP/1.1";
-        assert_eq!(parse_callback_request(line).unwrap(), ("abc123".to_string(), "xyz".to_string()));
+        assert_eq!(
+            parse_callback_request(line).unwrap(),
+            ("abc123".to_string(), "xyz".to_string())
+        );
         // Order-independent.
         let line2 = "GET /zoom/callback?state=xyz&code=abc123 HTTP/1.1";
-        assert_eq!(parse_callback_request(line2).unwrap(), ("abc123".to_string(), "xyz".to_string()));
+        assert_eq!(
+            parse_callback_request(line2).unwrap(),
+            ("abc123".to_string(), "xyz".to_string())
+        );
     }
 
     #[test]
@@ -1102,7 +1445,8 @@ mod tests {
     #[test]
     fn recordings_page_parses_and_summarizes() {
         let page: ZoomRecordingsPage = serde_json::from_str(RECORDINGS_FIXTURE).unwrap();
-        let summaries: Vec<ZoomRecordingSummary> = page.meetings.iter().map(summarize_meeting).collect();
+        let summaries: Vec<ZoomRecordingSummary> =
+            page.meetings.iter().map(summarize_meeting).collect();
         assert_eq!(summaries.len(), 2);
         assert_eq!(summaries[0].uuid, "abc//slash==");
         assert_eq!(summaries[0].duration_minutes, 42);
@@ -1113,7 +1457,10 @@ mod tests {
     #[test]
     fn meeting_uuid_is_double_encoded_when_it_contains_slashes() {
         // Zoom requires double URL-encoding for UUIDs containing '/' or '//'.
-        assert_eq!(encode_meeting_uuid("abc//slash=="), "abc%252F%252Fslash%253D%253D");
+        assert_eq!(
+            encode_meeting_uuid("abc//slash=="),
+            "abc%252F%252Fslash%253D%253D"
+        );
         assert_eq!(encode_meeting_uuid("plainuuid"), "plainuuid");
     }
 
@@ -1130,7 +1477,11 @@ mod tests {
     }
 
     /// Serves one canned HTTP response on a loopback port and returns its URL.
-    fn serve_once(status_line: &'static str, headers: &'static str, body: &'static str) -> (String, std::thread::JoinHandle<()>) {
+    fn serve_once(
+        status_line: &'static str,
+        headers: &'static str,
+        body: &'static str,
+    ) -> (String, std::thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/file", listener.local_addr().unwrap());
         let handle = std::thread::spawn(move || {
@@ -1151,18 +1502,30 @@ mod tests {
     #[test]
     fn token_endpoint_400_with_invalid_grant_is_classified_as_a_definitive_rejection() {
         let (url, handle) = serve_once("400 Bad Request", "", r#"{"error":"invalid_grant"}"#);
-        let error = post_token_form_to(&url, &[("grant_type", "refresh_token"), ("refresh_token", "stale")])
-            .expect_err("a 400 invalid_grant must be treated as a rejection");
-        assert!(matches!(error, TokenEndpointError::Rejected(_)), "expected Rejected, got {error:?}");
+        let error = post_token_form_to(
+            &url,
+            &[("grant_type", "refresh_token"), ("refresh_token", "stale")],
+        )
+        .expect_err("a 400 invalid_grant must be treated as a rejection");
+        assert!(
+            matches!(error, TokenEndpointError::Rejected(_)),
+            "expected Rejected, got {error:?}"
+        );
         handle.join().unwrap();
     }
 
     #[test]
     fn token_endpoint_401_is_classified_as_a_definitive_rejection() {
         let (url, handle) = serve_once("401 Unauthorized", "", "");
-        let error = post_token_form_to(&url, &[("grant_type", "refresh_token"), ("refresh_token", "stale")])
-            .expect_err("a 401 must be treated as a rejection");
-        assert!(matches!(error, TokenEndpointError::Rejected(_)), "expected Rejected, got {error:?}");
+        let error = post_token_form_to(
+            &url,
+            &[("grant_type", "refresh_token"), ("refresh_token", "stale")],
+        )
+        .expect_err("a 401 must be treated as a rejection");
+        assert!(
+            matches!(error, TokenEndpointError::Rejected(_)),
+            "expected Rejected, got {error:?}"
+        );
         handle.join().unwrap();
     }
 
@@ -1180,8 +1543,11 @@ mod tests {
             "408 Request Timeout",
         ] {
             let (url, handle) = serve_once(status_line, "", "");
-            let error = post_token_form_to(&url, &[("grant_type", "refresh_token"), ("refresh_token", "stale")])
-                .expect_err("a non-success status must fail");
+            let error = post_token_form_to(
+                &url,
+                &[("grant_type", "refresh_token"), ("refresh_token", "stale")],
+            )
+            .expect_err("a non-success status must fail");
             assert!(
                 matches!(error, TokenEndpointError::Transport(_)),
                 "expected Transport for {status_line}, got {error:?}"
@@ -1193,9 +1559,15 @@ mod tests {
     #[test]
     fn token_endpoint_5xx_is_not_a_dead_grant() {
         let (url, handle) = serve_once("503 Service Unavailable", "", "");
-        let error = post_token_form_to(&url, &[("grant_type", "refresh_token"), ("refresh_token", "stale")])
-            .expect_err("a 5xx must fail");
-        assert!(matches!(error, TokenEndpointError::Transport(_)), "expected Transport, got {error:?}");
+        let error = post_token_form_to(
+            &url,
+            &[("grant_type", "refresh_token"), ("refresh_token", "stale")],
+        )
+        .expect_err("a 5xx must fail");
+        assert!(
+            matches!(error, TokenEndpointError::Transport(_)),
+            "expected Transport, got {error:?}"
+        );
         handle.join().unwrap();
     }
 
@@ -1208,9 +1580,15 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         drop(listener);
         let url = format!("http://127.0.0.1:{port}/oauth/token");
-        let error = post_token_form_to(&url, &[("grant_type", "refresh_token"), ("refresh_token", "stale")])
-            .expect_err("nothing is listening; this must fail");
-        assert!(matches!(error, TokenEndpointError::Transport(_)), "expected Transport, got {error:?}");
+        let error = post_token_form_to(
+            &url,
+            &[("grant_type", "refresh_token"), ("refresh_token", "stale")],
+        )
+        .expect_err("nothing is listening; this must fail");
+        assert!(
+            matches!(error, TokenEndpointError::Transport(_)),
+            "expected Transport, got {error:?}"
+        );
     }
 
     #[test]

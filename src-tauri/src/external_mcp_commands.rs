@@ -1148,7 +1148,7 @@ pub(crate) fn execute_approved_preview(
     let (endpoint, connector_capabilities) =
         load_connector_capabilities(storage, &preview.connector_id)?;
     if config.connector_id != preview.connector_id
-        || config.executable != std::path::PathBuf::from(endpoint)
+        || config.executable.as_path() != std::path::Path::new(&endpoint)
         || !connector_capabilities.contains(&preview.capability)
     {
         return Err(ExternalMcpErrorCode::ConnectorUnhealthy);

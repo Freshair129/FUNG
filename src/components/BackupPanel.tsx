@@ -10,7 +10,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { HardDrive } from "lucide-react";
 import {
+  checkAudioIntegrity,
   describeAudioBackup,
+  describeAudioIntegrity,
   describeAudioRestore,
   describeBackupError,
   formatBytes,
@@ -30,9 +32,13 @@ type BackupPanelProps = {
   /** Native bridge. Absent when the host surface cannot reach Tauri, which
    * the panel states plainly instead of rendering dead controls. */
   invoke: InvokeFn | null;
+  /** Project whose source audio can be verified. Omitted where no project is
+   * selected, in which case the check is not offered rather than offered and
+   * failing. */
+  projectId?: string | null;
 };
 
-export function BackupPanel({ invoke }: BackupPanelProps) {
+export function BackupPanel({ invoke, projectId = null }: BackupPanelProps) {
   const [overview, setOverview] = useState<BackupOverview>({
     status: { terminalState: "unavailable", archive: null },
     archives: [],
@@ -48,6 +54,8 @@ export function BackupPanel({ invoke }: BackupPanelProps) {
   const [restoreConfirmed, setRestoreConfirmed] = useState(false);
   const [busy, setBusy] = useState<"backup" | "restore" | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [integrity, setIntegrity] = useState<{ ok: boolean; text: string } | null>(null);
+  const [verifying, setVerifying] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!invoke) return;
@@ -101,6 +109,19 @@ export function BackupPanel({ invoke }: BackupPanelProps) {
   // One-time display ends here; the phrase remains only in the transient
   // backup input state until the run completes.
   const handleAcknowledgePhrase = () => setGeneratedPhrase(null);
+
+  const handleVerifyAudio = async () => {
+    if (!invoke || !projectId) return;
+    setVerifying(true);
+    setIntegrity(null);
+    try {
+      setIntegrity(describeAudioIntegrity(await checkAudioIntegrity(invoke, projectId)));
+    } catch (err) {
+      setIntegrity({ ok: false, text: describeBackupError(err) });
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   const handleRunBackup = async () => {
     setBusy("backup");
@@ -279,6 +300,31 @@ export function BackupPanel({ invoke }: BackupPanelProps) {
             {busy === "restore" ? "กำลังกู้คืน..." : "กู้คืนสู่โฟลเดอร์ว่าง"}
           </button>
         </div>
+      )}
+
+      {projectId && (
+        <div className="backup-panel-archives">
+          <p className="backup-panel-label">ความครบถ้วนของเสียงต้นฉบับ</p>
+          <div className="backup-panel-row">
+            <span className="backup-panel-state">
+              {integrity ? integrity.text : "ยังไม่ได้ตรวจไฟล์เสียงของโปรเจกต์นี้"}
+            </span>
+            <button
+              className="backup-panel-btn"
+              type="button"
+              onClick={() => void handleVerifyAudio()}
+              disabled={verifying || busy !== null}
+            >
+              {verifying ? "กำลังตรวจ..." : "ตรวจไฟล์เสียง"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {integrity && (
+        <p className={`backup-panel-message ${integrity.ok ? "success" : "error"}`}>
+          {integrity.text}
+        </p>
       )}
 
       {message && <p className={`backup-panel-message ${message.type}`}>{message.text}</p>}

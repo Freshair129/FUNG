@@ -1127,7 +1127,7 @@ export function App() {
                 </section>
               )}
             >
-              <BackupPanel invoke={nativeInvoke} />
+              <BackupPanel invoke={nativeInvoke} projectId={selectedProjectId} />
             </Suspense>
           </div>
         </div>

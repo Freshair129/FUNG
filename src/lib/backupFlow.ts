@@ -157,6 +157,56 @@ export async function runRestore(
   return invoke<RestoreResult>("backup_restore", { archiveId, recoveryPhrase: phrase });
 }
 
+/** What re-reading a project's audio found. `relocated` chunks were located
+ * under the project's current root and their rows repaired; they are intact
+ * audio, so they do not make a project unclean. */
+export type AudioIntegrityReport = {
+  checked: number;
+  intact: number;
+  relocated: number;
+  modified: number;
+  missing: number;
+  unverifiable: number;
+  problems: {
+    chunkId: string;
+    recordingId: string;
+    recordedPath: string;
+    state: "intact" | "relocated" | "modified" | "missing" | "unverifiable";
+  }[];
+};
+
+export async function checkAudioIntegrity(
+  invoke: InvokeFn,
+  projectId: string,
+): Promise<AudioIntegrityReport> {
+  if (!projectId) throw new Error("missing_project_id");
+  return invoke<AudioIntegrityReport>("audio_integrity_check", { projectId });
+}
+
+/** States the result without softening it: missing or modified source audio is
+ * the failure this check exists to find, and must not read as a pass. */
+export function describeAudioIntegrity(report: AudioIntegrityReport): {
+  ok: boolean;
+  text: string;
+} {
+  if (report.checked === 0) {
+    return { ok: true, text: "โปรเจกต์นี้ยังไม่มีไฟล์เสียงที่ ledger อ้างถึง" };
+  }
+  const parts: string[] = [];
+  if (report.missing > 0) parts.push(`หาย ${report.missing} ไฟล์`);
+  if (report.modified > 0) parts.push(`ถูกแก้ไขไปแล้ว ${report.modified} ไฟล์`);
+  if (parts.length > 0) {
+    return {
+      ok: false,
+      text: `ตรวจ ${report.checked} ไฟล์ — ${parts.join(" และ ")} เสียงต้นฉบับไม่ครบ`,
+    };
+  }
+  let text = `ตรวจ ${report.checked} ไฟล์ — ครบและตรงกับลายเซ็นที่บันทึกไว้`;
+  if (report.relocated > 0) text += ` (ย้ายที่ ${report.relocated} ไฟล์ และแก้เส้นทางให้แล้ว)`;
+  if (report.unverifiable > 0) text += ` (ไม่มีลายเซ็นให้ตรวจ ${report.unverifiable} ไฟล์)`;
+  return { ok: true, text };
+}
+
 /** Map native error strings to truthful, non-secret user-facing text. */
 export function describeBackupError(raw: unknown): string {
   const message = raw instanceof Error ? raw.message : String(raw ?? "");

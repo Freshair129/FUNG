@@ -17,6 +17,7 @@ use uuid::Uuid;
 mod cloud_config;
 mod cloud_executor;
 mod cloud_commands;
+mod audio_custody;
 mod backup;
 mod backup_archive;
 mod backup_payload;
@@ -1342,6 +1343,40 @@ pub(crate) fn set_job_status(
     Ok(())
 }
 
+/// A project's own storage root, which is where its audio belongs.
+fn project_storage_path(
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+) -> AppResult<PathBuf> {
+    let rows = genesis_adapter::query(
+        storage,
+        "projects",
+        &["storage_path"],
+        vec![genesis_adapter::eq("projects", "id", serde_json::json!(project_id))],
+        1,
+    )
+    .map_err(AppError::Genesis)?;
+    let path = rows
+        .first()
+        .and_then(|row| row.get("projects.storage_path"))
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| AppError::InvalidInput(format!("ไม่พบที่เก็บของโปรเจกต์ {project_id}")))?;
+    Ok(PathBuf::from(path))
+}
+
+/// Re-reads every audio chunk of a project and reports what is still present
+/// and unchanged. Chunks found under the project's current root with a
+/// matching digest have their rows repaired, so moving a project folder stops
+/// being silent data loss.
+#[tauri::command]
+fn audio_integrity_check(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<audio_custody::AudioIntegrityReport> {
+    audio_custody::verify_project_audio(&state.genesis, &project_id)
+        .map_err(|error| AppError::InvalidInput(error.to_string()))
+}
+
 /// Imports an audio/video file, transcribes it locally with faster-whisper,
 /// and writes the resulting segments into `transcript_segments`. Runs the
 /// Python worker on a background thread so the UI can keep polling job
@@ -1375,8 +1410,25 @@ fn import_and_transcribe(
     let recording_id = Uuid::new_v4().to_string();
     let timestamp = now();
     let job_id = Uuid::new_v4().to_string();
+
+    // Take custody before anything depends on this audio. Until this existed
+    // the ledger recorded the user's own path, so moving or deleting their
+    // file invalidated a recording that still reported `completed`.
+    let storage_root = project_storage_path(&state.genesis, &project_id)?;
+    let custodied = audio_custody::take_custody_of_import(
+        &storage_root,
+        &recording_id,
+        std::path::Path::new(&file_path),
+    )
+    .map_err(|error| AppError::InvalidInput(error.to_string()))?;
+    let stored_path = custodied.stored_path.display().to_string();
+
     genesis_adapter::commit_rows(&state.genesis, vec![
-        genesis_adapter::upsert("recordings", serde_json::json!({"id":recording_id,"project_id":project_id,"source":"import","input_path":file_path,"canonical_audio_path":file_path,"status":"pending","duration_ms":0,"created_at":timestamp,"updated_at":timestamp})),
+        genesis_adapter::upsert("recordings", serde_json::json!({"id":recording_id,"project_id":project_id,"source":"import","input_path":file_path,"canonical_audio_path":stored_path,"status":"pending","duration_ms":0,"created_at":timestamp,"updated_at":timestamp})),
+        // One chunk covering the whole file, so an import is backed up and
+        // integrity-checked by exactly the same paths as a live capture.
+        // `end_ms` is filled in once transcription reports the duration.
+        genesis_adapter::upsert("audio_chunks", serde_json::json!({"id":Uuid::new_v4().to_string(),"recording_id":recording_id,"sequence_no":1,"file_path":stored_path,"start_ms":0,"end_ms":0,"byte_size":custodied.byte_size,"checksum":custodied.sha256,"created_at":timestamp})),
         genesis_adapter::upsert("jobs", serde_json::json!({"id":job_id,"project_id":project_id,"type":"transcript.transcribe","status":"running","progress":0,"input_refs_json":[file_path],"output_refs_json":[],"provider_id":null,"error_code":null,"error_message":null,"attempt_no":1,"started_at":timestamp,"finished_at":null,"created_at":timestamp,"updated_at":timestamp})),
         genesis_adapter::upsert("job_events", serde_json::json!({"id":Uuid::new_v4().to_string(),"job_id":job_id,"status":"running","message":"running","created_at":timestamp})),
     ]).map_err(AppError::Genesis)?;
@@ -1385,7 +1437,9 @@ fn import_and_transcribe(
     let worker_job_id = job_id.clone();
     let worker_project_id = project_id.clone();
     let worker_recording_id = recording_id.clone();
-    let worker_file_path = file_path.clone();
+    // Transcribe the copy the project owns, not the user's original.
+    let worker_file_path = stored_path.clone();
+    let worker_input_path = file_path.clone();
     let worker_runtime = state.whisper_runtime.clone();
 
     thread::spawn(move || {
@@ -1404,7 +1458,7 @@ fn import_and_transcribe(
                         let seg_timestamp = now();
                         mutations.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({"id":Uuid::new_v4().to_string(),"project_id":worker_project_id,"recording_id":worker_recording_id,"speaker_id":null,"start_ms":segment.start_ms,"end_ms":segment.end_ms,"text":segment.text,"confidence":segment.confidence,"created_at":seg_timestamp,"updated_at":seg_timestamp})));
                     }
-                    mutations.push(genesis_adapter::upsert("recordings", serde_json::json!({"id":worker_recording_id,"project_id":worker_project_id,"source":"import","input_path":worker_file_path,"canonical_audio_path":worker_file_path,"status":"completed","duration_ms":output.duration_ms,"created_at":timestamp,"updated_at":timestamp})));
+                    mutations.push(genesis_adapter::upsert("recordings", serde_json::json!({"id":worker_recording_id,"project_id":worker_project_id,"source":"import","input_path":worker_input_path,"canonical_audio_path":worker_file_path,"status":"completed","duration_ms":output.duration_ms,"created_at":timestamp,"updated_at":timestamp})));
                     genesis_adapter::commit_rows(&worker_storage, mutations).map_err(AppError::Genesis)?;
                     Ok(())
                 })();
@@ -2003,6 +2057,7 @@ pub fn run() {
             list_model_providers,
             list_transcript_segments,
             import_and_transcribe,
+            audio_integrity_check,
             start_local_api,
             auth_loopback_listen,
             open_external_account_portal,

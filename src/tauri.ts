@@ -188,6 +188,35 @@ export async function cancelJob(jobId: string): Promise<CancelOutcome> {
   return invoke<CancelOutcome>("cancel_job", { jobId });
 }
 
+/**
+ * Whether this installation can diarize, and which prerequisite is missing
+ * when it cannot. See `src-tauri/src/diarization.rs`.
+ */
+export type DiarizationReadiness = {
+  available: boolean;
+  blocker:
+    | "runtimeMissing"
+    | "workerMissing"
+    | "dependenciesMissing"
+    | "modelNotFetched"
+    | null;
+  detail: string | null;
+  runtimePresent: boolean;
+  workerPresent: boolean;
+  dependenciesPresent: boolean;
+  modelPresent: boolean;
+  tokenConfigured: boolean;
+  model: string;
+  cacheRoot: string;
+};
+
+export async function diarizationStatus(): Promise<DiarizationReadiness | null> {
+  // `null` means "cannot be asked", which is not the same as "unavailable" —
+  // the browser preview has no backend to probe.
+  if (!canInvoke()) return null;
+  return invoke<DiarizationReadiness>("diarization_status");
+}
+
 /** The job types this build can actually run, straight from the engine. */
 export async function runnableJobTypes(): Promise<string[]> {
   if (!canInvoke()) return [];

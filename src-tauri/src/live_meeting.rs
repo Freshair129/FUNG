@@ -706,7 +706,7 @@ impl LiveWorker {
 // Coordinator: single Genesis writer + live transcription + post-meeting kick
 // ---------------------------------------------------------------------------
 
-fn speaker_id_for(project_id: &str, key: &str) -> String {
+pub(crate) fn speaker_id_for(project_id: &str, key: &str) -> String {
     format!("{project_id}::speaker::{key}")
 }
 

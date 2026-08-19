@@ -101,16 +101,48 @@ test("the app and the staging script agree on where the model cache lives", () =
   }
 });
 
-test("the disabled diarize button no longer blames packaging", () => {
-  // Packaging was never why that button did nothing: diarization is only
-  // reachable from Zoom import, and it still is after this change.
+test("diarizing is a real action, not a disabled button with a reason", () => {
+  // It was dark because diarization was reachable only from Zoom import.
+  // Now that a local capture can be diarized, a reason string would be a
+  // leftover claiming a limit that no longer exists.
   const actions = readFileSync("src/lib/jobActions.ts", "utf8");
-  const reason = actions.match(/"speakers\.diarize": "([^"]+)"/)?.[1];
-  assert.ok(reason, "speakers.diarize must still carry a reason");
-  assert.doesNotMatch(
-    reason,
-    /pyannote/,
-    "the dependency is now installable; the reason must name the real limit",
+  assert.doesNotMatch(actions, /"speakers\.diarize":\s*"/);
+  assert.match(actions, /"speakers\.diarize",/);
+});
+
+test("the shell checks readiness before queueing a diarization", () => {
+  // The dependencies are opt-in and the model is gated, so this job can be
+  // unrunnable for reasons the user can fix. Queueing anyway would surface
+  // that as a job failure minutes later instead of at the click.
+  const app = readFileSync("src/App.tsx", "utf8");
+  assert.match(app, /plan\.jobType === "speakers\.diarize"/);
+  assert.match(app, /await diarizationStatus\(\)/);
+  assert.match(
+    app,
+    /readiness && !readiness\.available/,
+    "a probe that could not run is not the same as one that said no",
   );
-  assert.match(reason, /Zoom/);
+});
+
+test("the readiness contract matches what Rust serialises", () => {
+  const rust = readFileSync("src-tauri/src/diarization.rs", "utf8");
+  const struct = rust.slice(
+    rust.indexOf("pub(crate) struct DiarizationReadiness {"),
+    rust.indexOf("/// Decides the single blocker"),
+  );
+  const camel = (name) =>
+    name.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+  const fields = [...struct.matchAll(/pub\(crate\) (\w+):/g)]
+    .map((match) => camel(match[1]))
+    .sort();
+
+  const api = readFileSync("src/tauri.ts", "utf8");
+  const type = api.slice(
+    api.indexOf("export type DiarizationReadiness = {"),
+    api.indexOf("export async function diarizationStatus"),
+  );
+  const declared = [...type.matchAll(/^  (\w+)[?]?:/gm)]
+    .map((match) => match[1])
+    .sort();
+  assert.deepEqual(declared, fields);
 });

@@ -140,7 +140,7 @@ pub(crate) fn assign_by_overlap(
 /// storage engine's 1000-row query ceiling by committing each page before
 /// querying again. `deletable` decides which rows of a page to remove; a page
 /// with nothing deletable ends the sweep.
-fn delete_recording_rows(
+pub(crate) fn delete_recording_rows(
     storage: &genesis_block_native::Storage,
     table: &str,
     recording_id: &str,
@@ -299,7 +299,13 @@ pub(crate) fn persist_attribution(
     let recording = genesis_adapter::query(
         storage,
         "recordings",
-        &["source", "input_path", "canonical_audio_path", "created_at"],
+        &[
+            "source",
+            "input_path",
+            "canonical_audio_path",
+            "created_at",
+            "language",
+        ],
         vec![genesis_adapter::eq(
             "recordings",
             "id",
@@ -310,8 +316,60 @@ pub(crate) fn persist_attribution(
     .into_iter()
     .next()
     .ok_or_else(|| "recording not found".to_string())?;
-    mutations.push(genesis_adapter::upsert("recordings", serde_json::json!({"id": recording_id, "project_id": project_id, "source": genesis_adapter::string(&recording, "recordings.source")?, "input_path": recording.get("recordings.input_path").cloned().unwrap_or(serde_json::Value::Null), "canonical_audio_path": genesis_adapter::string(&recording, "recordings.canonical_audio_path")?, "status": "completed", "duration_ms": duration_ms, "created_at": genesis_adapter::string(&recording, "recordings.created_at")?, "updated_at": timestamp})));
+    // `language` is read back here for the same reason `source` and
+    // `input_path` are: this is a whole-row upsert, and a column it does not
+    // carry is cleared. A capture that lost its language would be
+    // re-transcribed with per-chunk detection on its next catch-up pass.
+    mutations.push(genesis_adapter::upsert("recordings", serde_json::json!({"id": recording_id, "project_id": project_id, "source": genesis_adapter::string(&recording, "recordings.source")?, "input_path": recording.get("recordings.input_path").cloned().unwrap_or(serde_json::Value::Null), "canonical_audio_path": genesis_adapter::string(&recording, "recordings.canonical_audio_path")?, "status": "completed", "duration_ms": duration_ms, "created_at": genesis_adapter::string(&recording, "recordings.created_at")?, "updated_at": timestamp, "language": recording.get("recordings.language").cloned().unwrap_or(serde_json::Value::Null)})));
     genesis_adapter::commit_rows(storage, mutations)
+}
+
+/// One transcript segment as the ledger holds it, for re-attribution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExistingSegment {
+    pub(crate) id: String,
+    pub(crate) speaker_id: Option<String>,
+    pub(crate) start_ms: i64,
+    pub(crate) end_ms: i64,
+}
+
+/// Which existing segments a set of turns should re-label, and to whom.
+///
+/// Returns `(segment id, speaker key)` for every segment currently belonging
+/// to `subject_speaker_id` that a turn covers. Segments belonging to anyone
+/// else are left out entirely: the microphone channel's attribution comes
+/// from capture provenance, and a diarizer has no standing to overrule it.
+///
+/// A covered segment with no overlapping turn keeps what it has. Diarization
+/// finding no speaker for a stretch of audio is not evidence that the
+/// existing label is wrong, and clearing it would lose the one attribution
+/// that was certain.
+///
+/// Pure, because this is the function that decides whose words get moved.
+pub(crate) fn plan_reattribution(
+    segments: &[ExistingSegment],
+    subject_speaker_id: &str,
+    turns: &[SpeakerTurn],
+) -> Vec<(String, String)> {
+    segments
+        .iter()
+        .filter(|segment| segment.speaker_id.as_deref() == Some(subject_speaker_id))
+        .filter_map(|segment| {
+            let best = turns
+                .iter()
+                .map(|turn| {
+                    (
+                        turn,
+                        (segment.end_ms.min(turn.end_ms) - segment.start_ms.max(turn.start_ms))
+                            .max(0),
+                    )
+                })
+                .filter(|(_, overlap)| *overlap > 0)
+                .max_by_key(|(_, overlap)| *overlap)
+                .map(|(turn, _)| turn)?;
+            Some((segment.id.clone(), best.speaker_key.clone()))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -326,6 +384,67 @@ mod tests {
             text: text.to_string(),
             confidence: Some(0.9),
         }
+    }
+
+    fn existing(id: &str, speaker: Option<&str>, start_ms: i64, end_ms: i64) -> ExistingSegment {
+        ExistingSegment {
+            id: id.to_string(),
+            speaker_id: speaker.map(str::to_owned),
+            start_ms,
+            end_ms,
+        }
+    }
+
+    fn proposed(key: &str, start_ms: i64, end_ms: i64) -> SpeakerTurn {
+        SpeakerTurn {
+            speaker_key: key.to_string(),
+            display_name: format!("Speaker {key}"),
+            start_ms,
+            end_ms,
+            confidence: None,
+            overlap: false,
+        }
+    }
+
+    #[test]
+    fn diarization_never_overrules_the_microphone_channel() {
+        // The mic is us by capture provenance, which is a fact. Letting a
+        // model relabel it would replace that fact with a guess — and the
+        // audit's rule is that channel labels and diarization are not the
+        // same thing in either direction.
+        let segments = [
+            existing("mic-1", Some("me"), 0, 1_000),
+            existing("sys-1", Some("them"), 0, 1_000),
+        ];
+        let plan = plan_reattribution(&segments, "them", &[proposed("s:0", 0, 2_000)]);
+        assert_eq!(plan, vec![("sys-1".to_string(), "s:0".to_string())]);
+    }
+
+    #[test]
+    fn a_far_side_segment_no_turn_covers_keeps_the_label_it_has() {
+        // Diarization hearing nobody is not evidence that "อีกฝ่าย" is
+        // wrong. Clearing it would lose the one attribution that was certain.
+        let segments = [existing("sys-1", Some("them"), 5_000, 6_000)];
+        assert!(plan_reattribution(&segments, "them", &[proposed("s:0", 0, 1_000)]).is_empty());
+    }
+
+    #[test]
+    fn a_segment_spanning_two_speakers_goes_to_the_one_it_overlaps_most() {
+        let segments = [existing("sys-1", Some("them"), 0, 1_000)];
+        let plan = plan_reattribution(
+            &segments,
+            "them",
+            &[proposed("s:0", 0, 200), proposed("s:1", 200, 1_000)],
+        );
+        assert_eq!(plan, vec![("sys-1".to_string(), "s:1".to_string())]);
+    }
+
+    #[test]
+    fn an_unattributed_segment_is_not_swept_up_by_diarization() {
+        // A segment with no speaker is not a far-side segment; treating it
+        // as one would attribute text that nothing had claimed.
+        let segments = [existing("orphan", None, 0, 1_000)];
+        assert!(plan_reattribution(&segments, "them", &[proposed("s:0", 0, 1_000)]).is_empty());
     }
 
     #[test]

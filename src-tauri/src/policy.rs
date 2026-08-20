@@ -84,9 +84,56 @@ pub(crate) fn ensure_policy_tables(conn: &Connection) -> Result<(), String> {
           count INTEGER NOT NULL,
           PRIMARY KEY (task_kind, call_date)
         );
+        CREATE TABLE IF NOT EXISTS media_fetch_policy (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          enabled INTEGER NOT NULL
+        );
         "#,
     )
     .map_err(|e| e.to_string())
+}
+
+/// Whether outbound media fetching (`media_fetch`) is permitted.
+///
+/// A separate row from [`TierPolicy`] rather than a fourth field on it,
+/// because it is a different kind of consent and collapsing them would make
+/// one switch mean two things. `TierPolicy` governs sending *FUNG's own
+/// material* — recorded audio, transcript text — to a paid cloud provider
+/// under an API key and a daily cap. This governs pulling a stranger's URL
+/// in, where nothing of the user's leaves but the address they typed. They
+/// are enabled for different reasons and revoked at different times.
+///
+/// Absent row means absent consent: a fresh install, or one whose policy
+/// database was never written, fetches nothing.
+pub(crate) fn media_fetch_consent(conn: &Connection) -> Result<bool, String> {
+    ensure_policy_tables(conn)?;
+    conn.query_row(
+        "SELECT enabled FROM media_fetch_policy WHERE id = 1",
+        [],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|enabled| enabled != 0)
+    .or_else(|e| {
+        if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
+            Ok(false)
+        } else {
+            Err(e.to_string())
+        }
+    })
+}
+
+/// Grants or revokes outbound media fetching. Reversible in both directions —
+/// revoking is a plain `UPDATE`, not a tombstone, so a user who turns this
+/// off is in exactly the state they were in before turning it on.
+pub(crate) fn set_media_fetch_consent(conn: &Connection, enabled: bool) -> Result<(), String> {
+    ensure_policy_tables(conn)?;
+    conn.execute(
+        "INSERT INTO media_fetch_policy (id, enabled) VALUES (1, ?1) \
+         ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled",
+        params![enabled as i64],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn task_kind_str(task: CloudTaskKind) -> &'static str {
@@ -360,5 +407,53 @@ mod tests {
         increment_calls_today(&conn, CloudTaskKind::Llm).unwrap();
         assert_eq!(calls_today(&conn, CloudTaskKind::Stt).unwrap(), 2);
         assert_eq!(calls_today(&conn, CloudTaskKind::Llm).unwrap(), 1);
+    }
+
+    #[test]
+    fn media_fetch_consent_defaults_to_withheld() {
+        // A fresh install must not be able to reach the network because
+        // nobody has said anything yet. Absent row, absent consent.
+        let conn = open_test_db();
+        assert!(!media_fetch_consent(&conn).unwrap());
+    }
+
+    #[test]
+    fn media_fetch_consent_is_reversible() {
+        let conn = open_test_db();
+        set_media_fetch_consent(&conn, true).unwrap();
+        assert!(media_fetch_consent(&conn).unwrap());
+        set_media_fetch_consent(&conn, false).unwrap();
+        assert!(!media_fetch_consent(&conn).unwrap());
+    }
+
+    #[test]
+    fn media_fetch_consent_is_independent_of_the_cloud_tier() {
+        // Enabling cloud STT is consent to send *this machine's audio out*.
+        // It must not also authorise pulling arbitrary URLs in: they are
+        // different decisions and the UI presents them as such.
+        let conn = open_test_db();
+        save_policy(
+            &conn,
+            &TierPolicy {
+                stt_cloud_enabled: true,
+                llm_cloud_enabled: true,
+                daily_cap: 100,
+            },
+        )
+        .unwrap();
+        assert!(!media_fetch_consent(&conn).unwrap());
+    }
+
+    #[test]
+    fn media_fetch_consent_fails_closed_on_real_db_errors() {
+        let conn = Connection::open_in_memory().unwrap();
+        ensure_policy_tables(&conn).unwrap();
+        conn.execute("DROP TABLE media_fetch_policy", []).unwrap();
+        conn.execute("CREATE TABLE media_fetch_policy (id INTEGER PRIMARY KEY)", [])
+            .unwrap();
+
+        // A broken schema must not read as "consent granted", and must not
+        // read as a silent `false` either -- the caller has to know.
+        assert!(media_fetch_consent(&conn).is_err());
     }
 }

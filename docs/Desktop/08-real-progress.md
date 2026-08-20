@@ -147,6 +147,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | Live Meeting entry | The fixed microphone rail now opens the real panel and its regression passes. | Current packaged-app interaction/UAT remains to be rerun after the prior bootstrap incident. |
 | Audio import | `import_and_transcribe` is implemented, registered, and reachable from the desktop UI; it transcribes a picked file and persists segments. Recorded as "not implemented" through 0.2.10b, which was wrong. | The source file is referenced in place — no copy into project storage, no chunking, no checksum — so moving or deleting it invalidates a recording the ledger still reports `completed`. No `model_runs` row is written, so imported transcripts carry no model provenance. |
 | External meeting retrieval | Backend plus operator workflow, stdio fixture transport, zero-process-before-approval, document/CRM reads, connector lifecycle, sanitized result rendering, recording-row isolation, and bounded relaunch persistence smoke are tested at unit/source/integration level. | Automated keyboard/1200×780 visual UAT, detailed connector health, artifact-wide secret scan, real-device capture-isolation UAT, summary/export review after restart, and real-connector UAT remain. |
+| URL ingest | `fetch_and_transcribe`, `media_fetch_status` and `media_fetch_consent_set` are implemented, registered, and reachable from the desktop UI. A pasted http(s) link is fetched audio-only by a pinned yt-dlp worker, taken into custody, and transcribed through the same pipeline as a file import; the path is declared in the egress register §1.6 and guarded by `tests/egressRegister.test.mjs`. | Proven against a local HTTP server (`Generic` extractor) only. No real site — including YouTube — has been fetched on a device, and without the opt-in `deno` runtime YouTube is expected to fail outright. The staged runtime has never been installed on a machine here, so the readiness probe is unit-tested rather than run. yt-dlp is pinned to 2026.7.4 and the app has no update path, so extractor rot is a standing maintenance cost. |
 | GPU standalone release | DLL staging and child-process isolation are implemented. | Must build and run a copied packaged bundle with a speech fixture; NVIDIA redistribution approval remains a release gate. |
 
 ## Not Implemented Yet
@@ -165,6 +166,13 @@ overlay does not promote Phase 3 to fully release-ready.
   feed the model (system channel alone, or a mixdown) changes what the speaker
   timings mean. Neither the dependency install nor a diarization run has been
   executed on a device.
+- URL ingest *at scale*. The path works, but two things are unproven and one
+  is structural. Unproven: a real extractor run on a device, and the `deno`
+  JS-runtime install that YouTube's signature challenges need. Structural:
+  yt-dlp tracks sites that change deliberately, so a pinned version decays —
+  a build six months old will fail on links a current yt-dlp handles, and
+  nothing in the app tells the user that is why. Re-pinning is a lockfile
+  regeneration (`stage_media_fetch_runtime.ps1 -GenerateLock`) and a release.
 - Noise reduction.
 - Source separation/layer generation.
 - Real transcript editor.

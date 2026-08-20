@@ -217,6 +217,77 @@ export async function diarizationStatus(): Promise<DiarizationReadiness | null> 
   return invoke<DiarizationReadiness>("diarization_status");
 }
 
+/**
+ * Whether this installation may fetch media from a URL, and what is missing
+ * when it may not. See `src-tauri/src/media_fetch.rs`.
+ */
+export type MediaFetchReadiness = {
+  available: boolean;
+  blocker:
+    | "runtimeMissing"
+    | "workerMissing"
+    | "dependenciesMissing"
+    | "consentWithheld"
+    | null;
+  /** Stable code for the same blocker; branch on this, never on `detail`. */
+  blockerCode: string | null;
+  detail: string | null;
+  runtimePresent: boolean;
+  workerPresent: boolean;
+  dependenciesPresent: boolean;
+  consentGranted: boolean;
+  /**
+   * Whether a JS runtime is staged for YouTube's signature challenges. Not a
+   * blocker — other sites work without it — so this is an advisory the UI
+   * shows rather than a reason to refuse.
+   */
+  jsRuntimePresent: boolean;
+  jsRuntimeDetail: string | null;
+  maxDurationS: number;
+  packagesDir: string;
+};
+
+export async function mediaFetchStatus(): Promise<MediaFetchReadiness | null> {
+  // `null` means "cannot be asked", which is not the same as "unavailable" —
+  // the browser preview has no backend to probe.
+  if (!canInvoke()) return null;
+  return invoke<MediaFetchReadiness>("media_fetch_status");
+}
+
+/**
+ * Grants or revokes permission for FUNG to reach the internet for media.
+ * Returns the resulting readiness, so a caller that turns consent on learns
+ * in the same round-trip whether anything else is still missing.
+ */
+export async function setMediaFetchConsent(enabled: boolean): Promise<MediaFetchReadiness | null> {
+  if (!canInvoke()) return null;
+  return invoke<MediaFetchReadiness>("media_fetch_consent_set", { enabled });
+}
+
+/** Fetches the audio behind a URL and transcribes it, as one job. */
+export async function fetchAndTranscribe(url: string, projectId?: string): Promise<Job> {
+  if (!canInvoke()) {
+    const now = new Date().toISOString();
+    return {
+      id: crypto.randomUUID(),
+      projectId: projectId ?? "browser-preview",
+      type: "transcript.transcribe",
+      status: "running",
+      progress: 0,
+      inputRefs: [url],
+      outputRefs: [],
+      providerId: null,
+      errorCode: null,
+      errorMessage: null,
+      startedAt: now,
+      finishedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+  return invoke<Job>("fetch_and_transcribe", { url, projectId: projectId ?? null });
+}
+
 /** The job types this build can actually run, straight from the engine. */
 export async function runnableJobTypes(): Promise<string[]> {
   if (!canInvoke()) return [];

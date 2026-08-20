@@ -8,6 +8,7 @@ import {
   Cloud,
   Download,
   HardDriveDownload,
+  Link2,
   Loader2,
   Mic,
   Minimize2,
@@ -52,6 +53,7 @@ import {
   type TranscriptSegment,
 } from "./tauri";
 import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
+import { MediaFetchPanel } from "./components/MediaFetchPanel";
 import { ZoomPanel } from "./components/ZoomPanel";
 import { TtsProviderPanel } from "./components/TtsProviderPanel";
 import { LiveMeetingPanel } from "./components/LiveMeetingPanel";
@@ -681,6 +683,7 @@ export function App() {
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
   const [accountPanelOpen, setAccountPanelOpen] = useState(false);
   const [zoomPanelOpen, setZoomPanelOpen] = useState(false);
+  const [mediaFetchOpen, setMediaFetchOpen] = useState(false);
   const [ttsPanelOpen, setTtsPanelOpen] = useState(false);
   const [cloudProvidersPanelOpen, setCloudProvidersPanelOpen] = useState(false);
   const [liveMeetingOpen, setLiveMeetingOpen] = useState(false);
@@ -1153,6 +1156,16 @@ export function App() {
     <div className={`app-shell theme-${theme}`}>
       {accountPanelOpen && <ExternalAccountPanel onClose={() => setAccountPanelOpen(false)} onOpenPortal={openExternalAccountPortal} />}
       {zoomPanelOpen && <ZoomPanel onClose={() => setZoomPanelOpen(false)} />}
+      {mediaFetchOpen && (
+        <MediaFetchPanel
+          projectId={selectedProjectId ?? null}
+          onClose={() => setMediaFetchOpen(false)}
+          onStarted={(job) => {
+            setJobs((current) => [job, ...current.filter((entry) => entry.id !== job.id)]);
+            void pollJobUntilDone(job.id).then(() => void refresh());
+          }}
+        />
+      )}
       {ttsPanelOpen && <TtsProviderPanel onClose={() => setTtsPanelOpen(false)} />}
       <Suspense fallback={null}>
         <RecoveryNotice invoke={nativeInvoke} />
@@ -1566,6 +1579,15 @@ export function App() {
               onClick={() => void handleImportAndTranscribe()}
             >
               <Upload size={20} />
+            </button>
+            <button
+              type="button"
+              className="sidebar-action"
+              aria-label="Fetch from URL"
+              title="ดึงเสียงจากลิงก์แล้วถอดเสียงในเครื่อง"
+              onClick={() => setMediaFetchOpen(true)}
+            >
+              <Link2 size={20} />
             </button>
             <button
               type="button"

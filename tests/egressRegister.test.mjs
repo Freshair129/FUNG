@@ -156,3 +156,65 @@ test("the Zoom bearer is never sent to a host from a response body", () => {
     );
   }
 });
+
+test("URL ingest is refused by default and only http(s) is reachable", () => {
+  // Register §1.6. This is the only outbound path whose destination is not
+  // known in advance, so the guarantees are structural: consent defaults to
+  // withheld, and the scheme allowlist is checked at both ends. Both are the
+  // kind of thing a later refactor silently drops.
+  const policy = productionRust("src-tauri/src/policy.rs");
+  const consent = policy.slice(policy.indexOf("fn media_fetch_consent"));
+  assert.match(
+    consent.slice(0, consent.indexOf("fn set_media_fetch_consent")),
+    /QueryReturnedNoRows\) \{\s*Ok\(false\)/,
+    "an absent consent row must read as withheld, never as granted",
+  );
+
+  const mediaFetch = productionRust("src-tauri/src/media_fetch.rs");
+  const guard = mediaFetch.slice(mediaFetch.indexOf("fn require_http_url"));
+  assert.match(
+    guard,
+    /eq_ignore_ascii_case\("http"\)[\s\S]*eq_ignore_ascii_case\("https"\)/,
+    "the scheme check must be an allowlist of http/https, not a blocklist",
+  );
+  // The same check in the worker, because the Rust one only protects callers
+  // that go through the command.
+  assert.match(
+    readFileSync("scripts/fetch_media.py", "utf8"),
+    /parsed\.scheme not in \("http", "https"\)/,
+    "fetch_media.py must refuse non-http(s) URLs on its own",
+  );
+
+  // The command, not the worker, is where a refusal has to happen: the user
+  // needs a reason and a next step, not a subprocess failure.
+  const lib = productionRust("src-tauri/src/lib.rs");
+  const command = lib.slice(lib.indexOf("fn fetch_and_transcribe"));
+  const body = command.slice(0, command.indexOf("thread::spawn"));
+  assert.match(body, /media_fetch_readiness\(&state\)/);
+  assert.ok(
+    body.indexOf("readiness.available") < body.indexOf("require_http_url"),
+    "readiness (which includes consent) must be checked before anything else happens",
+  );
+  assert.ok(
+    body.indexOf("readiness.available") < body.indexOf("create_import_job"),
+    "a refused fetch must leave no job row behind",
+  );
+});
+
+test("the fetch worker is staged apart from the transcription runtime", () => {
+  // Register §1.6. `certifi` and `idna` are pinned by both requirement sets;
+  // installing yt-dlp over the transcription runtime's own site-packages
+  // would change the one pass the local-first claim rests on.
+  const staging = readFileSync("scripts/stage_media_fetch_runtime.ps1", "utf8");
+  assert.match(staging, /media-fetch-packages/);
+  assert.doesNotMatch(
+    staging,
+    /--target \$sitePackages/,
+    "the fetch dependencies must not be installed into the transcription runtime",
+  );
+  assert.match(staging, /--require-hashes/, "wheels must be hash-pinned like every other runtime");
+
+  // And the app must look where staging installs.
+  const mediaFetch = productionRust("src-tauri/src/media_fetch.rs");
+  assert.match(mediaFetch, /"media-fetch-packages"/);
+});

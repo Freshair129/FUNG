@@ -1,6 +1,9 @@
 # Appendix E — Network egress register
 
 **Audited:** 2026-08-19 against `217e0b9`.
+**Amended:** 2026-08-20 — §1.6 added with the URL-ingest path
+(`feature/media-fetch-url-ingest`), declared at the time it was written rather
+than found by the next audit.
 **Method:** every network primitive in the tree read at its call site — `reqwest`
 clients, raw sockets, subprocess workers, and the webview's own reach. Not a
 survey of what the product claims; a list of what the code does.
@@ -106,7 +109,49 @@ account and pulls files down. Every host is a compile-time constant except the
 per-file `download_url`, which arrives in a response body — now checked before
 the bearer is attached ([§3.3](#33-the-zoom-bearer-followed-a-url-from-a-response-body)).
 
-### 1.6 FUNGWIRE — audio leaves for a paired device on the LAN
+### 1.6 URL ingest — a URL leaves, media comes back
+
+| | |
+|---|---|
+| **Payload out** | The URL the user typed, and this machine's IP address |
+| **Payload in** | The audio track of that URL's media |
+| **Destination** | Whatever host is in the URL — chosen per fetch, by the user |
+| **Evidence** | `src-tauri/src/media_fetch.rs:fetch`, `scripts/fetch_media.py` |
+| **Consent gate** | `policy::media_fetch_consent` — off by default, revocable; **and** the yt-dlp runtime being staged by hand |
+| **Reached from** | `lib.rs::fetch_and_transcribe` only |
+
+**No FUNG-held material leaves on this path.** Not audio, not transcript text,
+not project names — only the address someone pasted, to the host in it. That
+makes it the *least* exposing outbound path in this table, which is why it sits
+here rather than beside cloud STT.
+
+It is also the only path whose destination is not known in advance. Every other
+row above names a host, a compile-time constant, or a value an operator
+configured once. This one is whatever the user typed, so the checks are on the
+shape rather than the identity: `media_fetch::require_http_url` allows `http`
+and `https` and nothing else, at the command boundary and again in the worker.
+A `file://` URL would otherwise make an arbitrary-file read reachable from a
+text box, since yt-dlp accepts one.
+
+Two gates, not one, and they are independent on purpose. Staging the runtime
+(`scripts/stage_media_fetch_runtime.ps1`) makes the capability *possible*;
+`media_fetch_consent` makes it *permitted*. Someone who ran the staging script
+once has not thereby authorised every future fetch, and revoking consent is a
+plain flag flip that leaves the installation intact. Neither gate is reachable
+from a paired mobile device: `fetch_and_transcribe` is a desktop command, and
+the consent row is the desktop's.
+
+What arrives enters the ordinary import path — `audio_custody::take_custody_of_import`,
+digest, ledger — so a fetched recording is backed up and integrity-checked
+exactly like a dragged-in file. The staging directory it lands in first is
+removed on both the success and failure paths, so a partial download is never
+left where something could mistake it for a recording.
+
+The worker is handed no Hugging Face cache, so `run_python_worker` gives it
+`HF_HUB_OFFLINE=1` like every other worker — the one process here that is
+allowed to reach the network still has no business reaching the hub.
+
+### 1.7 FUNGWIRE — audio leaves for a paired device on the LAN
 
 | | |
 |---|---|
@@ -119,7 +164,7 @@ Off the machine, but not off the network, and only to a device the user paired.
 Note the chain: a mobile device may delegate a job here, and the desktop may
 then take path 1.1 with it — governed, as above, by the desktop's policy.
 
-### 1.7 Model fetches — no user data, but real network use
+### 1.8 Model fetches — no user data, but real network use
 
 | Path | Fetches | When |
 |---|---|---|
@@ -133,7 +178,7 @@ a token is set, never its value (`diarization.rs`).
 The transcription worker is now pinned offline rather than merely believed to
 be — [§3.1](#31-the-transcription-worker-was-offline-by-habit-not-by-constraint).
 
-### 1.8 Not egress, despite appearances
+### 1.9 Not egress, despite appearances
 
 - **`lib.rs:552` — `UdpSocket::connect("8.8.8.8:80")`.** No packet is sent. A
   UDP `connect` only makes the OS pick a local route so `local_addr()` can be
@@ -242,7 +287,7 @@ quietly is not the safer failure.
   dispatches can exceed it by a bounded amount. Acceptable for a rate limit;
   not an invariant.
 - **`start_local_api` discloses the database path unauthenticated.** §2.
-- **The connector subprocess is unbounded on the network.** §1.8. Bounding it
+- **The connector subprocess is unbounded on the network.** §1.9. Bounding it
   would mean sandboxing the child process, which FUNG does not do.
 
 ---

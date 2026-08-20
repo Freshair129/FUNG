@@ -43,6 +43,7 @@ mod on_device_ai;
 mod policy;
 mod recovery;
 mod speaker_merge;
+mod transcript_export;
 mod tts_config;
 mod tts_executor;
 mod zoom_sync;
@@ -2930,6 +2931,7 @@ pub fn run() {
             fetch_and_transcribe,
             media_fetch_status,
             media_fetch_consent_set,
+            transcript_export::list_export_artifacts,
             audio_integrity_check,
             recovery_scan,
             recovery_recover,

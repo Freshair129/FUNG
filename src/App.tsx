@@ -35,6 +35,7 @@ import {
   getHealth,
   graphBuildStart,
   importAndTranscribe,
+  listExportArtifacts,
   listJobs,
   listModelProviders,
   listProjects,
@@ -948,14 +949,19 @@ export function App() {
     return project;
   };
 
-  const pollJobUntilDone = async (jobId: string) => {
+  // Returns the job as it finished, so a caller can tell "done" from "failed"
+  // rather than refreshing and hoping. `null` means it stopped being visible
+  // or outlasted the poll.
+  const pollJobUntilDone = async (jobId: string): Promise<Job | null> => {
     for (let attempt = 0; attempt < 600; attempt += 1) {
       const nextJobs = await listJobs();
       setJobs(nextJobs);
       const job = nextJobs.find((entry) => entry.id === jobId);
-      if (!job || job.status === "completed" || job.status === "failed") return;
+      if (!job) return null;
+      if (job.status === "completed" || job.status === "failed") return job;
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
+    return null;
   };
 
   const handleRenameSpeaker = async (speakerId: string, displayName: string) => {
@@ -1083,11 +1089,35 @@ export function App() {
       }
     }
 
+    let queued;
     try {
-      await createJob(plan.jobType, selectedProjectId, activeRecordingId);
+      queued = await createJob(plan.jobType, selectedProjectId, activeRecordingId);
     } catch (error) {
       setActionNotice(`เข้าคิวไม่สำเร็จ: ${String(error)}`);
       return;
+    }
+
+    // An export whose files the user cannot find is not an export. The other
+    // job kinds change what is already on screen; this one writes to disk and
+    // has to say where.
+    if (plan.jobType === "export.render") {
+      setActionNotice("กำลังส่งออกซับไตเติล…");
+      const finished = await pollJobUntilDone(queued.id);
+      if (finished?.status === "failed") {
+        setActionNotice(finished.errorMessage ?? "ส่งออกซับไตเติลไม่สำเร็จ");
+      } else if (finished?.status === "completed") {
+        const written = (await listExportArtifacts(selectedProjectId)).filter(
+          (artifact) => artifact.kind === "srt" || artifact.kind === "vtt",
+        );
+        setActionNotice(
+          written.length > 0
+            ? `ส่งออกแล้ว: ${written
+                .slice(0, 2)
+                .map((artifact) => artifact.filePath)
+                .join(" · ")}`
+            : "ส่งออกเสร็จแล้ว แต่ไม่พบไฟล์ที่บันทึกไว้",
+        );
+      }
     }
     await refresh();
   };
@@ -1600,8 +1630,11 @@ export function App() {
             <button
               type="button"
               className="sidebar-action"
-              aria-label="Storage"
-              title={jobActionBlockedReason("export.render", Boolean(activeRecordingId)) ?? "Storage"}
+              aria-label="Export subtitles"
+              title={
+                jobActionBlockedReason("export.render", Boolean(activeRecordingId)) ??
+                "ส่งออกซับไตเติล .srt และ .vtt ของการบันทึกนี้"
+              }
               onClick={() => void handleCreateJob("export.render")}
             >
               <HardDriveDownload size={20} />

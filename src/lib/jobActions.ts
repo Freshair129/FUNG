@@ -2,7 +2,7 @@
  * What a tile's job button is actually able to do.
  *
  * The focus tiles were written against a job vocabulary of thirteen types.
- * Three of them have an implementation behind them; the rest were labels on
+ * Five of them have an implementation behind them; the rest were labels on
  * buttons that filed a row nothing ran. Rather than let the UI keep offering
  * work the product cannot do, every job value resolves here into one of
  * three honest outcomes, and the backend refuses anything outside the
@@ -19,6 +19,7 @@ export const RUNNABLE_JOB_TYPES = [
   "transcript.retry",
   "graph.build",
   "speakers.diarize",
+  "export.render",
 ] as const;
 
 export type RunnableJobType = (typeof RUNNABLE_JOB_TYPES)[number];
@@ -54,7 +55,6 @@ const UNAVAILABLE: Record<string, string> = {
   "speakers.lock": "ยังไม่มีการยืนยันผู้พูดแบบถาวร",
   "review.evidence": "ยังไม่มีการทำเครื่องหมายหลักฐาน",
   "summary.compare": "ยังเทียบสรุปข้ามครั้งไม่ได้",
-  "export.render": "ส่งออกอัตโนมัติมากับสรุปการประชุมแล้ว",
   "export.queue": "ยังไม่มีคิวส่งออกแยก",
   "archive.project": "ใช้แผงสำรองข้อมูลแทน",
 };

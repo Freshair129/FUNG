@@ -288,6 +288,23 @@ export async function fetchAndTranscribe(url: string, projectId?: string): Promi
   return invoke<Job>("fetch_and_transcribe", { url, projectId: projectId ?? null });
 }
 
+/**
+ * A file the project has exported. `kind` matches the `export_artifacts`
+ * enum: `srt`/`vtt` from a subtitle render, `txt` from a meeting summary.
+ */
+export type ExportArtifact = {
+  id: string;
+  kind: string;
+  filePath: string;
+  createdAt: string;
+};
+
+/** A project's exports, newest first. */
+export async function listExportArtifacts(projectId: string): Promise<ExportArtifact[]> {
+  if (!canInvoke()) return [];
+  return invoke<ExportArtifact[]>("list_export_artifacts", { projectId });
+}
+
 /** The job types this build can actually run, straight from the engine. */
 export async function runnableJobTypes(): Promise<string[]> {
   if (!canInvoke()) return [];

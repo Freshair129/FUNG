@@ -251,13 +251,28 @@ pub(crate) struct AudioIntegrityReport {
     /// Everything that is not `Intact`. A clean project reports an empty list
     /// rather than a summary the caller has to interpret.
     pub(crate) problems: Vec<ChunkFinding>,
+    /// Recordings whose chunk list could not be read whole, because the read
+    /// hit [`genesis_adapter::ROW_CAP`] and the engine offers no cursor.
+    ///
+    /// Not a chunk state: these chunks were never classified, so they are not
+    /// intact, missing, or modified — they are unlooked-at. That distinction
+    /// is the whole point of the field. Verification exists to answer "is the
+    /// audio still there and still itself", and a pass that silently skipped
+    /// part of the inventory answers a narrower question while sounding like
+    /// it answered that one.
+    pub(crate) unread_recordings: Vec<String>,
 }
 
 impl AudioIntegrityReport {
     /// True when every chunk the ledger references is present and matches its
     /// recorded digest.
+    ///
+    /// A pass that could not read the whole inventory is never clean, however
+    /// good the chunks it did reach look. "Nothing wrong was found" and
+    /// "nothing is wrong" are different claims, and only the second is worth
+    /// telling someone about their recordings.
     pub(crate) fn is_clean(&self) -> bool {
-        self.missing == 0 && self.modified == 0
+        self.missing == 0 && self.modified == 0 && self.unread_recordings.is_empty()
     }
 
     fn record(&mut self, finding: ChunkFinding) {
@@ -358,7 +373,7 @@ pub(crate) fn verify_project_audio(
         else {
             continue;
         };
-        let chunks = genesis_adapter::query(
+        let page = genesis_adapter::query_capped(
             storage,
             "audio_chunks",
             &[
@@ -376,9 +391,12 @@ pub(crate) fn verify_project_audio(
                 "recording_id",
                 serde_json::json!(recording_id),
             )],
-            GENESIS_QUERY_LIMIT,
         )
         .map_err(CustodyError::InventoryFailed)?;
+        if page.capped {
+            report.unread_recordings.push(recording_id.to_string());
+        }
+        let chunks = page.rows;
 
         for chunk in &chunks {
             let text = |key: &str| {
@@ -609,6 +627,34 @@ mod tests {
         assert!(!report.is_clean());
         assert_eq!(report.checked, 3);
         assert_eq!(report.missing, 1);
+    }
+
+    #[test]
+    fn a_pass_that_could_not_read_the_whole_inventory_is_never_clean() {
+        // The defect: chunks past the engine's row ceiling were never
+        // classified, so they counted as neither missing nor modified, and
+        // `is_clean` said yes. Verification's entire job is to distinguish
+        // "nothing wrong was found" from "nothing is wrong"; reporting the
+        // first as the second is the one answer it must not give.
+        let mut report = AudioIntegrityReport::default();
+        report.record(ChunkFinding {
+            chunk_id: "c1".into(),
+            recording_id: "r1".into(),
+            recorded_path: "a".into(),
+            state: ChunkState::Intact,
+        });
+        assert!(report.is_clean(), "a fully-read intact project is clean");
+
+        report.unread_recordings.push("r2".into());
+        assert!(
+            !report.is_clean(),
+            "an unread recording must sink the verdict even with no findings"
+        );
+        // And it is not smuggled in as a problem: nothing about r2 was
+        // examined, so it has no chunk findings to report.
+        assert!(report.problems.is_empty());
+        assert_eq!(report.missing, 0);
+        assert_eq!(report.modified, 0);
     }
 
     #[test]

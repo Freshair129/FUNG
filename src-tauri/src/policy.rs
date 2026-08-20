@@ -449,8 +449,11 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         ensure_policy_tables(&conn).unwrap();
         conn.execute("DROP TABLE media_fetch_policy", []).unwrap();
-        conn.execute("CREATE TABLE media_fetch_policy (id INTEGER PRIMARY KEY)", [])
-            .unwrap();
+        conn.execute(
+            "CREATE TABLE media_fetch_policy (id INTEGER PRIMARY KEY)",
+            [],
+        )
+        .unwrap();
 
         // A broken schema must not read as "consent granted", and must not
         // read as a silent `false` either -- the caller has to know.

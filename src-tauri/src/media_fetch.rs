@@ -62,12 +62,8 @@ impl MediaFetchBlocker {
     /// A sentence naming the next action, not the failure.
     pub(crate) fn detail(self) -> &'static str {
         match self {
-            MediaFetchBlocker::RuntimeMissing => {
-                "ไม่พบ Python runtime ที่มากับ FUNG — ต้องติดตั้งแอปใหม่"
-            }
-            MediaFetchBlocker::WorkerMissing => {
-                "ไม่พบสคริปต์ fetch_media.py ในชุดติดตั้ง — ต้องติดตั้งแอปใหม่"
-            }
+            MediaFetchBlocker::RuntimeMissing => "ไม่พบ Python runtime ที่มากับ FUNG — ต้องติดตั้งแอปใหม่",
+            MediaFetchBlocker::WorkerMissing => "ไม่พบสคริปต์ fetch_media.py ในชุดติดตั้ง — ต้องติดตั้งแอปใหม่",
             MediaFetchBlocker::DependenciesMissing => {
                 "ยังไม่ได้ติดตั้ง yt-dlp — รัน scripts/stage_media_fetch_runtime.ps1 \
                  (ไม่ได้มากับตัวติดตั้งเพราะเป็นตัวเดียวในแอปที่ต่อออกอินเทอร์เน็ต)"
@@ -192,12 +188,13 @@ fn dependencies_present(runtime: &WhisperRuntime) -> bool {
 }
 
 fn js_runtime_present(runtime: &WhisperRuntime) -> bool {
-    js_runtime_dir(runtime)
-        .is_some_and(|dir| dir.join(format!("deno{}", std::env::consts::EXE_SUFFIX)).is_file())
+    js_runtime_dir(runtime).is_some_and(|dir| {
+        dir.join(format!("deno{}", std::env::consts::EXE_SUFFIX))
+            .is_file()
+    })
 }
 
-const JS_RUNTIME_ADVISORY: &str =
-    "ยังไม่ได้ติดตั้ง JS runtime — YouTube ส่วนใหญ่จะดึงไม่สำเร็จ \
+const JS_RUNTIME_ADVISORY: &str = "ยังไม่ได้ติดตั้ง JS runtime — YouTube ส่วนใหญ่จะดึงไม่สำเร็จ \
      รัน scripts/stage_media_fetch_runtime.ps1 -WithJsRuntime (เพิ่ม 41 MB) \
      เว็บอื่นใช้ได้ตามปกติ";
 
@@ -269,7 +266,9 @@ pub(crate) fn require_http_url(raw: &str) -> Result<&str, String> {
         return Err("ต้องเป็นลิงก์ที่ขึ้นต้นด้วย http:// หรือ https://".to_string());
     };
     if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
-        return Err(format!("ไม่รองรับลิงก์แบบ {scheme}:// — รับเฉพาะ http และ https"));
+        return Err(format!(
+            "ไม่รองรับลิงก์แบบ {scheme}:// — รับเฉพาะ http และ https"
+        ));
     }
     let host = rest
         .split(['/', '?', '#'])

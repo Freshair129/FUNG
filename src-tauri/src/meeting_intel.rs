@@ -533,22 +533,22 @@ fn load_segments(
     let mut segments: Vec<SegmentView> = page
         .rows
         .into_iter()
-    .filter_map(|row| {
-        Some(SegmentView {
-            id: row.get("transcript_segments.id")?.as_str()?.to_string(),
-            speaker: row
-                .get("transcript_segments.speaker_id")
-                .and_then(serde_json::Value::as_str)
-                .and_then(|id| speaker_names.get(id))
-                .cloned()
-                .unwrap_or_else(|| "ไม่ระบุ".to_string()),
-            start_ms: row
-                .get("transcript_segments.start_ms")
-                .and_then(serde_json::Value::as_i64)?,
-            text: row.get("transcript_segments.text")?.as_str()?.to_string(),
+        .filter_map(|row| {
+            Some(SegmentView {
+                id: row.get("transcript_segments.id")?.as_str()?.to_string(),
+                speaker: row
+                    .get("transcript_segments.speaker_id")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|id| speaker_names.get(id))
+                    .cloned()
+                    .unwrap_or_else(|| "ไม่ระบุ".to_string()),
+                start_ms: row
+                    .get("transcript_segments.start_ms")
+                    .and_then(serde_json::Value::as_i64)?,
+                text: row.get("transcript_segments.text")?.as_str()?.to_string(),
+            })
         })
-    })
-    .collect();
+        .collect();
     segments.sort_by_key(|segment| segment.start_ms);
     Ok(segments)
 }
@@ -1365,16 +1365,25 @@ mod tests {
 
     fn seed(storage: &genesis_block_native::Storage, segment_count: i64) {
         let mut rows = vec![
-            genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"})),
-            genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"})),
+            genesis_adapter::upsert(
+                "projects",
+                serde_json::json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"}),
+            ),
+            genesis_adapter::upsert(
+                "recordings",
+                serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"}),
+            ),
         ];
         for index in 0..segment_count {
-            rows.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({
-                "id": format!("s{index}"), "project_id": "p1", "recording_id": "r1",
-                "speaker_id": null, "start_ms": index * 1000, "end_ms": index * 1000 + 900,
-                "text": format!("บรรทัด {index}"), "confidence": 0.9,
-                "created_at": "t", "updated_at": "t",
-            })));
+            rows.push(genesis_adapter::upsert(
+                "transcript_segments",
+                serde_json::json!({
+                    "id": format!("s{index}"), "project_id": "p1", "recording_id": "r1",
+                    "speaker_id": null, "start_ms": index * 1000, "end_ms": index * 1000 + 900,
+                    "text": format!("บรรทัด {index}"), "confidence": 0.9,
+                    "created_at": "t", "updated_at": "t",
+                }),
+            ));
         }
         genesis_adapter::commit_rows(storage, rows).unwrap();
     }

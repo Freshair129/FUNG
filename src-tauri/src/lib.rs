@@ -2033,13 +2033,22 @@ fn run_import_pipeline(
         };
     let stored_path = custodied.stored_path.display().to_string();
 
-    let registered = genesis_adapter::commit_rows(genesis, vec![
-        genesis_adapter::upsert("recordings", serde_json::json!({"id":recording_id,"project_id":project_id,"source":source,"input_path":input_path,"canonical_audio_path":stored_path,"status":"pending","duration_ms":0,"created_at":timestamp,"updated_at":timestamp})),
-        // One chunk covering the whole file, so an import is backed up and
-        // integrity-checked by exactly the same paths as a live capture.
-        // `end_ms` is filled in once transcription reports the duration.
-        genesis_adapter::upsert("audio_chunks", serde_json::json!({"id":Uuid::new_v4().to_string(),"recording_id":recording_id,"sequence_no":1,"file_path":stored_path,"start_ms":0,"end_ms":0,"byte_size":custodied.byte_size,"checksum":custodied.sha256,"created_at":timestamp})),
-    ]);
+    let registered = genesis_adapter::commit_rows(
+        genesis,
+        vec![
+            genesis_adapter::upsert(
+                "recordings",
+                serde_json::json!({"id":recording_id,"project_id":project_id,"source":source,"input_path":input_path,"canonical_audio_path":stored_path,"status":"pending","duration_ms":0,"created_at":timestamp,"updated_at":timestamp}),
+            ),
+            // One chunk covering the whole file, so an import is backed up and
+            // integrity-checked by exactly the same paths as a live capture.
+            // `end_ms` is filled in once transcription reports the duration.
+            genesis_adapter::upsert(
+                "audio_chunks",
+                serde_json::json!({"id":Uuid::new_v4().to_string(),"recording_id":recording_id,"sequence_no":1,"file_path":stored_path,"start_ms":0,"end_ms":0,"byte_size":custodied.byte_size,"checksum":custodied.sha256,"created_at":timestamp}),
+            ),
+        ],
+    );
     if let Err(err) = registered {
         let _ = set_job_status(genesis, job_id, "failed", None, Some(&err.to_string()));
         return;
@@ -2114,9 +2123,13 @@ fn fetch_and_transcribe(
     // The download lands here first, not in the project: custody is what
     // moves it in, and a fetch that fails halfway must not leave a partial
     // file inside a project's audio tree looking like a recording.
-    let staging = state.data_root.join("fetch").join(Uuid::new_v4().to_string());
-    std::fs::create_dir_all(&staging)
-        .map_err(|err| AppError::InvalidInput(format!("could not prepare the fetch directory: {err}")))?;
+    let staging = state
+        .data_root
+        .join("fetch")
+        .join(Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&staging).map_err(|err| {
+        AppError::InvalidInput(format!("could not prepare the fetch directory: {err}"))
+    })?;
 
     let project_id = resolve_or_create_project(&state, project_id, &url)?;
     let job = create_import_job(&state.genesis, &project_id, &url)?;
@@ -2223,7 +2236,13 @@ fn rename_placeholder_project(
     let Ok(rows) = genesis_adapter::query(
         genesis,
         "projects",
-        &["id", "name", "storage_path", "active_recording_id", "created_at"],
+        &[
+            "id",
+            "name",
+            "storage_path",
+            "active_recording_id",
+            "created_at",
+        ],
         vec![genesis_adapter::eq(
             "projects",
             "id",
@@ -3127,23 +3146,25 @@ mod transcript_view_tests {
     }
 
     /// `recordings_of` recordings, each holding `segments_each` segments.
-    fn seed(
-        storage: &genesis_block_native::Storage,
-        recordings_of: usize,
-        segments_each: i64,
-    ) {
-        let mut rows = vec![genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"}))];
+    fn seed(storage: &genesis_block_native::Storage, recordings_of: usize, segments_each: i64) {
+        let mut rows = vec![genesis_adapter::upsert(
+            "projects",
+            serde_json::json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"}),
+        )];
         for recording in 0..recordings_of {
             let recording_id = format!("r{recording}");
             rows.push(genesis_adapter::upsert("recordings", serde_json::json!({"id":recording_id,"project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"})));
             for index in 0..segments_each {
-                rows.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({
-                    "id": format!("{recording_id}-s{index}"), "project_id": "p1",
-                    "recording_id": recording_id, "speaker_id": null,
-                    "start_ms": index * 1000, "end_ms": index * 1000 + 900,
-                    "text": format!("บรรทัด {index}"), "confidence": 0.9,
-                    "created_at": "t", "updated_at": "t",
-                })));
+                rows.push(genesis_adapter::upsert(
+                    "transcript_segments",
+                    serde_json::json!({
+                        "id": format!("{recording_id}-s{index}"), "project_id": "p1",
+                        "recording_id": recording_id, "speaker_id": null,
+                        "start_ms": index * 1000, "end_ms": index * 1000 + 900,
+                        "text": format!("บรรทัด {index}"), "confidence": 0.9,
+                        "created_at": "t", "updated_at": "t",
+                    }),
+                ));
             }
         }
         // The engine caps a mutation batch at 1000 operations, so commit in

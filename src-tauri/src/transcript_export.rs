@@ -265,10 +265,7 @@ pub(crate) fn render_subtitles(
     std::fs::create_dir_all(&exports_dir)
         .map_err(|error| format!("create exports dir failed: {error}"))?;
 
-    let stem = format!(
-        "transcript-{}",
-        &recording_id[..8.min(recording_id.len())]
-    );
+    let stem = format!("transcript-{}", &recording_id[..8.min(recording_id.len())]);
     let srt_path = exports_dir.join(format!("{stem}.srt"));
     let vtt_path = exports_dir.join(format!("{stem}.vtt"));
 
@@ -339,7 +336,10 @@ pub(crate) fn list_export_artifacts(
             id: row.get("export_artifacts.id")?.as_str()?.to_string(),
             kind: row.get("export_artifacts.kind")?.as_str()?.to_string(),
             file_path: row.get("export_artifacts.file_path")?.as_str()?.to_string(),
-            created_at: row.get("export_artifacts.created_at")?.as_str()?.to_string(),
+            created_at: row
+                .get("export_artifacts.created_at")?
+                .as_str()?
+                .to_string(),
         })
     })
     .collect();
@@ -410,7 +410,10 @@ mod tests {
         // 3h 04m 05.006s. A recording past the hour mark is exactly the case
         // FUNG exists for, so the hour field has to be real.
         let rendered = to_srt(&[cue(11_045_006, 11_046_000, "ท้ายประชุม")]);
-        assert!(rendered.contains("03:04:05,006 --> 03:04:06,000"), "{rendered}");
+        assert!(
+            rendered.contains("03:04:05,006 --> 03:04:06,000"),
+            "{rendered}"
+        );
     }
 
     #[test]
@@ -419,7 +422,10 @@ mod tests {
         // rest of this text would become cue "2"'s body, the real cue 2 would
         // be misread, and most players stop at the malformed entry. The file
         // still opens.
-        let rendered = to_srt(&[cue(0, 1000, "บรรทัดแรก\n\nบรรทัดสอง"), cue(1000, 2000, "ต่อไป")]);
+        let rendered = to_srt(&[
+            cue(0, 1000, "บรรทัดแรก\n\nบรรทัดสอง"),
+            cue(1000, 2000, "ต่อไป"),
+        ]);
         assert_eq!(
             rendered,
             "1\n00:00:00,000 --> 00:00:01,000\nบรรทัดแรก บรรทัดสอง\n\n\
@@ -455,7 +461,10 @@ mod tests {
         // duration is shown by nothing, so the line would be missing from a
         // file that otherwise looks complete.
         let rendered = to_srt(&[cue(5000, 5000, "ครับ")]);
-        assert!(rendered.contains("00:00:05,000 --> 00:00:05,040"), "{rendered}");
+        assert!(
+            rendered.contains("00:00:05,000 --> 00:00:05,040"),
+            "{rendered}"
+        );
     }
 
     #[test]
@@ -525,16 +534,25 @@ mod tests {
         segment_count: i64,
     ) {
         let mut rows = vec![
-            genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"m","storage_path":storage_path.display().to_string(),"active_recording_id":null,"created_at":"t","updated_at":"t"})),
-            genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"})),
+            genesis_adapter::upsert(
+                "projects",
+                serde_json::json!({"id":"p1","name":"m","storage_path":storage_path.display().to_string(),"active_recording_id":null,"created_at":"t","updated_at":"t"}),
+            ),
+            genesis_adapter::upsert(
+                "recordings",
+                serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"}),
+            ),
         ];
         for index in 0..segment_count {
-            rows.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({
-                "id": format!("s{index}"), "project_id": "p1", "recording_id": "r1",
-                "speaker_id": null, "start_ms": index * 1000, "end_ms": index * 1000 + 900,
-                "text": format!("บรรทัด {index}"), "confidence": 0.9,
-                "created_at": "t", "updated_at": "t",
-            })));
+            rows.push(genesis_adapter::upsert(
+                "transcript_segments",
+                serde_json::json!({
+                    "id": format!("s{index}"), "project_id": "p1", "recording_id": "r1",
+                    "speaker_id": null, "start_ms": index * 1000, "end_ms": index * 1000 + 900,
+                    "text": format!("บรรทัด {index}"), "confidence": 0.9,
+                    "created_at": "t", "updated_at": "t",
+                }),
+            ));
         }
         genesis_adapter::commit_rows(storage, rows).unwrap();
     }
@@ -551,8 +569,14 @@ mod tests {
 
         let srt = std::fs::read_to_string(&export.srt_path).unwrap();
         let vtt = std::fs::read_to_string(&export.vtt_path).unwrap();
-        assert!(srt.starts_with("1\n00:00:00,000 --> 00:00:00,900\nบรรทัด 0"), "{srt}");
-        assert!(vtt.starts_with("WEBVTT\n\n00:00:00.000 --> 00:00:00.900\n"), "{vtt}");
+        assert!(
+            srt.starts_with("1\n00:00:00,000 --> 00:00:00,900\nบรรทัด 0"),
+            "{srt}"
+        );
+        assert!(
+            vtt.starts_with("WEBVTT\n\n00:00:00.000 --> 00:00:00.900\n"),
+            "{vtt}"
+        );
 
         let artifacts = genesis_adapter::query(
             &storage,

@@ -1109,16 +1109,25 @@ mod tests {
         // never sent. Delegating a long recording is why this path exists.
         let (path, storage) = open_genesis();
         let mut rows = vec![
-            crate::genesis_adapter::upsert("projects", json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"})),
-            crate::genesis_adapter::upsert("recordings", json!({"id":"r1","project_id":"p1","source":"microphone","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"})),
+            crate::genesis_adapter::upsert(
+                "projects",
+                json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"}),
+            ),
+            crate::genesis_adapter::upsert(
+                "recordings",
+                json!({"id":"r1","project_id":"p1","source":"microphone","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"}),
+            ),
         ];
         for index in 0..(crate::genesis_adapter::ROW_CAP as i64 + 50) {
-            rows.push(crate::genesis_adapter::upsert("audio_chunks", json!({
-                "id": format!("c{index}"), "recording_id": "r1", "sequence_no": index,
-                "file_path": format!("chunk-{index}.wav"), "start_ms": index * 5000,
-                "end_ms": index * 5000 + 5000, "byte_size": 1024,
-                "checksum": format!("{index:064}"), "created_at": "t",
-            })));
+            rows.push(crate::genesis_adapter::upsert(
+                "audio_chunks",
+                json!({
+                    "id": format!("c{index}"), "recording_id": "r1", "sequence_no": index,
+                    "file_path": format!("chunk-{index}.wav"), "start_ms": index * 5000,
+                    "end_ms": index * 5000 + 5000, "byte_size": 1024,
+                    "checksum": format!("{index:064}"), "created_at": "t",
+                }),
+            ));
         }
         for page in rows.chunks(500) {
             crate::genesis_adapter::commit_rows(&storage, page.to_vec()).unwrap();
@@ -1140,17 +1149,26 @@ mod tests {
         // to keep producing a contiguous manifest exactly as before.
         let (path, storage) = open_genesis();
         let mut rows = vec![
-            crate::genesis_adapter::upsert("projects", json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"})),
-            crate::genesis_adapter::upsert("recordings", json!({"id":"r1","project_id":"p1","source":"microphone","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"})),
+            crate::genesis_adapter::upsert(
+                "projects",
+                json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"}),
+            ),
+            crate::genesis_adapter::upsert(
+                "recordings",
+                json!({"id":"r1","project_id":"p1","source":"microphone","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"}),
+            ),
         ];
         // Written out of order so the sort is exercised, not assumed.
         for index in [2i64, 0, 3, 1] {
-            rows.push(crate::genesis_adapter::upsert("audio_chunks", json!({
-                "id": format!("c{index}"), "recording_id": "r1", "sequence_no": index * 10,
-                "file_path": format!("chunk-{index}.wav"), "start_ms": index * 5000,
-                "end_ms": index * 5000 + 5000, "byte_size": 1024,
-                "checksum": format!("{index:064}"), "created_at": "t",
-            })));
+            rows.push(crate::genesis_adapter::upsert(
+                "audio_chunks",
+                json!({
+                    "id": format!("c{index}"), "recording_id": "r1", "sequence_no": index * 10,
+                    "file_path": format!("chunk-{index}.wav"), "start_ms": index * 5000,
+                    "end_ms": index * 5000 + 5000, "byte_size": 1024,
+                    "checksum": format!("{index:064}"), "created_at": "t",
+                }),
+            ));
         }
         crate::genesis_adapter::commit_rows(&storage, rows).unwrap();
 

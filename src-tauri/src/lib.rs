@@ -913,7 +913,7 @@ fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
             "updated_at",
         ],
         vec![],
-        1000,
+        genesis_adapter::ROW_CAP,
     )
     .map_err(AppError::Genesis)?
     .into_iter()
@@ -1043,7 +1043,7 @@ fn list_jobs(state: State<'_, AppState>) -> AppResult<Vec<Job>> {
             "updated_at",
         ],
         vec![],
-        1000,
+        genesis_adapter::ROW_CAP,
     )
     .map_err(AppError::Genesis)?
     .into_iter()
@@ -1530,24 +1530,58 @@ fn tts_synthesize_text(
     })
 }
 
+/// A project's transcript, and whether it is all of it.
+///
+/// This used to be a bare `Vec<TranscriptSegment>` read with one
+/// project-scoped query at the engine's row ceiling. A project past that
+/// ceiling rendered a transcript that simply stopped — no marker, no
+/// scrollbar hint, nothing to distinguish it from a meeting that ended
+/// there. The count is not incidental to FUNG: a three-hour session is
+/// roughly 1500–2500 segments, so the truncated case was the normal one for
+/// the product's own headline use.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranscriptView {
+    segments: Vec<TranscriptSegment>,
+    /// True when at least one recording could not be read whole, so
+    /// `segments` is known to be missing material.
+    capped: bool,
+    /// The engine ceiling responsible, so the UI can name a number rather
+    /// than say "too long".
+    cap: u32,
+    /// Which recordings are incomplete. A project can have one oversized
+    /// recording and five intact ones, and saying which is the difference
+    /// between a usable transcript and a suspect one.
+    capped_recording_ids: Vec<String>,
+}
+
 #[tauri::command]
 fn list_transcript_segments(
     project_id: String,
     state: State<'_, AppState>,
-) -> AppResult<Vec<TranscriptSegment>> {
+) -> AppResult<TranscriptView> {
+    transcript_view(&state.genesis, &project_id)
+}
+
+/// The body of [`list_transcript_segments`], taking the storage handle rather
+/// than Tauri state so the read is testable without an app.
+fn transcript_view(
+    genesis: &genesis_block_native::Storage,
+    project_id: &str,
+) -> AppResult<TranscriptView> {
     // Resolve speaker display names once per call: query the project's
     // speakers (capped like every other query against this engine) and build
     // an id -> display_name map, rather than a lookup per segment.
     let speaker_rows = genesis_adapter::query(
-        &state.genesis,
+        genesis,
         "speakers",
         &["id", "display_name"],
         vec![genesis_adapter::eq(
             "speakers",
             "project_id",
-            serde_json::json!(project_id.clone()),
+            serde_json::json!(project_id),
         )],
-        1000,
+        genesis_adapter::ROW_CAP,
     )
     .map_err(AppError::Genesis)?;
     let speaker_names: std::collections::HashMap<String, String> = speaker_rows
@@ -1559,62 +1593,97 @@ fn list_transcript_segments(
             ))
         })
         .collect();
-    let mut segments = genesis_adapter::query(
-        &state.genesis,
-        "transcript_segments",
-        &[
-            "id",
-            "project_id",
-            "recording_id",
-            "speaker_id",
-            "start_ms",
-            "end_ms",
-            "text",
-            "confidence",
-            "created_at",
-        ],
+
+    // Read per recording rather than per project. The ceiling is per query,
+    // so scoping each read to one recording is not a workaround for the
+    // limit — it moves the limit from "this project's transcripts total" to
+    // "this recording's transcript", which is where a real transcript can
+    // actually be long. A project of five 800-segment recordings used to
+    // lose 3000 of its 4000 segments; now it loses none.
+    let recording_rows = genesis_adapter::query(
+        genesis,
+        "recordings",
+        &["id"],
         vec![genesis_adapter::eq(
-            "transcript_segments",
+            "recordings",
             "project_id",
             serde_json::json!(project_id),
         )],
-        1000,
+        genesis_adapter::ROW_CAP,
     )
-    .map_err(AppError::Genesis)?
-    .into_iter()
-    .map(|row| {
-        let speaker_id = row
-            .get("transcript_segments.speaker_id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned);
-        let speaker_name = speaker_id
-            .as_ref()
-            .and_then(|id| speaker_names.get(id).cloned());
-        Ok(TranscriptSegment {
-            id: genesis_adapter::string(&row, "transcript_segments.id")
-                .map_err(AppError::Genesis)?,
-            project_id: genesis_adapter::string(&row, "transcript_segments.project_id")
-                .map_err(AppError::Genesis)?,
-            recording_id: genesis_adapter::string(&row, "transcript_segments.recording_id")
-                .map_err(AppError::Genesis)?,
-            speaker_id,
-            speaker_name,
-            start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms")
-                .map_err(AppError::Genesis)?,
-            end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms")
-                .map_err(AppError::Genesis)?,
-            text: genesis_adapter::string(&row, "transcript_segments.text")
-                .map_err(AppError::Genesis)?,
-            confidence: row
-                .get("transcript_segments.confidence")
-                .and_then(serde_json::Value::as_f64),
-            created_at: genesis_adapter::string(&row, "transcript_segments.created_at")
-                .map_err(AppError::Genesis)?,
-        })
-    })
-    .collect::<AppResult<Vec<_>>>()?;
+    .map_err(AppError::Genesis)?;
+    let recording_ids: Vec<String> = recording_rows
+        .into_iter()
+        .filter_map(|row| Some(row.get("recordings.id")?.as_str()?.to_string()))
+        .collect();
+
+    let mut segments: Vec<TranscriptSegment> = Vec::new();
+    let mut capped_recording_ids: Vec<String> = Vec::new();
+
+    for recording_id in recording_ids {
+        let page = genesis_adapter::query_capped(
+            genesis,
+            "transcript_segments",
+            &[
+                "id",
+                "project_id",
+                "recording_id",
+                "speaker_id",
+                "start_ms",
+                "end_ms",
+                "text",
+                "confidence",
+                "created_at",
+            ],
+            vec![genesis_adapter::eq(
+                "transcript_segments",
+                "recording_id",
+                serde_json::json!(recording_id.clone()),
+            )],
+        )
+        .map_err(AppError::Genesis)?;
+        if page.capped {
+            capped_recording_ids.push(recording_id);
+        }
+        for row in page.rows {
+            let speaker_id = row
+                .get("transcript_segments.speaker_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned);
+            let speaker_name = speaker_id
+                .as_ref()
+                .and_then(|id| speaker_names.get(id).cloned());
+            segments.push(TranscriptSegment {
+                id: genesis_adapter::string(&row, "transcript_segments.id")
+                    .map_err(AppError::Genesis)?,
+                project_id: genesis_adapter::string(&row, "transcript_segments.project_id")
+                    .map_err(AppError::Genesis)?,
+                recording_id: genesis_adapter::string(&row, "transcript_segments.recording_id")
+                    .map_err(AppError::Genesis)?,
+                speaker_id,
+                speaker_name,
+                start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms")
+                    .map_err(AppError::Genesis)?,
+                end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms")
+                    .map_err(AppError::Genesis)?,
+                text: genesis_adapter::string(&row, "transcript_segments.text")
+                    .map_err(AppError::Genesis)?,
+                confidence: row
+                    .get("transcript_segments.confidence")
+                    .and_then(serde_json::Value::as_f64),
+                created_at: genesis_adapter::string(&row, "transcript_segments.created_at")
+                    .map_err(AppError::Genesis)?,
+            });
+        }
+    }
+
     segments.sort_by_key(|segment| segment.start_ms);
-    Ok(segments)
+    Ok(TranscriptView {
+        capped: !capped_recording_ids.is_empty(),
+        cap: genesis_adapter::ROW_CAP,
+        capped_recording_ids,
+        segments,
+    })
 }
 
 pub(crate) fn set_job_status(
@@ -3038,6 +3107,108 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod transcript_view_tests {
+    use super::*;
+
+    fn open_storage() -> (PathBuf, genesis_block_native::Storage) {
+        let path = std::env::temp_dir().join(format!("fung-view-cap-test-{}", Uuid::new_v4()));
+        let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
+            path: path.display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+        })
+        .unwrap();
+        genesis_adapter::install(&storage).unwrap();
+        (path, storage)
+    }
+
+    /// `recordings_of` recordings, each holding `segments_each` segments.
+    fn seed(
+        storage: &genesis_block_native::Storage,
+        recordings_of: usize,
+        segments_each: i64,
+    ) {
+        let mut rows = vec![genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"}))];
+        for recording in 0..recordings_of {
+            let recording_id = format!("r{recording}");
+            rows.push(genesis_adapter::upsert("recordings", serde_json::json!({"id":recording_id,"project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"})));
+            for index in 0..segments_each {
+                rows.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({
+                    "id": format!("{recording_id}-s{index}"), "project_id": "p1",
+                    "recording_id": recording_id, "speaker_id": null,
+                    "start_ms": index * 1000, "end_ms": index * 1000 + 900,
+                    "text": format!("บรรทัด {index}"), "confidence": 0.9,
+                    "created_at": "t", "updated_at": "t",
+                })));
+            }
+        }
+        // The engine caps a mutation batch at 1000 operations, so commit in
+        // pages. Writing is not what these tests are about.
+        for page in rows.chunks(500) {
+            genesis_adapter::commit_rows(storage, page.to_vec()).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_multi_recording_project_is_no_longer_truncated_at_the_project_level() {
+        // The old read filtered by `project_id` at the engine ceiling, so a
+        // project of five 400-segment recordings returned 1000 of its 2000
+        // segments and said nothing. None of those recordings is individually
+        // long enough to hit the ceiling; the truncation was an artifact of
+        // reading them together.
+        let (path, storage) = open_storage();
+        seed(&storage, 5, 400);
+
+        let view = transcript_view(&storage, "p1").unwrap();
+        assert_eq!(view.segments.len(), 2000);
+        assert!(!view.capped, "no single recording reaches the ceiling");
+        assert!(view.capped_recording_ids.is_empty());
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn a_recording_past_the_ceiling_is_reported_and_named() {
+        // Truncation is unavoidable here — the engine has no cursor — so the
+        // requirement is that it is visible, and specific enough to act on:
+        // which recording is short, not merely that something is.
+        let (path, storage) = open_storage();
+        seed(&storage, 2, genesis_adapter::ROW_CAP as i64 + 100);
+
+        let view = transcript_view(&storage, "p1").unwrap();
+        assert!(view.capped);
+        assert_eq!(view.cap, genesis_adapter::ROW_CAP);
+        let mut named = view.capped_recording_ids.clone();
+        named.sort();
+        assert_eq!(named, vec!["r0".to_string(), "r1".to_string()]);
+        // The segments it did read are still returned: incomplete is not
+        // empty, and the user keeps what there is.
+        assert_eq!(view.segments.len(), 2 * genesis_adapter::ROW_CAP as usize);
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn an_intact_transcript_reports_nothing_to_warn_about() {
+        // A warning that shows on a healthy transcript trains people to
+        // ignore it.
+        let (path, storage) = open_storage();
+        seed(&storage, 1, 120);
+
+        let view = transcript_view(&storage, "p1").unwrap();
+        assert_eq!(view.segments.len(), 120);
+        assert!(!view.capped);
+        assert!(view.capped_recording_ids.is_empty());
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
 }
 
 #[cfg(test)]

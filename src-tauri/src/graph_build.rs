@@ -11,7 +11,7 @@ use uuid::Uuid;
 /// offers no offset/cursor, so a project or recording whose rows exceed this
 /// ceiling loses visibility past the first page. Documented at each call site
 /// below rather than silently working around it.
-const QUERY_ROW_CEILING: u32 = 1000;
+const QUERY_ROW_CEILING: u32 = crate::genesis_adapter::ROW_CAP;
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct ExtractedItem {

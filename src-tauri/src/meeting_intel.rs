@@ -27,13 +27,13 @@ use crate::{genesis_adapter, now, AppError, AppResult, AppState};
 /// offers no cursor, so a project past this many summaries or a ledger past
 /// this many model runs loses the tail. The previous read used 200, which
 /// was below the engine's own ceiling for no stated reason.
-const SUMMARY_QUERY_LIMIT: u32 = 1000;
+const SUMMARY_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
 
 const TOPIC_INTERVAL: Duration = Duration::from_secs(45);
 const TOPIC_WINDOW_SEGMENTS: usize = 40;
 /// The relational engine caps every query at 1000 rows with no cursor
 /// (see graph_build.rs); searches below inherit that cap and say so.
-const ENGINE_ROW_CAP: u32 = 1000;
+const ENGINE_ROW_CAP: u32 = crate::genesis_adapter::ROW_CAP;
 
 // ---------------------------------------------------------------------------
 // Topic tracker (ephemeral, event-only)
@@ -474,6 +474,7 @@ struct LiveSummaryEvent {
     export_path: Option<String>,
 }
 
+#[derive(Debug)]
 struct SegmentView {
     id: String,
     speaker: String,
@@ -506,7 +507,7 @@ fn load_segments(
     })
     .collect();
 
-    let mut segments: Vec<SegmentView> = genesis_adapter::query(
+    let page = genesis_adapter::query_capped(
         storage,
         "transcript_segments",
         &["id", "recording_id", "speaker_id", "start_ms", "text"],
@@ -515,9 +516,23 @@ fn load_segments(
             "recording_id",
             serde_json::json!(recording_id),
         )],
-        ENGINE_ROW_CAP,
-    )?
-    .into_iter()
+    )?;
+    // Refused, not truncated. Everything downstream of this read goes into an
+    // LLM prompt and comes back as "the meeting" — a narrative, a timeline, a
+    // decisions list. A summary built on a transcript missing its last hour
+    // does not look partial; it looks like a meeting that ended early, and it
+    // is written into `summaries` with the same provenance as a complete one.
+    // Of every consequence of this ceiling, that is the one nobody can spot
+    // afterwards.
+    if page.capped {
+        return Err(format!(
+            "การบันทึกนี้มีอย่างน้อย {} ท่อน ซึ่งเกินเพดานการอ่านครั้งเดียวของ storage engine              — สรุปที่ได้จะขาดช่วงท้ายโดยอ่านเหมือนสรุปครบ จึงไม่สรุปให้",
+            genesis_adapter::ROW_CAP
+        ));
+    }
+    let mut segments: Vec<SegmentView> = page
+        .rows
+        .into_iter()
     .filter_map(|row| {
         Some(SegmentView {
             id: row.get("transcript_segments.id")?.as_str()?.to_string(),
@@ -1332,5 +1347,72 @@ mod tests {
         let value = serde_json::json!({"refs": [0, 1, 1, 9]});
         let ids = refs_to_segment_ids(&value, "refs", &segments);
         assert_eq!(ids, vec!["seg-a".to_string(), "seg-b".to_string()]);
+    }
+
+    fn open_storage() -> (std::path::PathBuf, genesis_block_native::Storage) {
+        let path =
+            std::env::temp_dir().join(format!("fung-summary-cap-test-{}", uuid::Uuid::new_v4()));
+        let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
+            path: path.display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+        })
+        .unwrap();
+        genesis_adapter::install(&storage).unwrap();
+        (path, storage)
+    }
+
+    fn seed(storage: &genesis_block_native::Storage, segment_count: i64) {
+        let mut rows = vec![
+            genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"})),
+            genesis_adapter::upsert("recordings", serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"})),
+        ];
+        for index in 0..segment_count {
+            rows.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({
+                "id": format!("s{index}"), "project_id": "p1", "recording_id": "r1",
+                "speaker_id": null, "start_ms": index * 1000, "end_ms": index * 1000 + 900,
+                "text": format!("บรรทัด {index}"), "confidence": 0.9,
+                "created_at": "t", "updated_at": "t",
+            })));
+        }
+        genesis_adapter::commit_rows(storage, rows).unwrap();
+    }
+
+    #[test]
+    fn a_transcript_past_the_read_ceiling_is_refused_not_summarised() {
+        // The defect: everything downstream of `load_segments` goes into an
+        // LLM prompt and comes back as "the meeting". A summary built on a
+        // transcript missing its last hour does not read as partial — it
+        // reads as a meeting that ended early, and lands in `summaries` with
+        // the same provenance as a complete one. A 3-hour session is roughly
+        // 1500-2500 segments, so this was the normal case, not the edge one.
+        let (path, storage) = open_storage();
+        seed(&storage, genesis_adapter::ROW_CAP as i64 + 300);
+
+        let error = load_segments(&storage, "p1", "r1").unwrap_err();
+        assert!(
+            error.contains(&genesis_adapter::ROW_CAP.to_string()),
+            "the refusal must name the ceiling that caused it: {error}"
+        );
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn a_transcript_under_the_ceiling_still_loads_whole() {
+        // The refusal must be the exception, not a new floor: the common
+        // recording has to keep summarising exactly as before.
+        let (path, storage) = open_storage();
+        seed(&storage, 250);
+
+        let segments = load_segments(&storage, "p1", "r1").unwrap();
+        assert_eq!(segments.len(), 250);
+        assert_eq!(segments.first().unwrap().start_ms, 0);
+        assert_eq!(segments.last().unwrap().start_ms, 249_000);
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 }

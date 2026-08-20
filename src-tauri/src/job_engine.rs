@@ -63,7 +63,7 @@ const IDLE_PARK: Duration = Duration::from_secs(60);
 /// offers no cursor, so a ledger holding more pending jobs than this loses
 /// the tail. Not a practical bound for a queue one person drives, but stated
 /// rather than assumed away.
-const GENESIS_QUERY_LIMIT: u32 = 1000;
+const GENESIS_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
 
 /// The `jobs.status` values that mean "this job is not finished".
 ///

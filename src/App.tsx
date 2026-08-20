@@ -52,6 +52,7 @@ import {
   type ModelProvider,
   type Project,
   type TranscriptSegment,
+  type TranscriptView,
 } from "./tauri";
 import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
 import { MediaFetchPanel } from "./components/MediaFetchPanel";
@@ -674,6 +675,10 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [providers, setProviders] = useState<ModelProvider[]>([]);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
+  // Held rather than derived: an incomplete transcript is a fact about the
+  // read, not about the segments in hand, and nothing in `segments` can say
+  // that more was left behind.
+  const [transcriptCapped, setTranscriptCapped] = useState<TranscriptView | null>(null);
   const [transcribing, setTranscribing] = useState(false);
   /// Why the last action could not run. Shown instead of the silent
   /// no-op the inert job buttons used to produce.
@@ -769,7 +774,10 @@ export function App() {
       setSegments([]);
       return;
     }
-    void listTranscriptSegments(selectedProjectId).then(setSegments);
+    void listTranscriptSegments(selectedProjectId).then((view) => {
+      setSegments(view.segments);
+      setTranscriptCapped(view.capped ? view : null);
+    });
   }, [selectedProjectId, jobs]);
 
   const currentPage = pageContent[activeAnchor];
@@ -832,13 +840,26 @@ export function App() {
 
   const activityFeed = useMemo(() => {
     if (activeAnchor === "P2" && currentTile.id === "transcript-pass" && segments.length > 0) {
-      return segments.slice(0, 16).map((segment) => ({
+      const lines = segments.slice(0, 16).map((segment) => ({
         time: formatMs(segment.startMs),
         title: segment.text.length > 60 ? `${segment.text.slice(0, 60)}…` : segment.text,
         detail: segment.confidence != null ? `Confidence ${(segment.confidence * 100).toFixed(0)}%` : "faster-whisper",
         speakerId: segment.speakerId,
         speakerName: segment.speakerName,
       }));
+      // First, not last: a transcript that stops mid-meeting reads as a
+      // meeting that ended there, and the reader has to know before they
+      // start rather than after they have drawn a conclusion from it.
+      if (transcriptCapped) {
+        lines.unshift({
+          time: "!",
+          title: `transcript ไม่ครบ — อ่านได้สูงสุด ${transcriptCapped.cap} ท่อนต่อการบันทึก`,
+          detail: `ยังมีท่อนที่ยังไม่ได้อ่านใน ${transcriptCapped.cappedRecordingIds.length} การบันทึก — เป็นเพดานของ storage engine ไม่ใช่จุดจบของการประชุม`,
+          speakerId: null,
+          speakerName: null,
+        });
+      }
+      return lines;
     }
 
     const items = currentTile.activities.map((entry) => ({ ...entry }));
@@ -851,7 +872,7 @@ export function App() {
       };
     }
     return items;
-  }, [activeAnchor, currentTile.activities, currentTile.id, jobs, segments]);
+  }, [activeAnchor, currentTile.activities, currentTile.id, jobs, segments, transcriptCapped]);
 
   const activeTranscribeJob = jobs.find(
     (job) => job.type === "transcript.transcribe" && job.status === "running",
@@ -967,8 +988,9 @@ export function App() {
   const handleRenameSpeaker = async (speakerId: string, displayName: string) => {
     await renameSpeaker(speakerId, displayName);
     if (selectedProjectId) {
-      const nextSegments = await listTranscriptSegments(selectedProjectId);
-      setSegments(nextSegments);
+      const view = await listTranscriptSegments(selectedProjectId);
+      setSegments(view.segments);
+      setTranscriptCapped(view.capped ? view : null);
     }
   };
 

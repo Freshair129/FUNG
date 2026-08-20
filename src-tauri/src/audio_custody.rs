@@ -41,7 +41,7 @@ const PROJECT_AUDIO_ANCHORS: [&str; 2] = ["live", "imports"];
 const DIGEST_BUFFER_BYTES: usize = 1024 * 1024;
 
 /// Rows read per query. GenesisBlockDB rejects any limit outside `1..1000`.
-const GENESIS_QUERY_LIMIT: u32 = 1000;
+const GENESIS_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub(crate) enum CustodyError {

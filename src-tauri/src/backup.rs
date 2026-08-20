@@ -75,7 +75,7 @@ pub(crate) enum BackupJobError {
 /// saturate is treated as a failure rather than a partial inventory: silently
 /// dropping the overflow would reproduce the exact defect this module exists
 /// to close — an archive that reports success while omitting audio.
-const GENESIS_QUERY_LIMIT: u32 = 1000;
+const GENESIS_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
 
 /// Guard that serializes backup/restore jobs and always releases the flag.
 struct JobGuard(Arc<AtomicBool>);

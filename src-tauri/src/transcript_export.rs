@@ -38,7 +38,7 @@ use crate::genesis_adapter;
 /// `1..1000` and its relational filters are equality-only with no offset, so
 /// this is a hard ceiling on a single read rather than a page size — see
 /// [`load_cues`], which refuses rather than truncating.
-const SEGMENT_READ_CAP: u32 = 1000;
+const SEGMENT_READ_CAP: u32 = crate::genesis_adapter::ROW_CAP;
 
 /// Shortest cue this will write. A zero-length cue is not displayed by any
 /// player, so an utterance whose start and end coincide would vanish from a
@@ -204,7 +204,7 @@ pub(crate) fn load_cues(
     })
     .collect();
 
-    let rows = genesis_adapter::query(
+    let page = genesis_adapter::query_capped(
         storage,
         "transcript_segments",
         &["id", "speaker_id", "start_ms", "end_ms", "text"],
@@ -213,17 +213,17 @@ pub(crate) fn load_cues(
             "recording_id",
             serde_json::json!(recording_id),
         )],
-        SEGMENT_READ_CAP,
     )?;
 
-    if rows.len() as u32 >= SEGMENT_READ_CAP {
+    if page.capped {
         return Err(format!(
             "ถอดเสียงได้ {SEGMENT_READ_CAP} ท่อนขึ้นไป ซึ่งเกินเพดานการอ่านครั้งเดียวของ storage engine \
              — ไฟล์ที่ได้จะขาดท้ายโดยไม่มีอะไรบอก จึงไม่เขียนไฟล์ (ต้องแก้ที่ engine ให้อ่านเป็นหน้าได้ก่อน)"
         ));
     }
 
-    Ok(rows
+    Ok(page
+        .rows
         .into_iter()
         .filter_map(|row| {
             Some(Cue {

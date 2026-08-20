@@ -140,6 +140,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | Project CRUD | Backend commands exist for project creation/listing. | Needs full UI workflows and persistence QA. |
 | Job model | Basic create/list commands exist. | Needs execution engine, retries, pause/resume, failure recovery. |
 | Model providers | Seed local providers exist. | Needs provider diagnostics and real adapter execution. |
+| Transcript read completeness | The storage engine caps one relational query at 1000 rows with no cursor, and six differently-named copies of that constant had grown up around it. There is now one — `genesis_adapter::ROW_CAP` — and a `query_capped` helper that returns the rows together with whether the ceiling was reached. `list_transcript_segments` reads per recording instead of per project (a project of five 400-segment recordings used to return 1000 of its 2000 segments) and reports which recordings are still short; `meeting_intel::load_segments` refuses rather than summarising a transcript missing its tail. | The refusal is a stopgap, not the fix: a recording past 1000 segments still cannot be summarised or exported at all, and a 3-hour session is roughly 1500-2500 segments. The real fix is a cursor or offset in GenesisBlockDB, which is a change in a different repository and a dependency bump. `fungwire_client.rs:377` reads `audio_chunks` at the same ceiling with a comment acknowledging ~83 minutes of audio would exceed it; that one is still silent. |
 | Export UI | Subtitle export is real: `export.render` is a job the engine runs, `transcript_export` writes `.srt` and `.vtt` beside the recording, both are recorded in `export_artifacts`, and `list_export_artifacts` lets the shell tell the user where they landed. Formatting is unit-tested against the ways transcript text corrupts each format (blank lines, `<`, `-->`, zero-length cues). | Capped at one recording per run and at the storage engine's 1000-row single-read ceiling — past that the export refuses rather than writing a file that stops early. Audio export (WAV/MP3) and the separate export queue are still unimplemented. The write path is tested against a real GenesisBlockDB store (files on disk, both artifact rows, retry idempotence, refusal past the ceiling); what is untested is the packaged app's own click-to-file round trip. |
 | Summary/intent UI | Summary/action output pipeline and display surface exist. | Intent-specific UI and complete evidence-span review remain incomplete. |
 | Live speaker attribution | Source channels map to editable `เรา`/`อีกฝ่าย` labels. | This is capture provenance, not arbitrary live multi-speaker diarization. |
@@ -173,6 +174,14 @@ overlay does not promote Phase 3 to fully release-ready.
   a build six months old will fail on links a current yt-dlp handles, and
   nothing in the app tells the user that is why. Re-pinning is a lockfile
   regeneration (`stage_media_fetch_runtime.ps1 -GenerateLock`) and a release.
+- A cursor for reads past 1000 rows. `Storage::query_relational` rejects any
+  limit outside `1..1000`, `RelationalFilter` is equality-only, and
+  `RelationalQuery` has no offset, so no read path in FUNG can page. Every
+  reader now either refuses or reports when it hits the ceiling — silence was
+  the defect, and that is fixed — but "reports" is not "reads". Until the
+  engine grows a cursor, a recording longer than roughly 90 minutes cannot be
+  summarised or exported at all. That work is in the GenesisBlock repository,
+  not this one, and lands here as a dependency bump.
 - Noise reduction.
 - Source separation/layer generation.
 - Real transcript editor.

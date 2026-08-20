@@ -11,6 +11,54 @@ use uuid::Uuid;
 
 pub(crate) const NAMESPACE: &str = "fung_mobile";
 
+/// The most rows one relational query can return.
+///
+/// `Storage::query_relational` rejects any limit outside `1..1000`,
+/// `RelationalFilter` is equality-only, and `RelationalQuery` carries no
+/// offset — so this is a ceiling on a single read with no cursor behind it,
+/// not a page size. A caller that needs more rows than this cannot get them
+/// today; what it can do is know that it did not.
+///
+/// Stated once here because it had been stated eight times: `ENGINE_ROW_CAP`,
+/// `QUERY_ROW_CEILING`, `QUERY_LIMIT`, `GENESIS_QUERY_LIMIT`,
+/// `SEGMENT_READ_CAP`, and a bare `1000`. Six names for one engine constant
+/// is how two readers came to hit it without noticing.
+pub(crate) const ROW_CAP: u32 = 1000;
+
+/// Rows, and whether the read stopped because it ran out of ceiling.
+///
+/// Returned together so that taking the rows means seeing the flag. The two
+/// call sites this type was written for each read a transcript, dropped
+/// everything past row 1000, and reported the result as complete — one to the
+/// screen, one into an LLM prompt that then summarised "the meeting".
+#[derive(Debug, Clone)]
+pub(crate) struct CappedRows {
+    pub(crate) rows: Vec<Value>,
+    /// True when the row count reached [`ROW_CAP`]. Deliberately "reached",
+    /// not "exceeded": the engine cannot report how many it withheld, so a
+    /// read that lands exactly on the ceiling is indistinguishable from one
+    /// that was cut, and the honest answer is that completeness is unknown.
+    pub(crate) capped: bool,
+}
+
+/// [`query`] at the engine ceiling, reporting whether it hit it.
+///
+/// Use this rather than `query(.., 1000)` for any read whose row count is
+/// driven by how long a recording is. Use `query` directly when the limit is
+/// a genuine "give me at most N" — a single row by id, the top 12 matches.
+pub(crate) fn query_capped(
+    storage: &Storage,
+    table: &str,
+    columns: &[&str],
+    filters: Vec<RelationalFilter>,
+) -> Result<CappedRows, String> {
+    let rows = query(storage, table, columns, filters, ROW_CAP)?;
+    Ok(CappedRows {
+        capped: rows.len() as u32 >= ROW_CAP,
+        rows,
+    })
+}
+
 fn required(name: &str, column_type: RelationalColumnType) -> RelationalColumn {
     RelationalColumn::required(name, column_type)
 }

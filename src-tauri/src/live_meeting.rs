@@ -1149,7 +1149,7 @@ fn spawn_coordinator(
 /// with a partial transcript is a truthful state as long as it is stated.
 #[allow(clippy::too_many_arguments)]
 /// Rows read per query. GenesisBlockDB rejects any limit outside `1..1000`.
-const GAP_QUERY_LIMIT: u32 = 1000;
+const GAP_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
 
 /// Maps a chunk filename back to the capture channel that wrote it.
 ///

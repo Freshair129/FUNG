@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 /// Rows read per query. GenesisBlockDB rejects any limit outside `1..1000`.
-const GENESIS_QUERY_LIMIT: u32 = 1000;
+const GENESIS_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
 
 /// Statuses that mean "this recording never reached a clean end".
 const UNFINISHED_STATUSES: [&str; 3] = ["recording", "paused", "pending"];

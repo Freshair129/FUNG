@@ -363,9 +363,33 @@ export async function ttsSynthesizeText(
   });
 }
 
-export async function listTranscriptSegments(projectId: string): Promise<TranscriptSegment[]> {
-  if (!canInvoke()) return [];
-  return invoke<TranscriptSegment[]>("list_transcript_segments", { projectId });
+/**
+ * A project's transcript, and whether it is all of it.
+ *
+ * `capped` is not an error state — the segments returned are real. It means
+ * the storage engine's single-read ceiling was reached, so material past it
+ * exists and was not read. Rendering the segments without saying so is what
+ * this shape exists to prevent: a transcript that stops mid-meeting is
+ * indistinguishable from a meeting that ended there.
+ */
+export type TranscriptView = {
+  segments: TranscriptSegment[];
+  capped: boolean;
+  cap: number;
+  /** Which recordings are incomplete, not just that one of them is. */
+  cappedRecordingIds: string[];
+};
+
+const EMPTY_TRANSCRIPT: TranscriptView = {
+  segments: [],
+  capped: false,
+  cap: 0,
+  cappedRecordingIds: [],
+};
+
+export async function listTranscriptSegments(projectId: string): Promise<TranscriptView> {
+  if (!canInvoke()) return EMPTY_TRANSCRIPT;
+  return invoke<TranscriptView>("list_transcript_segments", { projectId });
 }
 
 export async function renameSpeaker(speakerId: string, displayName: string): Promise<void> {

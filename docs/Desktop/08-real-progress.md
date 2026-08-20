@@ -140,13 +140,15 @@ overlay does not promote Phase 3 to fully release-ready.
 | Project CRUD | Backend commands exist for project creation/listing. | Needs full UI workflows and persistence QA. |
 | Job model | Basic create/list commands exist. | Needs execution engine, retries, pause/resume, failure recovery. |
 | Model providers | Seed local providers exist. | Needs provider diagnostics and real adapter execution. |
-| Export UI | Signal card and queue affordance exists. | Needs real WAV/MP3/transcript export pipeline. |
+| Transcript read completeness | The storage engine caps one relational query at 1000 rows with no cursor, and six differently-named copies of that constant had grown up around it. There is now one — `genesis_adapter::ROW_CAP` — and a `query_capped` helper that returns the rows together with whether the ceiling was reached. `list_transcript_segments` reads per recording instead of per project (a project of five 400-segment recordings used to return 1000 of its 2000 segments) and reports which recordings are still short; `meeting_intel::load_segments` refuses rather than summarising a transcript missing its tail. | The refusal is a stopgap, not the fix: a recording past 1000 segments still cannot be summarised or exported at all, and a 3-hour session is roughly 1500-2500 segments. The real fix is a cursor or offset in GenesisBlockDB, which is a change in a different repository and a dependency bump. Every reader of a length-driven table now either reads whole or says it could not: `fungwire_client::gather_segments` refuses instead of sending a renumbered, gap-free-looking partial manifest to a paired device, and `AudioIntegrityReport` carries `unread_recordings` so `is_clean()` cannot answer "nothing is wrong" when it means "nothing wrong was found". |
+| Export UI | Subtitle export is real: `export.render` is a job the engine runs, `transcript_export` writes `.srt` and `.vtt` beside the recording, both are recorded in `export_artifacts`, and `list_export_artifacts` lets the shell tell the user where they landed. Formatting is unit-tested against the ways transcript text corrupts each format (blank lines, `<`, `-->`, zero-length cues). | Capped at one recording per run and at the storage engine's 1000-row single-read ceiling — past that the export refuses rather than writing a file that stops early. Audio export (WAV/MP3) and the separate export queue are still unimplemented. The write path is tested against a real GenesisBlockDB store (files on disk, both artifact rows, retry idempotence, refusal past the ceiling); what is untested is the packaged app's own click-to-file round trip. |
 | Summary/intent UI | Summary/action output pipeline and display surface exist. | Intent-specific UI and complete evidence-span review remain incomplete. |
 | Live speaker attribution | Source channels map to editable `เรา`/`อีกฝ่าย` labels. | This is capture provenance, not arbitrary live multi-speaker diarization. |
 | Live intelligence runtime | Topic and summary routes exist; capture can degrade without the worker. | Current machine has no bundled Whisper interpreter/model and `faster_whisper` is unavailable, so live transcription requires runtime installation plus UAT. |
 | Live Meeting entry | The fixed microphone rail now opens the real panel and its regression passes. | Current packaged-app interaction/UAT remains to be rerun after the prior bootstrap incident. |
 | Audio import | `import_and_transcribe` is implemented, registered, and reachable from the desktop UI; it transcribes a picked file and persists segments. Recorded as "not implemented" through 0.2.10b, which was wrong. | The source file is referenced in place — no copy into project storage, no chunking, no checksum — so moving or deleting it invalidates a recording the ledger still reports `completed`. No `model_runs` row is written, so imported transcripts carry no model provenance. |
 | External meeting retrieval | Backend plus operator workflow, stdio fixture transport, zero-process-before-approval, document/CRM reads, connector lifecycle, sanitized result rendering, recording-row isolation, and bounded relaunch persistence smoke are tested at unit/source/integration level. | Automated keyboard/1200×780 visual UAT, detailed connector health, artifact-wide secret scan, real-device capture-isolation UAT, summary/export review after restart, and real-connector UAT remain. |
+| URL ingest | `fetch_and_transcribe`, `media_fetch_status` and `media_fetch_consent_set` are implemented, registered, and reachable from the desktop UI. A pasted http(s) link is fetched audio-only by a pinned yt-dlp worker, taken into custody, and transcribed through the same pipeline as a file import; the path is declared in the egress register §1.6 and guarded by `tests/egressRegister.test.mjs`. | Proven against a local HTTP server (`Generic` extractor) only. No real site — including YouTube — has been fetched on a device, and without the opt-in `deno` runtime YouTube is expected to fail outright. The staged runtime has never been installed on a machine here, so the readiness probe is unit-tested rather than run. yt-dlp is pinned to 2026.7.4 and the app has no update path, so extractor rot is a standing maintenance cost. |
 | GPU standalone release | DLL staging and child-process isolation are implemented. | Must build and run a copied packaged bundle with a speech fixture; NVIDIA redistribution approval remains a release gate. |
 
 ## Not Implemented Yet
@@ -165,6 +167,21 @@ overlay does not promote Phase 3 to fully release-ready.
   feed the model (system channel alone, or a mixdown) changes what the speaker
   timings mean. Neither the dependency install nor a diarization run has been
   executed on a device.
+- URL ingest *at scale*. The path works, but two things are unproven and one
+  is structural. Unproven: a real extractor run on a device, and the `deno`
+  JS-runtime install that YouTube's signature challenges need. Structural:
+  yt-dlp tracks sites that change deliberately, so a pinned version decays —
+  a build six months old will fail on links a current yt-dlp handles, and
+  nothing in the app tells the user that is why. Re-pinning is a lockfile
+  regeneration (`stage_media_fetch_runtime.ps1 -GenerateLock`) and a release.
+- A cursor for reads past 1000 rows. `Storage::query_relational` rejects any
+  limit outside `1..1000`, `RelationalFilter` is equality-only, and
+  `RelationalQuery` has no offset, so no read path in FUNG can page. Every
+  reader now either refuses or reports when it hits the ceiling — silence was
+  the defect, and that is fixed — but "reports" is not "reads". Until the
+  engine grows a cursor, a recording longer than roughly 90 minutes cannot be
+  summarised or exported at all. That work is in the GenesisBlock repository,
+  not this one, and lands here as a dependency bump.
 - Noise reduction.
 - Source separation/layer generation.
 - Real transcript editor.

@@ -63,7 +63,7 @@ const IDLE_PARK: Duration = Duration::from_secs(60);
 /// offers no cursor, so a ledger holding more pending jobs than this loses
 /// the tail. Not a practical bound for a queue one person drives, but stated
 /// rather than assumed away.
-const GENESIS_QUERY_LIMIT: u32 = 1000;
+const GENESIS_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
 
 /// The `jobs.status` values that mean "this job is not finished".
 ///
@@ -120,17 +120,24 @@ pub(crate) enum JobKind {
     /// same attribution instead of stacking a second proposal beside the
     /// first or orphaning the evidence refs that cite those segments.
     SpeakerDiarize,
+    /// Renders the recording's transcript as `.srt` and `.vtt` beside it.
+    ///
+    /// Idempotent because both filenames derive from the recording id, so a
+    /// retry overwrites its own previous output instead of leaving a second
+    /// copy the ledger would then list twice.
+    ExportRender,
 }
 
 impl JobKind {
     /// Every kind, so callers that need the whole set — `parse`, the
     /// `runnable_job_types` command the UI checks itself against — derive it
     /// from one list instead of each keeping their own copy to drift.
-    pub(crate) const ALL: [JobKind; 4] = [
+    pub(crate) const ALL: [JobKind; 5] = [
         JobKind::SummaryGenerate,
         JobKind::TranscriptRetry,
         JobKind::GraphBuild,
         JobKind::SpeakerDiarize,
+        JobKind::ExportRender,
     ];
 
     /// The `jobs.type` string. These are the values already in existing
@@ -141,6 +148,7 @@ impl JobKind {
             JobKind::TranscriptRetry => "transcript.retry",
             JobKind::GraphBuild => "graph.build",
             JobKind::SpeakerDiarize => "speakers.diarize",
+            JobKind::ExportRender => "export.render",
         }
     }
 
@@ -156,6 +164,7 @@ impl JobKind {
             JobKind::TranscriptRetry => "ถอดเสียงส่วนที่ขาด",
             JobKind::GraphBuild => "สร้างกราฟความรู้",
             JobKind::SpeakerDiarize => "แยกเสียงผู้พูด",
+            JobKind::ExportRender => "ส่งออกซับไตเติล",
         }
     }
 
@@ -940,6 +949,35 @@ fn dispatch(
             }
             Ok(())
         }
+        JobKind::ExportRender => {
+            crate::transcript_export::render_subtitles(storage, &job.project_id, recording_id)
+                .map(|export| {
+                    // `write_attempt` rewrites `output_refs_json` to `[]` on
+                    // every status change, so the paths are recorded where
+                    // they survive: `export_artifacts` (written by the
+                    // renderer) and this event, which is the job's own trail.
+                    let _ = genesis_adapter::commit_rows(
+                        storage,
+                        vec![genesis_adapter::upsert(
+                            "job_events",
+                            serde_json::json!({
+                                "id": Uuid::new_v4().to_string(), "job_id": job.id,
+                                "status": "running",
+                                "message": format!(
+                                    "เขียนซับไตเติล {} ท่อน: {} และ {}",
+                                    export.cue_count, export.srt_path, export.vtt_path
+                                ),
+                                "created_at": now(),
+                            }),
+                        )],
+                    );
+                })
+                // Every way this declines is a state the user changes, not
+                // one that clears by retrying: no transcript yet, or a
+                // recording past the engine's single-read ceiling. Retrying
+                // would just rewrite the same refusal onto the job.
+                .map_err(|error| JobFailure::permanent("export_failed", error))
+        }
         JobKind::TranscriptRetry => {
             let runtime = app.state::<crate::AppState>().whisper_runtime_clone();
             // The pass reads the recording's own language from the ledger, so
@@ -1013,7 +1051,6 @@ mod tests {
             "summary.compare",
             "summary.intent",
             "summary.actions",
-            "export.render",
             "export.queue",
             "archive.project",
         ] {

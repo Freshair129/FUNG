@@ -185,7 +185,7 @@ const SUBJECT_CHANNEL: &str = crate::live_meeting::CHANNEL_SYSTEM;
 /// The storage engine caps one query at 1000 rows and offers no cursor, so a
 /// recording past this many chunks or segments loses its tail. Stated at the
 /// call sites below rather than silently truncated.
-const QUERY_LIMIT: u32 = 1000;
+const QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
 
 /// Diarizes a locally captured recording's far-side audio and re-labels the
 /// segments it covers.

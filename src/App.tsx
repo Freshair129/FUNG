@@ -8,6 +8,7 @@ import {
   Cloud,
   Download,
   HardDriveDownload,
+  Link2,
   Loader2,
   Mic,
   Minimize2,
@@ -34,6 +35,7 @@ import {
   getHealth,
   graphBuildStart,
   importAndTranscribe,
+  listExportArtifacts,
   listJobs,
   listModelProviders,
   listProjects,
@@ -50,8 +52,10 @@ import {
   type ModelProvider,
   type Project,
   type TranscriptSegment,
+  type TranscriptView,
 } from "./tauri";
 import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
+import { MediaFetchPanel } from "./components/MediaFetchPanel";
 import { ZoomPanel } from "./components/ZoomPanel";
 import { TtsProviderPanel } from "./components/TtsProviderPanel";
 import { LiveMeetingPanel } from "./components/LiveMeetingPanel";
@@ -671,6 +675,10 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [providers, setProviders] = useState<ModelProvider[]>([]);
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
+  // Held rather than derived: an incomplete transcript is a fact about the
+  // read, not about the segments in hand, and nothing in `segments` can say
+  // that more was left behind.
+  const [transcriptCapped, setTranscriptCapped] = useState<TranscriptView | null>(null);
   const [transcribing, setTranscribing] = useState(false);
   /// Why the last action could not run. Shown instead of the silent
   /// no-op the inert job buttons used to produce.
@@ -681,6 +689,7 @@ export function App() {
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
   const [accountPanelOpen, setAccountPanelOpen] = useState(false);
   const [zoomPanelOpen, setZoomPanelOpen] = useState(false);
+  const [mediaFetchOpen, setMediaFetchOpen] = useState(false);
   const [ttsPanelOpen, setTtsPanelOpen] = useState(false);
   const [cloudProvidersPanelOpen, setCloudProvidersPanelOpen] = useState(false);
   const [liveMeetingOpen, setLiveMeetingOpen] = useState(false);
@@ -765,7 +774,10 @@ export function App() {
       setSegments([]);
       return;
     }
-    void listTranscriptSegments(selectedProjectId).then(setSegments);
+    void listTranscriptSegments(selectedProjectId).then((view) => {
+      setSegments(view.segments);
+      setTranscriptCapped(view.capped ? view : null);
+    });
   }, [selectedProjectId, jobs]);
 
   const currentPage = pageContent[activeAnchor];
@@ -828,13 +840,26 @@ export function App() {
 
   const activityFeed = useMemo(() => {
     if (activeAnchor === "P2" && currentTile.id === "transcript-pass" && segments.length > 0) {
-      return segments.slice(0, 16).map((segment) => ({
+      const lines = segments.slice(0, 16).map((segment) => ({
         time: formatMs(segment.startMs),
         title: segment.text.length > 60 ? `${segment.text.slice(0, 60)}…` : segment.text,
         detail: segment.confidence != null ? `Confidence ${(segment.confidence * 100).toFixed(0)}%` : "faster-whisper",
         speakerId: segment.speakerId,
         speakerName: segment.speakerName,
       }));
+      // First, not last: a transcript that stops mid-meeting reads as a
+      // meeting that ended there, and the reader has to know before they
+      // start rather than after they have drawn a conclusion from it.
+      if (transcriptCapped) {
+        lines.unshift({
+          time: "!",
+          title: `transcript ไม่ครบ — อ่านได้สูงสุด ${transcriptCapped.cap} ท่อนต่อการบันทึก`,
+          detail: `ยังมีท่อนที่ยังไม่ได้อ่านใน ${transcriptCapped.cappedRecordingIds.length} การบันทึก — เป็นเพดานของ storage engine ไม่ใช่จุดจบของการประชุม`,
+          speakerId: null,
+          speakerName: null,
+        });
+      }
+      return lines;
     }
 
     const items = currentTile.activities.map((entry) => ({ ...entry }));
@@ -847,7 +872,7 @@ export function App() {
       };
     }
     return items;
-  }, [activeAnchor, currentTile.activities, currentTile.id, jobs, segments]);
+  }, [activeAnchor, currentTile.activities, currentTile.id, jobs, segments, transcriptCapped]);
 
   const activeTranscribeJob = jobs.find(
     (job) => job.type === "transcript.transcribe" && job.status === "running",
@@ -945,21 +970,27 @@ export function App() {
     return project;
   };
 
-  const pollJobUntilDone = async (jobId: string) => {
+  // Returns the job as it finished, so a caller can tell "done" from "failed"
+  // rather than refreshing and hoping. `null` means it stopped being visible
+  // or outlasted the poll.
+  const pollJobUntilDone = async (jobId: string): Promise<Job | null> => {
     for (let attempt = 0; attempt < 600; attempt += 1) {
       const nextJobs = await listJobs();
       setJobs(nextJobs);
       const job = nextJobs.find((entry) => entry.id === jobId);
-      if (!job || job.status === "completed" || job.status === "failed") return;
+      if (!job) return null;
+      if (job.status === "completed" || job.status === "failed") return job;
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
+    return null;
   };
 
   const handleRenameSpeaker = async (speakerId: string, displayName: string) => {
     await renameSpeaker(speakerId, displayName);
     if (selectedProjectId) {
-      const nextSegments = await listTranscriptSegments(selectedProjectId);
-      setSegments(nextSegments);
+      const view = await listTranscriptSegments(selectedProjectId);
+      setSegments(view.segments);
+      setTranscriptCapped(view.capped ? view : null);
     }
   };
 
@@ -1080,11 +1111,35 @@ export function App() {
       }
     }
 
+    let queued;
     try {
-      await createJob(plan.jobType, selectedProjectId, activeRecordingId);
+      queued = await createJob(plan.jobType, selectedProjectId, activeRecordingId);
     } catch (error) {
       setActionNotice(`เข้าคิวไม่สำเร็จ: ${String(error)}`);
       return;
+    }
+
+    // An export whose files the user cannot find is not an export. The other
+    // job kinds change what is already on screen; this one writes to disk and
+    // has to say where.
+    if (plan.jobType === "export.render") {
+      setActionNotice("กำลังส่งออกซับไตเติล…");
+      const finished = await pollJobUntilDone(queued.id);
+      if (finished?.status === "failed") {
+        setActionNotice(finished.errorMessage ?? "ส่งออกซับไตเติลไม่สำเร็จ");
+      } else if (finished?.status === "completed") {
+        const written = (await listExportArtifacts(selectedProjectId)).filter(
+          (artifact) => artifact.kind === "srt" || artifact.kind === "vtt",
+        );
+        setActionNotice(
+          written.length > 0
+            ? `ส่งออกแล้ว: ${written
+                .slice(0, 2)
+                .map((artifact) => artifact.filePath)
+                .join(" · ")}`
+            : "ส่งออกเสร็จแล้ว แต่ไม่พบไฟล์ที่บันทึกไว้",
+        );
+      }
     }
     await refresh();
   };
@@ -1153,6 +1208,16 @@ export function App() {
     <div className={`app-shell theme-${theme}`}>
       {accountPanelOpen && <ExternalAccountPanel onClose={() => setAccountPanelOpen(false)} onOpenPortal={openExternalAccountPortal} />}
       {zoomPanelOpen && <ZoomPanel onClose={() => setZoomPanelOpen(false)} />}
+      {mediaFetchOpen && (
+        <MediaFetchPanel
+          projectId={selectedProjectId ?? null}
+          onClose={() => setMediaFetchOpen(false)}
+          onStarted={(job) => {
+            setJobs((current) => [job, ...current.filter((entry) => entry.id !== job.id)]);
+            void pollJobUntilDone(job.id).then(() => void refresh());
+          }}
+        />
+      )}
       {ttsPanelOpen && <TtsProviderPanel onClose={() => setTtsPanelOpen(false)} />}
       <Suspense fallback={null}>
         <RecoveryNotice invoke={nativeInvoke} />
@@ -1570,6 +1635,15 @@ export function App() {
             <button
               type="button"
               className="sidebar-action"
+              aria-label="Fetch from URL"
+              title="ดึงเสียงจากลิงก์แล้วถอดเสียงในเครื่อง"
+              onClick={() => setMediaFetchOpen(true)}
+            >
+              <Link2 size={20} />
+            </button>
+            <button
+              type="button"
+              className="sidebar-action"
               aria-label="Playback"
               onClick={() => void handleCreateJob("transcript.transcribe")}
             >
@@ -1578,8 +1652,11 @@ export function App() {
             <button
               type="button"
               className="sidebar-action"
-              aria-label="Storage"
-              title={jobActionBlockedReason("export.render", Boolean(activeRecordingId)) ?? "Storage"}
+              aria-label="Export subtitles"
+              title={
+                jobActionBlockedReason("export.render", Boolean(activeRecordingId)) ??
+                "ส่งออกซับไตเติล .srt และ .vtt ของการบันทึกนี้"
+              }
               onClick={() => void handleCreateJob("export.render")}
             >
               <HardDriveDownload size={20} />

@@ -35,6 +35,7 @@ mod graph_build;
 mod job_engine;
 mod live_meeting;
 mod local_diarization;
+mod media_fetch;
 mod meeting_intel;
 mod mobile;
 mod native_recorder;
@@ -42,6 +43,7 @@ mod on_device_ai;
 mod policy;
 mod recovery;
 mod speaker_merge;
+mod transcript_export;
 mod tts_config;
 mod tts_executor;
 mod zoom_sync;
@@ -911,7 +913,7 @@ fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
             "updated_at",
         ],
         vec![],
-        1000,
+        genesis_adapter::ROW_CAP,
     )
     .map_err(AppError::Genesis)?
     .into_iter()
@@ -1041,7 +1043,7 @@ fn list_jobs(state: State<'_, AppState>) -> AppResult<Vec<Job>> {
             "updated_at",
         ],
         vec![],
-        1000,
+        genesis_adapter::ROW_CAP,
     )
     .map_err(AppError::Genesis)?
     .into_iter()
@@ -1528,24 +1530,58 @@ fn tts_synthesize_text(
     })
 }
 
+/// A project's transcript, and whether it is all of it.
+///
+/// This used to be a bare `Vec<TranscriptSegment>` read with one
+/// project-scoped query at the engine's row ceiling. A project past that
+/// ceiling rendered a transcript that simply stopped — no marker, no
+/// scrollbar hint, nothing to distinguish it from a meeting that ended
+/// there. The count is not incidental to FUNG: a three-hour session is
+/// roughly 1500–2500 segments, so the truncated case was the normal one for
+/// the product's own headline use.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranscriptView {
+    segments: Vec<TranscriptSegment>,
+    /// True when at least one recording could not be read whole, so
+    /// `segments` is known to be missing material.
+    capped: bool,
+    /// The engine ceiling responsible, so the UI can name a number rather
+    /// than say "too long".
+    cap: u32,
+    /// Which recordings are incomplete. A project can have one oversized
+    /// recording and five intact ones, and saying which is the difference
+    /// between a usable transcript and a suspect one.
+    capped_recording_ids: Vec<String>,
+}
+
 #[tauri::command]
 fn list_transcript_segments(
     project_id: String,
     state: State<'_, AppState>,
-) -> AppResult<Vec<TranscriptSegment>> {
+) -> AppResult<TranscriptView> {
+    transcript_view(&state.genesis, &project_id)
+}
+
+/// The body of [`list_transcript_segments`], taking the storage handle rather
+/// than Tauri state so the read is testable without an app.
+fn transcript_view(
+    genesis: &genesis_block_native::Storage,
+    project_id: &str,
+) -> AppResult<TranscriptView> {
     // Resolve speaker display names once per call: query the project's
     // speakers (capped like every other query against this engine) and build
     // an id -> display_name map, rather than a lookup per segment.
     let speaker_rows = genesis_adapter::query(
-        &state.genesis,
+        genesis,
         "speakers",
         &["id", "display_name"],
         vec![genesis_adapter::eq(
             "speakers",
             "project_id",
-            serde_json::json!(project_id.clone()),
+            serde_json::json!(project_id),
         )],
-        1000,
+        genesis_adapter::ROW_CAP,
     )
     .map_err(AppError::Genesis)?;
     let speaker_names: std::collections::HashMap<String, String> = speaker_rows
@@ -1557,62 +1593,97 @@ fn list_transcript_segments(
             ))
         })
         .collect();
-    let mut segments = genesis_adapter::query(
-        &state.genesis,
-        "transcript_segments",
-        &[
-            "id",
-            "project_id",
-            "recording_id",
-            "speaker_id",
-            "start_ms",
-            "end_ms",
-            "text",
-            "confidence",
-            "created_at",
-        ],
+
+    // Read per recording rather than per project. The ceiling is per query,
+    // so scoping each read to one recording is not a workaround for the
+    // limit — it moves the limit from "this project's transcripts total" to
+    // "this recording's transcript", which is where a real transcript can
+    // actually be long. A project of five 800-segment recordings used to
+    // lose 3000 of its 4000 segments; now it loses none.
+    let recording_rows = genesis_adapter::query(
+        genesis,
+        "recordings",
+        &["id"],
         vec![genesis_adapter::eq(
-            "transcript_segments",
+            "recordings",
             "project_id",
             serde_json::json!(project_id),
         )],
-        1000,
+        genesis_adapter::ROW_CAP,
     )
-    .map_err(AppError::Genesis)?
-    .into_iter()
-    .map(|row| {
-        let speaker_id = row
-            .get("transcript_segments.speaker_id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned);
-        let speaker_name = speaker_id
-            .as_ref()
-            .and_then(|id| speaker_names.get(id).cloned());
-        Ok(TranscriptSegment {
-            id: genesis_adapter::string(&row, "transcript_segments.id")
-                .map_err(AppError::Genesis)?,
-            project_id: genesis_adapter::string(&row, "transcript_segments.project_id")
-                .map_err(AppError::Genesis)?,
-            recording_id: genesis_adapter::string(&row, "transcript_segments.recording_id")
-                .map_err(AppError::Genesis)?,
-            speaker_id,
-            speaker_name,
-            start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms")
-                .map_err(AppError::Genesis)?,
-            end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms")
-                .map_err(AppError::Genesis)?,
-            text: genesis_adapter::string(&row, "transcript_segments.text")
-                .map_err(AppError::Genesis)?,
-            confidence: row
-                .get("transcript_segments.confidence")
-                .and_then(serde_json::Value::as_f64),
-            created_at: genesis_adapter::string(&row, "transcript_segments.created_at")
-                .map_err(AppError::Genesis)?,
-        })
-    })
-    .collect::<AppResult<Vec<_>>>()?;
+    .map_err(AppError::Genesis)?;
+    let recording_ids: Vec<String> = recording_rows
+        .into_iter()
+        .filter_map(|row| Some(row.get("recordings.id")?.as_str()?.to_string()))
+        .collect();
+
+    let mut segments: Vec<TranscriptSegment> = Vec::new();
+    let mut capped_recording_ids: Vec<String> = Vec::new();
+
+    for recording_id in recording_ids {
+        let page = genesis_adapter::query_capped(
+            genesis,
+            "transcript_segments",
+            &[
+                "id",
+                "project_id",
+                "recording_id",
+                "speaker_id",
+                "start_ms",
+                "end_ms",
+                "text",
+                "confidence",
+                "created_at",
+            ],
+            vec![genesis_adapter::eq(
+                "transcript_segments",
+                "recording_id",
+                serde_json::json!(recording_id.clone()),
+            )],
+        )
+        .map_err(AppError::Genesis)?;
+        if page.capped {
+            capped_recording_ids.push(recording_id);
+        }
+        for row in page.rows {
+            let speaker_id = row
+                .get("transcript_segments.speaker_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned);
+            let speaker_name = speaker_id
+                .as_ref()
+                .and_then(|id| speaker_names.get(id).cloned());
+            segments.push(TranscriptSegment {
+                id: genesis_adapter::string(&row, "transcript_segments.id")
+                    .map_err(AppError::Genesis)?,
+                project_id: genesis_adapter::string(&row, "transcript_segments.project_id")
+                    .map_err(AppError::Genesis)?,
+                recording_id: genesis_adapter::string(&row, "transcript_segments.recording_id")
+                    .map_err(AppError::Genesis)?,
+                speaker_id,
+                speaker_name,
+                start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms")
+                    .map_err(AppError::Genesis)?,
+                end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms")
+                    .map_err(AppError::Genesis)?,
+                text: genesis_adapter::string(&row, "transcript_segments.text")
+                    .map_err(AppError::Genesis)?,
+                confidence: row
+                    .get("transcript_segments.confidence")
+                    .and_then(serde_json::Value::as_f64),
+                created_at: genesis_adapter::string(&row, "transcript_segments.created_at")
+                    .map_err(AppError::Genesis)?,
+            });
+        }
+    }
+
     segments.sort_by_key(|segment| segment.start_ms);
-    Ok(segments)
+    Ok(TranscriptView {
+        capped: !capped_recording_ids.is_empty(),
+        cap: genesis_adapter::ROW_CAP,
+        capped_recording_ids,
+        segments,
+    })
 }
 
 pub(crate) fn set_job_status(
@@ -1792,129 +1863,116 @@ fn import_and_transcribe(
     project_id: Option<String>,
     state: State<'_, AppState>,
 ) -> AppResult<Job> {
-    let project_id = match project_id {
-        Some(id) => id,
-        None => {
-            let id = Uuid::new_v4().to_string();
-            let timestamp = now();
-            let name = PathBuf::from(&file_path)
-                .file_stem()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| "Imported session".to_string());
-            let storage_path = state
-                .data_root
-                .join("projects")
-                .join(&id)
-                .display()
-                .to_string();
-            genesis_adapter::commit_rows(&state.genesis, vec![genesis_adapter::upsert("projects", serde_json::json!({"id":id,"name":name,"storage_path":storage_path,"active_recording_id":null,"created_at":timestamp,"updated_at":timestamp}))]).map_err(AppError::Genesis)?;
-            id
-        }
-    };
+    let default_name = PathBuf::from(&file_path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Imported session".to_string());
+    let project_id = resolve_or_create_project(&state, project_id, &default_name)?;
+    let job = create_import_job(&state.genesis, &project_id, &file_path)?;
 
-    let recording_id = Uuid::new_v4().to_string();
+    let genesis = state.genesis.clone();
+    let runtime = state.whisper_runtime.clone();
+    let job_id = job.id.clone();
+    let worker_project_id = project_id.clone();
+    thread::spawn(move || {
+        run_import_pipeline(
+            &genesis,
+            &runtime,
+            &worker_project_id,
+            &job_id,
+            "import",
+            &file_path,
+            &PathBuf::from(&file_path),
+            ImportProgress::whole_job(),
+        );
+    });
+
+    Ok(job)
+}
+
+/// Returns the project to import into, creating one named `default_name` when
+/// the caller named none. Shared by file import and URL ingest so that a
+/// fetched recording lands in a project the same way a dragged-in one does.
+fn resolve_or_create_project(
+    state: &AppState,
+    project_id: Option<String>,
+    default_name: &str,
+) -> AppResult<String> {
+    if let Some(id) = project_id {
+        return Ok(id);
+    }
+    let id = Uuid::new_v4().to_string();
     let timestamp = now();
+    let storage_path = state
+        .data_root
+        .join("projects")
+        .join(&id)
+        .display()
+        .to_string();
+    genesis_adapter::commit_rows(&state.genesis, vec![genesis_adapter::upsert("projects", serde_json::json!({"id":id,"name":default_name,"storage_path":storage_path,"active_recording_id":null,"created_at":timestamp,"updated_at":timestamp}))]).map_err(AppError::Genesis)?;
+    Ok(id)
+}
+
+/// The slice of a job's 0–100 progress bar that transcription owns.
+///
+/// A plain file import is transcription and nothing else, so it owns all of
+/// it. A URL ingest spends real time downloading first, and a bar that sat at
+/// zero for a five-minute fetch and then jumped would be reporting the wrong
+/// thing — so the fetch owns the head of the bar and transcription is scaled
+/// into what remains.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ImportProgress {
+    floor: i64,
+}
+
+impl ImportProgress {
+    fn whole_job() -> Self {
+        Self { floor: 0 }
+    }
+
+    fn after_fetch() -> Self {
+        Self {
+            floor: FETCH_PROGRESS_SHARE,
+        }
+    }
+
+    /// Maps a worker's own 0–100 into this slice.
+    fn scale(self, pct: i64) -> i64 {
+        self.floor + pct * (100 - self.floor) / 100
+    }
+}
+
+/// How much of a URL-ingest job's progress bar the download owns. Fetching is
+/// bandwidth-bound and transcription is compute-bound, so no split is right
+/// for every recording; a third is close enough to keep the bar moving
+/// honestly in both halves.
+const FETCH_PROGRESS_SHARE: i64 = 35;
+
+/// Files the `transcript.transcribe` row that the UI polls, before any slow
+/// work starts.
+///
+/// Created up front, not after the audio lands: a URL ingest can spend
+/// minutes downloading, and a job that does not exist yet is a job the user
+/// cannot see, cancel, or find again after closing the panel.
+fn create_import_job(
+    genesis: &Arc<genesis_block_native::Storage>,
+    project_id: &str,
+    input_ref: &str,
+) -> AppResult<Job> {
     let job_id = Uuid::new_v4().to_string();
-
-    // Take custody before anything depends on this audio. Until this existed
-    // the ledger recorded the user's own path, so moving or deleting their
-    // file invalidated a recording that still reported `completed`.
-    let storage_root = project_storage_path(&state.genesis, &project_id)?;
-    let custodied = audio_custody::take_custody_of_import(
-        &storage_root,
-        &recording_id,
-        std::path::Path::new(&file_path),
-    )
-    .map_err(|error| AppError::InvalidInput(error.to_string()))?;
-    let stored_path = custodied.stored_path.display().to_string();
-
-    genesis_adapter::commit_rows(&state.genesis, vec![
-        genesis_adapter::upsert("recordings", serde_json::json!({"id":recording_id,"project_id":project_id,"source":"import","input_path":file_path,"canonical_audio_path":stored_path,"status":"pending","duration_ms":0,"created_at":timestamp,"updated_at":timestamp})),
-        // One chunk covering the whole file, so an import is backed up and
-        // integrity-checked by exactly the same paths as a live capture.
-        // `end_ms` is filled in once transcription reports the duration.
-        genesis_adapter::upsert("audio_chunks", serde_json::json!({"id":Uuid::new_v4().to_string(),"recording_id":recording_id,"sequence_no":1,"file_path":stored_path,"start_ms":0,"end_ms":0,"byte_size":custodied.byte_size,"checksum":custodied.sha256,"created_at":timestamp})),
-        genesis_adapter::upsert("jobs", serde_json::json!({"id":job_id,"project_id":project_id,"type":"transcript.transcribe","status":"running","progress":0,"input_refs_json":[file_path],"output_refs_json":[],"provider_id":null,"error_code":null,"error_message":null,"attempt_no":1,"started_at":timestamp,"finished_at":null,"created_at":timestamp,"updated_at":timestamp})),
+    let timestamp = now();
+    genesis_adapter::commit_rows(genesis, vec![
+        genesis_adapter::upsert("jobs", serde_json::json!({"id":job_id,"project_id":project_id,"type":"transcript.transcribe","status":"running","progress":0,"input_refs_json":[input_ref],"output_refs_json":[],"provider_id":null,"error_code":null,"error_message":null,"attempt_no":1,"started_at":timestamp,"finished_at":null,"created_at":timestamp,"updated_at":timestamp})),
         genesis_adapter::upsert("job_events", serde_json::json!({"id":Uuid::new_v4().to_string(),"job_id":job_id,"status":"running","message":"running","created_at":timestamp})),
     ]).map_err(AppError::Genesis)?;
 
-    let worker_storage = state.genesis.clone();
-    let worker_job_id = job_id.clone();
-    let worker_project_id = project_id.clone();
-    let worker_recording_id = recording_id.clone();
-    // Transcribe the copy the project owns, not the user's original.
-    let worker_file_path = stored_path.clone();
-    let worker_input_path = file_path.clone();
-    let worker_runtime = state.whisper_runtime.clone();
-
-    thread::spawn(move || {
-        let progress_storage = worker_storage.clone();
-        let progress_job_id = worker_job_id.clone();
-        let outcome = run_transcription(&worker_runtime, &worker_file_path, move |pct| {
-            let _ = set_job_status(
-                &progress_storage,
-                &progress_job_id,
-                "running",
-                Some(pct),
-                None,
-            );
-        });
-
-        match outcome {
-            Ok(output) => {
-                let insert_result = (|| -> AppResult<()> {
-                    let timestamp = now();
-                    let mut mutations = Vec::new();
-                    for segment in &output.segments {
-                        let seg_timestamp = now();
-                        mutations.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({"id":Uuid::new_v4().to_string(),"project_id":worker_project_id,"recording_id":worker_recording_id,"speaker_id":null,"start_ms":segment.start_ms,"end_ms":segment.end_ms,"text":segment.text,"confidence":segment.confidence,"created_at":seg_timestamp,"updated_at":seg_timestamp})));
-                    }
-                    mutations.push(genesis_adapter::upsert("recordings", serde_json::json!({"id":worker_recording_id,"project_id":worker_project_id,"source":"import","input_path":worker_input_path,"canonical_audio_path":worker_file_path,"status":"completed","duration_ms":output.duration_ms,"created_at":timestamp,"updated_at":timestamp})));
-                    genesis_adapter::commit_rows(&worker_storage, mutations)
-                        .map_err(AppError::Genesis)?;
-                    Ok(())
-                })();
-
-                match insert_result {
-                    Ok(()) => {
-                        let _ = set_job_status(
-                            &worker_storage,
-                            &worker_job_id,
-                            "completed",
-                            Some(100),
-                            None,
-                        );
-                    }
-                    Err(err) => {
-                        let _ = set_job_status(
-                            &worker_storage,
-                            &worker_job_id,
-                            "failed",
-                            None,
-                            Some(&err.to_string()),
-                        );
-                    }
-                }
-            }
-            Err(message) => {
-                let _ = set_job_status(
-                    &worker_storage,
-                    &worker_job_id,
-                    "failed",
-                    None,
-                    Some(&message),
-                );
-            }
-        }
-    });
-
     Ok(Job {
         id: job_id,
-        project_id,
+        project_id: project_id.to_string(),
         job_type: "transcript.transcribe".to_string(),
         status: "running".to_string(),
         progress: 0,
-        input_refs: vec![file_path],
+        input_refs: vec![input_ref.to_string()],
         output_refs: Vec::new(),
         provider_id: None,
         error_code: None,
@@ -1924,6 +1982,324 @@ fn import_and_transcribe(
         created_at: timestamp.clone(),
         updated_at: timestamp,
     })
+}
+
+/// Takes custody of `source_file`, transcribes it, and writes the segments,
+/// terminalising `job_id` either way. Runs on a worker thread and never
+/// returns an error: a failure is recorded on the job, which is the only
+/// place anyone will look for it.
+///
+/// `source` is the value written to `recordings.source` (`import` for a file
+/// the user picked, `url` for one `media_fetch` pulled in) and `input_path`
+/// is what that recording came from — a filesystem path or the resolved URL.
+/// Both are recorded rather than inferred so that, months later, a recording
+/// can say where it came from without anyone re-deriving it.
+///
+/// Everything after custody is identical for both, deliberately: a fetched
+/// recording is backed up, integrity-checked, and recovered by exactly the
+/// same paths as a local one, because it is the same kind of thing once it
+/// has landed.
+#[allow(clippy::too_many_arguments)]
+fn run_import_pipeline(
+    genesis: &Arc<genesis_block_native::Storage>,
+    runtime: &WhisperRuntime,
+    project_id: &str,
+    job_id: &str,
+    source: &str,
+    input_path: &str,
+    source_file: &std::path::Path,
+    progress: ImportProgress,
+) {
+    let recording_id = Uuid::new_v4().to_string();
+    let timestamp = now();
+
+    // Take custody before anything depends on this audio. Until this existed
+    // the ledger recorded the user's own path, so moving or deleting their
+    // file invalidated a recording that still reported `completed`.
+    let storage_root = match project_storage_path(genesis, project_id) {
+        Ok(root) => root,
+        Err(err) => {
+            let _ = set_job_status(genesis, job_id, "failed", None, Some(&err.to_string()));
+            return;
+        }
+    };
+    let custodied =
+        match audio_custody::take_custody_of_import(&storage_root, &recording_id, source_file) {
+            Ok(custodied) => custodied,
+            Err(error) => {
+                let _ = set_job_status(genesis, job_id, "failed", None, Some(&error.to_string()));
+                return;
+            }
+        };
+    let stored_path = custodied.stored_path.display().to_string();
+
+    let registered = genesis_adapter::commit_rows(
+        genesis,
+        vec![
+            genesis_adapter::upsert(
+                "recordings",
+                serde_json::json!({"id":recording_id,"project_id":project_id,"source":source,"input_path":input_path,"canonical_audio_path":stored_path,"status":"pending","duration_ms":0,"created_at":timestamp,"updated_at":timestamp}),
+            ),
+            // One chunk covering the whole file, so an import is backed up and
+            // integrity-checked by exactly the same paths as a live capture.
+            // `end_ms` is filled in once transcription reports the duration.
+            genesis_adapter::upsert(
+                "audio_chunks",
+                serde_json::json!({"id":Uuid::new_v4().to_string(),"recording_id":recording_id,"sequence_no":1,"file_path":stored_path,"start_ms":0,"end_ms":0,"byte_size":custodied.byte_size,"checksum":custodied.sha256,"created_at":timestamp}),
+            ),
+        ],
+    );
+    if let Err(err) = registered {
+        let _ = set_job_status(genesis, job_id, "failed", None, Some(&err.to_string()));
+        return;
+    }
+
+    let progress_storage = genesis.clone();
+    let progress_job_id = job_id.to_string();
+    let outcome = run_transcription(runtime, &stored_path, move |pct| {
+        let _ = set_job_status(
+            &progress_storage,
+            &progress_job_id,
+            "running",
+            Some(progress.scale(pct)),
+            None,
+        );
+    });
+
+    match outcome {
+        Ok(output) => {
+            let insert_result = (|| -> AppResult<()> {
+                let timestamp = now();
+                let mut mutations = Vec::new();
+                for segment in &output.segments {
+                    let seg_timestamp = now();
+                    mutations.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({"id":Uuid::new_v4().to_string(),"project_id":project_id,"recording_id":recording_id,"speaker_id":null,"start_ms":segment.start_ms,"end_ms":segment.end_ms,"text":segment.text,"confidence":segment.confidence,"created_at":seg_timestamp,"updated_at":seg_timestamp})));
+                }
+                mutations.push(genesis_adapter::upsert("recordings", serde_json::json!({"id":recording_id,"project_id":project_id,"source":source,"input_path":input_path,"canonical_audio_path":stored_path,"status":"completed","duration_ms":output.duration_ms,"created_at":timestamp,"updated_at":timestamp})));
+                genesis_adapter::commit_rows(genesis, mutations).map_err(AppError::Genesis)?;
+                Ok(())
+            })();
+
+            match insert_result {
+                Ok(()) => {
+                    let _ = set_job_status(genesis, job_id, "completed", Some(100), None);
+                }
+                Err(err) => {
+                    let _ = set_job_status(genesis, job_id, "failed", None, Some(&err.to_string()));
+                }
+            }
+        }
+        Err(message) => {
+            let _ = set_job_status(genesis, job_id, "failed", None, Some(&message));
+        }
+    }
+}
+
+/// Fetches the audio behind a URL and transcribes it, as one job.
+///
+/// The consent check is here, at the command boundary, and not inside
+/// `media_fetch::fetch`: a refusal must reach the user as a refusal — with
+/// the reason and the next step — rather than as a worker that failed.
+#[tauri::command]
+fn fetch_and_transcribe(
+    url: String,
+    project_id: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<Job> {
+    // Checked before anything is created, so a refused fetch leaves no
+    // project, no job row, and no trace of a URL that was never fetched.
+    let readiness = media_fetch_readiness(&state)?;
+    if !readiness.available {
+        return Err(AppError::InvalidInput(
+            readiness
+                .detail
+                .unwrap_or_else(|| "ยังดึงสื่อจากอินเทอร์เน็ตไม่ได้".to_string()),
+        ));
+    }
+    let url = media_fetch::require_http_url(&url)
+        .map_err(AppError::InvalidInput)?
+        .to_string();
+
+    // The download lands here first, not in the project: custody is what
+    // moves it in, and a fetch that fails halfway must not leave a partial
+    // file inside a project's audio tree looking like a recording.
+    let staging = state
+        .data_root
+        .join("fetch")
+        .join(Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&staging).map_err(|err| {
+        AppError::InvalidInput(format!("could not prepare the fetch directory: {err}"))
+    })?;
+
+    let project_id = resolve_or_create_project(&state, project_id, &url)?;
+    let job = create_import_job(&state.genesis, &project_id, &url)?;
+
+    let genesis = state.genesis.clone();
+    let runtime = state.whisper_runtime.clone();
+    let job_id = job.id.clone();
+    let worker_project_id = project_id.clone();
+
+    thread::spawn(move || {
+        let progress_storage = genesis.clone();
+        let progress_job_id = job_id.clone();
+        let fetched = media_fetch::fetch(&runtime, &url, &staging, move |pct| {
+            let _ = set_job_status(
+                &progress_storage,
+                &progress_job_id,
+                "running",
+                Some(pct * FETCH_PROGRESS_SHARE / 100),
+                None,
+            );
+        });
+
+        match fetched {
+            Ok(media) => {
+                // What the fetch actually reached, on the job it happened
+                // under. The URL alone does not say which extractor served
+                // it or how long the media turned out to be, and after the
+                // staging directory is gone this row is the only record.
+                record_fetch_provenance(&genesis, &job_id, &media);
+                // The project was created before the title was known, so it
+                // is named now — the URL was only ever a placeholder.
+                rename_placeholder_project(&genesis, &worker_project_id, &url, &media.title);
+                run_import_pipeline(
+                    &genesis,
+                    &runtime,
+                    &worker_project_id,
+                    &job_id,
+                    "url",
+                    &media.webpage_url,
+                    std::path::Path::new(&media.path),
+                    ImportProgress::after_fetch(),
+                );
+            }
+            Err(message) => {
+                let _ = set_job_status(&genesis, &job_id, "failed", None, Some(&message));
+            }
+        }
+
+        // Custody copied what it needed; the staging copy is redundant either
+        // way, and on the failure path it is a partial download nothing
+        // should ever read.
+        let _ = std::fs::remove_dir_all(&staging);
+    });
+
+    Ok(job)
+}
+
+/// Writes what the fetch resolved to onto the job's event trail: which
+/// extractor served it, and how long the source said it was.
+///
+/// A job event rather than a new column, because this is a fact about one
+/// attempt rather than about the recording — a second fetch of the same URL
+/// months later may well be served by a different extractor.
+fn record_fetch_provenance(
+    genesis: &Arc<genesis_block_native::Storage>,
+    job_id: &str,
+    media: &media_fetch::FetchedMedia,
+) {
+    let extractor = if media.extractor.is_empty() {
+        "unknown"
+    } else {
+        &media.extractor
+    };
+    let _ = genesis_adapter::commit_rows(
+        genesis,
+        vec![genesis_adapter::upsert(
+            "job_events",
+            serde_json::json!({
+                "id": Uuid::new_v4().to_string(),
+                "job_id": job_id,
+                "status": "running",
+                "message": format!(
+                    "fetched via {extractor} ({} ms reported by source)",
+                    media.duration_ms
+                ),
+                "created_at": now(),
+            }),
+        )],
+    );
+}
+
+/// Replaces a project name that is still the placeholder URL with the fetched
+/// title. Leaves a name the user chose, or one an earlier fetch already set,
+/// alone — this only ever cleans up after itself.
+fn rename_placeholder_project(
+    genesis: &Arc<genesis_block_native::Storage>,
+    project_id: &str,
+    placeholder: &str,
+    title: &str,
+) {
+    if title.trim().is_empty() {
+        return;
+    }
+    let Ok(rows) = genesis_adapter::query(
+        genesis,
+        "projects",
+        &[
+            "id",
+            "name",
+            "storage_path",
+            "active_recording_id",
+            "created_at",
+        ],
+        vec![genesis_adapter::eq(
+            "projects",
+            "id",
+            serde_json::json!(project_id),
+        )],
+        1,
+    ) else {
+        return;
+    };
+    let Some(row) = rows.into_iter().next() else {
+        return;
+    };
+    if row.get("projects.name").and_then(|value| value.as_str()) != Some(placeholder) {
+        return;
+    }
+    let timestamp = now();
+    let _ = genesis_adapter::commit_rows(
+        genesis,
+        vec![genesis_adapter::upsert(
+            "projects",
+            serde_json::json!({
+                "id": project_id,
+                "name": title,
+                "storage_path": row.get("projects.storage_path"),
+                "active_recording_id": row.get("projects.active_recording_id"),
+                "created_at": row.get("projects.created_at"),
+                "updated_at": timestamp,
+            }),
+        )],
+    );
+}
+
+/// Probes the URL-ingest installation and reads the stored consent flag.
+fn media_fetch_readiness(state: &AppState) -> AppResult<media_fetch::MediaFetchReadiness> {
+    let conn = paired_devices_connection(state)?;
+    let consent = policy::media_fetch_consent(&conn).map_err(AppError::InvalidInput)?;
+    Ok(media_fetch::probe(&state.whisper_runtime, consent))
+}
+
+/// Reports whether this installation can fetch media from a URL, and why not
+/// when it cannot.
+#[tauri::command]
+fn media_fetch_status(state: State<'_, AppState>) -> AppResult<media_fetch::MediaFetchReadiness> {
+    media_fetch_readiness(&state)
+}
+
+/// Grants or revokes permission for FUNG to fetch media from the internet,
+/// and reports the resulting readiness so the caller does not have to ask
+/// again to find out what is still missing.
+#[tauri::command]
+fn media_fetch_consent_set(
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> AppResult<media_fetch::MediaFetchReadiness> {
+    let conn = paired_devices_connection(&state)?;
+    policy::set_media_fetch_consent(&conn, enabled).map_err(AppError::InvalidInput)?;
+    media_fetch_readiness(&state)
 }
 
 /// Cap on the non-`PROGRESS` stderr tail captured for a worker's error
@@ -2640,6 +3016,10 @@ pub fn run() {
             list_model_providers,
             list_transcript_segments,
             import_and_transcribe,
+            fetch_and_transcribe,
+            media_fetch_status,
+            media_fetch_consent_set,
+            transcript_export::list_export_artifacts,
             audio_integrity_check,
             recovery_scan,
             recovery_recover,
@@ -2746,6 +3126,110 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod transcript_view_tests {
+    use super::*;
+
+    fn open_storage() -> (PathBuf, genesis_block_native::Storage) {
+        let path = std::env::temp_dir().join(format!("fung-view-cap-test-{}", Uuid::new_v4()));
+        let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
+            path: path.display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+        })
+        .unwrap();
+        genesis_adapter::install(&storage).unwrap();
+        (path, storage)
+    }
+
+    /// `recordings_of` recordings, each holding `segments_each` segments.
+    fn seed(storage: &genesis_block_native::Storage, recordings_of: usize, segments_each: i64) {
+        let mut rows = vec![genesis_adapter::upsert(
+            "projects",
+            serde_json::json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"}),
+        )];
+        for recording in 0..recordings_of {
+            let recording_id = format!("r{recording}");
+            rows.push(genesis_adapter::upsert("recordings", serde_json::json!({"id":recording_id,"project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"})));
+            for index in 0..segments_each {
+                rows.push(genesis_adapter::upsert(
+                    "transcript_segments",
+                    serde_json::json!({
+                        "id": format!("{recording_id}-s{index}"), "project_id": "p1",
+                        "recording_id": recording_id, "speaker_id": null,
+                        "start_ms": index * 1000, "end_ms": index * 1000 + 900,
+                        "text": format!("บรรทัด {index}"), "confidence": 0.9,
+                        "created_at": "t", "updated_at": "t",
+                    }),
+                ));
+            }
+        }
+        // The engine caps a mutation batch at 1000 operations, so commit in
+        // pages. Writing is not what these tests are about.
+        for page in rows.chunks(500) {
+            genesis_adapter::commit_rows(storage, page.to_vec()).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_multi_recording_project_is_no_longer_truncated_at_the_project_level() {
+        // The old read filtered by `project_id` at the engine ceiling, so a
+        // project of five 400-segment recordings returned 1000 of its 2000
+        // segments and said nothing. None of those recordings is individually
+        // long enough to hit the ceiling; the truncation was an artifact of
+        // reading them together.
+        let (path, storage) = open_storage();
+        seed(&storage, 5, 400);
+
+        let view = transcript_view(&storage, "p1").unwrap();
+        assert_eq!(view.segments.len(), 2000);
+        assert!(!view.capped, "no single recording reaches the ceiling");
+        assert!(view.capped_recording_ids.is_empty());
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn a_recording_past_the_ceiling_is_reported_and_named() {
+        // Truncation is unavoidable here — the engine has no cursor — so the
+        // requirement is that it is visible, and specific enough to act on:
+        // which recording is short, not merely that something is.
+        let (path, storage) = open_storage();
+        seed(&storage, 2, genesis_adapter::ROW_CAP as i64 + 100);
+
+        let view = transcript_view(&storage, "p1").unwrap();
+        assert!(view.capped);
+        assert_eq!(view.cap, genesis_adapter::ROW_CAP);
+        let mut named = view.capped_recording_ids.clone();
+        named.sort();
+        assert_eq!(named, vec!["r0".to_string(), "r1".to_string()]);
+        // The segments it did read are still returned: incomplete is not
+        // empty, and the user keeps what there is.
+        assert_eq!(view.segments.len(), 2 * genesis_adapter::ROW_CAP as usize);
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn an_intact_transcript_reports_nothing_to_warn_about() {
+        // A warning that shows on a healthy transcript trains people to
+        // ignore it.
+        let (path, storage) = open_storage();
+        seed(&storage, 1, 120);
+
+        let view = transcript_view(&storage, "p1").unwrap();
+        assert_eq!(view.segments.len(), 120);
+        assert!(!view.capped);
+        assert!(view.capped_recording_ids.is_empty());
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
 }
 
 #[cfg(test)]

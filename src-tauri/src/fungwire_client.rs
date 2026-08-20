@@ -104,6 +104,7 @@ pub(crate) struct JobPollOutput {
 /// contiguous `seq` in `sequence_no` order (see [`gather_segments`] — the
 /// wire protocol's `Chunk.seq` is a plain array index on the receiver, not
 /// the stored `sequence_no`, which starts at 1).
+#[derive(Debug)]
 struct SegmentRef {
     seq: u32,
     path: PathBuf,
@@ -362,7 +363,7 @@ fn gather_segments(
     storage: &genesis_block_native::Storage,
     recording_id: &str,
 ) -> Result<Vec<SegmentRef>, String> {
-    let rows = crate::genesis_adapter::query(
+    let page = crate::genesis_adapter::query_capped(
         storage,
         "audio_chunks",
         &["sequence_no", "file_path", "checksum"],
@@ -371,12 +372,23 @@ fn gather_segments(
             "recording_id",
             json!(recording_id),
         )],
-        // 1000 is the query engine's hard cap (`REL_QUERY_LIMIT_EXCEEDED`
-        // above that) — a five-second-per-segment recording would need to
-        // run ~83 minutes to exceed it.
-        1000,
     )?;
-    let mut ordered: Vec<(i64, PathBuf, String)> = rows
+    // Refused rather than sent short, and this one is the least visible
+    // truncation in the tree: the renumbering below rewrites `sequence_no`
+    // into a contiguous 0-based `seq`, so a job built from a truncated read
+    // arrives at the desktop as a gap-free manifest of exactly the shape a
+    // complete one has. The transcript that comes back covers the first
+    // ~83 minutes, is written to `transcript_segments` like any other, and
+    // nothing anywhere records that the tail was never sent. Delegating a
+    // long recording is the entire reason this path exists.
+    if page.capped {
+        return Err(format!(
+            "การบันทึกนี้มีอย่างน้อย {} ท่อนเสียง ซึ่งเกินเพดานการอ่านครั้งเดียวของ storage engine              — ส่งไปถอดเสียงได้ไม่ครบและจะดูเหมือนครบ จึงไม่ส่ง",
+            crate::genesis_adapter::ROW_CAP
+        ));
+    }
+    let mut ordered: Vec<(i64, PathBuf, String)> = page
+        .rows
         .into_iter()
         .map(|row| {
             let sequence_no = row
@@ -1087,6 +1099,92 @@ mod tests {
     // both jobs could still be running when the old bound expired. Keep the
     // wait bounded while allowing normal CI process/IO startup variance.
     const E2E_TERMINAL_POLL_ATTEMPTS: usize = 600; // 60s at 100ms per poll
+
+    #[test]
+    fn a_recording_past_the_chunk_read_ceiling_is_not_delegated_short() {
+        // The renumbering in `gather_segments` is what makes this dangerous:
+        // a truncated read becomes a contiguous 0-based manifest that looks
+        // exactly like a complete one, the desktop transcribes it, and the
+        // result is written back with nothing recording that the tail was
+        // never sent. Delegating a long recording is why this path exists.
+        let (path, storage) = open_genesis();
+        let mut rows = vec![
+            crate::genesis_adapter::upsert(
+                "projects",
+                json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"}),
+            ),
+            crate::genesis_adapter::upsert(
+                "recordings",
+                json!({"id":"r1","project_id":"p1","source":"microphone","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"}),
+            ),
+        ];
+        for index in 0..(crate::genesis_adapter::ROW_CAP as i64 + 50) {
+            rows.push(crate::genesis_adapter::upsert(
+                "audio_chunks",
+                json!({
+                    "id": format!("c{index}"), "recording_id": "r1", "sequence_no": index,
+                    "file_path": format!("chunk-{index}.wav"), "start_ms": index * 5000,
+                    "end_ms": index * 5000 + 5000, "byte_size": 1024,
+                    "checksum": format!("{index:064}"), "created_at": "t",
+                }),
+            ));
+        }
+        for page in rows.chunks(500) {
+            crate::genesis_adapter::commit_rows(&storage, page.to_vec()).unwrap();
+        }
+
+        let error = gather_segments(&storage, "r1").unwrap_err();
+        assert!(
+            error.contains(&crate::genesis_adapter::ROW_CAP.to_string()),
+            "the refusal must name the ceiling that caused it: {error}"
+        );
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn a_recording_under_the_ceiling_still_delegates_every_chunk_in_order() {
+        // The refusal must not become a new floor: the ordinary recording has
+        // to keep producing a contiguous manifest exactly as before.
+        let (path, storage) = open_genesis();
+        let mut rows = vec![
+            crate::genesis_adapter::upsert(
+                "projects",
+                json!({"id":"p1","name":"m","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"}),
+            ),
+            crate::genesis_adapter::upsert(
+                "recordings",
+                json!({"id":"r1","project_id":"p1","source":"microphone","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":0,"created_at":"t","updated_at":"t"}),
+            ),
+        ];
+        // Written out of order so the sort is exercised, not assumed.
+        for index in [2i64, 0, 3, 1] {
+            rows.push(crate::genesis_adapter::upsert(
+                "audio_chunks",
+                json!({
+                    "id": format!("c{index}"), "recording_id": "r1", "sequence_no": index * 10,
+                    "file_path": format!("chunk-{index}.wav"), "start_ms": index * 5000,
+                    "end_ms": index * 5000 + 5000, "byte_size": 1024,
+                    "checksum": format!("{index:064}"), "created_at": "t",
+                }),
+            ));
+        }
+        crate::genesis_adapter::commit_rows(&storage, rows).unwrap();
+
+        let segments = gather_segments(&storage, "r1").unwrap();
+        assert_eq!(segments.len(), 4);
+        assert_eq!(
+            segments.iter().map(|s| s.seq).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3],
+            "sequence_no is renumbered to a contiguous 0-based seq"
+        );
+        assert_eq!(segments[0].path, PathBuf::from("chunk-0.wav"));
+        assert_eq!(segments[3].path, PathBuf::from("chunk-3.wav"));
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
 
     fn open_genesis() -> (std::path::PathBuf, Storage) {
         let path = std::env::temp_dir().join(format!("fungwire-client-test-{}", Uuid::new_v4()));

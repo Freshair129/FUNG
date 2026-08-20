@@ -217,6 +217,94 @@ export async function diarizationStatus(): Promise<DiarizationReadiness | null> 
   return invoke<DiarizationReadiness>("diarization_status");
 }
 
+/**
+ * Whether this installation may fetch media from a URL, and what is missing
+ * when it may not. See `src-tauri/src/media_fetch.rs`.
+ */
+export type MediaFetchReadiness = {
+  available: boolean;
+  blocker:
+    | "runtimeMissing"
+    | "workerMissing"
+    | "dependenciesMissing"
+    | "consentWithheld"
+    | null;
+  /** Stable code for the same blocker; branch on this, never on `detail`. */
+  blockerCode: string | null;
+  detail: string | null;
+  runtimePresent: boolean;
+  workerPresent: boolean;
+  dependenciesPresent: boolean;
+  consentGranted: boolean;
+  /**
+   * Whether a JS runtime is staged for YouTube's signature challenges. Not a
+   * blocker — other sites work without it — so this is an advisory the UI
+   * shows rather than a reason to refuse.
+   */
+  jsRuntimePresent: boolean;
+  jsRuntimeDetail: string | null;
+  maxDurationS: number;
+  packagesDir: string;
+};
+
+export async function mediaFetchStatus(): Promise<MediaFetchReadiness | null> {
+  // `null` means "cannot be asked", which is not the same as "unavailable" —
+  // the browser preview has no backend to probe.
+  if (!canInvoke()) return null;
+  return invoke<MediaFetchReadiness>("media_fetch_status");
+}
+
+/**
+ * Grants or revokes permission for FUNG to reach the internet for media.
+ * Returns the resulting readiness, so a caller that turns consent on learns
+ * in the same round-trip whether anything else is still missing.
+ */
+export async function setMediaFetchConsent(enabled: boolean): Promise<MediaFetchReadiness | null> {
+  if (!canInvoke()) return null;
+  return invoke<MediaFetchReadiness>("media_fetch_consent_set", { enabled });
+}
+
+/** Fetches the audio behind a URL and transcribes it, as one job. */
+export async function fetchAndTranscribe(url: string, projectId?: string): Promise<Job> {
+  if (!canInvoke()) {
+    const now = new Date().toISOString();
+    return {
+      id: crypto.randomUUID(),
+      projectId: projectId ?? "browser-preview",
+      type: "transcript.transcribe",
+      status: "running",
+      progress: 0,
+      inputRefs: [url],
+      outputRefs: [],
+      providerId: null,
+      errorCode: null,
+      errorMessage: null,
+      startedAt: now,
+      finishedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+  return invoke<Job>("fetch_and_transcribe", { url, projectId: projectId ?? null });
+}
+
+/**
+ * A file the project has exported. `kind` matches the `export_artifacts`
+ * enum: `srt`/`vtt` from a subtitle render, `txt` from a meeting summary.
+ */
+export type ExportArtifact = {
+  id: string;
+  kind: string;
+  filePath: string;
+  createdAt: string;
+};
+
+/** A project's exports, newest first. */
+export async function listExportArtifacts(projectId: string): Promise<ExportArtifact[]> {
+  if (!canInvoke()) return [];
+  return invoke<ExportArtifact[]>("list_export_artifacts", { projectId });
+}
+
 /** The job types this build can actually run, straight from the engine. */
 export async function runnableJobTypes(): Promise<string[]> {
   if (!canInvoke()) return [];
@@ -275,9 +363,33 @@ export async function ttsSynthesizeText(
   });
 }
 
-export async function listTranscriptSegments(projectId: string): Promise<TranscriptSegment[]> {
-  if (!canInvoke()) return [];
-  return invoke<TranscriptSegment[]>("list_transcript_segments", { projectId });
+/**
+ * A project's transcript, and whether it is all of it.
+ *
+ * `capped` is not an error state — the segments returned are real. It means
+ * the storage engine's single-read ceiling was reached, so material past it
+ * exists and was not read. Rendering the segments without saying so is what
+ * this shape exists to prevent: a transcript that stops mid-meeting is
+ * indistinguishable from a meeting that ended there.
+ */
+export type TranscriptView = {
+  segments: TranscriptSegment[];
+  capped: boolean;
+  cap: number;
+  /** Which recordings are incomplete, not just that one of them is. */
+  cappedRecordingIds: string[];
+};
+
+const EMPTY_TRANSCRIPT: TranscriptView = {
+  segments: [],
+  capped: false,
+  cap: 0,
+  cappedRecordingIds: [],
+};
+
+export async function listTranscriptSegments(projectId: string): Promise<TranscriptView> {
+  if (!canInvoke()) return EMPTY_TRANSCRIPT;
+  return invoke<TranscriptView>("list_transcript_segments", { projectId });
 }
 
 export async function renameSpeaker(speakerId: string, displayName: string): Promise<void> {

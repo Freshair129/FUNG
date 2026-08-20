@@ -47,7 +47,6 @@ test("every button with no implementation says which one it is", () => {
     "speakers.lock",
     "review.evidence",
     "summary.compare",
-    "export.render",
     "export.queue",
     "archive.project",
   ];

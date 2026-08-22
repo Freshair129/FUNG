@@ -1,7 +1,7 @@
 ---
-version: "0.1.4b"
+version: "0.1.5b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-07-19T00:00:00+07:00,ATHER"
+last_update: "2026-08-22T20:06:53+07:00,ATHER"
 status: "beta"
 superseded_by: null
 attributes:
@@ -43,6 +43,7 @@ This folder is the documentation source of truth for the current beta build.
 | `LEGAL_PRIVACY.md` | beta | Legal/privacy boundaries |
 | `IMPLEMENTATION_SURFACES.md` | beta | Contracts and implementation handoff |
 | `07-meeting-mode.md` | beta | Meeting-driven content behavior inside the fixed HUD shell |
+| `wireframes/README.md` | draft | Page-level P1-P4 structural wireframes |
 | `GPU_STANDALONE_RUNTIME_SPEC.md` | beta | CUDA 12/cuDNN runtime ownership, launcher, diagnostics, and clean-room GPU proof |
 | `UAT_SITEMAP_2026-07-19.md` | beta | Executed sitemap and Meeting Mode UI UAT, including runtime-scope findings |
 
@@ -65,6 +66,7 @@ The UI direction is Skeuomorphic Subtract HUD: a tactile porcelain command deck 
 
 | Version | Change |
 | --- | --- |
+| 0.1.5b | Added page-level P1-P4 Desktop wireframes and their index. |
 | 0.1.4b | Added sitemap and Meeting Mode UAT record. |
 | 0.1.3b | Added standalone GPU runtime packaging specification. |
 | 0.1.2b | Added `07-meeting-mode.md` as the first feature-driver content spec. |
@@ -75,6 +77,7 @@ The UI direction is Skeuomorphic Subtract HUD: a tactile porcelain command deck 
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.1.5b | 2026-08-22 | draft | Added the complete P1-P4 Desktop page-level wireframe set. | N/A — uncommitted | ATHER |
 | 0.1.4b | 2026-07-19 | beta | Added sitemap UAT report to the documentation index. | N/A | ATHER |
 | 0.1.3b | 2026-07-19 | beta | Added GPU standalone runtime spec to the documentation index. | N/A | ATHER |
 | 0.1.2b | 2026-07-09 | beta | Added the Meeting Mode spec to the canonical document index. | N/A | ATHER |

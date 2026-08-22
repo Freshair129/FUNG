@@ -32,14 +32,14 @@ not close a release, connector, device, visual, or regression gate.
 | H1 — requirements/status contradiction | FIXED | `docs/Desktop/LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md` | FR-106--FR-114 and FR-116 now identify current default-off code-level backend/operator evidence. Their traceability mapping likewise names the current surface. The rows retain open visual/keyboard, restart, artifact-secret-scan, real-device capture-isolation, real-connector, and full-regression gates. |
 | H2 — graph coverage overstated | FIXED | `docs/.doc-graph.json` | Coverage metadata now derives from the retained edges: 22/26 code mappings (85%) and 16/26 test mappings (62%). The 18 manual edges and one open contradiction edge were preserved. |
 | H3 — non-executable requirement traceability | OPEN BY SCOPE | None | No `@req`/`@tested` annotations were added. The current command-surface and source/state tests do not provide an unambiguous one-to-one annotation scheme for every requirement, and adding source/test annotations would exceed this documentation-only task's allowed paths. Manual graph edges remain non-executable evidence. |
-| H4 — credential security wording | FIXED | `docs/superpowers/specs/2026-08-11-live-meeting-external-retrieval-design.md` | The design now states the sole exception: `external_connector_register` may receive one transient credential only for direct keyring storage. Other commands accept no raw credential. It explicitly records that production stdio execution does not currently prove credential resolution/use. |
+| H4 — credential security wording | FIXED | `docs/specs/2026-08-11-live-meeting-external-retrieval-design.md` | The design now states the sole exception: `external_connector_register` may receive one transient credential only for direct keyring storage. Other commands accept no raw credential. It explicitly records that production stdio execution does not currently prove credential resolution/use. |
 | H5 — obsolete preflight reference | FIXED | `docs/implementation-plan.md` | The plan now names `DOC_PREFLIGHT_2026-08-11.md` v0.3.0b as CRITICAL and blocks completion/flag promotion pending disposition of that gate. |
 
 ## Exact Changed Paths
 
 - `docs/Desktop/LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md` — v0.1.1b
 - `docs/.doc-graph.json` — v1.0.1 coverage metadata
-- `docs/superpowers/specs/2026-08-11-live-meeting-external-retrieval-design.md` — v0.1.3b
+- `docs/specs/2026-08-11-live-meeting-external-retrieval-design.md` — v0.1.3b
 - `docs/implementation-plan.md` — v0.1.5b
 - `docs/.rwang-tasks/task-4-report.md` — new v0.1.0b report
 

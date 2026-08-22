@@ -21,8 +21,8 @@ creating a second identity model. Google Drive production transport is TODO.
 
 ## Inputs
 
-- Requirements: `docs/superpowers/specs/2026-08-13-phase-4-cloud-backup-mobile-account-requirements.md`
-- Design: `docs/superpowers/specs/2026-08-13-phase-4-cloud-backup-mobile-account-design.md`
+- Requirements: `docs/specs/2026-08-13-phase-4-cloud-backup-mobile-account-requirements.md`
+- Design: `docs/specs/2026-08-13-phase-4-cloud-backup-mobile-account-design.md`
 - Existing account UI: `src/web/AccountSettings.tsx`
 - Existing device/session logic: `src/mobile/MobileApp.tsx`,
   `src/components/AccountLoginPanel.tsx`, and `src/lib/authFlow.ts`

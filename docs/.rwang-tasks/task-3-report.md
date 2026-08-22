@@ -120,7 +120,7 @@ graph and Appendix D. Do not bulk-annotate unrelated code.
 
 **Evidence**
 
-- `docs/superpowers/specs/2026-08-11-live-meeting-external-retrieval-design.md:169`
+- `docs/specs/2026-08-11-live-meeting-external-retrieval-design.md:169`
   says “No command accepts a raw credential” and immediately says registration
   accepts a transient secret.
 - The actual API accepts that transient value:

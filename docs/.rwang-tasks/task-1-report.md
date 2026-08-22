@@ -167,10 +167,10 @@ visual/keyboard, restart, and device UAT before any release claim.
 `docs/.rwang-tasks/task-1-brief.md`; `docs/.rwang-tasks/task-1-report.md`;
 `docs/DOC_PREFLIGHT_2026-08-11.md`; `docs/.preflight-report.json`;
 `docs/.doc-graph.json`; `docs/Desktop/LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md`;
-`docs/superpowers/specs/2026-08-11-live-meeting-external-retrieval-design.md`;
+`docs/specs/2026-08-11-live-meeting-external-retrieval-design.md`;
 `docs/Desktop/08-real-progress.md`; `docs/Desktop/ARCHITECTURE.md`;
 `docs/Mobile/IMPLEMENTATION_STATUS.md`;
-`docs/superpowers/plans/2026-08-09-fung-master-implementation-plan.md`;
+`docs/plans/2026-08-09-fung-master-implementation-plan.md`;
 `src-tauri/src/lib.rs`; `src-tauri/src/external_mcp_commands.rs`;
 `src/components/LiveMeetingPanel.tsx`; `src/components/ExternalMeetingToolsPanel.tsx`;
 `tests/externalMeetingTools.test.mjs`; and `package.json`.

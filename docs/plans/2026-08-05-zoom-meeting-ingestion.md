@@ -1,10 +1,10 @@
 # Zoom Meeting Ingestion Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** FUNG Desktop connects to a user's Zoom account, imports cloud recordings, produces speaker-attributed transcripts (per-participant audio files when available, local pyannote diarization as fallback), and builds a knowledge graph (structural + LLM-extracted) in GenesisBlockDB.
 
-**Architecture:** Everything runs inside the existing Tauri desktop runtime. A new `zoom_sync` Rust module handles OAuth (PKCE, loopback callback) and REST pulls; downloads feed the existing faster-whisper worker; a new `speaker_merge` module attributes speakers; a new `graph_build` module writes graph nodes/edges via `genesis_adapter`. Spec: `docs/superpowers/specs/2026-08-05-zoom-meeting-ingestion-design.md`.
+**Architecture:** Everything runs inside the existing Tauri desktop runtime. A new `zoom_sync` Rust module handles OAuth (PKCE, loopback callback) and REST pulls; downloads feed the existing faster-whisper worker; a new `speaker_merge` module attributes speakers; a new `graph_build` module writes graph nodes/edges via `genesis_adapter`. Spec: `docs/specs/2026-08-05-zoom-meeting-ingestion-design.md`.
 
 **Tech Stack:** Rust (sync style, `thread::spawn`, `reqwest::blocking`), keyring (Windows Credential Manager), Python faster-whisper + pyannote-audio workers, React/TS frontend, GenesisBlockDB via `genesis_adapter`.
 

@@ -82,7 +82,7 @@ This review independently reproduces the graph totals, all tracked hashes, manua
 `docs/Desktop/LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md`;
 `docs/Desktop/08-real-progress.md`; `docs/Desktop/ARCHITECTURE.md`;
 `docs/Mobile/IMPLEMENTATION_STATUS.md`;
-`docs/superpowers/plans/2026-08-09-fung-master-implementation-plan.md`;
+`docs/plans/2026-08-09-fung-master-implementation-plan.md`;
 `src-tauri/src/lib.rs`; `src-tauri/src/external_mcp_commands.rs`;
 `src/components/LiveMeetingPanel.tsx`; `src/components/ExternalMeetingToolsPanel.tsx`;
 `tests/externalMeetingTools.test.mjs`; and `package.json`.

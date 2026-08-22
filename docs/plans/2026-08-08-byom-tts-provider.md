@@ -1,6 +1,6 @@
 # BYOM TTS Provider Registration — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Let users register their own TTS providers (F5-TTS-THAI, Piper, REST servers, etc.) via Settings UI, then use them through a 🔊 button on P3 recap and through the existing MCP voice pipeline.
 

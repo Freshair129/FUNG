@@ -1,14 +1,14 @@
 {
   "version": "1.4.0",
   "generated_by": "rwang:doc-preflight",
-  "generated_at": "2026-08-22T18:15:22Z",
+  "generated_at": "2026-08-22T20:51:16Z",
   "project": "FUNG",
   "scope": "FUNG governed product, AI system, and live meeting documentation scaffold audit",
   "trust_hierarchy": "Code > SDD > PRD",
   "summary": {
     "total_checks": 10,
-    "passed": 3,
-    "warnings": 4,
+    "passed": 4,
+    "warnings": 3,
     "critical": 0,
     "info": 3
   },
@@ -64,16 +64,6 @@
       "files": ["docs/Desktop/LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md", "src", "src-tauri", "tests"],
       "requirement_ids": ["FR-101", "FR-106", "FR-116", "NFR-101", "NFR-110"],
       "action": "Keep the all-26 annotation contract separate from retained manual/inspection mappings; do not promote runtime or UAT status from annotations."
-    },
-    {
-      "id": "WARN-03",
-      "severity": "warning",
-      "check": "staleness",
-      "title": "Git-date comparison is unavailable for untracked scoped documents",
-      "details": "The new scaffold paths match their graph hashes and graph stats.stale_edges is 0, but 19 pre-existing mapped code/document nodes differ from the retained graph hashes. The drift belongs to earlier working-tree changes and was not rewritten during this scoped documentation scaffold.",
-      "files": ["docs/.doc-graph.json", "docs"],
-      "requirement_ids": [],
-      "action": "Run a dedicated full graph reflight for the existing dirty worktree before using graph hashes as release evidence; preserve unrelated changes and do not infer production readiness from this scaffold."
     },
     {
       "id": "WARN-04",

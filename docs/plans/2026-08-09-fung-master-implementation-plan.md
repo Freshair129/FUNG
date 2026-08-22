@@ -6,28 +6,29 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.3.0b |
-| Date | 2026-08-14 |
-| Status | need review — Phase 3 controller acceptance pending; Phase 4 has tested in-memory crypto and a bounded filesystem adapter, but backup/restore proof remains open |
+| Version | 1.4.0b |
+| Date | 2026-08-23 |
+| Status | need review — Phase 3 controller acceptance, Phase 4 clean-install/cloud/device proof, and Phase 5 release gates remain open |
 | Author | Claude (Fable 5) + Boss |
 | Supersedes | none (first master plan) |
 | Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.2b, `docs/Desktop/08-real-progress.md` v0.2.6b, Sub-project B brainstorm decisions (2026-08-09) |
 
 ---
 
-## 0. Current Delivery Overlay (2026-08-13)
+## 0. Current Truth Sync (2026-08-23)
 
-This roadmap retains its original dependency plan. The Phase Completion Tracker
-below is the current delivery truth: Phase 0–2 are completed, and Phase 3 code
-is merged with post-merge CI passing. Phase 3 is not yet accepted as fully
-complete because its real-desktop controller gate remains open. Phase 4's
-Google Drive production adapter is TODO. Phase 4 has a remote Genesis U9
-contract candidate pinned for development/test, dedicated empty filesystem
-proof roots, and a tested bounded filesystem adapter, but has not yet produced
-an encrypted backup or clean restore through the real Genesis job.
-The exact Rust library verification command now passes 212/212 tests on this
-host; the prior serial override timeout was a test-harness procedure issue,
-not a product failure. Phase 5 has not started.
+The current mainline is `origin/main` at `d4e6ddc` with no open pull requests. PR #16 is merged at `26da784`; PR #30 is merged at `d4e6ddc`. Phase 0–2 remain complete. Phase 3 implementation is merged, but acceptance still requires a real desktop controller run with the approved OpenAI and Anthropic credentials; credentials are not available in this run. Phase 4 automated backup/restore and device-reconciliation tests are present, but the approved roots contain only test fixtures and no clean-install restore or Google Drive production OAuth/transport proof has been completed. Phase 5 remains not started.
+
+The local transcription runtime is prepared at worker level: the staged `faster-whisper` 1.2.1 environment contains the pinned `Systran/faster-whisper-small` revision, the staged CUDA 12/cuDNN 9 manifest records 11 DLLs, and `scripts/smoke_gpu_standalone.ps1` passed with the GPU profile. This closes local worker preparation only; it does not close Live Meeting real-capture, Android, visual, connector, or release acceptance.
+
+---
+
+## 0. Historical Delivery Overlay (2026-08-13; superseded)
+
+This historical snapshot retains its original dependency plan and records the
+state observed on 2026-08-13. The current delivery truth is recorded in the
+2026-08-23 overlay above; the older 212/212 test count and pre-merge Phase 4
+wording below are retained as historical evidence, not as current acceptance.
 
 ---
 
@@ -469,7 +470,7 @@ Per phase:
 - [x] **Phase 1** — Sub-project B: Desktop Login + Device Pairing (exit: real pairing E2E + revoke) — **DONE**, PR #5 merged (`5219b90`).
 - [x] **Phase 2** — FUNGWIRE v1: LAN Tunnel + Job Worker (exit: delegated transcription E2E + resume) — **DONE 2026-08-09**, PR #6: frontend ✅ / rust ✅ CI green; 2-device LAN acceptance test passed (Boss-confirmed: delegate+progress, kill-mid-job resume, revoke rejection).
 - [ ] **Phase 3** — Sub-project F: BYOM Keys + 3-Tier Policy (exit: policy matrix proven, zero key leakage) — **IMPLEMENTATION COMPLETE / ACCEPTANCE PENDING**. PR #7 merged (`bdd5c6e`); post-merge worker hardening merged in PR #10 (`cea2d93`); CI run `31610747738` passed on `main`. Remaining controller gate: real desktop with an OpenAI key + recording, and an Anthropic key with Ollama stopped to prove cloud fallback.
-- [ ] **Phase 4** — Sub-projects C + E: Cloud Storage + Mobile Login (exit: backup→restore proven, mobile signed in) — **TESTED IN-MEMORY CRYPTO + BOUNDED FILESYSTEM ADAPTER / BACKUP-RESTORE PROOF OPEN**. Requirements: `docs/specs/2026-08-13-phase-4-cloud-backup-mobile-account-requirements.md`; design: `docs/specs/2026-08-13-phase-4-cloud-backup-mobile-account-design.md`; plan/audit: `docs/plans/2026-08-13-phase-4-google-drive-backup-mobile-account.md`; crypto decision: `docs/decisions/2026-08-14-phase-4-archive-envelope-crypto-decision.md`. FUNG pins Genesis U9 candidate `27cbb285aea635e31311ef2053d21f16e915f1fb`; empty test roots are `D:\FUNG-Phase4-TestStorage` and `D:\FUNG-Phase4-TestRestore`; native `backup_status` remains unavailable until the Task 5 Genesis job is wired. The in-memory envelope has XChaCha20-Poly1305/Argon2id/BIP-39 vectors and failure tests, the native-internal filesystem adapter has nine boundary/atomicity/digest/opaque-status tests, and the exact full Rust library suite passes 212/212. Google Drive production OAuth/transport remains TODO. No Phase 4 archive in the approved external test root, clean restore, mobile-account proof, U9 closure, or release claim exists yet.
+- [ ] **Phase 4** — Sub-projects C + E: Cloud Storage + Mobile Login (exit: backup→restore proven, mobile signed in) — **AUTOMATED BACKUP/RESTORE ADAPTER TESTED / CLEAN-INSTALL, CLOUD, DEVICE AND U9 PROOF OPEN**. Requirements: `docs/specs/2026-08-13-phase-4-cloud-backup-mobile-account-requirements.md`; design: `docs/specs/2026-08-13-phase-4-cloud-backup-mobile-account-design.md`; plan/audit: `docs/plans/2026-08-13-phase-4-google-drive-backup-mobile-account.md`; crypto decision: `docs/decisions/2026-08-14-phase-4-archive-envelope-crypto-decision.md`. Current desktop evidence records export→encrypt→write→clean-target restore tests, audio-bearing payloads, and device reconciliation tests. The approved `D:\FUNG-Phase4-TestStorage` and `D:\FUNG-Phase4-TestRestore` roots contain fixtures/README only; no real clean-install restore has been run. Google Drive production OAuth/transport, mobile-account proof, U9 closure, and release claim remain open.
 - [ ] **Phase 5** — Hardening & Release (exit: signed APK + UAT evidence + gates dispositioned)
 
 ---

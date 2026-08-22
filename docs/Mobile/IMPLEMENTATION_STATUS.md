@@ -1,7 +1,7 @@
 ---
-version: "0.4.2b"
+version: "0.4.3b"
 created_at: "2026-07-20T12:10:00+07:00,ATHER"
-last_update: "2026-08-12T22:02:52+07:00,ATHER"
+last_update: "2026-08-23T03:47:57+07:00,ATHER"
 status: "beta"
 superseded_by: null
 attributes:
@@ -36,6 +36,15 @@ Post-merge GitHub CI run `31609642060` passed for frontend and Rust. Physical
 paired Android/Desktop UAT, real OpenAI STT, real Anthropic fallback,
 restart/reconnect/revocation, and release gates remain open and are not
 promoted to `verified` here.
+
+## Current Environment Recheck (2026-08-23)
+
+This recheck found no Android device through `adb`, no OpenAI/Anthropic/Google
+credential in the current process environment, and no fresh Genesis-enabled APK
+physical-device run. The desktop staged Whisper/GPU smoke is evidence for the
+desktop worker only; it does not upgrade mobile capture, screen-off/kill-safe
+recording, pairing, source playback, Genesis reopen, backup/restore, or release
+status. The approved Phase 4 roots contain fixtures/README only.
 
 ## Phase Matrix
 
@@ -230,10 +239,16 @@ The current implementation is suitable for code review, automated acceptance and
 - Recorded PR #10 merge at `cea2d93` and passing post-merge CI while keeping
   physical/provider/restart/reconnect and release gates explicit.
 
+### `0.4.2b` -> `0.4.3b`
+
+- Rechecked the current environment and kept mobile physical, provider,
+  Genesis, backup/restore, and release gates explicitly open.
+
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.4.3b | 2026-08-23 | beta | Rechecked current Android/credential/Genesis evidence without promoting desktop GPU smoke to mobile or release acceptance. | working-tree | ATHER |
 | 0.4.2b | 2026-08-12 | beta | Recorded the merged Phase 3 follow-up and passing post-merge CI without upgrading physical/provider/release gates. | `cea2d93` | ATHER |
 | 0.4.1b | 2026-08-12 | beta | Added current Phase 3 candidate evidence without upgrading physical or release gates. | same commit | ATHER |
 | 0.1.0b | 2026-07-20 | need review | Initial implementation evidence and phase exit ledger | N/A — workspace is not an initialized Git repository | ATHER |

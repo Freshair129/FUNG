@@ -203,7 +203,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | --- | --- |
 | `npm run build` | Passed on 2026-08-14 after `npm ci` restored missing local CLI binaries |
 | `cargo check` | Passed |
-| `npm audit --audit-level=moderate` | **2 high vulnerabilities** (`nanoid`, `postcss`); production dependency remediation remains open |
+| `npm audit --audit-level=moderate` | Passed on 2026-08-23; current lockfile reports **0 vulnerabilities** across 84 audited dependencies. |
 | SVG XML validation | Passed |
 | Browser layout check | Signals parent is `.panel-glass`; floating signal count is `0` |
 | Compact viewport check | `1200 x 780` rendered without body scroll |

@@ -1,12 +1,28 @@
 # Phase 3: BYOM Cloud Keys + 3-Tier Fallback Policy — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Completed implementation steps use checked-box syntax; the Controller Gate below remains separate.
 
 **Goal:** Let a user register their own cloud API keys (Anthropic/OpenAI/custom) for STT and LLM tasks, stored only in the desktop OS keyring, and add a cloud fallback tier below the existing local (tier 1) and paired-desktop (tier 2, Phase 2) tiers.
 
 **Architecture:** STT gets a full 3-tier chain (mobile-local → paired-desktop-local → paired-desktop-cloud), the last hop relayed over the existing Phase 2 FUNGWIRE tunnel by extending its job manifest with an `executor` field — no new protocol. LLM gets a 2-tier chain (desktop-local-Ollama → desktop-cloud) added directly inside `graph_build.rs::call_llm`, since that call never leaves the desktop today. Cloud keys live only in the desktop OS keyring (`keyring` crate, `windows-native` feature — mobile has no equivalent backend and is out of scope). A small local policy engine (`policy.rs`) makes every "should this go to cloud" decision as a pure function, backed by a settings row + a daily-count table in the existing `paired_devices.db` SQLite file.
 
 **Tech Stack:** Rust (existing `reqwest` blocking client, `keyring`, `rusqlite`), Python (`faster_whisper`'s bundled PyAV decoder, stdlib `wave`), React 18 + Tauri `invoke`.
+
+## Current Implementation Evidence (2026-08-23)
+
+The Phase 3 implementation is complete in the current source tree. The
+implementation commits cover schema v7 (`caa5c90`), keyring-only provider
+configuration (`7cb4904`), the policy engine (`92b7997`), cloud STT/LLM
+dispatch (`e4831db`), FUNGWIRE cloud execution and worker hardening
+(`b0ee293`, `0d50593`, `cea2d93`), LLM fallback (`072baa5`), command/UI
+integration (`702f2ac`, `a1a5031`), and the mobile cloud action/status surface
+(`366712e`, `a962dd0`). Current PR #31 CI passed both frontend and Rust jobs.
+
+The task checkboxes below now describe completed implementation work and its
+automated verification. They do **not** close the Controller Gate: this
+environment still lacks approved OpenAI/Anthropic credentials, a paired mobile
+device, and a real recording/provider run. No Phase 3 release or production
+acceptance claim is made here.
 
 ## Global Constraints
 
@@ -50,7 +66,7 @@ Task order 1→2→3→4→5→6→7→8→9→10 (mostly sequential; 2+3 indepe
 
 **Interfaces produced:** `delegated_jobs.executor` nullable Text column (`"local" | "cloud"`), readable via the existing `genesis_adapter::query` helper.
 
-- [ ] **Step 1: Rename current `schema()` to `schema_v6()`.** Find the function at (currently) line 310:
+- [x] **Step 1: Rename current `schema()` to `schema_v6()`.** Find the function at (currently) line 310:
 
 ```rust
 pub(crate) fn schema() -> RelationalSchemaPackage {
@@ -58,7 +74,7 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
 
 Rename to `fn schema_v6() -> RelationalSchemaPackage` (drop `pub(crate)` — only the new top-level `schema()` needs to be public, matching how `schema_v5` etc. are all private).
 
-- [ ] **Step 2: Add the new `schema()` (v7)** directly below the renamed `schema_v6`:
+- [x] **Step 2: Add the new `schema()` (v7)** directly below the renamed `schema_v6`:
 
 ```rust
 /// Phase 3 BYOM: the desktop FUNGWIRE worker needs to record, per delegated
@@ -81,7 +97,7 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
 }
 ```
 
-- [ ] **Step 3: Update `install()`'s packages array** to include the new step:
+- [x] **Step 3: Update `install()`'s packages array** to include the new step:
 
 ```rust
     let packages = [
@@ -95,7 +111,7 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
     ];
 ```
 
-- [ ] **Step 4: Write the failing test.** Add to the `#[cfg(test)] mod tests` block, after `schema_v6_adds_paired_devices_public_key_and_upgrade_is_idempotent`:
+- [x] **Step 4: Write the failing test.** Add to the `#[cfg(test)] mod tests` block, after `schema_v6_adds_paired_devices_public_key_and_upgrade_is_idempotent`:
 
 ```rust
     #[test]
@@ -133,9 +149,9 @@ pub(crate) fn schema() -> RelationalSchemaPackage {
 
 Note: check the exact `projects` table's required columns before running — if `title`/`created_at`/`updated_at` don't match schema_v1's actual definition, adjust to match (the test needs a real FK target row for `delegated_jobs.project_id`).
 
-- [ ] **Step 5: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml schema_v7_adds_delegated_jobs_executor -- --nocapture`. Expected: PASS.
-- [ ] **Step 6: Full suite** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml`. Expected: all pass (no regression in `schema_v6_...` or any test that calls `schema()`/`install()`, since those call sites are unaffected by the rename — only the two internal names changed).
-- [ ] **Step 7: Commit**
+- [x] **Step 5: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml schema_v7_adds_delegated_jobs_executor -- --nocapture`. Expected: PASS.
+- [x] **Step 6: Full suite** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml`. Expected: all pass (no regression in `schema_v6_...` or any test that calls `schema()`/`install()`, since those call sites are unaffected by the rename — only the two internal names changed).
+- [x] **Step 7: Commit**
 
 ```bash
 git add src-tauri/src/genesis_adapter.rs
@@ -156,7 +172,7 @@ git commit -m "feat(byom): schema v7 adds delegated_jobs.executor column"
 - `load_cloud_config(slot: &str) -> Result<Option<CloudProviderConfig>, String>`
 - `delete_cloud_config(slot: &str) -> Result<(), String>`
 
-- [ ] **Step 1: Write the failing tests.** Create `src-tauri/src/cloud_config.rs` with just the type definitions and an empty test module first:
+- [x] **Step 1: Write the failing tests.** Create `src-tauri/src/cloud_config.rs` with just the type definitions and an empty test module first:
 
 ```rust
 // src-tauri/src/cloud_config.rs
@@ -270,7 +286,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Add the failing tests** inside `mod tests`:
+- [x] **Step 2: Add the failing tests** inside `mod tests`:
 
 ```rust
     #[test]
@@ -335,15 +351,15 @@ mod tests {
     // step (Controller Gate) on a real desktop instead.
 ```
 
-- [ ] **Step 3: Run tests** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml cloud_config`. Expected: 6 pass.
-- [ ] **Step 4: Register the module in `lib.rs`.** Add near the other `mod` declarations (find `mod zoom_sync;` or similar and add alongside):
+- [x] **Step 3: Run tests** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml cloud_config`. Expected: 6 pass.
+- [x] **Step 4: Register the module in `lib.rs`.** Add near the other `mod` declarations (find `mod zoom_sync;` or similar and add alongside):
 
 ```rust
 mod cloud_config;
 ```
 
-- [ ] **Step 5: Full build check** `npx tsc --noEmit` (unaffected, 0) and `cargo test -j 1 --manifest-path src-tauri/Cargo.toml` (all pass, new module compiles).
-- [ ] **Step 6: Grep-based leak test** — add to `cloud_config.rs`'s test module (this is the acceptance-criteria test from the spec, REQ-F-01):
+- [x] **Step 5: Full build check** `npx tsc --noEmit` (unaffected, 0) and `cargo test -j 1 --manifest-path src-tauri/Cargo.toml` (all pass, new module compiles).
+- [x] **Step 6: Grep-based leak test** — add to `cloud_config.rs`'s test module (this is the acceptance-criteria test from the spec, REQ-F-01):
 
 ```rust
     #[test]
@@ -381,8 +397,8 @@ mod cloud_config;
     }
 ```
 
-- [ ] **Step 7: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml cloud_config`. Expected: 7 pass.
-- [ ] **Step 8: Commit**
+- [x] **Step 7: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml cloud_config`. Expected: 7 pass.
+- [x] **Step 8: Commit**
 
 ```bash
 git add src-tauri/src/cloud_config.rs src-tauri/src/lib.rs
@@ -405,7 +421,7 @@ git commit -m "feat(byom): cloud provider config with keyring-only storage"
 - `calls_today(conn: &rusqlite::Connection, task: CloudTaskKind) -> Result<u32, String>`
 - `increment_calls_today(conn: &rusqlite::Connection, task: CloudTaskKind) -> Result<(), String>`
 
-- [ ] **Step 1: Write the failing pure-decision tests first.** Create `src-tauri/src/policy.rs`:
+- [x] **Step 1: Write the failing pure-decision tests first.** Create `src-tauri/src/policy.rs`:
 
 ```rust
 // src-tauri/src/policy.rs
@@ -522,8 +538,8 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml policy::tests`. Expected: 6 pass (module doesn't compile yet outside tests until Step 4's `mod policy;` — run this after Step 4 if the crate won't build standalone; in practice add `mod policy;` first, see Step 4, then run).
-- [ ] **Step 3: Add the SQLite-backed state functions** below the pure function (same file):
+- [x] **Step 2: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml policy::tests`. Expected: 6 pass (module doesn't compile yet outside tests until Step 4's `mod policy;` — run this after Step 4 if the crate won't build standalone; in practice add `mod policy;` first, see Step 4, then run).
+- [x] **Step 3: Add the SQLite-backed state functions** below the pure function (same file):
 
 ```rust
 use rusqlite::{params, Connection};
@@ -626,7 +642,7 @@ pub(crate) fn increment_calls_today(conn: &Connection, task: CloudTaskKind) -> R
 
 `chrono` is not yet a dependency — Step 4 adds it (a `Local` timestamp is the only clean stdlib-free way to get the OS-local calendar date; the repo already effectively needs local-time reasoning nowhere else via a crate, so this is a new small dependency, flagged here per plan convention for new deps).
 
-- [ ] **Step 4: Add `chrono` to `Cargo.toml`** (`src-tauri/Cargo.toml`, alongside the other deps, alphabetically):
+- [x] **Step 4: Add `chrono` to `Cargo.toml`** (`src-tauri/Cargo.toml`, alongside the other deps, alphabetically):
 
 ```toml
 chrono = "0.4"
@@ -638,7 +654,7 @@ Then register the module in `lib.rs`:
 mod policy;
 ```
 
-- [ ] **Step 5: Write the SQLite-backed tests.** Append to `policy.rs`'s `mod tests`:
+- [x] **Step 5: Write the SQLite-backed tests.** Append to `policy.rs`'s `mod tests`:
 
 ```rust
     fn open_test_db() -> Connection {
@@ -693,9 +709,9 @@ mod policy;
     }
 ```
 
-- [ ] **Step 6: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml policy::`. Expected: 11 pass.
-- [ ] **Step 7: Full suite + tsc** — `cargo test -j 1 --manifest-path src-tauri/Cargo.toml` and `npx tsc --noEmit` both green.
-- [ ] **Step 8: Commit**
+- [x] **Step 6: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml policy::`. Expected: 11 pass.
+- [x] **Step 7: Full suite + tsc** — `cargo test -j 1 --manifest-path src-tauri/Cargo.toml` and `npx tsc --noEmit` both green.
+- [x] **Step 8: Commit**
 
 ```bash
 git add src-tauri/src/policy.rs src-tauri/src/lib.rs src-tauri/Cargo.toml src-tauri/Cargo.lock
@@ -712,13 +728,13 @@ git commit -m "feat(byom): tier policy engine — pure decision fn + SQLite-back
 - `dispatch_stt(config: &CloudProviderConfig, audio_path: &Path) -> Result<Vec<crate::fungwire::Segment>, String>`
 - `dispatch_llm(config: &CloudProviderConfig, prompt: &str) -> Result<String, String>`
 
-- [ ] **Step 1: Add the `multipart` feature to `reqwest`** in `src-tauri/Cargo.toml`:
+- [x] **Step 1: Add the `multipart` feature to `reqwest`** in `src-tauri/Cargo.toml`:
 
 ```toml
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "multipart"] }
 ```
 
-- [ ] **Step 2: Write the failing tests first**, against a local fake HTTP server (same style as `worker_tests`/`fungwire_server` tests — a raw `TcpListener` loopback stub, no new test-only crate). Create `src-tauri/src/cloud_executor.rs`:
+- [x] **Step 2: Write the failing tests first**, against a local fake HTTP server (same style as `worker_tests`/`fungwire_server` tests — a raw `TcpListener` loopback stub, no new test-only crate). Create `src-tauri/src/cloud_executor.rs`:
 
 ```rust
 // src-tauri/src/cloud_executor.rs
@@ -924,7 +940,7 @@ fn custom_llm(endpoint: &str, api_key: &str, prompt: &str) -> Result<String, Str
 }
 ```
 
-- [ ] **Step 3: Write the loopback tests.** Append `#[cfg(test)] mod tests` to `cloud_executor.rs`, using a minimal raw `TcpListener` HTTP/1.0 stub (same technique the existing `worker_tests` module uses for fixtures — no new HTTP-mock crate):
+- [x] **Step 3: Write the loopback tests.** Append `#[cfg(test)] mod tests` to `cloud_executor.rs`, using a minimal raw `TcpListener` HTTP/1.0 stub (same technique the existing `worker_tests` module uses for fixtures — no new HTTP-mock crate):
 
 ```rust
 #[cfg(test)]
@@ -1006,10 +1022,10 @@ mod tests {
 }
 ```
 
-- [ ] **Step 4: Register the module** in `lib.rs`: `mod cloud_executor;`
-- [ ] **Step 5: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml cloud_executor::`. Expected: 5 pass.
-- [ ] **Step 6: Full suite** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml`. Expected: all pass (new `multipart` feature must not break any existing `reqwest` call site — it's additive).
-- [ ] **Step 7: Commit**
+- [x] **Step 4: Register the module** in `lib.rs`: `mod cloud_executor;`
+- [x] **Step 5: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml cloud_executor::`. Expected: 5 pass.
+- [x] **Step 6: Full suite** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml`. Expected: all pass (new `multipart` feature must not break any existing `reqwest` call site — it's additive).
+- [x] **Step 7: Commit**
 
 ```bash
 git add src-tauri/src/cloud_executor.rs src-tauri/src/lib.rs src-tauri/Cargo.toml src-tauri/Cargo.lock
@@ -1024,7 +1040,7 @@ git commit -m "feat(byom): cloud STT/LLM dispatch (OpenAI, Anthropic, custom RES
 
 **Interfaces produced:** `python transcribe.py --manifest <segments.txt> --concat-only <output.wav>` — decodes and concatenates every listed segment (via `faster_whisper.audio.decode_audio`, already bundled — no new Python dependency) into one 16kHz mono 16-bit PCM WAV file, writing nothing to stdout but `PROGRESS` lines to stderr, exit 0 on success. Needed because the cloud STT APIs take one audio file, unlike the local pipeline's manifest-of-segments input.
 
-- [ ] **Step 1: Write the failing test.** This repo's Python worker has no existing test harness file (tests are Rust-side, driving the script as a subprocess via `worker_tests`/`fungwire_server` fixtures) — so the test for this step is a Rust integration test that shells out to the real script. Add to `src-tauri/src/fungwire_server.rs`'s `#[cfg(test)] mod tests` (find the module, add near the other `WhisperRuntime::for_test` users):
+- [x] **Step 1: Write the failing test.** This repo's Python worker has no existing test harness file (tests are Rust-side, driving the script as a subprocess via `worker_tests`/`fungwire_server` fixtures) — so the test for this step is a Rust integration test that shells out to the real script. Add to `src-tauri/src/fungwire_server.rs`'s `#[cfg(test)] mod tests` (find the module, add near the other `WhisperRuntime::for_test` users):
 
 ```rust
     /// scripts/transcribe.py --concat-only writes ONE playable WAV covering
@@ -1082,12 +1098,12 @@ git commit -m "feat(byom): cloud STT/LLM dispatch (OpenAI, Anthropic, custom RES
 
 Note: this test requires `std::io::Write` in scope (`use std::io::Write;` — check the file's existing imports; `fungwire_server.rs` already imports it for other tests per the codebase, verify before adding a duplicate import).
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cargo test -j 1 --manifest-path src-tauri/Cargo.toml concat_only_writes_one_wav`
 Expected: FAIL (`--concat-only` is not a recognized argument yet)
 
-- [ ] **Step 3: Implement `--concat-only` in `transcribe.py`.** Add the new flag to the `argparse` block (after `--compute-type`):
+- [x] **Step 3: Implement `--concat-only` in `transcribe.py`.** Add the new flag to the `argparse` block (after `--compute-type`):
 
 ```python
     parser.add_argument(
@@ -1125,12 +1141,12 @@ Then, right after `if not audio_paths: parser.error(...)` and before the `device
         return 0
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+- [x] **Step 4: Run to verify it passes**
 
 Run: `cargo test -j 1 --manifest-path src-tauri/Cargo.toml concat_only_writes_one_wav -- --nocapture`
 Expected: PASS. (Uses the real `.venv-whisper` interpreter via `WhisperRuntime::for_test`'s system-python resolution, same as the existing `WhisperRuntime` worker tests — no faster_whisper model load needed for this path, so it's fast even without GPU.)
 
-- [ ] **Step 5: Update the module docstring** at the top of `transcribe.py` to mention the new mode (append one paragraph after the existing manifest paragraph):
+- [x] **Step 5: Update the module docstring** at the top of `transcribe.py` to mention the new mode (append one paragraph after the existing manifest paragraph):
 
 ```python
 Add `--concat-only <output.wav>` to skip transcription entirely and instead
@@ -1139,8 +1155,8 @@ decode+concatenate the given path(s)/manifest into one 16kHz mono WAV file
 APIs accept one file, unlike this script's own multi-file --manifest input).
 ```
 
-- [ ] **Step 6: Full Rust suite** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml`. Expected: all pass.
-- [ ] **Step 7: Commit**
+- [x] **Step 6: Full Rust suite** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml`. Expected: all pass.
+- [x] **Step 7: Commit**
 
 ```bash
 git add scripts/transcribe.py src-tauri/src/fungwire_server.rs
@@ -1155,7 +1171,7 @@ git commit -m "feat(byom): transcribe.py --concat-only mode for multi-segment cl
 
 **Interfaces produced:** `Control::JobStart.executor: String` (`"local" | "cloud"`, defaults to `"local"` when the field is absent on decode, for wire tolerance). `fungwire_server`'s worker calls `cloud_executor::dispatch_stt` when `executor == "cloud"` and policy allows it.
 
-- [ ] **Step 1: Add the field to `Control::JobStart`** in `fungwire.rs`:
+- [x] **Step 1: Add the field to `Control::JobStart`** in `fungwire.rs`:
 
 ```rust
     JobStart {
@@ -1180,18 +1196,18 @@ fn default_executor() -> String {
 }
 ```
 
-- [ ] **Step 2: Fix the existing `JobStart` literals** — every test/call site constructing `Control::JobStart { .. }` without `executor` now fails to compile. Grep and update:
+- [x] **Step 2: Fix the existing `JobStart` literals** — every test/call site constructing `Control::JobStart { .. }` without `executor` now fails to compile. Grep and update:
 
 Run: `grep -rn "resume_from_seq: 0," src-tauri/src/fungwire_server.rs src-tauri/src/fungwire_client.rs`
 
 For each `Control::JobStart { ... resume_from_seq: 0, }` (and any `resume_from_seq: N,` variants used in resume tests) literal found, add `executor: "local".to_string(),` immediately after the `resume_from_seq` field. (Do not use `..Default::default()` — `Control` has no `Default` impl and adding one for an enum this shape is out of scope; explicit fields keep every test's intent visible, matching the file's existing style.)
 
-- [ ] **Step 3: Run to verify the crate builds again**
+- [x] **Step 3: Run to verify the crate builds again**
 
 Run: `cargo build -j 1 --manifest-path src-tauri/Cargo.toml --tests`
 Expected: success (0 compile errors — confirms every call site was updated).
 
-- [ ] **Step 4: Write the failing cloud-dispatch integration test.** In `fungwire_server.rs`'s test module, add (after the existing loopback job tests):
+- [x] **Step 4: Write the failing cloud-dispatch integration test.** In `fungwire_server.rs`'s test module, add (after the existing loopback job tests):
 
 ```rust
     /// A JobStart with executor:"cloud" must never call the local Whisper
@@ -1241,9 +1257,9 @@ Expected: success (0 compile errors — confirms every call site was updated).
     }
 ```
 
-**Implementer note:** the pseudocode ellipsis above is intentional scaffolding, not a placeholder to leave as-is — before marking this step done, replace it with a real call into whichever harness function the existing `resume_from_seq_reloads_persisted_segments_after_reconnect_and_completes` test (same file) uses to spin up the paired client+server pair, since that harness's exact helper name/signature isn't reproduced here (read it from the file directly — it's right above this new test). The assertion (`calls_today == 1`) is the passing condition; get there via that harness, not a new one.
+**Historical implementer note:** the pseudocode ellipsis was scaffolding for the original implementation pass. The current source replaced it with the existing paired client/server harness; the counter assertion is covered by the merged Phase 3 tests (`92b7997` and follow-up CI).
 
-- [ ] **Step 5: Implement the branch in `receive_and_transcribe`** (or the function that calls it — find where `JobStart.executor` is available; thread it through as a new parameter). In `fungwire_server.rs`, after the block that ends with `let seg_paths: Vec<PathBuf> = seg_paths.into_iter().flatten().collect();` and before `let profile = crate::transcription_profile()...`, insert the branch:
+- [x] **Step 5: Implement the branch in `receive_and_transcribe`** (or the function that calls it — find where `JobStart.executor` is available; thread it through as a new parameter). In `fungwire_server.rs`, after the block that ends with `let seg_paths: Vec<PathBuf> = seg_paths.into_iter().flatten().collect();` and before `let profile = crate::transcription_profile()...`, insert the branch:
 
 ```rust
     if executor == "cloud" {
@@ -1331,9 +1347,9 @@ fn dispatch_cloud_stt(
 }
 ```
 
-**Implementer note:** `receive_and_transcribe`'s signature needs `executor: &str` and `data_root: &Path` added as parameters (threaded from its caller, which already has both — `data_root` from `AppState`, `executor` from the parsed `JobStart`). Update the signature, its doc comment, and its one caller accordingly; `WhisperRuntime::for_test` is `#[cfg(test)]`-only per Task 5's read of `lib.rs` — the concat step here needs a **non-test** way to resolve the real venv/script for production use. Use whatever the existing local-path code (right below, unchanged) already uses to get its production `WhisperRuntime` (the caller already has one — thread it into `dispatch_cloud_stt` as a parameter instead of constructing a test-only one; replace `crate::WhisperRuntime::for_test(std::path::PathBuf::new(), script.clone())` above with that passed-in runtime).
+**Historical implementer note:** this signature/runtime concern was resolved during implementation. The current cloud branch threads the production runtime and data root through the worker path and is covered by the merged FUNGWIRE tests (`b0ee293`, `0d50593`, `cea2d93`).
 
-- [ ] **Step 6: Extend `fungwire_status`** to report `stt_cloud_enabled` (needed by Task 8/9's mobile UI gate). Find the `fungwire_status` command in `fungwire_server.rs`, add a field to its return struct:
+- [x] **Step 6: Extend `fungwire_status`** to report `stt_cloud_enabled` (needed by Task 8/9's mobile UI gate). Find the `fungwire_status` command in `fungwire_server.rs`, add a field to its return struct:
 
 ```rust
 #[derive(Debug, Clone, Serialize)]
@@ -1349,13 +1365,13 @@ pub(crate) struct FungwireStatus {
 
 In the command's body, load it via `crate::policy::load_policy` against the same `data_root`-derived connection the rest of the function already has access to (`AppState.data_root`), and set `stt_cloud_enabled: policy.stt_cloud_enabled` on construction. Fix any other struct-literal construction sites of `FungwireStatus` in this file's tests the same way (`stt_cloud_enabled: false` for tests unrelated to policy).
 
-- [ ] **Step 7: Run the new test**
+- [x] **Step 7: Run the new test**
 
 Run: `cargo test -j 1 --manifest-path src-tauri/Cargo.toml cloud_executor_job_dispatches -- --nocapture`
 Expected: PASS.
 
-- [ ] **Step 8: Full suite** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml`. Expected: all pass, including every existing FUNGWIRE test (local path unchanged in behavior).
-- [ ] **Step 9: Commit**
+- [x] **Step 8: Full suite** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml`. Expected: all pass, including every existing FUNGWIRE test (local path unchanged in behavior).
+- [x] **Step 9: Commit**
 
 ```bash
 git add src-tauri/src/fungwire.rs src-tauri/src/fungwire_server.rs
@@ -1370,7 +1386,7 @@ git commit -m "feat(byom): FUNGWIRE JobStart.executor + cloud STT dispatch branc
 
 **Interfaces produced:** `call_llm` gains a cloud fallback when the local Ollama call fails with a connection error (not any other error) and cloud is enabled + a key is configured.
 
-- [ ] **Step 1: Write the failing test.** In `graph_build.rs`'s `#[cfg(test)] mod tests`, near `a_failed_llm_call_leaves_the_prior_extraction_intact`:
+- [x] **Step 1: Write the failing test.** In `graph_build.rs`'s `#[cfg(test)] mod tests`, near `a_failed_llm_call_leaves_the_prior_extraction_intact`:
 
 ```rust
     #[test]
@@ -1416,12 +1432,12 @@ git commit -m "feat(byom): FUNGWIRE JobStart.executor + cloud STT dispatch branc
     }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cargo test -j 1 --manifest-path src-tauri/Cargo.toml ollama_connection_failure`
 Expected: FAIL (`call_llm_with_fallback` doesn't exist yet).
 
-- [ ] **Step 3: Implement.** Add near the existing `call_llm` function:
+- [x] **Step 3: Implement.** Add near the existing `call_llm` function:
 
 ```rust
 /// True only for the specific failure this fallback exists to catch —
@@ -1462,7 +1478,7 @@ fn call_llm_with_fallback(
 }
 ```
 
-- [ ] **Step 4: Wire the real call site.** Find where `call_llm(&endpoint, &model, &prompt)` is invoked (in `start_graph_build`'s job body, per the existing `let raw = call_llm(&endpoint, &model, &prompt)?;` line). Replace with:
+- [x] **Step 4: Wire the real call site.** Find where `call_llm(&endpoint, &model, &prompt)` is invoked (in `start_graph_build`'s job body, per the existing `let raw = call_llm(&endpoint, &model, &prompt)?;` line). Replace with:
 
 ```rust
     let policy_conn = crate::paired_devices_connection_at(&data_root)
@@ -1478,7 +1494,7 @@ fn call_llm_with_fallback(
     }
 ```
 
-**Implementer note:** the last three lines above (`if cloud.is_some() ...`) are NOT real code — delete them; they were left in this plan as a reminder that `call_llm_with_fallback`'s `Ok` path already fully replaces the old `call_llm(...)?` call, nothing else changes in `start_graph_build`'s body. Also add, after a successful cloud dispatch, the counter increment:
+**Historical implementer note:** the last three lines above were intermediate pseudocode and are not part of the current source. The merged implementation uses `call_llm_with_fallback` and increments the cloud counter on a successful cloud dispatch (`072baa5`, `a6582bd`).
 
 ```rust
     if cloud.is_some() {
@@ -1534,13 +1550,13 @@ fn first_configured_llm_provider() -> Option<crate::cloud_config::CloudProviderC
 }
 ```
 
-- [ ] **Step 5: Run the new tests**
+- [x] **Step 5: Run the new tests**
 
 Run: `cargo test -j 1 --manifest-path src-tauri/Cargo.toml ollama_connection_failure`
 Expected: 2 pass.
 
-- [ ] **Step 6: Full suite** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml`. Expected: all pass, including the pre-existing `a_failed_llm_call_leaves_the_prior_extraction_intact` (unaffected — that test doesn't configure cloud, so `first_configured_llm_provider()` returns `None` and behavior is identical to before this task).
-- [ ] **Step 7: Commit**
+- [x] **Step 6: Full suite** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml`. Expected: all pass, including the pre-existing `a_failed_llm_call_leaves_the_prior_extraction_intact` (unaffected — that test doesn't configure cloud, so `first_configured_llm_provider()` returns `None` and behavior is identical to before this task).
+- [x] **Step 7: Commit**
 
 ```bash
 git add src-tauri/src/graph_build.rs
@@ -1555,14 +1571,14 @@ git commit -m "feat(byom): graph_build LLM cloud fallback on Ollama connection f
 
 **Interfaces produced:** Tauri commands `cloud_config_set`, `cloud_config_clear`, `cloud_config_status`, `tier_policy_get`, `tier_policy_set`, `cloud_call_counts_today`.
 
-- [ ] **Step 1: Add the `Cloud` variant to `AppError`**:
+- [x] **Step 1: Add the `Cloud` variant to `AppError`**:
 
 ```rust
     #[error("cloud error: {0}")]
     Cloud(String),
 ```
 
-- [ ] **Step 2: Write the commands.** Add near the other command functions (e.g. after `zoom_connection_status`):
+- [x] **Step 2: Write the commands.** Add near the other command functions (e.g. after `zoom_connection_status`):
 
 ```rust
 #[derive(Debug, Deserialize)]
@@ -1657,7 +1673,7 @@ fn cloud_call_counts_today(state: State<'_, AppState>) -> AppResult<CloudCallCou
 }
 ```
 
-- [ ] **Step 3: Register the commands** in the `tauri::generate_handler![...]` list (append after `fungwire_client::fungwire_job_poll,`, before the `tts_provider_register,` block):
+- [x] **Step 3: Register the commands** in the `tauri::generate_handler![...]` list (append after `fungwire_client::fungwire_job_poll,`, before the `tts_provider_register,` block):
 
 ```rust
             cloud_config_set,
@@ -1668,7 +1684,7 @@ fn cloud_call_counts_today(state: State<'_, AppState>) -> AppResult<CloudCallCou
             cloud_call_counts_today,
 ```
 
-- [ ] **Step 4: Write a Rust test** for the command-level validation short-circuit (the part not already covered by `cloud_config.rs`'s own unit tests) — add to `lib.rs`'s `#[cfg(test)] mod worker_tests`:
+- [x] **Step 4: Write a Rust test** for the command-level validation short-circuit (the part not already covered by `cloud_config.rs`'s own unit tests) — add to `lib.rs`'s `#[cfg(test)] mod worker_tests`:
 
 ```rust
     #[test]
@@ -1697,9 +1713,9 @@ fn cloud_call_counts_today(state: State<'_, AppState>) -> AppResult<CloudCallCou
     }
 ```
 
-- [ ] **Step 5: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml cloud_config_set`. Expected: 2 pass.
-- [ ] **Step 6: Full suite + tsc** — `cargo test -j 1 --manifest-path src-tauri/Cargo.toml` and `npx tsc --noEmit` both green.
-- [ ] **Step 7: Commit**
+- [x] **Step 5: Run** `cargo test -j 1 --manifest-path src-tauri/Cargo.toml cloud_config_set`. Expected: 2 pass.
+- [x] **Step 6: Full suite + tsc** — `cargo test -j 1 --manifest-path src-tauri/Cargo.toml` and `npx tsc --noEmit` both green.
+- [x] **Step 7: Commit**
 
 ```bash
 git add src-tauri/src/lib.rs
@@ -1714,7 +1730,7 @@ git commit -m "feat(byom): register cloud_config/tier_policy Tauri commands"
 
 **Interfaces produced:** `CloudProvidersPanel({ onClose }: { onClose: () => void })` — named export, mirrors `TtsProviderPanel`'s props shape.
 
-- [ ] **Step 1: Create the component.**
+- [x] **Step 1: Create the component.**
 
 ```tsx
 // src/components/CloudProvidersPanel.tsx
@@ -1959,7 +1975,7 @@ export function CloudProvidersPanel({ onClose }: CloudProvidersPanelProps) {
 }
 ```
 
-- [ ] **Step 2: Create the stylesheet**, mirroring `TtsProviderPanel.css`'s conventions (hardcoded light + `.theme-dark` overrides). Read `src/components/TtsProviderPanel.css` first to copy its exact overlay/panel/card/switch base rules verbatim (same visual language, just renamed classes), then add:
+- [x] **Step 2: Create the stylesheet**, mirroring `TtsProviderPanel.css`'s conventions (hardcoded light + `.theme-dark` overrides). Read `src/components/TtsProviderPanel.css` first to copy its exact overlay/panel/card/switch base rules verbatim (same visual language, just renamed classes), then add:
 
 ```css
 /* src/components/CloudProvidersPanel.css */
@@ -1974,7 +1990,7 @@ export function CloudProvidersPanel({ onClose }: CloudProvidersPanelProps) {
 
 (The overlay/panel/card/switch/close-button/error base rules are copied from `TtsProviderPanel.css` with the `.tts-provider-*` class prefix renamed to `.cloud-providers-*` — do not reinvent them; the component above already uses `cloud-providers-overlay`, `cloud-providers-panel`, `cloud-providers-card`, `cloud-providers-switch`, `cloud-providers-close`, `cloud-providers-error`, `cloud-providers-input`, `cloud-providers-card-actions`, `cloud-providers-clear`, `cloud-providers-field` — every one of those needs a rule copied-and-renamed from its `.tts-provider-*` counterpart.)
 
-- [ ] **Step 3: Wire into `App.tsx`.** Add the import near the other panel imports:
+- [x] **Step 3: Wire into `App.tsx`.** Add the import near the other panel imports:
 
 ```tsx
 import { CloudProvidersPanel } from "./components/CloudProvidersPanel";
@@ -1994,9 +2010,9 @@ Add the render near the other conditional panel renders:
 
 Add a toolbar button next to the existing TTS button (find the `onClick={() => setTtsPanelOpen(true)}` button, add a sibling — copy its `<button>` structure, changing the icon to `Cloud` from `lucide-react` (already need to add to the top import list), `onClick={() => setCloudProvidersPanelOpen(true)}`, and its `title`/`aria-label` to `"ผู้ให้บริการคลาวด์"`).
 
-- [ ] **Step 4: Run** `npx tsc --noEmit`. Expected: 0 errors.
-- [ ] **Step 5: Run** `npm run build`. Expected: succeeds.
-- [ ] **Step 6: Commit**
+- [x] **Step 4: Run** `npx tsc --noEmit`. Expected: 0 errors.
+- [x] **Step 5: Run** `npm run build`. Expected: succeeds.
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/CloudProvidersPanel.tsx src/components/CloudProvidersPanel.css src/App.tsx
@@ -2011,7 +2027,7 @@ git commit -m "feat(byom): CloudProvidersPanel — key entry + tier policy UI"
 
 **Interfaces produced:** `DelegatedJob.executor?: "local" | "cloud"`; `bridge.ts` `delegateTranscription(..., executor)`, `desktopCloudEnabled(deviceId, endpoint)`.
 
-- [ ] **Step 1: `model.ts`** — extend the existing `DelegatedJob` interface (added in Phase 2):
+- [x] **Step 1: `model.ts`** — extend the existing `DelegatedJob` interface (added in Phase 2):
 
 ```typescript
 export interface DelegatedJob {
@@ -2025,7 +2041,7 @@ export interface DelegatedJob {
 }
 ```
 
-- [ ] **Step 2: `bridge.ts`** — extend `delegateTranscription`'s signature and add `desktopCloudEnabled`:
+- [x] **Step 2: `bridge.ts`** — extend `delegateTranscription`'s signature and add `desktopCloudEnabled`:
 
 ```typescript
 export async function delegateTranscription(
@@ -2063,9 +2079,9 @@ export async function desktopCloudEnabled(deviceId: string, endpoint: string): P
 }
 ```
 
-**Implementer note:** `fungwire_desktop_status_probe` is a NEW mobile-side Rust command this task's frontend change assumes — it does not exist yet. Before this step compiles end-to-end, add it to `fungwire_client.rs` (mirrors the existing `fungwire_desktop_reachable` command exactly: opens a TCP connection + Noise handshake to `endpoint`, but instead of returning a bare bool, sends a `Control::Hello`-equivalent status request and returns the peer's `FungwireStatus` — reuse `fungwire_desktop_reachable`'s connection-setup code, add a `Control` variant `StatusRequest`/`StatusReply { enabled, bind, active_jobs, connected_peers, stt_cloud_enabled }` to `fungwire.rs`, and a small handler on the server accept-loop side in `fungwire_server.rs` that answers it without spawning a full job). Register the new command in `lib.rs`'s `generate_handler!` list next to `fungwire_client::fungwire_desktop_reachable`. Write it with the same TDD steps as Task 6 (failing loopback test first, using the harness already established there) before writing the TS side above.
+**Historical implementer note:** `fungwire_desktop_status_probe` and the `StatusRequest`/`StatusReply` wire path now exist in `fungwire_client.rs`, `fungwire.rs`, and `fungwire_server.rs`; the loopback status tests cover the authenticated probe. The original field-name uncertainty was resolved against the current `FungwireStatus` contract in `366712e`, verified by current Rust CI.
 
-- [ ] **Step 3: `TimelineScreen.tsx` / `CreativeStudio.tsx`** — extend the delegate banner. Find the existing "ถอดเสียงบน FUNG Desktop" button (Phase 2) and its surrounding component state (`pairedDesktop`, delegate handler). Add a sibling action, shown only when `desktopCloudEnabled` resolves true for the paired desktop:
+- [x] **Step 3: `TimelineScreen.tsx` / `CreativeStudio.tsx`** — extend the delegate banner. Find the existing "ถอดเสียงบน FUNG Desktop" button (Phase 2) and its surrounding component state (`pairedDesktop`, delegate handler). Add a sibling action, shown only when `desktopCloudEnabled` resolves true for the paired desktop:
 
 ```tsx
   const [cloudDelegateAvailable, setCloudDelegateAvailable] = useState(false);
@@ -2104,7 +2120,7 @@ Add the badge in the progress-rendering section (wherever `job.progress`/`job.st
         {job?.executor === "cloud" && <span className="delegate-cloud-badge">☁ คลาวด์</span>}
 ```
 
-- [ ] **Step 4: `MobileApp.tsx` (`DevicesScreen`)** — add the read-only policy card. Find `DevicesScreen` (or wherever the "devices" tab's component lives per the `tab === "devices" ? <DevicesScreen ...>` wiring seen in Task exploration), add near the paired-desktop entry:
+- [x] **Step 4: `MobileApp.tsx` (`DevicesScreen`)** — add the read-only policy card. Find `DevicesScreen` (or wherever the "devices" tab's component lives per the `tab === "devices" ? <DevicesScreen ...>` wiring seen in Task exploration), add near the paired-desktop entry:
 
 ```tsx
   const [pairedDesktopCloudEnabled, setPairedDesktopCloudEnabled] = useState<boolean | null>(null);
@@ -2134,10 +2150,10 @@ Render, inside the devices list section:
 
 Add a small CSS rule for `.device-cloud-policy-card` to `mobile.css` (same file Phase 2 added `mobile.css` rules to per its file structure table), matching the existing device-list card visual language (padding/border matching neighboring device cards — copy the nearest existing `.device-*-card` rule's box model and rename).
 
-- [ ] **Step 5: Run** `npx tsc --noEmit`. Expected: 0 errors.
-- [ ] **Step 6: Run** `npm run build`. Expected: succeeds.
-- [ ] **Step 7: Run existing JS/TS test suites** `npm run test:mobile` (per Global Constraints' precedent from Phase 2's Task 10). Expected: all pass (no existing mobile test asserted on `DelegatedJob`'s exact field set in a way that would break from an added optional field — verify by running; if one does, extend its fixture with `executor: "local"` rather than changing the assertion's intent).
-- [ ] **Step 8: Commit**
+- [x] **Step 5: Run** `npx tsc --noEmit`. Expected: 0 errors.
+- [x] **Step 6: Run** `npm run build`. Expected: succeeds.
+- [x] **Step 7: Run existing JS/TS test suites** `npm run test:mobile` (per Global Constraints' precedent from Phase 2's Task 10). Expected: all pass (no existing mobile test asserted on `DelegatedJob`'s exact field set in a way that would break from an added optional field — verify by running; if one does, extend its fixture with `executor: "local"` rather than changing the assertion's intent).
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/mobile/model.ts src/mobile/bridge.ts src/mobile/TimelineScreen.tsx src/mobile/CreativeStudio.tsx src/mobile/MobileApp.tsx src/mobile/mobile.css
@@ -2156,6 +2172,6 @@ git commit -m "feat(byom): mobile cloud delegate action, badge, read-only policy
 
 **Spec coverage:** §4 key storage → Task 2; §5 policy engine → Task 3; §6 cloud executors → Task 4; §7 FUNGWIRE extension → Tasks 5, 6; §8 LLM fallback → Task 7; §9 desktop UI → Tasks 8, 9; §10 mobile UI → Task 10; §11 data model (`delegated_jobs.executor`) → Task 1; §13 security (grep leak test, redacted Debug, TLS-only custom endpoints, default-off) → Tasks 2, 3; §14 testing strategy → every task's own test steps. REQ-F-01…04 mapped in spec §17 → Tasks 2/9/13(spec), 3/6/7, 4/5/3, 10/3 respectively.
 
-**Placeholder scan:** Task 6 Step 4 and Task 7 Step 4 contain explicit **implementer notes** flagging real scaffolding gaps (the exact harness-reuse call in Task 6's cloud-dispatch test, and Task 7's superseded intermediate snippet) — both are marked, explained, and given a concrete resolution path rather than left as silent TODOs; this is intentional given those two spots depend on reading the exact neighboring code at implementation time (an existing test harness function, an existing call site) that this plan does not reproduce verbatim. Task 10 similarly flags two spots (`fungwire_desktop_status_probe` doesn't exist yet; `DeviceState` field names inferred, not re-verified) with concrete next steps. No bare "TODO"/"handle appropriately" placeholders remain — every flagged spot names exactly what to look up and what shape the answer must take.
+**Historical-note scan:** The implementer notes above are retained as provenance for the original task plan. Their source-level concerns are resolved in the current implementation and automated tests; they are not open Phase 3 blockers. The Controller Gate remains the only Phase 3 acceptance blocker in this workspace.
 
 **Type consistency:** `CloudProviderConfig`/`CloudTaskKind` (Task 2) used identically in Tasks 3, 4, 6, 7, 8. `TierPolicy`/`TierDecision` (Task 3) used identically in Tasks 6, 7, 8, 9 (camelCase on the TS side via serde's `rename_all`). `Segment` (existing, Task 4 imports from `fungwire.rs`) matches the `Control::Result.segments` shape Task 6 sends. `FungwireStatus.stt_cloud_enabled` (Task 6) matches `CloudProvidersPanel`'s and mobile's `sttCloudEnabled` reads (Tasks 9, 10) via serde's camelCase rename. Command names match between `bridge.ts` (Task 10) and `lib.rs` registration (Task 8) for the desktop-facing commands, and between Task 10's TS and Task 6/10's new `fungwire_desktop_status_probe` Rust command.

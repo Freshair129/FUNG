@@ -17,9 +17,9 @@
 
 ## 0. Current Truth Sync (2026-08-23)
 
-The current mainline is `origin/main` at `d4e6ddc` with no open pull requests. PR #16 is merged at `26da784`; PR #30 is merged at `d4e6ddc`. Phase 0–2 remain complete. Phase 3 implementation is merged, but acceptance still requires a real desktop controller run with the approved OpenAI and Anthropic credentials; credentials are not available in this run. Phase 4 automated backup/restore and device-reconciliation tests are present, but the approved roots contain only test fixtures and no clean-install restore or Google Drive production OAuth/transport proof has been completed. Phase 5 remains not started.
+The current mainline is `origin/main` at `d4e6ddc`. PR #31 (`codex/backlog-truth-sync`) is open with frontend and Rust CI passing and carries this truth-sync update. PR #16 is merged at `26da784`; PR #30 is merged at `d4e6ddc`. Phase 0–2 remain complete. Phase 3 implementation is merged, but acceptance still requires a real desktop controller run with the approved OpenAI and Anthropic credentials; credentials are not available in this run. Phase 4 automated backup/restore and device-reconciliation tests are present, but the approved roots contain only test fixtures and no clean-install restore or Google Drive production OAuth/transport proof has been completed. Phase 5 remains not started.
 
-The local transcription runtime is prepared at worker level: the staged `faster-whisper` 1.2.1 environment contains the pinned `Systran/faster-whisper-small` revision, the staged CUDA 12/cuDNN 9 manifest records 11 DLLs, and `scripts/smoke_gpu_standalone.ps1` passed with the GPU profile. This closes local worker preparation only; it does not close Live Meeting real-capture, Android, visual, connector, or release acceptance.
+The local transcription runtime is prepared at worker level: the staged `faster-whisper` 1.2.1 environment contains the pinned `Systran/faster-whisper-small` revision, the staged CUDA 12/cuDNN 9 manifest records 11 DLLs, and `scripts/smoke_gpu_standalone.ps1` passed with the GPU profile. The current `npm audit --audit-level=moderate` result is also clean (`0` vulnerabilities). These checks close local worker/dependency preparation only; they do not close Live Meeting real-capture, Android, visual, connector, or release acceptance.
 
 ---
 

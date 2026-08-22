@@ -1,7 +1,7 @@
 {
   "version": "1.4.0",
   "generated_by": "rwang:doc-preflight",
-  "generated_at": "2026-08-22T20:51:16Z",
+  "generated_at": "2026-08-22T21:09:23Z",
   "project": "FUNG",
   "scope": "FUNG governed product, AI system, and live meeting documentation scaffold audit",
   "trust_hierarchy": "Code > SDD > PRD",
@@ -133,7 +133,7 @@
     "reasons": [
       "No current critical documentation contradiction remains.",
       "H3 scoped executable traceability is GREEN; broader requirement coverage remains mixed and evidence-bounded.",
-      "Real-connector, visual/keyboard, summary/export review after restart, artifact-secret-scan, device, and packaging gates remain open; full Rust regression is 195/195."
+      "Real-connector, visual/keyboard, summary/export review after restart, artifact-secret-scan, device, and packaging gates remain open; full Rust regression is 217/217."
     ],
     "code_gate": "Do not promote feature flags, release status, or external-runtime readiness from this documentation audit."
   }

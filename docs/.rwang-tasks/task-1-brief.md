@@ -15,7 +15,7 @@ Run the complete 10-point `rwang-plugin:doc-preflight` audit against the current
 - `D:\FUNG\docs\DOC_PREFLIGHT_2026-08-11.md`
 - `D:\FUNG\docs\Desktop\08-real-progress.md`
 - `D:\FUNG\docs\implementation-plan.md`
-- `D:\FUNG\docs\superpowers\specs\2026-08-11-live-meeting-external-retrieval-design.md`
+- `D:\FUNG\docs\specs\2026-08-11-live-meeting-external-retrieval-design.md`
 - Current source and tests under `src/`, `src-tauri/`, and `tests/`
 
 ## Constraints

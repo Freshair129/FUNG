@@ -1,10 +1,10 @@
 # Phase 1: Device Pairing + Desktop/Mobile Login — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Verified 6-digit-code device pairing between mobile and desktop, brokered by Supabase, with Google login on both Tauri surfaces.
 
-**Architecture:** Auth runs in TypeScript on both surfaces (shared `src/lib/authFlow.ts`, supabase-js PKCE + system browser + `fung://` deep link, loopback fallback on desktop). Rust owns: deep-link plugin, device ed25519 keypair, local pairing persistence (desktop SQLite / mobile GenesisBlockDB). Supabase owns the handshake (`pairing_sessions` + `confirm_pairing` RPC). See spec: `docs/superpowers/specs/2026-08-09-phase-1-pairing-desktop-login-design.md`.
+**Architecture:** Auth runs in TypeScript on both surfaces (shared `src/lib/authFlow.ts`, supabase-js PKCE + system browser + `fung://` deep link, loopback fallback on desktop). Rust owns: deep-link plugin, device ed25519 keypair, local pairing persistence (desktop SQLite / mobile GenesisBlockDB). Supabase owns the handshake (`pairing_sessions` + `confirm_pairing` RPC). See spec: `docs/specs/2026-08-09-phase-1-pairing-desktop-login-design.md`.
 
 **Tech Stack:** React 18, supabase-js v2, Tauri v2, tauri-plugin-deep-link, ed25519-dalek, rusqlite, GenesisBlockDB.
 

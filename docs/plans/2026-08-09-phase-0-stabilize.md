@@ -1,6 +1,6 @@
 # Phase 0: Stabilize & Automate — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Green local build, CI on every PR that works on a fresh runner without `G:/`, portable Rust dependency, clean repo — the safety net for all later agent-executed phases.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** GitHub Actions, Cargo git dependencies, existing npm/cargo test suites.
 
-**Master plan:** `docs/superpowers/plans/2026-08-09-fung-master-implementation-plan.md` Phase 0 (REQ-0-01…05)
+**Master plan:** `docs/plans/2026-08-09-fung-master-implementation-plan.md` Phase 0 (REQ-0-01…05)
 
 ## Global Constraints
 
@@ -189,7 +189,7 @@ git commit -m "ci: add GitHub Actions workflow (frontend ubuntu + rust windows)"
 - Modify: `AGENTS.md` (points to non-existent `CORE/`/`WORKFLOW/` dirs)
 - Modify: `.gitignore` (large binaries under `public/`)
 - Add: untracked assets that belong in the repo
-- Modify: `docs/superpowers/plans/2026-08-05-zoom-meeting-ingestion.md`, `docs/superpowers/plans/2026-08-08-auth-login-ui.md`, `docs/superpowers/plans/2026-08-08-byom-tts-provider.md` (checkbox backfill)
+- Modify: `docs/plans/2026-08-05-zoom-meeting-ingestion.md`, `docs/plans/2026-08-08-auth-login-ui.md`, `docs/plans/2026-08-08-byom-tts-provider.md` (checkbox backfill)
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks
@@ -210,7 +210,7 @@ Replace the entire content of `AGENTS.md` with:
 
 Read in this order:
 
-1. `docs/superpowers/plans/2026-08-09-fung-master-implementation-plan.md` — roadmap, phase gates, automation protocol
+1. `docs/plans/2026-08-09-fung-master-implementation-plan.md` — roadmap, phase gates, automation protocol
 2. `docs/Desktop/ARCHITECTURE.md` — system architecture
 3. `docs/Mobile/IMPLEMENTATION_STATUS.md` — mobile ground truth (evidence-based)
 4. `docs/Desktop/08-real-progress.md` — desktop ground truth
@@ -230,18 +230,18 @@ For every untracked file: if > 5 MB (e.g. an `.apk` under `public/`), append a m
 - [ ] **Step 4: Checkbox backfill on the 3 completed plans**
 
 In exactly these 3 files (and NO others):
-- `docs/superpowers/plans/2026-08-05-zoom-meeting-ingestion.md`
-- `docs/superpowers/plans/2026-08-08-auth-login-ui.md`
-- `docs/superpowers/plans/2026-08-08-byom-tts-provider.md`
+- `docs/plans/2026-08-05-zoom-meeting-ingestion.md`
+- `docs/plans/2026-08-08-auth-login-ui.md`
+- `docs/plans/2026-08-08-byom-tts-provider.md`
 
 Replace every occurrence of `- [ ]` with `- [x]`:
 ```bash
 node -e "
 const fs = require('fs');
 for (const f of [
-  'docs/superpowers/plans/2026-08-05-zoom-meeting-ingestion.md',
-  'docs/superpowers/plans/2026-08-08-auth-login-ui.md',
-  'docs/superpowers/plans/2026-08-08-byom-tts-provider.md',
+  'docs/plans/2026-08-05-zoom-meeting-ingestion.md',
+  'docs/plans/2026-08-08-auth-login-ui.md',
+  'docs/plans/2026-08-08-byom-tts-provider.md',
 ]) {
   const s = fs.readFileSync(f, 'utf8');
   fs.writeFileSync(f, s.replaceAll('- [ ]', '- [x]'));

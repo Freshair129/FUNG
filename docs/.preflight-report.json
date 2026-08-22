@@ -1,9 +1,9 @@
 {
-  "version": "1.3.3",
+  "version": "1.4.0",
   "generated_by": "rwang:doc-preflight",
-  "generated_at": "2026-08-12T03:39:30Z",
+  "generated_at": "2026-08-22T18:15:22Z",
   "project": "FUNG",
-  "scope": "Live Meeting and controlled external retrieval post-fix audit",
+  "scope": "FUNG governed product, AI system, and live meeting documentation scaffold audit",
   "trust_hierarchy": "Code > SDD > PRD",
   "summary": {
     "total_checks": 10,
@@ -13,13 +13,26 @@
     "info": 3
   },
   "scan": {
-    "markdown_documents": 62,
-    "code_and_test_files": 67,
-    "relative_links_checked": 7,
-    "mermaid_documents": 13,
+    "markdown_documents": 120,
+    "code_and_test_files": 96,
+    "relative_links_checked": 28,
+    "mermaid_documents": 14,
     "structured_annotations": 68,
     "unique_document_requirement_ids": 46,
     "unique_source_test_requirement_ids": 26
+  },
+  "scaffold_validation": {
+    "new_documents": 15,
+    "new_document_control_failures": 0,
+    "new_document_relative_links_checked": 21,
+    "new_document_broken_links": 0,
+    "graph_nodes": 80,
+    "graph_edges": 298,
+    "graph_missing_endpoints": 0,
+    "new_document_hash_mismatches": 0,
+    "additional_indexed_documents": 4,
+    "traceability_test": "npm run test:traceability — 1/1 passed",
+    "mermaid_fence_check": "1 new document with balanced fences; renderer not installed"
   },
   "findings": [
     {
@@ -57,10 +70,10 @@
       "severity": "warning",
       "check": "staleness",
       "title": "Git-date comparison is unavailable for untracked scoped documents",
-      "details": "The graph reflight confirms that all 28 of 28 mapped path hashes match current content and graph stats.stale_edges is 0. Four scoped documents remain untracked, so git cannot compare their commit dates; they remain current-working-tree evidence only.",
-      "files": ["docs/Desktop/LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md", "docs/superpowers/specs/2026-08-11-live-meeting-external-retrieval-design.md", "docs/implementation-plan.md", "docs/appendices/D-traceability.md"],
+      "details": "The new scaffold paths match their graph hashes and graph stats.stale_edges is 0, but 19 pre-existing mapped code/document nodes differ from the retained graph hashes. The drift belongs to earlier working-tree changes and was not rewritten during this scoped documentation scaffold.",
+      "files": ["docs/.doc-graph.json", "docs"],
       "requirement_ids": [],
-      "action": "Use the graph hash reflight after each documentation update; commit the scoped artifacts when git-date provenance is required."
+      "action": "Run a dedicated full graph reflight for the existing dirty worktree before using graph hashes as release evidence; preserve unrelated changes and do not infer production readiness from this scaffold."
     },
     {
       "id": "WARN-04",

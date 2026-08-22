@@ -1,6 +1,6 @@
 # Phase 3: BYOM Cloud Keys + 3-Tier Fallback Policy — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a user register their own cloud API keys (Anthropic/OpenAI/custom) for STT and LLM tasks, stored only in the desktop OS keyring, and add a cloud fallback tier below the existing local (tier 1) and paired-desktop (tier 2, Phase 2) tiers.
 
@@ -17,7 +17,7 @@
 - Thai UI labels; identifiers English; named exports only; CSS hardcoded light + `.theme-dark` overrides (existing convention — see `DevicePairingPanel.css`).
 - Build on this host: rustc OOMs at default parallelism — always `cargo test -j 1 --manifest-path src-tauri/Cargo.toml`. `npx tsc --noEmit` must exit 0 after every TS task.
 - `reqwest` in `Cargo.toml` does not have the `multipart` feature enabled today — Task 4 adds it (needed for the OpenAI Whisper API's file upload).
-- Spec: `docs/superpowers/specs/2026-08-09-phase-3-byom-cloud-keys-design.md`.
+- Spec: `docs/specs/2026-08-09-phase-3-byom-cloud-keys-design.md`.
 
 ## File Structure
 

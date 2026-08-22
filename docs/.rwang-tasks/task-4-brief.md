@@ -21,7 +21,7 @@ Do not invent requirement annotations. If adding a narrowly scoped `@req`/`@test
 - `D:\FUNG\docs\Desktop\LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md`
 - `D:\FUNG\docs\.doc-graph.json`
 - `D:\FUNG\docs\appendices\D-traceability.md`
-- `D:\FUNG\docs\superpowers\specs\2026-08-11-live-meeting-external-retrieval-design.md`
+- `D:\FUNG\docs\specs\2026-08-11-live-meeting-external-retrieval-design.md`
 - `D:\FUNG\docs\implementation-plan.md`
 - Current Sprint 4 source/tests named in `task-3-brief.md`
 

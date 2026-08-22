@@ -1,6 +1,6 @@
 # Phase 2: FUNGWIRE v1 — LAN Tunnel + Desktop Job Worker — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** A mobile device offloads transcription to its paired desktop over an encrypted LAN tunnel — mobile streams audio segments, desktop runs the existing Whisper pipeline and streams transcript segments + progress back.
 
@@ -21,7 +21,7 @@
 - Supabase project ref `nqnrvqnijzovkrhxslfp`; migration applied ONLY at the controller gate, never by an implementer.
 - Build on this host: rustc OOMs at default parallelism — always `cargo test -j 1 --manifest-path src-tauri/Cargo.toml`. `npx tsc --noEmit` must exit 0 after every TS task.
 - Genesis `delegated_jobs` states: `queued|running|paused|completed|failed|cancelled`; `progress` 0–100. This plan is the table's first consumer.
-- Spec: `docs/superpowers/specs/2026-08-09-phase-2-fungwire-design.md`.
+- Spec: `docs/specs/2026-08-09-phase-2-fungwire-design.md`.
 
 ## File Structure
 

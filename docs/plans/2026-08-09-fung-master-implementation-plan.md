@@ -1,6 +1,6 @@
 # FUNG Master Implementation Plan / แผนการพัฒนาหลักโปรเจกต์ FUNG
 
-> **For agentic workers:** This is a **program-level roadmap**. Each Phase below is executed as its own cycle: `superpowers:brainstorming` (if spec missing) → `superpowers:writing-plans` (task-level TDD plan) → `superpowers:subagent-driven-development` (automated execution). Phase-level checkboxes here track *phase* completion; task-level checkboxes live in each phase's own plan file.
+> **For agentic workers:** This is a **program-level roadmap**. Each Phase below is executed as its own cycle: `brainstorming` (if spec missing) → `writing-plans` (task-level TDD plan) → `subagent-driven-development` (automated execution). Phase-level checkboxes here track *phase* completion; task-level checkboxes live in each phase's own plan file.
 >
 > **สำหรับ agent:** เอกสารนี้คือ roadmap ระดับโปรแกรม แต่ละ Phase จะถูก execute ผ่านวงจร spec → plan → SDD ของตัวเอง
 
@@ -438,16 +438,16 @@ Boss-only tasks are flagged in phase tables (T0.6, Google Console setup in S1, R
 
 ```
 Per phase:
-1. IF spec missing → superpowers:brainstorming (human answers scoped questions)
-2. superpowers:writing-plans → docs/superpowers/plans/YYYY-MM-DD-<phase-slug>.md
+1. IF spec missing → brainstorming (human answers scoped questions)
+2. writing-plans → docs/plans/YYYY-MM-DD-<phase-slug>.md
    (bite-sized tasks, complete code, TDD, checkbox syntax)
 3. git checkout -b feature/<phase-slug> from green main
-4. superpowers:subagent-driven-development
-   - ledger: .superpowers/sdd/progress.md
+4. subagent-driven-development
+   - ledger: docs/verification/implementation-reports/progress.md
    - model tiers per §8 table
    - per-task: implementer → review-package → task reviewer → fix loop
 5. Final whole-branch review (opus) → single fix wave
-6. superpowers:finishing-a-development-branch → PR → CI green → Boss merges
+6. finishing-a-development-branch → PR → CI green → Boss merges
 7. Update THIS file: tick the phase checkbox in §10, append actuals to §6 table
 ```
 
@@ -459,7 +459,7 @@ Per phase:
 - BLOCKED tasks escalate to Boss; never guess on Supabase/Google Console state
 
 **Kickoff command for next session (คำสั่งเริ่มงาน):**
-> "Execute Phase 0 of docs/superpowers/plans/2026-08-09-fung-master-implementation-plan.md via SDD"
+> "Execute Phase 0 of docs/plans/2026-08-09-fung-master-implementation-plan.md via SDD"
 
 ---
 
@@ -469,7 +469,7 @@ Per phase:
 - [x] **Phase 1** — Sub-project B: Desktop Login + Device Pairing (exit: real pairing E2E + revoke) — **DONE**, PR #5 merged (`5219b90`).
 - [x] **Phase 2** — FUNGWIRE v1: LAN Tunnel + Job Worker (exit: delegated transcription E2E + resume) — **DONE 2026-08-09**, PR #6: frontend ✅ / rust ✅ CI green; 2-device LAN acceptance test passed (Boss-confirmed: delegate+progress, kill-mid-job resume, revoke rejection).
 - [ ] **Phase 3** — Sub-project F: BYOM Keys + 3-Tier Policy (exit: policy matrix proven, zero key leakage) — **IMPLEMENTATION COMPLETE / ACCEPTANCE PENDING**. PR #7 merged (`bdd5c6e`); post-merge worker hardening merged in PR #10 (`cea2d93`); CI run `31610747738` passed on `main`. Remaining controller gate: real desktop with an OpenAI key + recording, and an Anthropic key with Ollama stopped to prove cloud fallback.
-- [ ] **Phase 4** — Sub-projects C + E: Cloud Storage + Mobile Login (exit: backup→restore proven, mobile signed in) — **TESTED IN-MEMORY CRYPTO + BOUNDED FILESYSTEM ADAPTER / BACKUP-RESTORE PROOF OPEN**. Requirements: `docs/superpowers/specs/2026-08-13-phase-4-cloud-backup-mobile-account-requirements.md`; design: `docs/superpowers/specs/2026-08-13-phase-4-cloud-backup-mobile-account-design.md`; plan/audit: `docs/superpowers/plans/2026-08-13-phase-4-google-drive-backup-mobile-account.md`; crypto decision: `docs/superpowers/specs/2026-08-14-phase-4-archive-envelope-crypto-decision.md`. FUNG pins Genesis U9 candidate `27cbb285aea635e31311ef2053d21f16e915f1fb`; empty test roots are `D:\FUNG-Phase4-TestStorage` and `D:\FUNG-Phase4-TestRestore`; native `backup_status` remains unavailable until the Task 5 Genesis job is wired. The in-memory envelope has XChaCha20-Poly1305/Argon2id/BIP-39 vectors and failure tests, the native-internal filesystem adapter has nine boundary/atomicity/digest/opaque-status tests, and the exact full Rust library suite passes 212/212. Google Drive production OAuth/transport remains TODO. No Phase 4 archive in the approved external test root, clean restore, mobile-account proof, U9 closure, or release claim exists yet.
+- [ ] **Phase 4** — Sub-projects C + E: Cloud Storage + Mobile Login (exit: backup→restore proven, mobile signed in) — **TESTED IN-MEMORY CRYPTO + BOUNDED FILESYSTEM ADAPTER / BACKUP-RESTORE PROOF OPEN**. Requirements: `docs/specs/2026-08-13-phase-4-cloud-backup-mobile-account-requirements.md`; design: `docs/specs/2026-08-13-phase-4-cloud-backup-mobile-account-design.md`; plan/audit: `docs/plans/2026-08-13-phase-4-google-drive-backup-mobile-account.md`; crypto decision: `docs/decisions/2026-08-14-phase-4-archive-envelope-crypto-decision.md`. FUNG pins Genesis U9 candidate `27cbb285aea635e31311ef2053d21f16e915f1fb`; empty test roots are `D:\FUNG-Phase4-TestStorage` and `D:\FUNG-Phase4-TestRestore`; native `backup_status` remains unavailable until the Task 5 Genesis job is wired. The in-memory envelope has XChaCha20-Poly1305/Argon2id/BIP-39 vectors and failure tests, the native-internal filesystem adapter has nine boundary/atomicity/digest/opaque-status tests, and the exact full Rust library suite passes 212/212. Google Drive production OAuth/transport remains TODO. No Phase 4 archive in the approved external test root, clean restore, mobile-account proof, U9 closure, or release claim exists yet.
 - [ ] **Phase 5** — Hardening & Release (exit: signed APK + UAT evidence + gates dispositioned)
 
 ---

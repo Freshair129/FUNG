@@ -1,4 +1,4 @@
-import { withSupabase } from "npm:@supabase/server";
+import { withSupabase } from "npm:@supabase/server@1.4.1";
 
 const PROVIDER = "google_drive";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
@@ -23,6 +23,7 @@ const corsHeaders = {
 
 type AuthorizationRequest = {
   operation?: string;
+  deviceId?: string;
   devicePublicKey?: string;
   deviceFingerprint?: string;
   signature?: string;
@@ -30,7 +31,29 @@ type AuthorizationRequest = {
   nonce?: string;
 };
 
-const replayedNonces = new Map<string, number>();
+type DeviceRow = {
+  id: string;
+  user_id: string;
+  platform: string;
+  authority_state: string;
+  enrollment_source: string;
+  public_key: string | null;
+  public_key_fingerprint: string;
+  revoked_at: string | null;
+};
+
+type ConnectionRow = {
+  id: string;
+  status: string;
+  approved_scopes: unknown;
+  revoked_at: string | null;
+};
+
+type GrantRow = {
+  operation: string;
+  status: string;
+  revoked_at: string | null;
+};
 
 function response(body: Record<string, unknown>, status = 200): Response {
   return Response.json(body, { status, headers: corsHeaders });
@@ -90,24 +113,54 @@ function canonicalRequest(
   nonce: string,
   fingerprint: string,
 ): Uint8Array {
-  return new TextEncoder().encode(
-    `fung-drive-auth-v1\n${operation}\n${timestampMs}\n${nonce}\n${fingerprint}`,
-  );
-}
-
-function purgeReplay(nowMs: number): void {
-  for (const [key, expiresAt] of replayedNonces) {
-    if (expiresAt <= nowMs) replayedNonces.delete(key);
-  }
+  return new TextEncoder().encode([
+    "fung-drive-auth-v1",
+    operation,
+    String(timestampMs),
+    nonce,
+    fingerprint,
+  ].join("\n"));
 }
 
 function exactDriveScope(value: unknown): boolean {
   return Array.isArray(value) && value.length === 1 && value[0] === DRIVE_SCOPE;
 }
 
-function isProviderOperation(operation: string): boolean {
-  return operation === "backup.read" || operation === "backup.write" ||
-    operation === "backup.restore";
+function requiredGrant(operation: string): string | null {
+  if (operation === "backup.write") return "backup.write";
+  if (operation === "backup.read" || operation === "backup.restore") {
+    return "backup.restore";
+  }
+  return null;
+}
+
+function grantState(
+  grants: GrantRow[],
+  operation: string,
+): Record<string, unknown> {
+  const grant = grants.find((candidate) => candidate.operation === operation);
+  return {
+    operation,
+    active: Boolean(grant && grant.status === "active" && !grant.revoked_at),
+    status: grant?.status ?? "missing",
+  };
+}
+
+async function recordDecision(
+  admin: any,
+  reservationId: string,
+  userId: string,
+): Promise<boolean> {
+  const { data, error } = await admin.rpc(
+    "record_oauth_authorization_decision",
+    {
+      p_reservation_id: reservationId,
+      p_user_id: userId,
+      p_decision: "allowed",
+      p_denial_code: null,
+    },
+  );
+  return !error && Boolean(data);
 }
 
 const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
@@ -128,6 +181,7 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
   }
 
   const operation = body.operation ?? "";
+  const deviceId = body.deviceId ?? "";
   const devicePublicKeyValue = body.devicePublicKey ?? "";
   const deviceFingerprint = body.deviceFingerprint ?? "";
   const signatureValue = body.signature ?? "";
@@ -135,10 +189,9 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
   const nonce = body.nonce ?? "";
   if (
     !OPERATIONS.has(operation) ||
+    !isUuid(deviceId) ||
     !isHexFingerprint(deviceFingerprint) ||
     !Number.isSafeInteger(timestampMs) ||
-    !nonce ||
-    nonce.length > 128 ||
     !isUuid(nonce)
   ) {
     return response({ code: "invalid_request" }, 400);
@@ -147,11 +200,6 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
   const nowMs = Date.now();
   if (Math.abs(nowMs - (timestampMs as number)) > AUTHORIZATION_TTL_MS) {
     return response({ code: "authorization_expired" }, 401);
-  }
-  purgeReplay(nowMs);
-  const replayKey = `${userId}:${nonce}`;
-  if (replayedNonces.has(replayKey)) {
-    return response({ code: "authorization_replayed" }, 409);
   }
 
   const devicePublicKey = decodeBase64(devicePublicKeyValue);
@@ -175,26 +223,29 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
   const admin = ctx.supabaseAdmin as any;
   const { data: devices, error: deviceError } = await admin
     .from("devices")
-    .select("id,user_id,public_key,public_key_fingerprint,revoked_at")
+    .select(
+      "id,user_id,platform,authority_state,enrollment_source,public_key,public_key_fingerprint,revoked_at",
+    )
+    .eq("id", deviceId)
     .eq("user_id", userId)
-    .eq("public_key_fingerprint", deviceFingerprint)
+    .eq("platform", "windows")
+    .eq("authority_state", "drive_trusted")
+    .in("enrollment_source", ["boss_bootstrap", "approved_rebind"])
+    .is("revoked_at", null)
     .limit(2);
   if (deviceError || !Array.isArray(devices) || devices.length !== 1) {
     return response({ code: "authorization_denied" }, 403);
   }
-  const device = devices[0] as {
-    id: string;
-    user_id: string;
-    public_key: string | null;
-    public_key_fingerprint: string;
-    revoked_at: string | null;
-  };
+  const device = devices[0] as DeviceRow;
   const registeredPublicKey = device.public_key
     ? decodeBase64(device.public_key)
     : null;
   if (
     device.user_id !== userId ||
-    device.revoked_at ||
+    device.platform !== "windows" ||
+    device.authority_state !== "drive_trusted" ||
+    !["boss_bootstrap", "approved_rebind"].includes(device.enrollment_source) ||
+    device.revoked_at !== null ||
     device.public_key_fingerprint !== deviceFingerprint ||
     !registeredPublicKey ||
     registeredPublicKey.length !== 32 ||
@@ -224,39 +275,76 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
     ),
   );
   if (!validSignature) return response({ code: "authorization_denied" }, 403);
-  replayedNonces.set(replayKey, nowMs + AUTHORIZATION_TTL_MS);
-
-  const { data: priorAudit, error: replayReadError } = await admin
-    .from("oauth_audit_events")
-    .select("id")
-    .eq("correlation_id", nonce)
-    .limit(1)
-    .maybeSingle();
-  if (replayReadError) {
-    return response({ code: "authorization_unavailable" }, 500);
-  }
-  if (priorAudit) return response({ code: "authorization_replayed" }, 409);
 
   const { data: existingConnection, error: connectionReadError } = await admin
     .from("oauth_connections")
-    .select("id,status,approved_scopes")
+    .select("id,status,approved_scopes,revoked_at")
     .eq("user_id", userId)
     .eq("provider", PROVIDER)
     .maybeSingle();
   if (connectionReadError) {
     return response({ code: "authorization_unavailable" }, 500);
   }
+  const connection = existingConnection as ConnectionRow | null;
+  const connectionIsActive = Boolean(
+    connection && connection.status === "active" &&
+      connection.revoked_at === null &&
+      exactDriveScope(connection.approved_scopes),
+  );
 
+  let grants: GrantRow[] = [];
+  if (connection?.id) {
+    const { data, error } = await admin
+      .from("oauth_operation_grants")
+      .select("operation,status,revoked_at")
+      .eq("connection_id", connection.id)
+      .in("operation", ["backup.write", "backup.restore"]);
+    if (error || !Array.isArray(data)) {
+      return response({ code: "authorization_unavailable" }, 500);
+    }
+    grants = data as GrantRow[];
+  }
+
+  const required = requiredGrant(operation);
   if (
-    isProviderOperation(operation) &&
-    (!existingConnection ||
-      existingConnection.status !== "active" ||
-      !exactDriveScope(existingConnection.approved_scopes))
+    required && (!connectionIsActive ||
+      !grants.some((grant) =>
+        grant.operation === required &&
+        grant.status === "active" && grant.revoked_at === null
+      ))
   ) {
     return response({ code: "authorization_denied" }, 403);
   }
 
-  let connectionId = (existingConnection?.id as string | undefined) ?? null;
+  const { data: reservationRows, error: reservationError } = await admin.rpc(
+    "reserve_oauth_authorization",
+    {
+      p_user_id: userId,
+      p_device_id: device.id,
+      p_connection_id: connection?.id ?? null,
+      p_operation: operation,
+      p_nonce: nonce,
+      p_expires_at: new Date(nowMs + AUTHORIZATION_TTL_MS).toISOString(),
+    },
+  );
+  if (
+    reservationError || !Array.isArray(reservationRows) ||
+    reservationRows.length !== 1
+  ) {
+    return response({ code: "authorization_unavailable" }, 500);
+  }
+  const reservation = reservationRows[0] as {
+    reservation_id?: string;
+    won?: boolean;
+  };
+  if (!reservation.reservation_id) {
+    return response({ code: "authorization_unavailable" }, 500);
+  }
+  if (reservation.won !== true) {
+    return response({ code: "authorization_replayed" }, 409);
+  }
+
+  let connectionId = connection?.id ?? null;
   if (operation === "connection.activate") {
     const { data, error } = await admin
       .from("oauth_connections")
@@ -275,14 +363,23 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
       return response({ code: "authorization_unavailable" }, 500);
     }
     connectionId = data.id as string;
-  } else if (operation === "connection.revoke" && existingConnection?.id) {
+  } else if (operation === "connection.revoke" && connection?.id) {
     const { error } = await admin
       .from("oauth_connections")
       .update({ status: "revoked", revoked_at: new Date(nowMs).toISOString() })
-      .eq("id", existingConnection.id)
+      .eq("id", connection.id)
       .eq("user_id", userId)
       .eq("provider", PROVIDER);
     if (error) return response({ code: "authorization_unavailable" }, 500);
+    grants = grants.map((grant) => ({
+      ...grant,
+      status: "revoked",
+      revoked_at: new Date(nowMs).toISOString(),
+    }));
+  }
+
+  if (!await recordDecision(admin, reservation.reservation_id, userId)) {
+    return response({ code: "authorization_unavailable" }, 500);
   }
 
   const auditEvent = operation === "connection.activate"
@@ -305,6 +402,13 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
     });
   if (auditError) return response({ code: "authorization_unavailable" }, 500);
 
+  const connectionStatus = operation === "connection.activate"
+    ? "active"
+    : operation === "connection.revoke"
+    ? "revoked"
+    : connection
+    ? (connectionIsActive ? "active" : connection.status)
+    : "disconnected";
   return response({
     authorized: true,
     provider: PROVIDER,
@@ -312,6 +416,9 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
     deviceId: device.id,
     deviceFingerprint,
     connectionId,
+    connectionStatus,
+    writeGrant: grantState(grants, "backup.write"),
+    restoreGrant: grantState(grants, "backup.restore"),
     operation,
     expiresAtMs: nowMs + AUTHORIZATION_TTL_MS,
     nonce,

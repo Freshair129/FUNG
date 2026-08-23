@@ -1,4 +1,4 @@
-import { withSupabase } from "npm:@supabase/server";
+import { withSupabase } from "npm:@supabase/server@1.4.1";
 
 const PROVIDER = "google_drive";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";

@@ -17,11 +17,11 @@ The native client stores credentials only in OS secure storage. GenesisBlockDB r
 
 ## Apply the migration
 
-Install the Supabase CLI, authenticate it, link the project ref `nqnrvqnijzovkrhxslfp`, then review and push the migration through the normal deployment workflow:
+Install the Supabase CLI, authenticate it, link only the separately approved project ref, then review and push the migration through the normal deployment workflow:
 
 ```powershell
 supabase login
-supabase link --project-ref nqnrvqnijzovkrhxslfp
+supabase link --project-ref <approved-project-ref>
 supabase db push
 ```
 
@@ -51,3 +51,36 @@ Never put these secrets in a `VITE_*` variable, Desktop bundle, repository file,
 - `oauth_connections` and `oauth_audit_events`: users are read-only and see only their own records; a controlled server-side path writes them.
 
 No `anon` grants are provided. Service-role use is server-side only.
+
+## W1 server authority boundary (local implementation only)
+
+The W1-A-F4-S1 implementation is project-agnostic and has not been deployed.
+It adds a server-controlled authority state to `devices`; every pre-existing
+device starts as `legacy` and cannot be promoted automatically. Authenticated
+clients retain owner-scoped read access only. Pending enrollment requests are
+non-authoritative, and the authenticated `device-enrollment` Edge function can
+create only pending or `pairing_only` state and can request a server-owned soft
+revocation. It cannot call the bootstrap approval function.
+
+`approve_bootstrap_enrollment(uuid)` and the explicit
+`approve_rebind_enrollment(uuid, uuid)` ceremony are database-owner-only. Their
+execute privilege is revoked from `PUBLIC`, `anon`, `authenticated`, and
+`service_role`; the database owner must verify the request out-of-band before
+consuming it. Rebind soft-revokes the selected old trusted row before creating
+a new identity. Only the resulting Windows row with `drive_trusted`,
+`boss_bootstrap` or `approved_rebind`, an unrevoked identity, and a matching
+public-key fingerprint satisfies the exact Drive predicate.
+
+An active `google_drive` connection is not an operation grant. The operator
+issues `backup.write` and `backup.restore` independently, and revocation of the
+connection revokes both without resurrecting them on reconnection. Archive
+read follows the restore grant. Signed requests use the unique durable nonce
+reservation and server decision tables; `oauth_audit_events` and
+`device_audit_events` remain informational and are never replay locks.
+
+The committed `deno.lock` pins the Edge dependency used by the enrollment,
+authorizer, and metadata functions. `supabase/tests/w1_authority_schema.sql`
+contains read-only privilege, RLS, fixed-search-path, and reservation evidence.
+Live migration, RLS/grant verification, bootstrap approval, Edge deployment,
+and provider testing remain external gates and must be performed only after an
+enumerated project-ref manifest and separate deployment approval.

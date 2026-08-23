@@ -48,10 +48,14 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
         const publicKey = await invoke<string>("device_public_key");
         const { data: existing, error: selErr } = await supabase
           .from("devices")
-          .select("id, device_label")
+          .select("id, device_label, public_key, revoked_at")
           .eq("public_key_fingerprint", identity.fingerprint)
           .maybeSingle();
         if (selErr) throw selErr;
+        if (existing?.revoked_at) throw new Error("device_revoked");
+        if (existing?.public_key && existing.public_key !== publicKey) {
+          throw new Error("device_public_key_mismatch");
+        }
         let deviceId = existing?.id as string | undefined;
         if (!deviceId) {
           const { data: inserted, error: insErr } = await supabase
@@ -73,18 +77,20 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
             .from("devices")
             .update({ public_key: publicKey })
             .eq("id", deviceId);
-          if (pkErr) console.error("Failed to set device public key:", pkErr);
-          await supabase.from("device_audit_events").insert({
+          if (pkErr) throw pkErr;
+          const { error: auditErr } = await supabase.from("device_audit_events").insert({
             user_id: session.user.id,
             device_id: deviceId,
             event_type: "device_registered",
             metadata: { platform: "windows" },
           });
+          if (auditErr) throw auditErr;
         } else {
-          await supabase
+          const { error: updateErr } = await supabase
             .from("devices")
             .update({ last_seen_at: new Date().toISOString(), public_key: publicKey })
             .eq("id", deviceId);
+          if (updateErr) throw updateErr;
         }
         if (!cancelled && deviceId) {
           localStorage.setItem(DEVICE_ID_KEY, deviceId);
@@ -92,7 +98,6 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
         }
       } catch (e) {
         if (!cancelled) {
-          console.error("Device registration failed:", e);
           setError("ลงทะเบียนอุปกรณ์ไม่สำเร็จ");
         }
       }

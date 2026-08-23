@@ -8,6 +8,7 @@
 use crate::backup::{self, BackupJobState, RestoreResult};
 use crate::backup_archive::{self, ArchiveManifest};
 use crate::filesystem_backup::{self, FilesystemArchiveRecord, FilesystemBackupState};
+use crate::native_auth::{self, DriveInvocation, DriveOperation};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use rand::{rngs::OsRng, RngCore};
@@ -19,11 +20,11 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::State;
+use tauri_plugin_opener::OpenerExt;
 use url::Url;
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -46,7 +47,6 @@ const OAUTH_CALLBACK_PATH: &str = "/oauth/google-drive/callback";
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DriveOAuthStart {
     pub(crate) session_id: String,
-    pub(crate) authorization_url: String,
     pub(crate) scope: String,
     pub(crate) redirect_uri: String,
 }
@@ -79,15 +79,115 @@ struct OAuthCallback {
 #[derive(Clone)]
 struct PendingOAuth {
     session_id: String,
-    user_id: String,
-    device_id: String,
-    client_id: String,
+    oauth_client_id: String,
     redirect_uri: String,
     state: String,
     code_verifier: String,
     callback: Arc<Mutex<Option<OAuthCallback>>>,
-    cancelled: Arc<AtomicBool>,
+    terminal: OAuthTerminal,
     expires_at: Instant,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OAuthTerminalState {
+    Pending,
+    Exchanging,
+    Cancelled,
+    Committing,
+    Completed,
+    Failed,
+}
+
+#[derive(Clone)]
+struct OAuthTerminal {
+    state: Arc<Mutex<OAuthTerminalState>>,
+}
+
+impl Default for OAuthTerminal {
+    fn default() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(OAuthTerminalState::Pending)),
+        }
+    }
+}
+
+impl OAuthTerminal {
+    fn is_cancelled(&self) -> bool {
+        self.state
+            .lock()
+            .map(|state| *state == OAuthTerminalState::Cancelled)
+            .unwrap_or(true)
+    }
+
+    fn begin_exchange(&self) -> Result<(), String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| public_error("drive_oauth_state_unavailable"))?;
+        match *state {
+            OAuthTerminalState::Pending => {
+                *state = OAuthTerminalState::Exchanging;
+                Ok(())
+            }
+            OAuthTerminalState::Cancelled => Err(public_error("drive_oauth_cancelled")),
+            OAuthTerminalState::Committing | OAuthTerminalState::Completed => {
+                Err(public_error("drive_oauth_completed"))
+            }
+            OAuthTerminalState::Exchanging | OAuthTerminalState::Failed => {
+                Err(public_error("drive_oauth_session_missing"))
+            }
+        }
+    }
+
+    fn begin_commit(&self) -> Result<(), String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| public_error("drive_oauth_state_unavailable"))?;
+        match *state {
+            OAuthTerminalState::Exchanging => {
+                *state = OAuthTerminalState::Committing;
+                Ok(())
+            }
+            OAuthTerminalState::Cancelled => Err(public_error("drive_oauth_cancelled")),
+            OAuthTerminalState::Committing | OAuthTerminalState::Completed => {
+                Err(public_error("drive_oauth_completed"))
+            }
+            OAuthTerminalState::Pending | OAuthTerminalState::Failed => {
+                Err(public_error("drive_oauth_session_missing"))
+            }
+        }
+    }
+
+    fn cancel(&self) -> Result<(), String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| public_error("drive_oauth_state_unavailable"))?;
+        match *state {
+            OAuthTerminalState::Pending | OAuthTerminalState::Exchanging => {
+                *state = OAuthTerminalState::Cancelled;
+                Ok(())
+            }
+            OAuthTerminalState::Cancelled => Ok(()),
+            OAuthTerminalState::Committing | OAuthTerminalState::Completed => {
+                Err(public_error("drive_oauth_completed"))
+            }
+            OAuthTerminalState::Failed => Err(public_error("drive_oauth_session_missing")),
+        }
+    }
+
+    fn mark_completed(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            *state = OAuthTerminalState::Completed;
+        }
+    }
+
+    fn mark_failed(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            *state = OAuthTerminalState::Failed;
+        }
+    }
 }
 
 #[derive(Default)]
@@ -132,13 +232,6 @@ struct DriveManifestEnvelope {
 
 fn public_error(code: &str) -> String {
     code.to_owned()
-}
-
-fn validate_identity(value: &str, label: &str) -> Result<(), String> {
-    if value.trim().is_empty() || value.len() > 128 || value.chars().any(|c| c.is_control()) {
-        return Err(format!("invalid_{label}"));
-    }
-    Ok(())
 }
 
 fn validate_client_id(client_id: &str) -> Result<(), String> {
@@ -231,8 +324,18 @@ fn validate_drive_file_ids(
     Ok(files)
 }
 
-fn keyring_slot(user_id: &str, device_id: &str) -> String {
-    let digest = Sha256::digest(format!("google-drive\0{user_id}\0{device_id}").as_bytes());
+fn configured_client_id() -> Result<String, String> {
+    let client_id = std::env::var("FUNG_GOOGLE_DRIVE_CLIENT_ID")
+        .or_else(|_| std::env::var("VITE_GOOGLE_DRIVE_CLIENT_ID"))
+        .map_err(|_| public_error("google_drive_client_id_missing"))?;
+    validate_client_id(client_id.trim())?;
+    Ok(client_id.trim().to_owned())
+}
+
+fn keyring_slot_for(user_id: &str, device_id: &str, device_fingerprint: &str) -> String {
+    let digest = Sha256::digest(
+        format!("google-drive\0{user_id}\0{device_id}\0{device_fingerprint}").as_bytes(),
+    );
     let suffix = digest
         .iter()
         .map(|byte| format!("{byte:02x}"))
@@ -240,36 +343,44 @@ fn keyring_slot(user_id: &str, device_id: &str) -> String {
     format!("drive-token-{suffix}")
 }
 
-fn keyring_entry(user_id: &str, device_id: &str) -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYRING_SERVICE, &keyring_slot(user_id, device_id))
-        .map_err(|_| public_error("drive_keyring_unavailable"))
+fn keyring_entry(invocation: &DriveInvocation) -> Result<keyring::Entry, String> {
+    invocation.ensure_valid()?;
+    keyring::Entry::new(
+        KEYRING_SERVICE,
+        &keyring_slot_for(
+            invocation.user_id(),
+            invocation.device_id(),
+            invocation.device_fingerprint(),
+        ),
+    )
+    .map_err(|_| public_error("drive_keyring_unavailable"))
 }
 
-fn save_refresh_token(user_id: &str, device_id: &str, refresh_token: String) -> Result<(), String> {
+fn save_refresh_token(invocation: &DriveInvocation, refresh_token: String) -> Result<(), String> {
     let payload = serde_json::to_string(&DriveTokenRecord { refresh_token })
         .map_err(|_| public_error("drive_token_storage_failed"))?;
-    keyring_entry(user_id, device_id)?
+    keyring_entry(invocation)?
         .set_password(&payload)
         .map_err(|_| public_error("drive_token_storage_failed"))
 }
 
-fn load_refresh_token(user_id: &str, device_id: &str) -> Result<Option<String>, String> {
-    match keyring_entry(user_id, device_id)?.get_password() {
+fn load_refresh_token(invocation: &DriveInvocation) -> Result<Option<Zeroizing<String>>, String> {
+    match keyring_entry(invocation)?.get_password() {
         Ok(payload) => {
             let record: DriveTokenRecord = serde_json::from_str(&payload)
                 .map_err(|_| public_error("drive_token_storage_invalid"))?;
             if record.refresh_token.trim().is_empty() {
                 return Err(public_error("drive_token_storage_invalid"));
             }
-            Ok(Some(record.refresh_token))
+            Ok(Some(Zeroizing::new(record.refresh_token)))
         }
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(_) => Err(public_error("drive_keyring_unavailable")),
     }
 }
 
-fn delete_refresh_token(user_id: &str, device_id: &str) -> Result<(), String> {
-    match keyring_entry(user_id, device_id)?.delete_credential() {
+fn delete_refresh_token(invocation: &DriveInvocation) -> Result<(), String> {
+    match keyring_entry(invocation)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(_) => Err(public_error("drive_token_delete_failed")),
     }
@@ -384,15 +495,26 @@ fn remove_pending(state: &DriveOAuthState, session_id: &str) {
 }
 
 #[tauri::command]
-pub(crate) fn drive_oauth_start(
-    client_id: String,
-    user_id: String,
-    device_id: String,
+pub(crate) async fn drive_oauth_start(
+    session_proof: String,
+    app: tauri::AppHandle,
     state: State<'_, DriveOAuthState>,
 ) -> Result<DriveOAuthStart, String> {
-    validate_client_id(&client_id)?;
-    validate_identity(&user_id, "user_id")?;
-    validate_identity(&device_id, "device_id")?;
+    {
+        let pending_guard = state
+            .pending
+            .lock()
+            .map_err(|_| public_error("drive_oauth_state_unavailable"))?;
+        if pending_guard.is_some() {
+            return Err(public_error("drive_oauth_already_running"));
+        }
+    }
+
+    let auth =
+        native_auth::authorize_drive(&app, &session_proof, DriveOperation::ConnectionAuthorize)
+            .await?;
+    let _ = auth.into_invocation()?;
+    let client_id = configured_client_id()?;
     let mut pending_guard = state
         .pending
         .lock()
@@ -415,13 +537,13 @@ pub(crate) fn drive_oauth_start(
     let oauth_state = random_state();
     let session_id = Uuid::new_v4().to_string();
     let callback = Arc::new(Mutex::new(None));
-    let cancelled = Arc::new(AtomicBool::new(false));
+    let terminal = OAuthTerminal::default();
     let callback_for_thread = Arc::clone(&callback);
-    let cancelled_for_thread = Arc::clone(&cancelled);
+    let terminal_for_thread = terminal.clone();
     thread::spawn(move || {
         let deadline = Instant::now() + OAUTH_TTL;
         loop {
-            if cancelled_for_thread.load(Ordering::Acquire) || Instant::now() >= deadline {
+            if terminal_for_thread.is_cancelled() || Instant::now() >= deadline {
                 break;
             }
             match listener.accept() {
@@ -448,19 +570,24 @@ pub(crate) fn drive_oauth_start(
         build_authorization_url(&client_id, &redirect_uri, &oauth_state, &code_challenge);
     *pending_guard = Some(PendingOAuth {
         session_id: session_id.clone(),
-        user_id,
-        device_id,
-        client_id,
+        oauth_client_id: client_id,
         redirect_uri: redirect_uri.clone(),
         state: oauth_state,
         code_verifier,
         callback,
-        cancelled,
+        terminal,
         expires_at: Instant::now() + OAUTH_TTL,
     });
+    if app
+        .opener()
+        .open_url(authorization_url, None::<&str>)
+        .is_err()
+    {
+        *pending_guard = None;
+        return Err(public_error("drive_oauth_open_failed"));
+    }
     Ok(DriveOAuthStart {
         session_id,
-        authorization_url,
         scope: DRIVE_SCOPE.to_owned(),
         redirect_uri,
     })
@@ -469,6 +596,8 @@ pub(crate) fn drive_oauth_start(
 #[tauri::command]
 pub(crate) async fn drive_oauth_complete(
     session_id: String,
+    session_proof: String,
+    app: tauri::AppHandle,
     state: State<'_, DriveOAuthState>,
 ) -> Result<DriveConnectionStatus, String> {
     let pending = state
@@ -480,10 +609,10 @@ pub(crate) async fn drive_oauth_complete(
         .cloned()
         .ok_or_else(|| public_error("drive_oauth_session_missing"))?;
     let callback = pending.callback.clone();
-    let cancelled = pending.cancelled.clone();
+    let terminal = pending.terminal.clone();
     let expires_at = pending.expires_at;
     let callback_result = tauri::async_runtime::spawn_blocking(move || loop {
-        if cancelled.load(Ordering::Acquire) {
+        if terminal.is_cancelled() {
             return Err(public_error("drive_oauth_cancelled"));
         }
         if Instant::now() >= expires_at {
@@ -520,35 +649,93 @@ pub(crate) async fn drive_oauth_complete(
         ));
     }
     let code = callback_result.code.unwrap_or_default();
-    let token = exchange_code(&pending, code).await;
-    let result = match token {
-        Ok(token) => {
-            let returned_scope = token.scope.as_deref();
-            if returned_scope.is_none_or(|scope| !exact_scope(scope)) {
-                Err(public_error("drive_oauth_scope_mismatch"))
-            } else if let Some(refresh_token) = token.refresh_token {
-                save_refresh_token(&pending.user_id, &pending.device_id, refresh_token).map(|()| {
-                    DriveConnectionStatus {
-                        connected: true,
-                        scope: Some(DRIVE_SCOPE.to_owned()),
-                        provider: "google_drive",
-                    }
-                })
-            } else {
-                Err(public_error("drive_oauth_offline_access_missing"))
+    if let Err(error) = pending.terminal.begin_exchange() {
+        remove_pending(&state, &session_id);
+        return Err(error);
+    }
+    let authorization = match native_auth::authorize_drive(
+        &app,
+        &session_proof,
+        DriveOperation::ConnectionAuthorize,
+    )
+    .await
+    {
+        Ok(context) => match context.into_invocation() {
+            Ok(invocation) => invocation,
+            Err(error) => {
+                pending.terminal.mark_failed();
+                remove_pending(&state, &session_id);
+                return Err(error);
             }
+        },
+        Err(error) => {
+            pending.terminal.mark_failed();
+            remove_pending(&state, &session_id);
+            return Err(error);
         }
-        Err(error) => Err(error),
     };
+    let token = match exchange_code(&pending, &authorization, code).await {
+        Ok(token) => token,
+        Err(error) => {
+            pending.terminal.mark_failed();
+            remove_pending(&state, &session_id);
+            return Err(error);
+        }
+    };
+    if token
+        .scope
+        .as_deref()
+        .is_some_and(|scope| !exact_scope(scope))
+        || token.scope.is_none()
+    {
+        pending.terminal.mark_failed();
+        remove_pending(&state, &session_id);
+        return Err(public_error("drive_oauth_scope_mismatch"));
+    }
+    let refresh_token = match token.refresh_token {
+        Some(refresh_token) => refresh_token,
+        None => {
+            pending.terminal.mark_failed();
+            remove_pending(&state, &session_id);
+            return Err(public_error("drive_oauth_offline_access_missing"));
+        }
+    };
+    if let Err(error) = pending.terminal.begin_commit() {
+        remove_pending(&state, &session_id);
+        return Err(error);
+    }
+    if let Err(error) = save_refresh_token(&authorization, refresh_token) {
+        pending.terminal.mark_failed();
+        remove_pending(&state, &session_id);
+        return Err(error);
+    }
+    if let Err(_error) =
+        native_auth::authorize_drive(&app, &session_proof, DriveOperation::ConnectionActivate).await
+    {
+        let _ = delete_refresh_token(&authorization);
+        pending.terminal.mark_failed();
+        remove_pending(&state, &session_id);
+        return Err(public_error("drive_connection_activation_failed"));
+    }
+    pending.terminal.mark_completed();
     remove_pending(&state, &session_id);
-    result
+    Ok(DriveConnectionStatus {
+        connected: true,
+        scope: Some(DRIVE_SCOPE.to_owned()),
+        provider: "google_drive",
+    })
 }
 
-async fn exchange_code(pending: &PendingOAuth, code: String) -> Result<TokenResponse, String> {
+async fn exchange_code(
+    pending: &PendingOAuth,
+    invocation: &DriveInvocation,
+    code: String,
+) -> Result<TokenResponse, String> {
+    invocation.ensure_valid()?;
     let response = async_http_client(Duration::from_secs(30), "drive_oauth_token_exchange_failed")?
         .post(DRIVE_TOKEN_ENDPOINT)
         .form(&[
-            ("client_id", pending.client_id.as_str()),
+            ("client_id", pending.oauth_client_id.as_str()),
             ("code", code.as_str()),
             ("code_verifier", pending.code_verifier.as_str()),
             ("grant_type", "authorization_code"),
@@ -579,41 +766,45 @@ pub(crate) fn drive_oauth_cancel(
         .pending
         .lock()
         .map_err(|_| public_error("drive_oauth_state_unavailable"))?
-        .take();
-    if let Some(pending) = pending {
-        if pending.session_id != session_id {
-            if let Ok(mut slot) = state.pending.lock() {
-                *slot = Some(pending);
-            }
-            return Err(public_error("drive_oauth_session_mismatch"));
-        }
-        pending.cancelled.store(true, Ordering::Release);
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| public_error("drive_oauth_session_missing"))?;
+    if pending.session_id != session_id {
+        return Err(public_error("drive_oauth_session_mismatch"));
     }
+    pending.terminal.cancel()?;
+    remove_pending(&state, &session_id);
     Ok(())
 }
 
 #[tauri::command]
-pub(crate) fn drive_connection_status(
-    user_id: String,
-    device_id: String,
+pub(crate) async fn drive_connection_status(
+    session_proof: String,
+    app: tauri::AppHandle,
 ) -> Result<DriveConnectionStatus, String> {
-    validate_identity(&user_id, "user_id")?;
-    validate_identity(&device_id, "device_id")?;
+    let authorization =
+        native_auth::authorize_drive(&app, &session_proof, DriveOperation::ConnectionRead)
+            .await?
+            .into_invocation()?;
+    authorization.require_operation(DriveOperation::ConnectionRead)?;
     Ok(DriveConnectionStatus {
-        connected: load_refresh_token(&user_id, &device_id)?.is_some(),
+        connected: load_refresh_token(&authorization)?.is_some(),
         scope: Some(DRIVE_SCOPE.to_owned()),
         provider: "google_drive",
     })
 }
 
 #[tauri::command]
-pub(crate) fn drive_disconnect(
-    user_id: String,
-    device_id: String,
+pub(crate) async fn drive_disconnect(
+    session_proof: String,
+    app: tauri::AppHandle,
 ) -> Result<DriveConnectionStatus, String> {
-    validate_identity(&user_id, "user_id")?;
-    validate_identity(&device_id, "device_id")?;
-    delete_refresh_token(&user_id, &device_id)?;
+    let authorization =
+        native_auth::authorize_drive(&app, &session_proof, DriveOperation::ConnectionRevoke)
+            .await?
+            .into_invocation()?;
+    authorization.require_operation(DriveOperation::ConnectionRevoke)?;
+    delete_refresh_token(&authorization)?;
     Ok(DriveConnectionStatus {
         connected: false,
         scope: Some(DRIVE_SCOPE.to_owned()),
@@ -621,16 +812,15 @@ pub(crate) fn drive_disconnect(
     })
 }
 
-async fn access_token(client_id: &str, user_id: &str, device_id: &str) -> Result<String, String> {
-    validate_client_id(client_id)?;
-    validate_identity(user_id, "user_id")?;
-    validate_identity(device_id, "device_id")?;
-    let refresh_token = load_refresh_token(user_id, device_id)?
-        .ok_or_else(|| public_error("drive_not_connected"))?;
+async fn access_token(invocation: &DriveInvocation) -> Result<String, String> {
+    invocation.ensure_valid()?;
+    let client_id = configured_client_id()?;
+    let refresh_token =
+        load_refresh_token(invocation)?.ok_or_else(|| public_error("drive_not_connected"))?;
     let response = async_http_client(Duration::from_secs(30), "drive_token_refresh_failed")?
         .post(DRIVE_TOKEN_ENDPOINT)
         .form(&[
-            ("client_id", client_id),
+            ("client_id", client_id.as_str()),
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token.as_str()),
         ])
@@ -660,7 +850,12 @@ fn drive_query_literal(value: &str) -> String {
     value.replace('\\', "\\\\").replace('\'', "\\'")
 }
 
-async fn list_files(access_token: &str, query: &str) -> Result<Vec<DriveFile>, String> {
+async fn list_files(
+    invocation: &DriveInvocation,
+    access_token: &str,
+    query: &str,
+) -> Result<Vec<DriveFile>, String> {
+    invocation.ensure_valid()?;
     let response = async_http_client(Duration::from_secs(120), "drive_list_failed")?
         .get(DRIVE_FILES_ENDPOINT)
         .bearer_auth(access_token)
@@ -685,12 +880,17 @@ async fn list_files(access_token: &str, query: &str) -> Result<Vec<DriveFile>, S
 
 #[tauri::command]
 pub(crate) async fn drive_archives_list(
-    client_id: String,
-    user_id: String,
-    device_id: String,
+    session_proof: String,
+    app: tauri::AppHandle,
 ) -> Result<Vec<DriveArchiveSummary>, String> {
-    let token = access_token(&client_id, &user_id, &device_id).await?;
+    let authorization =
+        native_auth::authorize_drive(&app, &session_proof, DriveOperation::BackupRead)
+            .await?
+            .into_invocation()?;
+    authorization.require_operation(DriveOperation::BackupRead)?;
+    let token = access_token(&authorization).await?;
     let files = list_files(
+        &authorization,
         &token,
         "'appDataFolder' in parents and trashed = false and name contains '.fungbk'",
     )
@@ -723,12 +923,16 @@ pub(crate) async fn drive_archives_list(
 
 #[tauri::command]
 pub(crate) async fn drive_upload_archive(
-    client_id: String,
-    user_id: String,
-    device_id: String,
+    session_proof: String,
+    app: tauri::AppHandle,
     archive_id: String,
     fs_state: State<'_, FilesystemBackupState>,
 ) -> Result<DriveArchiveSummary, String> {
+    let authorization =
+        native_auth::authorize_drive(&app, &session_proof, DriveOperation::BackupWrite)
+            .await?
+            .into_invocation()?;
+    authorization.require_operation(DriveOperation::BackupWrite)?;
     validate_archive_id(&archive_id)?;
     let root = fs_state
         .current_root()
@@ -736,7 +940,7 @@ pub(crate) async fn drive_upload_archive(
     let (archive_path, record, manifest) =
         filesystem_backup::verified_archive_details_at_root(&root, &archive_id)
             .map_err(|_| public_error("filesystem_archive_unavailable"))?;
-    let token = access_token(&client_id, &user_id, &device_id).await?;
+    let token = access_token(&authorization).await?;
     let digest = record.digest.clone();
     let archive_name = format!("{archive_id}{ARCHIVE_SUFFIX}");
     let manifest_name = format!("{archive_id}{MANIFEST_SUFFIX}");
@@ -750,7 +954,9 @@ pub(crate) async fn drive_upload_archive(
         .map_err(|_| public_error("filesystem_archive_unavailable"))?
         .len();
     let result = tauri::async_runtime::spawn_blocking(move || {
+        authorization.ensure_valid()?;
         upload_archive_files(
+            &authorization,
             &token,
             &archive_path,
             expected_size,
@@ -767,6 +973,7 @@ pub(crate) async fn drive_upload_archive(
 }
 
 fn upload_archive_files(
+    invocation: &DriveInvocation,
     access_token: &str,
     archive_path: &Path,
     expected_size: u64,
@@ -776,6 +983,7 @@ fn upload_archive_files(
     archive_id: &str,
     digest: &str,
 ) -> Result<DriveArchiveSummary, String> {
+    invocation.ensure_valid()?;
     let client = BlockingClient::builder()
         .timeout(Duration::from_secs(120))
         .build()
@@ -784,7 +992,7 @@ fn upload_archive_files(
         "'appDataFolder' in parents and trashed = false and name = '{}'",
         drive_query_literal(archive_name)
     );
-    let existing = blocking_list_files(&client, access_token, &query)?;
+    let existing = blocking_list_files(invocation, &client, access_token, &query)?;
     if let Some(file) = existing.into_iter().next() {
         if validate_drive_file_contract(&file, archive_id, "archive", Some(digest)).is_ok() {
             return Ok(summary_from_file(file, archive_id));
@@ -796,7 +1004,7 @@ fn upload_archive_files(
         "'appDataFolder' in parents and trashed = false and name = '{}'",
         drive_query_literal(manifest_name)
     );
-    if !blocking_list_files(&client, access_token, &manifest_query)?.is_empty() {
+    if !blocking_list_files(invocation, &client, access_token, &manifest_query)?.is_empty() {
         return Err(public_error("drive_manifest_already_exists"));
     }
 
@@ -811,6 +1019,7 @@ fn upload_archive_files(
         }
     });
     let manifest_file = upload_small_file(
+        invocation,
         &client,
         access_token,
         &manifest_metadata,
@@ -830,6 +1039,7 @@ fn upload_archive_files(
         }
     });
     let archive = match upload_resumable_file(
+        invocation,
         &client,
         access_token,
         &archive_metadata,
@@ -838,7 +1048,7 @@ fn upload_archive_files(
     ) {
         Ok(file) => file,
         Err(error) => {
-            let _ = blocking_delete_file(&client, access_token, &manifest_file.id);
+            let _ = blocking_delete_file(invocation, &client, access_token, &manifest_file.id);
             return Err(error);
         }
     };
@@ -864,10 +1074,12 @@ fn summary_from_file(file: DriveFile, archive_id: &str) -> DriveArchiveSummary {
 }
 
 fn blocking_list_files(
+    invocation: &DriveInvocation,
     client: &BlockingClient,
     access_token: &str,
     query: &str,
 ) -> Result<Vec<DriveFile>, String> {
+    invocation.ensure_valid()?;
     let response = client
         .get(DRIVE_FILES_ENDPOINT)
         .bearer_auth(access_token)
@@ -889,12 +1101,14 @@ fn blocking_list_files(
 }
 
 fn upload_small_file(
+    invocation: &DriveInvocation,
     client: &BlockingClient,
     access_token: &str,
     metadata: &serde_json::Value,
     bytes: &[u8],
     mime_type: &str,
 ) -> Result<DriveFile, String> {
+    invocation.ensure_valid()?;
     let metadata_part = multipart::Part::text(metadata.to_string())
         .mime_str("application/json")
         .map_err(|_| public_error("drive_upload_failed"))?;
@@ -921,12 +1135,14 @@ fn upload_small_file(
 }
 
 fn upload_resumable_file(
+    invocation: &DriveInvocation,
     client: &BlockingClient,
     access_token: &str,
     metadata: &serde_json::Value,
     archive_path: &Path,
     total_size: u64,
 ) -> Result<DriveFile, String> {
+    invocation.ensure_valid()?;
     let start_response = client
         .post(format!("{DRIVE_UPLOAD_ENDPOINT}?uploadType=resumable"))
         .bearer_auth(access_token)
@@ -956,6 +1172,7 @@ fn upload_resumable_file(
             return Err(public_error("drive_upload_failed"));
         }
         let end = next_offset + read as u64 - 1;
+        invocation.ensure_valid()?;
         let response = client
             .put(&location)
             .bearer_auth(access_token)
@@ -967,6 +1184,7 @@ fn upload_resumable_file(
             .body(buffer[..read].to_vec())
             .send()
             .map_err(|_| public_error("drive_upload_failed"))?;
+        invocation.ensure_valid()?;
         if response.status().is_success() {
             return response
                 .json::<DriveFile>()
@@ -998,10 +1216,12 @@ fn upload_resumable_file(
 }
 
 fn blocking_delete_file(
+    invocation: &DriveInvocation,
     client: &BlockingClient,
     access_token: &str,
     file_id: &str,
 ) -> Result<(), String> {
+    invocation.ensure_valid()?;
     validate_drive_file_id(file_id)?;
     let response = client
         .delete(format!("{DRIVE_FILES_ENDPOINT}/{file_id}"))
@@ -1015,7 +1235,12 @@ fn blocking_delete_file(
     }
 }
 
-async fn download_file(access_token: &str, file_id: &str) -> Result<Vec<u8>, String> {
+async fn download_file(
+    invocation: &DriveInvocation,
+    access_token: &str,
+    file_id: &str,
+) -> Result<Vec<u8>, String> {
+    invocation.ensure_valid()?;
     validate_drive_file_id(file_id)?;
     let mut response = async_http_client(Duration::from_secs(120), "drive_download_failed")?
         .get(format!("{DRIVE_FILES_ENDPOINT}/{file_id}"))
@@ -1039,6 +1264,7 @@ async fn download_file(access_token: &str, file_id: &str) -> Result<Vec<u8>, Str
         .await
         .map_err(|_| public_error("drive_download_failed"))?
     {
+        invocation.ensure_valid()?;
         if bytes.len() as u64 + chunk.len() as u64 > MAX_DRIVE_DOWNLOAD_BYTES {
             return Err(public_error("drive_archive_too_large"));
         }
@@ -1048,34 +1274,56 @@ async fn download_file(access_token: &str, file_id: &str) -> Result<Vec<u8>, Str
 }
 
 #[tauri::command]
+pub(crate) async fn drive_restore_intent_create(
+    session_proof: String,
+    app: tauri::AppHandle,
+    archive_id: String,
+    job_state: State<'_, BackupJobState>,
+) -> Result<String, String> {
+    let authorization =
+        native_auth::authorize_drive(&app, &session_proof, DriveOperation::BackupRestore)
+            .await?
+            .into_invocation()?;
+    authorization.require_operation(DriveOperation::BackupRestore)?;
+    validate_archive_id(&archive_id)?;
+    job_state.issue_restore_intent(&archive_id)
+}
+
+#[tauri::command]
 pub(crate) async fn drive_restore(
-    client_id: String,
-    user_id: String,
-    device_id: String,
+    session_proof: String,
+    app: tauri::AppHandle,
     file_id: String,
     archive_id: String,
     recovery_phrase: String,
+    restore_intent_id: String,
     app_state: State<'_, crate::AppState>,
     job_state: State<'_, BackupJobState>,
 ) -> Result<RestoreResult, String> {
+    let authorization =
+        native_auth::authorize_drive(&app, &session_proof, DriveOperation::BackupRestore)
+            .await?
+            .into_invocation()?;
+    authorization.require_operation(DriveOperation::BackupRestore)?;
     validate_archive_id(&archive_id)?;
     validate_drive_file_id(&file_id)?;
-    let restore_parent = job_state
-        .restore_parent()
-        .ok_or_else(|| public_error("restore_target_unavailable"))?;
-    if restore_parent.starts_with(&app_state.data_root) {
-        return Err(public_error("restore_target_must_be_outside_app_data"));
+    if restore_intent_id.trim().is_empty() || restore_intent_id.len() > 128 {
+        return Err(public_error("restore_intent_invalid"));
     }
     let guard = job_state
         .acquire_job()
         .map_err(|_| public_error("backup_job_already_running"))?;
-    let token = access_token(&client_id, &user_id, &device_id).await?;
+    let restore_parent = job_state.consume_restore_intent(&restore_intent_id, &archive_id)?;
+    if restore_parent.starts_with(&app_state.data_root) {
+        return Err(public_error("restore_target_must_be_outside_app_data"));
+    }
+    let token = access_token(&authorization).await?;
     let archive_name = format!("{archive_id}{ARCHIVE_SUFFIX}");
     let archive_query = format!(
         "'appDataFolder' in parents and trashed = false and name = '{}'",
         drive_query_literal(&archive_name)
     );
-    let archive_file = list_files(&token, &archive_query)
+    let archive_file = list_files(&authorization, &token, &archive_query)
         .await?
         .into_iter()
         .find(|file| file.id == file_id)
@@ -1086,15 +1334,15 @@ pub(crate) async fn drive_restore(
         "'appDataFolder' in parents and trashed = false and name = '{}'",
         drive_query_literal(&manifest_name)
     );
-    let manifest_file = list_files(&token, &manifest_query)
+    let manifest_file = list_files(&authorization, &token, &manifest_query)
         .await?
         .into_iter()
         .next()
         .ok_or_else(|| public_error("drive_manifest_not_found"))?;
     validate_drive_file_contract(&manifest_file, &archive_id, "manifest", None)?;
     let manifest_file_id = manifest_file.id.clone();
-    let archive_bytes = download_file(&token, &file_id).await?;
-    let manifest_bytes = download_file(&token, &manifest_file_id).await?;
+    let archive_bytes = download_file(&authorization, &token, &file_id).await?;
+    let manifest_bytes = download_file(&authorization, &token, &manifest_file_id).await?;
     let envelope: DriveManifestEnvelope = serde_json::from_slice(&manifest_bytes)
         .map_err(|_| public_error("drive_manifest_invalid"))?;
     if envelope.record.archive_id != archive_id
@@ -1197,9 +1445,7 @@ mod tests {
 
     #[test]
     fn callback_parser_rejects_a_non_callback_path() {
-        let callback = callback_from_request(
-            "GET /other?state=s1&code=c1 HTTP/1.1\r\n\r\n",
-        );
+        let callback = callback_from_request("GET /other?state=s1&code=c1 HTTP/1.1\r\n\r\n");
         assert_eq!(callback.error.as_deref(), Some("invalid_callback"));
         assert!(callback.code.is_none());
     }
@@ -1241,23 +1487,49 @@ mod tests {
             .as_mut()
             .expect("properties")
             .insert("fungKind".to_owned(), "manifest".to_owned());
-        assert!(validate_drive_file_contract(
-            &wrong_kind,
-            "archive-1",
-            "archive",
-            None,
-        )
-        .is_err());
+        assert!(validate_drive_file_contract(&wrong_kind, "archive-1", "archive", None,).is_err());
     }
 
     #[test]
     fn keyring_slot_is_stable_without_exposing_identity() {
-        let slot = keyring_slot("user-a", "device-a");
+        let slot = keyring_slot_for("user-a", "device-a", "fingerprint-a");
         assert!(slot.starts_with("drive-token-"));
         assert_eq!(slot.len(), "drive-token-".len() + 64);
         assert!(!slot.contains("user-a"));
-        assert_eq!(slot, keyring_slot("user-a", "device-a"));
-        assert_ne!(slot, keyring_slot("user-b", "device-a"));
+        assert_eq!(
+            slot,
+            keyring_slot_for("user-a", "device-a", "fingerprint-a")
+        );
+        assert_ne!(
+            slot,
+            keyring_slot_for("user-b", "device-a", "fingerprint-a")
+        );
+        assert_ne!(
+            slot,
+            keyring_slot_for("user-a", "device-b", "fingerprint-a")
+        );
+    }
+
+    #[test]
+    fn oauth_terminal_linearizes_cancel_before_keyring_commit() {
+        let terminal = OAuthTerminal::default();
+        terminal.begin_exchange().unwrap();
+        terminal.cancel().unwrap();
+        assert_eq!(
+            terminal.begin_commit().unwrap_err(),
+            public_error("drive_oauth_cancelled")
+        );
+    }
+
+    #[test]
+    fn oauth_terminal_rejects_cancel_after_commit_begins() {
+        let terminal = OAuthTerminal::default();
+        terminal.begin_exchange().unwrap();
+        terminal.begin_commit().unwrap();
+        assert_eq!(
+            terminal.cancel().unwrap_err(),
+            public_error("drive_oauth_completed")
+        );
     }
 
     #[test]

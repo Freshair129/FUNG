@@ -8,7 +8,6 @@
     "core:window:allow-close",
     "core:window:allow-minimize",
     "dialog:default",
-    "opener:allow-open-url",
     "deep-link:default"
   ]
 }

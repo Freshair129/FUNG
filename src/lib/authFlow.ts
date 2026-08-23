@@ -13,8 +13,8 @@ export async function beginGoogleLogin(redirectTo: string = DEEP_LINK_REDIRECT):
   });
   if (error) throw error;
   if (!data?.url) throw new Error("ไม่ได้รับ URL สำหรับเข้าสู่ระบบ");
-  const { openUrl } = await import("@tauri-apps/plugin-opener");
-  await openUrl(data.url);
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke<void>("open_trusted_auth_url", { url: data.url });
 }
 
 export async function beginLoopbackFallbackLogin(): Promise<void> {

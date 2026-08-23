@@ -18,12 +18,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri_plugin_dialog::DialogExt;
 use thiserror::Error;
+use uuid::Uuid;
 use zeroize::Zeroizing;
 
 const RESTORE_TARGET_PREFIX: &str = "restore-";
+const RESTORE_INTENT_TTL: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub(crate) enum BackupJobError {
@@ -102,6 +104,15 @@ impl Drop for JobGuard {
 pub(crate) struct BackupJobState {
     restore_parent: Arc<Mutex<Option<PathBuf>>>,
     job_running: Arc<AtomicBool>,
+    restore_intent: Arc<Mutex<Option<RestoreIntent>>>,
+}
+
+struct RestoreIntent {
+    id: String,
+    archive_id: String,
+    target_id: String,
+    target: PathBuf,
+    expires_at: Instant,
 }
 
 impl BackupJobState {
@@ -114,6 +125,59 @@ impl BackupJobState {
 
     pub(crate) fn acquire_job(&self) -> Result<JobGuard, BackupJobError> {
         JobGuard::acquire(&self.job_running)
+    }
+
+    pub(crate) fn issue_restore_intent(&self, archive_id: &str) -> Result<String, String> {
+        let target = self
+            .restore_parent()
+            .ok_or_else(|| "restore_target_unavailable".to_owned())?;
+        let target_id = sha256_hex(target.to_string_lossy().as_bytes());
+        let intent = RestoreIntent {
+            id: Uuid::new_v4().to_string(),
+            archive_id: archive_id.to_owned(),
+            target_id,
+            target,
+            expires_at: Instant::now() + RESTORE_INTENT_TTL,
+        };
+        let id = intent.id.clone();
+        self.restore_intent
+            .lock()
+            .map_err(|_| "restore_intent_unavailable".to_owned())?
+            .replace(intent);
+        Ok(id)
+    }
+
+    /// Consume the native archive/target-bound intent before any provider or
+    /// keyring access. A failed restore therefore requires a new explicit
+    /// native intent instead of allowing a replay of the old one.
+    pub(crate) fn consume_restore_intent(
+        &self,
+        intent_id: &str,
+        archive_id: &str,
+    ) -> Result<PathBuf, String> {
+        let target = self
+            .restore_parent()
+            .ok_or_else(|| "restore_target_unavailable".to_owned())?;
+        let target_id = sha256_hex(target.to_string_lossy().as_bytes());
+        let mut guard = self
+            .restore_intent
+            .lock()
+            .map_err(|_| "restore_intent_unavailable".to_owned())?;
+        let valid = guard.as_ref().is_some_and(|intent| {
+            intent.id == intent_id
+                && intent.archive_id == archive_id
+                && intent.target_id == target_id
+                && Instant::now() < intent.expires_at
+        });
+        if !valid {
+            return Err("restore_intent_invalid".to_owned());
+        }
+        let target = guard
+            .as_ref()
+            .map(|intent| intent.target.clone())
+            .ok_or_else(|| "restore_intent_invalid".to_owned())?;
+        *guard = None;
+        Ok(target)
     }
 }
 
@@ -634,6 +698,9 @@ pub(crate) async fn backup_restore_select_target(
         Some(parent) => {
             let target_id = sha256_hex(parent.to_string_lossy().as_bytes());
             *current = Some(parent);
+            if let Ok(mut intent) = job_state.restore_intent.lock() {
+                *intent = None;
+            }
             Ok(RestoreParentStatus {
                 terminal_state: RestoreParentTerminalState::Selected,
                 selected_target_id: Some(target_id),
@@ -1136,5 +1203,32 @@ mod tests {
         );
         drop(guard);
         assert!(JobGuard::acquire(&flag).is_ok());
+    }
+
+    #[test]
+    fn restore_intent_is_bound_to_target_archive_and_consumed_once() {
+        let state = BackupJobState::default();
+        let first_parent = tempfile::tempdir().unwrap();
+        let second_parent = tempfile::tempdir().unwrap();
+        let first_parent = std::fs::canonicalize(first_parent.path()).unwrap();
+        let second_parent = std::fs::canonicalize(second_parent.path()).unwrap();
+        *state.restore_parent.lock().unwrap() = Some(first_parent.clone());
+
+        let intent_id = state.issue_restore_intent("archive-a").unwrap();
+        *state.restore_parent.lock().unwrap() = Some(second_parent);
+        assert_eq!(
+            state.consume_restore_intent(&intent_id, "archive-a"),
+            Err("restore_intent_invalid".to_owned())
+        );
+
+        *state.restore_parent.lock().unwrap() = Some(first_parent.clone());
+        assert_eq!(
+            state.consume_restore_intent(&intent_id, "archive-a"),
+            Ok(first_parent)
+        );
+        assert_eq!(
+            state.consume_restore_intent(&intent_id, "archive-a"),
+            Err("restore_intent_invalid".to_owned())
+        );
     }
 }

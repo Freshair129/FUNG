@@ -10,7 +10,6 @@ use std::{
     thread,
 };
 use tauri::{Manager, State};
-use tauri_plugin_opener::OpenerExt;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -39,6 +38,7 @@ mod local_diarization;
 mod media_fetch;
 mod meeting_intel;
 mod mobile;
+mod native_auth;
 mod native_recorder;
 mod on_device_ai;
 mod policy;
@@ -188,22 +188,11 @@ fn bundled_whisper_model(runtime: &WhisperRuntime) -> Option<PathBuf> {
     Some(runtime_root.join("models").join("small"))
 }
 
-/// Opens the configured FUNG account portal in the system browser. OAuth is
-/// intentionally completed by the hosted web surface; the embedded local
-/// runtime never receives a provider client secret.
+/// Opens the configured FUNG account portal through the native trusted URL
+/// registry. The webview never supplies the destination.
 #[tauri::command]
 fn open_external_account_portal(app: tauri::AppHandle) -> AppResult<()> {
-    let url = env::var("FUNG_WEB_APP_URL")
-        .map_err(|_| AppError::InvalidInput("FUNG_WEB_APP_URL is not configured".to_string()))?;
-    let url = url.trim();
-    if !url.starts_with("https://") {
-        return Err(AppError::InvalidInput(
-            "FUNG_WEB_APP_URL must use https".to_string(),
-        ));
-    }
-    app.opener()
-        .open_url(url, None::<&str>)
-        .map_err(|error| AppError::InvalidInput(format!("could not open account portal: {error}")))
+    native_auth::open_trusted_account_portal(app)
 }
 
 #[derive(Debug, Error)]
@@ -3028,6 +3017,7 @@ pub fn run() {
             start_local_api,
             auth_loopback_listen,
             open_external_account_portal,
+            native_auth::open_trusted_auth_url,
             paired_device_upsert,
             paired_device_list,
             paired_device_revoke,
@@ -3117,6 +3107,7 @@ pub fn run() {
             drive_oauth::drive_disconnect,
             drive_oauth::drive_archives_list,
             drive_oauth::drive_upload_archive,
+            drive_oauth::drive_restore_intent_create,
             drive_oauth::drive_restore,
             tts_provider_register,
             tts_provider_update,

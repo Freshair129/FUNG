@@ -31,28 +31,24 @@ type AuthorizationRequest = {
   nonce?: string;
 };
 
-type DeviceRow = {
+type DeviceKeyRow = {
   id: string;
   user_id: string;
-  platform: string;
-  authority_state: string;
-  enrollment_source: string;
   public_key: string | null;
   public_key_fingerprint: string;
-  revoked_at: string | null;
 };
 
-type ConnectionRow = {
-  id: string;
-  status: string;
-  approved_scopes: unknown;
-  revoked_at: string | null;
-};
-
-type GrantRow = {
-  operation: string;
-  status: string;
-  revoked_at: string | null;
+type AuthorizationDecisionRow = {
+  reservation_id?: string;
+  operation?: string;
+  nonce?: string;
+  authorized?: boolean;
+  denial_code?: string | null;
+  connection_id?: string | null;
+  connection_status?: string;
+  write_grant_status?: string;
+  restore_grant_status?: string;
+  expires_at?: string;
 };
 
 function response(body: Record<string, unknown>, status = 200): Response {
@@ -122,45 +118,15 @@ function canonicalRequest(
   ].join("\n"));
 }
 
-function exactDriveScope(value: unknown): boolean {
-  return Array.isArray(value) && value.length === 1 && value[0] === DRIVE_SCOPE;
-}
-
-function requiredGrant(operation: string): string | null {
-  if (operation === "backup.write") return "backup.write";
-  if (operation === "backup.read" || operation === "backup.restore") {
-    return "backup.restore";
-  }
-  return null;
-}
-
 function grantState(
-  grants: GrantRow[],
   operation: string,
+  status: string,
 ): Record<string, unknown> {
-  const grant = grants.find((candidate) => candidate.operation === operation);
   return {
     operation,
-    active: Boolean(grant && grant.status === "active" && !grant.revoked_at),
-    status: grant?.status ?? "missing",
+    active: status === "active",
+    status,
   };
-}
-
-async function recordDecision(
-  admin: any,
-  reservationId: string,
-  userId: string,
-): Promise<boolean> {
-  const { data, error } = await admin.rpc(
-    "record_oauth_authorization_decision",
-    {
-      p_reservation_id: reservationId,
-      p_user_id: userId,
-      p_decision: "allowed",
-      p_denial_code: null,
-    },
-  );
-  return !error && Boolean(data);
 }
 
 const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
@@ -221,31 +187,24 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
   }
 
   const admin = ctx.supabaseAdmin as any;
-  const { data: devices, error: deviceError } = await admin
+  // The Edge lookup supplies only public-key material for signature
+  // verification. Authoritative device state is rechecked and locked by the
+  // single database authorization RPC after the signature is verified.
+  const { data: deviceRow, error: deviceError } = await admin
     .from("devices")
-    .select(
-      "id,user_id,platform,authority_state,enrollment_source,public_key,public_key_fingerprint,revoked_at",
-    )
+    .select("id,user_id,public_key,public_key_fingerprint")
     .eq("id", deviceId)
     .eq("user_id", userId)
-    .eq("platform", "windows")
-    .eq("authority_state", "drive_trusted")
-    .in("enrollment_source", ["boss_bootstrap", "approved_rebind"])
-    .is("revoked_at", null)
-    .limit(2);
-  if (deviceError || !Array.isArray(devices) || devices.length !== 1) {
+    .maybeSingle();
+  if (deviceError || !deviceRow) {
     return response({ code: "authorization_denied" }, 403);
   }
-  const device = devices[0] as DeviceRow;
+  const device = deviceRow as DeviceKeyRow;
   const registeredPublicKey = device.public_key
     ? decodeBase64(device.public_key)
     : null;
   if (
     device.user_id !== userId ||
-    device.platform !== "windows" ||
-    device.authority_state !== "drive_trusted" ||
-    !["boss_bootstrap", "approved_rebind"].includes(device.enrollment_source) ||
-    device.revoked_at !== null ||
     device.public_key_fingerprint !== deviceFingerprint ||
     !registeredPublicKey ||
     registeredPublicKey.length !== 32 ||
@@ -276,111 +235,43 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
   );
   if (!validSignature) return response({ code: "authorization_denied" }, 403);
 
-  const { data: existingConnection, error: connectionReadError } = await admin
-    .from("oauth_connections")
-    .select("id,status,approved_scopes,revoked_at")
-    .eq("user_id", userId)
-    .eq("provider", PROVIDER)
-    .maybeSingle();
-  if (connectionReadError) {
-    return response({ code: "authorization_unavailable" }, 500);
-  }
-  const connection = existingConnection as ConnectionRow | null;
-  const connectionIsActive = Boolean(
-    connection && connection.status === "active" &&
-      connection.revoked_at === null &&
-      exactDriveScope(connection.approved_scopes),
-  );
-
-  let grants: GrantRow[] = [];
-  if (connection?.id) {
-    const { data, error } = await admin
-      .from("oauth_operation_grants")
-      .select("operation,status,revoked_at")
-      .eq("connection_id", connection.id)
-      .in("operation", ["backup.write", "backup.restore"]);
-    if (error || !Array.isArray(data)) {
-      return response({ code: "authorization_unavailable" }, 500);
-    }
-    grants = data as GrantRow[];
-  }
-
-  const required = requiredGrant(operation);
-  if (
-    required && (!connectionIsActive ||
-      !grants.some((grant) =>
-        grant.operation === required &&
-        grant.status === "active" && grant.revoked_at === null
-      ))
-  ) {
-    return response({ code: "authorization_denied" }, 403);
-  }
-
-  const { data: reservationRows, error: reservationError } = await admin.rpc(
-    "reserve_oauth_authorization",
+  const { data: decisionRows, error: decisionError } = await admin.rpc(
+    "authorize_oauth_request",
     {
       p_user_id: userId,
       p_device_id: device.id,
-      p_connection_id: connection?.id ?? null,
+      p_device_public_key: devicePublicKeyValue,
+      p_device_fingerprint: deviceFingerprint,
       p_operation: operation,
       p_nonce: nonce,
       p_expires_at: new Date(nowMs + AUTHORIZATION_TTL_MS).toISOString(),
     },
   );
   if (
-    reservationError || !Array.isArray(reservationRows) ||
-    reservationRows.length !== 1
+    decisionError || !Array.isArray(decisionRows) || decisionRows.length !== 1
   ) {
     return response({ code: "authorization_unavailable" }, 500);
   }
-  const reservation = reservationRows[0] as {
-    reservation_id?: string;
-    won?: boolean;
-  };
-  if (!reservation.reservation_id) {
+  const decision = decisionRows[0] as AuthorizationDecisionRow;
+  if (
+    !decision.reservation_id ||
+    decision.operation !== operation ||
+    decision.nonce !== nonce ||
+    typeof decision.authorized !== "boolean"
+  ) {
     return response({ code: "authorization_unavailable" }, 500);
   }
-  if (reservation.won !== true) {
-    return response({ code: "authorization_replayed" }, 409);
+  if (!decision.authorized) {
+    return response(
+      { code: decision.denial_code ?? "authorization_denied" },
+      decision.denial_code === "authorization_replayed" ? 409 : 403,
+    );
   }
 
-  let connectionId = connection?.id ?? null;
-  if (operation === "connection.activate") {
-    const { data, error } = await admin
-      .from("oauth_connections")
-      .upsert({
-        user_id: userId,
-        provider: PROVIDER,
-        approved_scopes: [DRIVE_SCOPE],
-        status: "active",
-        connected_at: new Date(nowMs).toISOString(),
-        revoked_at: null,
-        last_authorized_at: new Date(nowMs).toISOString(),
-      }, { onConflict: "user_id,provider" })
-      .select("id")
-      .single();
-    if (error || !data?.id) {
-      return response({ code: "authorization_unavailable" }, 500);
-    }
-    connectionId = data.id as string;
-  } else if (operation === "connection.revoke" && connection?.id) {
-    const { error } = await admin
-      .from("oauth_connections")
-      .update({ status: "revoked", revoked_at: new Date(nowMs).toISOString() })
-      .eq("id", connection.id)
-      .eq("user_id", userId)
-      .eq("provider", PROVIDER);
-    if (error) return response({ code: "authorization_unavailable" }, 500);
-    grants = grants.map((grant) => ({
-      ...grant,
-      status: "revoked",
-      revoked_at: new Date(nowMs).toISOString(),
-    }));
-  }
-
-  if (!await recordDecision(admin, reservation.reservation_id, userId)) {
-    return response({ code: "authorization_unavailable" }, 500);
-  }
+  const connectionId = decision.connection_id ?? null;
+  const connectionStatus = decision.connection_status ?? "disconnected";
+  const writeGrantStatus = decision.write_grant_status ?? "missing";
+  const restoreGrantStatus = decision.restore_grant_status ?? "missing";
 
   const auditEvent = operation === "connection.activate"
     ? "authorization_completed"
@@ -402,13 +293,6 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
     });
   if (auditError) return response({ code: "authorization_unavailable" }, 500);
 
-  const connectionStatus = operation === "connection.activate"
-    ? "active"
-    : operation === "connection.revoke"
-    ? "revoked"
-    : connection
-    ? (connectionIsActive ? "active" : connection.status)
-    : "disconnected";
   return response({
     authorized: true,
     provider: PROVIDER,
@@ -417,8 +301,8 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
     deviceFingerprint,
     connectionId,
     connectionStatus,
-    writeGrant: grantState(grants, "backup.write"),
-    restoreGrant: grantState(grants, "backup.restore"),
+    writeGrant: grantState("backup.write", writeGrantStatus),
+    restoreGrant: grantState("backup.restore", restoreGrantStatus),
     operation,
     expiresAtMs: nowMs + AUTHORIZATION_TTL_MS,
     nonce,

@@ -106,6 +106,46 @@ begin
   end if;
 
   if has_function_privilege(
+      'public', 'public.is_drive_authorized_desktop(uuid, uuid)', 'EXECUTE'
+    )
+    or has_function_privilege(
+      'anon', 'public.is_drive_authorized_desktop(uuid, uuid)', 'EXECUTE'
+    )
+    or has_function_privilege(
+      'authenticated', 'public.is_drive_authorized_desktop(uuid, uuid)',
+      'EXECUTE'
+    )
+    or not has_function_privilege(
+      'service_role', 'public.is_drive_authorized_desktop(uuid, uuid)',
+      'EXECUTE'
+    ) then
+    raise exception 'Drive predicate function privilege posture is unsafe';
+  end if;
+
+  if has_function_privilege(
+      'public',
+      'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)',
+      'EXECUTE'
+    )
+    or has_function_privilege(
+      'anon',
+      'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)',
+      'EXECUTE'
+    )
+    or has_function_privilege(
+      'authenticated',
+      'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)',
+      'EXECUTE'
+    )
+    or not has_function_privilege(
+      'service_role',
+      'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)',
+      'EXECUTE'
+    ) then
+    raise exception 'atomic authorization function privilege posture is unsafe';
+  end if;
+
+  if has_function_privilege(
       'public', 'public.grant_oauth_operation(uuid, text)', 'EXECUTE'
     )
     or has_function_privilege(
@@ -138,7 +178,8 @@ begin
     'public.create_device_enrollment_request(uuid, text, text, text, text, text)',
     'public.register_pairing_device(uuid, text, text, text, text)',
     'public.revoke_device_for_user(uuid, uuid)',
-    'public.reserve_oauth_authorization(uuid, uuid, uuid, text, uuid, timestamptz)',
+    'public.is_drive_authorized_desktop(uuid, uuid)',
+    'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)',
     'public.approve_bootstrap_enrollment(uuid)',
     'public.approve_rebind_enrollment(uuid, uuid)',
     'public.create_pairing_session(uuid, text, uuid)',
@@ -147,8 +188,7 @@ begin
     'public.revoke_oauth_operation_grants_on_connection_change()',
     'public.revoke_oauth_operation_grants_on_device_change()',
     'public.grant_oauth_operation(uuid, text)',
-    'public.revoke_oauth_operation_grant(uuid, text)',
-    'public.record_oauth_authorization_decision(uuid, uuid, text, text)'
+    'public.revoke_oauth_operation_grant(uuid, text)'
   ] loop
     select p.proconfig
       into v_config
@@ -179,17 +219,19 @@ begin
   if not exists (
     select 1
     from pg_proc
-    where oid = 'public.reserve_oauth_authorization(uuid,uuid,uuid,text,uuid,timestamptz)'::regprocedure
+    where oid = 'public.authorize_oauth_request(uuid,uuid,text,text,text,uuid,timestamptz)'::regprocedure
       and pg_get_functiondef(oid) ilike '%on conflict%do nothing%returning%'
+      and pg_get_functiondef(oid) ilike '%for update%'
+      and pg_get_functiondef(oid) ilike '%oauth_authorization_decisions%'
   ) then
-    raise exception 'atomic reservation primitive is missing';
+    raise exception 'atomic authorization transaction is missing';
   end if;
 end;
 $$;
 
 -- Manual staging adversarial evidence, executed by the DB owner only:
--- run at least 50 identical reserve calls concurrently through separate
--- Edge workers and assert one returned won=true, one protected operation at
--- most, and no audit row was used as the lock.
+-- run at least 50 identical authorize_oauth_request calls concurrently through
+-- separate Edge workers and assert one allowed protected operation at most,
+-- no post-lock revocation bypass, and no audit row used as the lock.
 
 ROLLBACK;

@@ -1,6 +1,8 @@
 -- W1-A-F4-S1: independent Drive operation grants and durable authorization
 -- reservation. This migration contains no project reference and no deploy step.
 
+BEGIN;
+
 CREATE TABLE public.oauth_operation_grants (id uuid PRIMARY KEY DEFAULT
   gen_random_uuid(), user_id uuid NOT NULL REFERENCES public.profiles (id) ON
   DELETE CASCADE, connection_id uuid NOT NULL REFERENCES
@@ -222,17 +224,44 @@ $$;
 revoke execute ON function public.revoke_oauth_operation_grant(uuid, text)
 FROM public, anon, authenticated, service_role;
 
--- One atomic durable reservation primitive. A conflict returns won=false;
--- it never falls back to an audit read or an isolate-local replay map.
-CREATE function public.reserve_oauth_authorization(p_user_id uuid, p_device_id
-  uuid, p_connection_id uuid, p_operation text, p_nonce uuid, p_expires_at
-  timestamptz) returns table(reservation_id uuid, won boolean) language plpgsql
-  security definer SET search_path = pg_catalog, public, pg_temp AS $$
+-- A signed request is authorized, reserved, and decided in one database
+-- transaction. Lock order: device -> connection -> operation grants -> nonce
+-- reservation -> decision. The serialization order is device -> connection -> operation
+-- grants (write, then restore) -> nonce reservation -> decision. Revocation
+-- paths lock the same authoritative rows before changing their state; audit
+-- rows are never part of this authority boundary.
+CREATE function public.authorize_oauth_request(p_user_id uuid, p_device_id uuid,
+  p_device_public_key text, p_device_fingerprint text, p_operation text, p_nonce
+  uuid, p_expires_at timestamptz) returns table(reservation_id uuid, operation
+  text, nonce uuid, authorized boolean, denial_code text, connection_id uuid,
+  connection_status text, write_grant_status text, restore_grant_status text,
+  expires_at timestamptz) language plpgsql security definer SET search_path =
+  pg_catalog, public, pg_temp AS $$
 declare
+  v_device public.devices%rowtype;
+  v_connection public.oauth_connections%rowtype;
+  v_write_grant public.oauth_operation_grants%rowtype;
+  v_restore_grant public.oauth_operation_grants%rowtype;
+  v_existing_reservation public.oauth_authorization_reservations%rowtype;
   v_reservation_id uuid;
+  v_connection_id uuid;
+  v_required_operation text;
+  v_denial_code text;
+  v_connection_status text := 'disconnected';
+  v_write_grant_status text := 'missing';
+  v_restore_grant_status text := 'missing';
+  v_connection_found boolean := false;
+  v_connection_active boolean := false;
+  v_device_authorized boolean := false;
+  v_write_grant_found boolean := false;
+  v_restore_grant_found boolean := false;
+  v_authorized boolean := false;
 begin
   if p_user_id is null
     or p_device_id is null
+    or p_device_public_key is null
+    or p_device_fingerprint is null
+    or p_device_fingerprint !~* '^[0-9a-f]{64}$'
     or p_operation not in (
       'connection.authorize',
       'connection.activate',
@@ -245,9 +274,109 @@ begin
     or p_nonce is null
     or p_expires_at <= pg_catalog.now()
     or p_expires_at > pg_catalog.now() + pg_catalog.make_interval(mins => 2) then
-    raise exception 'invalid_authorization_reservation';
+    raise exception 'invalid_authorization_request';
   end if;
 
+  -- Lock the device before reading any other authority row. The predicate is
+  -- evaluated again here after Edge signature verification, not trusted from
+  -- the earlier public-key lookup.
+  select * into v_device
+  from public.devices
+  where id = p_device_id
+    and user_id = p_user_id
+  for update;
+  if found then
+    begin
+      v_device_authorized := coalesce(
+        public.is_drive_authorized_desktop(p_user_id, p_device_id),
+        false
+      )
+      and v_device.public_key = p_device_public_key
+      and v_device.public_key_fingerprint = p_device_fingerprint;
+    exception when others then
+      v_device_authorized := false;
+    end;
+  end if;
+
+  -- Lock the account's exact-provider connection next. Missing or inactive
+  -- connection state is returned as data for status operations and is a deny
+  -- for backup operations below.
+  select * into v_connection
+  from public.oauth_connections
+  where user_id = p_user_id
+    and provider = 'google_drive'
+  for update;
+  v_connection_found := found;
+  if v_connection_found then
+    v_connection_id := v_connection.id;
+    v_connection_status := coalesce(v_connection.status, 'unknown');
+    if v_connection.status = 'active'
+      and v_connection.revoked_at is null
+      and v_connection.approved_scopes = ARRAY[
+        'https://www.googleapis.com/auth/drive.appdata'
+      ]::text[] then
+      v_connection_active := true;
+      v_connection_status := 'active';
+    end if;
+  end if;
+
+  -- Lock both independent grants in deterministic order. The latest row is
+  -- the current state when historical revoked rows are retained.
+  if v_connection_found then
+    select * into v_write_grant
+    from public.oauth_operation_grants
+    where user_id = p_user_id
+      and connection_id = v_connection.id
+      and operation = 'backup.write'
+    order by (status = 'active') desc, granted_at desc, id desc
+    limit 1
+    for update;
+    v_write_grant_found := found;
+    if v_write_grant_found then
+      v_write_grant_status := v_write_grant.status;
+    end if;
+
+    select * into v_restore_grant
+    from public.oauth_operation_grants
+    where user_id = p_user_id
+      and connection_id = v_connection.id
+      and operation = 'backup.restore'
+    order by (status = 'active') desc, granted_at desc, id desc
+    limit 1
+    for update;
+    v_restore_grant_found := found;
+    if v_restore_grant_found then
+      v_restore_grant_status := v_restore_grant.status;
+    end if;
+  end if;
+
+  v_required_operation := case p_operation
+    when 'backup.write' then 'backup.write'
+    when 'backup.read' then 'backup.restore'
+    when 'backup.restore' then 'backup.restore'
+    else null
+  end;
+
+  if v_device_authorized is distinct from true then
+    v_denial_code := 'device_not_authorized';
+  elsif v_required_operation is not null
+    and v_connection_active is distinct from true then
+    v_denial_code := 'connection_not_active_or_exact_scope';
+  elsif v_required_operation = 'backup.write'
+    and (v_write_grant_found is distinct from true
+      or v_write_grant.status <> 'active'
+      or v_write_grant.revoked_at is not null) then
+    v_denial_code := 'backup_write_grant_missing';
+  elsif v_required_operation = 'backup.restore'
+    and (v_restore_grant_found is distinct from true
+      or v_restore_grant.status <> 'active'
+      or v_restore_grant.revoked_at is not null) then
+    v_denial_code := 'backup_restore_grant_missing';
+  end if;
+  v_authorized := v_denial_code is null;
+
+  -- The unique nonce insert is the only replay winner. A conflict is locked
+  -- and returned as denied; it never falls through to audit or a second RPC.
   insert into public.oauth_authorization_reservations (
     nonce,
     user_id,
@@ -259,60 +388,33 @@ begin
     p_nonce,
     p_user_id,
     p_device_id,
-    p_connection_id,
+    v_connection_id,
     p_operation,
     p_expires_at
   )
   on conflict (nonce) do nothing
   returning id into v_reservation_id;
 
-  if v_reservation_id is not null then
-    return query select v_reservation_id, true;
+  if v_reservation_id is null then
+    select * into v_existing_reservation
+    from public.oauth_authorization_reservations
+    where nonce = p_nonce
+    for update;
+    if not found then
+      raise exception 'authorization_reservation_unavailable';
+    end if;
+    return query select
+      v_existing_reservation.id,
+      v_existing_reservation.operation,
+      v_existing_reservation.nonce,
+      false,
+      'authorization_replayed'::text,
+      v_connection_id,
+      v_connection_status,
+      v_write_grant_status,
+      v_restore_grant_status,
+      v_existing_reservation.expires_at;
     return;
-  end if;
-
-  select id into v_reservation_id
-  from public.oauth_authorization_reservations
-  where nonce = p_nonce;
-  return query select v_reservation_id, false;
-end;
-$$;
-
-revoke execute ON function public.reserve_oauth_authorization(uuid, uuid, uuid,
-  text, uuid, timestamptz)
-FROM public, anon, authenticated;
-grant execute ON function public.reserve_oauth_authorization(uuid, uuid, uuid,
-  text, uuid, timestamptz) TO service_role;
-
--- The winner records one server decision and closes its reservation. This is
--- intentionally separate from oauth_audit_events, which is never a lock.
-CREATE function public.record_oauth_authorization_decision(p_reservation_id
-  uuid, p_user_id uuid, p_decision text, p_denial_code text DEFAULT NULL)
-  returns uuid language plpgsql security definer SET search_path = pg_catalog,
-  public, pg_temp AS $$
-declare
-  v_reservation public.oauth_authorization_reservations%rowtype;
-  v_decision_id uuid;
-begin
-  if p_decision not in ('allowed', 'denied')
-    or (p_decision = 'denied' and p_denial_code is null)
-    or (p_decision = 'allowed' and p_denial_code is not null) then
-    raise exception 'invalid_authorization_decision';
-  end if;
-
-  select * into v_reservation
-  from public.oauth_authorization_reservations
-  where id = p_reservation_id
-    and user_id = p_user_id
-  for update;
-  if not found or v_reservation.status <> 'reserved' then
-    raise exception 'authorization_reservation_unavailable';
-  end if;
-  if v_reservation.expires_at <= pg_catalog.now() then
-    update public.oauth_authorization_reservations
-    set status = 'expired'
-    where id = p_reservation_id;
-    raise exception 'authorization_reservation_expired';
   end if;
 
   insert into public.oauth_authorization_decisions (
@@ -321,25 +423,76 @@ begin
     decision,
     denial_code
   ) values (
-    p_reservation_id,
+    v_reservation_id,
     p_user_id,
-    p_decision,
-    p_denial_code
-  )
-  returning id into v_decision_id;
+    case when v_authorized then 'allowed' else 'denied' end,
+    v_denial_code
+  );
 
   update public.oauth_authorization_reservations
-  set status = p_decision
-  where id = p_reservation_id;
-  return v_decision_id;
+  set status = case when v_authorized then 'allowed' else 'denied' end
+  where id = v_reservation_id;
+
+  -- Connection state transitions remain inside the same authorization
+  -- transaction. Reactivation never recreates revoked operation grants.
+  if v_authorized and p_operation = 'connection.activate' then
+    insert into public.oauth_connections (
+      user_id,
+      provider,
+      approved_scopes,
+      status,
+      connected_at,
+      revoked_at,
+      last_authorized_at
+    ) values (
+      p_user_id,
+      'google_drive',
+      ARRAY['https://www.googleapis.com/auth/drive.appdata']::text[],
+      'active',
+      pg_catalog.now(),
+      null,
+      pg_catalog.now()
+    )
+    on conflict (user_id, provider) do update
+    set approved_scopes = excluded.approved_scopes,
+        status = excluded.status,
+        connected_at = excluded.connected_at,
+        revoked_at = null,
+        last_authorized_at = excluded.last_authorized_at
+    returning id into v_connection_id;
+    v_connection_active := true;
+    v_connection_status := 'active';
+  elsif v_authorized and p_operation = 'connection.revoke'
+    and v_connection_found then
+    update public.oauth_connections
+    set status = 'revoked',
+        revoked_at = coalesce(revoked_at, pg_catalog.now())
+    where id = v_connection.id;
+    v_connection_active := false;
+    v_connection_status := 'revoked';
+    if v_write_grant_found then v_write_grant_status := 'revoked'; end if;
+    if v_restore_grant_found then v_restore_grant_status := 'revoked'; end if;
+  end if;
+
+  return query select
+    v_reservation_id,
+    p_operation,
+    p_nonce,
+    v_authorized,
+    v_denial_code,
+    v_connection_id,
+    v_connection_status,
+    v_write_grant_status,
+    v_restore_grant_status,
+    p_expires_at;
 end;
 $$;
 
-revoke execute ON function public.record_oauth_authorization_decision(uuid,
-  uuid, text, text)
-FROM public, anon, authenticated;
-grant execute ON function public.record_oauth_authorization_decision(uuid, uuid,
-  text, text) TO service_role;
+revoke execute ON function public.authorize_oauth_request(uuid, uuid, text,
+  text, text, uuid, timestamptz)
+FROM public, anon, authenticated, service_role;
+grant execute ON function public.authorize_oauth_request(uuid, uuid, text, text,
+  text, uuid, timestamptz) TO service_role;
 
 comment ON TABLE public.oauth_operation_grants IS
   'Operator-issued independent backup.write and backup.restore grants; connection state is not a grant.';
@@ -347,3 +500,5 @@ comment ON TABLE public.oauth_authorization_reservations IS
   'Durable unique nonce reservation. It is the replay lock; audit rows are not.';
 comment ON TABLE public.oauth_authorization_decisions IS
   'Server-created authorization outcome linkage for a winning reservation.';
+
+COMMIT;

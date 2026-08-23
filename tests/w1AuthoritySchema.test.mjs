@@ -57,11 +57,34 @@ test("W1 operation grants are independent and replay reservation is durable", ()
   assert.match(sql, /unique[^;]*nonce/is);
   assert.match(sql, /insert\s+into\s+public\.oauth_authorization_reservations[\s\S]*on\s+conflict\s+\([^)]*nonce[^)]*\)\s+do\s+nothing[\s\S]*returning/is);
   assert.match(sql, /oauth_authorization_decisions/i);
-  assert.match(sql, /revoke\s+execute[^;]*reserve_oauth_authorization[^;]*public[^;]*anon[^;]*authenticated/is);
+  assert.match(sql, /revoke\s+execute[^;]*authorize_oauth_request[^;]*public[^;]*anon[^;]*authenticated/is);
+  assert.match(sql, /authorize_oauth_request/i);
   assert.match(sql, /revoke_oauth_operation_grant/i);
   assert.match(sql, /connection[^;]*revok[^;]*oauth_operation_grants/is);
   assert.match(sql, /device[^;]*revok[^;]*oauth_operation_grants/is);
   assert.match(sql, /device_revokes_oauth_operation_grants/i);
+});
+
+test("W1 migrations and authorization decision have one explicit transaction boundary", () => {
+  for (const sql of [enrollmentMigration(), policyMigration()]) {
+    const lines = sql.split(/\r?\n/).map((line) => line.trim());
+    const firstCodeLine = lines.find((line) => line && !line.startsWith("--"));
+    const lastCodeLine = [...lines].reverse().find((line) =>
+      line && !line.startsWith("--")
+    );
+    assert.equal(firstCodeLine, "BEGIN;");
+    assert.equal(lastCodeLine, "COMMIT;");
+  }
+
+  const sql = policyMigration();
+  assert.match(sql, /authorize_oauth_request\s*\(/i);
+  assert.match(sql, /lock order[^\r\n]*device[^\r\n]*connection[^\r\n]*grant[^\r\n]*nonce/i);
+  assert.match(sql, /authorize_oauth_request[\s\S]*from\s+public\.devices[\s\S]*for update/is);
+  assert.match(sql, /authorize_oauth_request[\s\S]*from\s+public\.oauth_connections[\s\S]*for update/is);
+  assert.match(sql, /authorize_oauth_request[\s\S]*from\s+public\.oauth_operation_grants[\s\S]*for update/is);
+  assert.match(sql, /authorize_oauth_request[\s\S]*insert\s+into\s+public\.oauth_authorization_reservations[\s\S]*on conflict\s*\(nonce\)\s*do nothing[\s\S]*returning/is);
+  assert.match(sql, /authorize_oauth_request[\s\S]*insert\s+into\s+public\.oauth_authorization_decisions/is);
+  assert.match(sql, /authorize_oauth_request[\s\S]*is_drive_authorized_desktop/is);
 });
 
 test("Drive Edge authority uses the exact device predicate, grants, and RPC lock", () => {
@@ -71,20 +94,24 @@ test("Drive Edge authority uses the exact device predicate, grants, and RPC lock
 
   assert.match(authorize, /npm:@supabase\/server@1\.4\.1/);
   assert.match(authorize, /deviceId/);
-  assert.match(authorize, /platform["']?\s*[,)]?\s*["']windows["']/i);
-  assert.match(authorize, /drive_trusted/);
-  assert.match(authorize, /boss_bootstrap/);
-  assert.match(authorize, /approved_rebind/);
-  assert.match(authorize, /revoked_at/);
-  assert.match(authorize, /oauth_operation_grants/);
+  assert.match(authorize, /public_key/);
   assert.match(authorize, /backup\.write/);
   assert.match(authorize, /backup\.restore/);
-  assert.match(authorize, /reserve_oauth_authorization/);
   assert.match(authorize, /connectionStatus/);
   assert.match(authorize, /writeGrant/);
   assert.match(authorize, /restoreGrant/);
   assert.doesNotMatch(authorize, /replayedNonces|purgeReplay|priorAudit|new\s+Map/);
   assert.doesNotMatch(authorize, /from\(["']oauth_audit_events["']\)\s*\n?\s*\.select/s);
+
+  assert.match(authorize, /authorize_oauth_request/);
+  assert.doesNotMatch(authorize, /reserve_oauth_authorization/);
+  assert.doesNotMatch(authorize, /record_oauth_authorization_decision/);
+  assert.doesNotMatch(authorize, /recordDecision/);
+  assert.doesNotMatch(authorize, /from\(["']oauth_connections["']\)\s*\n?\s*\.select/s);
+  assert.doesNotMatch(authorize, /from\(["']oauth_operation_grants["']\)/s);
+  const signatureIndex = authorize.indexOf("const validSignature");
+  const decisionRpcIndex = authorize.indexOf("authorize_oauth_request");
+  assert.ok(signatureIndex >= 0 && decisionRpcIndex > signatureIndex);
 
   assert.match(metadata, /npm:@supabase\/server@1\.4\.1/);
   assert.doesNotMatch(metadata, /oauth_operation_grants|reserve_oauth_authorization|approve_bootstrap_enrollment/);
@@ -100,6 +127,8 @@ test("Committed SQL evidence covers privileges, fixed search paths, and no proje
   assert.match(sql, /proconfig/i);
   assert.match(sql, /service_role/i);
   assert.match(sql, /pg_catalog,\s*public,\s*pg_temp/i);
+  assert.match(sql, /has_function_privilege[\s\S]*is_drive_authorized_desktop/i);
+  assert.match(sql, /is_drive_authorized_desktop\(uuid, uuid\)[\s\S]*search_path/i);
   assert.match(sql, /concurrent|50/i);
   assert.doesNotMatch(sql, /--project-ref\s+[A-Za-z0-9_-]+/i);
 });

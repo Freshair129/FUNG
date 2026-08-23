@@ -2,6 +2,8 @@
 -- This migration is project-agnostic. It contains no project reference and
 -- must be applied only after a separately approved, read-only preflight.
 
+BEGIN;
+
 DO $$
 BEGIN
   IF EXISTS (
@@ -803,3 +805,5 @@ comment ON COLUMN public.devices.enrollment_source IS
   'Server-controlled source. Only boss_bootstrap or approved_rebind can satisfy Drive authority.';
 comment ON TABLE public.device_enrollment_requests IS
   'Non-authoritative pending requests; never a trusted device or Drive grant.';
+
+COMMIT;

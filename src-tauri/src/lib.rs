@@ -23,6 +23,7 @@ mod cloud_config;
 mod cloud_executor;
 mod device_identity;
 mod diarization;
+mod drive_oauth;
 mod external_mcp;
 mod external_mcp_commands;
 mod external_mcp_transport;
@@ -2988,6 +2989,7 @@ pub fn run() {
             app.manage(state);
             app.manage(filesystem_backup::FilesystemBackupState::default());
             app.manage(backup::BackupJobState::default());
+            app.manage(drive_oauth::DriveOAuthState::default());
 
             // The worker starts only now: its handlers reach back into
             // AppState, so it must not run before the state is managed.
@@ -3108,6 +3110,14 @@ pub fn run() {
             backup::backup_restore,
             backup::backup_restore_select_target,
             filesystem_backup::filesystem_backup_select_root,
+            drive_oauth::drive_oauth_start,
+            drive_oauth::drive_oauth_complete,
+            drive_oauth::drive_oauth_cancel,
+            drive_oauth::drive_connection_status,
+            drive_oauth::drive_disconnect,
+            drive_oauth::drive_archives_list,
+            drive_oauth::drive_upload_archive,
+            drive_oauth::drive_restore,
             tts_provider_register,
             tts_provider_update,
             tts_provider_toggle,

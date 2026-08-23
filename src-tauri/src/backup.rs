@@ -78,10 +78,10 @@ pub(crate) enum BackupJobError {
 const GENESIS_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
 
 /// Guard that serializes backup/restore jobs and always releases the flag.
-struct JobGuard(Arc<AtomicBool>);
+pub(crate) struct JobGuard(Arc<AtomicBool>);
 
 impl JobGuard {
-    fn acquire(flag: &Arc<AtomicBool>) -> Result<Self, BackupJobError> {
+    pub(crate) fn acquire(flag: &Arc<AtomicBool>) -> Result<Self, BackupJobError> {
         if flag
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
@@ -110,6 +110,10 @@ impl BackupJobState {
             .lock()
             .ok()
             .and_then(|parent| parent.clone())
+    }
+
+    pub(crate) fn acquire_job(&self) -> Result<JobGuard, BackupJobError> {
+        JobGuard::acquire(&self.job_running)
     }
 }
 
@@ -385,6 +389,37 @@ pub(crate) fn run_restore_job(
 
     let envelope = filesystem_backup::read_archive_envelope_at_root(root, archive_id)
         .map_err(BackupJobError::ArchiveUnavailable)?;
+    run_restore_job_from_envelope(envelope, &restore_parent, work_dir, recovery_phrase)
+}
+
+/// Restore an already authenticated transport envelope into the selected
+/// clean target. External transports must validate the archive manifest and
+/// digest before calling this function; this boundary only accepts the
+/// decrypted payload and keeps the existing restore-side safety checks.
+pub(crate) fn run_restore_job_from_envelope(
+    envelope: backup_archive::ArchiveEnvelope,
+    restore_parent: &Path,
+    work_dir: &Path,
+    recovery_phrase: &str,
+) -> Result<RestoreResult, BackupJobError> {
+    let parent_metadata = fs::symlink_metadata(restore_parent)
+        .map_err(|_| BackupJobError::RestoreParentUnavailable)?;
+    if parent_metadata.file_type().is_symlink() || !parent_metadata.is_dir() {
+        return Err(BackupJobError::RestoreParentUnavailable);
+    }
+    let restore_parent =
+        fs::canonicalize(restore_parent).map_err(|_| BackupJobError::RestoreParentUnavailable)?;
+    let archive_id = envelope.manifest.archive_id.as_str();
+    if archive_id.is_empty()
+        || archive_id.len() > 128
+        || !archive_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+    {
+        return Err(BackupJobError::ArchiveUnavailable(
+            FilesystemBackupError::InvalidArchiveId,
+        ));
+    }
     let expected_bundle_digest = envelope.manifest.source_manifest_digest.clone();
 
     // Authenticate and decrypt fully before any restore-side mutation.

@@ -281,6 +281,21 @@ declare
   v_count bigint;
   v_replay_nonce bytea := pg_catalog.decode(repeat('34', 32), 'hex');
   v_replay_nonce_hash text;
+  v_wrong_field_nonce_hash text := encode(
+    pg_catalog.sha256(pg_catalog.decode(repeat('56', 32), 'hex')), 'hex'
+  );
+  v_expired_nonce_hash text := encode(
+    pg_catalog.sha256(pg_catalog.decode(repeat('67', 32), 'hex')), 'hex'
+  );
+  v_skew_nonce_hash text := encode(
+    pg_catalog.sha256(pg_catalog.decode(repeat('78', 32), 'hex')), 'hex'
+  );
+  v_tamper_nonce_hash text := encode(
+    pg_catalog.sha256(pg_catalog.decode(repeat('89', 32), 'hex')), 'hex'
+  );
+  v_foreign_nonce_hash text := encode(
+    pg_catalog.sha256(pg_catalog.decode(repeat('9a', 32), 'hex')), 'hex'
+  );
 begin
   v_public_key := encode(v_public_bytes, 'base64');
   v_fingerprint := encode(pg_catalog.sha256(v_public_bytes), 'hex');
@@ -360,6 +375,98 @@ begin
   where nonce_hash = pg_catalog.decode(v_replay_nonce_hash, 'hex');
   if v_count <> 0 then
     raise exception 'failed identity validation retained a nonce reservation';
+  end if;
+
+  begin
+    perform public.create_device_enrollment_request(
+      v_user_id, 'W1 wrong version', 'windows', v_public_key, v_fingerprint,
+      2, 'device.enrollment.request', v_wrong_field_nonce_hash,
+      v_issued_at_ms, v_expires_at_ms, v_envelope_hash, v_signature
+    );
+    raise exception 'wrong proof version was accepted';
+  exception when others then
+    if sqlerrm <> 'invalid_enrollment_proof' then
+      raise;
+    end if;
+  end;
+
+  begin
+    perform public.create_device_enrollment_request(
+      v_user_id, 'W1 wrong platform', 'linux', v_public_key, v_fingerprint,
+      1, 'device.enrollment.request', v_wrong_field_nonce_hash,
+      v_issued_at_ms, v_expires_at_ms, v_envelope_hash, v_signature
+    );
+    raise exception 'wrong proof platform was accepted';
+  exception when others then
+    if sqlerrm <> 'invalid_enrollment_proof' then
+      raise;
+    end if;
+  end;
+
+  begin
+    perform public.create_device_enrollment_request(
+      v_user_id, 'W1 expired proof', 'windows', v_public_key, v_fingerprint,
+      1, 'device.enrollment.request', v_expired_nonce_hash,
+      v_issued_at_ms, v_issued_at_ms - 1, v_envelope_hash, v_signature
+    );
+    raise exception 'expired proof was accepted';
+  exception when others then
+    if sqlerrm <> 'invalid_enrollment_proof' then
+      raise;
+    end if;
+  end;
+
+  begin
+    perform public.create_device_enrollment_request(
+      v_user_id, 'W1 future proof', 'windows', v_public_key, v_fingerprint,
+      1, 'device.enrollment.request', v_skew_nonce_hash,
+      v_issued_at_ms + 60000, v_issued_at_ms + 360000,
+      v_envelope_hash, v_signature
+    );
+    raise exception 'future-skewed proof was accepted';
+  exception when others then
+    if sqlerrm <> 'invalid_enrollment_proof' then
+      raise;
+    end if;
+  end;
+
+  begin
+    perform public.create_device_enrollment_request(
+      v_user_id, 'W1 tampered key', 'windows',
+      encode(pg_catalog.decode(repeat('ac', 32), 'hex'), 'base64'),
+      v_fingerprint, 1, 'device.enrollment.request', v_tamper_nonce_hash,
+      v_issued_at_ms, v_expires_at_ms, v_envelope_hash, v_signature
+    );
+    raise exception 'tampered key proof was accepted';
+  exception when others then
+    if sqlerrm <> 'invalid_enrollment_proof' then
+      raise;
+    end if;
+  end;
+
+  begin
+    perform public.create_device_enrollment_request(
+      '00000000-0000-0000-0000-000000000002', 'W1 foreign profile', 'windows',
+      v_public_key, v_fingerprint, 1, 'device.enrollment.request',
+      v_foreign_nonce_hash, v_issued_at_ms, v_expires_at_ms,
+      v_envelope_hash, v_signature
+    );
+    raise exception 'foreign profile proof was accepted';
+  exception when foreign_key_violation then
+    null;
+  end;
+
+  select count(*) into v_count
+  from public.device_enrollment_proof_reservations
+  where nonce_hash in (
+    pg_catalog.decode(v_wrong_field_nonce_hash, 'hex'),
+    pg_catalog.decode(v_expired_nonce_hash, 'hex'),
+    pg_catalog.decode(v_skew_nonce_hash, 'hex'),
+    pg_catalog.decode(v_tamper_nonce_hash, 'hex'),
+    pg_catalog.decode(v_foreign_nonce_hash, 'hex')
+  );
+  if v_count <> 0 then
+    raise exception 'invalid proof path mutated nonce reservations';
   end if;
 end;
 $$;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,7 +51,23 @@ const waitForPostgres = (container) => {
       "postgres",
     ]);
     if (ready.status === 0 && /accepting connections/i.test(ready.stdout ?? "")) {
-      return;
+      const confirmationBuffer = new Int32Array(new SharedArrayBuffer(4));
+      Atomics.wait(confirmationBuffer, 0, 0, 250);
+      const confirmation = docker([
+        "exec",
+        container,
+        "pg_isready",
+        "-U",
+        "postgres",
+        "-d",
+        "postgres",
+      ]);
+      if (
+        confirmation.status === 0 &&
+        /accepting connections/i.test(confirmation.stdout ?? "")
+      ) {
+        return;
+      }
     }
     const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
     Atomics.wait(waitBuffer, 0, 0, 250);
@@ -87,6 +103,33 @@ const runPsql = (container, sql) =>
     "-d",
     "postgres",
   ], { input: sql });
+
+const runPsqlAsync = (container, sql) =>
+  new Promise((resolve, reject) => {
+    const child = spawn("docker", [
+      "exec",
+      "-i",
+      container,
+      "psql",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-X",
+      "-q",
+      "-A",
+      "-t",
+      "-U",
+      "postgres",
+      "-d",
+      "postgres",
+    ], { windowsHide: true });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+    child.stdin.end(sql);
+  });
 
 const minimalPostgres17Prerequisites = String.raw`
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -212,6 +255,22 @@ BEGIN
 END;
 $$;
 ROLLBACK;
+`;
+
+const concurrentProofEvidence = String.raw`
+BEGIN;
+SELECT pg_sleep(0.25);
+SELECT * FROM public.create_device_enrollment_request(
+  '00000000-0000-0000-0000-000000000001', 'W1 concurrent proof', 'windows',
+  encode(decode(repeat('9a', 32), 'hex'), 'base64'),
+  encode(pg_catalog.sha256(decode(repeat('9a', 32), 'hex')), 'hex'),
+  1, 'device.enrollment.request',
+  encode(pg_catalog.sha256(decode(repeat('8b', 32), 'hex')), 'hex'),
+  floor(extract(epoch from clock_timestamp()) * 1000)::bigint,
+  floor(extract(epoch from clock_timestamp()) * 1000)::bigint + 300000,
+  repeat('ef', 32), repeat('12', 64)
+);
+COMMIT;
 `;
 
 test("S2-F2 uses a forward migration for exact proof metadata and one-use nonce reservation", () => {
@@ -373,7 +432,7 @@ test("W1 revoked connection activation is denied without reactivation", () => {
 test(
   "W1 executable PostgreSQL 17 authority evidence runs migrations and rolls back",
   { skip: dockerUnavailable },
-  () => {
+  async () => {
     ensurePostgresImage();
     const container = `fung-w1-pg17-${process.pid}-${Date.now()}`;
     const started = docker([
@@ -406,6 +465,25 @@ test(
         activeReplay.status,
         0,
         `PostgreSQL 17 active/replay evidence failed.\n${resultText(activeReplay)}`,
+      );
+
+      const concurrent = await Promise.all([
+        runPsqlAsync(container, concurrentProofEvidence),
+        runPsqlAsync(container, concurrentProofEvidence),
+      ]);
+      const concurrentSuccesses = concurrent.filter((result) => result.status === 0);
+      const concurrentReplays = concurrent.filter((result) =>
+        /proof_replayed/.test(`${result.stdout}\n${result.stderr}`)
+      );
+      assert.equal(
+        concurrentSuccesses.length,
+        1,
+        `Concurrent proof winner count was not one.\n${concurrent.map(resultText).join("\n")}`,
+      );
+      assert.equal(
+        concurrentReplays.length,
+        1,
+        `Concurrent proof replay loser was not durable.\n${concurrent.map(resultText).join("\n")}`,
       );
 
       const committedEvidence = runPsql(

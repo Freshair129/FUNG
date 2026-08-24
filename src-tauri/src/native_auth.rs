@@ -8,6 +8,10 @@ use crate::{device_identity, AppError, AppResult};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::{Mutex, OnceLock};
+use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
@@ -17,7 +21,219 @@ use uuid::Uuid;
 const AUTHORIZE_FUNCTION_PATH: &str = "/functions/v1/google-drive-authorize";
 const DRIVE_PROVIDER: &str = "google_drive";
 const AUTHORIZATION_REQUEST_TTL: Duration = Duration::from_secs(90);
+const AUTH_LOGIN_REQUEST_TTL: Duration = Duration::from_secs(120);
+const AUTH_CALLBACK_PATH: &str = "/auth/callback";
+const MAX_AUTH_CALLBACK_BYTES: usize = 8192;
 const MAX_SESSION_PROOF_BYTES: usize = 8192;
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AuthLoginStarted {
+    request_id: String,
+    redirect_uri: String,
+    expires_at_ms: u64,
+    #[serde(skip)]
+    state: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthCallbackEvent {
+    request_id: String,
+    code: Option<String>,
+    error: Option<String>,
+}
+
+struct PendingAuthRequest {
+    request_id: String,
+    port: u16,
+    state: String,
+    expires_at: SystemTime,
+}
+
+#[derive(Default)]
+struct AuthRequestRegistry {
+    pending: Option<PendingAuthRequest>,
+}
+
+impl AuthRequestRegistry {
+    fn start(&mut self, port: u16, now: SystemTime) -> Result<AuthLoginStarted, String> {
+        if self.pending.is_some() {
+            return Err(public_error("auth_request_in_progress"));
+        }
+        if port == 0 {
+            return Err(public_error("auth_listener_unavailable"));
+        }
+        let request_id = Uuid::new_v4().to_string();
+        let state = Uuid::new_v4().to_string();
+        let expires_at = now + AUTH_LOGIN_REQUEST_TTL;
+        let expires_at_ms = expires_at
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| public_error("auth_clock_invalid"))?
+            .as_millis() as u64;
+        let redirect_uri = format!("http://127.0.0.1:{port}{AUTH_CALLBACK_PATH}");
+        self.pending = Some(PendingAuthRequest {
+            request_id: request_id.clone(),
+            port,
+            state: state.clone(),
+            expires_at,
+        });
+        Ok(AuthLoginStarted {
+            request_id,
+            redirect_uri,
+            expires_at_ms,
+            state,
+        })
+    }
+
+    fn is_pending(&self, request_id: &str) -> bool {
+        self.pending
+            .as_ref()
+            .is_some_and(|pending| pending.request_id == request_id)
+    }
+
+    fn expire_if_needed(&mut self, request_id: &str, now: SystemTime) -> bool {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.request_id == request_id && now >= pending.expires_at)
+        {
+            self.pending = None;
+            return true;
+        }
+        false
+    }
+
+    fn cancel(&mut self, request_id: &str) -> Result<(), String> {
+        if self.is_pending(request_id) {
+            self.pending = None;
+            Ok(())
+        } else {
+            Err(public_error("auth_request_not_found"))
+        }
+    }
+
+    fn take_error(&mut self, request_id: &str, error: &str) -> Option<AuthCallbackEvent> {
+        if !self.is_pending(request_id) {
+            return None;
+        }
+        self.pending = None;
+        Some(AuthCallbackEvent {
+            request_id: request_id.to_owned(),
+            code: None,
+            error: Some(error.to_owned()),
+        })
+    }
+
+    fn accept_callback(
+        &mut self,
+        callback_url: &str,
+        now: SystemTime,
+    ) -> Result<AuthCallbackEvent, String> {
+        let Some(pending) = self.pending.as_ref() else {
+            return Err(public_error("auth_request_not_found"));
+        };
+        if now >= pending.expires_at {
+            self.pending = None;
+            return Err(public_error("auth_timeout"));
+        }
+
+        let invalid = |registry: &mut Self| {
+            registry.pending = None;
+            Err(public_error("invalid_callback"))
+        };
+        let Ok(parsed) = Url::parse(callback_url) else {
+            return invalid(self);
+        };
+        if parsed.scheme() != "http"
+            || parsed.host_str() != Some("127.0.0.1")
+            || parsed.port() != Some(pending.port)
+            || parsed.path() != AUTH_CALLBACK_PATH
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.fragment().is_some()
+        {
+            return invalid(self);
+        }
+
+        let pairs: Vec<(String, String)> = parsed
+            .query_pairs()
+            .map(|(name, value)| (name.into_owned(), value.into_owned()))
+            .collect();
+        if pairs.is_empty() {
+            return invalid(self);
+        }
+        let mut names = std::collections::HashSet::new();
+        if pairs.iter().any(|(name, _)| {
+            !matches!(
+                name.as_str(),
+                "code" | "error" | "error_description" | "state"
+            ) || !names.insert(name)
+        }) {
+            return invalid(self);
+        }
+        let value = |name: &str| {
+            pairs
+                .iter()
+                .find(|(candidate, _)| candidate == name)
+                .map(|(_, value)| value.as_str())
+        };
+        let code = value("code");
+        let error_code = value("error");
+        let error_description = value("error_description");
+        let state = value("state");
+        if state != Some(pending.state.as_str())
+            || !state.is_some_and(|value| safe_callback_value(value))
+        {
+            return invalid(self);
+        }
+        if code.is_some() == error_code.is_some()
+            || (error_description.is_some() && error_code.is_none())
+        {
+            return invalid(self);
+        }
+        let request_id = pending.request_id.clone();
+        if let Some(code) = code {
+            if pairs.len() != 2 || !safe_callback_value(code) {
+                return invalid(self);
+            }
+            self.pending = None;
+            return Ok(AuthCallbackEvent {
+                request_id,
+                code: Some(code.to_owned()),
+                error: None,
+            });
+        }
+
+        let Some(error_code) = error_code else {
+            return invalid(self);
+        };
+        if !safe_callback_value(error_code)
+            || error_description.is_some_and(|value| !safe_callback_value(value))
+            || (error_description.is_none() && pairs.len() != 2)
+            || (error_description.is_some() && pairs.len() != 3)
+        {
+            return invalid(self);
+        }
+        self.pending = None;
+        Ok(AuthCallbackEvent {
+            request_id,
+            code: None,
+            error: Some(error_description.unwrap_or(error_code).to_owned()),
+        })
+    }
+}
+
+fn auth_request_registry() -> &'static Mutex<AuthRequestRegistry> {
+    static REGISTRY: OnceLock<Mutex<AuthRequestRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(AuthRequestRegistry::default()))
+}
+
+fn safe_callback_value(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_AUTH_CALLBACK_BYTES
+        && !value.chars().any(|character| character.is_control())
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DriveOperation {
@@ -306,64 +522,223 @@ pub(crate) async fn authorize_drive(
     )
 }
 
-fn trusted_loopback_redirect(value: &str) -> bool {
-    if value == "fung://auth/callback" {
-        return true;
+fn build_google_auth_url(origin: &Url, redirect_uri: &str, state: &str) -> Result<Url, String> {
+    if !safe_callback_value(redirect_uri) || !safe_callback_value(state) {
+        return Err(public_error("auth_url_invalid"));
     }
-    let Ok(parsed) = Url::parse(value) else {
-        return false;
+    let mut url = origin.clone();
+    url.set_path("/auth/v1/authorize");
+    url.set_query(None);
+    url.query_pairs_mut()
+        .append_pair("provider", "google")
+        .append_pair("redirect_to", redirect_uri)
+        .append_pair("state", state);
+    Ok(url)
+}
+
+fn emit_auth_callback(app: &tauri::AppHandle, event: AuthCallbackEvent) {
+    use tauri::Emitter;
+    let _ = app.emit("auth-callback", event);
+}
+
+fn callback_request_target(stream: &mut TcpStream, port: u16) -> Result<String, String> {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|_| public_error("auth_callback_unavailable"))?;
+    let mut bytes = Vec::with_capacity(1024);
+    loop {
+        let mut chunk = [0u8; 1024];
+        let read = stream
+            .read(&mut chunk)
+            .map_err(|_| public_error("invalid_callback"))?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&chunk[..read]);
+        if bytes.len() > MAX_AUTH_CALLBACK_BYTES {
+            return Err(public_error("invalid_callback"));
+        }
+        if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+    }
+    let request = String::from_utf8(bytes).map_err(|_| public_error("invalid_callback"))?;
+    let mut lines = request.split("\r\n");
+    let request_line = lines
+        .next()
+        .ok_or_else(|| public_error("invalid_callback"))?;
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next();
+    let target = parts.next();
+    let version = parts.next();
+    if method != Some("GET")
+        || target.is_none()
+        || version != Some("HTTP/1.1")
+        || parts.next().is_some()
+    {
+        return Err(public_error("invalid_callback"));
+    }
+    let expected_host = format!("127.0.0.1:{port}");
+    let hosts: Vec<&str> = lines
+        .take_while(|line| !line.is_empty())
+        .filter_map(|line| line.strip_prefix("Host:").map(str::trim))
+        .collect();
+    if hosts.len() != 1 || hosts[0] != expected_host {
+        return Err(public_error("invalid_callback"));
+    }
+    Ok(target.unwrap().to_owned())
+}
+
+fn write_callback_response(stream: &mut TcpStream, status: &str) {
+    let body = if status == "200 OK" {
+        "<html><body>เข้าสู่ระบบสำเร็จ ปิดหน้าต่างนี้ได้เลย</body></html>"
+    } else {
+        "<html><body>ไม่สามารถยืนยันการเข้าสู่ระบบได้ ปิดหน้าต่างนี้ได้เลย</body></html>"
     };
-    parsed.scheme() == "http"
-        && parsed.host_str() == Some("127.0.0.1")
-        && parsed.port().is_some_and(|port| port != 0)
-        && parsed.path() == "/auth/callback"
-        && parsed.username().is_empty()
-        && parsed.password().is_none()
-        && parsed.query().is_none()
-        && parsed.fragment().is_none()
+    let response = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes());
 }
 
-fn same_origin(left: &Url, right: &Url) -> bool {
-    left.scheme() == right.scheme()
-        && left.host_str() == right.host_str()
-        && left.port_or_known_default() == right.port_or_known_default()
-}
+fn spawn_auth_listener(
+    app: tauri::AppHandle,
+    listener: TcpListener,
+    port: u16,
+    request_id: String,
+) {
+    thread::spawn(move || loop {
+        let expired = auth_request_registry()
+            .lock()
+            .ok()
+            .map(|mut registry| registry.expire_if_needed(&request_id, SystemTime::now()))
+            .unwrap_or(false);
+        if expired {
+            emit_auth_callback(
+                &app,
+                AuthCallbackEvent {
+                    request_id: request_id.clone(),
+                    code: None,
+                    error: Some(public_error("auth_timeout")),
+                },
+            );
+            return;
+        }
 
-pub(crate) fn validate_trusted_auth_url(candidate: &str, origin: &Url) -> Result<(), String> {
-    let parsed = Url::parse(candidate).map_err(|_| public_error("auth_url_untrusted"))?;
-    if !same_origin(&parsed, origin)
-        || parsed.path() != "/auth/v1/authorize"
-        || parsed.username() != ""
-        || parsed.password().is_some()
-        || parsed.fragment().is_some()
-    {
-        return Err(public_error("auth_url_untrusted"));
-    }
-    let provider = parsed
-        .query_pairs()
-        .find(|(key, _)| key == "provider")
-        .map(|(_, value)| value.into_owned());
-    let redirect = parsed
-        .query_pairs()
-        .find(|(key, _)| key == "redirect_to")
-        .map(|(_, value)| value.into_owned());
-    if provider.as_deref() != Some("google")
-        || !redirect
-            .as_deref()
-            .is_some_and(|value| trusted_loopback_redirect(value))
-    {
-        return Err(public_error("auth_url_untrusted"));
-    }
-    Ok(())
+        let still_pending = auth_request_registry()
+            .lock()
+            .ok()
+            .is_some_and(|registry| registry.is_pending(&request_id));
+        if !still_pending {
+            return;
+        }
+
+        match listener.accept() {
+            Ok((mut stream, peer)) => {
+                let event = if peer.ip() != std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST) {
+                    auth_request_registry()
+                        .lock()
+                        .ok()
+                        .and_then(|mut registry| {
+                            registry.take_error(&request_id, "invalid_callback")
+                        })
+                } else {
+                    let callback = callback_request_target(&mut stream, port)
+                        .map(|target| format!("http://127.0.0.1:{port}{target}"));
+                    match callback {
+                        Ok(callback_url) => {
+                            auth_request_registry()
+                                .lock()
+                                .ok()
+                                .and_then(|mut registry| {
+                                    match registry.accept_callback(&callback_url, SystemTime::now())
+                                    {
+                                        Ok(event) => Some(event),
+                                        Err(error) => registry.take_error(&request_id, &error),
+                                    }
+                                })
+                        }
+                        Err(error) => auth_request_registry()
+                            .lock()
+                            .ok()
+                            .and_then(|mut registry| registry.take_error(&request_id, &error)),
+                    }
+                };
+                write_callback_response(
+                    &mut stream,
+                    if event
+                        .as_ref()
+                        .is_some_and(|event| event.error.as_deref() == Some("invalid_callback"))
+                    {
+                        "400 Bad Request"
+                    } else {
+                        "200 OK"
+                    },
+                );
+                if let Some(event) = event {
+                    emit_auth_callback(&app, event);
+                }
+                return;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(25));
+            }
+            Err(_) => {
+                if let Some(event) = auth_request_registry()
+                    .lock()
+                    .ok()
+                    .and_then(|mut registry| {
+                        registry.take_error(&request_id, "auth_listener_unavailable")
+                    })
+                {
+                    emit_auth_callback(&app, event);
+                }
+                return;
+            }
+        }
+    });
 }
 
 #[tauri::command]
-pub(crate) fn open_trusted_auth_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+pub(crate) fn auth_begin_google_login(app: tauri::AppHandle) -> Result<AuthLoginStarted, String> {
+    let listener =
+        TcpListener::bind("127.0.0.1:0").map_err(|_| public_error("auth_listener_unavailable"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|_| public_error("auth_listener_unavailable"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|_| public_error("auth_listener_unavailable"))?
+        .port();
     let origin = configured_supabase_origin()?;
-    validate_trusted_auth_url(&url, &origin)?;
-    app.opener()
-        .open_url(url, None::<&str>)
-        .map_err(|_| public_error("auth_url_open_failed"))
+    let started = auth_request_registry()
+        .lock()
+        .map_err(|_| public_error("auth_request_unavailable"))?
+        .start(port, SystemTime::now())?;
+    let auth_url = build_google_auth_url(&origin, &started.redirect_uri, &started.state)?;
+    let request_id = started.request_id.clone();
+    spawn_auth_listener(app.clone(), listener, port, request_id.clone());
+    if app
+        .opener()
+        .open_url(auth_url.as_str(), None::<&str>)
+        .is_err()
+    {
+        let _ = auth_request_registry()
+            .lock()
+            .ok()
+            .and_then(|mut registry| registry.cancel(&request_id).ok());
+        return Err(public_error("auth_url_open_failed"));
+    }
+    Ok(started)
+}
+
+#[tauri::command]
+pub(crate) fn auth_cancel_google_login(request_id: String) -> Result<(), String> {
+    auth_request_registry()
+        .lock()
+        .map_err(|_| public_error("auth_request_unavailable"))?
+        .cancel(&request_id)
 }
 
 pub(crate) fn open_trusted_account_portal(app: tauri::AppHandle) -> AppResult<()> {
@@ -401,20 +776,27 @@ mod tests {
     }
 
     #[test]
-    fn trusted_auth_url_rejects_foreign_origin_and_provider() {
+    fn native_builds_google_url_from_configured_origin_and_request() {
         let origin = Url::parse("https://project.supabase.co").unwrap();
-        let trusted = "https://project.supabase.co/auth/v1/authorize?provider=google&redirect_to=http%3A%2F%2F127.0.0.1%3A43123%2Fauth%2Fcallback";
-        assert!(validate_trusted_auth_url(trusted, &origin).is_ok());
-        assert!(validate_trusted_auth_url(
-            "https://evil.example/auth/v1/authorize?provider=google&redirect_to=fung%3A%2F%2Fauth%2Fcallback",
-            &origin,
-        )
-        .is_err());
-        assert!(validate_trusted_auth_url(
-            "https://project.supabase.co/auth/v1/authorize?provider=github&redirect_to=fung%3A%2F%2Fauth%2Fcallback",
-            &origin,
-        )
-        .is_err());
+        let url =
+            build_google_auth_url(&origin, "http://127.0.0.1:43123/auth/callback", "state-123")
+                .unwrap();
+        assert_eq!(
+            url.origin().ascii_serialization(),
+            "https://project.supabase.co"
+        );
+        assert_eq!(url.path(), "/auth/v1/authorize");
+        assert_eq!(
+            url.query_pairs().collect::<Vec<_>>(),
+            vec![
+                ("provider".into(), "google".into()),
+                (
+                    "redirect_to".into(),
+                    "http://127.0.0.1:43123/auth/callback".into()
+                ),
+                ("state".into(), "state-123".into()),
+            ]
+        );
     }
 
     #[test]
@@ -444,5 +826,101 @@ mod tests {
             100,
         )
         .is_err());
+    }
+
+    #[test]
+    fn native_login_registry_allows_one_pending_request_and_one_callback() {
+        let now = UNIX_EPOCH + Duration::from_secs(10_000);
+        let mut registry = AuthRequestRegistry::default();
+        let started = registry.start(43_123, now).unwrap();
+
+        assert!(!started.request_id.is_empty());
+        assert!(!started.state.is_empty());
+        assert_eq!(started.redirect_uri, "http://127.0.0.1:43123/auth/callback");
+        assert!(registry.start(43_124, now).is_err());
+
+        let callback = registry
+            .accept_callback(
+                &format!(
+                    "http://127.0.0.1:43123/auth/callback?code=abc&state={}",
+                    started.state
+                ),
+                now + Duration::from_secs(1),
+            )
+            .unwrap();
+        assert_eq!(callback.request_id, started.request_id);
+        assert_eq!(callback.code.as_deref(), Some("abc"));
+        assert!(callback.error.is_none());
+        assert!(registry
+            .accept_callback(
+                &format!(
+                    "http://127.0.0.1:43123/auth/callback?code=abc&state={}",
+                    started.state
+                ),
+                now + Duration::from_secs(2),
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn native_login_registry_rejects_wrong_listener_and_query_shape() {
+        let now = UNIX_EPOCH + Duration::from_secs(20_000);
+        let mut registry = AuthRequestRegistry::default();
+        let started = registry.start(43_125, now).unwrap();
+        let invalid_callbacks = [
+            format!(
+                "http://localhost:43125/auth/callback?code=abc&state={}",
+                started.state
+            ),
+            format!(
+                "http://127.0.0.1:43126/auth/callback?code=abc&state={}",
+                started.state
+            ),
+            format!(
+                "http://127.0.0.1:43125/other?code=abc&state={}",
+                started.state
+            ),
+            format!(
+                "http://127.0.0.1:43125/auth/callback?code=abc&state={}&extra=1",
+                started.state
+            ),
+            format!(
+                "http://127.0.0.1:43125/auth/callback?code=abc&code=def&state={}",
+                started.state
+            ),
+        ];
+        for callback in invalid_callbacks {
+            assert!(registry.accept_callback(&callback, now).is_err());
+        }
+    }
+
+    #[test]
+    fn native_login_registry_rejects_timeout_cancellation_and_replay() {
+        let now = UNIX_EPOCH + Duration::from_secs(30_000);
+
+        let mut cancelled = AuthRequestRegistry::default();
+        let cancelled_request = cancelled.start(43_127, now).unwrap();
+        cancelled.cancel(&cancelled_request.request_id).unwrap();
+        assert!(cancelled
+            .accept_callback(
+                &format!(
+                    "http://127.0.0.1:43127/auth/callback?code=abc&state={}",
+                    cancelled_request.state
+                ),
+                now + Duration::from_secs(1),
+            )
+            .is_err());
+
+        let mut expired = AuthRequestRegistry::default();
+        let expired_request = expired.start(43_128, now).unwrap();
+        assert!(expired
+            .accept_callback(
+                &format!(
+                    "http://127.0.0.1:43128/auth/callback?code=abc&state={}",
+                    expired_request.state
+                ),
+                now + AUTH_LOGIN_REQUEST_TTL + Duration::from_secs(1),
+            )
+            .is_err());
     }
 }

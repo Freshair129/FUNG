@@ -2,14 +2,22 @@ import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { LogIn, LogOut, MonitorSmartphone, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
-import { beginLoopbackFallbackLogin, listenForAuthCallback } from "../lib/authFlow";
+import {
+  beginLoopbackFallbackLogin,
+  cancelGoogleLogin,
+  listenForAuthCallback,
+} from "../lib/authFlow";
 import { invoke } from "@tauri-apps/api/core";
 import "./AccountLoginPanel.css";
 
-interface DeviceIdentity {
+interface NativeEnrollmentProof {
+  publicKey: string;
   fingerprint: string;
-  created: boolean;
+  proof: string;
+  expiresAtMs: number;
 }
+
+type EnrollmentStatus = "idle" | "pending" | "approved" | "revoked" | "pairing_only";
 
 interface AccountLoginPanelProps {
   onClose?: () => void;
@@ -22,7 +30,7 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deviceLabel, setDeviceLabel] = useState("FUNG Desktop");
-  const [registered, setRegistered] = useState(false);
+  const [enrollmentStatus, setEnrollmentStatus] = useState<EnrollmentStatus>("idle");
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
@@ -35,87 +43,73 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
     return () => {
       sub.subscription.unsubscribe();
       cleanup?.();
+      void cancelGoogleLogin().catch(() => undefined);
     };
   }, []);
 
-  // Register this device once per session.
+  // Submit only a server-owned pending enrollment. A browser session never
+  // inserts, updates, deletes, or audits an authoritative device row.
   useEffect(() => {
-    if (!session || registered) return;
+    if (!session || enrollmentStatus !== "idle") return;
     let cancelled = false;
     void (async () => {
       try {
-        const identity = await invoke<DeviceIdentity>("device_identity_ensure");
-        const publicKey = await invoke<string>("device_public_key");
+        const proof = await invoke<NativeEnrollmentProof>("device_enrollment_proof", {
+          deviceLabel,
+        });
         const { data: existing, error: selErr } = await supabase
           .from("devices")
-          .select("id, device_label, public_key, revoked_at")
-          .eq("public_key_fingerprint", identity.fingerprint)
+          .select("id, authority_state, revoked_at")
+          .eq("public_key_fingerprint", proof.fingerprint)
           .maybeSingle();
         if (selErr) throw selErr;
-        if (existing?.revoked_at) throw new Error("device_revoked");
-        if (existing?.public_key && existing.public_key !== publicKey) {
-          throw new Error("device_public_key_mismatch");
+        if (existing?.revoked_at || existing?.authority_state === "revoked") {
+          if (!cancelled) setEnrollmentStatus("revoked");
+          return;
         }
-        let deviceId = existing?.id as string | undefined;
-        if (!deviceId) {
-          const { data: inserted, error: insErr } = await supabase
-            .from("devices")
-            .insert({
-              user_id: session.user.id,
-              device_label: deviceLabel,
-              platform: "windows",
-              public_key_fingerprint: identity.fingerprint,
-            })
-            .select("id")
-            .single();
-          if (insErr) throw insErr;
-          deviceId = inserted.id as string;
-          // public_key is not covered by the INSERT grant (only user_id,
-          // device_label, platform, public_key_fingerprint are) — set it via
-          // a follow-up UPDATE, which the grant does cover.
-          const { error: pkErr } = await supabase
-            .from("devices")
-            .update({ public_key: publicKey })
-            .eq("id", deviceId);
-          if (pkErr) throw pkErr;
-          const { error: auditErr } = await supabase.from("device_audit_events").insert({
-            user_id: session.user.id,
-            device_id: deviceId,
-            event_type: "device_registered",
-            metadata: { platform: "windows" },
-          });
-          if (auditErr) throw auditErr;
-        } else {
-          const { error: updateErr } = await supabase
-            .from("devices")
-            .update({ last_seen_at: new Date().toISOString(), public_key: publicKey })
-            .eq("id", deviceId);
-          if (updateErr) throw updateErr;
+        if (existing?.authority_state === "drive_trusted") {
+          if (!cancelled) {
+            localStorage.setItem(DEVICE_ID_KEY, existing.id as string);
+            setEnrollmentStatus("approved");
+          }
+          return;
         }
-        if (!cancelled && deviceId) {
-          localStorage.setItem(DEVICE_ID_KEY, deviceId);
-          setRegistered(true);
+        if (existing?.authority_state === "pairing_only") {
+          if (!cancelled) {
+            localStorage.setItem(DEVICE_ID_KEY, existing.id as string);
+            setEnrollmentStatus("pairing_only");
+          }
+          return;
         }
+
+        const { data: enrollment, error: enrollmentError } = await supabase.functions.invoke("device-enrollment", {
+          body: {
+            action: "pending",
+            deviceLabel,
+            platform: "windows",
+            publicKey: proof.publicKey,
+            publicKeyFingerprint: proof.fingerprint,
+            nativeProof: proof.proof,
+          },
+        });
+        if (enrollmentError) throw enrollmentError;
+        if (enrollment?.status !== "pending" || !enrollment.requestId) {
+          throw new Error("enrollment_unavailable");
+        }
+        if (!cancelled) setEnrollmentStatus("pending");
       } catch (e) {
         if (!cancelled) {
-          setError("ลงทะเบียนอุปกรณ์ไม่สำเร็จ");
+          setError(e instanceof Error ? e.message : "ลงทะเบียนอุปกรณ์ไม่สำเร็จ");
         }
       }
     })();
     return () => { cancelled = true; };
-  }, [session, registered, deviceLabel]);
+  }, [session, enrollmentStatus, deviceLabel]);
 
   const handleLogin = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      // Loopback is the primary (and only) desktop login path: registering
-      // the fung:// scheme alone does not make Windows deliver deep links to
-      // this running instance — Windows spawns a fresh process for the
-      // custom-scheme URL instead, and forwarding it to the already-running
-      // app needs single-instance handling we're not adding this phase
-      // (backlog). The loopback HTTP listener works today, so use it
-      // directly instead of waiting on a deep link that will never arrive.
       await beginLoopbackFallbackLogin();
     } catch (e) {
       setBusy(false);
@@ -125,7 +119,7 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
 
   const handleLogout = useCallback(async () => {
     await supabase.auth.signOut();
-    setRegistered(false);
+    setEnrollmentStatus("idle");
   }, []);
 
   return (
@@ -151,7 +145,11 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
             />
           </label>
           <p className="account-login-status">
-            {registered ? "อุปกรณ์ลงทะเบียนแล้ว ✓" : "กำลังลงทะเบียนอุปกรณ์…"}
+            {enrollmentStatus === "pending" && "รอการอนุมัติอุปกรณ์จาก Boss…"}
+            {enrollmentStatus === "approved" && "อุปกรณ์ได้รับอนุมัติ ✓"}
+            {enrollmentStatus === "revoked" && "อุปกรณ์ถูกเพิกถอน — ต้องลงทะเบียนใหม่"}
+            {enrollmentStatus === "pairing_only" && "อุปกรณ์อยู่ในโหมดจับคู่เท่านั้น"}
+            {enrollmentStatus === "idle" && "กำลังเตรียมคำขอลงทะเบียน…"}
           </p>
           <button type="button" className="account-login-btn" onClick={handleLogout}>
             <LogOut size={15} /> ออกจากระบบ

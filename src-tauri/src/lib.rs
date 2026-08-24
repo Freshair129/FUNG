@@ -2565,41 +2565,6 @@ fn handle_api_stream(
     let _ = stream.write_all(response.as_bytes());
 }
 
-/// One-shot loopback HTTP listener used as a fallback when the `fung://`
-/// deep link fails to activate the app (some desktop environments never wire
-/// custom protocol handlers correctly). The browser is redirected here after
-/// OAuth completes; the first request's full URL is forwarded to the webview
-/// via the `auth-callback` event, then the listener thread exits.
-#[tauri::command]
-fn auth_loopback_listen(app: tauri::AppHandle) -> AppResult<u16> {
-    use tauri::Emitter;
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port();
-    thread::spawn(move || {
-        if let Ok((mut stream, _)) = listener.accept() {
-            let mut buf = [0u8; 4096];
-            let n = stream.read(&mut buf).unwrap_or(0);
-            let request = String::from_utf8_lossy(&buf[..n]);
-            let path = request
-                .lines()
-                .next()
-                .and_then(|line| line.split_whitespace().nth(1))
-                .unwrap_or("/")
-                .to_string();
-            let body = "<html><body style=\"font-family:sans-serif\"><p>เข้าสู่ระบบสำเร็จ ปิดหน้าต่างนี้ได้เลย</p></body></html>";
-            let _ = write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            let full_url = format!("http://127.0.0.1:{port}{path}");
-            let _ = app.emit("auth-callback", full_url);
-        }
-    });
-    Ok(port)
-}
-
 /// Temporary diagnostic used by `bin/dbcheck.rs` only — remove together with
 /// that binary once the v8 migration issue is resolved.
 #[doc(hidden)]
@@ -3015,14 +2980,15 @@ pub fn run() {
             recovery_scan,
             recovery_recover,
             start_local_api,
-            auth_loopback_listen,
             open_external_account_portal,
-            native_auth::open_trusted_auth_url,
+            native_auth::auth_begin_google_login,
+            native_auth::auth_cancel_google_login,
             paired_device_upsert,
             paired_device_list,
             paired_device_revoke,
             device_identity::device_identity_ensure,
             device_identity::device_public_key,
+            device_identity::device_enrollment_proof,
             zoom_sync::zoom_connect,
             zoom_sync::zoom_connection_status,
             zoom_sync::zoom_disconnect,

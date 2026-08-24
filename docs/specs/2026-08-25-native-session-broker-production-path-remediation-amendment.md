@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.2.0b"
 created_at: "2026-08-25T04:09:26+07:00,Luna 5.6"
-last_update: "2026-08-25T04:09:26+07:00,Luna 5.6"
+last_update: "2026-08-25T04:25:23+07:00,Luna 5.6"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -16,8 +16,11 @@ attributes:
   prior_approved_candidate_sha256: "41B91DCC09DDC5856F47A8BDFB2E1ACE021934BC696D97FFC59236C6122AA3D4"
   latest_implementation_commit: "36fa29412fc46a764e1bccae94e44bf0d4d7a6e5"
   terra_fix3_commit: "07649e7526243446f719a2dcab63e6bba5b94285"
-  candidate_commit: "pending commit; not an implementation authorization"
-  candidate_sha256: "pending post-commit computation; not an implementation authorization"
+  candidate_commit: "externally bound after commit; this document cannot self-embed its own commit/hash"
+  candidate_sha256: "externally bound after commit; this document cannot self-embed its own commit/hash"
+  superseded_draft_review_commit: "0bdf2ad525c4f9bb263e41fdb9332e2a1fb8478e"
+  superseded_draft_candidate_sha256: "D590ABB67C13FC02A1AD96B2E0D6E895DCA49321C30E09F098DB5DFFF74C0172"
+  superseded_draft_disposition: "Terra FAIL/BLOCK evidence; not approval"
 ---
 
 # Native Session Broker Production-Path Remediation Amendment — Desktop/Tauri
@@ -60,6 +63,7 @@ or production go/no-go is in scope.
 | Approved D-GDA4 candidate | `7d48aa01c243ce5f32af1005b95b71082c5a5984`; candidate SHA-256 `41B91DCC09DDC5856F47A8BDFB2E1ACE021934BC696D97FFC59236C6122AA3D4` | Prior hash-bound approval record; not approval for this candidate |
 | Latest implementation | `36fa29412fc46a764e1bccae94e44bf0d4d7a6e5` | Fix3 implementation evidence reviewed by Terra |
 | Terra fix3 review | `07649e7526243446f719a2dcab63e6bba5b94285` | Independent FAIL/BLOCK; production lifecycle and custody hard gates remain open |
+| Terra review of superseded draft | `0bdf2ad525c4f9bb263e41fdb9332e2a1fb8478e`; reviewed draft candidate SHA-256 `D590ABB67C13FC02A1AD96B2E0D6E895DCA49321C30E09F098DB5DFFF74C0172` | FAIL/BLOCK evidence for the superseded draft; not approval and not a current candidate identity |
 
 Terra fix3 specifically found that the fourteen native behavioral tests exercised
 `LifecycleCore` and fakes while actual Tauri login, refresh, logout, and shutdown
@@ -94,12 +98,96 @@ The already-passing results must remain true:
 
 | ID | Decision | Normative candidate requirement | Status |
 |---|---|---|---|
-| D-GDA5-01 | One production lifecycle engine | Define one `SessionLifecycle` production engine/control flow in the authorized native lane. Actual Tauri auth, refresh, logout, shutdown, Drive credential operations, and their command registration call this engine. The test harness constructs that same engine through explicit injectable ports for keyring, clock, listener/callback transport, provider, and commit observation. A generic test-only core, duplicate `SessionMemory` path, dead lifecycle seam, or test-only success path is prohibited in the non-test production build. | candidate |
-| D-GDA5-02 | Linearizable generation and commit protocol | Every login, refresh, logout, and shutdown operation owns a generation and operation ID. External provider work may occur outside the lifecycle lock, but every credential/state mutation passes an exact precommit check and a serialized commit fence. Logout/shutdown increment the generation and enter quiescing at their linearization point before clearing memory or deleting credentials. A stale completion cannot write staged, active, or in-memory credentials after that point. | candidate |
-| D-GDA5-03 | Zeroizing custody boundary | Secret input enters zeroizing custody at Tauri command entry and remains there through parser, generator, provider request, error, cancellation, timeout, logout, and shutdown terminal paths. Callback bytes/query values, PKCE verifier, OAuth URL state/challenge, Drive recovery phrase, and token payloads must not use ordinary secret-bearing `String` or `url::Url` serialization. Static endpoint URLs and public non-secret identifiers may use ordinary types. If a provider or parser API makes an ordinary allocation unavoidable, it requires a narrowly reviewed boundary with explicit lifetime, no retention/logging, immediate zeroization or disposal, and a focused test proving the boundary; an unreviewed ordinary secret-bearing allocation is a FAIL. | candidate |
-| D-GDA5-04 | Fail-closed keyring taxonomy | Distinguish `NoEntry` from transient, unavailable, read, write, delete, and absence-verification failures. `NoEntry` alone means normal absence: read returns absent, idempotent delete succeeds, and verified absence succeeds. Any transient/unavailable/read error is not treated as absence, does not permit a connected/signed-out success claim, and blocks credential use. Logout/shutdown cleanup errors return `cleanup_failed` (or the existing stable operation-specific incomplete code) and retain a non-secret failure state. Tests must inject and assert each taxonomy branch. | candidate |
-| D-GDA5-05 | Production-path evidence and bounded matrix | The implementation and tests must prove command-to-engine identity, exact stale interleavings, custody boundaries, keyring taxonomy, retained local passes, and typed IPC with a bounded write/test matrix. Evidence must identify the source commit, exact commands, exit/status summaries, changed paths, and hashes without secret values. Local/static proof must remain labelled separately from external gates. | candidate |
+| D-GDA5-01 | One production lifecycle engine and C-3 mapping | **Hard gate.** Define one `SessionLifecycle` production engine/control flow in the authorized native lane. The exact registered auth/device and Drive commands in §3.1 call this engine; the test harness constructs that same engine through named injectable ports for keyring, clock, listener/callback transport, provider HTTP, archive/job, and commit observation. A generic test-only core, duplicate `SessionMemory` path, dead lifecycle seam, or test-only success path is prohibited in the non-test production build. | candidate |
+| D-GDA5-02 | Coordinated domains and linearizable protocol | **Hard gate.** Inside the one engine, coordinate the `AccountSession` and `DriveConnection`/`DriveCredential` domains. Every operation owns a generation and operation ID; provider work may run outside the lock, but every mutation passes an exact precommit check and one serialized lock/commit fence. Logout, shutdown, and Drive disconnect quiesce and invalidate earlier operations before cleanup. A stale completion cannot write staged, active, marker, or in-memory credentials after that point. | candidate |
+| D-GDA5-03 | Bounded zeroizing custody boundary | **Hard gate.** Apply the B1-B5 boundary contract in §5. Secret input enters zeroizing app-owned custody at the command boundary and remains there through parser, generator, provider request, error, cancellation, timeout, logout, and shutdown. Ordinary app-owned secret copies, `serde_json::Value` token intermediaries, and app-owned `url::Url` serialization carrying callback code/state are prohibited. Framework/protocol copies are bounded by owner, lifetime, disposal/no-retention, redaction, size/time, static, behavioral, and fault evidence; no impossible claim of forcibly zeroizing framework memory is permitted. | candidate |
+| D-GDA5-04 | Failure-atomic keyring and fail-closed recovery | **Hard gate.** Use versioned immutable credential slots plus a non-secret commit marker (or an equally precise design) with one verified marker linearization point. Before marker commit the old slot remains authoritative; every failure requires compensating new/orphan deletion plus verified absence. Ambiguous marker write/readback, missing/corrupt marker targets, delete/readback errors, and unproven cleanup publish no access/success and preserve `credential_cleanup_failed`/`cleanup_failed`. Only `NoEntry` means absence. | candidate |
+| D-GDA5-05 | Production-path evidence and bounded matrix | **Hard gate.** The implementation and tests must prove the §3.1 architecture mapping, both credential domains and all Drive boundaries, the §6.1 failure-atomic startup/fault matrix, B1-B5 custody, exact stale interleavings, retained local passes, and typed IPC with the bounded write/test matrix. Evidence must identify source commit, exact commands, exit/status summaries, changed paths, and hashes without secret values. Local/static proof remains separate from external gates. | candidate |
 | D-GDA5-06 | Approval, review, and external gates | Future implementation is authorized only after Boss approves this candidate’s exact Git commit plus the exact 64-character SHA-256 of this candidate file, and a fresh independent Terra document review covers the same bytes. Any candidate byte, metadata, line ending, or scope change invalidates the approval and requires a new hash and fresh Terra review. Provider, environment, VM, device, signing, release, deployment, and production gates remain separately open. | candidate |
+
+## 3.1 Normative C-3 architecture and exact command-to-engine mapping
+
+This is a C-3 architecture gate, not an implementation claim. The current
+source inventory is the authority for the command names below: `lib.rs`
+registers the auth/device commands at the `generate_handler!` block around
+`3010-3022` and the Drive commands around `3101-3109`. Future adapters may
+change their internal bodies only within the bounded write set; they must not
+introduce a second lifecycle authority.
+
+```mermaid
+flowchart LR
+    R["lib.rs generate_handler!\nregistered Tauri commands"] --> E["one production SessionLifecycle\nlock + generation/op registry\nquiescing + commit fence\nterminal cleanup"]
+    E --> A["AccountSession domain\naccount login/refresh/logout/shutdown\nenrollment/device admission"]
+    E --> D["DriveConnection / DriveCredential domain\nOAuth + keyring + Drive operations"]
+    E --> K["KeyringPort\nversioned slots + non-secret marker"]
+    E --> P["ClockPort / ListenerCallbackPort\nProviderHttpPort / DriveHttpPort\nArchiveJobPort / CommitObservationPort"]
+    T["focused test harness\nconstructs this exact SessionLifecycle\nwith injected ports"] --> E
+```
+
+The engine is the only owner of admission, generation and operation IDs, the
+lock/commit fence, publication, quiescing, and terminal cleanup. The command
+functions are thin typed adapters that translate Tauri input/output and call
+engine methods; they do not own a parallel `SessionMemory` or test-only core.
+
+| Registered command(s) from `lib.rs` | Engine domain and boundary | Required ports and terminal rule |
+|---|---|---|
+| `broker_session_login_begin`, `broker_session_login_cancel`, `broker_session_status`, `broker_session_logout` | `AccountSession`: begin/cancel/status/logout; login and refresh credential commit; account cleanup | `ClockPort`, `ListenerCallbackPort`, `ProviderHttpPort`, `KeyringPort`, `CommitObservationPort`; logout quiesces, increments the account generation, invalidates operation IDs, clears memory, and verifies credential absence |
+| `broker_enrollment_request`, `broker_enrollment_status`, `broker_device_list`, `broker_pairing_create`, `broker_pairing_poll`, `broker_pairing_reconcile`, `broker_device_revoke`, `broker_device_audit_list`, `broker_device_endpoint_publish` | `AccountSession` admission/identity sub-boundary; no Drive credential authority | `ProviderHttpPort`, `ClockPort`, `CommitObservationPort`; account logout/shutdown denies new admission and invalidates pending account operations |
+| `broker_drive_connect_begin`, `broker_drive_connect_complete`, `broker_drive_connect_cancel` | `DriveConnection`: OAuth listener, callback, exchange, activation, and connection terminal state | `ClockPort`, `ListenerCallbackPort`, `ProviderHttpPort`/`DriveHttpPort`, `KeyringPort`, `CommitObservationPort`; Drive disconnect, account logout, or shutdown invalidates the pending operation before any credential commit |
+| `broker_drive_status`, `broker_drive_disconnect` | `DriveCredential`: status, revoke, slot/marker cleanup and absence verification | `KeyringPort`, `ProviderHttpPort`, `CommitObservationPort`; disconnect quiesces the Drive domain, increments its generation, cancels pending completion, and cannot be reported successful without verified cleanup |
+| `broker_drive_list_archives`, `broker_drive_upload_archive` | Drive data boundary: authenticated list/upload only after `DriveCredential` admission | `KeyringPort`, `DriveHttpPort`, `ArchiveJobPort`, `CommitObservationPort`; no Drive access after disconnect/logout/shutdown linearization |
+| `broker_drive_restore_intent`, `broker_drive_restore` | Drive restore-intent/restore boundary; recovery phrase is B1 custody and never a credential/public DTO | `KeyringPort`, `DriveHttpPort`, `ArchiveJobPort`, `ClockPort`, `CommitObservationPort`; restore intent is one-use and restore is denied when Drive is quiescing/disconnected or account/shutdown generation is stale |
+
+The test harness must instantiate the same `SessionLifecycle` type used by the
+production adapters, with deterministic implementations of the named ports.
+It must call the registered command adapters or their exact engine entrypoints
+through that instance and prove the production call graph, not construct a
+parallel generic `LifecycleCore`. A source inventory and non-test compiler
+evidence must show that the engine is live and that no duplicate lifecycle
+authority remains.
+
+### 3.2 Coordinated domain and interleaving contract
+
+`AccountSession` and `DriveConnection`/`DriveCredential` are separate
+credential domains coordinated by one engine. Each domain owns a monotonic
+generation and operation ID namespace; the engine also owns a global admission
+epoch used for account logout and application shutdown. A Drive operation must
+carry both its Drive generation and the current account epoch. A valid
+precommit therefore requires: operation ID is pending, domain generation and
+account epoch are unchanged, admission is open, the engine is not quiescing,
+and the credential marker/slot state is still the expected version.
+
+Drive boundaries are normative:
+
+1. **Begin:** reserve a Drive operation ID and generation, authorize the
+   operation, create bounded listener/callback custody, and publish only a
+   redacted request status.
+2. **Complete:** consume exactly one callback, verify state/PKCE and current
+   generations at precommit, execute the failure-atomic credential commit from
+   §6.1, then clean terminal callback custody before public connected success.
+3. **Status:** read marker and referenced slot through the recovery matrix;
+   status is connected only after valid-slot and cleanup verification.
+4. **Disconnect:** linearize under the engine lock, quiesce Drive admission,
+   invalidate all Drive operation IDs, cancel pending completion, delete active,
+   staged, marker and orphan material, and verify absence. Any unproven cleanup
+   returns `cleanup_failed`/`credential_cleanup_failed` and no disconnected
+   success is published.
+5. **List/upload:** acquire a current Drive credential through the engine,
+   perform provider work outside the lock, then re-check the Drive generation and
+   account epoch before returning a redacted result. No provider or keyring
+   effect is admitted after disconnect/logout/shutdown.
+6. **Restore-intent/restore:** issue and consume a one-use intent under the
+   Drive domain; recovery phrase custody is B1-only; restore cannot begin or
+   publish after Drive disconnect, account logout, or shutdown.
+
+Account logout and shutdown stop admission for both domains at their
+linearization point, increment the account epoch, and invalidate pending
+AccountSession and Drive operation IDs before cleanup. Drive disconnect also
+invalidates its own generation. Therefore a pending Drive completion that wakes
+after Drive disconnect, account logout, or shutdown fails stale/transition
+closed and cannot resurrect a Drive slot, marker, in-memory credential, access
+token, connected status, or public success. If it had already linearized before
+the transition, the transition cleanup must remove and verify its credential.
 
 ## 4. Required production lifecycle protocol
 
@@ -117,10 +205,9 @@ linearizable protocol.
    the completion holds the engine gate and verifies the operation is still
    pending, the generation is unchanged, the callback is exact and single-use,
    and the engine is not quiescing.
-3. At **commit**, staged refresh write/readback, active refresh write/readback,
-   staged delete/verified absence, and authenticated in-memory publish occur in
-   the defined order while logout/shutdown cannot interleave as a competing
-   generation.
+3. At **commit**, the §6.1 failure-atomic slot/marker protocol reaches its
+   single verified marker linearization point before authenticated in-memory
+   publish; logout/shutdown cannot interleave as a competing generation.
 4. At **postcommit**, the operation is terminal, listener/callback custody is
    disposed, and only a redacted result is returned. A completion arriving after
    logout/shutdown returns a stale/transition error and performs no credential
@@ -131,9 +218,9 @@ linearizable protocol.
 1. The first caller reserves one refresh flight and `(generation, operationId)`;
    other callers join it and cannot start a second provider refresh.
 2. At **precommit**, the returned material is checked against the still-current
-   generation and flight owner. At **commit**, the same staged/active/readback/
-   delete order is performed under the commit fence, followed by the in-memory
-   access-token publish.
+   generation and flight owner. At **commit**, the same §6.1 slot/marker
+   protocol is performed under the commit fence, followed by the in-memory
+   access-token publish only after cleanup and verified absence requirements pass.
 3. At **postcommit**, all waiters receive the same redacted success or public
    error. Logout/shutdown winning before commit causes no keyring or memory
    resurrection; invalid/revoked material is deleted only through the typed
@@ -160,20 +247,35 @@ the already-passing `cleanup_failed` result propagation through the Tauri exit
 hook. Shutdown is not cancellation and must not silently report success when
 credential cleanup is unproven.
 
-## 5. Secret-custody requirements
+## 5. Named bounded custody boundaries B1-B5
 
-The implementation must use a byte-oriented or zeroizing native boundary at each
-listed entry and parser/generator point:
+The hard prohibition applies to app-owned ordinary copies of callback code,
+PKCE verifier, token, recovery phrase, and other credential material. It does
+not make an impossible claim about framework/protocol memory that the app does
+not own. Each unavoidable framework/protocol boundary must instead name its
+owner, maximum lifetime and size, disposal/no-retention behavior, redacted
+logging/error behavior, and residual risk for external/provider UAT. The app
+must never retain, log, serialize, or publish those values merely because a
+framework temporarily holds a copy.
 
-| Boundary | Required future behavior | Required proof |
+At the app boundary, use a custom `Deserialize` visitor or equivalent direct
+move into `Zeroizing`/byte custody. App-owned raw body buffers are zeroized on
+all success, error, cancellation, timeout, and panic/unwind cleanup paths. No
+`serde_json::Value` or ordinary intermediary is permitted for token material;
+no app-owned `url::Url` serialization may carry callback code or state.
+
+| Boundary | Ownership and normative contract | Required proof |
 |---|---|---|
-| Tauri command entry | Secret-bearing callback, PKCE, token, and recovery inputs are deserialized directly into a zeroizing wrapper or byte buffer; no ordinary secret-bearing command parameter is retained. | Source scan plus malformed/cancel/timeout/error tests |
-| Callback parser | Parse request bytes without constructing an ordinary secret-bearing `url::Url` or persistent query `String`; decoded state/code/error material is zeroizing and single-use. | Exact callback, duplicate, malformed, oversized, and terminal-path tests |
-| PKCE generator | Verifier is born in zeroizing custody; challenge derivation does not first retain an ordinary verifier `String`. | Static custody assertion and generator lifecycle test |
-| OAuth authorization URL | State/challenge/callback data is encoded into a zeroizing byte/string buffer without ordinary secret-bearing `url::Url` query serialization. Public static origin and non-secret parameters remain separately allowed. | URL construction scan and no-secret-output test |
-| Provider token payload | Response bytes and access/refresh/error fields use zeroizing custody; no ordinary `String::deserialize` or retained token-bearing JSON value is accepted. | Success, malformed, refresh failure, and disposal tests |
-| Drive recovery phrase | Command entry receives zeroizing custody before validation or any async/provider work; it is never retained as an ordinary `String`, logged, echoed, or placed in a job/public DTO. | Restore success/failure/cancel/shutdown custody tests |
-| Narrow unavoidable boundary | Only a specifically named adapter boundary may temporarily materialize ordinary bytes for a library call. It must document why it is unavoidable, prove no retention/logging, dispose immediately, and have a focused test. | Terra must review the named boundary; absence of that proof is a hard FAIL |
+| **B1 Tauri InvokeBody/Serde ingress buffer** | Tauri/Serde may own an ingress buffer temporarily. The app boundary must use a custom visitor or equivalent direct move into bounded zeroizing custody for callback code/state, PKCE verifier, token fields, and recovery phrase. The app must not retain an ordinary secret-bearing command parameter, `serde_json::Value`, or ordinary token intermediary. Record framework owner/lifetime and no-retention evidence; do not claim forced zeroization of framework memory the app does not own. | Static source scan; valid/malformed/oversized input; cancel/timeout/error; fault injection at deserialize and direct-move transitions |
+| **B2 native callback listener/HTTP parser buffer** | The listener/parser may own a bounded request buffer only for the request lifetime. App-owned raw bytes are zeroized immediately after parsing; parser output is single-use zeroizing custody. Do not build an app-owned `url::Url` or persistent query `String` carrying callback code/state. Enforce request size and callback deadline bounds. | Exact, duplicate, malformed and oversized callbacks; disconnect/cancel/timeout/shutdown; read/parse/zeroize fault tests |
+| **B3 provider HTTP response body and Serde** | HTTP client/framework buffers are unavoidable protocol copies. Bound body size and lifetime, consume once, never log or retain raw response, and record no-retention/residual-risk evidence for provider UAT. Deserialize token/error fields directly into zeroizing types; no `serde_json::Value` or ordinary token `String` may exist in app-owned code. | Static body/parser scan; success/malformed/error/oversize; cancellation/timeout; body read, Serde, disposal and crash fault tests |
+| **B4 provider outbound form/request body** | The HTTP client may transiently own encoded request bytes. App-owned code must build from zeroizing fields into a bounded request, never log or retain encoded bodies, dispose immediately after send/failure, and record client ownership/lifetime where forced zeroization is unavailable. | Static form construction scan; no-secret-log test; size/time bounds; send, cancellation, timeout, disposal and fault tests |
+| **B5 authorization URL handoff to OS/browser** | The OS/browser necessarily sees protocol-visible OAuth state and PKCE challenge for the authorization handoff. State/challenge may be present only in a bounded handoff buffer; PKCE verifier, callback code, access/refresh token, and recovery phrase are forbidden in the handoff and must not be serialized into an app-owned `url::Url`. Dispose the app-owned handoff buffer immediately and redact errors/logs. | URL construction/source scan; state/challenge-only handoff test; code/verifier/token/phrase absence test; open failure, cancellation, timeout and disposal fault tests |
+
+All B1-B5 evidence must be static, behavioral, and fault-injection evidence.
+“Framework memory was zeroized” is not an acceptable claim when the app does
+not own that memory; the report must instead identify lifecycle/no-retention
+evidence and record residual risk for external/provider UAT.
 
 ## 6. Keyring taxonomy and fail-closed behavior
 
@@ -192,6 +294,62 @@ The exact public code may remain operation-specific only when its mapping to thi
 taxonomy is documented and tested. Catch-all `Err(_) => absent` behavior is
 prohibited.
 
+### 6.1 Failure-atomic credential commit and deterministic startup recovery
+
+The lock/commit fence alone is insufficient because a keyring cannot atomically
+update two credential slots. `AccountSession` and `DriveCredential` each use
+versioned immutable credential slots and one non-secret commit marker. A slot is
+named by domain and version/operation ID and is never overwritten. The marker
+contains only the domain, committed version, slot identifier, and integrity
+metadata; it contains no credential or token.
+
+The protocol has one linearization point: the successful marker write followed
+by verified marker readback that names a valid, verified slot. The required
+order is:
+
+1. Under the engine commit fence, reserve a new version and write the new
+   immutable slot.
+2. Read the slot back and verify exact integrity. Until the marker linearizes,
+   the old marker/slot remains authoritative and the new slot is uncommitted.
+3. Write the non-secret marker and read it back. A verified marker naming the
+   valid new slot is the only commit/linearization point.
+4. After marker commit, the new slot is authoritative, but old and orphan slots
+   must be deleted and verified absent before public success or credential access.
+5. Before marker commit, any failure requires compensating deletion of the new
+   slot and any orphan created by the operation, followed by verified absence.
+   If cleanup or absence proof is unproven, enter `credential_cleanup_failed` /
+   `cleanup_failed`, publish no access, connected, authenticated, or success
+   result, and retain only non-secret failure state.
+
+Any failure at a write, slot readback, marker write/readback, delete, absence
+verification, or crash transition must therefore either complete that
+compensating cleanup with verified absence or enter the same cleanup-failed
+state; it must never silently choose a slot or publish success.
+
+An ambiguous marker write or marker readback fails closed: the engine publishes
+nothing, does not select a presumed new or old credential in memory, records a
+non-secret recovery-needed state, and startup must re-read the marker and every
+referenced/orphan slot before deciding. A crash at any transition is treated as
+ambiguous until deterministic startup recovery proves the matrix below.
+
+| Startup/storage state | Deterministic recovery and public result |
+|---|---|
+| Marker + valid referenced slot | Verify marker integrity and slot; delete/verify old and orphan slots. Publish access/status only after cleanup passes; cleanup failure is `credential_cleanup_failed`/`cleanup_failed` with no access/success. |
+| Marker absent + no slots (`NoEntry` for marker and every slot) | Normal absence: publish signed-out/disconnected/auth-required state. `NoEntry` is the only absence proof. |
+| Marker absent + one or more slots | No slot is authoritative. Treat all slots as orphan candidates; delete and verify every slot. Any error is cleanup failure with no access/success. |
+| Marker unreadable or marker readback ambiguous | Fail closed; publish nothing and do not treat the marker as absent. Re-read marker/slots on startup/retry; unresolved cleanup/recovery remains `credential_cleanup_failed`. |
+| Marker points to missing or corrupt slot | Fail closed; do not fall back to old or another slot. Delete/verify orphan material and retain recovery/cleanup failure; no access/success. |
+| Orphan slots alongside a valid marker | New referenced slot is authoritative only after marker verification; delete and verify all orphans before public success/access. |
+| Slot/marker delete or absence readback error | `NoEntry` alone passes. Any other result is `DeleteError`/`VerifyAbsentError`; enter cleanup failure and publish no success/access. |
+
+The same matrix applies independently to `AccountSession` and
+`DriveCredential`. Fault-injection tests must cover every write, slot readback,
+marker write, marker readback, delete, absence verification, and crash/restart
+transition for both domains, including failure after each earlier successful
+step. The evidence must show old-authoritative-before-marker, new-authoritative-
+after-verified-marker, compensating orphan cleanup, and no public success when
+cleanup is unproven.
+
 ## 7. Exact future implementation write set
 
 After the approval rule is satisfied, the future implementation may modify only:
@@ -201,8 +359,8 @@ After the approval rule is satisfied, the future implementation may modify only:
 3. `src-tauri/src/lib.rs`
 4. `tests/nativeSessionCustody.test.mjs`
 5. `tests/googleDriveContract.test.mjs`
-6. the future implementation report at
-   `docs/verification/implementation-reports/2026-08-25-native-session-broker-production-path-remediation-luna-report.md`
+6. the distinct future implementation report at
+   `docs/verification/implementation-reports/2026-08-25-native-session-broker-production-path-remediation-implementation-luna-report.md`
 
 No `package.json`, lockfile, Cargo/config/capability file, migration, provider
 configuration, Browser file, Mobile file, `GoogleDrivePanel.tsx`, or other path
@@ -217,11 +375,11 @@ this drafting task.
 
 | ID | Required success criterion |
 |---|---|
-| AC-GDA5-01 | Actual Tauri login, refresh, logout, shutdown, Drive credential commit/delete, and registered command paths invoke the same `SessionLifecycle` engine methods that the tests exercise through explicit injectable ports. The evidence names the shared call path and contains no separate generic test-only core. |
+| AC-GDA5-01 | **Hard gate:** The exact §3.1 registered auth/device and Drive command mapping is live: actual Tauri login, refresh, logout, shutdown, Drive credential commit/delete, list/upload/restore boundaries invoke the same `SessionLifecycle` engine methods that the test harness exercises through explicit injectable ports. Evidence names the shared call path and contains no separate generic test-only core. |
 | AC-GDA5-02 | Non-test production build contains no parallel generic test-only core, dead lifecycle seams/methods, or unused production lifecycle authority. Compiler output and a source/command inventory prove the engine is live. |
-| AC-GDA5-03 | Login, refresh, logout, and shutdown stale-interleaving tests pause at exact precommit, commit, and postcommit points and assert no stale credential, session state, staged key, active key, or public success is resurrected. |
-| AC-GDA5-04 | Callback, PKCE verifier, authorization state/challenge, Drive recovery phrase, and access/refresh/token payload custody checks cover command entry, parser/generator boundaries, provider failure, malformed input, cancellation, timeout, logout, and shutdown with no ordinary secret-bearing `String`/`url::Url` path except a named Terra-reviewed boundary. |
-| AC-GDA5-05 | Keyring tests distinguish `NoEntry`, transient, unavailable, read, write, delete, and absence-verification outcomes; only `NoEntry` is treated as normal absence, and all other failure classes fail closed. |
+| AC-GDA5-03 | **Hard gate:** Login, refresh, logout, shutdown, Drive connect/complete/disconnect, and Drive operation stale-interleaving tests pause at exact precommit, marker-commit, cleanup, and postcommit points and assert no stale credential, session state, staged/orphan slot, marker, Drive access, or public success is resurrected. |
+| AC-GDA5-04 | **Hard gate:** B1-B5 custody checks cover command ingress, callback/parser, PKCE, authorization handoff, provider response/form, Drive recovery phrase, provider failure, malformed input, cancellation, timeout, logout, and shutdown. They prove direct zeroizing app custody, no token `serde_json::Value`/ordinary intermediary, no app-owned callback-code/state `url::Url`, bounded framework/protocol lifetime/no-retention, and recorded residual risk rather than impossible framework-zeroization claims. |
+| AC-GDA5-05 | **Hard gate:** AccountSession and DriveCredential tests distinguish `NoEntry`, transient, unavailable, read, write, marker/readback, delete, absence-verification, corrupt/missing-slot, orphan, crash-recovery, and cleanup failures; only `NoEntry` is normal absence. The complete §6.1 failure-atomic startup/fault matrix must fail closed and preserve `cleanup_failed`. |
 | AC-GDA5-06 | Shutdown cleanup failure still propagates as `cleanup_failed` through the production exit path; it is never converted to successful shutdown. |
 | AC-GDA5-07 | The existing 50-client replay evidence remains one winner, 49 `proof_replayed`, and zero loser mutation, with no altered schema or provider deployment in this lane. |
 | AC-GDA5-08 | Typed IPC remains closed and operation-specific; no generic invoke/HTTP/URL/header/token forwarding or secret-bearing legacy alias is registered. The ignored `GoogleDrivePanel.tsx` argument remains a P2 warning and is not changed. |
@@ -268,15 +426,22 @@ not approval; this draft’s approval status is not implementation evidence.
 
 ## Version Diff
 
-- `new -> 0.1.0b`: drafted a narrow fix4 remediation authority candidate after
-  Terra fix3 FAIL/BLOCK and exhaustion of the maximum three fix cycles; added the
-  shared production lifecycle, linearizable commit, custody, keyring taxonomy,
-  bounded evidence, exact write set, AC-GDA5 gates, and hash-bound approval rule.
-- Prior D-GDA4 candidate, fix3 report, approval record, code, tests, Browser,
-  Mobile, provider configuration, and external gates remain unchanged.
+- `0.1.0b -> 0.2.0b`: documentation-fix cycle 1 closes Terra T5-P0-01,
+  T5-P0-02, T5-P0-03, and T5-P1-01 at the candidate level by adding the
+  normative C-3 architecture/command/port map, coordinated AccountSession and
+  Drive domains, failure-atomic slot/marker recovery matrix, and named B1-B5
+  custody boundaries with hard-gate acceptance criteria.
+- Corrected the bounded future write set to use the distinct future
+  implementation report path, improved non-self-referential commit/hash
+  provenance, and recorded Terra commit `0bdf2ad...` plus failed draft hash
+  `D590...` as superseded FAIL/BLOCK evidence only.
+- Preserved prior local passes, `cleanup_failed`, the 50-client replay evidence,
+  typed IPC, Browser/Mobile boundaries, P2 compatibility warning, and all open
+  external gates. No implementation authorization is created by this bump.
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.1.0b | 2026-08-25 | candidate | Drafted HIGH-risk C-3 Desktop/Tauri production-path remediation authority candidate after Terra fix3 FAIL/BLOCK; implementation and external gates remain unauthorized/open. | pending post-commit | Luna 5.6 |
+| 0.2.0b | 2026-08-25 | candidate | Documentation-fix cycle 1 closes Terra T5-P0-01/02/03 and T5-P1-01 in the candidate text; implementation remains unauthorized and external gates remain open. | externally bound after commit; not self-embedded | Luna 5.6 |
+| 0.1.0b | 2026-08-25 | candidate | Drafted HIGH-risk C-3 Desktop/Tauri production-path remediation authority candidate after Terra fix3 FAIL/BLOCK; implementation and external gates remain unauthorized/open. | superseded by 0.2.0b | Luna 5.6 |

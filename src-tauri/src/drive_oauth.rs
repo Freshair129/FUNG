@@ -79,7 +79,7 @@ pub(crate) struct DriveArchiveSummary {
 
 #[derive(Clone)]
 struct OAuthCallback {
-    state: String,
+    state: Zeroizing<String>,
     code: Option<Zeroizing<String>>,
     error: Option<String>,
 }
@@ -89,7 +89,7 @@ struct PendingOAuth {
     session_id: String,
     oauth_client_id: String,
     redirect_uri: String,
-    state: String,
+    state: Zeroizing<String>,
     code_verifier: Zeroizing<String>,
     callback: Arc<Mutex<Option<OAuthCallback>>>,
     terminal: OAuthTerminal,
@@ -481,14 +481,14 @@ fn callback_from_request(request: &[u8]) -> OAuthCallback {
     let parsed = Url::parse(&format!("http://127.0.0.1{target}"));
     let Ok(parsed) = parsed else {
         return OAuthCallback {
-            state: String::new(),
+            state: Zeroizing::new(String::new()),
             code: None,
             error: Some("invalid_callback".into()),
         };
     };
     if parsed.path() != OAUTH_CALLBACK_PATH {
         return OAuthCallback {
-            state: String::new(),
+            state: Zeroizing::new(String::new()),
             code: None,
             error: Some("invalid_callback".into()),
         };
@@ -500,18 +500,18 @@ fn callback_from_request(request: &[u8]) -> OAuthCallback {
     let mut error_description = false;
     for (key, value) in parsed.query_pairs() {
         if !names.insert(key.as_ref().to_owned()) {
-            return OAuthCallback { state: String::new(), code: None, error: Some("invalid_callback".into()) };
+            return OAuthCallback { state: Zeroizing::new(String::new()), code: None, error: Some("invalid_callback".into()) };
         }
         match key.as_ref() {
-            "state" => state = Some(value.into_owned()),
+            "state" => state = Some(Zeroizing::new(value.into_owned())),
             "code" => code = Some(Zeroizing::new(value.into_owned())),
             "error" => error = Some("authorization_denied".into()),
             "error_description" => error_description = true,
-            _ => return OAuthCallback { state: String::new(), code: None, error: Some("invalid_callback".into()) },
+            _ => return OAuthCallback { state: Zeroizing::new(String::new()), code: None, error: Some("invalid_callback".into()) },
         }
     }
     if state.is_none() || (code.is_some() == error.is_some()) || (error_description && error.is_none()) {
-        return OAuthCallback { state: String::new(), code: None, error: Some("invalid_callback".into()) };
+        return OAuthCallback { state: Zeroizing::new(String::new()), code: None, error: Some("invalid_callback".into()) };
     }
     OAuthCallback { state: state.unwrap_or_default(), code, error }
 }
@@ -580,7 +580,7 @@ pub(crate) async fn broker_drive_connect_begin(
         .port();
     let redirect_uri = format!("http://127.0.0.1:{port}{OAUTH_CALLBACK_PATH}");
     let (code_verifier, code_challenge) = pkce_pair();
-    let oauth_state = random_state();
+    let oauth_state = Zeroizing::new(random_state());
     let session_id = Uuid::new_v4().to_string();
     let callback = Arc::new(Mutex::new(None));
     let terminal = OAuthTerminal::default();
@@ -1463,7 +1463,7 @@ mod tests {
         let callback = callback_from_request(
             b"GET /oauth/google-drive/callback?state=s1&code=c1 HTTP/1.1\r\n\r\n",
         );
-        assert_eq!(callback.state, "s1");
+        assert_eq!(callback.state.as_str(), "s1");
         assert_eq!(callback.code.as_ref().map(|value| value.as_str()), Some("c1"));
         assert!(callback.error.is_none());
     }
@@ -1555,6 +1555,20 @@ mod tests {
             terminal.cancel().unwrap_err(),
             public_error("drive_oauth_completed")
         );
+    }
+
+    #[test]
+    fn native_behavioral_drive_callback_state_is_zeroizing_and_terminal_cleanup() {
+        let callback = callback_from_request(
+            b"GET /oauth/google-drive/callback?state=drive-state&code=drive-code HTTP/1.1\r\n\r\n",
+        );
+        assert_eq!(callback.state.as_str(), "drive-state");
+        assert_eq!(callback.code.as_ref().map(|value| value.as_str()), Some("drive-code"));
+        let terminal = OAuthTerminal::default();
+        terminal.begin_exchange().unwrap();
+        terminal.cancel().unwrap();
+        assert!(terminal.is_cancelled());
+        drop(callback);
     }
 
     #[test]

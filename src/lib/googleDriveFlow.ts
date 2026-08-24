@@ -1,8 +1,21 @@
-import type { BackupArchiveRecord, InvokeFn, RestoreResult } from "./backupFlow";
+import type { BackupArchiveRecord, RestoreResult } from "./backupFlow";
+import {
+  brokerDriveConnectBegin,
+  brokerDriveConnectCancel,
+  brokerDriveConnectComplete,
+  brokerDriveDisconnect,
+  brokerDriveListArchives,
+  brokerDriveRestore,
+  brokerDriveRestoreIntent,
+  brokerDriveStatus,
+  brokerDriveUploadArchive,
+  type DriveArchiveSummary,
+  type DriveConnectionStatus,
+} from "./desktopSessionBroker";
+
+export type { DriveArchiveSummary, DriveConnectionStatus } from "./desktopSessionBroker";
 
 export const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
-export type DriveConnectionStatus = { connected: boolean; scope: string | null; provider: "google_drive" };
-export type DriveArchiveSummary = { fileId: string; archiveId: string; byteCount: number; digest: string | null; modifiedTime: string | null };
 export type DriveConnectState = "idle" | "authorizing" | "connected" | "disconnected";
 
 function publicError(code: string): Error { return new Error(code); }
@@ -12,41 +25,41 @@ export function googleDriveClientId(): string | null {
   return value || null;
 }
 
-export async function getDriveConnectionStatus(invoke: InvokeFn): Promise<DriveConnectionStatus> {
-  return invoke<DriveConnectionStatus>("broker_drive_status");
+export async function getDriveConnectionStatus(_legacyPanelArgument?: unknown): Promise<DriveConnectionStatus> {
+  return brokerDriveStatus();
 }
 
-export async function connectGoogleDrive(invoke: InvokeFn, onStarted?: (requestId: string) => void): Promise<DriveConnectionStatus> {
-  const started = await invoke<{ requestId: string; scope: string; expiresAtMs: number }>("broker_drive_connect_begin");
+export async function connectGoogleDrive(_legacyPanelArgument?: unknown, onStarted?: (requestId: string) => void): Promise<DriveConnectionStatus> {
+  const started = await brokerDriveConnectBegin();
   if (started.scope !== "drive.appdata") throw publicError("drive_oauth_scope_mismatch");
   onStarted?.(started.requestId);
   try {
-    return await invoke<DriveConnectionStatus>("broker_drive_connect_complete", { requestId: started.requestId });
+    return await brokerDriveConnectComplete(started.requestId);
   } catch (error) {
-    await invoke("broker_drive_connect_cancel", { requestId: started.requestId }).catch(() => undefined);
+    await brokerDriveConnectCancel(started.requestId).catch(() => undefined);
     throw error;
   }
 }
 
-export async function cancelGoogleDriveConnect(invoke: InvokeFn, requestId: string): Promise<void> {
+export async function cancelGoogleDriveConnect(_legacyPanelArgument: unknown, requestId: string): Promise<void> {
   if (!requestId.trim()) throw publicError("drive_oauth_session_missing");
-  await invoke("broker_drive_connect_cancel", { requestId });
+  await brokerDriveConnectCancel(requestId);
 }
 
-export function disconnectGoogleDrive(invoke: InvokeFn): Promise<DriveConnectionStatus> { return invoke("broker_drive_disconnect"); }
-export function listGoogleDriveArchives(invoke: InvokeFn): Promise<DriveArchiveSummary[]> { return invoke("broker_drive_list_archives"); }
-export function uploadGoogleDriveArchive(invoke: InvokeFn, archive: BackupArchiveRecord): Promise<DriveArchiveSummary> {
-  return invoke("broker_drive_upload_archive", { archiveId: archive.archiveId });
+export function disconnectGoogleDrive(_legacyPanelArgument?: unknown): Promise<DriveConnectionStatus> { return brokerDriveDisconnect(); }
+export function listGoogleDriveArchives(_legacyPanelArgument?: unknown): Promise<DriveArchiveSummary[]> { return brokerDriveListArchives(); }
+export function uploadGoogleDriveArchive(_legacyPanelArgument: unknown, archive: BackupArchiveRecord): Promise<DriveArchiveSummary> {
+  return brokerDriveUploadArchive(archive);
 }
-export async function createGoogleDriveRestoreIntent(invoke: InvokeFn, archiveId: string, confirmedCleanTarget: boolean): Promise<string> {
+export async function createGoogleDriveRestoreIntent(_legacyPanelArgument: unknown, archiveId: string, confirmedCleanTarget: boolean): Promise<string> {
   if (!confirmedCleanTarget) throw publicError("restore_not_confirmed");
-  return invoke("broker_drive_restore_intent", { archiveId });
+  return brokerDriveRestoreIntent(archiveId);
 }
-export async function restoreGoogleDriveArchive(invoke: InvokeFn, archive: DriveArchiveSummary, recoveryPhrase: string, restoreIntentId: string): Promise<RestoreResult> {
+export async function restoreGoogleDriveArchive(_legacyPanelArgument: unknown, archive: DriveArchiveSummary, recoveryPhrase: string, restoreIntentId: string): Promise<RestoreResult> {
   const phrase = recoveryPhrase.trim();
   if (!phrase) throw publicError("missing_recovery_phrase");
   if (!restoreIntentId.trim()) throw publicError("restore_intent_invalid");
-  return invoke("broker_drive_restore", { fileId: archive.fileId, archiveId: archive.archiveId, recoveryPhrase: phrase, restoreIntentId });
+  return brokerDriveRestore(archive, phrase, restoreIntentId);
 }
 
 export function describeGoogleDriveError(raw: unknown): string {

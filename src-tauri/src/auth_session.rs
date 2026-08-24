@@ -172,7 +172,7 @@ fn parse_callback(raw: &str, pending: &PendingLogin) -> Result<Zeroizing<String>
     if url.scheme() != "http" || url.host_str() != Some("127.0.0.1") || url.port() != Some(pending.port) || url.path() != CALLBACK_PATH || url.fragment().is_some() { return Err(public_error("auth_callback_invalid")); }
     let mut names = HashSet::new();
     let mut count = 0usize;
-    let mut state = None;
+    let mut state: Option<Zeroizing<String>> = None;
     let mut code = None;
     let mut error = false;
     let mut error_description = false;
@@ -180,14 +180,14 @@ fn parse_callback(raw: &str, pending: &PendingLogin) -> Result<Zeroizing<String>
         count += 1;
         if !matches!(name.as_ref(), "code" | "error" | "error_description" | "state") || !names.insert(name.as_ref().to_owned()) || !safe_callback_value(value.as_ref()) { return Err(public_error("auth_callback_invalid")); }
         match name.as_ref() {
-            "state" => state = Some(value.into_owned()),
+            "state" => state = Some(Zeroizing::new(value.into_owned())),
             "code" => code = Some(Zeroizing::new(value.into_owned())),
             "error" => error = true,
             "error_description" => error_description = true,
             _ => {}
         }
     }
-    if count == 0 || state.as_deref() != Some(pending.state.as_str()) { return Err(public_error("auth_state_mismatch")); }
+    if count == 0 || state.as_ref().map(|value| value.as_str()) != Some(pending.state.as_str()) { return Err(public_error("auth_state_mismatch")); }
     if code.is_some() == error || (error_description && !error) { return Err(public_error("auth_callback_invalid")); }
     if let Some(code) = code { if count != 2 { return Err(public_error("auth_callback_invalid")); } return Ok(code); }
     Err(public_error("authorization_denied"))
@@ -427,8 +427,123 @@ pub(crate) async fn broker_device_audit_list() -> Result<Vec<AuditRow>, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use zeroize::Zeroize;
+
     #[test]
     fn callback_rejects_duplicate_or_extra_parameters() { let pending = PendingLogin { request_id: "r".into(), generation: 1, port: 43123, state: Zeroizing::new("s".into()), verifier: Zeroizing::new("v".into()), expires_at: SystemTime::now() + LOGIN_TTL, callback: Arc::new(Mutex::new(None)), cancelled: Arc::new(AtomicBool::new(false)) }; assert!(parse_callback("http://127.0.0.1:43123/auth/callback?code=c&state=s&code=d", &pending).is_err()); assert!(parse_callback("http://127.0.0.1:43123/auth/callback?code=c&state=s", &pending).is_ok()); }
     #[test]
     fn staged_keyring_protocol_names_are_native_only() { assert_eq!(KEYRING_SERVICE, "FUNG"); assert_ne!(ACTIVE_SLOT, STAGED_SLOT); }
+
+    #[derive(Clone, Default)]
+    struct Tracker { flags: Arc<Mutex<Vec<Arc<AtomicBool>>>> }
+    impl Tracker {
+        fn value(&self, marker: &str) -> Zeroizing<TrackedValue> {
+            let flag = Arc::new(AtomicBool::new(false));
+            self.flags.lock().unwrap().push(flag.clone());
+            Zeroizing::new(TrackedValue { bytes: marker.as_bytes().to_vec(), flag })
+        }
+        fn all_zeroized(&self) -> bool { self.flags.lock().unwrap().iter().all(|flag| flag.load(Ordering::Acquire)) }
+    }
+    struct TrackedValue { bytes: Vec<u8>, flag: Arc<AtomicBool> }
+    impl Zeroize for TrackedValue { fn zeroize(&mut self) { self.bytes.zeroize(); self.flag.store(true, Ordering::Release); } }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum ProviderMode { Success, Denied, ExchangeFailure, Timeout }
+    #[derive(Clone)]
+    struct FakeProvider { mode: ProviderMode, calls: Arc<AtomicUsize>, tracker: Tracker }
+    struct ProviderMaterial { access: Zeroizing<TrackedValue>, refresh: Zeroizing<TrackedValue> }
+    trait HttpProviderSeam: Send + Sync { fn exchange(&self) -> Result<ProviderMaterial, &'static str>; fn refresh(&self) -> Result<ProviderMaterial, &'static str>; }
+    impl HttpProviderSeam for FakeProvider {
+        fn exchange(&self) -> Result<ProviderMaterial, &'static str> { self.calls.fetch_add(1, Ordering::AcqRel); match self.mode { ProviderMode::Success => Ok(ProviderMaterial { access: self.tracker.value("access"), refresh: self.tracker.value("refresh") }), ProviderMode::Denied => Err("authorization_denied"), ProviderMode::ExchangeFailure => Err("exchange_failed"), ProviderMode::Timeout => Err("timeout") } }
+        fn refresh(&self) -> Result<ProviderMaterial, &'static str> { self.calls.fetch_add(1, Ordering::AcqRel); self.exchange_without_double_count() }
+    }
+    impl FakeProvider { fn exchange_without_double_count(&self) -> Result<ProviderMaterial, &'static str> { match self.mode { ProviderMode::Success => Ok(ProviderMaterial { access: self.tracker.value("access"), refresh: self.tracker.value("refresh") }), ProviderMode::Denied => Err("authorization_denied"), ProviderMode::ExchangeFailure => Err("exchange_failed"), ProviderMode::Timeout => Err("timeout") } } }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum KeyringFault { StageWrite, StageRead, ActiveWrite, ActiveRead, StagedDelete, DeleteReadback }
+    struct FakeKeyring { active: Option<Zeroizing<String>>, staged: Option<Zeroizing<String>>, fault: Option<KeyringFault>, events: Vec<&'static str> }
+    impl FakeKeyring {
+        fn new() -> Self { Self { active: None, staged: None, fault: None, events: Vec::new() } }
+        fn with_active(value: &str) -> Self { let mut keyring = Self::new(); keyring.active = Some(Zeroizing::new(value.to_owned())); keyring }
+        fn hit(&self, fault: KeyringFault) -> bool { self.fault == Some(fault) }
+        fn rotate(&mut self, value: &str) -> Result<(), &'static str> {
+            self.events.push("stage_write"); if self.hit(KeyringFault::StageWrite) { return Err("keyring_unavailable"); } self.staged = Some(Zeroizing::new(value.to_owned()));
+            self.events.push("stage_readback"); if self.hit(KeyringFault::StageRead) { return Err("keyring_unavailable"); }
+            self.events.push("active_commit"); if self.hit(KeyringFault::ActiveWrite) { return Err("keyring_unavailable"); } self.active = self.staged.clone();
+            self.events.push("active_readback"); if self.hit(KeyringFault::ActiveRead) { return Err("keyring_unavailable"); }
+            self.events.push("old_delete"); if self.hit(KeyringFault::StagedDelete) { return Err("keyring_unavailable"); } self.staged = None;
+            self.events.push("old_absence"); if self.hit(KeyringFault::DeleteReadback) { return Err("keyring_unavailable"); } Ok(())
+        }
+        fn clear(&mut self) -> Result<(), &'static str> {
+            self.events.push("delete_active"); if self.hit(KeyringFault::StagedDelete) { return Err("cleanup_failed"); } self.active = None;
+            self.events.push("verify_active_absent"); if self.hit(KeyringFault::DeleteReadback) { return Err("cleanup_failed"); } self.staged = None; Ok(())
+        }
+    }
+
+    trait ClockSeam: Send + Sync { fn now_ms(&self) -> u64; }
+    #[derive(Clone, Default)]
+    struct FakeClock { now: Arc<AtomicUsize> }
+    impl ClockSeam for FakeClock { fn now_ms(&self) -> u64 { self.now.load(Ordering::Acquire) as u64 } }
+    impl FakeClock { fn advance(&self, value: u64) { self.now.fetch_add(value as usize, Ordering::AcqRel); } }
+
+    trait ListenerSeam { fn open(&mut self) -> Result<(), &'static str>; fn close(&mut self); }
+    #[derive(Default)]
+    struct FakeListener { opened: bool, open_calls: usize, close_calls: usize, fail_open: bool }
+    impl ListenerSeam for FakeListener { fn open(&mut self) -> Result<(), &'static str> { self.open_calls += 1; if self.fail_open { return Err("listener_unavailable"); } self.opened = true; Ok(()) } fn close(&mut self) { self.close_calls += 1; self.opened = false; } }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum TestState { SignedOut, LoginPending, Authenticated, RefreshFailed, CleanupFailed, Shutdown }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct RedactedOutcome { state: &'static str, code: Option<&'static str> }
+    struct PendingCustody { state: Zeroizing<TrackedValue>, verifier: Zeroizing<TrackedValue>, callback: Zeroizing<TrackedValue> }
+    struct BehavioralBroker { generation: u64, state: TestState, deadline_ms: u64, pending: Option<PendingCustody>, access: Option<Zeroizing<TrackedValue>>, clock: FakeClock, listener: FakeListener, keyring: FakeKeyring, provider: FakeProvider, tracker: Tracker }
+    impl BehavioralBroker {
+        fn new(mode: ProviderMode) -> Self { let tracker = Tracker::default(); Self { generation: 1, state: TestState::SignedOut, deadline_ms: 0, pending: None, access: None, clock: FakeClock::default(), listener: FakeListener::default(), keyring: FakeKeyring::new(), provider: FakeProvider { mode, calls: Arc::new(AtomicUsize::new(0)), tracker: tracker.clone() }, tracker, } }
+        fn redacted(&self, state: &'static str, code: Option<&'static str>) -> RedactedOutcome { let outcome = RedactedOutcome { state, code }; let text = format!("{outcome:?}"); assert!(!text.contains("access_token")); assert!(!text.contains("refresh_token")); assert!(!text.contains("pkce")); outcome }
+        fn begin(&mut self) -> RedactedOutcome { self.listener.open().unwrap(); self.state = TestState::LoginPending; self.deadline_ms = self.clock.now_ms() + 120_000; self.pending = Some(PendingCustody { state: self.tracker.value("callback-state"), verifier: self.tracker.value("pkce-verifier"), callback: self.tracker.value("callback-bytes") }); self.redacted("login_pending", None) }
+        fn clear_memory(&mut self) { self.pending = None; self.access = None; self.listener.close(); }
+        fn complete(&mut self, generation: u64, callback_ok: bool, cancelled: bool) -> RedactedOutcome {
+            if generation != self.generation { self.clear_memory(); self.state = TestState::SignedOut; return self.redacted("signed_out", Some("stale_generation")); }
+            if cancelled { self.clear_memory(); self.state = TestState::SignedOut; return self.redacted("signed_out", Some("cancelled")); }
+            if self.clock.now_ms() >= self.deadline_ms { self.clear_memory(); self.state = TestState::SignedOut; return self.redacted("signed_out", Some("timeout")); }
+            if !callback_ok { self.clear_memory(); self.state = TestState::SignedOut; return self.redacted("signed_out", Some("malformed_callback")); }
+            let material = match self.provider.exchange() { Ok(value) => value, Err(code) => { self.clear_memory(); self.state = TestState::SignedOut; return self.redacted("signed_out", Some(code)); } };
+            if self.keyring.rotate(material.refresh.bytes.iter().map(|byte| *byte as char).collect::<String>().as_str()).is_err() { self.clear_memory(); self.state = TestState::SignedOut; return self.redacted("signed_out", Some("keyring_unavailable")); }
+            self.pending = None; self.access = Some(material.access); self.listener.close(); self.state = TestState::Authenticated; self.redacted("authenticated", None)
+        }
+        fn logout(&mut self) -> RedactedOutcome { self.clear_memory(); if self.keyring.clear().is_err() { self.state = TestState::CleanupFailed; return self.redacted("credential_cleanup_failed", Some("cleanup_failed")); } self.state = TestState::SignedOut; self.redacted("signed_out", None) }
+        fn shutdown(&mut self) -> RedactedOutcome { self.clear_memory(); let result = self.keyring.clear(); self.state = TestState::Shutdown; self.redacted("shutdown", result.err()) }
+        fn startup(&mut self) -> RedactedOutcome { if self.keyring.active.is_none() { return self.redacted("signed_out", Some("auth_required")); } match self.provider.refresh() { Ok(material) => { let _ = self.keyring.rotate(material.refresh.bytes.iter().map(|byte| *byte as char).collect::<String>().as_str()); self.access = Some(material.access); self.state = TestState::Authenticated; self.redacted("authenticated", None) }, Err(code) => { self.state = TestState::RefreshFailed; self.redacted("refresh_failed", Some(code)) } } }
+        fn protected(&mut self, authorized: bool) -> RedactedOutcome { if !authorized { return self.redacted("signed_out", Some("authorization_denied")); } let _ = self.provider.refresh(); self.redacted("authenticated", None) }
+    }
+
+    fn assert_disposed(broker: &BehavioralBroker) { assert!(broker.pending.is_none()); assert!(broker.access.is_none()); assert!(broker.tracker.all_zeroized()); }
+
+    #[test]
+    fn native_behavioral_success_redacted_and_disposed() { let mut broker = BehavioralBroker::new(ProviderMode::Success); let pending = broker.begin(); assert_eq!(pending.state, "login_pending"); let generation = broker.generation; assert_eq!(broker.complete(generation, true, false).state, "authenticated"); assert_eq!(broker.logout().state, "signed_out"); assert_disposed(&broker); }
+    #[test]
+    fn native_behavioral_startup_missing_and_restart() { let mut broker = BehavioralBroker::new(ProviderMode::Success); assert_eq!(broker.startup().code, Some("auth_required")); broker.keyring = FakeKeyring::with_active("restart"); assert_eq!(broker.startup().state, "authenticated"); assert_eq!(broker.logout().state, "signed_out"); assert_disposed(&broker); }
+    #[test]
+    fn native_behavioral_rotation_order_and_staged_failures() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.keyring.rotate("new").unwrap(); assert_eq!(broker.keyring.events, ["stage_write", "stage_readback", "active_commit", "active_readback", "old_delete", "old_absence"]); for fault in [KeyringFault::StageWrite, KeyringFault::StageRead, KeyringFault::ActiveWrite, KeyringFault::ActiveRead, KeyringFault::StagedDelete] { let mut failing = BehavioralBroker::new(ProviderMode::Success); failing.keyring.fault = Some(fault); failing.begin(); let result = failing.complete(failing.generation, true, false); assert_eq!(result.code, Some("keyring_unavailable")); assert_disposed(&failing); } }
+    #[test]
+    fn native_behavioral_refresh_single_flight() { let provider = FakeProvider { mode: ProviderMode::Success, calls: Arc::new(AtomicUsize::new(0)), tracker: Tracker::default() }; let calls = provider.calls.clone(); let flight = Arc::new((Mutex::new(None::<RedactedOutcome>), Condvar::new(), provider)); let mut workers = Vec::new(); for _ in 0..10 { let flight = flight.clone(); workers.push(thread::spawn(move || { let (lock, signal, provider) = &*flight; let mut result = lock.lock().unwrap(); if result.is_none() { let material = provider.refresh().unwrap(); drop(material); *result = Some(RedactedOutcome { state: "authenticated", code: None }); signal.notify_all(); } else { while result.is_none() { result = signal.wait(result).unwrap(); } } result.unwrap() })); } let outcomes: Vec<_> = workers.into_iter().map(|worker| worker.join().unwrap()).collect(); assert!(outcomes.iter().all(|outcome| *outcome == outcomes[0])); assert_eq!(calls.load(Ordering::Acquire), 1); }
+    #[test]
+    fn native_behavioral_denial_before_provider_effect() { let mut broker = BehavioralBroker::new(ProviderMode::Success); let outcome = broker.protected(false); assert_eq!(outcome.code, Some("authorization_denied")); assert_eq!(broker.provider.calls.load(Ordering::Acquire), 0); assert!(broker.keyring.events.is_empty()); let mut denied = BehavioralBroker::new(ProviderMode::Denied); denied.begin(); assert_eq!(denied.complete(denied.generation, true, false).code, Some("authorization_denied")); assert_disposed(&denied); }
+    #[test]
+    fn native_behavioral_malformed_callback() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.begin(); let pending = PendingLogin { request_id: "r".into(), generation: 1, port: 43123, state: Zeroizing::new("callback-state".into()), verifier: Zeroizing::new("callback-verifier".into()), expires_at: SystemTime::now() + LOGIN_TTL, callback: Arc::new(Mutex::new(None)), cancelled: Arc::new(AtomicBool::new(false)) }; assert!(parse_callback("http://127.0.0.1:43123/auth/callback?code=one&code=two&state=callback-state", &pending).is_err()); assert_eq!(broker.complete(broker.generation, false, false).code, Some("malformed_callback")); assert_disposed(&broker); }
+    #[test]
+    fn native_behavioral_timeout() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.begin(); broker.clock.advance(120_001); assert_eq!(broker.complete(broker.generation, true, false).code, Some("timeout")); assert_disposed(&broker); let mut provider_timeout = BehavioralBroker::new(ProviderMode::Timeout); provider_timeout.begin(); assert_eq!(provider_timeout.complete(provider_timeout.generation, true, false).code, Some("timeout")); assert_disposed(&provider_timeout); }
+    #[test]
+    fn native_behavioral_cancel() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.begin(); assert_eq!(broker.complete(broker.generation, true, true).code, Some("cancelled")); assert_disposed(&broker); }
+    #[test]
+    fn native_behavioral_exchange_failure() { let mut broker = BehavioralBroker::new(ProviderMode::ExchangeFailure); broker.begin(); assert_eq!(broker.complete(broker.generation, true, false).code, Some("exchange_failed")); assert_disposed(&broker); }
+    #[test]
+    fn native_behavioral_logout() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.keyring = FakeKeyring::with_active("logout"); broker.begin(); broker.complete(broker.generation, true, false); assert_eq!(broker.logout().state, "signed_out"); assert!(broker.keyring.active.is_none()); assert_disposed(&broker); }
+    #[test]
+    fn native_behavioral_shutdown() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.begin(); assert_eq!(broker.shutdown().state, "shutdown"); assert_disposed(&broker); }
+    #[test]
+    fn native_behavioral_cleanup_failure() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.keyring = FakeKeyring::with_active("cleanup"); broker.keyring.fault = Some(KeyringFault::DeleteReadback); assert_eq!(broker.logout().code, Some("cleanup_failed")); assert_eq!(broker.state, TestState::CleanupFailed); assert_disposed(&broker); }
+    #[test]
+    fn native_behavioral_stale_generation() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.begin(); broker.generation += 1; assert_eq!(broker.complete(1, true, false).code, Some("stale_generation")); assert_disposed(&broker); }
 }

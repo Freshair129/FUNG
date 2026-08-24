@@ -23,9 +23,10 @@ test("Desktop UI keeps provider backup separate from the filesystem test panel",
   assert.match(panel, /เชื่อมต่อ Google Drive/);
   assert.match(panel, /อัปโหลด archive/);
   assert.match(panel, /กู้คืนจาก Google Drive/);
-  assert.match(flow, /broker_drive_connect_begin/);
-  assert.match(flow, /broker_drive_connect_cancel/);
-  assert.match(flow, /broker_drive_disconnect/);
+  assert.match(flow, /brokerDriveConnectBegin/);
+  assert.match(flow, /brokerDriveConnectCancel/);
+  assert.match(flow, /brokerDriveDisconnect/);
+  assert.doesNotMatch(flow, /InvokeFn|args\s*\?\s*:\s*Record/);
 });
 
 test("Supabase metadata writer is authenticated and token-free", () => {

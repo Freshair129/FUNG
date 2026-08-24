@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link2, RefreshCw, Trash2, X } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
-import { asBrokerInvoke, type BrokerInvoke } from "../lib/desktopSessionBroker";
+import {
+  brokerDeviceEndpointPublish,
+  brokerDeviceList,
+  brokerDeviceRevoke,
+  brokerFungwireSetEnabled,
+  brokerFungwireStatus,
+  brokerPairingCreate,
+  brokerPairingPoll,
+} from "../lib/desktopSessionBroker";
 import "./DevicePairingPanel.css";
 
 interface PairedDeviceRow {
@@ -34,7 +41,6 @@ const PUBLISH_MS = 60_000;
 const EMPTY_FUNGWIRE: FungwireStatus = { enabled: false, bind: null, activeJobs: 0, connectedPeers: 0 };
 
 export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
-  const broker: BrokerInvoke = asBrokerInvoke(invoke);
   const [devices, setDevices] = useState<PairedDeviceRow[]>([]);
   const [pairing, setPairing] = useState<PairingState>({ kind: "idle" });
   const [now, setNow] = useState(() => Date.now());
@@ -45,12 +51,12 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
   const publishTimer = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
-    try { setDevices(await broker<PairedDeviceRow[]>("broker_device_list")); }
+    try { setDevices(await brokerDeviceList()); }
     catch { setDevices([]); }
   }, []);
 
   const refreshFungwire = useCallback(async () => {
-    try { setFungwire(await broker<FungwireStatus>("broker_fungwire_status")); }
+    try { setFungwire(await brokerFungwireStatus()); }
     catch { setFungwire(EMPTY_FUNGWIRE); }
   }, []);
 
@@ -67,7 +73,7 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
   }, []);
 
   const publishEndpoint = useCallback(async () => {
-    try { await broker("broker_device_endpoint_publish"); }
+    try { await brokerDeviceEndpointPublish(); }
     catch { /* Endpoint publication is retried while the native server is enabled. */ }
   }, []);
 
@@ -82,7 +88,7 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
   const pollPairing = useCallback((pairingId: string) => {
     stopPolling();
     pollTimer.current = window.setInterval(() => {
-      void broker<{ status: string; peer: { label: string } | null }>("broker_pairing_poll", { pairingId })
+      void brokerPairingPoll(pairingId)
         .then((result) => {
           if (result.status === "confirmed") {
             stopPolling();
@@ -95,7 +101,7 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
         })
         .catch(() => { stopPolling(); setPairing({ kind: "error", message: "ตรวจสอบการจับคู่ไม่สำเร็จ" }); });
     }, POLL_MS);
-  }, [broker, refresh, stopPolling]);
+  }, [refresh, stopPolling]);
 
   useEffect(() => {
     if (pairing.kind !== "waiting") return;
@@ -110,27 +116,27 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
   const startPairing = useCallback(async () => {
     setBusy(true);
     try {
-      const result = await broker<{ pairingId: string; displayCode: string; expiresAtMs: number }>("broker_pairing_create", { input: { label: "FUNG Desktop" } });
+      const result = await brokerPairingCreate("FUNG Desktop");
       setPairing({ kind: "waiting", pairingId: result.pairingId, displayCode: result.displayCode, expiresAtMs: result.expiresAtMs });
       pollPairing(result.pairingId);
     } catch { setPairing({ kind: "error", message: "สร้างรหัสจับคู่ไม่สำเร็จ" }); }
     finally { setBusy(false); }
-  }, [broker, pollPairing]);
+  }, [pollPairing]);
 
   const revoke = useCallback(async (deviceId: string) => {
-    try { await broker("broker_device_revoke", { deviceId }); await refresh(); }
+    try { await brokerDeviceRevoke(deviceId); await refresh(); }
     catch { /* The native broker returns a redacted error; keep the list unchanged. */ }
-  }, [broker, refresh]);
+  }, [refresh]);
 
   const toggleFungwire = useCallback(async () => {
     setBusy(true); setFungwireError(null);
     try {
-      const next = await broker<FungwireStatus>("broker_fungwire_set_enabled", { enabled: !fungwire.enabled });
+      const next = await brokerFungwireSetEnabled(!fungwire.enabled);
       setFungwire(next);
       if (next.enabled) startPublishing(); else stopPublishing();
     } catch { setFungwireError("เปิด/ปิดการเชื่อมต่อไม่สำเร็จ"); }
     finally { setBusy(false); }
-  }, [broker, fungwire.enabled, startPublishing, stopPublishing]);
+  }, [fungwire.enabled, startPublishing, stopPublishing]);
 
   return (
     <section className="device-pairing-panel" aria-label="Device pairing">

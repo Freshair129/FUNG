@@ -1,19 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { LogIn, LogOut, MonitorSmartphone, X } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
 import {
   brokerEnrollmentRequest,
   brokerSessionLoginBegin,
   brokerSessionLogout,
   brokerSessionStatus,
-  type BrokerInvoke,
   type SessionStatus,
 } from "../lib/desktopSessionBroker";
 import "./AccountLoginPanel.css";
 
 interface AccountLoginPanelProps { onClose?: () => void; }
 type EnrollmentStatus = "idle" | "pending";
-const brokerInvoke: BrokerInvoke = <T,>(operation: Parameters<BrokerInvoke>[0], args?: Record<string, unknown>) => invoke<T>(operation, args);
 
 export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
   const [status, setStatus] = useState<SessionStatus | null>(null);
@@ -23,7 +20,7 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
   const [enrollmentStatus, setEnrollmentStatus] = useState<EnrollmentStatus>("idle");
 
   const refresh = useCallback(async () => {
-    try { setStatus(await brokerSessionStatus(brokerInvoke)); }
+    try { setStatus(await brokerSessionStatus()); }
     catch (e) { setError(e instanceof Error ? e.message : "auth_unavailable"); }
   }, []);
 
@@ -37,14 +34,14 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
 
   const handleLogin = useCallback(async () => {
     setBusy(true); setError(null);
-    try { await brokerSessionLoginBegin(brokerInvoke); await refresh(); }
+    try { await brokerSessionLoginBegin(); await refresh(); }
     catch (e) { setError(e instanceof Error ? e.message : "auth_start_failed"); }
     finally { setBusy(false); }
   }, [refresh]);
 
   const handleLogout = useCallback(async () => {
     setBusy(true); setError(null);
-    try { await brokerSessionLogout(brokerInvoke); setEnrollmentStatus("idle"); await refresh(); }
+    try { await brokerSessionLogout(); setEnrollmentStatus("idle"); await refresh(); }
     catch (e) { setError(e instanceof Error ? e.message : "auth_logout_incomplete"); }
     finally { setBusy(false); }
   }, [refresh]);
@@ -52,7 +49,7 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
   useEffect(() => {
     if (status?.state !== "authenticated" || enrollmentStatus !== "idle") return;
     let cancelled = false;
-    void brokerEnrollmentRequest(brokerInvoke, deviceLabel)
+    void brokerEnrollmentRequest(deviceLabel)
       .then(() => { if (!cancelled) setEnrollmentStatus("pending"); })
       .catch((e) => { if (!cancelled && e instanceof Error && e.message !== "auth_required") setError(e.message); });
     return () => { cancelled = true; };

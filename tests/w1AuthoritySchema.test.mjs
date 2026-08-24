@@ -257,7 +257,7 @@ $$;
 ROLLBACK;
 `;
 
-const concurrentProofEvidence = String.raw`
+const concurrentProofEvidence = (issuedAtMs) => String.raw`
 BEGIN;
 SELECT pg_sleep(0.25);
 SELECT * FROM public.create_device_enrollment_request(
@@ -266,8 +266,8 @@ SELECT * FROM public.create_device_enrollment_request(
   encode(pg_catalog.sha256(decode(repeat('9a', 32), 'hex')), 'hex'),
   1, 'device.enrollment.request',
   encode(pg_catalog.sha256(decode(repeat('8b', 32), 'hex')), 'hex'),
-  floor(extract(epoch from clock_timestamp()) * 1000)::bigint,
-  floor(extract(epoch from clock_timestamp()) * 1000)::bigint + 300000,
+  ${issuedAtMs}::bigint,
+  ${issuedAtMs}::bigint + 300000,
   repeat('ef', 32), repeat('12', 64)
 );
 COMMIT;
@@ -467,10 +467,10 @@ test(
         `PostgreSQL 17 active/replay evidence failed.\n${resultText(activeReplay)}`,
       );
 
-      const concurrent = await Promise.all([
-        runPsqlAsync(container, concurrentProofEvidence),
-        runPsqlAsync(container, concurrentProofEvidence),
-      ]);
+      const concurrentIssuedAtMs = Date.now();
+      const concurrent = await Promise.all(
+        Array.from({ length: 50 }, () => runPsqlAsync(container, concurrentProofEvidence(concurrentIssuedAtMs))),
+      );
       const concurrentSuccesses = concurrent.filter((result) => result.status === 0);
       const concurrentReplays = concurrent.filter((result) =>
         /proof_replayed/.test(`${result.stdout}\n${result.stderr}`)
@@ -482,8 +482,32 @@ test(
       );
       assert.equal(
         concurrentReplays.length,
-        1,
-        `Concurrent proof replay loser was not durable.\n${concurrent.map(resultText).join("\n")}`,
+        49,
+        `Concurrent proof replay loser count was not 49.\n${concurrent.map(resultText).join("\n")}`,
+      );
+      assert.equal(concurrent.length, 50);
+      assert.equal(
+        concurrentSuccesses.length + concurrentReplays.length,
+        50,
+        `A concurrent client returned an unexpected outcome.\n${concurrent.map(resultText).join("\n")}`,
+      );
+
+      const concurrentMutation = runPsql(
+        container,
+        String.raw`SELECT
+          (SELECT count(*) FROM public.device_enrollment_requests)::text || '|' ||
+          (SELECT count(*) FROM public.device_enrollment_proof_reservations)::text || '|' ||
+          (SELECT count(*) FROM public.devices)::text || '|' ||
+          (SELECT count(*) FROM public.oauth_connections)::text || '|' ||
+          (SELECT count(*) FROM public.oauth_operation_grants)::text || '|' ||
+          (SELECT count(*) FROM public.oauth_authorization_reservations)::text || '|' ||
+          (SELECT count(*) FROM public.oauth_authorization_decisions)::text;`,
+      );
+      assert.equal(concurrentMutation.status, 0, resultText(concurrentMutation));
+      assert.equal(
+        concurrentMutation.stdout.trim(),
+        "1|1|0|0|0|0|0",
+        `A replay loser mutated enrollment/authorization/grant/reservation outcome state.\n${resultText(concurrentMutation)}`,
       );
 
       const committedEvidence = runPsql(

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -17,7 +18,8 @@ test("Desktop broker exposes only a closed typed operation allowlist", () => {
   assert.match(broker, /broker_drive_connect_begin/);
   assert.match(broker, /broker_drive_list_archives/);
   assert.doesNotMatch(broker, /url\s*:\s*string|headers\s*:\s*Record|bearer|sessionProof|accessToken|refreshToken/);
-  assert.doesNotMatch(broker, /invoke\s*<[^>]+>\s*\([^,]+,\s*input/);
+  assert.doesNotMatch(broker, /args\s*\?\s*:\s*Record\s*<\s*string\s*,\s*unknown\s*>/);
+  assert.doesNotMatch(broker, /asBrokerInvoke|BrokerInvoke/);
 });
 
 test("native session custody has generation ownership, zeroization, keyring-only refresh, and cleanup", () => {
@@ -88,6 +90,8 @@ test("Desktop consumers never carry session proof or token-shaped public values"
     assert.doesNotMatch(source, /sessionProof|access_token|refresh_token|accessToken|refreshToken|bearer/i, file);
     assert.doesNotMatch(source, /supabase|@supabase\/supabase-js|auth-callback/, file);
   }
+  assert.doesNotMatch(read("src/components/AccountLoginPanel.tsx"), /BrokerInvoke|Record<string,\s*unknown>|args\s*\?/);
+  assert.doesNotMatch(read("src/lib/googleDriveFlow.ts"), /InvokeFn|invoke\s*<[^>]+>/);
 });
 
 test("Drive authority is checked before keyring/provider effects", () => {
@@ -118,7 +122,7 @@ test("legacy native secret-bearing source is removed rather than merely deregist
   }
 });
 
-test("native broker implements terminal lifecycle and real authority/provider paths", () => {
+test("native broker source retains lifecycle and authority paths as supplemental evidence", () => {
   const session = read("src-tauri/src/auth_session.rs");
   const drive = read("src-tauri/src/drive_oauth.rs");
   assert.match(session, /LoginPending|login_pending/);
@@ -135,4 +139,24 @@ test("native broker implements terminal lifecycle and real authority/provider pa
   assert.match(drive, /save_refresh_token/);
   assert.match(drive, /broker_drive_restore/);
   assert.ok(drive.indexOf("ConnectionActivate") >= 0);
+});
+
+test("native broker behavioral matrix executes through Rust seams", () => {
+  const result = spawnSync(
+    "cargo",
+    [
+      "test",
+      "--manifest-path",
+      path.join(root, "src-tauri", "Cargo.toml"),
+      "native_behavioral_",
+      "--",
+      "--nocapture",
+    ],
+    { cwd: root, encoding: "utf8", timeout: 180000, windowsHide: true },
+  );
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  assert.equal(result.status, 0, output);
+  assert.match(output, /14 passed/);
+  const behavioralOutput = output.slice(output.indexOf("running 14 tests"), output.indexOf("\nrunning 0 tests"));
+  assert.doesNotMatch(behavioralOutput, /secret|verifier|access-token|refresh-token/i);
 });

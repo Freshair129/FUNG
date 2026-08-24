@@ -32,7 +32,7 @@ SELECT ON TABLE public.oauth_operation_grants TO service_role;
 -- A signed request is reserved by nonce before its native/provider-capable
 -- operation continues. The unique nonce is the lock; audit is not the lock.
 CREATE TABLE public.oauth_authorization_reservations (id uuid PRIMARY KEY
-  DEFAULT gen_random_uuid(), nonce uuid NOT NULL UNIQUE, user_id uuid NOT NULL
+  DEFAULT gen_random_uuid(), nonce uuid NOT NULL, user_id uuid NOT NULL
   REFERENCES public.profiles (id) ON DELETE CASCADE, device_id uuid NOT NULL
   REFERENCES public.devices (id) ON DELETE restrict, connection_id uuid
   REFERENCES public.oauth_connections (id) ON DELETE SET NULL, operation text
@@ -41,6 +41,7 @@ CREATE TABLE public.oauth_authorization_reservations (id uuid PRIMARY KEY
   oauth_authorization_reservations_operation CHECK (operation IN
   ('connection.authorize', 'connection.activate', 'connection.read',
   'connection.revoke', 'backup.read', 'backup.write', 'backup.restore')),
+  CONSTRAINT oauth_authorization_reservations_nonce_key UNIQUE (nonce),
   CONSTRAINT oauth_authorization_reservations_status CHECK (status IN
   ('reserved', 'allowed', 'denied', 'expired')), CONSTRAINT
   oauth_authorization_reservations_expiry CHECK (expires_at > created_at));
@@ -281,9 +282,9 @@ begin
   -- evaluated again here after Edge signature verification, not trusted from
   -- the earlier public-key lookup.
   select * into v_device
-  from public.devices
-  where id = p_device_id
-    and user_id = p_user_id
+  from public.devices as d
+  where d.id = p_device_id
+    and d.user_id = p_user_id
   for update;
   if found then
     begin
@@ -302,9 +303,9 @@ begin
   -- connection state is returned as data for status operations and is a deny
   -- for backup operations and revoked activation below.
   select * into v_connection
-  from public.oauth_connections
-  where user_id = p_user_id
-    and provider = 'google_drive'
+  from public.oauth_connections as c
+  where c.user_id = p_user_id
+    and c.provider = 'google_drive'
   for update;
   v_connection_found := found;
   if v_connection_found then
@@ -324,11 +325,11 @@ begin
   -- the current state when historical revoked rows are retained.
   if v_connection_found then
     select * into v_write_grant
-    from public.oauth_operation_grants
-    where user_id = p_user_id
-      and connection_id = v_connection.id
-      and operation = 'backup.write'
-    order by (status = 'active') desc, granted_at desc, id desc
+    from public.oauth_operation_grants as g
+    where g.user_id = p_user_id
+      and g.connection_id = v_connection.id
+      and g.operation = 'backup.write'
+    order by (g.status = 'active') desc, g.granted_at desc, g.id desc
     limit 1
     for update;
     v_write_grant_found := found;
@@ -337,11 +338,11 @@ begin
     end if;
 
     select * into v_restore_grant
-    from public.oauth_operation_grants
-    where user_id = p_user_id
-      and connection_id = v_connection.id
-      and operation = 'backup.restore'
-    order by (status = 'active') desc, granted_at desc, id desc
+    from public.oauth_operation_grants as g
+    where g.user_id = p_user_id
+      and g.connection_id = v_connection.id
+      and g.operation = 'backup.restore'
+    order by (g.status = 'active') desc, g.granted_at desc, g.id desc
     limit 1
     for update;
     v_restore_grant_found := found;
@@ -384,7 +385,7 @@ begin
 
   -- The unique nonce insert is the only replay winner. A conflict is locked
   -- and returned as denied; it never falls through to audit or a second RPC.
-  insert into public.oauth_authorization_reservations (
+  insert into public.oauth_authorization_reservations as reservation (
     nonce,
     user_id,
     device_id,
@@ -399,13 +400,13 @@ begin
     p_operation,
     p_expires_at
   )
-  on conflict (nonce) do nothing
-  returning id into v_reservation_id;
+  on conflict on constraint oauth_authorization_reservations_nonce_key do nothing
+  returning reservation.id into v_reservation_id;
 
   if v_reservation_id is null then
     select * into v_existing_reservation
-    from public.oauth_authorization_reservations
-    where nonce = p_nonce
+    from public.oauth_authorization_reservations as r
+    where r.nonce = p_nonce
     for update;
     if not found then
       raise exception 'authorization_reservation_unavailable';
@@ -436,14 +437,14 @@ begin
     v_denial_code
   );
 
-  update public.oauth_authorization_reservations
+  update public.oauth_authorization_reservations as reservation
   set status = case when v_authorized then 'allowed' else 'denied' end
-  where id = v_reservation_id;
+  where reservation.id = v_reservation_id;
 
   -- Connection state transitions remain inside the same authorization
   -- transaction. Revoked activation is denied above and never clears state.
   if v_authorized and p_operation = 'connection.activate' then
-    insert into public.oauth_connections (
+    insert into public.oauth_connections as connection (
       user_id,
       provider,
       approved_scopes,
@@ -466,15 +467,15 @@ begin
         connected_at = excluded.connected_at,
         revoked_at = null,
         last_authorized_at = excluded.last_authorized_at
-    returning id into v_connection_id;
+    returning connection.id into v_connection_id;
     v_connection_active := true;
     v_connection_status := 'active';
   elsif v_authorized and p_operation = 'connection.revoke'
     and v_connection_found then
-    update public.oauth_connections
+    update public.oauth_connections as connection
     set status = 'revoked',
         revoked_at = coalesce(revoked_at, pg_catalog.now())
-    where id = v_connection.id;
+    where connection.id = v_connection.id;
     v_connection_active := false;
     v_connection_status := 'revoked';
     if v_write_grant_found then v_write_grant_status := 'revoked'; end if;

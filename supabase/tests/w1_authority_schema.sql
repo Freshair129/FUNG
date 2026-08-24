@@ -8,7 +8,7 @@ BEGIN;
 do $$
 declare
   v_table text;
-  v_function text;
+  v_function regprocedure;
   v_config text[];
 begin
   foreach v_table in array array[
@@ -76,47 +76,47 @@ begin
   end if;
 
   if has_function_privilege(
-      'anon', 'public.approve_bootstrap_enrollment(uuid)', 'EXECUTE'
+      'anon', 'public.approve_bootstrap_enrollment(uuid)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'authenticated', 'public.approve_bootstrap_enrollment(uuid)', 'EXECUTE'
+      'authenticated', 'public.approve_bootstrap_enrollment(uuid)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'service_role', 'public.approve_bootstrap_enrollment(uuid)', 'EXECUTE'
+      'service_role', 'public.approve_bootstrap_enrollment(uuid)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'public', 'public.approve_bootstrap_enrollment(uuid)', 'EXECUTE'
+      'public', 'public.approve_bootstrap_enrollment(uuid)'::regprocedure, 'EXECUTE'
     ) then
     raise exception 'database-owner-only bootstrap is exposed';
   end if;
 
   if has_function_privilege(
-      'public', 'public.approve_rebind_enrollment(uuid, uuid)', 'EXECUTE'
+      'public', 'public.approve_rebind_enrollment(uuid, uuid)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'anon', 'public.approve_rebind_enrollment(uuid, uuid)', 'EXECUTE'
+      'anon', 'public.approve_rebind_enrollment(uuid, uuid)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'authenticated', 'public.approve_rebind_enrollment(uuid, uuid)', 'EXECUTE'
+      'authenticated', 'public.approve_rebind_enrollment(uuid, uuid)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'service_role', 'public.approve_rebind_enrollment(uuid, uuid)', 'EXECUTE'
+      'service_role', 'public.approve_rebind_enrollment(uuid, uuid)'::regprocedure, 'EXECUTE'
     ) then
     raise exception 'database-owner-only rebind is exposed';
   end if;
 
   if has_function_privilege(
-      'public', 'public.is_drive_authorized_desktop(uuid, uuid)', 'EXECUTE'
+      'public', 'public.is_drive_authorized_desktop(uuid, uuid)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'anon', 'public.is_drive_authorized_desktop(uuid, uuid)', 'EXECUTE'
+      'anon', 'public.is_drive_authorized_desktop(uuid, uuid)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'authenticated', 'public.is_drive_authorized_desktop(uuid, uuid)',
+      'authenticated', 'public.is_drive_authorized_desktop(uuid, uuid)'::regprocedure,
       'EXECUTE'
     )
     or not has_function_privilege(
-      'service_role', 'public.is_drive_authorized_desktop(uuid, uuid)',
+      'service_role', 'public.is_drive_authorized_desktop(uuid, uuid)'::regprocedure,
       'EXECUTE'
     ) then
     raise exception 'Drive predicate function privilege posture is unsafe';
@@ -124,85 +124,83 @@ begin
 
   if has_function_privilege(
       'public',
-      'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)',
+      'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)'::regprocedure,
       'EXECUTE'
     )
     or has_function_privilege(
       'anon',
-      'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)',
+      'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)'::regprocedure,
       'EXECUTE'
     )
     or has_function_privilege(
       'authenticated',
-      'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)',
+      'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)'::regprocedure,
       'EXECUTE'
     )
     or not has_function_privilege(
       'service_role',
-      'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)',
+      'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)'::regprocedure,
       'EXECUTE'
     ) then
     raise exception 'atomic authorization function privilege posture is unsafe';
   end if;
 
   if has_function_privilege(
-      'public', 'public.grant_oauth_operation(uuid, text)', 'EXECUTE'
+      'public', 'public.grant_oauth_operation(uuid, text)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'anon', 'public.grant_oauth_operation(uuid, text)', 'EXECUTE'
+      'anon', 'public.grant_oauth_operation(uuid, text)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'authenticated', 'public.grant_oauth_operation(uuid, text)', 'EXECUTE'
+      'authenticated', 'public.grant_oauth_operation(uuid, text)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'service_role', 'public.grant_oauth_operation(uuid, text)', 'EXECUTE'
+      'service_role', 'public.grant_oauth_operation(uuid, text)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'public', 'public.revoke_oauth_operation_grant(uuid, text)', 'EXECUTE'
+      'public', 'public.revoke_oauth_operation_grant(uuid, text)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'anon', 'public.revoke_oauth_operation_grant(uuid, text)', 'EXECUTE'
+      'anon', 'public.revoke_oauth_operation_grant(uuid, text)'::regprocedure, 'EXECUTE'
     )
     or has_function_privilege(
-      'authenticated', 'public.revoke_oauth_operation_grant(uuid, text)',
+      'authenticated', 'public.revoke_oauth_operation_grant(uuid, text)'::regprocedure,
       'EXECUTE'
     )
     or has_function_privilege(
-      'service_role', 'public.revoke_oauth_operation_grant(uuid, text)',
+      'service_role', 'public.revoke_oauth_operation_grant(uuid, text)'::regprocedure,
       'EXECUTE'
     ) then
     raise exception 'operator-only grant functions are exposed';
   end if;
 
-  foreach v_function in array array[
-    'public.create_device_enrollment_request(uuid, text, text, text, text, text)',
-    'public.register_pairing_device(uuid, text, text, text, text)',
-    'public.revoke_device_for_user(uuid, uuid)',
-    'public.is_drive_authorized_desktop(uuid, uuid)',
-    'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)',
-    'public.approve_bootstrap_enrollment(uuid)',
-    'public.approve_rebind_enrollment(uuid, uuid)',
-    'public.create_pairing_session(uuid, text, uuid)',
-    'public.confirm_pairing(uuid, text, uuid)',
-    'public.handle_new_user()',
-    'public.revoke_oauth_operation_grants_on_connection_change()',
-    'public.revoke_oauth_operation_grants_on_device_change()',
-    'public.grant_oauth_operation(uuid, text)',
-    'public.revoke_oauth_operation_grant(uuid, text)'
+  foreach v_function in array ARRAY[
+    'public.create_device_enrollment_request(uuid, text, text, text, text, text)'::regprocedure,
+    'public.register_pairing_device(uuid, text, text, text, text)'::regprocedure,
+    'public.revoke_device_for_user(uuid, uuid)'::regprocedure,
+    'public.is_drive_authorized_desktop(uuid, uuid)'::regprocedure,
+    'public.authorize_oauth_request(uuid, uuid, text, text, text, uuid, timestamptz)'::regprocedure,
+    'public.approve_bootstrap_enrollment(uuid)'::regprocedure,
+    'public.approve_rebind_enrollment(uuid, uuid)'::regprocedure,
+    'public.create_pairing_session(uuid, text, uuid)'::regprocedure,
+    'public.confirm_pairing(uuid, text, uuid)'::regprocedure,
+    'public.handle_new_user()'::regprocedure,
+    'public.revoke_oauth_operation_grants_on_connection_change()'::regprocedure,
+    'public.revoke_oauth_operation_grants_on_device_change()'::regprocedure,
+    'public.grant_oauth_operation(uuid, text)'::regprocedure,
+    'public.revoke_oauth_operation_grant(uuid, text)'::regprocedure
   ] loop
     select p.proconfig
       into v_config
-      from pg_proc p
-      join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname || '.' || p.proname || '(' ||
-        pg_get_function_identity_arguments(p.oid) || ')' = v_function;
+      from pg_catalog.pg_proc p
+      where p.oid = v_function::oid;
     if v_config is null
       or not exists (
         select 1
         from unnest(v_config) config
         where config = 'search_path=pg_catalog, public, pg_temp'
       ) then
-      raise exception 'fixed search_path missing for %', v_function;
+      raise exception 'fixed search_path missing for %', v_function::text;
     end if;
   end loop;
 
@@ -244,6 +242,10 @@ declare
   v_revoked_scopes text[];
   v_revoked_user_id uuid;
   v_revoked_grants jsonb;
+  v_nonce uuid := gen_random_uuid();
+  v_replay_result record;
+  v_reservation_count integer;
+  v_decision_count integer;
   v_after_status text;
   v_after_revoked_at timestamptz;
   v_after_scopes text[];
@@ -253,6 +255,7 @@ declare
   v_decision text;
   v_denial_code text;
   v_result record;
+  v_activation_result record;
 begin
   select p.id
     into v_user_id
@@ -326,6 +329,54 @@ begin
     (v_user_id, v_connection_id, 'backup.restore',
       'w1_s1_f2_sql_evidence', 'database_owner');
 
+  select *
+    into v_result
+    from public.authorize_oauth_request(
+      v_user_id,
+      v_device_id,
+      v_public_key,
+      v_fingerprint,
+      'backup.write',
+      v_nonce,
+      pg_catalog.now() + pg_catalog.make_interval(mins => 1)
+    );
+
+  if v_result.authorized is distinct from true
+    or v_result.denial_code is not null
+    or v_result.connection_id is distinct from v_connection_id then
+    raise exception 'active backup.write was not allowed';
+  end if;
+
+  select count(*)
+    into v_reservation_count
+    from public.oauth_authorization_reservations r
+   where r.nonce = v_nonce;
+  select count(*)
+    into v_decision_count
+    from public.oauth_authorization_decisions d
+   where d.reservation_id = v_result.reservation_id;
+  if v_reservation_count <> 1 or v_decision_count <> 1 then
+    raise exception 'active backup.write did not durably reserve and decide';
+  end if;
+
+  select *
+    into v_replay_result
+    from public.authorize_oauth_request(
+      v_user_id,
+      v_device_id,
+      v_public_key,
+      v_fingerprint,
+      'backup.write',
+      v_nonce,
+      pg_catalog.now() + pg_catalog.make_interval(mins => 1)
+    );
+
+  if v_replay_result.authorized is distinct from false
+    or v_replay_result.denial_code is distinct from 'authorization_replayed'
+    or v_replay_result.reservation_id is distinct from v_result.reservation_id then
+    raise exception 'repeated nonce was not durably rejected';
+  end if;
+
   update public.oauth_connections
      set status = 'revoked',
          revoked_at = pg_catalog.now()
@@ -342,7 +393,7 @@ begin
    where g.connection_id = v_connection_id;
 
   select *
-    into v_result
+    into v_activation_result
     from public.authorize_oauth_request(
       v_user_id,
       v_device_id,
@@ -353,9 +404,9 @@ begin
       pg_catalog.now() + pg_catalog.make_interval(mins => 1)
     );
 
-  if v_result.authorized is distinct from false
-    or v_result.denial_code is distinct from 'connection_revoked'
-    or v_result.connection_id is distinct from v_connection_id then
+  if v_activation_result.authorized is distinct from false
+    or v_activation_result.denial_code is distinct from 'connection_revoked'
+    or v_activation_result.connection_id is distinct from v_connection_id then
     raise exception 'revoked connection.activate was not denied';
   end if;
 
@@ -364,7 +415,7 @@ begin
     from public.oauth_authorization_reservations r
     join public.oauth_authorization_decisions d
       on d.reservation_id = r.id
-   where r.id = v_result.reservation_id;
+   where r.id = v_activation_result.reservation_id;
 
   if v_reservation_status is distinct from 'denied'
     or v_decision is distinct from 'denied'

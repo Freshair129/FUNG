@@ -159,4 +159,7 @@ test("native broker behavioral matrix executes through Rust seams", () => {
   assert.match(output, /14 passed/);
   const behavioralOutput = output.slice(output.indexOf("running 14 tests"), output.indexOf("\nrunning 0 tests"));
   assert.doesNotMatch(behavioralOutput, /secret|verifier|access-token|refresh-token/i);
+  assert.doesNotMatch(read("src-tauri/src/auth_session.rs"), /BehavioralBroker|TestState|ProviderMode/);
+  assert.match(read("src-tauri/src/auth_session.rs"), /LifecycleCore|KeyringSeam|ClockSeam|ListenerSeam|RequestTargetSeam|ProviderSeam/);
+  assert.match(read("src-tauri/src/auth_session.rs"), /production_shutdown|shutdown_with/);
 });

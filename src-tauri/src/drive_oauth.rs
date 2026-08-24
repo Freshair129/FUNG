@@ -18,6 +18,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs::File;
+use std::fmt::Write as FmtWrite;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
@@ -88,7 +89,7 @@ struct OAuthCallback {
 struct PendingOAuth {
     session_id: String,
     oauth_client_id: String,
-    redirect_uri: String,
+    redirect_uri: Zeroizing<String>,
     state: Zeroizing<String>,
     code_verifier: Zeroizing<String>,
     callback: Arc<Mutex<Option<OAuthCallback>>>,
@@ -214,8 +215,10 @@ struct TokenResponse {
     access: Option<Zeroizing<String>>,
     #[serde(rename = "refresh_token", default, deserialize_with = "deserialize_optional_zeroizing")]
     refresh: Option<Zeroizing<String>>,
-    scope: Option<String>,
-    error: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_zeroizing")]
+    scope: Option<Zeroizing<String>>,
+    #[serde(default, deserialize_with = "deserialize_optional_zeroizing")]
+    error: Option<Zeroizing<String>>,
 }
 
 #[derive(Serialize)]
@@ -390,18 +393,18 @@ fn keyring_entry(invocation: &DriveInvocation) -> Result<keyring::Entry, String>
 fn save_refresh_token(invocation: &DriveInvocation, refresh_token: Zeroizing<String>) -> Result<(), String> {
     let staged_slot = format!("{}-staged", keyring_slot_for(invocation.user_id(), invocation.device_id(), invocation.device_fingerprint()));
     let active_slot = keyring_slot_for(invocation.user_id(), invocation.device_id(), invocation.device_fingerprint());
-    let payload = serde_json::to_string(&DriveTokenRecordWrite { value: refresh_token.as_str() })
-        .map_err(|_| public_error("drive_token_storage_failed"))?;
+    let payload = Zeroizing::new(serde_json::to_string(&DriveTokenRecordWrite { value: refresh_token.as_str() })
+        .map_err(|_| public_error("drive_token_storage_failed"))?);
     let staged = keyring::Entry::new(KEYRING_SERVICE, &staged_slot).map_err(|_| public_error("drive_token_storage_failed"))?;
     let active = keyring::Entry::new(KEYRING_SERVICE, &active_slot).map_err(|_| public_error("drive_token_storage_failed"))?;
     staged.set_password(&payload).map_err(|_| public_error("drive_token_storage_failed"))?;
-    let staged_read = staged.get_password().map_err(|_| public_error("drive_token_storage_failed"))?;
-    if staged_read != payload { return Err(public_error("drive_token_storage_failed")); }
-    active.set_password(&staged_read).map_err(|_| public_error("drive_token_storage_failed"))?;
-    let active_read = active.get_password().map_err(|_| public_error("drive_token_storage_failed"))?;
-    if active_read != payload { return Err(public_error("drive_token_storage_failed")); }
+    let staged_read = Zeroizing::new(staged.get_password().map_err(|_| public_error("drive_token_storage_failed"))?);
+    if staged_read.as_str() != payload.as_str() { return Err(public_error("drive_token_storage_failed")); }
+    active.set_password(staged_read.as_str()).map_err(|_| public_error("drive_token_storage_failed"))?;
+    let active_read = Zeroizing::new(active.get_password().map_err(|_| public_error("drive_token_storage_failed"))?);
+    if active_read.as_str() != payload.as_str() { return Err(public_error("drive_token_storage_failed")); }
     let _ = staged.delete_credential();
-    if staged.get_password().is_ok() { return Err(public_error("drive_token_storage_failed")); }
+    if let Ok(value) = staged.get_password() { let _readback = Zeroizing::new(value); return Err(public_error("drive_token_storage_failed")); }
     Ok(())
 }
 
@@ -423,7 +426,7 @@ fn load_refresh_token(invocation: &DriveInvocation) -> Result<Option<Zeroizing<S
 
 fn delete_refresh_token(invocation: &DriveInvocation) -> Result<(), String> {
     match keyring_entry(invocation)?.delete_credential() { Ok(()) | Err(keyring::Error::NoEntry) => {}, Err(_) => return Err(public_error("drive_token_delete_failed")) }
-    if keyring_entry(invocation)?.get_password().is_ok() { return Err(public_error("drive_token_delete_failed")); }
+    if let Ok(value) = keyring_entry(invocation)?.get_password() { let _readback = Zeroizing::new(value); return Err(public_error("drive_token_delete_failed")); }
     Ok(())
 }
 
@@ -447,10 +450,10 @@ fn pkce_pair() -> (Zeroizing<String>, String) {
     (Zeroizing::new(verifier), challenge)
 }
 
-fn random_state() -> String {
+fn random_state() -> Zeroizing<String> {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
-    URL_SAFE_NO_PAD.encode(bytes)
+    Zeroizing::new(URL_SAFE_NO_PAD.encode(bytes))
 }
 
 fn build_authorization_url(
@@ -458,7 +461,7 @@ fn build_authorization_url(
     redirect_uri: &str,
     state: &str,
     code_challenge: &str,
-) -> String {
+) -> Zeroizing<String> {
     let mut url = Url::parse(DRIVE_AUTH_ENDPOINT).expect("static Google auth URL");
     url.query_pairs_mut()
         .append_pair("client_id", client_id)
@@ -470,7 +473,7 @@ fn build_authorization_url(
         .append_pair("state", state)
         .append_pair("code_challenge", code_challenge)
         .append_pair("code_challenge_method", "S256");
-    url.to_string()
+    Zeroizing::new(url.to_string())
 }
 
 fn callback_from_request(request: &[u8]) -> OAuthCallback {
@@ -478,7 +481,7 @@ fn callback_from_request(request: &[u8]) -> OAuthCallback {
     let first = first.strip_suffix(b"\r").unwrap_or(first);
     let mut fields = first.split(|byte| *byte == b' ');
     let target = fields.nth(1).and_then(|value| std::str::from_utf8(value).ok()).unwrap_or("/");
-    let parsed = Url::parse(&format!("http://127.0.0.1{target}"));
+    let parsed = Url::parse("http://127.0.0.1").and_then(|base| base.join(target));
     let Ok(parsed) = parsed else {
         return OAuthCallback {
             state: Zeroizing::new(String::new()),
@@ -494,7 +497,7 @@ fn callback_from_request(request: &[u8]) -> OAuthCallback {
         };
     }
     let mut names = HashSet::new();
-    let mut state = None;
+    let mut state: Option<Zeroizing<String>> = None;
     let mut code = None;
     let mut error = None;
     let mut error_description = false;
@@ -578,9 +581,11 @@ pub(crate) async fn broker_drive_connect_begin(
         .local_addr()
         .map_err(|_| public_error("drive_oauth_callback_unavailable"))?
         .port();
-    let redirect_uri = format!("http://127.0.0.1:{port}{OAUTH_CALLBACK_PATH}");
+    let mut redirect_uri = Zeroizing::new(String::with_capacity(64));
+    write!(&mut redirect_uri, "http://127.0.0.1:{port}{OAUTH_CALLBACK_PATH}")
+        .map_err(|_| public_error("drive_oauth_callback_unavailable"))?;
     let (code_verifier, code_challenge) = pkce_pair();
-    let oauth_state = Zeroizing::new(random_state());
+    let oauth_state = random_state();
     let session_id = Uuid::new_v4().to_string();
     let callback = Arc::new(Mutex::new(None));
     let terminal = OAuthTerminal::default();
@@ -612,7 +617,7 @@ pub(crate) async fn broker_drive_connect_begin(
     });
 
     let authorization_url =
-        build_authorization_url(&client_id, &redirect_uri, &oauth_state, &code_challenge);
+        build_authorization_url(&client_id, redirect_uri.as_str(), oauth_state.as_str(), &code_challenge);
     *pending_guard = Some(PendingOAuth {
         session_id: session_id.clone(),
         oauth_client_id: client_id,
@@ -625,7 +630,7 @@ pub(crate) async fn broker_drive_connect_begin(
     });
     if app
         .opener()
-        .open_url(authorization_url, None::<&str>)
+        .open_url(authorization_url.as_str(), None::<&str>)
         .is_err()
     {
         *pending_guard = None;

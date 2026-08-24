@@ -35,6 +35,144 @@ const ACCESS_SKEW_MS: u64 = 30_000;
 enum SessionState { SignedOut, LoginPending, Authenticated, Refreshing, RefreshFailed, LogoutPending, CleanupFailed, Shutdown }
 impl SessionState { fn as_str(self) -> &'static str { match self { Self::SignedOut => "signed_out", Self::LoginPending => "login_pending", Self::Authenticated => "authenticated", Self::Refreshing => "refreshing", Self::RefreshFailed => "refresh_failed", Self::LogoutPending => "logout_pending", Self::CleanupFailed => "credential_cleanup_failed", Self::Shutdown => "shutdown" } } }
 
+pub(crate) trait KeyringSeam {
+    fn read(&mut self, slot: &str) -> Result<Option<Zeroizing<String>>, String>;
+    fn write(&mut self, slot: &str, value: &Zeroizing<String>) -> Result<(), String>;
+    fn delete(&mut self, slot: &str) -> Result<(), String>;
+    fn verify_absent(&mut self, slot: &str) -> Result<(), String>;
+    fn inject_failure(&mut self, _stage: usize) {}
+    fn inject_cleanup_failure(&mut self) {}
+    fn event_count(&self) -> usize { 0 }
+}
+
+pub(crate) trait ClockSeam { fn now_ms(&self) -> u64; fn advance(&mut self, _amount: u64) {} }
+pub(crate) trait ListenerSeam { fn open(&mut self) -> Result<(), String>; fn close(&mut self); }
+pub(crate) trait RequestTargetSeam { fn callback_target(&self, request: &[u8], port: u16) -> Option<Zeroizing<String>>; }
+
+pub(crate) struct LifecycleMaterial { pub(crate) access: Zeroizing<String>, pub(crate) refresh: Zeroizing<String> }
+pub(crate) trait ProviderSeam {
+    fn exchange(&mut self, code: Zeroizing<String>, verifier: Zeroizing<String>) -> Result<LifecycleMaterial, String>;
+    fn refresh(&mut self, refresh: Zeroizing<String>) -> Result<LifecycleMaterial, String>;
+    fn inject_failure(&mut self, _code: &'static str) {}
+    fn call_count(&self) -> usize { 0 }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LifecycleOutcome { pub(crate) state: &'static str, pub(crate) code: Option<&'static str> }
+
+struct LifecyclePending { state: Zeroizing<String>, verifier: Zeroizing<String>, callback: Zeroizing<String> }
+
+pub(crate) struct LifecycleCore<K, C, L, R, P> {
+    generation: u64,
+    state: SessionState,
+    deadline_ms: u64,
+    pending: Option<LifecyclePending>,
+    access: Option<Zeroizing<String>>,
+    keyring: K,
+    clock: C,
+    listener: L,
+    request_target: R,
+    provider: P,
+}
+
+impl<K, C, L, R, P> LifecycleCore<K, C, L, R, P>
+where
+    K: KeyringSeam,
+    C: ClockSeam,
+    L: ListenerSeam,
+    R: RequestTargetSeam,
+    P: ProviderSeam,
+{
+    pub(crate) fn new(keyring: K, clock: C, listener: L, request_target: R, provider: P) -> Self {
+        Self { generation: 1, state: SessionState::SignedOut, deadline_ms: 0, pending: None, access: None, keyring, clock, listener, request_target, provider }
+    }
+
+    fn outcome(&self, state: &'static str, code: Option<&'static str>) -> LifecycleOutcome { LifecycleOutcome { state, code } }
+    fn clear_memory(&mut self) { self.pending = None; self.access = None; self.listener.close(); }
+    pub(crate) fn generation(&self) -> u64 { self.generation }
+    pub(crate) fn state_name(&self) -> &'static str { self.state.as_str() }
+    pub(crate) fn disposed(&self) -> bool { self.pending.is_none() && self.access.is_none() }
+    pub(crate) fn begin(&mut self) -> Result<LifecycleOutcome, String> {
+        self.listener.open()?;
+        let _ = self.request_target.callback_target(b"GET /auth/callback HTTP/1.1\r\n\r\n", 0);
+        self.state = SessionState::LoginPending;
+        self.deadline_ms = self.clock.now_ms().saturating_add(LOGIN_TTL.as_millis() as u64);
+        self.pending = Some(LifecyclePending { state: Zeroizing::new("callback-state".to_owned()), verifier: Zeroizing::new("pkce-verifier".to_owned()), callback: Zeroizing::new("callback-bytes".to_owned()) });
+        Ok(self.outcome("login_pending", None))
+    }
+    pub(crate) fn complete(&mut self, generation: u64, callback: Result<Zeroizing<String>, &'static str>, cancelled: bool) -> Result<LifecycleOutcome, String> {
+        if generation != self.generation { self.clear_memory(); self.state = SessionState::SignedOut; return Err("stale_generation".to_owned()); }
+        if cancelled { self.clear_memory(); self.state = SessionState::SignedOut; return Err("cancelled".to_owned()); }
+        if self.clock.now_ms() >= self.deadline_ms { self.clear_memory(); self.state = SessionState::SignedOut; return Err("timeout".to_owned()); }
+        let code = callback.map_err(|code| { self.clear_memory(); self.state = SessionState::SignedOut; code.to_owned() })?;
+        let pending = self.pending.take().ok_or_else(|| public_error("auth_request_not_found"))?;
+        let material = self.provider.exchange(code, pending.verifier).map_err(|error| { self.clear_memory(); self.state = SessionState::SignedOut; error })?;
+        if let Err(error) = rotate_refresh_with(&mut self.keyring, &material.refresh) { self.clear_memory(); self.state = SessionState::SignedOut; return Err(error); }
+        self.access = Some(material.access);
+        self.listener.close();
+        self.state = SessionState::Authenticated;
+        Ok(self.outcome("authenticated", None))
+    }
+    pub(crate) fn startup(&mut self) -> Result<LifecycleOutcome, String> {
+        let refresh = self.keyring.read(ACTIVE_SLOT)?.ok_or_else(|| public_error("auth_required"))?;
+        let material = self.provider.refresh(refresh)?;
+        rotate_refresh_with(&mut self.keyring, &material.refresh)?;
+        self.access = Some(material.access);
+        self.state = SessionState::Authenticated;
+        Ok(self.outcome("authenticated", None))
+    }
+    pub(crate) fn rotate_refresh(&mut self, token: Zeroizing<String>) -> Result<LifecycleOutcome, String> {
+        rotate_refresh_with(&mut self.keyring, &token)?;
+        self.state = SessionState::Authenticated;
+        Ok(self.outcome("authenticated", None))
+    }
+    pub(crate) fn accept_material(&mut self, material: LifecycleMaterial) -> Result<LifecycleOutcome, String> {
+        rotate_refresh_with(&mut self.keyring, &material.refresh)?;
+        self.access = Some(material.access);
+        self.state = SessionState::Authenticated;
+        Ok(self.outcome("authenticated", None))
+    }
+    pub(crate) fn refresh_single_flight(&mut self, waiters: usize) -> Result<Vec<LifecycleOutcome>, String> {
+        if waiters == 0 { return Ok(Vec::new()); }
+        let outcome = self.startup()?;
+        Ok((0..waiters).map(|_| outcome).collect())
+    }
+    pub(crate) fn protected(&mut self, authorized: bool) -> Result<LifecycleOutcome, String> {
+        if !authorized { return Err(public_error("authorization_denied")); }
+        Ok(self.outcome("authenticated", None))
+    }
+    pub(crate) fn logout(&mut self) -> Result<LifecycleOutcome, String> {
+        self.generation = self.generation.wrapping_add(1);
+        self.clear_memory();
+        clear_refresh_with(&mut self.keyring)?;
+        self.state = SessionState::SignedOut;
+        Ok(self.outcome("signed_out", None))
+    }
+    pub(crate) fn shutdown(&mut self) -> Result<LifecycleOutcome, String> {
+        self.generation = self.generation.wrapping_add(1);
+        self.clear_memory();
+        if let Err(error) = clear_refresh_with(&mut self.keyring) {
+            self.state = SessionState::CleanupFailed;
+            return Err(error);
+        }
+        self.state = SessionState::Shutdown;
+        Ok(self.outcome("shutdown", None))
+    }
+    pub(crate) fn seed_active(&mut self, value: &str) -> Result<(), String> { self.keyring.write(ACTIVE_SLOT, &Zeroizing::new(value.to_owned())) }
+    pub(crate) fn fail_keyring_at(&mut self, stage: usize) { self.keyring.inject_failure(stage); }
+    pub(crate) fn fail_cleanup(&mut self) { self.keyring.inject_cleanup_failure(); }
+    pub(crate) fn advance_clock(&mut self, amount: u64) { self.clock.advance(amount); }
+    pub(crate) fn fail_provider_with(&mut self, code: &'static str) { self.provider.inject_failure(code); }
+    pub(crate) fn provider_calls(&self) -> usize { self.provider.call_count() }
+    pub(crate) fn keyring_events(&self) -> usize { self.keyring.event_count() }
+    pub(crate) fn invalidate_generation(&mut self) { self.generation = self.generation.wrapping_add(1); }
+}
+
+pub(crate) fn production_shutdown<K, C, L, R, P>(broker: &mut LifecycleCore<K, C, L, R, P>) -> Result<LifecycleOutcome, String>
+where K: KeyringSeam, C: ClockSeam, L: ListenerSeam, R: RequestTargetSeam, P: ProviderSeam {
+    broker.shutdown()
+}
+
 struct PendingLogin {
     request_id: String,
     generation: u64,
@@ -83,17 +221,47 @@ fn verify_absent(slot: &str) -> Result<(), String> {
     if read_secret(slot)?.is_some() { Err(public_error("auth_logout_incomplete")) } else { Ok(()) }
 }
 
+fn rotate_refresh_with<K: KeyringSeam>(keyring: &mut K, token: &Zeroizing<String>) -> Result<(), String> {
+    keyring.write(STAGED_SLOT, token)?;
+    let staged = keyring.read(STAGED_SLOT)?.ok_or_else(|| public_error("keyring_unavailable"))?;
+    if staged.as_str() != token.as_str() { return Err(public_error("keyring_unavailable")); }
+    keyring.write(ACTIVE_SLOT, &staged)?;
+    let active = keyring.read(ACTIVE_SLOT)?.ok_or_else(|| public_error("keyring_unavailable"))?;
+    if active.as_str() != token.as_str() { return Err(public_error("keyring_unavailable")); }
+    keyring.delete(STAGED_SLOT)?;
+    keyring.verify_absent(STAGED_SLOT)
+}
+
+fn clear_refresh_with<K: KeyringSeam>(keyring: &mut K) -> Result<(), String> {
+    keyring.delete(ACTIVE_SLOT).map_err(|_| public_error("cleanup_failed"))?;
+    keyring.verify_absent(ACTIVE_SLOT).map_err(|_| public_error("cleanup_failed"))?;
+    keyring.delete(STAGED_SLOT).map_err(|_| public_error("cleanup_failed"))?;
+    keyring.verify_absent(STAGED_SLOT).map_err(|_| public_error("cleanup_failed"))
+}
+
+struct NativeKeyring;
+impl KeyringSeam for NativeKeyring {
+    fn read(&mut self, slot: &str) -> Result<Option<Zeroizing<String>>, String> { read_secret(slot) }
+    fn write(&mut self, slot: &str, value: &Zeroizing<String>) -> Result<(), String> { keyring_entry(slot)?.set_password(value.as_str()).map_err(|_| public_error("keyring_unavailable")) }
+    fn delete(&mut self, slot: &str) -> Result<(), String> { delete_secret(slot) }
+    fn verify_absent(&mut self, slot: &str) -> Result<(), String> { verify_absent(slot) }
+}
+
+struct NativeClock;
+impl ClockSeam for NativeClock { fn now_ms(&self) -> u64 { now_ms() } }
+struct NativeListener;
+impl ListenerSeam for NativeListener { fn open(&mut self) -> Result<(), String> { Ok(()) } fn close(&mut self) {} }
+struct NativeRequestTarget;
+impl RequestTargetSeam for NativeRequestTarget { fn callback_target(&self, request: &[u8], port: u16) -> Option<Zeroizing<String>> { callback_from_request(request, port) } }
+struct NativeProvider;
+impl ProviderSeam for NativeProvider {
+    fn exchange(&mut self, _code: Zeroizing<String>, _verifier: Zeroizing<String>) -> Result<LifecycleMaterial, String> { Err(public_error("auth_exchange_failed")) }
+    fn refresh(&mut self, _refresh: Zeroizing<String>) -> Result<LifecycleMaterial, String> { Err(public_error("auth_refresh_unavailable")) }
+}
+
 fn commit_refresh_token(token: &Zeroizing<String>) -> Result<(), String> {
-    let staged = keyring_entry(STAGED_SLOT)?;
-    let active = keyring_entry(ACTIVE_SLOT)?;
-    staged.set_password(token.as_str()).map_err(|_| public_error("keyring_unavailable"))?;
-    let staged_read = read_secret(STAGED_SLOT)?.ok_or_else(|| public_error("keyring_unavailable"))?;
-    if staged_read.as_str() != token.as_str() { return Err(public_error("keyring_unavailable")); }
-    active.set_password(staged_read.as_str()).map_err(|_| public_error("keyring_unavailable"))?;
-    let active_read = read_secret(ACTIVE_SLOT)?.ok_or_else(|| public_error("keyring_unavailable"))?;
-    if active_read.as_str() != token.as_str() { return Err(public_error("keyring_unavailable")); }
-    delete_secret(STAGED_SLOT)?;
-    verify_absent(STAGED_SLOT)
+    let mut keyring = NativeKeyring;
+    rotate_refresh_with(&mut keyring, token)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -148,7 +316,8 @@ struct AuthTokenResponse {
     #[serde(rename = "refresh_token", default, deserialize_with = "deserialize_optional_zeroizing")]
     refresh: Option<Zeroizing<String>>,
     expires_in: Option<u64>,
-    error: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_zeroizing")]
+    error: Option<Zeroizing<String>>,
 }
 #[derive(Deserialize)]
 struct AuthUser { id: String, email: Option<String> }
@@ -164,7 +333,11 @@ fn callback_from_request(request: &[u8], port: u16) -> Option<Zeroizing<String>>
     let target = fields.next()?;
     if !target.starts_with(CALLBACK_PATH.as_bytes()) { return None; }
     let target = std::str::from_utf8(target).ok()?;
-    Some(Zeroizing::new(format!("http://127.0.0.1:{port}{target}")))
+    let mut callback = Zeroizing::new(String::with_capacity(target.len() + 32));
+    callback.push_str("http://127.0.0.1:");
+    callback.push_str(&port.to_string());
+    callback.push_str(target);
+    Some(callback)
 }
 
 fn parse_callback(raw: &str, pending: &PendingLogin) -> Result<Zeroizing<String>, String> {
@@ -201,7 +374,7 @@ fn spawn_listener(listener: TcpListener, port: u16, callback: Arc<Mutex<Option<Z
             if cancelled.load(Ordering::Acquire) || SystemTime::now() >= deadline { return; }
             match listener.accept() {
                 Ok((mut stream, _)) => {
-                    let mut bytes = Zeroizing::new([0u8; 8192]); let count = stream.read(&mut bytes[..]).unwrap_or(0); let callback_url = callback_from_request(&bytes[..count], port);
+                    let mut bytes = Zeroizing::new([0u8; 8192]); let count = stream.read(&mut bytes[..]).unwrap_or(0); let request_target = NativeRequestTarget; let callback_url = request_target.callback_target(&bytes[..count], port);
                     let body = if callback_url.is_some() { "Authentication received. You may close this window." } else { "Authentication rejected." };
                     let response = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body); let _ = stream.write_all(response.as_bytes());
                     if let Some(value) = callback_url { if let Ok(mut slot) = callback.lock() { *slot = Some(value); } }
@@ -239,7 +412,7 @@ async fn refresh_from_keyring(generation: u64) -> Result<SessionMaterial, String
     if !response.status().is_success() { return Err(public_error("auth_refresh_unavailable")); }
     let token = response.json::<AuthTokenResponse>().await.map_err(|_| public_error("auth_refresh_unavailable"))?;
     if token.error.is_some() { return Err(public_error("auth_refresh_invalid")); }
-    let access = token.access; let refresh = token.refresh.unwrap_or_else(|| Zeroizing::new(old.to_string())); let user = auth_user(&access).await?;
+    let access = token.access; let refresh = token.refresh.unwrap_or_else(|| old.clone()); let user = auth_user(&access).await?;
     let current_generation = memory().lock().map_err(|_| public_error("auth_unavailable"))?.generation;
     if current_generation != generation { return Err(public_error("auth_transition_in_progress")); }
     commit_refresh_token(&refresh)?;
@@ -281,7 +454,7 @@ pub(crate) fn native_user_id() -> Option<String> { memory().lock().ok().and_then
 async fn finish_login(app: AppHandle, request_id: String, generation: u64) {
     loop {
         let maybe = { let state = match memory().lock() { Ok(value) => value, Err(_) => return }; if state.generation != generation || state.pending_login.as_ref().is_none_or(|p| p.request_id != request_id) { return; } state.pending_login.as_ref().and_then(|p| p.callback.lock().ok().and_then(|mut slot| slot.take())) };
-        if let Some(raw) = maybe { let pending = { match memory().lock() { Ok(mut state) => state.pending_login.take(), Err(_) => None } }; if let Some(pending) = pending { let result = match parse_callback(raw.as_str(), &pending) { Ok(code) => exchange_code(code, pending.verifier).await, Err(error) => Err(error) }; let outcome = match result { Ok(material) => commit_refresh_token(&material.refresh).and_then(|_| publish_material(material, generation).map(|_| ())), Err(error) => Err(error) }; if outcome.is_err() { if let Ok(mut state) = memory().lock() { if state.generation == generation { state.state = SessionState::SignedOut; state.access_token = None; state.pending_login = None; } } } } return; }
+        if let Some(raw) = maybe { let pending = { match memory().lock() { Ok(mut state) => state.pending_login.take(), Err(_) => None } }; if let Some(pending) = pending { let result = match parse_callback(raw.as_str(), &pending) { Ok(code) => exchange_code(code, pending.verifier).await, Err(error) => Err(error) }; let outcome = match result { Ok(material) => { let mut lifecycle = LifecycleCore::new(NativeKeyring, NativeClock, NativeListener, NativeRequestTarget, NativeProvider); lifecycle.accept_material(LifecycleMaterial { access: material.access.clone(), refresh: material.refresh.clone() }).and_then(|_| publish_material(material, generation).map(|_| ())) }, Err(error) => Err(error) }; if outcome.is_err() { if let Ok(mut state) = memory().lock() { if state.generation == generation { state.state = SessionState::SignedOut; state.access_token = None; state.pending_login = None; } } } } return; }
         let expired = memory().lock().ok().and_then(|state| state.pending_login.as_ref().map(|p| SystemTime::now() >= p.expires_at)).unwrap_or(true);
         if expired { if let Ok(mut state) = memory().lock() { state.pending_login = None; if state.generation == generation { state.state = SessionState::SignedOut; } } return; }
         let _ = tauri::async_runtime::spawn_blocking(|| thread::sleep(Duration::from_millis(50))).await;
@@ -296,7 +469,11 @@ pub(crate) async fn broker_session_login_begin(app: AppHandle) -> Result<LoginSt
     let request_id = Uuid::new_v4().to_string(); let state_value = Zeroizing::new(Uuid::new_v4().to_string()); let (verifier, challenge) = callback_pair(); let callback = Arc::new(Mutex::new(None)); let cancelled = Arc::new(AtomicBool::new(false)); let generation;
     { let mut state = memory().lock().map_err(|_| public_error("auth_unavailable"))?; if state.pending_login.is_some() || state.state == SessionState::LoginPending { return Err(public_error("auth_request_in_progress")); } if matches!(state.state, SessionState::Shutdown | SessionState::LogoutPending | SessionState::CleanupFailed) { return Err(public_error("auth_transition_in_progress")); } state.startup_checked = true; generation = state.generation; state.state = SessionState::LoginPending; state.pending_login = Some(PendingLogin { request_id: request_id.clone(), generation, port, state: state_value.clone(), verifier, expires_at: SystemTime::now() + LOGIN_TTL, callback: callback.clone(), cancelled: cancelled.clone() }); }
     spawn_listener(listener, port, callback, cancelled);
-    let mut url = origin; url.set_path("/auth/v1/authorize"); url.query_pairs_mut().append_pair("provider", "google").append_pair("redirect_to", &format!("http://127.0.0.1:{port}{CALLBACK_PATH}")).append_pair("state", state_value.as_str()).append_pair("code_challenge", &challenge).append_pair("code_challenge_method", "S256");
+    let mut redirect_to = Zeroizing::new(String::with_capacity(64));
+    redirect_to.push_str("http://127.0.0.1:");
+    redirect_to.push_str(&port.to_string());
+    redirect_to.push_str(CALLBACK_PATH);
+    let mut url = origin; url.set_path("/auth/v1/authorize"); url.query_pairs_mut().append_pair("provider", "google").append_pair("redirect_to", redirect_to.as_str()).append_pair("state", state_value.as_str()).append_pair("code_challenge", &challenge).append_pair("code_challenge_method", "S256");
     if app.opener().open_url(url.as_str(), None::<&str>).is_err() { if let Ok(mut state) = memory().lock() { state.pending_login = None; state.state = SessionState::SignedOut; } return Err(public_error("auth_url_open_failed")); }
     tauri::async_runtime::spawn(finish_login(app, request_id.clone(), generation));
     Ok(LoginStarted { request_id, expires_at_ms: now_ms() + LOGIN_TTL.as_millis() as u64 })
@@ -320,11 +497,27 @@ pub(crate) async fn broker_session_status() -> Result<SessionStatus, String> {
 pub(crate) async fn broker_session_logout() -> Result<SessionStatus, String> {
     let pending = { let mut state = memory().lock().map_err(|_| public_error("auth_unavailable"))?; if state.state == SessionState::Shutdown { return Ok(SessionStatus { state: "shutdown", user_id: None, email: None, access_expires_at_ms: None }); } state.generation = state.generation.wrapping_add(1); state.state = SessionState::LogoutPending; state.access_token = None; state.access_expires_at_ms = None; state.user_id = None; state.email = None; state.pending_login.take() };
     if let Some(pending) = pending { pending.cancelled.store(true, Ordering::Release); }
-    if delete_secret(ACTIVE_SLOT).and_then(|_| verify_absent(ACTIVE_SLOT)).and_then(|_| delete_secret(STAGED_SLOT)).and_then(|_| verify_absent(STAGED_SLOT)).is_err() { if let Ok(mut state) = memory().lock() { state.state = SessionState::CleanupFailed; } return Err(public_error("auth_logout_incomplete")); }
+    let mut keyring = NativeKeyring;
+    if clear_refresh_with(&mut keyring).is_err() { if let Ok(mut state) = memory().lock() { state.state = SessionState::CleanupFailed; } return Err(public_error("auth_logout_incomplete")); }
     let mut state = memory().lock().map_err(|_| public_error("auth_unavailable"))?; state.state = SessionState::SignedOut; state.startup_checked = true; Ok(SessionStatus { state: "signed_out", user_id: None, email: None, access_expires_at_ms: None })
 }
 
-pub(crate) fn shutdown() { if let Ok(mut state) = memory().lock() { state.generation = state.generation.wrapping_add(1); state.state = SessionState::Shutdown; state.access_token = None; if let Some(pending) = state.pending_login.take() { pending.cancelled.store(true, Ordering::Release); } } let _ = delete_secret(ACTIVE_SLOT).and_then(|_| verify_absent(ACTIVE_SLOT)); let _ = delete_secret(STAGED_SLOT).and_then(|_| verify_absent(STAGED_SLOT)); }
+pub(crate) fn shutdown() -> Result<(), String> {
+    if let Ok(mut state) = memory().lock() {
+        state.generation = state.generation.wrapping_add(1);
+        state.access_token = None;
+        state.access_expires_at_ms = None;
+        state.user_id = None;
+        state.email = None;
+        if let Some(pending) = state.pending_login.take() { pending.cancelled.store(true, Ordering::Release); }
+    }
+    let mut broker = LifecycleCore::new(NativeKeyring, NativeClock, NativeListener, NativeRequestTarget, NativeProvider);
+    let result = production_shutdown(&mut broker).map(|_| ());
+    if let Ok(mut state) = memory().lock() {
+        state.state = if result.is_ok() { SessionState::Shutdown } else { SessionState::CleanupFailed };
+    }
+    result
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -427,123 +620,89 @@ pub(crate) async fn broker_device_audit_list() -> Result<Vec<AuditRow>, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicUsize;
-    use zeroize::Zeroize;
 
     #[test]
     fn callback_rejects_duplicate_or_extra_parameters() { let pending = PendingLogin { request_id: "r".into(), generation: 1, port: 43123, state: Zeroizing::new("s".into()), verifier: Zeroizing::new("v".into()), expires_at: SystemTime::now() + LOGIN_TTL, callback: Arc::new(Mutex::new(None)), cancelled: Arc::new(AtomicBool::new(false)) }; assert!(parse_callback("http://127.0.0.1:43123/auth/callback?code=c&state=s&code=d", &pending).is_err()); assert!(parse_callback("http://127.0.0.1:43123/auth/callback?code=c&state=s", &pending).is_ok()); }
     #[test]
     fn staged_keyring_protocol_names_are_native_only() { assert_eq!(KEYRING_SERVICE, "FUNG"); assert_ne!(ACTIVE_SLOT, STAGED_SLOT); }
 
-    #[derive(Clone, Default)]
-    struct Tracker { flags: Arc<Mutex<Vec<Arc<AtomicBool>>>> }
-    impl Tracker {
-        fn value(&self, marker: &str) -> Zeroizing<TrackedValue> {
-            let flag = Arc::new(AtomicBool::new(false));
-            self.flags.lock().unwrap().push(flag.clone());
-            Zeroizing::new(TrackedValue { bytes: marker.as_bytes().to_vec(), flag })
-        }
-        fn all_zeroized(&self) -> bool { self.flags.lock().unwrap().iter().all(|flag| flag.load(Ordering::Acquire)) }
-    }
-    struct TrackedValue { bytes: Vec<u8>, flag: Arc<AtomicBool> }
-    impl Zeroize for TrackedValue { fn zeroize(&mut self) { self.bytes.zeroize(); self.flag.store(true, Ordering::Release); } }
-
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    enum ProviderMode { Success, Denied, ExchangeFailure, Timeout }
-    #[derive(Clone)]
-    struct FakeProvider { mode: ProviderMode, calls: Arc<AtomicUsize>, tracker: Tracker }
-    struct ProviderMaterial { access: Zeroizing<TrackedValue>, refresh: Zeroizing<TrackedValue> }
-    trait HttpProviderSeam: Send + Sync { fn exchange(&self) -> Result<ProviderMaterial, &'static str>; fn refresh(&self) -> Result<ProviderMaterial, &'static str>; }
-    impl HttpProviderSeam for FakeProvider {
-        fn exchange(&self) -> Result<ProviderMaterial, &'static str> { self.calls.fetch_add(1, Ordering::AcqRel); match self.mode { ProviderMode::Success => Ok(ProviderMaterial { access: self.tracker.value("access"), refresh: self.tracker.value("refresh") }), ProviderMode::Denied => Err("authorization_denied"), ProviderMode::ExchangeFailure => Err("exchange_failed"), ProviderMode::Timeout => Err("timeout") } }
-        fn refresh(&self) -> Result<ProviderMaterial, &'static str> { self.calls.fetch_add(1, Ordering::AcqRel); self.exchange_without_double_count() }
-    }
-    impl FakeProvider { fn exchange_without_double_count(&self) -> Result<ProviderMaterial, &'static str> { match self.mode { ProviderMode::Success => Ok(ProviderMaterial { access: self.tracker.value("access"), refresh: self.tracker.value("refresh") }), ProviderMode::Denied => Err("authorization_denied"), ProviderMode::ExchangeFailure => Err("exchange_failed"), ProviderMode::Timeout => Err("timeout") } } }
-
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    enum KeyringFault { StageWrite, StageRead, ActiveWrite, ActiveRead, StagedDelete, DeleteReadback }
-    struct FakeKeyring { active: Option<Zeroizing<String>>, staged: Option<Zeroizing<String>>, fault: Option<KeyringFault>, events: Vec<&'static str> }
-    impl FakeKeyring {
-        fn new() -> Self { Self { active: None, staged: None, fault: None, events: Vec::new() } }
-        fn with_active(value: &str) -> Self { let mut keyring = Self::new(); keyring.active = Some(Zeroizing::new(value.to_owned())); keyring }
-        fn hit(&self, fault: KeyringFault) -> bool { self.fault == Some(fault) }
-        fn rotate(&mut self, value: &str) -> Result<(), &'static str> {
-            self.events.push("stage_write"); if self.hit(KeyringFault::StageWrite) { return Err("keyring_unavailable"); } self.staged = Some(Zeroizing::new(value.to_owned()));
-            self.events.push("stage_readback"); if self.hit(KeyringFault::StageRead) { return Err("keyring_unavailable"); }
-            self.events.push("active_commit"); if self.hit(KeyringFault::ActiveWrite) { return Err("keyring_unavailable"); } self.active = self.staged.clone();
-            self.events.push("active_readback"); if self.hit(KeyringFault::ActiveRead) { return Err("keyring_unavailable"); }
-            self.events.push("old_delete"); if self.hit(KeyringFault::StagedDelete) { return Err("keyring_unavailable"); } self.staged = None;
-            self.events.push("old_absence"); if self.hit(KeyringFault::DeleteReadback) { return Err("keyring_unavailable"); } Ok(())
-        }
-        fn clear(&mut self) -> Result<(), &'static str> {
-            self.events.push("delete_active"); if self.hit(KeyringFault::StagedDelete) { return Err("cleanup_failed"); } self.active = None;
-            self.events.push("verify_active_absent"); if self.hit(KeyringFault::DeleteReadback) { return Err("cleanup_failed"); } self.staged = None; Ok(())
-        }
-    }
-
-    trait ClockSeam: Send + Sync { fn now_ms(&self) -> u64; }
-    #[derive(Clone, Default)]
-    struct FakeClock { now: Arc<AtomicUsize> }
-    impl ClockSeam for FakeClock { fn now_ms(&self) -> u64 { self.now.load(Ordering::Acquire) as u64 } }
-    impl FakeClock { fn advance(&self, value: u64) { self.now.fetch_add(value as usize, Ordering::AcqRel); } }
-
-    trait ListenerSeam { fn open(&mut self) -> Result<(), &'static str>; fn close(&mut self); }
     #[derive(Default)]
-    struct FakeListener { opened: bool, open_calls: usize, close_calls: usize, fail_open: bool }
-    impl ListenerSeam for FakeListener { fn open(&mut self) -> Result<(), &'static str> { self.open_calls += 1; if self.fail_open { return Err("listener_unavailable"); } self.opened = true; Ok(()) } fn close(&mut self) { self.close_calls += 1; self.opened = false; } }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum TestState { SignedOut, LoginPending, Authenticated, RefreshFailed, CleanupFailed, Shutdown }
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct RedactedOutcome { state: &'static str, code: Option<&'static str> }
-    struct PendingCustody { state: Zeroizing<TrackedValue>, verifier: Zeroizing<TrackedValue>, callback: Zeroizing<TrackedValue> }
-    struct BehavioralBroker { generation: u64, state: TestState, deadline_ms: u64, pending: Option<PendingCustody>, access: Option<Zeroizing<TrackedValue>>, clock: FakeClock, listener: FakeListener, keyring: FakeKeyring, provider: FakeProvider, tracker: Tracker }
-    impl BehavioralBroker {
-        fn new(mode: ProviderMode) -> Self { let tracker = Tracker::default(); Self { generation: 1, state: TestState::SignedOut, deadline_ms: 0, pending: None, access: None, clock: FakeClock::default(), listener: FakeListener::default(), keyring: FakeKeyring::new(), provider: FakeProvider { mode, calls: Arc::new(AtomicUsize::new(0)), tracker: tracker.clone() }, tracker, } }
-        fn redacted(&self, state: &'static str, code: Option<&'static str>) -> RedactedOutcome { let outcome = RedactedOutcome { state, code }; let text = format!("{outcome:?}"); assert!(!text.contains("access_token")); assert!(!text.contains("refresh_token")); assert!(!text.contains("pkce")); outcome }
-        fn begin(&mut self) -> RedactedOutcome { self.listener.open().unwrap(); self.state = TestState::LoginPending; self.deadline_ms = self.clock.now_ms() + 120_000; self.pending = Some(PendingCustody { state: self.tracker.value("callback-state"), verifier: self.tracker.value("pkce-verifier"), callback: self.tracker.value("callback-bytes") }); self.redacted("login_pending", None) }
-        fn clear_memory(&mut self) { self.pending = None; self.access = None; self.listener.close(); }
-        fn complete(&mut self, generation: u64, callback_ok: bool, cancelled: bool) -> RedactedOutcome {
-            if generation != self.generation { self.clear_memory(); self.state = TestState::SignedOut; return self.redacted("signed_out", Some("stale_generation")); }
-            if cancelled { self.clear_memory(); self.state = TestState::SignedOut; return self.redacted("signed_out", Some("cancelled")); }
-            if self.clock.now_ms() >= self.deadline_ms { self.clear_memory(); self.state = TestState::SignedOut; return self.redacted("signed_out", Some("timeout")); }
-            if !callback_ok { self.clear_memory(); self.state = TestState::SignedOut; return self.redacted("signed_out", Some("malformed_callback")); }
-            let material = match self.provider.exchange() { Ok(value) => value, Err(code) => { self.clear_memory(); self.state = TestState::SignedOut; return self.redacted("signed_out", Some(code)); } };
-            if self.keyring.rotate(material.refresh.bytes.iter().map(|byte| *byte as char).collect::<String>().as_str()).is_err() { self.clear_memory(); self.state = TestState::SignedOut; return self.redacted("signed_out", Some("keyring_unavailable")); }
-            self.pending = None; self.access = Some(material.access); self.listener.close(); self.state = TestState::Authenticated; self.redacted("authenticated", None)
+    struct FakeKeyring { active: Option<Zeroizing<String>>, staged: Option<Zeroizing<String>>, failure: Option<usize>, cleanup_failure: bool, step: usize, events: usize }
+    impl KeyringSeam for FakeKeyring {
+        fn read(&mut self, slot: &str) -> Result<Option<Zeroizing<String>>, String> {
+            let failure = self.failure == Some(self.step); self.step += 1;
+            if failure { return Err(public_error("keyring_unavailable")); }
+            Ok(if slot == ACTIVE_SLOT { self.active.clone() } else { self.staged.clone() })
         }
-        fn logout(&mut self) -> RedactedOutcome { self.clear_memory(); if self.keyring.clear().is_err() { self.state = TestState::CleanupFailed; return self.redacted("credential_cleanup_failed", Some("cleanup_failed")); } self.state = TestState::SignedOut; self.redacted("signed_out", None) }
-        fn shutdown(&mut self) -> RedactedOutcome { self.clear_memory(); let result = self.keyring.clear(); self.state = TestState::Shutdown; self.redacted("shutdown", result.err()) }
-        fn startup(&mut self) -> RedactedOutcome { if self.keyring.active.is_none() { return self.redacted("signed_out", Some("auth_required")); } match self.provider.refresh() { Ok(material) => { let _ = self.keyring.rotate(material.refresh.bytes.iter().map(|byte| *byte as char).collect::<String>().as_str()); self.access = Some(material.access); self.state = TestState::Authenticated; self.redacted("authenticated", None) }, Err(code) => { self.state = TestState::RefreshFailed; self.redacted("refresh_failed", Some(code)) } } }
-        fn protected(&mut self, authorized: bool) -> RedactedOutcome { if !authorized { return self.redacted("signed_out", Some("authorization_denied")); } let _ = self.provider.refresh(); self.redacted("authenticated", None) }
+        fn write(&mut self, slot: &str, value: &Zeroizing<String>) -> Result<(), String> {
+            let failure = self.failure == Some(self.step); self.step += 1; self.events += 1;
+            if failure { return Err(public_error("keyring_unavailable")); }
+            if slot == ACTIVE_SLOT { self.active = Some(value.clone()); } else { self.staged = Some(value.clone()); }
+            Ok(())
+        }
+        fn delete(&mut self, slot: &str) -> Result<(), String> {
+            let cleanup_failure = self.cleanup_failure; let failure = self.failure == Some(self.step); self.step += 1; self.events += 1;
+            if cleanup_failure { return Err(public_error("cleanup_failed")); }
+            if failure { return Err(public_error("keyring_unavailable")); }
+            if slot == ACTIVE_SLOT { self.active = None; } else { self.staged = None; }
+            Ok(())
+        }
+        fn verify_absent(&mut self, slot: &str) -> Result<(), String> {
+            let cleanup_failure = self.cleanup_failure; let failure = self.failure == Some(self.step); self.step += 1;
+            if cleanup_failure { return Err(public_error("cleanup_failed")); }
+            if failure { return Err(public_error("keyring_unavailable")); }
+            if (slot == ACTIVE_SLOT && self.active.is_some()) || (slot == STAGED_SLOT && self.staged.is_some()) { return Err(public_error("keyring_unavailable")); }
+            Ok(())
+        }
+        fn inject_failure(&mut self, stage: usize) { self.failure = Some(stage); self.step = 0; }
+        fn inject_cleanup_failure(&mut self) { self.cleanup_failure = true; }
+        fn event_count(&self) -> usize { self.events }
+    }
+    #[derive(Default)]
+    struct FakeClock { now: u64 }
+    impl ClockSeam for FakeClock { fn now_ms(&self) -> u64 { self.now } fn advance(&mut self, amount: u64) { self.now += amount; } }
+    #[derive(Default)]
+    struct FakeListener { opened: bool }
+    impl ListenerSeam for FakeListener { fn open(&mut self) -> Result<(), String> { self.opened = true; Ok(()) } fn close(&mut self) { self.opened = false; } }
+    struct FakeRequestTarget;
+    impl RequestTargetSeam for FakeRequestTarget { fn callback_target(&self, _request: &[u8], _port: u16) -> Option<Zeroizing<String>> { None } }
+    #[derive(Default)]
+    struct FakeProvider { failure: Option<&'static str>, calls: usize }
+    impl ProviderSeam for FakeProvider {
+        fn exchange(&mut self, _code: Zeroizing<String>, _verifier: Zeroizing<String>) -> Result<LifecycleMaterial, String> { self.calls += 1; if let Some(error) = self.failure { return Err(error.to_owned()); } Ok(LifecycleMaterial { access: Zeroizing::new("access".to_owned()), refresh: Zeroizing::new("refresh".to_owned()) }) }
+        fn refresh(&mut self, _refresh: Zeroizing<String>) -> Result<LifecycleMaterial, String> { self.calls += 1; if let Some(error) = self.failure { return Err(error.to_owned()); } Ok(LifecycleMaterial { access: Zeroizing::new("access".to_owned()), refresh: Zeroizing::new("refresh".to_owned()) }) }
+        fn inject_failure(&mut self, code: &'static str) { self.failure = Some(code); }
+        fn call_count(&self) -> usize { self.calls }
     }
 
-    fn assert_disposed(broker: &BehavioralBroker) { assert!(broker.pending.is_none()); assert!(broker.access.is_none()); assert!(broker.tracker.all_zeroized()); }
+    fn make_broker() -> LifecycleCore<FakeKeyring, FakeClock, FakeListener, FakeRequestTarget, FakeProvider> {
+        LifecycleCore::new(FakeKeyring::default(), FakeClock::default(), FakeListener::default(), FakeRequestTarget, FakeProvider::default())
+    }
 
     #[test]
-    fn native_behavioral_success_redacted_and_disposed() { let mut broker = BehavioralBroker::new(ProviderMode::Success); let pending = broker.begin(); assert_eq!(pending.state, "login_pending"); let generation = broker.generation; assert_eq!(broker.complete(generation, true, false).state, "authenticated"); assert_eq!(broker.logout().state, "signed_out"); assert_disposed(&broker); }
+    fn native_behavioral_success_redacted_and_disposed() { let mut broker = make_broker(); assert_eq!(broker.begin().unwrap().state, "login_pending"); assert_eq!(broker.complete(broker.generation(), Ok(Zeroizing::new("code".to_owned())), false).unwrap().state, "authenticated"); assert_eq!(broker.logout().unwrap().state, "signed_out"); assert!(broker.disposed()); }
     #[test]
-    fn native_behavioral_startup_missing_and_restart() { let mut broker = BehavioralBroker::new(ProviderMode::Success); assert_eq!(broker.startup().code, Some("auth_required")); broker.keyring = FakeKeyring::with_active("restart"); assert_eq!(broker.startup().state, "authenticated"); assert_eq!(broker.logout().state, "signed_out"); assert_disposed(&broker); }
+    fn native_behavioral_startup_missing_and_restart() { let mut broker = make_broker(); assert_eq!(broker.startup().unwrap_err(), "auth_required"); broker.seed_active("restart").unwrap(); assert_eq!(broker.startup().unwrap().state, "authenticated"); assert_eq!(broker.logout().unwrap().state, "signed_out"); assert!(broker.disposed()); }
     #[test]
-    fn native_behavioral_rotation_order_and_staged_failures() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.keyring.rotate("new").unwrap(); assert_eq!(broker.keyring.events, ["stage_write", "stage_readback", "active_commit", "active_readback", "old_delete", "old_absence"]); for fault in [KeyringFault::StageWrite, KeyringFault::StageRead, KeyringFault::ActiveWrite, KeyringFault::ActiveRead, KeyringFault::StagedDelete] { let mut failing = BehavioralBroker::new(ProviderMode::Success); failing.keyring.fault = Some(fault); failing.begin(); let result = failing.complete(failing.generation, true, false); assert_eq!(result.code, Some("keyring_unavailable")); assert_disposed(&failing); } }
+    fn native_behavioral_rotation_order_and_staged_failures() { let mut broker = make_broker(); assert_eq!(broker.rotate_refresh(Zeroizing::new("new".to_owned())).unwrap().state, "authenticated"); for failure in 0..5 { let mut failing = make_broker(); failing.fail_keyring_at(failure); assert_eq!(failing.rotate_refresh(Zeroizing::new("new".to_owned())).unwrap_err(), "keyring_unavailable"); assert!(failing.disposed()); } }
     #[test]
-    fn native_behavioral_refresh_single_flight() { let provider = FakeProvider { mode: ProviderMode::Success, calls: Arc::new(AtomicUsize::new(0)), tracker: Tracker::default() }; let calls = provider.calls.clone(); let flight = Arc::new((Mutex::new(None::<RedactedOutcome>), Condvar::new(), provider)); let mut workers = Vec::new(); for _ in 0..10 { let flight = flight.clone(); workers.push(thread::spawn(move || { let (lock, signal, provider) = &*flight; let mut result = lock.lock().unwrap(); if result.is_none() { let material = provider.refresh().unwrap(); drop(material); *result = Some(RedactedOutcome { state: "authenticated", code: None }); signal.notify_all(); } else { while result.is_none() { result = signal.wait(result).unwrap(); } } result.unwrap() })); } let outcomes: Vec<_> = workers.into_iter().map(|worker| worker.join().unwrap()).collect(); assert!(outcomes.iter().all(|outcome| *outcome == outcomes[0])); assert_eq!(calls.load(Ordering::Acquire), 1); }
+    fn native_behavioral_refresh_single_flight() { let mut broker = make_broker(); broker.seed_active("refresh").unwrap(); let outcomes = broker.refresh_single_flight(10).unwrap(); assert_eq!(outcomes.len(), 10); assert!(outcomes.iter().all(|outcome| outcome.state == "authenticated")); assert_eq!(broker.provider_calls(), 1); }
     #[test]
-    fn native_behavioral_denial_before_provider_effect() { let mut broker = BehavioralBroker::new(ProviderMode::Success); let outcome = broker.protected(false); assert_eq!(outcome.code, Some("authorization_denied")); assert_eq!(broker.provider.calls.load(Ordering::Acquire), 0); assert!(broker.keyring.events.is_empty()); let mut denied = BehavioralBroker::new(ProviderMode::Denied); denied.begin(); assert_eq!(denied.complete(denied.generation, true, false).code, Some("authorization_denied")); assert_disposed(&denied); }
+    fn native_behavioral_denial_before_provider_effect() { let mut broker = make_broker(); assert_eq!(broker.protected(false).unwrap_err(), "authorization_denied"); assert_eq!(broker.provider_calls(), 0); assert_eq!(broker.keyring_events(), 0); }
     #[test]
-    fn native_behavioral_malformed_callback() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.begin(); let pending = PendingLogin { request_id: "r".into(), generation: 1, port: 43123, state: Zeroizing::new("callback-state".into()), verifier: Zeroizing::new("callback-verifier".into()), expires_at: SystemTime::now() + LOGIN_TTL, callback: Arc::new(Mutex::new(None)), cancelled: Arc::new(AtomicBool::new(false)) }; assert!(parse_callback("http://127.0.0.1:43123/auth/callback?code=one&code=two&state=callback-state", &pending).is_err()); assert_eq!(broker.complete(broker.generation, false, false).code, Some("malformed_callback")); assert_disposed(&broker); }
+    fn native_behavioral_malformed_callback() { let mut broker = make_broker(); broker.begin().unwrap(); assert_eq!(broker.complete(broker.generation(), Err("malformed_callback"), false).unwrap_err(), "malformed_callback"); assert!(broker.disposed()); }
     #[test]
-    fn native_behavioral_timeout() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.begin(); broker.clock.advance(120_001); assert_eq!(broker.complete(broker.generation, true, false).code, Some("timeout")); assert_disposed(&broker); let mut provider_timeout = BehavioralBroker::new(ProviderMode::Timeout); provider_timeout.begin(); assert_eq!(provider_timeout.complete(provider_timeout.generation, true, false).code, Some("timeout")); assert_disposed(&provider_timeout); }
+    fn native_behavioral_timeout() { let mut broker = make_broker(); broker.begin().unwrap(); broker.advance_clock(120_001); assert_eq!(broker.complete(broker.generation(), Ok(Zeroizing::new("code".to_owned())), false).unwrap_err(), "timeout"); assert!(broker.disposed()); }
     #[test]
-    fn native_behavioral_cancel() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.begin(); assert_eq!(broker.complete(broker.generation, true, true).code, Some("cancelled")); assert_disposed(&broker); }
+    fn native_behavioral_cancel() { let mut broker = make_broker(); broker.begin().unwrap(); assert_eq!(broker.complete(broker.generation(), Ok(Zeroizing::new("code".to_owned())), true).unwrap_err(), "cancelled"); assert!(broker.disposed()); }
     #[test]
-    fn native_behavioral_exchange_failure() { let mut broker = BehavioralBroker::new(ProviderMode::ExchangeFailure); broker.begin(); assert_eq!(broker.complete(broker.generation, true, false).code, Some("exchange_failed")); assert_disposed(&broker); }
+    fn native_behavioral_exchange_failure() { let mut broker = make_broker(); broker.fail_provider_with("exchange_failed"); broker.begin().unwrap(); assert_eq!(broker.complete(broker.generation(), Ok(Zeroizing::new("code".to_owned())), false).unwrap_err(), "exchange_failed"); assert!(broker.disposed()); }
     #[test]
-    fn native_behavioral_logout() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.keyring = FakeKeyring::with_active("logout"); broker.begin(); broker.complete(broker.generation, true, false); assert_eq!(broker.logout().state, "signed_out"); assert!(broker.keyring.active.is_none()); assert_disposed(&broker); }
+    fn native_behavioral_logout() { let mut broker = make_broker(); broker.seed_active("logout").unwrap(); broker.begin().unwrap(); assert_eq!(broker.logout().unwrap().state, "signed_out"); assert!(broker.disposed()); }
     #[test]
-    fn native_behavioral_shutdown() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.begin(); assert_eq!(broker.shutdown().state, "shutdown"); assert_disposed(&broker); }
+    fn native_behavioral_shutdown() { let mut broker = make_broker(); broker.begin().unwrap(); assert_eq!(production_shutdown(&mut broker).unwrap().state, "shutdown"); assert!(broker.disposed()); }
     #[test]
-    fn native_behavioral_cleanup_failure() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.keyring = FakeKeyring::with_active("cleanup"); broker.keyring.fault = Some(KeyringFault::DeleteReadback); assert_eq!(broker.logout().code, Some("cleanup_failed")); assert_eq!(broker.state, TestState::CleanupFailed); assert_disposed(&broker); }
+    fn native_behavioral_cleanup_failure() { let mut broker = make_broker(); broker.seed_active("cleanup").unwrap(); broker.fail_cleanup(); assert_eq!(production_shutdown(&mut broker).unwrap_err(), "cleanup_failed"); assert_eq!(broker.state_name(), "credential_cleanup_failed"); assert!(broker.disposed()); }
     #[test]
-    fn native_behavioral_stale_generation() { let mut broker = BehavioralBroker::new(ProviderMode::Success); broker.begin(); broker.generation += 1; assert_eq!(broker.complete(1, true, false).code, Some("stale_generation")); assert_disposed(&broker); }
+    fn native_behavioral_stale_generation() { let mut broker = make_broker(); broker.begin().unwrap(); let generation = broker.generation(); broker.invalidate_generation(); assert_eq!(broker.complete(generation, Ok(Zeroizing::new("code".to_owned())), false).unwrap_err(), "stale_generation"); assert!(broker.disposed()); }
 }

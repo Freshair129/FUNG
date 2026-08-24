@@ -3120,7 +3120,9 @@ pub fn run() {
             // queued in the ledger and is adopted on the next launch —
             // shutdown is not cancellation.
             if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
-                auth_session::shutdown();
+                if let Err(error_code) = auth_session::shutdown() {
+                    eprintln!("{error_code}");
+                }
                 if let Some(state) = app.try_state::<AppState>() {
                     state.jobs.shutdown();
                 }

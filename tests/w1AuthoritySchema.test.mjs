@@ -132,3 +132,15 @@ test("Committed SQL evidence covers privileges, fixed search paths, and no proje
   assert.match(sql, /concurrent|50/i);
   assert.doesNotMatch(sql, /--project-ref\s+[A-Za-z0-9_-]+/i);
 });
+
+test("W1 revoked connection activation is denied without reactivation", () => {
+  const sql = policyMigration();
+  assert.match(
+    sql,
+    /elsif\s+p_operation\s*=\s*'connection\.activate'[\s\S]*?and\s+v_connection_found[\s\S]*?and\s*\([\s\S]*?v_connection\.status\s*=\s*'revoked'[\s\S]*?or\s+v_connection\.revoked_at\s+is\s+not\s+null[\s\S]*?\)[\s\S]*?then[\s\S]*?v_denial_code\s*:=\s*'connection_revoked'/i,
+  );
+  assert.match(
+    sql,
+    /if\s+v_authorized\s+and\s+p_operation\s*=\s*'connection\.activate'[\s\S]*?on\s+conflict\s*\(user_id,\s*provider\)/i,
+  );
+});

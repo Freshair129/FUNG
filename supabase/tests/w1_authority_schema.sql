@@ -229,6 +229,169 @@ begin
 end;
 $$;
 
+-- Database-level adversarial evidence: a revoked exact-provider connection
+-- must remain revoked when connection.activate is denied. All rows are seeded
+-- inside this transaction and removed by the final ROLLBACK.
+do $$
+declare
+  v_user_id uuid;
+  v_device_id uuid;
+  v_connection_id uuid;
+  v_public_key text;
+  v_fingerprint text;
+  v_revoked_status text;
+  v_revoked_at timestamptz;
+  v_revoked_scopes text[];
+  v_revoked_user_id uuid;
+  v_revoked_grants jsonb;
+  v_after_status text;
+  v_after_revoked_at timestamptz;
+  v_after_scopes text[];
+  v_after_user_id uuid;
+  v_after_grants jsonb;
+  v_reservation_status text;
+  v_decision text;
+  v_denial_code text;
+  v_result record;
+begin
+  select p.id
+    into v_user_id
+    from public.profiles p
+   where not exists (
+     select 1
+       from public.oauth_connections c
+      where c.user_id = p.id
+        and c.provider = 'google_drive'
+   )
+   order by p.created_at
+   limit 1;
+
+  if v_user_id is null then
+    raise exception 'W1 revoked activation evidence needs a profile without google_drive';
+  end if;
+
+  v_public_key := encode(convert_to(gen_random_uuid()::text, 'UTF8'), 'base64');
+  v_fingerprint := encode(
+    pg_catalog.sha256(pg_catalog.decode(v_public_key, 'base64')),
+    'hex'
+  );
+
+  insert into public.devices (
+    user_id,
+    device_label,
+    platform,
+    public_key_fingerprint,
+    public_key,
+    authority_state,
+    enrollment_source,
+    enrolled_at,
+    approved_at
+  ) values (
+    v_user_id,
+    'W1 S1 F2 SQL evidence',
+    'windows',
+    v_fingerprint,
+    v_public_key,
+    'drive_trusted',
+    'boss_bootstrap',
+    pg_catalog.now(),
+    pg_catalog.now()
+  ) returning id into v_device_id;
+
+  insert into public.oauth_connections (
+    user_id,
+    provider,
+    approved_scopes,
+    status,
+    connected_at,
+    last_authorized_at
+  ) values (
+    v_user_id,
+    'google_drive',
+    array['https://www.googleapis.com/auth/drive.appdata']::text[],
+    'active',
+    pg_catalog.now(),
+    pg_catalog.now()
+  ) returning id into v_connection_id;
+
+  insert into public.oauth_operation_grants (
+    user_id,
+    connection_id,
+    operation,
+    granted_by,
+    granted_role
+  ) values
+    (v_user_id, v_connection_id, 'backup.write',
+      'w1_s1_f2_sql_evidence', 'database_owner'),
+    (v_user_id, v_connection_id, 'backup.restore',
+      'w1_s1_f2_sql_evidence', 'database_owner');
+
+  update public.oauth_connections
+     set status = 'revoked',
+         revoked_at = pg_catalog.now()
+   where id = v_connection_id;
+
+  select c.status, c.revoked_at, c.approved_scopes, c.user_id
+    into v_revoked_status, v_revoked_at, v_revoked_scopes, v_revoked_user_id
+    from public.oauth_connections c
+   where c.id = v_connection_id;
+
+  select coalesce(jsonb_agg(to_jsonb(g) order by g.operation), '[]'::jsonb)
+    into v_revoked_grants
+    from public.oauth_operation_grants g
+   where g.connection_id = v_connection_id;
+
+  select *
+    into v_result
+    from public.authorize_oauth_request(
+      v_user_id,
+      v_device_id,
+      v_public_key,
+      v_fingerprint,
+      'connection.activate',
+      gen_random_uuid(),
+      pg_catalog.now() + pg_catalog.make_interval(mins => 1)
+    );
+
+  if v_result.authorized is distinct from false
+    or v_result.denial_code is distinct from 'connection_revoked'
+    or v_result.connection_id is distinct from v_connection_id then
+    raise exception 'revoked connection.activate was not denied';
+  end if;
+
+  select r.status, d.decision, d.denial_code
+    into v_reservation_status, v_decision, v_denial_code
+    from public.oauth_authorization_reservations r
+    join public.oauth_authorization_decisions d
+      on d.reservation_id = r.id
+   where r.id = v_result.reservation_id;
+
+  if v_reservation_status is distinct from 'denied'
+    or v_decision is distinct from 'denied'
+    or v_denial_code is distinct from 'connection_revoked' then
+    raise exception 'revoked activation decision was not durably denied';
+  end if;
+
+  select c.status, c.revoked_at, c.approved_scopes, c.user_id
+    into v_after_status, v_after_revoked_at, v_after_scopes, v_after_user_id
+    from public.oauth_connections c
+   where c.id = v_connection_id;
+
+  select coalesce(jsonb_agg(to_jsonb(g) order by g.operation), '[]'::jsonb)
+    into v_after_grants
+    from public.oauth_operation_grants g
+   where g.connection_id = v_connection_id;
+
+  if v_after_status is distinct from v_revoked_status
+    or v_after_revoked_at is distinct from v_revoked_at
+    or v_after_scopes is distinct from v_revoked_scopes
+    or v_after_user_id is distinct from v_revoked_user_id
+    or v_after_grants is distinct from v_revoked_grants then
+    raise exception 'denied revoked activation changed authoritative state';
+  end if;
+end;
+$$;
+
 -- Manual staging adversarial evidence, executed by the DB owner only:
 -- run at least 50 identical authorize_oauth_request calls concurrently through
 -- separate Edge workers and assert one allowed protected operation at most,

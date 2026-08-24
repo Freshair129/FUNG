@@ -300,7 +300,7 @@ begin
 
   -- Lock the account's exact-provider connection next. Missing or inactive
   -- connection state is returned as data for status operations and is a deny
-  -- for backup operations below.
+  -- for backup operations and revoked activation below.
   select * into v_connection
   from public.oauth_connections
   where user_id = p_user_id
@@ -359,6 +359,13 @@ begin
 
   if v_device_authorized is distinct from true then
     v_denial_code := 'device_not_authorized';
+  elsif p_operation = 'connection.activate'
+    and v_connection_found
+    and (
+      v_connection.status = 'revoked'
+      or v_connection.revoked_at is not null
+    ) then
+    v_denial_code := 'connection_revoked';
   elsif v_required_operation is not null
     and v_connection_active is distinct from true then
     v_denial_code := 'connection_not_active_or_exact_scope';
@@ -434,7 +441,7 @@ begin
   where id = v_reservation_id;
 
   -- Connection state transitions remain inside the same authorization
-  -- transaction. Reactivation never recreates revoked operation grants.
+  -- transaction. Revoked activation is denied above and never clears state.
   if v_authorized and p_operation = 'connection.activate' then
     insert into public.oauth_connections (
       user_id,

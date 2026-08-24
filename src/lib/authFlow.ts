@@ -12,7 +12,13 @@ export interface NativeAuthStarted {
 
 export interface NativeAuthCallback {
   requestId: string;
-  code: string | null;
+  session: {
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+    tokenType: string;
+    userId: string;
+  } | null;
   error: string | null;
 }
 
@@ -50,8 +56,7 @@ export async function completeFromCallbackUrl(
   const { code, error } = parseAuthCallbackUrl(url, options);
   if (error) throw new Error(error);
   if (!code) throw new Error("missing_code");
-  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-  if (exchangeError) throw exchangeError;
+  throw new Error("native_exchange_required");
 }
 
 /** Wires the one native callback channel. Returns cleanup. */
@@ -74,11 +79,17 @@ export async function listenForAuthCallback(
       onDone(callback.error);
       return;
     }
-    if (!callback.code) {
-      onDone("missing_code");
+    if (
+      !callback.session?.accessToken ||
+      !callback.session.refreshToken
+    ) {
+      onDone("missing_session");
       return;
     }
-    void supabase.auth.exchangeCodeForSession(callback.code).then(({ error }) => {
+    void supabase.auth.setSession({
+      access_token: callback.session.accessToken,
+      refresh_token: callback.session.refreshToken,
+    }).then(({ error }) => {
       onDone(error ? error.message : null);
     });
   });

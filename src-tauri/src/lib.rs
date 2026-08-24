@@ -2988,7 +2988,7 @@ pub fn run() {
             paired_device_revoke,
             device_identity::device_identity_ensure,
             device_identity::device_public_key,
-            device_identity::device_enrollment_proof,
+            native_auth::native_device_enrollment_proof,
             zoom_sync::zoom_connect,
             zoom_sync::zoom_connection_status,
             zoom_sync::zoom_disconnect,

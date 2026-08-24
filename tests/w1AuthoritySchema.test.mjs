@@ -12,6 +12,8 @@ const enrollmentMigration = () =>
   read("supabase/migrations/20260823000000_w1_device_enrollment_authority.sql");
 const policyMigration = () =>
   read("supabase/migrations/20260823000001_w1_drive_authorization_policy.sql");
+const proofMigration = () =>
+  read("supabase/migrations/20260824000000_w1_enrollment_proof_nonce.sql");
 
 const POSTGRES_IMAGE = "postgres:17-alpine";
 const dockerProbe = spawnSync(
@@ -212,6 +214,29 @@ $$;
 ROLLBACK;
 `;
 
+test("S2-F2 uses a forward migration for exact proof metadata and one-use nonce reservation", () => {
+  const sql = proofMigration();
+  assert.match(sql, /^BEGIN;/m);
+  assert.match(sql, /ALTER TABLE\s+public\.device_enrollment_requests[\s\S]*proof_version/is);
+  assert.match(sql, /proof_operation/);
+  assert.match(sql, /proof_nonce_hash/);
+  assert.match(sql, /proof_issued_at_ms/);
+  assert.match(sql, /proof_expires_at_ms/);
+  assert.match(sql, /proof_envelope_hash/);
+  assert.match(sql, /proof_signature/);
+  assert.match(sql, /CREATE TABLE\s+public\.device_enrollment_proof_reservations/is);
+  assert.match(sql, /nonce_hash\s+bytea[^;]*UNIQUE/is);
+  assert.match(sql, /indefinite|retained|append-only/i);
+  assert.match(sql, /ON CONFLICT[^\n]*nonce_hash[^\n]*DO NOTHING[\s\S]*RETURNING/is);
+  assert.match(sql, /proof_replayed/);
+  assert.match(sql, /ROLLBACK|COMMIT/);
+  assert.match(sql, /create_device_enrollment_request\s*\(/i);
+  assert.match(sql, /proof_version[^,]*integer|p_proof_version/i);
+  assert.match(sql, /proof_operation[^,]*text|p_proof_operation/i);
+  assert.match(sql, /SET\s+search_path\s*=\s*pg_catalog,\s*public,\s*pg_temp/i);
+  assert.match(sql, /REVOKE\s+ALL\s+ON\s+TABLE\s+public\.device_enrollment_proof_reservations[\s\S]*service_role/is);
+});
+
 test("W1 device authority is legacy-first and database-owner gated", () => {
   const sql = enrollmentMigration();
   assert.match(sql, /authority_state\s+text\s+not\s+null\s+default\s+'legacy'/i);
@@ -371,6 +396,7 @@ test(
         minimalPostgres17Prerequisites
           + read("supabase/migrations/20260823000000_w1_device_enrollment_authority.sql")
           + read("supabase/migrations/20260823000001_w1_drive_authorization_policy.sql")
+          + proofMigration()
           + "INSERT INTO public.profiles (id, display_name) VALUES ('00000000-0000-0000-0000-000000000001', 'W1 executable evidence');\n",
       );
       assert.equal(migrations.status, 0, `PostgreSQL 17 migration apply failed.\n${resultText(migrations)}`);

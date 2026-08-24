@@ -13,6 +13,7 @@ declare
 begin
   foreach v_table in array array[
     'public.device_enrollment_requests',
+    'public.device_enrollment_proof_reservations',
     'public.oauth_operation_grants',
     'public.oauth_authorization_reservations',
     'public.oauth_authorization_decisions'
@@ -41,6 +42,7 @@ begin
 
   foreach v_table in array array[
     'public.device_enrollment_requests',
+    'public.device_enrollment_proof_reservations',
     'public.oauth_authorization_reservations',
     'public.oauth_authorization_decisions'
   ] loop
@@ -174,8 +176,31 @@ begin
     raise exception 'operator-only grant functions are exposed';
   end if;
 
+  if has_function_privilege(
+      'public',
+      'public.create_device_enrollment_request(uuid, text, text, text, text, integer, text, text, bigint, bigint, text, text)'::regprocedure,
+      'EXECUTE'
+    )
+    or has_function_privilege(
+      'anon',
+      'public.create_device_enrollment_request(uuid, text, text, text, text, integer, text, text, bigint, bigint, text, text)'::regprocedure,
+      'EXECUTE'
+    )
+    or has_function_privilege(
+      'authenticated',
+      'public.create_device_enrollment_request(uuid, text, text, text, text, integer, text, text, bigint, bigint, text, text)'::regprocedure,
+      'EXECUTE'
+    )
+    or not has_function_privilege(
+      'service_role',
+      'public.create_device_enrollment_request(uuid, text, text, text, text, integer, text, text, bigint, bigint, text, text)'::regprocedure,
+      'EXECUTE'
+    ) then
+    raise exception 'enrollment proof function privilege posture is unsafe';
+  end if;
+
   foreach v_function in array ARRAY[
-    'public.create_device_enrollment_request(uuid, text, text, text, text, text)'::regprocedure,
+    'public.create_device_enrollment_request(uuid, text, text, text, text, integer, text, text, bigint, bigint, text, text)'::regprocedure,
     'public.register_pairing_device(uuid, text, text, text, text)'::regprocedure,
     'public.revoke_device_for_user(uuid, uuid)'::regprocedure,
     'public.is_drive_authorized_desktop(uuid, uuid)'::regprocedure,
@@ -223,6 +248,118 @@ begin
       and pg_get_functiondef(oid) ilike '%oauth_authorization_decisions%'
   ) then
     raise exception 'atomic authorization transaction is missing';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_proc
+    where oid = 'public.create_device_enrollment_request(uuid,text,text,text,text,integer,text,text,bigint,bigint,text,text)'::regprocedure
+      and pg_get_functiondef(oid) ilike '%on conflict%nonce_hash%do nothing%returning%'
+      and pg_get_functiondef(oid) ilike '%proof_replayed%'
+      and pg_get_functiondef(oid) ilike '%device_enrollment_proof_reservations%'
+  ) then
+    raise exception 'atomic enrollment proof reservation is missing';
+  end if;
+end;
+$$;
+
+-- Database-level adversarial evidence for the exact S2-F2 proof path. Every
+-- row is inside this transaction and disappears with the final ROLLBACK.
+do $$
+declare
+  v_user_id uuid := '00000000-0000-0000-0000-000000000001';
+  v_public_bytes bytea := pg_catalog.decode(repeat('ab', 32), 'hex');
+  v_public_key text;
+  v_fingerprint text;
+  v_nonce bytea := pg_catalog.decode(repeat('cd', 32), 'hex');
+  v_nonce_hash text;
+  v_envelope_hash text := encode(pg_catalog.decode(repeat('ef', 32), 'hex'), 'hex');
+  v_signature text := repeat('12', 64);
+  v_issued_at_ms bigint := floor(extract(epoch from clock_timestamp()) * 1000)::bigint;
+  v_expires_at_ms bigint;
+  v_request record;
+  v_count bigint;
+  v_replay_nonce bytea := pg_catalog.decode(repeat('34', 32), 'hex');
+  v_replay_nonce_hash text;
+begin
+  v_public_key := encode(v_public_bytes, 'base64');
+  v_fingerprint := encode(pg_catalog.sha256(v_public_bytes), 'hex');
+  v_nonce_hash := encode(pg_catalog.sha256(v_nonce), 'hex');
+  v_replay_nonce_hash := encode(pg_catalog.sha256(v_replay_nonce), 'hex');
+  v_expires_at_ms := v_issued_at_ms + 300000;
+
+  select * into v_request
+  from public.create_device_enrollment_request(
+    v_user_id,
+    'W1 S2-F2 SQL proof',
+    'windows',
+    v_public_key,
+    v_fingerprint,
+    1,
+    'device.enrollment.request',
+    v_nonce_hash,
+    v_issued_at_ms,
+    v_expires_at_ms,
+    v_envelope_hash,
+    v_signature
+  );
+  if v_request.request_status is distinct from 'pending'
+    or v_request.request_id is null then
+    raise exception 'valid enrollment proof was not pending';
+  end if;
+
+  select count(*) into v_count
+  from public.device_enrollment_proof_reservations
+  where nonce_hash = pg_catalog.decode(v_nonce_hash, 'hex');
+  if v_count <> 1 then
+    raise exception 'valid enrollment proof did not reserve nonce';
+  end if;
+
+  begin
+    perform public.create_device_enrollment_request(
+      v_user_id, 'W1 S2-F2 SQL proof', 'windows', v_public_key,
+      v_fingerprint, 1, 'device.enrollment.request', v_nonce_hash,
+      v_issued_at_ms, v_expires_at_ms, v_envelope_hash, v_signature
+    );
+    raise exception 'replayed enrollment proof was accepted';
+  exception when others then
+    if sqlerrm <> 'proof_replayed' then
+      raise;
+    end if;
+  end;
+
+  select count(*) into v_count
+  from public.device_enrollment_proof_reservations
+  where nonce_hash = pg_catalog.decode(v_nonce_hash, 'hex');
+  if v_count <> 1 then
+    raise exception 'replay mutated durable nonce reservation';
+  end if;
+
+  begin
+    insert into public.devices (
+      user_id, device_label, platform, public_key_fingerprint, public_key,
+      authority_state, enrollment_source
+    ) values (
+      v_user_id, 'W1 S2-F2 rollback identity', 'windows', v_fingerprint,
+      v_public_key, 'pairing_only', 'pairing'
+    );
+    perform public.create_device_enrollment_request(
+      v_user_id, 'W1 S2-F2 rollback proof', 'windows', v_public_key,
+      v_fingerprint, 1, 'device.enrollment.request', v_replay_nonce_hash,
+      v_issued_at_ms, v_expires_at_ms, v_envelope_hash, v_signature
+    );
+    raise exception 'foreign device identity was accepted';
+  exception when others then
+    if sqlerrm <> 'device_identity_already_registered' then
+      raise;
+    end if;
+  end;
+
+  select count(*) into v_count
+  from public.device_enrollment_proof_reservations
+  where nonce_hash = pg_catalog.decode(v_replay_nonce_hash, 'hex');
+  if v_count <> 0 then
+    raise exception 'failed identity validation retained a nonce reservation';
   end if;
 end;
 $$;

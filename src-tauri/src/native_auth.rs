@@ -5,8 +5,15 @@
 //! the returned authorization context in memory for one command invocation.
 
 use crate::{device_identity, AppError, AppResult};
+use base64::{
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    Engine,
+};
+use ed25519_dalek::Signer;
+use rand::{rngs::OsRng, RngCore};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -17,14 +24,21 @@ use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 const AUTHORIZE_FUNCTION_PATH: &str = "/functions/v1/google-drive-authorize";
+const AUTH_TOKEN_PATH: &str = "/auth/v1/token";
+const AUTH_USER_PATH: &str = "/auth/v1/user";
 const DRIVE_PROVIDER: &str = "google_drive";
 const AUTHORIZATION_REQUEST_TTL: Duration = Duration::from_secs(90);
 const AUTH_LOGIN_REQUEST_TTL: Duration = Duration::from_secs(120);
 const AUTH_CALLBACK_PATH: &str = "/auth/callback";
 const MAX_AUTH_CALLBACK_BYTES: usize = 8192;
 const MAX_SESSION_PROOF_BYTES: usize = 8192;
+const ENROLLMENT_OPERATION: &str = "device.enrollment.request";
+const ENROLLMENT_PLATFORM: &str = "windows";
+const ENROLLMENT_DOMAIN: &[u8] = b"FUNG\0DEVICE_ENROLLMENT\0V1\0";
+const ENROLLMENT_PROOF_TTL_MS: i64 = 300_000;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,14 +48,31 @@ pub(crate) struct AuthLoginStarted {
     expires_at_ms: u64,
     #[serde(skip)]
     state: String,
+    #[serde(skip)]
+    code_challenge: String,
 }
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AuthCallbackEvent {
     request_id: String,
-    code: Option<String>,
+    session: Option<AuthSession>,
     error: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthSession {
+    access_token: String,
+    refresh_token: String,
+    expires_in: u64,
+    token_type: String,
+    user_id: String,
+}
+
+struct AuthCallbackSuccess {
+    code: Zeroizing<String>,
+    code_verifier: Zeroizing<String>,
 }
 
 struct PendingAuthRequest {
@@ -49,11 +80,20 @@ struct PendingAuthRequest {
     port: u16,
     state: String,
     expires_at: SystemTime,
+    code_verifier: Zeroizing<String>,
 }
 
 #[derive(Default)]
 struct AuthRequestRegistry {
     pending: Option<PendingAuthRequest>,
+}
+
+fn create_pkce_pair() -> (Zeroizing<String>, String) {
+    let mut random = [0u8; 32];
+    OsRng.fill_bytes(&mut random);
+    let verifier = URL_SAFE_NO_PAD.encode(random);
+    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+    (Zeroizing::new(verifier), challenge)
 }
 
 impl AuthRequestRegistry {
@@ -66,6 +106,7 @@ impl AuthRequestRegistry {
         }
         let request_id = Uuid::new_v4().to_string();
         let state = Uuid::new_v4().to_string();
+        let (code_verifier, code_challenge) = create_pkce_pair();
         let expires_at = now + AUTH_LOGIN_REQUEST_TTL;
         let expires_at_ms = expires_at
             .duration_since(UNIX_EPOCH)
@@ -77,12 +118,14 @@ impl AuthRequestRegistry {
             port,
             state: state.clone(),
             expires_at,
+            code_verifier,
         });
         Ok(AuthLoginStarted {
             request_id,
             redirect_uri,
             expires_at_ms,
             state,
+            code_challenge,
         })
     }
 
@@ -120,7 +163,7 @@ impl AuthRequestRegistry {
         self.pending = None;
         Some(AuthCallbackEvent {
             request_id: request_id.to_owned(),
-            code: None,
+            session: None,
             error: Some(error.to_owned()),
         })
     }
@@ -129,21 +172,17 @@ impl AuthRequestRegistry {
         &mut self,
         callback_url: &str,
         now: SystemTime,
-    ) -> Result<AuthCallbackEvent, String> {
-        let Some(pending) = self.pending.as_ref() else {
+    ) -> Result<AuthCallbackSuccess, String> {
+        let Some(pending) = self.pending.take() else {
             return Err(public_error("auth_request_not_found"));
         };
         if now >= pending.expires_at {
-            self.pending = None;
             return Err(public_error("auth_timeout"));
         }
 
-        let invalid = |registry: &mut Self| {
-            registry.pending = None;
-            Err(public_error("invalid_callback"))
-        };
+        let invalid = || Err(public_error("invalid_callback"));
         let Ok(parsed) = Url::parse(callback_url) else {
-            return invalid(self);
+            return invalid();
         };
         if parsed.scheme() != "http"
             || parsed.host_str() != Some("127.0.0.1")
@@ -153,7 +192,7 @@ impl AuthRequestRegistry {
             || parsed.password().is_some()
             || parsed.fragment().is_some()
         {
-            return invalid(self);
+            return invalid();
         }
 
         let pairs: Vec<(String, String)> = parsed
@@ -161,7 +200,7 @@ impl AuthRequestRegistry {
             .map(|(name, value)| (name.into_owned(), value.into_owned()))
             .collect();
         if pairs.is_empty() {
-            return invalid(self);
+            return invalid();
         }
         let mut names = std::collections::HashSet::new();
         if pairs.iter().any(|(name, _)| {
@@ -170,7 +209,7 @@ impl AuthRequestRegistry {
                 "code" | "error" | "error_description" | "state"
             ) || !names.insert(name)
         }) {
-            return invalid(self);
+            return invalid();
         }
         let value = |name: &str| {
             pairs
@@ -185,42 +224,34 @@ impl AuthRequestRegistry {
         if state != Some(pending.state.as_str())
             || !state.is_some_and(|value| safe_callback_value(value))
         {
-            return invalid(self);
+            return invalid();
         }
         if code.is_some() == error_code.is_some()
             || (error_description.is_some() && error_code.is_none())
         {
-            return invalid(self);
+            return invalid();
         }
-        let request_id = pending.request_id.clone();
         if let Some(code) = code {
             if pairs.len() != 2 || !safe_callback_value(code) {
-                return invalid(self);
+                return invalid();
             }
-            self.pending = None;
-            return Ok(AuthCallbackEvent {
-                request_id,
-                code: Some(code.to_owned()),
-                error: None,
+            return Ok(AuthCallbackSuccess {
+                code: Zeroizing::new(code.to_owned()),
+                code_verifier: pending.code_verifier,
             });
         }
 
         let Some(error_code) = error_code else {
-            return invalid(self);
+            return invalid();
         };
         if !safe_callback_value(error_code)
             || error_description.is_some_and(|value| !safe_callback_value(value))
             || (error_description.is_none() && pairs.len() != 2)
             || (error_description.is_some() && pairs.len() != 3)
         {
-            return invalid(self);
+            return invalid();
         }
-        self.pending = None;
-        Ok(AuthCallbackEvent {
-            request_id,
-            code: None,
-            error: Some(error_description.unwrap_or(error_code).to_owned()),
-        })
+        Err(error_description.unwrap_or(error_code).to_owned())
     }
 }
 
@@ -522,8 +553,16 @@ pub(crate) async fn authorize_drive(
     )
 }
 
-fn build_google_auth_url(origin: &Url, redirect_uri: &str, state: &str) -> Result<Url, String> {
-    if !safe_callback_value(redirect_uri) || !safe_callback_value(state) {
+fn build_google_auth_url(
+    origin: &Url,
+    redirect_uri: &str,
+    state: &str,
+    code_challenge: &str,
+) -> Result<Url, String> {
+    if !safe_callback_value(redirect_uri)
+        || !safe_callback_value(state)
+        || !safe_callback_value(code_challenge)
+    {
         return Err(public_error("auth_url_invalid"));
     }
     let mut url = origin.clone();
@@ -532,7 +571,9 @@ fn build_google_auth_url(origin: &Url, redirect_uri: &str, state: &str) -> Resul
     url.query_pairs_mut()
         .append_pair("provider", "google")
         .append_pair("redirect_to", redirect_uri)
-        .append_pair("state", state);
+        .append_pair("state", state)
+        .append_pair("code_challenge", code_challenge)
+        .append_pair("code_challenge_method", "S256");
     Ok(url)
 }
 
@@ -602,6 +643,80 @@ fn write_callback_response(stream: &mut TcpStream, status: &str) {
     let _ = stream.write_all(response.as_bytes());
 }
 
+#[derive(Deserialize)]
+struct PkceTokenResponse {
+    access_token: String,
+    refresh_token: String,
+    expires_in: u64,
+    token_type: String,
+}
+
+#[derive(Deserialize)]
+struct SupabaseUserResponse {
+    id: String,
+}
+
+fn exchange_pkce_code(callback: AuthCallbackSuccess) -> Result<AuthSession, String> {
+    let origin = configured_supabase_origin()?;
+    let anon_key = configured_supabase_anon_key()?;
+    let mut token_url = origin.clone();
+    token_url.set_path(AUTH_TOKEN_PATH);
+    token_url.set_query(Some("grant_type=pkce"));
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|_| public_error("auth_exchange_failed"))?;
+    let token_response = client
+        .post(token_url)
+        .header("apikey", &anon_key)
+        .form(&[
+            ("auth_code", callback.code.as_str()),
+            ("code_verifier", callback.code_verifier.as_str()),
+        ])
+        .send()
+        .map_err(|_| public_error("auth_exchange_failed"))?;
+    if !token_response.status().is_success() {
+        return Err(public_error("auth_exchange_failed"));
+    }
+    let token = token_response
+        .json::<PkceTokenResponse>()
+        .map_err(|_| public_error("auth_exchange_failed"))?;
+    if token.refresh_token.is_empty()
+        || token.access_token.is_empty()
+        || token.token_type.is_empty()
+    {
+        return Err(public_error("auth_exchange_failed"));
+    }
+
+    let access_token = Zeroizing::new(token.access_token);
+    let mut user_url = origin;
+    user_url.set_path(AUTH_USER_PATH);
+    user_url.set_query(None);
+    let user_response = client
+        .get(user_url)
+        .header("apikey", &anon_key)
+        .bearer_auth(access_token.as_str())
+        .send()
+        .map_err(|_| public_error("auth_user_lookup_failed"))?;
+    if !user_response.status().is_success() {
+        return Err(public_error("auth_user_lookup_failed"));
+    }
+    let user = user_response
+        .json::<SupabaseUserResponse>()
+        .map_err(|_| public_error("auth_user_lookup_failed"))?;
+    let user_id = Uuid::parse_str(&user.id)
+        .map_err(|_| public_error("auth_user_lookup_failed"))?
+        .hyphenated()
+        .to_string();
+    Ok(AuthSession {
+        access_token: access_token.to_string(),
+        refresh_token: token.refresh_token,
+        expires_in: token.expires_in,
+        token_type: token.token_type,
+        user_id,
+    })
+}
+
 fn spawn_auth_listener(
     app: tauri::AppHandle,
     listener: TcpListener,
@@ -619,7 +734,7 @@ fn spawn_auth_listener(
                 &app,
                 AuthCallbackEvent {
                     request_id: request_id.clone(),
-                    code: None,
+                    session: None,
                     error: Some(public_error("auth_timeout")),
                 },
             );
@@ -648,16 +763,30 @@ fn spawn_auth_listener(
                         .map(|target| format!("http://127.0.0.1:{port}{target}"));
                     match callback {
                         Ok(callback_url) => {
-                            auth_request_registry()
-                                .lock()
-                                .ok()
-                                .and_then(|mut registry| {
-                                    match registry.accept_callback(&callback_url, SystemTime::now())
-                                    {
-                                        Ok(event) => Some(event),
-                                        Err(error) => registry.take_error(&request_id, &error),
-                                    }
-                                })
+                            let accepted =
+                                auth_request_registry().lock().ok().map(|mut registry| {
+                                    registry.accept_callback(&callback_url, SystemTime::now())
+                                });
+                            match accepted {
+                                Some(Ok(callback)) => Some(match exchange_pkce_code(callback) {
+                                    Ok(session) => AuthCallbackEvent {
+                                        request_id: request_id.clone(),
+                                        session: Some(session),
+                                        error: None,
+                                    },
+                                    Err(error) => AuthCallbackEvent {
+                                        request_id: request_id.clone(),
+                                        session: None,
+                                        error: Some(error),
+                                    },
+                                }),
+                                Some(Err(error)) => Some(AuthCallbackEvent {
+                                    request_id: request_id.clone(),
+                                    session: None,
+                                    error: Some(error),
+                                }),
+                                None => None,
+                            }
                         }
                         Err(error) => auth_request_registry()
                             .lock()
@@ -716,7 +845,12 @@ pub(crate) fn auth_begin_google_login(app: tauri::AppHandle) -> Result<AuthLogin
         .lock()
         .map_err(|_| public_error("auth_request_unavailable"))?
         .start(port, SystemTime::now())?;
-    let auth_url = build_google_auth_url(&origin, &started.redirect_uri, &started.state)?;
+    let auth_url = build_google_auth_url(
+        &origin,
+        &started.redirect_uri,
+        &started.state,
+        &started.code_challenge,
+    )?;
     let request_id = started.request_id.clone();
     spawn_auth_listener(app.clone(), listener, port, request_id.clone());
     if app
@@ -739,6 +873,233 @@ pub(crate) fn auth_cancel_google_login(request_id: String) -> Result<(), String>
         .lock()
         .map_err(|_| public_error("auth_request_unavailable"))?
         .cancel(&request_id)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativeEnrollmentProof {
+    version: u8,
+    operation: String,
+    user_id: String,
+    public_key: String,
+    fingerprint: String,
+    fingerprint_hex: String,
+    platform: String,
+    device_label: String,
+    issued_at_ms: i64,
+    expires_at_ms: i64,
+    nonce: String,
+    signature: String,
+}
+
+fn enrollment_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[cfg(windows)]
+fn normalize_nfc(value: &str) -> Result<String, String> {
+    #[link(name = "normaliz")]
+    extern "system" {
+        fn NormalizeString(
+            normalization_form: i32,
+            source: *const u16,
+            source_length: i32,
+            destination: *mut u16,
+            destination_length: i32,
+        ) -> i32;
+    }
+
+    let source: Vec<u16> = value.encode_utf16().collect();
+    let source_length =
+        i32::try_from(source.len()).map_err(|_| public_error("device_label_invalid"))?;
+    let required =
+        unsafe { NormalizeString(1, source.as_ptr(), source_length, std::ptr::null_mut(), 0) };
+    if required <= 0 {
+        return Err(public_error("device_label_invalid"));
+    }
+    let mut destination = vec![0u16; required as usize];
+    let written = unsafe {
+        NormalizeString(
+            1,
+            source.as_ptr(),
+            source_length,
+            destination.as_mut_ptr(),
+            required,
+        )
+    };
+    if written <= 0 {
+        return Err(public_error("device_label_invalid"));
+    }
+    String::from_utf16(&destination[..written as usize])
+        .map_err(|_| public_error("device_label_invalid"))
+}
+
+#[cfg(not(windows))]
+fn normalize_nfc(value: &str) -> Result<String, String> {
+    if !value.is_ascii() {
+        return Err(public_error("device_label_normalization_unavailable"));
+    }
+    Ok(value.to_owned())
+}
+
+fn normalize_enrollment_label(value: &str) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.chars().any(char::is_control) {
+        return Err(public_error("device_label_invalid"));
+    }
+    let normalized = normalize_nfc(trimmed)?;
+    if normalized.is_empty() || normalized.len() > 80 || normalized.chars().any(char::is_control) {
+        return Err(public_error("device_label_invalid"));
+    }
+    Ok(normalized)
+}
+
+fn canonical_enrollment_bytes(
+    user_id: &Uuid,
+    public_key: &[u8],
+    fingerprint: &[u8],
+    platform: &str,
+    device_label: &str,
+    issued_at_ms: i64,
+    expires_at_ms: i64,
+    nonce: &[u8],
+) -> Result<Vec<u8>, String> {
+    let platform_bytes = platform.as_bytes();
+    let label_bytes = device_label.as_bytes();
+    if public_key.len() != 32
+        || fingerprint.len() != 32
+        || nonce.len() != 32
+        || platform_bytes.len() > u16::MAX as usize
+        || label_bytes.is_empty()
+        || label_bytes.len() > 80
+    {
+        return Err(public_error("enrollment_proof_invalid"));
+    }
+    let mut canonical = Vec::with_capacity(
+        ENROLLMENT_DOMAIN.len()
+            + 16
+            + 32
+            + 32
+            + 2
+            + platform_bytes.len()
+            + 2
+            + label_bytes.len()
+            + 8
+            + 8
+            + 32,
+    );
+    canonical.extend_from_slice(ENROLLMENT_DOMAIN);
+    canonical.extend_from_slice(user_id.as_bytes());
+    canonical.extend_from_slice(public_key);
+    canonical.extend_from_slice(fingerprint);
+    canonical.extend_from_slice(&(platform_bytes.len() as u16).to_be_bytes());
+    canonical.extend_from_slice(platform_bytes);
+    canonical.extend_from_slice(&(label_bytes.len() as u16).to_be_bytes());
+    canonical.extend_from_slice(label_bytes);
+    canonical.extend_from_slice(&issued_at_ms.to_be_bytes());
+    canonical.extend_from_slice(&expires_at_ms.to_be_bytes());
+    canonical.extend_from_slice(nonce);
+    Ok(canonical)
+}
+
+async fn authenticated_user_id(session_proof: &str) -> Result<Uuid, String> {
+    validate_session_proof(session_proof)?;
+    let mut user_url = configured_supabase_origin()?;
+    user_url.set_path(AUTH_USER_PATH);
+    user_url.set_query(None);
+    let response = Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|_| public_error("auth_user_lookup_failed"))?
+        .get(user_url)
+        .bearer_auth(session_proof)
+        .header("apikey", configured_supabase_anon_key()?)
+        .send()
+        .await
+        .map_err(|_| public_error("auth_user_lookup_failed"))?;
+    if !response.status().is_success() {
+        return Err(public_error("auth_user_lookup_failed"));
+    }
+    let user = response
+        .json::<SupabaseUserResponse>()
+        .await
+        .map_err(|_| public_error("auth_user_lookup_failed"))?;
+    Uuid::parse_str(&user.id).map_err(|_| public_error("auth_user_lookup_failed"))
+}
+
+/// Native creates the exact user-bound enrollment envelope. The webview only
+/// supplies its current bearer proof; it cannot choose the user, key, nonce,
+/// timestamps, or bytes that are signed.
+#[tauri::command(rename = "device_enrollment_proof")]
+pub(crate) async fn native_device_enrollment_proof(
+    app: tauri::AppHandle,
+    session_proof: String,
+    device_label: String,
+) -> Result<NativeEnrollmentProof, String> {
+    #[cfg(not(desktop))]
+    {
+        let _ = (app, session_proof, device_label);
+        return Err(public_error("desktop_enrollment_only"));
+    }
+    #[cfg(desktop)]
+    {
+        let user_id = authenticated_user_id(&session_proof).await?;
+        let device_label = normalize_enrollment_label(&device_label)?;
+        let app_data = app
+            .path()
+            .app_data_dir()
+            .map_err(|_| public_error("device_identity_unavailable"))?;
+        let (public_key_text, stored_fingerprint) =
+            device_identity::authorization_identity_in_dir(&app_data)
+                .map_err(|_| public_error("device_identity_unavailable"))?;
+        let public_key = STANDARD
+            .decode(public_key_text.as_bytes())
+            .map_err(|_| public_error("device_identity_unavailable"))?;
+        let signing_key = device_identity::secure_signing_key_in_dir(&app_data)
+            .map_err(|_| public_error("device_identity_unavailable"))?;
+        let verifying_key = signing_key.verifying_key();
+        if public_key.as_slice() != verifying_key.as_bytes() || public_key.len() != 32 {
+            return Err(public_error("device_identity_unavailable"));
+        }
+        let fingerprint = Sha256::digest(&public_key);
+        let fingerprint_hex = enrollment_hex(&fingerprint);
+        if fingerprint_hex != stored_fingerprint {
+            return Err(public_error("device_identity_unavailable"));
+        }
+
+        let issued_at_ms = i64::try_from(unix_timestamp_ms()?)
+            .map_err(|_| public_error("enrollment_proof_clock_invalid"))?;
+        let expires_at_ms = issued_at_ms
+            .checked_add(ENROLLMENT_PROOF_TTL_MS)
+            .ok_or_else(|| public_error("enrollment_proof_clock_invalid"))?;
+        let mut nonce = [0u8; 32];
+        OsRng.fill_bytes(&mut nonce);
+        let canonical = canonical_enrollment_bytes(
+            &user_id,
+            &public_key,
+            &fingerprint,
+            ENROLLMENT_PLATFORM,
+            &device_label,
+            issued_at_ms,
+            expires_at_ms,
+            &nonce,
+        )?;
+        let signature = signing_key.sign(&canonical).to_bytes();
+        Ok(NativeEnrollmentProof {
+            version: 1,
+            operation: ENROLLMENT_OPERATION.to_owned(),
+            user_id: user_id.hyphenated().to_string(),
+            public_key: URL_SAFE_NO_PAD.encode(public_key),
+            fingerprint: URL_SAFE_NO_PAD.encode(fingerprint),
+            fingerprint_hex,
+            platform: ENROLLMENT_PLATFORM.to_owned(),
+            device_label,
+            issued_at_ms,
+            expires_at_ms,
+            nonce: URL_SAFE_NO_PAD.encode(nonce),
+            signature: URL_SAFE_NO_PAD.encode(signature),
+        })
+    }
 }
 
 pub(crate) fn open_trusted_account_portal(app: tauri::AppHandle) -> AppResult<()> {
@@ -778,9 +1139,13 @@ mod tests {
     #[test]
     fn native_builds_google_url_from_configured_origin_and_request() {
         let origin = Url::parse("https://project.supabase.co").unwrap();
-        let url =
-            build_google_auth_url(&origin, "http://127.0.0.1:43123/auth/callback", "state-123")
-                .unwrap();
+        let url = build_google_auth_url(
+            &origin,
+            "http://127.0.0.1:43123/auth/callback",
+            "state-123",
+            "challenge-123",
+        )
+        .unwrap();
         assert_eq!(
             url.origin().ascii_serialization(),
             "https://project.supabase.co"
@@ -795,8 +1160,49 @@ mod tests {
                     "http://127.0.0.1:43123/auth/callback".into()
                 ),
                 ("state".into(), "state-123".into()),
+                ("code_challenge".into(), "challenge-123".into()),
+                ("code_challenge_method".into(), "S256".into()),
             ]
         );
+    }
+
+    #[test]
+    fn pkce_verifier_is_private_and_challenge_is_s256() {
+        let (verifier, challenge) = create_pkce_pair();
+        assert!(verifier.len() >= 43);
+        assert_eq!(
+            challenge,
+            URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()))
+        );
+    }
+
+    #[test]
+    fn enrollment_canonical_bytes_bind_domain_identity_fields_and_network_integers() {
+        let user_id = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+        let public_key = [1u8; 32];
+        let fingerprint = [2u8; 32];
+        let nonce = [3u8; 32];
+        let canonical = canonical_enrollment_bytes(
+            &user_id,
+            &public_key,
+            &fingerprint,
+            ENROLLMENT_PLATFORM,
+            "FUNG Desktop",
+            10,
+            300010,
+            &nonce,
+        )
+        .unwrap();
+        assert!(canonical.starts_with(ENROLLMENT_DOMAIN));
+        assert!(canonical.windows(32).any(|window| window == public_key));
+        assert!(canonical.windows(32).any(|window| window == fingerprint));
+        assert!(canonical.ends_with(&nonce));
+        assert!(canonical
+            .windows(8)
+            .any(|window| window == 10i64.to_be_bytes()));
+        assert!(canonical
+            .windows(8)
+            .any(|window| window == 300010i64.to_be_bytes()));
     }
 
     #[test]
@@ -848,9 +1254,8 @@ mod tests {
                 now + Duration::from_secs(1),
             )
             .unwrap();
-        assert_eq!(callback.request_id, started.request_id);
-        assert_eq!(callback.code.as_deref(), Some("abc"));
-        assert!(callback.error.is_none());
+        assert_eq!(callback.code.as_str(), "abc");
+        assert!(!callback.code_verifier.is_empty());
         assert!(registry
             .accept_callback(
                 &format!(

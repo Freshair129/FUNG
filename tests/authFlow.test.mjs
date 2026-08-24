@@ -53,6 +53,48 @@ test("the frontend cannot choose the native OAuth URL or open a caller-supplied 
   assert.match(panel, /functions\.invoke\(["']device-enrollment["']/);
 });
 
+test("native owns PKCE exchange and the WebView only applies a typed session", () => {
+  const native = readFileSync("src-tauri/src/native_auth.rs", "utf8");
+  const flow = readFileSync("src/lib/authFlow.ts", "utf8");
+
+  assert.match(native, /code_verifier/);
+  assert.match(native, /code_challenge/);
+  assert.match(native, /code_challenge_method["']?\s*[,=:]\s*["']S256["']/i);
+  assert.match(native, /auth\/v1\/token/);
+  assert.match(native, /auth\/v1\/user/);
+  assert.match(native, /Zeroizing/);
+  assert.doesNotMatch(flow, /exchangeCodeForSession/);
+  assert.match(flow, /setSession/);
+  assert.doesNotMatch(flow, /payload\.code/);
+});
+
+test("enrollment proof crosses the typed canonical envelope and is verified at Edge", () => {
+  const native = readFileSync("src-tauri/src/native_auth.rs", "utf8");
+  const panel = readFileSync("src/components/AccountLoginPanel.tsx", "utf8");
+  const edge = readFileSync("supabase/functions/device-enrollment/index.ts", "utf8");
+
+  assert.match(native, /FUNG\\0DEVICE_ENROLLMENT\\0V1\\0/);
+  for (const field of [
+    "version",
+    "operation",
+    "user_id",
+    "platform",
+    "device_label",
+    "issued_at_ms",
+    "expires_at_ms",
+    "nonce",
+    "signature",
+  ]) {
+    assert.match(native, new RegExp(field));
+  }
+  assert.match(panel, /nativeProof\s*:\s*proof/);
+  assert.doesNotMatch(panel, /nativeProof\s*:\s*proof\.proof/);
+  assert.match(edge, /canonicalEnrollmentProof/);
+  assert.match(edge, /crypto\.subtle\.verify/);
+  assert.match(edge, /nonce_hash/i);
+  assert.match(edge, /proof_replayed/);
+});
+
 test("hashPairingCode matches node:crypto sha256 cross-check", async () => {
   const sessionId = "11111111-1111-1111-1111-111111111111";
   const code = "123456";

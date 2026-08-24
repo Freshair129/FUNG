@@ -11,10 +11,18 @@ import { invoke } from "@tauri-apps/api/core";
 import "./AccountLoginPanel.css";
 
 interface NativeEnrollmentProof {
+  version: number;
+  operation: string;
+  userId: string;
   publicKey: string;
   fingerprint: string;
-  proof: string;
+  fingerprintHex: string;
+  platform: string;
+  deviceLabel: string;
+  issuedAtMs: number;
   expiresAtMs: number;
+  nonce: string;
+  signature: string;
 }
 
 type EnrollmentStatus = "idle" | "pending" | "approved" | "revoked" | "pairing_only";
@@ -54,13 +62,15 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
     let cancelled = false;
     void (async () => {
       try {
-        const proof = await invoke<NativeEnrollmentProof>("device_enrollment_proof", {
+        const native = await invoke<NativeEnrollmentProof>("device_enrollment_proof", {
+          sessionProof: session.access_token,
           deviceLabel,
         });
+        const { fingerprintHex, ...proof } = native;
         const { data: existing, error: selErr } = await supabase
           .from("devices")
           .select("id, authority_state, revoked_at")
-          .eq("public_key_fingerprint", proof.fingerprint)
+          .eq("public_key_fingerprint", fingerprintHex)
           .maybeSingle();
         if (selErr) throw selErr;
         if (existing?.revoked_at || existing?.authority_state === "revoked") {
@@ -85,11 +95,7 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
         const { data: enrollment, error: enrollmentError } = await supabase.functions.invoke("device-enrollment", {
           body: {
             action: "pending",
-            deviceLabel,
-            platform: "windows",
-            publicKey: proof.publicKey,
-            publicKeyFingerprint: proof.fingerprint,
-            nativeProof: proof.proof,
+            nativeProof: proof,
           },
         });
         if (enrollmentError) throw enrollmentError;
@@ -141,7 +147,7 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
             <input
               value={deviceLabel}
               onChange={(e) => setDeviceLabel(e.target.value)}
-              maxLength={120}
+              maxLength={80}
             />
           </label>
           <p className="account-login-status">

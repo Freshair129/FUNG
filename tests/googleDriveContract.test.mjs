@@ -23,9 +23,9 @@ test("Desktop UI keeps provider backup separate from the filesystem test panel",
   assert.match(panel, /เชื่อมต่อ Google Drive/);
   assert.match(panel, /อัปโหลด archive/);
   assert.match(panel, /กู้คืนจาก Google Drive/);
-  assert.match(flow, /drive_oauth_start/);
-  assert.match(flow, /drive_oauth_cancel/);
-  assert.match(flow, /drive_disconnect/);
+  assert.match(flow, /broker_drive_connect_begin/);
+  assert.match(flow, /broker_drive_connect_cancel/);
+  assert.match(flow, /broker_drive_disconnect/);
 });
 
 test("Supabase metadata writer is authenticated and token-free", () => {
@@ -44,11 +44,11 @@ test("security lane rejects caller identity and arbitrary URL authority", () => 
   const authFlow = read("src/lib/authFlow.ts");
   const capabilities = read("src-tauri/capabilities/default.json");
 
-  assert.match(read("src-tauri/src/native_auth.rs"), /AuthorizedDriveContext/);
+  assert.match(read("src-tauri/src/native_auth.rs"), /AuthorizedDriveContext|DriveOperation/);
   assert.doesNotMatch(rust, /\buser_id:\s*String/);
   assert.doesNotMatch(rust, /\bdevice_id:\s*String/);
   assert.doesNotMatch(rust, /\bclient_id:\s*String/);
-  assert.doesNotMatch(flow, /userId|deviceId|clientId/);
+  assert.doesNotMatch(flow, /userId|deviceId|clientId|sessionProof|supabase/);
   assert.doesNotMatch(flow, /@tauri-apps\/plugin-opener|\bopenUrl\b/);
   assert.doesNotMatch(authFlow, /@tauri-apps\/plugin-opener|\bopenUrl\b/);
   assert.doesNotMatch(capabilities, /opener:allow-open-url/);
@@ -64,7 +64,7 @@ test("security lane requires native key migration, restore intent, and atomic ca
   assert.match(identity, /readback/);
   assert.match(identity, /remove_file/);
   assert.match(rust, /OAuthTerminalState/);
-  assert.match(rust, /drive_restore_intent_create/);
+  assert.match(rust, /broker_drive_restore_intent/);
   assert.match(backup, /RestoreIntent/);
   assert.doesNotMatch(metadata, /upsert\(/);
   assert.doesNotMatch(metadata, /status:\s*"revoked"/);

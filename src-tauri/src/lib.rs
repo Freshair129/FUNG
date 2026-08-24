@@ -14,6 +14,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 mod audio_custody;
+mod auth_session;
 mod backup;
 mod backup_archive;
 mod backup_payload;
@@ -193,6 +194,26 @@ fn bundled_whisper_model(runtime: &WhisperRuntime) -> Option<PathBuf> {
 #[tauri::command]
 fn open_external_account_portal(app: tauri::AppHandle) -> AppResult<()> {
     native_auth::open_trusted_account_portal(app)
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AccountPortalStatus { pub(crate) status: &'static str }
+
+#[tauri::command(rename = "account_portal_open")]
+fn account_portal_open(app: tauri::AppHandle) -> AppResult<AccountPortalStatus> {
+    native_auth::open_trusted_account_portal(app)?;
+    Ok(AccountPortalStatus { status: "opened" })
+}
+
+#[tauri::command(rename = "broker_fungwire_status")]
+fn broker_fungwire_status(state: State<'_, AppState>) -> AppResult<fungwire_server::FungwireStatus> {
+    fungwire_server::fungwire_status(state)
+}
+
+#[tauri::command(rename = "broker_fungwire_set_enabled")]
+fn broker_fungwire_set_enabled(enabled: bool, state: State<'_, AppState>) -> AppResult<fungwire_server::FungwireStatus> {
+    fungwire_server::fungwire_server_set_enabled(enabled, state)
 }
 
 #[derive(Debug, Error)]
@@ -558,6 +579,10 @@ pub(crate) fn primary_lan_ipv4() -> Option<String> {
 /// combined with `primary_lan_ipv4()` rather than returned as-is.
 #[tauri::command]
 fn fungwire_local_endpoint(state: State<'_, AppState>) -> AppResult<Option<String>> {
+    fungwire_local_endpoint_native(state)
+}
+
+pub(crate) fn fungwire_local_endpoint_native(state: State<'_, AppState>) -> AppResult<Option<String>> {
     let bind = {
         let guard = state.fungwire.lock().expect("fungwire mutex poisoned");
         match guard.as_ref() {
@@ -2981,14 +3006,22 @@ pub fn run() {
             recovery_recover,
             start_local_api,
             open_external_account_portal,
-            native_auth::auth_begin_google_login,
-            native_auth::auth_cancel_google_login,
-            paired_device_upsert,
-            paired_device_list,
-            paired_device_revoke,
+            account_portal_open,
+            auth_session::broker_session_login_begin,
+            auth_session::broker_session_login_cancel,
+            auth_session::broker_session_status,
+            auth_session::broker_session_logout,
+            auth_session::broker_enrollment_request,
+            auth_session::broker_enrollment_status,
+            auth_session::broker_device_list,
+            auth_session::broker_pairing_create,
+            auth_session::broker_pairing_poll,
+            auth_session::broker_pairing_reconcile,
+            auth_session::broker_device_revoke,
+            auth_session::broker_device_audit_list,
+            auth_session::broker_device_endpoint_publish,
             device_identity::device_identity_ensure,
             device_identity::device_public_key,
-            native_auth::native_device_enrollment_proof,
             zoom_sync::zoom_connect,
             zoom_sync::zoom_connection_status,
             zoom_sync::zoom_disconnect,
@@ -3046,9 +3079,8 @@ pub fn run() {
             mobile::mobile_pairing_complete,
             mobile::mobile_voice_parse,
             mobile::mobile_mcp_set_enabled,
-            fungwire_server::fungwire_server_set_enabled,
-            fungwire_server::fungwire_status,
-            fungwire_local_endpoint,
+            broker_fungwire_set_enabled,
+            broker_fungwire_status,
             fungwire_client::fungwire_desktop_reachable,
             fungwire_client::fungwire_desktop_status_probe,
             fungwire_client::fungwire_delegate_transcription,
@@ -3066,15 +3098,15 @@ pub fn run() {
             backup::backup_restore,
             backup::backup_restore_select_target,
             filesystem_backup::filesystem_backup_select_root,
-            drive_oauth::drive_oauth_start,
-            drive_oauth::drive_oauth_complete,
-            drive_oauth::drive_oauth_cancel,
-            drive_oauth::drive_connection_status,
-            drive_oauth::drive_disconnect,
-            drive_oauth::drive_archives_list,
-            drive_oauth::drive_upload_archive,
-            drive_oauth::drive_restore_intent_create,
-            drive_oauth::drive_restore,
+            drive_oauth::broker_drive_connect_begin,
+            drive_oauth::broker_drive_connect_complete,
+            drive_oauth::broker_drive_connect_cancel,
+            drive_oauth::broker_drive_status,
+            drive_oauth::broker_drive_disconnect,
+            drive_oauth::broker_drive_list_archives,
+            drive_oauth::broker_drive_upload_archive,
+            drive_oauth::broker_drive_restore_intent,
+            drive_oauth::broker_drive_restore,
             tts_provider_register,
             tts_provider_update,
             tts_provider_toggle,
@@ -3088,6 +3120,7 @@ pub fn run() {
             // queued in the ledger and is adopted on the next launch —
             // shutdown is not cancellation.
             if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                auth_session::shutdown();
                 if let Some(state) = app.try_state::<AppState>() {
                     state.jobs.shutdown();
                 }

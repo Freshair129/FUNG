@@ -42,30 +42,32 @@ test("rejects garbage", () => {
   assert.equal(parseAuthCallbackUrl("not a url").code, null);
 });
 
-test("the frontend cannot choose the native OAuth URL or open a caller-supplied target", () => {
+test("browser/Mobile auth adapter remains separate from the Desktop broker", () => {
   const flow = readFileSync("src/lib/authFlow.ts", "utf8");
   const panel = readFileSync("src/components/AccountLoginPanel.tsx", "utf8");
-  assert.match(flow, /auth_begin_google_login/);
+  const broker = readFileSync("src/lib/desktopSessionBroker.ts", "utf8");
   assert.doesNotMatch(flow, /signInWithOAuth/);
   assert.doesNotMatch(flow, /open_trusted_auth_url/);
-  assert.doesNotMatch(panel, /\.from\(["']devices["']\)\s*\.(insert|update|delete)/s);
-  assert.doesNotMatch(panel, /\.from\(["']device_audit_events["']\)\s*\.(insert|update|delete)/s);
-  assert.match(panel, /functions\.invoke\(["']device-enrollment["']/);
+  assert.match(panel, /desktopSessionBroker/);
+  assert.doesNotMatch(panel, /supabase|sessionProof|access_token|auth-callback|setSession/);
+  assert.match(broker, /broker_session_login_begin/);
+  assert.match(broker, /broker_session_status/);
 });
 
-test("native owns PKCE exchange and the WebView only applies a typed session", () => {
+test("native owns PKCE exchange and never emits a token-bearing WebView session", () => {
   const native = readFileSync("src-tauri/src/native_auth.rs", "utf8");
-  const flow = readFileSync("src/lib/authFlow.ts", "utf8");
+  const session = readFileSync("src-tauri/src/auth_session.rs", "utf8");
 
-  assert.match(native, /code_verifier/);
-  assert.match(native, /code_challenge/);
-  assert.match(native, /code_challenge_method["']?\s*[,=:]\s*["']S256["']/i);
-  assert.match(native, /auth\/v1\/token/);
-  assert.match(native, /auth\/v1\/user/);
-  assert.match(native, /Zeroizing/);
-  assert.doesNotMatch(flow, /exchangeCodeForSession/);
-  assert.match(flow, /setSession/);
-  assert.doesNotMatch(flow, /payload\.code/);
+  assert.match(session, /code_verifier/);
+  assert.match(session, /code_challenge/);
+  assert.match(session, /code_challenge_method["']?\s*[,=:]\s*["']S256["']/i);
+  assert.match(session, /auth\/v1\/token/);
+  assert.match(session, /auth\/v1\/user/);
+  assert.match(session, /Zeroizing/);
+  assert.doesNotMatch(native, /AuthCallbackEvent|auth-callback|emit_auth_callback|sessionProof/);
+  assert.match(session, /keyring::Entry/);
+  assert.match(session, /Zeroizing/);
+  assert.match(session, /generation/);
 });
 
 test("enrollment proof crosses the typed canonical envelope and is verified at Edge", () => {
@@ -87,8 +89,7 @@ test("enrollment proof crosses the typed canonical envelope and is verified at E
   ]) {
     assert.match(native, new RegExp(field));
   }
-  assert.match(panel, /nativeProof\s*:\s*proof/);
-  assert.doesNotMatch(panel, /nativeProof\s*:\s*proof\.proof/);
+  assert.doesNotMatch(panel, /nativeProof|sessionProof|access_token/);
   assert.match(edge, /canonicalEnrollmentProof/);
   assert.match(edge, /crypto\.subtle\.verify/);
   assert.match(edge, /nonce_hash/i);

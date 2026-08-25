@@ -1240,6 +1240,7 @@ fn upload_resumable_file(
         }
         let end = next_offset + read as u64 - 1;
         invocation.ensure_valid()?;
+        auth_session::drive_check(ticket)?;
         let response = client
             .put(&location)
             .bearer_auth(access_token)
@@ -1252,6 +1253,7 @@ fn upload_resumable_file(
             .send()
             .map_err(|_| public_error("drive_upload_failed"))?;
         invocation.ensure_valid()?;
+        auth_session::drive_check(ticket)?;
         if response.status().is_success() {
             return response
                 .json::<DriveFile>()

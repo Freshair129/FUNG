@@ -182,7 +182,7 @@ test("production custody keeps the durable registry and typed recovery ingress",
   assert.match(session, /CredentialMarker|content_sha256|format_version/);
   assert.match(session, /DomainRegistry|registry_digest/);
   assert.doesNotMatch(session, /1\.\.=RECOVERY_SLOT_LIMIT|RECOVERY_SLOT_LIMIT/);
-  assert.match(session, /startup_recover[\s\S]*DRIVE_DOMAINS_INDEX/);
+  assert.match(session, /recover_startup[\s\S]*DRIVE_DOMAINS_INDEX/);
   assert.match(session, /pending_operations|account_epoch/);
   assert.match(drive, /DriveOperationGuard/);
   assert.match(drive, /operation\.check/);
@@ -193,6 +193,12 @@ test("production custody keeps the durable registry and typed recovery ingress",
 test("registered adapters and behavioral tests share production lifecycle entrypoints", () => {
   const session = read("src-tauri/src/auth_session.rs");
   const lib = read("src-tauri/src/lib.rs");
+  assert.match(session, /registered_login_begin/);
+  assert.match(session, /registered_login_take_for_exchange/);
+  assert.match(session, /registered_login_complete/);
+  assert.match(session, /registered_listener_callback/);
+  assert.match(session, /recover_startup/);
+  assert.doesNotMatch(session, /spawn_listener[\s\S]*NativeListener/);
   assert.match(session, /begin_login[\s\S]*take_login_for_exchange[\s\S]*complete_login/);
   assert.match(session, /begin_refresh[\s\S]*finish_refresh/);
   assert.match(session, /begin_account_operation[\s\S]*ensure_account_ticket/);
@@ -207,9 +213,12 @@ test("Drive admission drains without holding the lifecycle mutex and fences each
   const session = read("src-tauri/src/auth_session.rs");
   const drive = read("src-tauri/src/drive_oauth.rs");
   assert.match(session, /OperationDrain|wait_empty|drive_drain/);
+  assert.match(session, /begin_drive_disconnect[\s\S]*finish_drive_disconnect/);
+  assert.match(session, /begin_terminal_transition[\s\S]*finish_terminal_transition/);
   assert.match(session, /drive\.quiescing[\s\S]*wait_empty[\s\S]*drive_generation/);
   assert.match(drive, /LifecycleTicket/);
   assert.match(drive, /drive_check\(ticket\)/);
+  assert.match(drive, /invocation\.ensure_valid\(\)\?[\s\S]*drive_check\(ticket\)[\s\S]*\.put\([\s\S]*drive_check\(ticket\)/);
   assert.match(drive, /blocking_list_files\(ticket/);
   assert.match(drive, /upload_small_file\(\n\s+ticket/);
   assert.match(drive, /download_file\(operation\.ticket/);

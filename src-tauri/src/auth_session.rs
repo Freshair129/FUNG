@@ -68,14 +68,6 @@ pub(crate) trait KeyringPort: Send + 'static {
     fn write(&mut self, slot: &str, value: &Zeroizing<String>) -> Result<(), String>;
     fn delete(&mut self, slot: &str) -> Result<(), String>;
     fn verify_absent(&mut self, slot: &str) -> Result<(), String>;
-    #[cfg(test)]
-    fn inject_failure(&mut self, _stage: usize) {}
-    #[cfg(test)]
-    fn inject_cleanup_failure(&mut self) {}
-    #[cfg(test)]
-    fn event_count(&self) -> usize {
-        0
-    }
 }
 
 pub(crate) trait ClockPort: Send + Sync + 'static {
@@ -115,12 +107,6 @@ pub(crate) trait ProviderHttpPort:
         client_id: String,
         refresh: Zeroizing<String>,
     ) -> Result<DriveTokenMaterial, String>;
-    #[cfg(test)]
-    fn inject_failure(&mut self, _code: &'static str) {}
-    #[cfg(test)]
-    fn call_count(&self) -> usize {
-        0
-    }
 }
 pub(crate) trait DriveHttpPort {}
 pub(crate) trait ArchiveJobPort {}
@@ -727,41 +713,6 @@ where
         Ok(self.outcome(if shutdown { "shutdown" } else { "signed_out" }, None))
     }
 
-    #[cfg(test)]
-    pub(crate) fn seed_active(&mut self, value: &str) -> Result<(), String> {
-        commit_credential(
-            &mut self.keyring,
-            ACCOUNT_DOMAIN,
-            ACCOUNT_MARKER,
-            &Zeroizing::new(value.to_owned()),
-            "keyring_unavailable",
-            &mut self.commit_fence,
-        )
-    }
-    #[cfg(test)]
-    pub(crate) fn fail_keyring_at(&mut self, stage: usize) {
-        self.keyring.inject_failure(stage);
-    }
-    #[cfg(test)]
-    pub(crate) fn fail_cleanup(&mut self) {
-        self.keyring.inject_cleanup_failure();
-    }
-    #[cfg(test)]
-    pub(crate) fn fail_provider_with(&mut self, code: &'static str) {
-        self.provider.inject_failure(code);
-    }
-    #[cfg(test)]
-    pub(crate) fn provider_calls(&self) -> usize {
-        self.provider.call_count()
-    }
-    #[cfg(test)]
-    pub(crate) fn keyring_events(&self) -> usize {
-        self.keyring.event_count()
-    }
-    #[cfg(test)]
-    pub(crate) fn invalidate_generation(&mut self) {
-        self.account.generation = self.account.generation.wrapping_add(1);
-    }
     pub(crate) fn begin_drive_operation(
         &mut self,
         slot_base: String,
@@ -939,14 +890,6 @@ where
         self.with(|lifecycle| lifecycle.registered_login_complete(ticket, result))
     }
 
-    #[cfg(test)]
-    pub(crate) fn registered_accept_material(
-        &self,
-        material: LifecycleMaterial,
-    ) -> Result<LifecycleOutcome, String> {
-        self.with(|lifecycle| lifecycle.accept_material(material))
-    }
-
     pub(crate) fn registered_cancel_login(&self, request_id: &str) -> Result<(), String> {
         self.with(|lifecycle| lifecycle.cancel_login(request_id))
     }
@@ -1087,13 +1030,6 @@ where
         })
     }
 
-    #[cfg(test)]
-    pub(crate) fn load_account(&self) -> Result<Option<Zeroizing<String>>, String> {
-        self.with(|lifecycle| {
-            load_committed(&mut lifecycle.keyring, ACCOUNT_DOMAIN, ACCOUNT_MARKER)
-        })
-    }
-
     pub(crate) fn session_snapshot(
         &self,
     ) -> Result<(&'static str, Option<String>, Option<String>, Option<u64>), String> {
@@ -1189,88 +1125,6 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn seed_active(&self, value: &str) -> Result<(), String> {
-        self.with(|lifecycle| lifecycle.seed_active(value))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn seed_drive_active(
-        self: &Arc<Self>,
-        domain: &str,
-        value: &str,
-    ) -> Result<(), String> {
-        let lease = self.begin_drive_work(domain.to_owned())?;
-        let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
-        let result = self.with(|lifecycle| {
-            lifecycle.drive_commit(guard.ticket(), &Zeroizing::new(value.to_owned()))
-        });
-        drop(guard);
-        result
-    }
-
-    #[cfg(test)]
-    pub(crate) fn fail_keyring_at(&self, stage: usize) {
-        let _ = self.with(|lifecycle| {
-            lifecycle.keyring.inject_failure(stage);
-            Ok(())
-        });
-    }
-
-    #[cfg(test)]
-    pub(crate) fn fail_cleanup(&self) {
-        let _ = self.with(|lifecycle| {
-            lifecycle.keyring.inject_cleanup_failure();
-            Ok(())
-        });
-    }
-
-    #[cfg(test)]
-    pub(crate) fn fail_provider_with(&self, code: &'static str) {
-        let _ = self.with(|lifecycle| {
-            lifecycle.provider.inject_failure(code);
-            Ok(())
-        });
-    }
-
-    #[cfg(test)]
-    pub(crate) fn provider_calls(&self) -> usize {
-        self.lifecycle
-            .lock()
-            .map(|lifecycle| lifecycle.provider_calls())
-            .unwrap_or_default()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn keyring_events(&self) -> usize {
-        self.lifecycle
-            .lock()
-            .map(|lifecycle| lifecycle.keyring_events())
-            .unwrap_or_default()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn invalidate_generation(&self) {
-        let _ = self.with(|lifecycle| {
-            lifecycle.invalidate_generation();
-            Ok(())
-        });
-    }
-
-    #[cfg(test)]
-    pub(crate) fn write_keyring_slot(&self, slot: &str, value: &str) -> Result<(), String> {
-        self.with(|lifecycle| {
-            lifecycle
-                .keyring
-                .write(slot, &Zeroizing::new(value.to_owned()))
-        })
-    }
-
-    #[cfg(test)]
-    pub(crate) fn keyring_slot_present(&self, slot: &str) -> Result<bool, String> {
-        self.with(|lifecycle| Ok(lifecycle.keyring.read(slot)?.is_some()))
-    }
-
-    #[cfg(test)]
     pub(crate) fn account_access_present(&self) -> bool {
         self.lifecycle
             .lock()
@@ -1279,11 +1133,11 @@ where
     }
 
     #[cfg(test)]
-    pub(crate) fn set_quiescing(&self, value: bool) {
-        let _ = self.with(|lifecycle| {
-            lifecycle.quiescing = value;
-            Ok(())
-        });
+    pub(crate) fn drive_connected(&self) -> bool {
+        self.lifecycle
+            .lock()
+            .map(|lifecycle| lifecycle.drive.connected)
+            .unwrap_or(true)
     }
 }
 
@@ -3244,74 +3098,155 @@ mod tests {
         .is_ok());
     }
 
+    #[derive(Clone, Copy)]
+    enum FakeKeyringOperation {
+        Read,
+        Write,
+        Delete,
+        VerifyAbsent,
+    }
+
+    #[derive(Clone)]
+    enum FakeKeyringFault {
+        At(usize),
+        On(FakeKeyringOperation, String),
+    }
+
     #[derive(Default)]
-    struct FakeKeyring {
+    struct FakeKeyringState {
         slots: HashMap<String, Zeroizing<String>>,
-        failure: Option<usize>,
+        fault: Option<FakeKeyringFault>,
         cleanup_failure: bool,
         step: usize,
         events: usize,
     }
+
+    #[derive(Clone, Default)]
+    struct FakeKeyring {
+        state: Arc<Mutex<FakeKeyringState>>,
+    }
+
+    impl FakeKeyring {
+        fn inject_failure_at(&self, stage: usize) {
+            let mut state = self.state.lock().unwrap();
+            state.fault = Some(FakeKeyringFault::At(stage));
+            state.step = 0;
+        }
+
+        fn inject_failure_on(&self, operation: FakeKeyringOperation, slot: &str) {
+            let mut state = self.state.lock().unwrap();
+            state.fault = Some(FakeKeyringFault::On(operation, slot.to_owned()));
+            state.step = 0;
+        }
+
+        fn inject_cleanup_failure(&self) {
+            self.state.lock().unwrap().cleanup_failure = true;
+        }
+
+        fn clear_faults(&self) {
+            let mut state = self.state.lock().unwrap();
+            state.fault = None;
+            state.cleanup_failure = false;
+            state.step = 0;
+        }
+
+        fn event_count(&self) -> usize {
+            self.state.lock().unwrap().events
+        }
+
+        fn should_fail(
+            state: &FakeKeyringState,
+            operation: FakeKeyringOperation,
+            slot: &str,
+        ) -> bool {
+            match state.fault.as_ref() {
+                Some(FakeKeyringFault::At(stage)) => *stage == state.step,
+                Some(FakeKeyringFault::On(expected, expected_slot)) => {
+                    std::mem::discriminant(expected) == std::mem::discriminant(&operation)
+                        && expected_slot == slot
+                }
+                None => false,
+            }
+        }
+
+        fn write_slot(&self, slot: &str, value: &str) -> Result<(), String> {
+            let mut port = self.clone();
+            port.write(slot, &Zeroizing::new(value.to_owned()))
+        }
+
+        fn delete_slot(&self, slot: &str) -> Result<(), String> {
+            let mut port = self.clone();
+            port.delete(slot)
+        }
+
+        fn read_slot(&self, slot: &str) -> Result<Option<Zeroizing<String>>, String> {
+            let mut port = self.clone();
+            port.read(slot)
+        }
+
+        fn verify_slot_absent(&self, slot: &str) -> Result<(), String> {
+            let mut port = self.clone();
+            port.verify_absent(slot)
+        }
+    }
+
     impl KeyringPort for FakeKeyring {
         fn read(&mut self, slot: &str) -> Result<Option<Zeroizing<String>>, String> {
-            let failed = self.failure == Some(self.step);
-            self.step += 1;
+            let mut state = self.state.lock().unwrap();
+            let failed = Self::should_fail(&state, FakeKeyringOperation::Read, slot);
+            state.step += 1;
             if failed {
                 Err(public_error("keyring_unavailable"))
             } else {
-                Ok(self.slots.get(slot).cloned())
+                Ok(state.slots.get(slot).cloned())
             }
         }
+
         fn write(&mut self, slot: &str, value: &Zeroizing<String>) -> Result<(), String> {
-            let failed = self.failure == Some(self.step);
-            self.step += 1;
-            self.events += 1;
+            let mut state = self.state.lock().unwrap();
+            let failed = Self::should_fail(&state, FakeKeyringOperation::Write, slot);
+            state.step += 1;
+            state.events += 1;
             if failed {
                 Err(public_error("keyring_unavailable"))
             } else {
-                self.slots.insert(slot.to_owned(), value.clone());
+                state.slots.insert(slot.to_owned(), value.clone());
                 Ok(())
             }
         }
+
         fn delete(&mut self, slot: &str) -> Result<(), String> {
-            let failed = self.failure == Some(self.step);
-            self.step += 1;
-            self.events += 1;
-            if self.cleanup_failure || failed {
-                Err(if self.cleanup_failure {
+            let mut state = self.state.lock().unwrap();
+            let failed = Self::should_fail(&state, FakeKeyringOperation::Delete, slot);
+            state.step += 1;
+            state.events += 1;
+            if state.cleanup_failure || failed {
+                Err(if state.cleanup_failure {
                     public_error("cleanup_failed")
                 } else {
                     public_error("keyring_unavailable")
                 })
             } else {
-                self.slots.remove(slot);
+                state.slots.remove(slot);
                 Ok(())
             }
         }
+
         fn verify_absent(&mut self, slot: &str) -> Result<(), String> {
-            let failed = self.failure == Some(self.step);
-            self.step += 1;
-            if self.cleanup_failure || failed {
-                Err(if self.cleanup_failure {
+            let mut state = self.state.lock().unwrap();
+            let failed = Self::should_fail(&state, FakeKeyringOperation::VerifyAbsent, slot);
+            state.step += 1;
+            if state.cleanup_failure || failed {
+                Err(if state.cleanup_failure {
                     public_error("cleanup_failed")
                 } else {
                     public_error("keyring_unavailable")
                 })
-            } else if self.slots.contains_key(slot) {
+            } else if state.slots.contains_key(slot) {
                 Err(public_error("keyring_unavailable"))
             } else {
                 Ok(())
             }
-        }
-        fn inject_failure(&mut self, stage: usize) {
-            self.failure = Some(stage);
-            self.step = 0;
-        }
-        fn inject_cleanup_failure(&mut self) {
-            self.cleanup_failure = true;
-        }
-        fn event_count(&self) -> usize {
-            self.events
         }
     }
     #[derive(Default)]
@@ -3339,19 +3274,39 @@ mod tests {
             callback_from_request(_request, _port)
         }
     }
-    #[derive(Default, Clone)]
-    struct FakeProvider {
+    #[derive(Default)]
+    struct FakeProviderState {
         failure: Option<&'static str>,
         calls: usize,
     }
+
+    #[derive(Clone, Default)]
+    struct FakeProvider {
+        state: Arc<Mutex<FakeProviderState>>,
+    }
+
+    impl FakeProvider {
+        fn inject_failure(&self, code: &'static str) {
+            self.state.lock().unwrap().failure = Some(code);
+        }
+
+        fn call_count(&self) -> usize {
+            self.state.lock().unwrap().calls
+        }
+    }
+
     impl ProviderHttpPort for FakeProvider {
         fn exchange(
             &mut self,
             _code: Zeroizing<String>,
             _verifier: Zeroizing<String>,
         ) -> Result<LifecycleMaterial, String> {
-            self.calls += 1;
-            if let Some(error) = self.failure {
+            let error = {
+                let mut state = self.state.lock().unwrap();
+                state.calls += 1;
+                state.failure
+            };
+            if let Some(error) = error {
                 Err(error.to_owned())
             } else {
                 Ok(LifecycleMaterial {
@@ -3364,8 +3319,12 @@ mod tests {
             }
         }
         fn refresh(&mut self, _refresh: Zeroizing<String>) -> Result<LifecycleMaterial, String> {
-            self.calls += 1;
-            if let Some(error) = self.failure {
+            let error = {
+                let mut state = self.state.lock().unwrap();
+                state.calls += 1;
+                state.failure
+            };
+            if let Some(error) = error {
                 Err(error.to_owned())
             } else {
                 Ok(LifecycleMaterial {
@@ -3376,12 +3335,6 @@ mod tests {
                     access_expires_at_ms: Some(3_600_000),
                 })
             }
-        }
-        fn inject_failure(&mut self, code: &'static str) {
-            self.failure = Some(code);
-        }
-        fn call_count(&self) -> usize {
-            self.calls
         }
         fn drive_exchange(
             &self,
@@ -3417,13 +3370,33 @@ mod tests {
     type TestBroker =
         RegisteredBrokerEntrypoints<FakeKeyring, FakeClock, FakeListener, FakeProvider>;
 
-    fn make_broker() -> Arc<TestBroker> {
-        Arc::new(RegisteredBrokerEntrypoints::new(
-            FakeKeyring::default(),
+    struct TestFixture {
+        broker: Arc<TestBroker>,
+        keyring: FakeKeyring,
+        provider: FakeProvider,
+    }
+
+    fn make_fixture_with_keyring(keyring: FakeKeyring) -> TestFixture {
+        let provider = FakeProvider::default();
+        let broker = Arc::new(RegisteredBrokerEntrypoints::new(
+            keyring.clone(),
             FakeClock::default(),
             FakeListener::default(),
-            FakeProvider::default(),
-        ))
+            provider.clone(),
+        ));
+        TestFixture {
+            broker,
+            keyring,
+            provider,
+        }
+    }
+
+    fn make_fixture() -> TestFixture {
+        make_fixture_with_keyring(FakeKeyring::default())
+    }
+
+    fn make_broker() -> Arc<TestBroker> {
+        make_fixture().broker
     }
 
     fn pending_login(expired: bool) -> PendingLogin {
@@ -3467,6 +3440,47 @@ mod tests {
             Err(error) => Err(error.to_owned()),
         };
         broker.registered_login_complete(ticket, result)
+    }
+
+    fn login_with_registered_ticket(broker: &TestBroker) -> Result<LifecycleOutcome, String> {
+        let (pending, ticket, provider) =
+            take_login(broker, false).ok_or_else(|| public_error("auth_request_not_found"))?;
+        complete_login(
+            broker,
+            pending,
+            ticket,
+            provider,
+            Ok(Zeroizing::new("code".to_owned())),
+        )
+    }
+
+    fn connect_drive(broker: &Arc<TestBroker>, domain: &str, token: &str) -> Result<(), String> {
+        let lease = broker.begin_drive_work(domain.to_owned())?;
+        let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
+        let result = broker.commit_drive(guard.ticket(), &Zeroizing::new(token.to_owned()));
+        drop(guard);
+        result
+    }
+
+    fn write_port_slot(keyring: &FakeKeyring, slot: &str, value: &str) {
+        keyring.write_slot(slot, value).unwrap();
+    }
+
+    fn delete_port_slot(keyring: &FakeKeyring, slot: &str) {
+        keyring.delete_slot(slot).unwrap();
+        keyring.verify_slot_absent(slot).unwrap();
+    }
+
+    fn port_slot_present(keyring: &FakeKeyring, slot: &str) -> bool {
+        keyring.read_slot(slot).unwrap().is_some()
+    }
+
+    fn seed_recovery_keyring() -> FakeKeyring {
+        let fixture = make_fixture();
+        login_with_registered_ticket(&fixture.broker).unwrap();
+        connect_drive(&fixture.broker, "drive-alpha", "drive-alpha-token").unwrap();
+        connect_drive(&fixture.broker, "drive-beta", "drive-beta-token").unwrap();
+        fixture.keyring
     }
 
     fn refresh_once(broker: &TestBroker) -> Result<Zeroizing<String>, String> {
@@ -3513,11 +3527,13 @@ mod tests {
 
     #[test]
     fn native_behavioral_startup_missing_and_restart() {
-        let broker = make_broker();
-        assert!(matches!(broker.begin_refresh(), Err(error) if error == "auth_required"));
-        broker.seed_active("restart").unwrap();
-        assert_eq!(refresh_once(&broker).unwrap().as_str(), "access");
-        assert_eq!(broker.logout().unwrap().state, "signed_out");
+        let fixture = make_fixture();
+        assert!(matches!(fixture.broker.begin_refresh(), Err(error) if error == "auth_required"));
+        login_with_registered_ticket(&fixture.broker).unwrap();
+        let restarted = make_fixture_with_keyring(fixture.keyring.clone());
+        restarted.broker.startup_recover().unwrap();
+        assert_eq!(refresh_once(&restarted.broker).unwrap().as_str(), "access");
+        assert_eq!(restarted.broker.logout().unwrap().state, "signed_out");
     }
 
     #[test]
@@ -3539,101 +3555,209 @@ mod tests {
         );
     }
 
-    #[test]
-    fn native_behavioral_registered_startup_recovery_both_domains_fault_matrix() {
-        let cases = [
-            ("staged_index", 1usize),
-            ("slot", 8usize),
-            ("marker", 6usize),
-            ("old_slot_deletion", 9usize),
-            ("compact_index", 11usize),
-        ];
-        for (ordering, stage) in cases {
-            let broker = make_broker();
-            broker.seed_active("account-restart").unwrap();
-            broker
-                .seed_drive_active("drive-restart", "drive-restart-token")
-                .unwrap();
-            if ordering == "old_slot_deletion" || ordering == "compact_index" {
-                broker
-                    .write_keyring_slot(&versioned_slot("drive-restart", 1), "old-drive-token")
-                    .unwrap();
-                broker
-                    .write_keyring_slot(&versioned_slot("drive-restart", 2), "drive-restart-token")
-                    .unwrap();
-                broker
-                    .write_keyring_slot(
-                        &index_slot("drive-restart"),
-                        encode_index("drive-restart", &[1, 2]).unwrap().as_str(),
-                    )
-                    .unwrap();
-                broker
-                    .write_keyring_slot(
-                        "drive-restart-marker",
-                        encode_marker("drive-restart", 2, "drive-restart-token")
-                            .unwrap()
-                            .as_str(),
-                    )
-                    .unwrap();
+    #[derive(Clone, Copy)]
+    enum RecoveryCase {
+        StagedIndex,
+        Slot,
+        Marker,
+        OldSlotDeletion,
+        CompactIndex,
+        PostMarkerFailure,
+        VerifiedNoEntry,
+        MarkerMissingOrphan,
+        CorruptTarget,
+    }
+
+    impl RecoveryCase {
+        fn label(self) -> &'static str {
+            match self {
+                Self::StagedIndex => "staged_index",
+                Self::Slot => "slot",
+                Self::Marker => "marker",
+                Self::OldSlotDeletion => "old_slot_deletion",
+                Self::CompactIndex => "compact_index",
+                Self::PostMarkerFailure => "post_marker_failure",
+                Self::VerifiedNoEntry => "verified_no_entry",
+                Self::MarkerMissingOrphan => "marker_missing_orphan",
+                Self::CorruptTarget => "corrupt_target",
             }
-            broker.fail_keyring_at(stage);
-            let result = broker.startup_recover();
-            assert!(
-                result.is_err(),
-                "recovery ordering {ordering} unexpectedly succeeded"
-            );
-            assert_eq!(broker.state_name(), "credential_cleanup_failed");
-            assert!(broker.begin_refresh().is_err());
-            assert!(broker.begin_drive_work("drive-restart".to_owned()).is_err());
         }
 
-        let recovered = make_broker();
-        recovered.seed_active("account-restart").unwrap();
-        recovered
-            .seed_drive_active("drive-restart", "drive-restart-token")
-            .unwrap();
-        recovered.startup_recover().unwrap();
-        assert_eq!(recovered.state_name(), "signed_out");
+        fn is_expected_success(self) -> bool {
+            matches!(self, Self::VerifiedNoEntry | Self::MarkerMissingOrphan)
+        }
+    }
+
+    const RECOVERY_TARGETS: [&str; 3] = [ACCOUNT_DOMAIN, "drive-alpha", "drive-beta"];
+
+    fn target_marker(domain: &str) -> String {
+        if domain == ACCOUNT_DOMAIN {
+            ACCOUNT_MARKER.to_owned()
+        } else {
+            format!("{domain}-marker")
+        }
+    }
+
+    fn prepare_recovery_case(keyring: &FakeKeyring, domain: &str, case: RecoveryCase) {
+        let marker = target_marker(domain);
+        let index = index_slot(domain);
+        let slot = versioned_slot(domain, 1);
+        match case {
+            RecoveryCase::StagedIndex => {
+                delete_port_slot(keyring, &marker);
+            }
+            RecoveryCase::Slot => {
+                delete_port_slot(keyring, &slot);
+            }
+            RecoveryCase::Marker => {
+                write_port_slot(keyring, &marker, "corrupt-marker");
+            }
+            RecoveryCase::OldSlotDeletion | RecoveryCase::PostMarkerFailure => {
+                write_port_slot(keyring, &versioned_slot(domain, 99), "orphan-token");
+                write_port_slot(
+                    keyring,
+                    &index,
+                    encode_index(domain, &[1, 99]).unwrap().as_str(),
+                );
+            }
+            RecoveryCase::CompactIndex => {}
+            RecoveryCase::VerifiedNoEntry => {
+                delete_port_slot(keyring, &marker);
+                delete_port_slot(keyring, &index);
+                delete_port_slot(keyring, &slot);
+            }
+            RecoveryCase::MarkerMissingOrphan => {
+                delete_port_slot(keyring, &marker);
+                write_port_slot(keyring, &versioned_slot(domain, 99), "orphan-token");
+                write_port_slot(
+                    keyring,
+                    &index,
+                    encode_index(domain, &[1, 99]).unwrap().as_str(),
+                );
+            }
+            RecoveryCase::CorruptTarget => {
+                write_port_slot(keyring, &slot, "tampered-token");
+            }
+        }
+    }
+
+    fn inject_recovery_fault(keyring: &FakeKeyring, domain: &str, case: RecoveryCase) {
+        match case {
+            RecoveryCase::StagedIndex => {
+                keyring.inject_failure_on(FakeKeyringOperation::Delete, &versioned_slot(domain, 1))
+            }
+            RecoveryCase::OldSlotDeletion => {
+                keyring.inject_failure_on(FakeKeyringOperation::Delete, &versioned_slot(domain, 99))
+            }
+            RecoveryCase::PostMarkerFailure => keyring.inject_failure_on(
+                FakeKeyringOperation::VerifyAbsent,
+                &versioned_slot(domain, 99),
+            ),
+            RecoveryCase::CompactIndex => {
+                keyring.inject_failure_on(FakeKeyringOperation::Write, &index_slot(domain))
+            }
+            _ => {}
+        }
+    }
+
+    fn assert_recovery_terminal(
+        broker: &TestBroker,
+        keyring: &FakeKeyring,
+        domain: &str,
+        case: RecoveryCase,
+        result: &Result<(), String>,
+    ) {
+        println!(
+            "recovery case={} domain={} result={} state={}",
+            case.label(),
+            domain,
+            if result.is_ok() { "ok" } else { "error" },
+            broker.state_name()
+        );
+        if case.is_expected_success() {
+            assert!(result.is_ok(), "{} unexpectedly failed", case.label());
+            assert_eq!(broker.state_name(), "signed_out");
+            assert!(!broker.account_access_present());
+            assert!(!broker.drive_connected());
+        } else {
+            assert!(result.is_err(), "{} unexpectedly succeeded", case.label());
+            assert_eq!(broker.state_name(), "credential_cleanup_failed");
+            assert!(!broker.account_access_present());
+            assert!(!broker.drive_connected());
+        }
+        keyring.clear_faults();
+        let _ = keyring.read_slot(&target_marker(domain)).unwrap();
+        let _ = keyring.read_slot(&index_slot(domain)).unwrap();
     }
 
     #[test]
-    fn native_behavioral_rotation_order_and_staged_failures() {
-        let broker = make_broker();
+    fn native_behavioral_registered_startup_recovery_both_domains_fault_matrix() {
+        let fault_cases = [
+            RecoveryCase::StagedIndex,
+            RecoveryCase::Slot,
+            RecoveryCase::Marker,
+            RecoveryCase::OldSlotDeletion,
+            RecoveryCase::CompactIndex,
+            RecoveryCase::PostMarkerFailure,
+            RecoveryCase::CorruptTarget,
+        ];
+        for domain in RECOVERY_TARGETS {
+            for case in fault_cases {
+                let keyring = seed_recovery_keyring();
+                prepare_recovery_case(&keyring, domain, case);
+                inject_recovery_fault(&keyring, domain, case);
+                let fixture = make_fixture_with_keyring(keyring.clone());
+                let result = fixture.broker.startup_recover();
+                assert_recovery_terminal(&fixture.broker, &keyring, domain, case, &result);
+            }
+        }
+
+        for domain in RECOVERY_TARGETS {
+            for case in [
+                RecoveryCase::VerifiedNoEntry,
+                RecoveryCase::MarkerMissingOrphan,
+            ] {
+                let keyring = seed_recovery_keyring();
+                prepare_recovery_case(&keyring, domain, case);
+                let first = make_fixture_with_keyring(keyring.clone());
+                let first_result = first.broker.startup_recover();
+                assert_recovery_terminal(&first.broker, &keyring, domain, case, &first_result);
+                let second = make_fixture_with_keyring(keyring.clone());
+                let second_result = second.broker.startup_recover();
+                assert_recovery_terminal(&second.broker, &keyring, domain, case, &second_result);
+                assert!(!port_slot_present(&keyring, &target_marker(domain)));
+                assert!(!port_slot_present(&keyring, &index_slot(domain)));
+            }
+        }
+    }
+
+    #[test]
+    fn native_behavioral_rotation_uses_registered_login_completion() {
+        let fixture = make_fixture();
         assert_eq!(
-            broker
-                .registered_accept_material(LifecycleMaterial {
-                    access: Zeroizing::new("access".to_owned()),
-                    refresh: Zeroizing::new("new".to_owned()),
-                    user_id: None,
-                    email: None,
-                    access_expires_at_ms: Some(3_600_000),
-                })
-                .unwrap()
-                .state,
+            login_with_registered_ticket(&fixture.broker).unwrap().state,
             "authenticated"
         );
         for failure in 0..10 {
-            let failing = make_broker();
-            failing.fail_keyring_at(failure);
-            assert!(failing
-                .registered_accept_material(LifecycleMaterial {
-                    access: Zeroizing::new("access".to_owned()),
-                    refresh: Zeroizing::new("new".to_owned()),
-                    user_id: None,
-                    email: None,
-                    access_expires_at_ms: Some(3_600_000),
-                })
-                .is_err());
+            let failing = make_fixture();
+            failing.keyring.inject_failure_at(failure);
+            let result = login_with_registered_ticket(&failing.broker);
+            assert!(
+                result.is_err(),
+                "failure stage {failure} unexpectedly passed"
+            );
+            assert!(!failing.broker.account_access_present());
         }
     }
 
     #[test]
     fn native_behavioral_refresh_single_flight() {
-        let broker = make_broker();
-        broker.seed_active("refresh").unwrap();
-        let admission = broker.begin_refresh().unwrap();
+        let fixture = make_fixture();
+        login_with_registered_ticket(&fixture.broker).unwrap();
+        let restarted = make_fixture_with_keyring(fixture.keyring.clone());
+        let admission = restarted.broker.begin_refresh().unwrap();
         assert!(matches!(
-            broker.begin_refresh().unwrap(),
+            restarted.broker.begin_refresh().unwrap(),
             RefreshAdmission::Wait(_)
         ));
         if let RefreshAdmission::Work {
@@ -3642,7 +3766,8 @@ mod tests {
             mut provider,
         } = admission
         {
-            let (result, notify) = broker
+            let (result, notify) = restarted
+                .broker
                 .finish_refresh(ticket, provider.refresh(refresh))
                 .unwrap();
             assert_eq!(result.unwrap().as_str(), "access");
@@ -3658,14 +3783,15 @@ mod tests {
 
     #[test]
     fn native_behavioral_denial_before_provider_effect() {
-        let broker = make_broker();
-        broker.set_quiescing(true);
+        let fixture = make_fixture();
+        fixture.broker.shutdown().unwrap();
+        let shutdown_keyring_events = fixture.keyring.event_count();
         assert!(matches!(
-            broker.begin_account_operation(),
+            fixture.broker.begin_account_operation(),
             Err(error) if error == "auth_transition_in_progress"
         ));
-        assert_eq!(broker.provider_calls(), 0);
-        assert_eq!(broker.keyring_events(), 0);
+        assert_eq!(fixture.provider.call_count(), 0);
+        assert_eq!(fixture.keyring.event_count(), shutdown_keyring_events);
     }
 
     #[test]
@@ -3701,12 +3827,12 @@ mod tests {
 
     #[test]
     fn native_behavioral_exchange_failure() {
-        let broker = make_broker();
-        broker.fail_provider_with("exchange_failed");
-        let (pending, ticket, provider) = take_login(&broker, false).unwrap();
+        let fixture = make_fixture();
+        fixture.provider.inject_failure("exchange_failed");
+        let (pending, ticket, provider) = take_login(&fixture.broker, false).unwrap();
         assert_eq!(
             complete_login(
-                &broker,
+                &fixture.broker,
                 pending,
                 ticket,
                 provider,
@@ -3719,10 +3845,13 @@ mod tests {
 
     #[test]
     fn native_behavioral_logout() {
-        let broker = make_broker();
-        broker.seed_active("logout").unwrap();
-        broker.registered_login_begin(pending_login(false)).unwrap();
-        assert_eq!(broker.logout().unwrap().state, "signed_out");
+        let fixture = make_fixture();
+        login_with_registered_ticket(&fixture.broker).unwrap();
+        fixture
+            .broker
+            .registered_login_begin(pending_login(false))
+            .unwrap();
+        assert_eq!(fixture.broker.logout().unwrap().state, "signed_out");
     }
 
     #[test]
@@ -3734,18 +3863,18 @@ mod tests {
 
     #[test]
     fn native_behavioral_cleanup_failure() {
-        let broker = make_broker();
-        broker.seed_active("cleanup").unwrap();
-        broker.fail_cleanup();
-        assert_eq!(broker.shutdown().unwrap_err(), "cleanup_failed");
-        assert_eq!(broker.state_name(), "credential_cleanup_failed");
+        let fixture = make_fixture();
+        login_with_registered_ticket(&fixture.broker).unwrap();
+        fixture.keyring.inject_cleanup_failure();
+        assert_eq!(fixture.broker.shutdown().unwrap_err(), "cleanup_failed");
+        assert_eq!(fixture.broker.state_name(), "credential_cleanup_failed");
     }
 
     #[test]
     fn native_behavioral_stale_generation() {
         let broker = make_broker();
         let (pending, ticket, provider) = take_login(&broker, false).unwrap();
-        broker.invalidate_generation();
+        broker.logout().unwrap();
         assert_eq!(
             complete_login(
                 &broker,
@@ -3947,98 +4076,109 @@ mod tests {
 
     #[test]
     fn native_behavioral_drive_marker_failure_compensates_before_publish() {
-        let broker = make_broker();
-        let lease = broker.begin_drive_work("drive-fault".to_owned()).unwrap();
+        let fixture = make_fixture();
+        let lease = fixture
+            .broker
+            .begin_drive_work("drive-fault".to_owned())
+            .unwrap();
         let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
-        broker.fail_keyring_at(7);
+        fixture.keyring.inject_failure_at(7);
         assert_eq!(
-            broker
+            fixture
+                .broker
                 .commit_drive(guard.ticket(), &Zeroizing::new("drive-refresh".to_owned()))
                 .unwrap_err(),
             "drive_token_storage_failed"
         );
         drop(guard);
-        assert!(!broker.keyring_slot_present("drive-fault-marker").unwrap());
+        fixture.keyring.clear_faults();
+        assert!(!port_slot_present(&fixture.keyring, "drive-fault-marker"));
     }
 
     #[test]
     fn native_behavioral_no_entry_is_absence_but_corrupt_marker_is_not() {
-        let broker = make_broker();
-        assert!(matches!(broker.begin_refresh(), Err(error) if error == "auth_required"));
-        broker.write_keyring_slot(ACCOUNT_MARKER, "broken").unwrap();
-        assert!(matches!(broker.begin_refresh(), Err(error) if error == "keyring_unavailable"));
+        let fixture = make_fixture();
+        assert!(matches!(fixture.broker.begin_refresh(), Err(error) if error == "auth_required"));
+        write_port_slot(&fixture.keyring, ACCOUNT_MARKER, "broken");
+        assert!(
+            matches!(fixture.broker.begin_refresh(), Err(error) if error == "keyring_unavailable")
+        );
     }
 
     #[test]
     fn native_behavioral_marker_content_integrity_is_verified() {
-        let broker = make_broker();
-        broker.seed_active("old").unwrap();
-        broker
-            .write_keyring_slot(&versioned_slot(ACCOUNT_DOMAIN, 1), "tampered")
-            .unwrap();
-        assert!(matches!(broker.begin_refresh(), Err(error) if error == "keyring_unavailable"));
+        let fixture = make_fixture();
+        login_with_registered_ticket(&fixture.broker).unwrap();
+        write_port_slot(
+            &fixture.keyring,
+            &versioned_slot(ACCOUNT_DOMAIN, 1),
+            "tampered",
+        );
+        let restarted = make_fixture_with_keyring(fixture.keyring.clone());
+        assert!(
+            matches!(restarted.broker.begin_refresh(), Err(error) if error == "keyring_unavailable")
+        );
     }
 
     #[test]
     fn native_behavioral_registry_integrity_is_verified() {
-        let broker = make_broker();
-        broker.seed_active("old").unwrap();
-        broker
-            .write_keyring_slot(ACCOUNT_INDEX, "{\"versions\":[1]}")
-            .unwrap();
-        assert!(matches!(broker.begin_refresh(), Err(error) if error == "keyring_unavailable"));
+        let fixture = make_fixture();
+        login_with_registered_ticket(&fixture.broker).unwrap();
+        write_port_slot(&fixture.keyring, ACCOUNT_INDEX, "{\"versions\":[1]}");
+        let restarted = make_fixture_with_keyring(fixture.keyring.clone());
+        assert!(
+            matches!(restarted.broker.begin_refresh(), Err(error) if error == "keyring_unavailable")
+        );
     }
 
     #[test]
     fn native_behavioral_pre_marker_failure_preserves_previous_authority() {
-        let broker = make_broker();
-        broker.seed_active("old").unwrap();
-        broker.fail_keyring_at(6);
-        assert!(broker
-            .registered_accept_material(LifecycleMaterial {
-                access: Zeroizing::new("access".to_owned()),
-                refresh: Zeroizing::new("new".to_owned()),
-                user_id: None,
-                email: None,
-                access_expires_at_ms: Some(1),
-            })
-            .is_err());
-        assert_eq!(broker.load_account().unwrap().unwrap().as_str(), "old");
+        let fixture = make_fixture();
+        login_with_registered_ticket(&fixture.broker).unwrap();
+        fixture.keyring.inject_failure_at(6);
+        assert!(login_with_registered_ticket(&fixture.broker).is_err());
+        fixture.keyring.clear_faults();
+        assert_eq!(
+            fixture
+                .keyring
+                .read_slot(&versioned_slot(ACCOUNT_DOMAIN, 1))
+                .unwrap()
+                .unwrap()
+                .as_str(),
+            "refresh"
+        );
     }
 
     #[test]
     fn native_behavioral_registry_enumerates_orphans_before_access() {
-        let broker = make_broker();
-        broker.seed_active("old").unwrap();
-        broker
-            .write_keyring_slot(
-                &index_slot(ACCOUNT_DOMAIN),
-                encode_index(ACCOUNT_DOMAIN, &[1, 99]).unwrap().as_str(),
-            )
-            .unwrap();
-        broker
-            .write_keyring_slot(&versioned_slot(ACCOUNT_DOMAIN, 99), "orphan")
-            .unwrap();
-        assert_eq!(refresh_once(&broker).unwrap().as_str(), "access");
-        assert!(!broker
-            .keyring_slot_present(&versioned_slot(ACCOUNT_DOMAIN, 99))
-            .unwrap());
+        let fixture = make_fixture();
+        login_with_registered_ticket(&fixture.broker).unwrap();
+        write_port_slot(
+            &fixture.keyring,
+            &index_slot(ACCOUNT_DOMAIN),
+            encode_index(ACCOUNT_DOMAIN, &[1, 99]).unwrap().as_str(),
+        );
+        write_port_slot(
+            &fixture.keyring,
+            &versioned_slot(ACCOUNT_DOMAIN, 99),
+            "orphan",
+        );
+        let restarted = make_fixture_with_keyring(fixture.keyring.clone());
+        assert_eq!(refresh_once(&restarted.broker).unwrap().as_str(), "access");
+        assert!(!port_slot_present(
+            &fixture.keyring,
+            &versioned_slot(ACCOUNT_DOMAIN, 99)
+        ));
     }
 
     #[test]
     fn native_behavioral_post_marker_cleanup_failure_is_terminal() {
-        let broker = make_broker();
-        broker.fail_keyring_at(9);
-        let result = broker.registered_accept_material(LifecycleMaterial {
-            access: Zeroizing::new("access".to_owned()),
-            refresh: Zeroizing::new("refresh".to_owned()),
-            user_id: None,
-            email: None,
-            access_expires_at_ms: Some(1),
-        });
+        let fixture = make_fixture();
+        fixture.keyring.inject_failure_at(9);
+        let result = login_with_registered_ticket(&fixture.broker);
         assert_eq!(result.unwrap_err(), "cleanup_failed");
-        assert_eq!(broker.state_name(), "credential_cleanup_failed");
-        assert!(!broker.account_access_present());
+        assert_eq!(fixture.broker.state_name(), "credential_cleanup_failed");
+        assert!(!fixture.broker.account_access_present());
     }
 
     #[test]

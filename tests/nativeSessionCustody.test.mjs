@@ -171,6 +171,8 @@ test("native broker behavioral matrix executes through registered Rust entrypoin
   assert.match(output, /passed/);
   const behavioralOutput = output.slice(output.indexOf("running "), output.indexOf("\nrunning 0 tests"));
   assert.doesNotMatch(behavioralOutput, /secret|verifier|access-token|refresh-token/i);
+  assert.match(behavioralOutput, /native_behavioral_rotation_uses_registered_login_completion/);
+  assert.match(behavioralOutput, /native_behavioral_registered_startup_recovery_both_domains_fault_matrix/);
   assert.doesNotMatch(read("src-tauri/src/auth_session.rs"), /BehavioralBroker|TestState|ProviderMode|LifecycleCore|SessionMemory/);
   assert.match(read("src-tauri/src/auth_session.rs"), /RegisteredBrokerEntrypoints|SessionLifecycleState/);
 });
@@ -213,6 +215,19 @@ test("registered adapters and behavioral tests share production lifecycle entryp
     session.indexOf("pub(crate) struct RegisteredBrokerEntrypoints"),
   );
   assert.doesNotMatch(genericLifecycle, /pub\(crate\) fn (?:logout|shutdown|disconnect_drive)\b/);
+  for (const forbidden of [
+    "registered_accept_material",
+    "seed_active",
+    "seed_drive_active",
+    "fail_keyring_at",
+    "fail_cleanup",
+    "fail_provider_with",
+    "invalidate_generation",
+    "set_quiescing",
+    "write_keyring_slot",
+  ]) {
+    assert.doesNotMatch(session, new RegExp(`\\b${forbidden}\\b`));
+  }
   assert.doesNotMatch(session, /broker\.keyring\b|broker\.drive_drain\b/);
   for (const helper of ["begin", "complete", "startup", "refresh_single_flight", "protected"]) {
     assert.doesNotMatch(session, new RegExp(`#\\[cfg\\(test\\)\\][\\s\\S]{0,120}fn ${helper}\\b`));

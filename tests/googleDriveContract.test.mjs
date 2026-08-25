@@ -9,12 +9,20 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 test("Google Drive contract is an exact-scope native PKCE flow", () => {
   const rust = read("src-tauri/src/drive_oauth.rs");
+  const lifecycle = read("src-tauri/src/auth_session.rs");
+  assert.match(lifecycle, /SessionLifecycle/);
+  assert.match(`${rust}\n${lifecycle}`, /DriveConnection|DriveCredential/);
+  assert.match(`${rust}\n${lifecycle}`, /drive_generation|account_epoch/);
+  assert.match(`${rust}\n${lifecycle}`, /commit_marker|marker/);
+  assert.match(lifecycle, /NoEntry/);
+  assert.match(lifecycle, /verify_absent/);
   assert.match(rust, /drive\.appdata/);
   assert.match(rust, /code_challenge_method.*S256/);
-  assert.match(rust, /keyring::Entry/);
+  assert.match(lifecycle, /KeyringPort|keyring::Entry/);
   assert.match(rust, /appDataFolder/);
   assert.match(rust, /drive_archive_digest_mismatch/);
   assert.doesNotMatch(rust, /CloudProviderConfig/);
+  assert.doesNotMatch(rust, /if let Ok\(value\) = .*get_password\(\)/s);
 });
 
 test("Desktop UI keeps provider backup separate from the filesystem test panel", () => {

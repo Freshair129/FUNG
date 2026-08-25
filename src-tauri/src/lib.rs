@@ -2969,6 +2969,9 @@ pub fn run() {
             app.manage(filesystem_backup::FilesystemBackupState::default());
             app.manage(backup::BackupJobState::default());
             app.manage(drive_oauth::DriveOAuthState::default());
+            if let Err(error) = auth_session::startup_recover() {
+                eprintln!("[auth-session] deterministic startup recovery failed: {error}");
+            }
 
             // The worker starts only now: its handlers reach back into
             // AppState, so it must not run before the state is managed.

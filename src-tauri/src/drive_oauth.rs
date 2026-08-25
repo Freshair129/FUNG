@@ -5,6 +5,7 @@
 //! stored in the OS credential store. The frontend receives only redacted
 //! status and archive metadata.
 
+use crate::auth_session::{self, LifecycleTicket};
 use crate::backup::{self, BackupJobState, RestoreResult};
 use crate::backup_archive::{self, ArchiveManifest};
 use crate::filesystem_backup::{self, FilesystemArchiveRecord, FilesystemBackupState};
@@ -17,8 +18,8 @@ use reqwest::Client;
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::fs::File;
 use std::fmt::Write as FmtWrite;
+use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
@@ -27,7 +28,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tauri::State;
 use tauri_plugin_opener::OpenerExt;
-use url::Url;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -37,7 +37,6 @@ const DRIVE_AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth"
 const DRIVE_TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 const DRIVE_FILES_ENDPOINT: &str = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_UPLOAD_ENDPOINT: &str = "https://www.googleapis.com/upload/drive/v3/files";
-const KEYRING_SERVICE: &str = "FUNG";
 const OAUTH_TTL: Duration = Duration::from_secs(10 * 60);
 const DRIVE_CHUNK_SIZE: usize = 8 * 1024 * 1024;
 const MAX_DRIVE_DOWNLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
@@ -95,6 +94,7 @@ struct PendingOAuth {
     callback: Arc<Mutex<Option<OAuthCallback>>>,
     terminal: OAuthTerminal,
     expires_at: Instant,
+    lifecycle_ticket: LifecycleTicket,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -204,32 +204,33 @@ pub(crate) struct DriveOAuthState {
     pending: Mutex<Option<PendingOAuth>>,
 }
 
-fn deserialize_zeroizing<'de, D>(deserializer: D) -> Result<Zeroizing<String>, D::Error>
-where D: Deserializer<'de> { String::deserialize(deserializer).map(Zeroizing::new) }
-fn deserialize_optional_zeroizing<'de, D>(deserializer: D) -> Result<Option<Zeroizing<String>>, D::Error>
-where D: Deserializer<'de> { Option::<String>::deserialize(deserializer).map(|value| value.map(Zeroizing::new)) }
+fn deserialize_optional_zeroizing<'de, D>(
+    deserializer: D,
+) -> Result<Option<Zeroizing<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(|value| value.map(Zeroizing::new))
+}
 
 #[derive(Deserialize)]
 struct TokenResponse {
-    #[serde(rename = "access_token", default, deserialize_with = "deserialize_optional_zeroizing")]
+    #[serde(
+        rename = "access_token",
+        default,
+        deserialize_with = "deserialize_optional_zeroizing"
+    )]
     access: Option<Zeroizing<String>>,
-    #[serde(rename = "refresh_token", default, deserialize_with = "deserialize_optional_zeroizing")]
+    #[serde(
+        rename = "refresh_token",
+        default,
+        deserialize_with = "deserialize_optional_zeroizing"
+    )]
     refresh: Option<Zeroizing<String>>,
     #[serde(default, deserialize_with = "deserialize_optional_zeroizing")]
     scope: Option<Zeroizing<String>>,
     #[serde(default, deserialize_with = "deserialize_optional_zeroizing")]
     error: Option<Zeroizing<String>>,
-}
-
-#[derive(Serialize)]
-struct DriveTokenRecordWrite<'a> {
-    #[serde(rename = "refresh_token")]
-    value: &'a str,
-}
-#[derive(Deserialize)]
-struct DriveTokenRecord {
-    #[serde(rename = "refresh_token", deserialize_with = "deserialize_zeroizing")]
-    value: Zeroizing<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -377,57 +378,25 @@ fn keyring_slot_for(user_id: &str, device_id: &str, device_fingerprint: &str) ->
     format!("drive-token-{suffix}")
 }
 
-fn keyring_entry(invocation: &DriveInvocation) -> Result<keyring::Entry, String> {
-    invocation.ensure_valid()?;
-    keyring::Entry::new(
-        KEYRING_SERVICE,
-        &keyring_slot_for(
-            invocation.user_id(),
-            invocation.device_id(),
-            invocation.device_fingerprint(),
-        ),
-    )
-    .map_err(|_| public_error("drive_keyring_unavailable"))
-}
-
-fn save_refresh_token(invocation: &DriveInvocation, refresh_token: Zeroizing<String>) -> Result<(), String> {
-    let staged_slot = format!("{}-staged", keyring_slot_for(invocation.user_id(), invocation.device_id(), invocation.device_fingerprint()));
-    let active_slot = keyring_slot_for(invocation.user_id(), invocation.device_id(), invocation.device_fingerprint());
-    let payload = Zeroizing::new(serde_json::to_string(&DriveTokenRecordWrite { value: refresh_token.as_str() })
-        .map_err(|_| public_error("drive_token_storage_failed"))?);
-    let staged = keyring::Entry::new(KEYRING_SERVICE, &staged_slot).map_err(|_| public_error("drive_token_storage_failed"))?;
-    let active = keyring::Entry::new(KEYRING_SERVICE, &active_slot).map_err(|_| public_error("drive_token_storage_failed"))?;
-    staged.set_password(&payload).map_err(|_| public_error("drive_token_storage_failed"))?;
-    let staged_read = Zeroizing::new(staged.get_password().map_err(|_| public_error("drive_token_storage_failed"))?);
-    if staged_read.as_str() != payload.as_str() { return Err(public_error("drive_token_storage_failed")); }
-    active.set_password(staged_read.as_str()).map_err(|_| public_error("drive_token_storage_failed"))?;
-    let active_read = Zeroizing::new(active.get_password().map_err(|_| public_error("drive_token_storage_failed"))?);
-    if active_read.as_str() != payload.as_str() { return Err(public_error("drive_token_storage_failed")); }
-    let _ = staged.delete_credential();
-    if let Ok(value) = staged.get_password() { let _readback = Zeroizing::new(value); return Err(public_error("drive_token_storage_failed")); }
-    Ok(())
+fn save_refresh_token(
+    ticket: LifecycleTicket,
+    refresh_token: Zeroizing<String>,
+) -> Result<(), String> {
+    auth_session::drive_commit(ticket, &refresh_token)
 }
 
 fn load_refresh_token(invocation: &DriveInvocation) -> Result<Option<Zeroizing<String>>, String> {
-    match keyring_entry(invocation)?.get_password() {
-        Ok(payload) => {
-            let payload = Zeroizing::new(payload);
-            let record: DriveTokenRecord = serde_json::from_str(payload.as_str())
-                .map_err(|_| public_error("drive_token_storage_invalid"))?;
-            if record.value.trim().is_empty() {
-                return Err(public_error("drive_token_storage_invalid"));
-            }
-            Ok(Some(record.value))
-        }
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(_) => Err(public_error("drive_keyring_unavailable")),
-    }
+    invocation.ensure_valid()?;
+    let slot = keyring_slot_for(
+        invocation.user_id(),
+        invocation.device_id(),
+        invocation.device_fingerprint(),
+    );
+    auth_session::drive_load(slot).map_err(|_| public_error("drive_keyring_unavailable"))
 }
 
-fn delete_refresh_token(invocation: &DriveInvocation) -> Result<(), String> {
-    match keyring_entry(invocation)?.delete_credential() { Ok(()) | Err(keyring::Error::NoEntry) => {}, Err(_) => return Err(public_error("drive_token_delete_failed")) }
-    if let Ok(value) = keyring_entry(invocation)?.get_password() { let _readback = Zeroizing::new(value); return Err(public_error("drive_token_delete_failed")); }
-    Ok(())
+fn delete_refresh_token(_invocation: &DriveInvocation) -> Result<(), String> {
+    auth_session::drive_disconnect().map_err(|_| public_error("drive_token_delete_failed"))
 }
 
 fn exact_scope(scope: &str) -> bool {
@@ -445,9 +414,9 @@ fn async_http_client(timeout: Duration, error_code: &str) -> Result<Client, Stri
 fn pkce_pair() -> (Zeroizing<String>, String) {
     let mut verifier_bytes = [0u8; 64];
     OsRng.fill_bytes(&mut verifier_bytes);
-    let verifier = URL_SAFE_NO_PAD.encode(verifier_bytes);
+    let verifier = Zeroizing::new(URL_SAFE_NO_PAD.encode(verifier_bytes));
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
-    (Zeroizing::new(verifier), challenge)
+    (verifier, challenge)
 }
 
 fn random_state() -> Zeroizing<String> {
@@ -462,34 +431,29 @@ fn build_authorization_url(
     state: &str,
     code_challenge: &str,
 ) -> Zeroizing<String> {
-    let mut url = Url::parse(DRIVE_AUTH_ENDPOINT).expect("static Google auth URL");
-    url.query_pairs_mut()
-        .append_pair("client_id", client_id)
-        .append_pair("redirect_uri", redirect_uri)
-        .append_pair("response_type", "code")
-        .append_pair("scope", DRIVE_SCOPE)
-        .append_pair("access_type", "offline")
-        .append_pair("prompt", "consent")
-        .append_pair("state", state)
-        .append_pair("code_challenge", code_challenge)
-        .append_pair("code_challenge_method", "S256");
-    Zeroizing::new(url.to_string())
+    let escaped_redirect = redirect_uri.replace(':', "%3A").replace('/', "%2F");
+    Zeroizing::new(format!("{DRIVE_AUTH_ENDPOINT}?client_id={client_id}&redirect_uri={escaped_redirect}&response_type=code&scope={DRIVE_SCOPE}&access_type=offline&prompt=consent&state={state}&code_challenge={code_challenge}&code_challenge_method=S256"))
 }
 
 fn callback_from_request(request: &[u8]) -> OAuthCallback {
-    let first = request.split(|byte| *byte == b'\n').next().unwrap_or_default();
+    let first = request
+        .split(|byte| *byte == b'\n')
+        .next()
+        .unwrap_or_default();
     let first = first.strip_suffix(b"\r").unwrap_or(first);
     let mut fields = first.split(|byte| *byte == b' ');
-    let target = fields.nth(1).and_then(|value| std::str::from_utf8(value).ok()).unwrap_or("/");
-    let parsed = Url::parse("http://127.0.0.1").and_then(|base| base.join(target));
-    let Ok(parsed) = parsed else {
+    let target = fields
+        .nth(1)
+        .and_then(|value| std::str::from_utf8(value).ok())
+        .unwrap_or("/");
+    let Some((path, query)) = target.split_once('?') else {
         return OAuthCallback {
             state: Zeroizing::new(String::new()),
             code: None,
             error: Some("invalid_callback".into()),
         };
     };
-    if parsed.path() != OAUTH_CALLBACK_PATH {
+    if path != OAUTH_CALLBACK_PATH || query.contains('#') {
         return OAuthCallback {
             state: Zeroizing::new(String::new()),
             code: None,
@@ -501,22 +465,50 @@ fn callback_from_request(request: &[u8]) -> OAuthCallback {
     let mut code = None;
     let mut error = None;
     let mut error_description = false;
-    for (key, value) in parsed.query_pairs() {
-        if !names.insert(key.as_ref().to_owned()) {
-            return OAuthCallback { state: Zeroizing::new(String::new()), code: None, error: Some("invalid_callback".into()) };
+    for pair in query.split('&') {
+        let Some((key, value)) = pair.split_once('=') else {
+            return OAuthCallback {
+                state: Zeroizing::new(String::new()),
+                code: None,
+                error: Some("invalid_callback".into()),
+            };
+        };
+        if !names.insert(key.to_owned()) {
+            return OAuthCallback {
+                state: Zeroizing::new(String::new()),
+                code: None,
+                error: Some("invalid_callback".into()),
+            };
         }
-        match key.as_ref() {
-            "state" => state = Some(Zeroizing::new(value.into_owned())),
-            "code" => code = Some(Zeroizing::new(value.into_owned())),
+        match key {
+            "state" => state = Some(Zeroizing::new(value.to_owned())),
+            "code" => code = Some(Zeroizing::new(value.to_owned())),
             "error" => error = Some("authorization_denied".into()),
             "error_description" => error_description = true,
-            _ => return OAuthCallback { state: Zeroizing::new(String::new()), code: None, error: Some("invalid_callback".into()) },
+            _ => {
+                return OAuthCallback {
+                    state: Zeroizing::new(String::new()),
+                    code: None,
+                    error: Some("invalid_callback".into()),
+                }
+            }
         }
     }
-    if state.is_none() || (code.is_some() == error.is_some()) || (error_description && error.is_none()) {
-        return OAuthCallback { state: Zeroizing::new(String::new()), code: None, error: Some("invalid_callback".into()) };
+    if state.is_none()
+        || (code.is_some() == error.is_some())
+        || (error_description && error.is_none())
+    {
+        return OAuthCallback {
+            state: Zeroizing::new(String::new()),
+            code: None,
+            error: Some("invalid_callback".into()),
+        };
     }
-    OAuthCallback { state: state.unwrap_or_default(), code, error }
+    OAuthCallback {
+        state: state.unwrap_or_default(),
+        code,
+        error,
+    }
 }
 
 fn write_callback_response(stream: &mut TcpStream, success: bool) {
@@ -539,6 +531,9 @@ fn remove_pending(state: &DriveOAuthState, session_id: &str) {
             .as_ref()
             .is_some_and(|entry| entry.session_id == session_id)
         {
+            if let Some(entry) = pending.as_ref() {
+                auth_session::drive_finish(entry.lifecycle_ticket);
+            }
             *pending = None;
         }
     }
@@ -559,10 +554,13 @@ pub(crate) async fn broker_drive_connect_begin(
         }
     }
 
-    let auth =
-        native_auth::authorize_drive(&app, DriveOperation::ConnectionAuthorize)
-            .await?;
-    let _ = auth.into_invocation()?;
+    let auth = native_auth::authorize_drive(&app, DriveOperation::ConnectionAuthorize).await?;
+    let invocation = auth.into_invocation()?;
+    let slot_base = keyring_slot_for(
+        invocation.user_id(),
+        invocation.device_id(),
+        invocation.device_fingerprint(),
+    );
     let client_id = configured_client_id()?;
     let mut pending_guard = state
         .pending
@@ -582,10 +580,14 @@ pub(crate) async fn broker_drive_connect_begin(
         .map_err(|_| public_error("drive_oauth_callback_unavailable"))?
         .port();
     let mut redirect_uri = Zeroizing::new(String::with_capacity(64));
-    write!(&mut redirect_uri, "http://127.0.0.1:{port}{OAUTH_CALLBACK_PATH}")
-        .map_err(|_| public_error("drive_oauth_callback_unavailable"))?;
+    write!(
+        &mut redirect_uri,
+        "http://127.0.0.1:{port}{OAUTH_CALLBACK_PATH}"
+    )
+    .map_err(|_| public_error("drive_oauth_callback_unavailable"))?;
     let (code_verifier, code_challenge) = pkce_pair();
     let oauth_state = random_state();
+    let lifecycle_ticket = auth_session::drive_begin(slot_base)?;
     let session_id = Uuid::new_v4().to_string();
     let callback = Arc::new(Mutex::new(None));
     let terminal = OAuthTerminal::default();
@@ -616,8 +618,12 @@ pub(crate) async fn broker_drive_connect_begin(
         }
     });
 
-    let authorization_url =
-        build_authorization_url(&client_id, redirect_uri.as_str(), oauth_state.as_str(), &code_challenge);
+    let authorization_url = build_authorization_url(
+        &client_id,
+        redirect_uri.as_str(),
+        oauth_state.as_str(),
+        &code_challenge,
+    );
     *pending_guard = Some(PendingOAuth {
         session_id: session_id.clone(),
         oauth_client_id: client_id,
@@ -627,16 +633,22 @@ pub(crate) async fn broker_drive_connect_begin(
         callback,
         terminal,
         expires_at: Instant::now() + OAUTH_TTL,
+        lifecycle_ticket,
     });
     if app
         .opener()
         .open_url(authorization_url.as_str(), None::<&str>)
         .is_err()
     {
+        auth_session::drive_finish(lifecycle_ticket);
         *pending_guard = None;
         return Err(public_error("drive_oauth_open_failed"));
     }
-    Ok(DriveOAuthStart { request_id: session_id, scope: DRIVE_SCOPE, expires_at_ms: now_ms() + OAUTH_TTL.as_millis() as u64 })
+    Ok(DriveOAuthStart {
+        request_id: session_id,
+        scope: DRIVE_SCOPE,
+        expires_at_ms: now_ms() + OAUTH_TTL.as_millis() as u64,
+    })
 }
 
 #[tauri::command]
@@ -698,23 +710,23 @@ pub(crate) async fn broker_drive_connect_complete(
         remove_pending(&state, &session_id);
         return Err(error);
     }
-    let authorization = match native_auth::authorize_drive(&app, DriveOperation::ConnectionAuthorize)
-    .await
-    {
-        Ok(context) => match context.into_invocation() {
-            Ok(invocation) => invocation,
+    auth_session::drive_check(pending.lifecycle_ticket)?;
+    let authorization =
+        match native_auth::authorize_drive(&app, DriveOperation::ConnectionAuthorize).await {
+            Ok(context) => match context.into_invocation() {
+                Ok(invocation) => invocation,
+                Err(error) => {
+                    pending.terminal.mark_failed();
+                    remove_pending(&state, &session_id);
+                    return Err(error);
+                }
+            },
             Err(error) => {
                 pending.terminal.mark_failed();
                 remove_pending(&state, &session_id);
                 return Err(error);
             }
-        },
-        Err(error) => {
-            pending.terminal.mark_failed();
-            remove_pending(&state, &session_id);
-            return Err(error);
-        }
-    };
+        };
     let token = match exchange_code(&pending, &authorization, code).await {
         Ok(token) => token,
         Err(error) => {
@@ -745,12 +757,14 @@ pub(crate) async fn broker_drive_connect_complete(
         remove_pending(&state, &session_id);
         return Err(error);
     }
-    if let Err(_error) = native_auth::authorize_drive(&app, DriveOperation::ConnectionActivate).await {
+    if let Err(_error) =
+        native_auth::authorize_drive(&app, DriveOperation::ConnectionActivate).await
+    {
         pending.terminal.mark_failed();
         remove_pending(&state, &session_id);
         return Err(public_error("drive_connection_activation_failed"));
     }
-    if let Err(error) = save_refresh_token(&authorization, refresh_token) {
+    if let Err(error) = save_refresh_token(pending.lifecycle_ticket, refresh_token) {
         pending.terminal.mark_failed();
         remove_pending(&state, &session_id);
         return Err(error);
@@ -812,20 +826,27 @@ pub(crate) fn broker_drive_connect_cancel(
     }
     pending.terminal.cancel()?;
     remove_pending(&state, &session_id);
-    Ok(DriveCancelled { request_id: session_id, status: "cancelled" })
+    Ok(DriveCancelled {
+        request_id: session_id,
+        status: "cancelled",
+    })
 }
 
 #[tauri::command]
 pub(crate) async fn broker_drive_status(
     app: tauri::AppHandle,
 ) -> Result<DriveConnectionStatus, String> {
-    let authorization =
-        native_auth::authorize_drive(&app, DriveOperation::ConnectionRead)
-            .await?
-            .into_invocation()?;
+    let authorization = native_auth::authorize_drive(&app, DriveOperation::ConnectionRead)
+        .await?
+        .into_invocation()?;
     authorization.require_operation(DriveOperation::ConnectionRead)?;
+    let slot_base = keyring_slot_for(
+        authorization.user_id(),
+        authorization.device_id(),
+        authorization.device_fingerprint(),
+    );
     Ok(DriveConnectionStatus {
-        connected: load_refresh_token(&authorization)?.is_some(),
+        connected: auth_session::drive_status(slot_base)?,
         scope: Some(DRIVE_SCOPE.to_owned()),
         provider: "google_drive",
     })
@@ -835,10 +856,9 @@ pub(crate) async fn broker_drive_status(
 pub(crate) async fn broker_drive_disconnect(
     app: tauri::AppHandle,
 ) -> Result<DriveConnectionStatus, String> {
-    let authorization =
-        native_auth::authorize_drive(&app, DriveOperation::ConnectionRevoke)
-            .await?
-            .into_invocation()?;
+    let authorization = native_auth::authorize_drive(&app, DriveOperation::ConnectionRevoke)
+        .await?
+        .into_invocation()?;
     authorization.require_operation(DriveOperation::ConnectionRevoke)?;
     delete_refresh_token(&authorization)?;
     Ok(DriveConnectionStatus {
@@ -851,33 +871,55 @@ pub(crate) async fn broker_drive_disconnect(
 async fn access_token(invocation: &DriveInvocation) -> Result<Zeroizing<String>, String> {
     invocation.ensure_valid()?;
     let client_id = configured_client_id()?;
-    let refresh_token =
-        load_refresh_token(invocation)?.ok_or_else(|| public_error("drive_not_connected"))?;
-    let response = async_http_client(Duration::from_secs(30), "drive_token_refresh_failed")?
-        .post(DRIVE_TOKEN_ENDPOINT)
-        .form(&[
-            ("client_id", client_id.as_str()),
-            ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token.as_str()),
-        ])
-        .send()
-        .await
-        .map_err(|_| public_error("drive_token_refresh_failed"))?;
-    if !response.status().is_success() {
-        return Err(public_error("drive_token_refresh_failed"));
+    let slot_base = keyring_slot_for(
+        invocation.user_id(),
+        invocation.device_id(),
+        invocation.device_fingerprint(),
+    );
+    let ticket = auth_session::drive_begin(slot_base)?;
+    let result = async {
+        let refresh_token =
+            load_refresh_token(invocation)?.ok_or_else(|| public_error("drive_not_connected"))?;
+        let response = async_http_client(Duration::from_secs(30), "drive_token_refresh_failed")?
+            .post(DRIVE_TOKEN_ENDPOINT)
+            .form(&[
+                ("client_id", client_id.as_str()),
+                ("grant_type", "refresh_token"),
+                ("refresh_token", refresh_token.as_str()),
+            ])
+            .send()
+            .await
+            .map_err(|_| public_error("drive_token_refresh_failed"))?;
+        if !response.status().is_success() {
+            return Err(public_error("drive_token_refresh_failed"));
+        }
+        let token: TokenResponse = response
+            .json()
+            .await
+            .map_err(|_| public_error("drive_token_refresh_failed"))?;
+        if token.error.is_some() || token.access.is_none() {
+            return Err(public_error("drive_token_refresh_failed"));
+        }
+        let returned_scope = token.scope.as_deref();
+        if returned_scope.is_none_or(|scope| !exact_scope(scope)) {
+            return Err(public_error("drive_oauth_scope_mismatch"));
+        }
+        token
+            .access
+            .ok_or_else(|| public_error("drive_token_refresh_failed"))
     }
-    let token: TokenResponse = response
-        .json()
-        .await
-        .map_err(|_| public_error("drive_token_refresh_failed"))?;
-    if token.error.is_some() || token.access.is_none() {
-        return Err(public_error("drive_token_refresh_failed"));
+    .await;
+    match result {
+        Ok(token) => {
+            auth_session::drive_check(ticket)?;
+            auth_session::drive_finish(ticket);
+            Ok(token)
+        }
+        Err(error) => {
+            auth_session::drive_finish(ticket);
+            Err(error)
+        }
     }
-    let returned_scope = token.scope.as_deref();
-    if returned_scope.is_none_or(|scope| !exact_scope(scope)) {
-        return Err(public_error("drive_oauth_scope_mismatch"));
-    }
-    token.access.ok_or_else(|| public_error("drive_token_refresh_failed"))
 }
 
 fn drive_query_literal(value: &str) -> String {
@@ -916,10 +958,9 @@ async fn list_files(
 pub(crate) async fn broker_drive_list_archives(
     app: tauri::AppHandle,
 ) -> Result<Vec<DriveArchiveSummary>, String> {
-    let authorization =
-        native_auth::authorize_drive(&app, DriveOperation::BackupRead)
-            .await?
-            .into_invocation()?;
+    let authorization = native_auth::authorize_drive(&app, DriveOperation::BackupRead)
+        .await?
+        .into_invocation()?;
     authorization.require_operation(DriveOperation::BackupRead)?;
     let token = access_token(&authorization).await?;
     let files = list_files(
@@ -939,11 +980,7 @@ pub(crate) async fn broker_drive_list_archives(
             Some(DriveArchiveSummary {
                 file_id: file.id,
                 archive_id,
-                byte_count: file
-                    .size
-                    .as_deref()
-                    .and_then(|size| size.parse().ok())
-                    ?,
+                byte_count: file.size.as_deref().and_then(|size| size.parse().ok())?,
                 digest: file
                     .app_properties
                     .as_ref()
@@ -960,10 +997,9 @@ pub(crate) async fn broker_drive_upload_archive(
     archive_id: String,
     fs_state: State<'_, FilesystemBackupState>,
 ) -> Result<DriveArchiveSummary, String> {
-    let authorization =
-        native_auth::authorize_drive(&app, DriveOperation::BackupWrite)
-            .await?
-            .into_invocation()?;
+    let authorization = native_auth::authorize_drive(&app, DriveOperation::BackupWrite)
+        .await?
+        .into_invocation()?;
     authorization.require_operation(DriveOperation::BackupWrite)?;
     validate_archive_id(&archive_id)?;
     let root = fs_state
@@ -1089,7 +1125,11 @@ fn upload_archive_files(
 }
 
 fn summary_from_file(file: DriveFile, archive_id: &str) -> Result<DriveArchiveSummary, String> {
-    let byte_count = file.size.as_deref().and_then(|size| size.parse().ok()).ok_or_else(|| public_error("drive_provider_file_invalid"))?;
+    let byte_count = file
+        .size
+        .as_deref()
+        .and_then(|size| size.parse().ok())
+        .ok_or_else(|| public_error("drive_provider_file_invalid"))?;
     Ok(DriveArchiveSummary {
         file_id: file.id,
         archive_id: archive_id.to_owned(),
@@ -1308,10 +1348,9 @@ pub(crate) async fn broker_drive_restore_intent(
     archive_id: String,
     job_state: State<'_, BackupJobState>,
 ) -> Result<String, String> {
-    let authorization =
-        native_auth::authorize_drive(&app, DriveOperation::BackupRestore)
-            .await?
-            .into_invocation()?;
+    let authorization = native_auth::authorize_drive(&app, DriveOperation::BackupRestore)
+        .await?
+        .into_invocation()?;
     authorization.require_operation(DriveOperation::BackupRestore)?;
     validate_archive_id(&archive_id)?;
     job_state.issue_restore_intent(&archive_id)
@@ -1327,10 +1366,10 @@ pub(crate) async fn broker_drive_restore(
     app_state: State<'_, crate::AppState>,
     job_state: State<'_, BackupJobState>,
 ) -> Result<RestoreResult, String> {
-    let authorization =
-        native_auth::authorize_drive(&app, DriveOperation::BackupRestore)
-            .await?
-            .into_invocation()?;
+    let recovery_phrase = Zeroizing::new(recovery_phrase);
+    let authorization = native_auth::authorize_drive(&app, DriveOperation::BackupRestore)
+        .await?
+        .into_invocation()?;
     authorization.require_operation(DriveOperation::BackupRestore)?;
     validate_archive_id(&archive_id)?;
     validate_drive_file_id(&file_id)?;
@@ -1404,7 +1443,6 @@ pub(crate) async fn broker_drive_restore(
         manifest,
         bytes: archive_bytes,
     };
-    let recovery_phrase = Zeroizing::new(recovery_phrase);
     let work_dir = app_state.data_root.join("backup-staging");
     let result = tauri::async_runtime::spawn_blocking(move || {
         let outcome = backup::run_restore_job_from_envelope(
@@ -1431,6 +1469,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use url::Url;
 
     #[test]
     fn authorization_url_uses_pkce_and_only_drive_appdata_scope() {
@@ -1469,7 +1508,10 @@ mod tests {
             b"GET /oauth/google-drive/callback?state=s1&code=c1 HTTP/1.1\r\n\r\n",
         );
         assert_eq!(callback.state.as_str(), "s1");
-        assert_eq!(callback.code.as_ref().map(|value| value.as_str()), Some("c1"));
+        assert_eq!(
+            callback.code.as_ref().map(|value| value.as_str()),
+            Some("c1")
+        );
         assert!(callback.error.is_none());
     }
 
@@ -1568,7 +1610,10 @@ mod tests {
             b"GET /oauth/google-drive/callback?state=drive-state&code=drive-code HTTP/1.1\r\n\r\n",
         );
         assert_eq!(callback.state.as_str(), "drive-state");
-        assert_eq!(callback.code.as_ref().map(|value| value.as_str()), Some("drive-code"));
+        assert_eq!(
+            callback.code.as_ref().map(|value| value.as_str()),
+            Some("drive-code")
+        );
         let terminal = OAuthTerminal::default();
         terminal.begin_exchange().unwrap();
         terminal.cancel().unwrap();

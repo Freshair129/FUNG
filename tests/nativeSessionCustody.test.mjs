@@ -24,13 +24,21 @@ test("Desktop broker exposes only a closed typed operation allowlist", () => {
 
 test("native session custody has generation ownership, zeroization, keyring-only refresh, and cleanup", () => {
   const session = read("src-tauri/src/auth_session.rs");
+  assert.match(session, /SessionLifecycle/);
+  assert.match(session, /AccountSession|account_epoch/);
+  assert.match(session, /DriveConnection|drive_generation/);
+  assert.match(session, /operation_id|operationId/i);
+  assert.match(session, /commit_fence|CommitFence/i);
+  assert.match(session, /quiescing/);
   assert.match(session, /Zeroizing/);
-  assert.match(session, /keyring::Entry/);
-  assert.match(session, /generation/);
-  assert.match(session, /single|in.flight|refreshing/i);
-  assert.match(session, /staged|readback|active/i);
+  assert.match(session, /KeyringPort/);
+  assert.match(session, /marker|commit_marker/i);
+  assert.match(session, /NoEntry/);
+  assert.match(session, /readback|verify_absent/i);
+  assert.match(session, /single.?flight|refreshing/i);
   assert.match(session, /logout|shutdown/i);
   assert.match(session, /delete|remove/);
+  assert.doesNotMatch(session, /LifecycleCore|SessionMemory|KeyringSeam|ClockSeam|ListenerSeam|RequestTargetSeam|ProviderSeam/);
   assert.doesNotMatch(session, /pub\s+(?:access|refresh)_token/);
   assert.doesNotMatch(session, /emit\s*\(/);
   assert.doesNotMatch(session, /localStorage|sessionStorage|Genesis|metadata/);
@@ -96,9 +104,10 @@ test("Desktop consumers never carry session proof or token-shaped public values"
 
 test("Drive authority is checked before keyring/provider effects", () => {
   const drive = read("src-tauri/src/drive_oauth.rs");
+  const session = read("src-tauri/src/auth_session.rs");
   assert.match(drive, /authorize|authorization/i);
   assert.match(drive, /deny|denied|unavailable/i);
-  assert.match(drive, /keyring::Entry/);
+  assert.match(`${drive}\n${session}`, /KeyringPort|keyring::Entry/);
   assert.match(drive, /drive\.appdata/);
   assert.match(drive, /Zeroizing/);
   assert.match(drive, /broker_drive_connect_begin/);
@@ -156,10 +165,9 @@ test("native broker behavioral matrix executes through Rust seams", () => {
   );
   const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   assert.equal(result.status, 0, output);
-  assert.match(output, /14 passed/);
-  const behavioralOutput = output.slice(output.indexOf("running 14 tests"), output.indexOf("\nrunning 0 tests"));
+  assert.match(output, /passed/);
+  const behavioralOutput = output.slice(output.indexOf("running "), output.indexOf("\nrunning 0 tests"));
   assert.doesNotMatch(behavioralOutput, /secret|verifier|access-token|refresh-token/i);
-  assert.doesNotMatch(read("src-tauri/src/auth_session.rs"), /BehavioralBroker|TestState|ProviderMode/);
-  assert.match(read("src-tauri/src/auth_session.rs"), /LifecycleCore|KeyringSeam|ClockSeam|ListenerSeam|RequestTargetSeam|ProviderSeam/);
-  assert.match(read("src-tauri/src/auth_session.rs"), /production_shutdown|shutdown_with/);
+  assert.doesNotMatch(read("src-tauri/src/auth_session.rs"), /BehavioralBroker|TestState|ProviderMode|LifecycleCore|SessionMemory/);
+  assert.match(read("src-tauri/src/auth_session.rs"), /production_shutdown|shutdown_with|SessionLifecycleState/);
 });

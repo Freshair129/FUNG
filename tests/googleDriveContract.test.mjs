@@ -89,4 +89,8 @@ test("Drive provider work remains fenced by the live lifecycle engine", () => {
   assert.match(session, /drive_provider_refresh/);
   assert.match(session, /pending_operations/);
   assert.match(session, /account_begin_operation/);
+  assert.match(session, /OperationDrain|wait_empty/);
+  assert.match(rust, /drive_check\(ticket\)/);
+  assert.match(rust, /blocking_delete_file\(ticket/);
+  assert.match(rust, /download_file\(operation\.ticket/);
 });

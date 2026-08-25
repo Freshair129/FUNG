@@ -80,8 +80,6 @@ pub(crate) trait KeyringPort {
 
 pub(crate) trait ClockPort {
     fn now_ms(&self) -> u64;
-    #[cfg(test)]
-    fn advance(&mut self, _amount: u64) {}
 }
 pub(crate) trait ListenerCallbackPort {
     fn open(&mut self) -> Result<(), String>;
@@ -171,7 +169,41 @@ struct DriveCredential {
     connected: bool,
     quiescing: bool,
     slot_base: Option<String>,
-    pending_operation: Option<u64>,
+    pending_operations: HashSet<u64>,
+}
+
+#[derive(Default)]
+pub(crate) struct OperationDrain {
+    active: Mutex<usize>,
+    signal: Condvar,
+}
+
+impl OperationDrain {
+    fn admit(&self) {
+        if let Ok(mut active) = self.active.lock() {
+            *active += 1;
+        }
+    }
+
+    pub(crate) fn release(&self) {
+        if let Ok(mut active) = self.active.lock() {
+            *active = active.saturating_sub(1);
+            if *active == 0 {
+                self.signal.notify_all();
+            }
+        }
+    }
+
+    fn wait_empty(&self) {
+        if let Ok(mut active) = self.active.lock() {
+            while *active != 0 {
+                active = match self.signal.wait(active) {
+                    Ok(value) => value,
+                    Err(_) => return,
+                };
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -184,6 +216,7 @@ pub(crate) struct LifecycleTicket {
 
 pub(crate) struct AccountOperationGuard {
     ticket: LifecycleTicket,
+    drain: Arc<OperationDrain>,
 }
 
 impl AccountOperationGuard {
@@ -197,6 +230,7 @@ impl AccountOperationGuard {
 
 impl Drop for AccountOperationGuard {
     fn drop(&mut self) {
+        self.drain.release();
         if let Ok(mut lifecycle) = production_lifecycle().lock() {
             lifecycle.finish_account_operation(self.ticket);
         }
@@ -215,12 +249,12 @@ pub(crate) struct SessionLifecycle<K, C, L, P> {
     next_operation_id: u64,
     quiescing: bool,
     commit_fence: CommitFence,
-    #[cfg(test)]
-    deadline_ms: u64,
     keyring: K,
     clock: C,
     listener: L,
     provider: P,
+    account_drain: Arc<OperationDrain>,
+    drive_drain: Arc<OperationDrain>,
 }
 
 impl<K, C, L, P> SessionLifecycle<K, C, L, P>
@@ -250,18 +284,18 @@ where
                 connected: false,
                 quiescing: false,
                 slot_base: None,
-                pending_operation: None,
+                pending_operations: HashSet::new(),
             },
             account_epoch: 1,
             next_operation_id: 1,
             quiescing: false,
             commit_fence: CommitFence::default(),
-            #[cfg(test)]
-            deadline_ms: 0,
             keyring,
             clock,
             listener,
             provider,
+            account_drain: Arc::new(OperationDrain::default()),
+            drive_drain: Arc::new(OperationDrain::default()),
         }
     }
 
@@ -276,6 +310,13 @@ where
         self.account.user_id = None;
         self.account.email = None;
         self.listener.close();
+    }
+    fn mark_credential_cleanup_failed(&mut self) {
+        self.clear_memory();
+        self.account.state = SessionLifecycleState::CleanupFailed;
+        self.quiescing = true;
+        self.drive.quiescing = true;
+        self.drive.connected = false;
     }
     fn next_operation(&mut self) -> u64 {
         let id = self.next_operation_id;
@@ -293,31 +334,6 @@ where
     #[cfg(test)]
     pub(crate) fn disposed(&self) -> bool {
         self.account.pending_login.is_none() && self.account.access_token.is_none()
-    }
-    #[cfg(test)]
-    pub(crate) fn begin(&mut self) -> Result<LifecycleOutcome, String> {
-        self.listener.open()?;
-        let _ = self
-            .listener
-            .callback_target(b"GET /auth/callback HTTP/1.1\r\n\r\n", 0);
-        self.account.state = SessionLifecycleState::LoginPending;
-        let operation_id = self.next_operation();
-        self.account.pending_login_operation = Some(operation_id);
-        self.deadline_ms = self
-            .clock
-            .now_ms()
-            .saturating_add(LOGIN_TTL.as_millis() as u64);
-        self.account.pending_login = Some(PendingLogin {
-            request_id: "behavioral".to_owned(),
-            generation: self.account.generation,
-            port: 0,
-            state: Zeroizing::new("callback-state".to_owned()),
-            verifier: Zeroizing::new("pkce-verifier".to_owned()),
-            expires_at: SystemTime::now() + LOGIN_TTL,
-            callback: Arc::new(Mutex::new(None)),
-            cancelled: Arc::new(AtomicBool::new(false)),
-        });
-        Ok(self.outcome("login_pending", None))
     }
     pub(crate) fn begin_login(&mut self, pending: PendingLogin) -> Result<u64, String> {
         if self.quiescing
@@ -339,6 +355,8 @@ where
         let generation = self.account.generation;
         let operation_id = self.next_operation();
         self.account.pending_login_operation = Some(operation_id);
+        let mut pending = pending;
+        pending.generation = generation;
         self.account.pending_login = Some(pending);
         Ok(generation)
     }
@@ -361,6 +379,14 @@ where
         request_id: &str,
         generation: u64,
     ) -> Option<(PendingLogin, LifecycleTicket, P)> {
+        if self
+            .account
+            .pending_login
+            .as_ref()
+            .is_some_and(|pending| SystemTime::now() >= pending.expires_at)
+        {
+            return None;
+        }
         let pending = self.take_login(request_id, generation)?;
         let operation_id = self.account.pending_login_operation?;
         Some((
@@ -376,8 +402,7 @@ where
     }
 
     fn ensure_account_ticket(&self, ticket: LifecycleTicket) -> Result<(), String> {
-        if self.quiescing
-            || self.account_epoch != ticket.account_epoch
+        if self.account_epoch != ticket.account_epoch
             || self.account.generation != ticket.account_generation
             || self
                 .account
@@ -403,6 +428,7 @@ where
         }
         let operation_id = self.next_operation();
         self.account.pending_operations.insert(operation_id);
+        self.account_drain.admit();
         Ok(AccountOperationGuard {
             ticket: LifecycleTicket {
                 operation_id,
@@ -410,6 +436,7 @@ where
                 account_generation: self.account.generation,
                 drive_generation: self.drive.drive_generation,
             },
+            drain: self.account_drain.clone(),
         })
     }
 
@@ -471,46 +498,10 @@ where
         self.account.state = SessionLifecycleState::SignedOut;
         Ok(())
     }
-    #[cfg(test)]
-    pub(crate) fn complete(
+    pub(crate) fn accept_material(
         &mut self,
-        generation: u64,
-        callback: Result<Zeroizing<String>, &'static str>,
-        cancelled: bool,
+        material: LifecycleMaterial,
     ) -> Result<LifecycleOutcome, String> {
-        if generation != self.account.generation || self.quiescing {
-            self.clear_memory();
-            self.account.state = SessionLifecycleState::SignedOut;
-            return Err("stale_generation".to_owned());
-        }
-        if cancelled {
-            self.clear_memory();
-            self.account.state = SessionLifecycleState::SignedOut;
-            return Err("cancelled".to_owned());
-        }
-        if self.clock.now_ms() >= self.deadline_ms {
-            self.clear_memory();
-            self.account.state = SessionLifecycleState::SignedOut;
-            return Err("timeout".to_owned());
-        }
-        let code = callback.map_err(|code| {
-            self.clear_memory();
-            self.account.state = SessionLifecycleState::SignedOut;
-            code.to_owned()
-        })?;
-        let pending = self
-            .account
-            .pending_login
-            .take()
-            .ok_or_else(|| public_error("auth_request_not_found"))?;
-        let material = self
-            .provider
-            .exchange(code, pending.verifier)
-            .map_err(|error| {
-                self.clear_memory();
-                self.account.state = SessionLifecycleState::SignedOut;
-                error
-            })?;
         if let Err(error) = commit_credential(
             &mut self.keyring,
             ACCOUNT_DOMAIN,
@@ -519,61 +510,11 @@ where
             "keyring_unavailable",
             &mut self.commit_fence,
         ) {
-            self.clear_memory();
-            self.account.state = SessionLifecycleState::SignedOut;
+            if error == "cleanup_failed" {
+                self.mark_credential_cleanup_failed();
+            }
             return Err(error);
         }
-        self.account.access_token = Some(material.access);
-        self.listener.close();
-        self.account.state = SessionLifecycleState::Authenticated;
-        Ok(self.outcome("authenticated", None))
-    }
-    #[cfg(test)]
-    pub(crate) fn startup(&mut self) -> Result<LifecycleOutcome, String> {
-        let refresh = load_committed(&mut self.keyring, ACCOUNT_DOMAIN, ACCOUNT_MARKER)?
-            .ok_or_else(|| public_error("auth_required"))?;
-        let material = self.provider.refresh(refresh)?;
-        commit_credential(
-            &mut self.keyring,
-            ACCOUNT_DOMAIN,
-            ACCOUNT_MARKER,
-            &material.refresh,
-            "keyring_unavailable",
-            &mut self.commit_fence,
-        )?;
-        self.provider.observe("account-marker-verified");
-        self.account.access_token = Some(material.access);
-        self.account.state = SessionLifecycleState::Authenticated;
-        Ok(self.outcome("authenticated", None))
-    }
-    #[cfg(test)]
-    pub(crate) fn rotate_refresh(
-        &mut self,
-        token: Zeroizing<String>,
-    ) -> Result<LifecycleOutcome, String> {
-        commit_credential(
-            &mut self.keyring,
-            ACCOUNT_DOMAIN,
-            ACCOUNT_MARKER,
-            &token,
-            "keyring_unavailable",
-            &mut self.commit_fence,
-        )?;
-        self.account.state = SessionLifecycleState::Authenticated;
-        Ok(self.outcome("authenticated", None))
-    }
-    pub(crate) fn accept_material(
-        &mut self,
-        material: LifecycleMaterial,
-    ) -> Result<LifecycleOutcome, String> {
-        commit_credential(
-            &mut self.keyring,
-            ACCOUNT_DOMAIN,
-            ACCOUNT_MARKER,
-            &material.refresh,
-            "keyring_unavailable",
-            &mut self.commit_fence,
-        )?;
         self.provider.observe("account-marker-verified");
         self.account.access_token = Some(material.access);
         if let Some(user_id) = material.user_id {
@@ -624,6 +565,7 @@ where
             drive_generation: self.drive.drive_generation,
         };
         self.account.pending_operations.insert(operation_id);
+        self.account_drain.admit();
         self.account.refresh_flight = Some(Arc::new((Mutex::new(false), Condvar::new())));
         self.account.state = SessionLifecycleState::Refreshing;
         Ok(RefreshAdmission::Work {
@@ -646,17 +588,24 @@ where
             .pending_operations
             .contains(&ticket.operation_id)
             && self.account_epoch == ticket.account_epoch
-            && self.account.generation == ticket.account_generation
-            && !self.quiescing;
+            && self.account.generation == ticket.account_generation;
         if !valid {
-            return (Err(public_error("auth_transition_in_progress")), None);
+            self.account.pending_operations.remove(&ticket.operation_id);
+            self.account_drain.release();
+            return (
+                Err(public_error("auth_transition_in_progress")),
+                self.account.refresh_flight.take(),
+            );
         }
         self.account.pending_operations.remove(&ticket.operation_id);
+        self.account_drain.release();
         let notify = self.account.refresh_flight.take();
         let outcome = match result {
             Ok(material) => {
                 if let Err(error) = self.accept_material(material) {
-                    self.account.state = SessionLifecycleState::RefreshFailed;
+                    if self.account.state != SessionLifecycleState::CleanupFailed {
+                        self.account.state = SessionLifecycleState::RefreshFailed;
+                    }
                     Err(error)
                 } else {
                     self.account
@@ -679,24 +628,6 @@ where
         };
         (outcome, notify)
     }
-    #[cfg(test)]
-    pub(crate) fn refresh_single_flight(
-        &mut self,
-        waiters: usize,
-    ) -> Result<Vec<LifecycleOutcome>, String> {
-        if waiters == 0 {
-            return Ok(Vec::new());
-        }
-        let outcome = self.startup()?;
-        Ok((0..waiters).map(|_| outcome).collect())
-    }
-    #[cfg(test)]
-    pub(crate) fn protected(&mut self, authorized: bool) -> Result<LifecycleOutcome, String> {
-        if !authorized || self.quiescing {
-            return Err(public_error("authorization_denied"));
-        }
-        Ok(self.outcome("authenticated", None))
-    }
     pub(crate) fn logout(&mut self) -> Result<LifecycleOutcome, String> {
         self.quiescing = true;
         self.account_epoch = self.account_epoch.wrapping_add(1);
@@ -705,7 +636,7 @@ where
         self.account.refresh_flight = None;
         self.drive.drive_generation = self.drive.drive_generation.wrapping_add(1);
         self.drive.quiescing = true;
-        self.drive.pending_operation = None;
+        self.drive.pending_operations.clear();
         self.clear_memory();
         let cleanup = clear_credential(
             &mut self.keyring,
@@ -743,7 +674,7 @@ where
         self.account.refresh_flight = None;
         self.drive.drive_generation = self.drive.drive_generation.wrapping_add(1);
         self.drive.quiescing = true;
-        self.drive.pending_operation = None;
+        self.drive.pending_operations.clear();
         self.clear_memory();
         if let Err(error) = clear_credential(
             &mut self.keyring,
@@ -790,10 +721,6 @@ where
         self.keyring.inject_cleanup_failure();
     }
     #[cfg(test)]
-    pub(crate) fn advance_clock(&mut self, amount: u64) {
-        self.clock.advance(amount);
-    }
-    #[cfg(test)]
     pub(crate) fn fail_provider_with(&mut self, code: &'static str) {
         self.provider.inject_failure(code);
     }
@@ -818,8 +745,9 @@ where
         }
         let operation_id = self.next_operation();
         register_drive_domain(&mut self.keyring, &slot_base)?;
+        self.drive_drain.admit();
         self.drive.slot_base = Some(slot_base);
-        self.drive.pending_operation = Some(operation_id);
+        self.drive.pending_operations.insert(operation_id);
         Ok(LifecycleTicket {
             operation_id,
             account_epoch: self.account_epoch,
@@ -838,39 +766,43 @@ where
             .slot_base
             .clone()
             .ok_or_else(|| public_error("drive_token_storage_failed"))?;
-        commit_credential(
+        if let Err(error) = commit_credential(
             &mut self.keyring,
             &base,
             &format!("{base}-marker"),
             token,
             "drive_token_storage_failed",
             &mut self.commit_fence,
-        )?;
+        ) {
+            if error == "cleanup_failed" {
+                self.mark_credential_cleanup_failed();
+            }
+            return Err(error);
+        }
         self.provider.observe("drive-marker-verified");
         self.drive.connected = true;
         Ok(())
     }
     pub(crate) fn ensure_drive_ticket(&self, ticket: LifecycleTicket) -> Result<(), String> {
         if self.quiescing
-            || self.drive.quiescing
             || self.account_epoch != ticket.account_epoch
             || self.account.generation != ticket.account_generation
             || self.drive.drive_generation != ticket.drive_generation
-            || self.drive.pending_operation != Some(ticket.operation_id)
+            || !self.drive.pending_operations.contains(&ticket.operation_id)
         {
             return Err(public_error("drive_transition_in_progress"));
         }
         Ok(())
     }
     pub(crate) fn finish_drive_operation(&mut self, ticket: LifecycleTicket) {
-        if self.drive.pending_operation == Some(ticket.operation_id) {
-            self.drive.pending_operation = None;
-        }
+        self.drive.pending_operations.remove(&ticket.operation_id);
+        self.drive_drain.release();
     }
     pub(crate) fn disconnect_drive(&mut self) -> Result<(), String> {
         self.drive.quiescing = true;
+        self.drive_drain.wait_empty();
         self.drive.drive_generation = self.drive.drive_generation.wrapping_add(1);
-        self.drive.pending_operation = None;
+        self.drive.pending_operations.clear();
         if let Some(base) = self.drive.slot_base.clone() {
             clear_credential(
                 &mut self.keyring,
@@ -945,25 +877,112 @@ fn index_slot(domain: &str) -> String {
         format!("{domain}-slot-index")
     }
 }
-fn marker_version(value: &Zeroizing<String>) -> Result<u64, String> {
-    value
-        .strip_prefix('v')
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|v| *v > 0)
-        .ok_or_else(|| public_error("keyring_unavailable"))
+const KEYRING_FORMAT_VERSION: u8 = 1;
+
+#[derive(Serialize, Deserialize)]
+struct CredentialMarker {
+    format_version: u8,
+    domain: String,
+    version: u64,
+    slot: String,
+    integrity: String,
+    content_sha256: String,
 }
 
 #[derive(Serialize, Deserialize)]
 struct SlotIndex {
+    format_version: u8,
+    domain: String,
     versions: Vec<u64>,
+    integrity: String,
 }
 
-fn parse_index(value: &Zeroizing<String>) -> Result<Vec<u64>, String> {
+#[derive(Serialize, Deserialize)]
+struct DomainRegistry {
+    format_version: u8,
+    domains: Vec<String>,
+    integrity: String,
+}
+
+fn content_sha256(value: &str) -> String {
+    format!("{:x}", Sha256::digest(value.as_bytes()))
+}
+
+fn marker_digest(domain: &str, version: u64, slot: &str, content_hash: &str) -> String {
+    content_sha256(&format!(
+        "{KEYRING_FORMAT_VERSION}|{domain}|{version}|{slot}|{content_hash}"
+    ))
+}
+
+fn index_digest(domain: &str, versions: &[u64]) -> String {
+    content_sha256(&format!(
+        "{KEYRING_FORMAT_VERSION}|{domain}|{}",
+        versions
+            .iter()
+            .map(u64::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    ))
+}
+
+fn registry_digest(domains: &[String]) -> String {
+    content_sha256(&format!(
+        "{KEYRING_FORMAT_VERSION}|{}",
+        domains.join("\u{1f}")
+    ))
+}
+
+fn encode_marker(domain: &str, version: u64, value: &str) -> Result<Zeroizing<String>, String> {
+    let slot = versioned_slot(domain, version);
+    let content_sha256 = content_sha256(value);
+    serde_json::to_string(&CredentialMarker {
+        format_version: KEYRING_FORMAT_VERSION,
+        domain: domain.to_owned(),
+        version,
+        slot: slot.clone(),
+        integrity: marker_digest(domain, version, &slot, &content_sha256),
+        content_sha256,
+    })
+    .map(Zeroizing::new)
+    .map_err(|_| public_error("keyring_unavailable"))
+}
+
+fn parse_marker(value: &Zeroizing<String>, domain: &str) -> Result<CredentialMarker, String> {
+    let marker = serde_json::from_str::<CredentialMarker>(value.as_str())
+        .map_err(|_| public_error("keyring_unavailable"))?;
+    let expected_slot = versioned_slot(domain, marker.version);
+    if marker.format_version != KEYRING_FORMAT_VERSION
+        || marker.domain != domain
+        || marker.version == 0
+        || marker.slot != expected_slot
+        || marker.integrity
+            != marker_digest(domain, marker.version, &marker.slot, &marker.content_sha256)
+    {
+        return Err(public_error("keyring_unavailable"));
+    }
+    Ok(marker)
+}
+
+fn encode_index(domain: &str, versions: &[u64]) -> Result<Zeroizing<String>, String> {
+    serde_json::to_string(&SlotIndex {
+        format_version: KEYRING_FORMAT_VERSION,
+        domain: domain.to_owned(),
+        versions: versions.to_vec(),
+        integrity: index_digest(domain, versions),
+    })
+    .map(Zeroizing::new)
+    .map_err(|_| public_error("keyring_unavailable"))
+}
+
+fn parse_index(value: &Zeroizing<String>, domain: &str) -> Result<Vec<u64>, String> {
     let index = serde_json::from_str::<SlotIndex>(value.as_str())
         .map_err(|_| public_error("keyring_unavailable"))?;
     let mut versions = index.versions;
     versions.sort_unstable();
-    if versions.is_empty()
+    if index.format_version != KEYRING_FORMAT_VERSION
+        || index.domain != domain
+        || index.integrity != index_digest(domain, &versions)
+        || versions.is_empty()
         || versions.iter().any(|version| *version == 0)
         || versions.windows(2).any(|pair| pair[0] == pair[1])
     {
@@ -972,19 +991,19 @@ fn parse_index(value: &Zeroizing<String>) -> Result<Vec<u64>, String> {
     Ok(versions)
 }
 
-fn encode_index(versions: &[u64]) -> Result<Zeroizing<String>, String> {
-    serde_json::to_string(&SlotIndex {
-        versions: versions.to_vec(),
-    })
-    .map(Zeroizing::new)
-    .map_err(|_| public_error("keyring_unavailable"))
-}
-
 fn register_drive_domain<K: KeyringPort>(keyring: &mut K, domain: &str) -> Result<(), String> {
     let current = keyring.read(DRIVE_DOMAINS_INDEX)?;
     let mut domains = match current {
-        Some(value) => serde_json::from_str::<Vec<String>>(value.as_str())
-            .map_err(|_| public_error("keyring_unavailable"))?,
+        Some(value) => {
+            let registry = serde_json::from_str::<DomainRegistry>(value.as_str())
+                .map_err(|_| public_error("keyring_unavailable"))?;
+            if registry.format_version != KEYRING_FORMAT_VERSION
+                || registry.integrity != registry_digest(&registry.domains)
+            {
+                return Err(public_error("keyring_unavailable"));
+            }
+            registry.domains
+        }
         None => Vec::new(),
     };
     if domains.iter().any(|entry| entry == domain) {
@@ -992,7 +1011,12 @@ fn register_drive_domain<K: KeyringPort>(keyring: &mut K, domain: &str) -> Resul
     }
     domains.push(domain.to_owned());
     let encoded = Zeroizing::new(
-        serde_json::to_string(&domains).map_err(|_| public_error("keyring_unavailable"))?,
+        serde_json::to_string(&DomainRegistry {
+            format_version: KEYRING_FORMAT_VERSION,
+            integrity: registry_digest(&domains),
+            domains,
+        })
+        .map_err(|_| public_error("keyring_unavailable"))?,
     );
     keyring
         .write(DRIVE_DOMAINS_INDEX, &encoded)
@@ -1000,7 +1024,15 @@ fn register_drive_domain<K: KeyringPort>(keyring: &mut K, domain: &str) -> Resul
     if !keyring
         .read(DRIVE_DOMAINS_INDEX)?
         .as_ref()
-        .is_some_and(|value| value.as_str() == encoded.as_str())
+        .is_some_and(|value| {
+            value.as_str() == encoded.as_str()
+                && serde_json::from_str::<DomainRegistry>(value.as_str())
+                    .ok()
+                    .is_some_and(|registry| {
+                        registry.format_version == KEYRING_FORMAT_VERSION
+                            && registry.integrity == registry_digest(&registry.domains)
+                    })
+        })
     {
         return Err(public_error("keyring_unavailable"));
     }
@@ -1064,9 +1096,10 @@ fn load_committed<K: KeyringPort>(
     let marker_value = keyring.read(marker)?;
     let index = index_slot(domain);
     let index_value = keyring.read(&index)?;
-    let Some(marker_value) = marker_value else {
-        if let Some(index_value) = index_value {
-            let versions = parse_index(&index_value)?;
+    match (marker_value, index_value) {
+        (None, None) => Ok(None),
+        (None, Some(index_value)) => {
+            let versions = parse_index(&index_value, domain)?;
             delete_slots(keyring, domain, &versions)?;
             keyring
                 .delete(&index)
@@ -1074,46 +1107,86 @@ fn load_committed<K: KeyringPort>(
             keyring
                 .verify_absent(&index)
                 .map_err(|_| public_error("cleanup_failed"))?;
+            Ok(None)
         }
-        return Ok(None);
-    };
-    let index_value = index_value.ok_or_else(|| public_error("keyring_unavailable"))?;
-    let mut versions = parse_index(&index_value)?;
-    let version = marker_version(&marker_value)?;
-    if !versions.contains(&version) {
-        return Err(public_error("keyring_unavailable"));
+        (Some(_), None) => Err(public_error("keyring_unavailable")),
+        (Some(marker_value), Some(index_value)) => {
+            let marker_record = parse_marker(&marker_value, domain)?;
+            let versions = parse_index(&index_value, domain)?;
+            if !versions.contains(&marker_record.version) {
+                return Err(public_error("keyring_unavailable"));
+            }
+            let slot = versioned_slot(domain, marker_record.version);
+            let value = keyring
+                .read(&slot)?
+                .ok_or_else(|| public_error("keyring_unavailable"))?;
+            if value.trim().is_empty()
+                || content_sha256(value.as_str()) != marker_record.content_sha256
+            {
+                return Err(public_error("keyring_unavailable"));
+            }
+            let old_versions = versions
+                .into_iter()
+                .filter(|candidate| *candidate != marker_record.version)
+                .collect::<Vec<_>>();
+            delete_slots(keyring, domain, &old_versions)?;
+            let compacted = encode_index(domain, &[marker_record.version])?;
+            keyring
+                .write(&index, &compacted)
+                .map_err(|_| public_error("cleanup_failed"))?;
+            if !keyring
+                .read(&index)
+                .map_err(|_| public_error("cleanup_failed"))?
+                .as_ref()
+                .is_some_and(|value| value.as_str() == compacted.as_str())
+            {
+                return Err(public_error("cleanup_failed"));
+            }
+            Ok(Some(value))
+        }
     }
-    versions.retain(|candidate| *candidate != version);
-    delete_slots(keyring, domain, &versions)?;
-    let compacted = encode_index(&[version])?;
-    keyring
-        .write(&index, &compacted)
-        .map_err(|_| public_error("cleanup_failed"))?;
-    if !keyring
-        .read(&index)
-        .ok()
-        .flatten()
-        .as_ref()
-        .is_some_and(|value| value.as_str() == compacted.as_str())
-    {
-        return Err(public_error("cleanup_failed"));
+}
+
+fn restore_marker<K: KeyringPort>(
+    keyring: &mut K,
+    marker: &str,
+    previous: Option<&Zeroizing<String>>,
+) -> Result<(), String> {
+    match previous {
+        Some(value) => {
+            keyring
+                .write(marker, value)
+                .map_err(|_| public_error("cleanup_failed"))?;
+            if !keyring
+                .read(marker)
+                .map_err(|_| public_error("cleanup_failed"))?
+                .as_ref()
+                .is_some_and(|current| current.as_str() == value.as_str())
+            {
+                return Err(public_error("cleanup_failed"));
+            }
+        }
+        None => {
+            keyring
+                .delete(marker)
+                .map_err(|_| public_error("cleanup_failed"))?;
+            keyring
+                .verify_absent(marker)
+                .map_err(|_| public_error("cleanup_failed"))?;
+        }
     }
-    let slot = versioned_slot(domain, version);
-    let value = keyring
-        .read(&slot)?
-        .ok_or_else(|| public_error("keyring_unavailable"))?;
-    if value.trim().is_empty() {
-        return Err(public_error("keyring_unavailable"));
-    }
-    Ok(Some(value))
+    Ok(())
 }
 
 fn compensate_commit<K: KeyringPort>(
     keyring: &mut K,
     domain: &str,
     index: &str,
+    marker: &str,
     previous_index: Option<&Zeroizing<String>>,
+    previous_marker: Option<&Zeroizing<String>>,
     version: u64,
+    staged_marker: &Zeroizing<String>,
 ) -> Result<(), String> {
     let slot = versioned_slot(domain, version);
     keyring
@@ -1122,6 +1195,15 @@ fn compensate_commit<K: KeyringPort>(
     keyring
         .verify_absent(&slot)
         .map_err(|_| public_error("cleanup_failed"))?;
+    match keyring
+        .read(marker)
+        .map_err(|_| public_error("cleanup_failed"))?
+    {
+        Some(current) if current.as_str() == staged_marker.as_str() => {
+            restore_marker(keyring, marker, previous_marker)?;
+        }
+        Some(_) | None => {}
+    }
     restore_index(keyring, index, previous_index)
 }
 
@@ -1136,13 +1218,20 @@ fn commit_credential<K: KeyringPort>(
     let marker_value = keyring.read(marker)?;
     let index = index_slot(domain);
     let previous_index = keyring.read(&index)?;
+    let previous_marker = marker_value.clone();
     let current = match (&marker_value, &previous_index) {
         (Some(marker_value), Some(index_value)) => {
-            let current = marker_version(marker_value)?;
-            if !parse_index(index_value)?.contains(&current) {
+            let marker_record = parse_marker(marker_value, domain)?;
+            let current_slot = versioned_slot(domain, marker_record.version);
+            let current_value = keyring
+                .read(&current_slot)?
+                .ok_or_else(|| public_error(error_code))?;
+            if content_sha256(current_value.as_str()) != marker_record.content_sha256
+                || !parse_index(index_value, domain)?.contains(&marker_record.version)
+            {
                 return Err(public_error(error_code));
             }
-            current
+            marker_record.version
         }
         (None, None) => 0,
         _ => return Err(public_error(error_code)),
@@ -1150,53 +1239,118 @@ fn commit_credential<K: KeyringPort>(
     let next = current.saturating_add(1);
     let mut versions = previous_index
         .as_ref()
-        .map(parse_index)
+        .map(|value| parse_index(value, domain))
         .transpose()?
         .unwrap_or_default();
     versions.push(next);
-    let staged_index = encode_index(&versions)?;
+    let staged_index = encode_index(domain, &versions)?;
     if keyring.write(&index, &staged_index).is_err()
         || !keyring
             .read(&index)
             .ok()
             .flatten()
             .as_ref()
-            .is_some_and(|value| value.as_str() == staged_index.as_str())
+            .is_some_and(|value| {
+                value.as_str() == staged_index.as_str() && parse_index(value, domain).is_ok()
+            })
     {
         let _ = restore_index(keyring, &index, previous_index.as_ref());
         return Err(public_error(error_code));
     }
     let new_slot = versioned_slot(domain, next);
     if keyring.write(&new_slot, value).is_err() {
-        let cleanup = compensate_commit(keyring, domain, &index, previous_index.as_ref(), next);
+        let staged_marker = encode_marker(domain, next, value)?;
+        let cleanup = compensate_commit(
+            keyring,
+            domain,
+            &index,
+            marker,
+            previous_index.as_ref(),
+            previous_marker.as_ref(),
+            next,
+            &staged_marker,
+        );
         return Err(cleanup.err().unwrap_or_else(|| public_error(error_code)));
     }
     let staged = match keyring.read(&new_slot) {
         Ok(Some(staged)) if staged.as_str() == value.as_str() => staged,
         Ok(_) | Err(_) => {
-            let cleanup = compensate_commit(keyring, domain, &index, previous_index.as_ref(), next);
+            let staged_marker = encode_marker(domain, next, value)?;
+            let cleanup = compensate_commit(
+                keyring,
+                domain,
+                &index,
+                marker,
+                previous_index.as_ref(),
+                previous_marker.as_ref(),
+                next,
+                &staged_marker,
+            );
             return Err(cleanup.err().unwrap_or_else(|| public_error(error_code)));
         }
     };
     drop(staged);
-    let marker_value = Zeroizing::new(format!("v{next}"));
+    let marker_value = encode_marker(domain, next, value)?;
     if keyring.write(marker, &marker_value).is_err() {
-        let cleanup = compensate_commit(keyring, domain, &index, previous_index.as_ref(), next);
+        let cleanup = compensate_commit(
+            keyring,
+            domain,
+            &index,
+            marker,
+            previous_index.as_ref(),
+            previous_marker.as_ref(),
+            next,
+            &marker_value,
+        );
         return Err(cleanup.err().unwrap_or_else(|| public_error(error_code)));
     }
     match keyring.read(marker) {
-        Ok(Some(value)) if value.as_str() == marker_value.as_str() => {}
-        Ok(Some(value)) if marker_value.as_str() != value.as_str() => {
-            let cleanup = compensate_commit(keyring, domain, &index, previous_index.as_ref(), next);
+        Ok(Some(value)) if value.as_str() == marker_value.as_str() => {
+            let parsed = parse_marker(&value, domain)?;
+            if parsed.slot != versioned_slot(domain, next) {
+                let cleanup = compensate_commit(
+                    keyring,
+                    domain,
+                    &index,
+                    marker,
+                    previous_index.as_ref(),
+                    previous_marker.as_ref(),
+                    next,
+                    &marker_value,
+                );
+                return Err(cleanup
+                    .err()
+                    .unwrap_or_else(|| public_error("cleanup_failed")));
+            }
+        }
+        Ok(Some(_)) => {
+            let cleanup = compensate_commit(
+                keyring,
+                domain,
+                &index,
+                marker,
+                previous_index.as_ref(),
+                previous_marker.as_ref(),
+                next,
+                &marker_value,
+            );
             return Err(cleanup
                 .err()
                 .unwrap_or_else(|| public_error("cleanup_failed")));
         }
         Ok(None) | Err(_) => {
-            let cleanup = compensate_commit(keyring, domain, &index, previous_index.as_ref(), next);
+            let cleanup = compensate_commit(
+                keyring,
+                domain,
+                &index,
+                marker,
+                previous_index.as_ref(),
+                previous_marker.as_ref(),
+                next,
+                &marker_value,
+            );
             return Err(cleanup.err().unwrap_or_else(|| public_error(error_code)));
         }
-        _ => return Err(public_error("cleanup_failed")),
     }
     if current > 0 {
         let old_slot = versioned_slot(domain, current);
@@ -1204,14 +1358,16 @@ fn commit_credential<K: KeyringPort>(
             return Err(public_error("cleanup_failed"));
         }
     }
-    let compacted = encode_index(&[next])?;
+    let compacted = encode_index(domain, &[next])?;
     if keyring.write(&index, &compacted).is_err()
         || !keyring
             .read(&index)
             .ok()
             .flatten()
             .as_ref()
-            .is_some_and(|value| value.as_str() == compacted.as_str())
+            .is_some_and(|value| {
+                value.as_str() == compacted.as_str() && parse_index(value, domain).is_ok()
+            })
     {
         return Err(public_error("cleanup_failed"));
     }
@@ -1225,20 +1381,22 @@ fn clear_credential<K: KeyringPort>(
     marker: &str,
     _fence: &mut CommitFence,
 ) -> Result<(), String> {
+    let index = index_slot(domain);
+    let _ = load_committed(keyring, domain, marker).map_err(|_| public_error("cleanup_failed"))?;
     let marker_value = keyring
         .read(marker)
         .map_err(|_| public_error("cleanup_failed"))?;
-    let index = index_slot(domain);
     let index_value = keyring
         .read(&index)
         .map_err(|_| public_error("cleanup_failed"))?;
     let versions = match (marker_value, index_value) {
         (None, None) => Vec::new(),
         (Some(marker_value), Some(index_value)) => {
-            let current =
-                marker_version(&marker_value).map_err(|_| public_error("cleanup_failed"))?;
-            let versions = parse_index(&index_value)?;
-            if !versions.contains(&current) {
+            let marker_record =
+                parse_marker(&marker_value, domain).map_err(|_| public_error("cleanup_failed"))?;
+            let versions =
+                parse_index(&index_value, domain).map_err(|_| public_error("cleanup_failed"))?;
+            if !versions.contains(&marker_record.version) {
                 return Err(public_error("cleanup_failed"));
             }
             versions
@@ -1475,11 +1633,14 @@ fn production_lifecycle() -> &'static Mutex<NativeSessionLifecycle> {
         ))
     })
 }
-pub(crate) fn drive_begin(slot_base: String) -> Result<LifecycleTicket, String> {
-    production_lifecycle()
+pub(crate) fn drive_begin(
+    slot_base: String,
+) -> Result<(LifecycleTicket, Arc<OperationDrain>), String> {
+    let mut lifecycle = production_lifecycle()
         .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .begin_drive_operation(slot_base)
+        .map_err(|_| public_error("auth_unavailable"))?;
+    let ticket = lifecycle.begin_drive_operation(slot_base)?;
+    Ok((ticket, lifecycle.drive_drain.clone()))
 }
 pub(crate) fn account_begin_operation() -> Result<AccountOperationGuard, String> {
     production_lifecycle()
@@ -1582,9 +1743,14 @@ pub(crate) fn startup_recover() -> Result<(), String> {
     let result = (|| {
         load_committed(&mut lifecycle.keyring, ACCOUNT_DOMAIN, ACCOUNT_MARKER)?;
         if let Some(domains) = lifecycle.keyring.read(DRIVE_DOMAINS_INDEX)? {
-            let domains = serde_json::from_str::<Vec<String>>(domains.as_str())
+            let registry = serde_json::from_str::<DomainRegistry>(domains.as_str())
                 .map_err(|_| public_error("keyring_unavailable"))?;
-            for domain in domains {
+            if registry.format_version != KEYRING_FORMAT_VERSION
+                || registry.integrity != registry_digest(&registry.domains)
+            {
+                return Err(public_error("keyring_unavailable"));
+            }
+            for domain in registry.domains {
                 if domain.is_empty() || domain.chars().any(char::is_control) {
                     return Err(public_error("keyring_unavailable"));
                 }
@@ -2799,9 +2965,6 @@ mod tests {
         fn now_ms(&self) -> u64 {
             self.now
         }
-        fn advance(&mut self, amount: u64) {
-            self.now += amount;
-        }
     }
     #[derive(Default)]
     struct FakeListener {
@@ -2903,136 +3066,233 @@ mod tests {
         )
     }
 
+    fn pending_login(expired: bool) -> PendingLogin {
+        PendingLogin {
+            request_id: "behavioral".to_owned(),
+            generation: 0,
+            port: 0,
+            state: Zeroizing::new("callback-state".to_owned()),
+            verifier: Zeroizing::new("pkce-verifier".to_owned()),
+            expires_at: if expired {
+                SystemTime::UNIX_EPOCH
+            } else {
+                SystemTime::now() + LOGIN_TTL
+            },
+            callback: Arc::new(Mutex::new(None)),
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn take_login(
+        broker: &mut SessionLifecycle<FakeKeyring, FakeClock, FakeListener, FakeProvider>,
+        expired: bool,
+    ) -> Option<(PendingLogin, LifecycleTicket, FakeProvider)> {
+        let generation = broker.generation();
+        broker.begin_login(pending_login(expired)).unwrap();
+        broker.take_login_for_exchange("behavioral", generation)
+    }
+
+    fn complete_login(
+        broker: &mut SessionLifecycle<FakeKeyring, FakeClock, FakeListener, FakeProvider>,
+        pending: PendingLogin,
+        ticket: LifecycleTicket,
+        mut provider: FakeProvider,
+        callback: Result<Zeroizing<String>, &'static str>,
+    ) -> Result<LifecycleOutcome, String> {
+        let result = match callback {
+            Ok(code) => provider.exchange(code, pending.verifier),
+            Err(error) => Err(error.to_owned()),
+        };
+        broker.complete_login(ticket, result)
+    }
+
+    fn refresh_once(
+        broker: &mut SessionLifecycle<FakeKeyring, FakeClock, FakeListener, FakeProvider>,
+    ) -> Result<Zeroizing<String>, String> {
+        let admission = broker.begin_refresh()?;
+        match admission {
+            RefreshAdmission::Work {
+                ticket,
+                refresh,
+                mut provider,
+            } => {
+                let result = provider.refresh(refresh);
+                let (result, notify) = broker.finish_refresh(ticket, result);
+                if let Some(notify) = notify {
+                    let (lock, signal) = &*notify;
+                    *lock.lock().unwrap() = true;
+                    signal.notify_all();
+                }
+                result
+            }
+            RefreshAdmission::Ready(token) => Ok(token),
+            RefreshAdmission::Wait(_) => Err(public_error("auth_refresh_in_progress")),
+        }
+    }
+
     #[test]
     fn native_behavioral_success_redacted_and_disposed() {
         let mut broker = make_broker();
-        assert_eq!(broker.begin().unwrap().state, "login_pending");
+        let (pending, ticket, provider) = take_login(&mut broker, false).unwrap();
         assert_eq!(
-            broker
-                .complete(
-                    broker.generation(),
-                    Ok(Zeroizing::new("code".to_owned())),
-                    false
-                )
-                .unwrap()
-                .state,
+            complete_login(
+                &mut broker,
+                pending,
+                ticket,
+                provider,
+                Ok(Zeroizing::new("code".to_owned()))
+            )
+            .unwrap()
+            .state,
             "authenticated"
         );
         assert_eq!(broker.logout().unwrap().state, "signed_out");
         assert!(broker.disposed());
     }
+
     #[test]
     fn native_behavioral_startup_missing_and_restart() {
         let mut broker = make_broker();
-        assert_eq!(broker.startup().unwrap_err(), "auth_required");
+        assert!(matches!(broker.begin_refresh(), Err(error) if error == "auth_required"));
         broker.seed_active("restart").unwrap();
-        assert_eq!(broker.startup().unwrap().state, "authenticated");
+        assert_eq!(refresh_once(&mut broker).unwrap().as_str(), "access");
         assert_eq!(broker.logout().unwrap().state, "signed_out");
     }
+
     #[test]
     fn native_behavioral_rotation_order_and_staged_failures() {
         let mut broker = make_broker();
         assert_eq!(
             broker
-                .rotate_refresh(Zeroizing::new("new".to_owned()))
+                .accept_material(LifecycleMaterial {
+                    access: Zeroizing::new("access".to_owned()),
+                    refresh: Zeroizing::new("new".to_owned()),
+                    user_id: None,
+                    email: None,
+                    access_expires_at_ms: Some(3_600_000),
+                })
                 .unwrap()
                 .state,
             "authenticated"
         );
-        for failure in 0..5 {
+        for failure in 0..10 {
             let mut failing = make_broker();
             failing.fail_keyring_at(failure);
             assert!(failing
-                .rotate_refresh(Zeroizing::new("new".to_owned()))
+                .accept_material(LifecycleMaterial {
+                    access: Zeroizing::new("access".to_owned()),
+                    refresh: Zeroizing::new("new".to_owned()),
+                    user_id: None,
+                    email: None,
+                    access_expires_at_ms: Some(3_600_000),
+                })
                 .is_err());
         }
     }
+
     #[test]
     fn native_behavioral_refresh_single_flight() {
         let mut broker = make_broker();
         broker.seed_active("refresh").unwrap();
-        let outcomes = broker.refresh_single_flight(10).unwrap();
-        assert_eq!(outcomes.len(), 10);
-        assert_eq!(broker.provider_calls(), 1);
+        let admission = broker.begin_refresh().unwrap();
+        assert!(matches!(
+            broker.begin_refresh().unwrap(),
+            RefreshAdmission::Wait(_)
+        ));
+        if let RefreshAdmission::Work {
+            ticket,
+            refresh,
+            mut provider,
+        } = admission
+        {
+            let (result, notify) = broker.finish_refresh(ticket, provider.refresh(refresh));
+            assert_eq!(result.unwrap().as_str(), "access");
+            if let Some(notify) = notify {
+                let (lock, signal) = &*notify;
+                *lock.lock().unwrap() = true;
+                signal.notify_all();
+            }
+        } else {
+            panic!("first refresh did not own the flight");
+        }
     }
+
     #[test]
     fn native_behavioral_denial_before_provider_effect() {
         let mut broker = make_broker();
-        assert_eq!(broker.protected(false).unwrap_err(), "authorization_denied");
+        broker.quiescing = true;
+        assert!(matches!(
+            broker.begin_account_operation(),
+            Err(error) if error == "auth_transition_in_progress"
+        ));
         assert_eq!(broker.provider_calls(), 0);
         assert_eq!(broker.keyring_events(), 0);
     }
+
     #[test]
     fn native_behavioral_malformed_callback() {
         let mut broker = make_broker();
-        broker.begin().unwrap();
+        let (pending, ticket, provider) = take_login(&mut broker, false).unwrap();
         assert_eq!(
-            broker
-                .complete(broker.generation(), Err("malformed_callback"), false)
-                .unwrap_err(),
+            complete_login(
+                &mut broker,
+                pending,
+                ticket,
+                provider,
+                Err("malformed_callback")
+            )
+            .unwrap_err(),
             "malformed_callback"
         );
     }
+
     #[test]
     fn native_behavioral_timeout() {
         let mut broker = make_broker();
-        broker.begin().unwrap();
-        broker.advance_clock(120_001);
-        assert_eq!(
-            broker
-                .complete(
-                    broker.generation(),
-                    Ok(Zeroizing::new("code".to_owned())),
-                    false
-                )
-                .unwrap_err(),
-            "timeout"
-        );
+        assert!(take_login(&mut broker, true).is_none());
     }
+
     #[test]
     fn native_behavioral_cancel() {
         let mut broker = make_broker();
-        broker.begin().unwrap();
-        assert_eq!(
-            broker
-                .complete(
-                    broker.generation(),
-                    Ok(Zeroizing::new("code".to_owned())),
-                    true
-                )
-                .unwrap_err(),
-            "cancelled"
-        );
+        broker.begin_login(pending_login(false)).unwrap();
+        broker.cancel_login("behavioral").unwrap();
+        assert!(broker.disposed());
     }
+
     #[test]
     fn native_behavioral_exchange_failure() {
         let mut broker = make_broker();
         broker.fail_provider_with("exchange_failed");
-        broker.begin().unwrap();
+        let (pending, ticket, provider) = take_login(&mut broker, false).unwrap();
         assert_eq!(
-            broker
-                .complete(
-                    broker.generation(),
-                    Ok(Zeroizing::new("code".to_owned())),
-                    false
-                )
-                .unwrap_err(),
+            complete_login(
+                &mut broker,
+                pending,
+                ticket,
+                provider,
+                Ok(Zeroizing::new("code".to_owned()))
+            )
+            .unwrap_err(),
             "exchange_failed"
         );
     }
+
     #[test]
     fn native_behavioral_logout() {
         let mut broker = make_broker();
         broker.seed_active("logout").unwrap();
-        broker.begin().unwrap();
+        broker.begin_login(pending_login(false)).unwrap();
         assert_eq!(broker.logout().unwrap().state, "signed_out");
     }
+
     #[test]
     fn native_behavioral_shutdown() {
         let mut broker = make_broker();
-        broker.begin().unwrap();
+        broker.begin_login(pending_login(false)).unwrap();
         assert_eq!(broker.shutdown().unwrap().state, "shutdown");
     }
+
     #[test]
     fn native_behavioral_cleanup_failure() {
         let mut broker = make_broker();
@@ -3041,59 +3301,142 @@ mod tests {
         assert_eq!(broker.shutdown().unwrap_err(), "cleanup_failed");
         assert_eq!(broker.state_name(), "credential_cleanup_failed");
     }
+
     #[test]
     fn native_behavioral_stale_generation() {
         let mut broker = make_broker();
-        broker.begin().unwrap();
-        let generation = broker.generation();
+        let (pending, ticket, provider) = take_login(&mut broker, false).unwrap();
         broker.invalidate_generation();
         assert_eq!(
-            broker
-                .complete(generation, Ok(Zeroizing::new("code".to_owned())), false)
-                .unwrap_err(),
-            "stale_generation"
+            complete_login(
+                &mut broker,
+                pending,
+                ticket,
+                provider,
+                Ok(Zeroizing::new("code".to_owned()))
+            )
+            .unwrap_err(),
+            "auth_transition_in_progress"
         );
     }
+
     #[test]
     fn native_behavioral_drive_disconnect_wins_against_stale_commit() {
         let mut broker = make_broker();
         let ticket = broker
             .begin_drive_operation("drive-test".to_owned())
             .unwrap();
+        broker.drive.quiescing = true;
+        assert_eq!(
+            broker
+                .begin_drive_operation("drive-test-2".to_owned())
+                .unwrap_err(),
+            "auth_transition_in_progress"
+        );
+        broker.drive_drain.release();
+        broker.finish_drive_operation(ticket);
         broker.disconnect_drive().unwrap();
         assert_eq!(
             broker.ensure_drive_ticket(ticket).unwrap_err(),
             "drive_transition_in_progress"
         );
     }
+
+    #[test]
+    fn native_behavioral_drive_transition_drains_without_deadlock() {
+        let broker = Arc::new(Mutex::new(make_broker()));
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+        let worker_broker = broker.clone();
+        let worker = std::thread::spawn(move || {
+            let (ticket, drain) = {
+                let mut broker = worker_broker.lock().unwrap();
+                let ticket = broker
+                    .begin_drive_operation("drive-race".to_owned())
+                    .unwrap();
+                (ticket, broker.drive_drain.clone())
+            };
+            ready_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            drain.release();
+            worker_broker.lock().unwrap().finish_drive_operation(ticket);
+        });
+        ready_rx.recv().unwrap();
+        let transition_broker = broker.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(0);
+        let transition = std::thread::spawn(move || {
+            transition_broker
+                .lock()
+                .unwrap()
+                .disconnect_drive()
+                .unwrap();
+            done_tx.send(()).unwrap();
+        });
+        assert!(done_rx.recv_timeout(Duration::from_millis(50)).is_err());
+        release_tx.send(()).unwrap();
+        done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        transition.join().unwrap();
+        worker.join().unwrap();
+        let mut broker = broker.lock().unwrap();
+        assert!(matches!(
+            broker.begin_drive_operation("after-quiesce".to_owned()),
+            Ok(_)
+        ));
+    }
+
     #[test]
     fn native_behavioral_drive_marker_failure_compensates_before_publish() {
         let mut broker = make_broker();
         let ticket = broker
             .begin_drive_operation("drive-fault".to_owned())
             .unwrap();
-        broker.fail_keyring_at(3);
+        broker.fail_keyring_at(7);
         assert_eq!(
             broker
                 .drive_commit(ticket, &Zeroizing::new("drive-refresh".to_owned()))
                 .unwrap_err(),
             "drive_token_storage_failed"
         );
+        broker.drive_drain.release();
+        broker.finish_drive_operation(ticket);
         assert!(
             load_committed(&mut broker.keyring, "drive-fault", "drive-fault-marker")
                 .unwrap()
                 .is_none()
         );
     }
+
     #[test]
     fn native_behavioral_no_entry_is_absence_but_corrupt_marker_is_not() {
         let mut broker = make_broker();
-        assert_eq!(broker.startup().unwrap_err(), "auth_required");
+        assert!(matches!(broker.begin_refresh(), Err(error) if error == "auth_required"));
         broker
             .keyring
             .write(ACCOUNT_MARKER, &Zeroizing::new("broken".to_owned()))
             .unwrap();
-        assert_eq!(broker.startup().unwrap_err(), "keyring_unavailable");
+        assert!(matches!(broker.begin_refresh(), Err(error) if error == "keyring_unavailable"));
+    }
+
+    #[test]
+    fn native_behavioral_marker_content_integrity_is_verified() {
+        let mut broker = make_broker();
+        broker.seed_active("old").unwrap();
+        broker.keyring.slots.insert(
+            versioned_slot(ACCOUNT_DOMAIN, 1),
+            Zeroizing::new("tampered".to_owned()),
+        );
+        assert!(matches!(broker.begin_refresh(), Err(error) if error == "keyring_unavailable"));
+    }
+
+    #[test]
+    fn native_behavioral_registry_integrity_is_verified() {
+        let mut broker = make_broker();
+        broker.seed_active("old").unwrap();
+        broker.keyring.slots.insert(
+            ACCOUNT_INDEX.to_owned(),
+            Zeroizing::new("{\"versions\":[1]}".to_owned()),
+        );
+        assert!(matches!(broker.begin_refresh(), Err(error) if error == "keyring_unavailable"));
     }
 
     #[test]
@@ -3101,12 +3444,15 @@ mod tests {
         let mut broker = make_broker();
         broker.seed_active("old").unwrap();
         broker.fail_keyring_at(6);
-        assert_eq!(
-            broker
-                .rotate_refresh(Zeroizing::new("new".to_owned()))
-                .unwrap_err(),
-            "keyring_unavailable"
-        );
+        assert!(broker
+            .accept_material(LifecycleMaterial {
+                access: Zeroizing::new("access".to_owned()),
+                refresh: Zeroizing::new("new".to_owned()),
+                user_id: None,
+                email: None,
+                access_expires_at_ms: Some(1),
+            })
+            .is_err());
         assert_eq!(
             load_committed(&mut broker.keyring, ACCOUNT_DOMAIN, ACCOUNT_MARKER)
                 .unwrap()
@@ -3114,10 +3460,6 @@ mod tests {
                 .as_str(),
             "old"
         );
-        assert!(!broker
-            .keyring
-            .slots
-            .contains_key(&versioned_slot(ACCOUNT_DOMAIN, 2)));
     }
 
     #[test]
@@ -3128,7 +3470,7 @@ mod tests {
             .keyring
             .write(
                 &index_slot(ACCOUNT_DOMAIN),
-                &Zeroizing::new("{\"versions\":[1,99]}".to_owned()),
+                &encode_index(ACCOUNT_DOMAIN, &[1, 99]).unwrap(),
             )
             .unwrap();
         broker
@@ -3138,7 +3480,7 @@ mod tests {
                 &Zeroizing::new("orphan".to_owned()),
             )
             .unwrap();
-        assert_eq!(broker.startup().unwrap().state, "authenticated");
+        assert_eq!(refresh_once(&mut broker).unwrap().as_str(), "access");
         assert!(!broker
             .keyring
             .slots
@@ -3146,27 +3488,35 @@ mod tests {
     }
 
     #[test]
+    fn native_behavioral_post_marker_cleanup_failure_is_terminal() {
+        let mut broker = make_broker();
+        broker.fail_keyring_at(9);
+        let result = broker.accept_material(LifecycleMaterial {
+            access: Zeroizing::new("access".to_owned()),
+            refresh: Zeroizing::new("refresh".to_owned()),
+            user_id: None,
+            email: None,
+            access_expires_at_ms: Some(1),
+        });
+        assert_eq!(result.unwrap_err(), "cleanup_failed");
+        assert_eq!(broker.state_name(), "credential_cleanup_failed");
+        assert!(broker.account.access_token.is_none());
+    }
+
+    #[test]
     fn native_behavioral_login_completion_loses_to_logout() {
         let mut broker = make_broker();
-        let generation = broker.generation();
-        broker.begin().unwrap();
-        let (_, ticket, _) = broker
-            .take_login_for_exchange("behavioral", generation)
-            .unwrap();
+        let (pending, ticket, provider) = take_login(&mut broker, false).unwrap();
         broker.logout().unwrap();
         assert_eq!(
-            broker
-                .complete_login(
-                    ticket,
-                    Ok(LifecycleMaterial {
-                        access: Zeroizing::new("access".to_owned()),
-                        refresh: Zeroizing::new("refresh".to_owned()),
-                        user_id: None,
-                        email: None,
-                        access_expires_at_ms: Some(1),
-                    }),
-                )
-                .unwrap_err(),
+            complete_login(
+                &mut broker,
+                pending,
+                ticket,
+                provider,
+                Ok(Zeroizing::new("code".to_owned()))
+            )
+            .unwrap_err(),
             "auth_transition_in_progress"
         );
         assert!(broker.disposed());

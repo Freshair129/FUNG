@@ -179,6 +179,8 @@ test("production custody keeps the durable registry and typed recovery ingress",
   const session = read("src-tauri/src/auth_session.rs");
   const drive = read("src-tauri/src/drive_oauth.rs");
   assert.match(session, /SlotIndex|slot-index|DRIVE_DOMAINS_INDEX/);
+  assert.match(session, /CredentialMarker|content_sha256|format_version/);
+  assert.match(session, /DomainRegistry|registry_digest/);
   assert.doesNotMatch(session, /1\.\.=RECOVERY_SLOT_LIMIT|RECOVERY_SLOT_LIMIT/);
   assert.match(session, /startup_recover[\s\S]*DRIVE_DOMAINS_INDEX/);
   assert.match(session, /pending_operations|account_epoch/);
@@ -186,4 +188,29 @@ test("production custody keeps the durable registry and typed recovery ingress",
   assert.match(drive, /operation\.check/);
   assert.match(drive, /struct RecoveryPhrase/);
   assert.doesNotMatch(drive, /broker_drive_restore[\s\S]*recovery_phrase:\s*String/);
+});
+
+test("registered adapters and behavioral tests share production lifecycle entrypoints", () => {
+  const session = read("src-tauri/src/auth_session.rs");
+  const lib = read("src-tauri/src/lib.rs");
+  assert.match(session, /begin_login[\s\S]*take_login_for_exchange[\s\S]*complete_login/);
+  assert.match(session, /begin_refresh[\s\S]*finish_refresh/);
+  assert.match(session, /begin_account_operation[\s\S]*ensure_account_ticket/);
+  assert.match(lib, /auth_session::startup_recover/);
+  for (const helper of ["begin", "complete", "startup", "refresh_single_flight", "protected"]) {
+    assert.doesNotMatch(session, new RegExp(`#\\[cfg\\(test\\)\\][\\s\\S]{0,120}fn ${helper}\\b`));
+  }
+  assert.doesNotMatch(session, /LifecycleCore|SessionMemory|dead.*port/i);
+});
+
+test("Drive admission drains without holding the lifecycle mutex and fences each provider boundary", () => {
+  const session = read("src-tauri/src/auth_session.rs");
+  const drive = read("src-tauri/src/drive_oauth.rs");
+  assert.match(session, /OperationDrain|wait_empty|drive_drain/);
+  assert.match(session, /drive\.quiescing[\s\S]*wait_empty[\s\S]*drive_generation/);
+  assert.match(drive, /LifecycleTicket/);
+  assert.match(drive, /drive_check\(ticket\)/);
+  assert.match(drive, /blocking_list_files\(ticket/);
+  assert.match(drive, /upload_small_file\(\n\s+ticket/);
+  assert.match(drive, /download_file\(operation\.ticket/);
 });

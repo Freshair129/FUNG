@@ -153,7 +153,7 @@ test("native broker source retains lifecycle and authority paths as supplemental
   assert.ok(drive.indexOf("ConnectionActivate") >= 0);
 });
 
-test("native broker behavioral matrix executes through Rust seams", () => {
+test("native broker behavioral matrix executes through registered Rust entrypoints", () => {
   const result = spawnSync(
     "cargo",
     [
@@ -172,7 +172,7 @@ test("native broker behavioral matrix executes through Rust seams", () => {
   const behavioralOutput = output.slice(output.indexOf("running "), output.indexOf("\nrunning 0 tests"));
   assert.doesNotMatch(behavioralOutput, /secret|verifier|access-token|refresh-token/i);
   assert.doesNotMatch(read("src-tauri/src/auth_session.rs"), /BehavioralBroker|TestState|ProviderMode|LifecycleCore|SessionMemory/);
-  assert.match(read("src-tauri/src/auth_session.rs"), /production_shutdown|shutdown_with|SessionLifecycleState/);
+  assert.match(read("src-tauri/src/auth_session.rs"), /RegisteredBrokerEntrypoints|SessionLifecycleState/);
 });
 
 test("production custody keeps the durable registry and typed recovery ingress", () => {
@@ -193,6 +193,10 @@ test("production custody keeps the durable registry and typed recovery ingress",
 test("registered adapters and behavioral tests share production lifecycle entrypoints", () => {
   const session = read("src-tauri/src/auth_session.rs");
   const lib = read("src-tauri/src/lib.rs");
+  assert.match(session, /trait RegisteredBrokerPort/);
+  assert.match(session, /struct RegisteredBrokerEntrypoints/);
+  assert.match(session, /type NativeRegisteredBroker/);
+  assert.match(session, /RegisteredBrokerEntrypoints::new\([\s\S]*NativeKeyring[\s\S]*NativeClock[\s\S]*NativeListener[\s\S]*NativeProvider/);
   assert.match(session, /registered_login_begin/);
   assert.match(session, /registered_login_take_for_exchange/);
   assert.match(session, /registered_login_complete/);
@@ -201,8 +205,15 @@ test("registered adapters and behavioral tests share production lifecycle entryp
   assert.doesNotMatch(session, /spawn_listener[\s\S]*NativeListener/);
   assert.match(session, /begin_login[\s\S]*take_login_for_exchange[\s\S]*complete_login/);
   assert.match(session, /begin_refresh[\s\S]*finish_refresh/);
-  assert.match(session, /begin_account_operation[\s\S]*ensure_account_ticket/);
+  assert.match(session, /ensure_account_ticket/);
+  assert.match(session, /begin_account_operation/);
   assert.match(lib, /auth_session::startup_recover/);
+  const genericLifecycle = session.slice(
+    session.indexOf("impl<K, C, L, P> SessionLifecycle"),
+    session.indexOf("pub(crate) struct RegisteredBrokerEntrypoints"),
+  );
+  assert.doesNotMatch(genericLifecycle, /pub\(crate\) fn (?:logout|shutdown|disconnect_drive)\b/);
+  assert.doesNotMatch(session, /broker\.keyring\b|broker\.drive_drain\b/);
   for (const helper of ["begin", "complete", "startup", "refresh_single_flight", "protected"]) {
     assert.doesNotMatch(session, new RegExp(`#\\[cfg\\(test\\)\\][\\s\\S]{0,120}fn ${helper}\\b`));
   }
@@ -215,11 +226,15 @@ test("Drive admission drains without holding the lifecycle mutex and fences each
   assert.match(session, /OperationDrain|wait_empty|drive_drain/);
   assert.match(session, /begin_drive_disconnect[\s\S]*finish_drive_disconnect/);
   assert.match(session, /begin_terminal_transition[\s\S]*finish_terminal_transition/);
-  assert.match(session, /drive\.quiescing[\s\S]*wait_empty[\s\S]*drive_generation/);
+  assert.match(session, /drive\.quiescing/);
+  assert.match(session, /wait_empty/);
+  assert.match(session, /drive_generation/);
   assert.match(drive, /LifecycleTicket/);
-  assert.match(drive, /drive_check\(ticket\)/);
-  assert.match(drive, /invocation\.ensure_valid\(\)\?[\s\S]*drive_check\(ticket\)[\s\S]*\.put\([\s\S]*drive_check\(ticket\)/);
-  assert.match(drive, /blocking_list_files\(ticket/);
-  assert.match(drive, /upload_small_file\(\n\s+ticket/);
-  assert.match(drive, /download_file\(operation\.ticket/);
+  assert.match(drive, /DriveOperationGuard::from_lease/);
+  assert.match(drive, /ResumableProviderPort/);
+  assert.match(drive, /upload_resumable_file[\s\S]*operation\.check/);
+  assert.match(drive, /invocation\.ensure_valid\(\)\?[\s\S]*operation\.check\(\)[\s\S]*send_chunk/);
+  assert.match(drive, /blocking_list_files\(\n\s+operation/);
+  assert.match(drive, /upload_small_file\(\n\s+operation/);
+  assert.match(drive, /download_file\(\n\s+operation/);
 });

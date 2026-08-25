@@ -63,7 +63,7 @@ impl SessionLifecycleState {
     }
 }
 
-pub(crate) trait KeyringPort {
+pub(crate) trait KeyringPort: Send + 'static {
     fn read(&mut self, slot: &str) -> Result<Option<Zeroizing<String>>, String>;
     fn write(&mut self, slot: &str, value: &Zeroizing<String>) -> Result<(), String>;
     fn delete(&mut self, slot: &str) -> Result<(), String>;
@@ -78,10 +78,10 @@ pub(crate) trait KeyringPort {
     }
 }
 
-pub(crate) trait ClockPort {
+pub(crate) trait ClockPort: Send + Sync + 'static {
     fn now_ms(&self) -> u64;
 }
-pub(crate) trait ListenerCallbackPort {
+pub(crate) trait ListenerCallbackPort: Send + 'static {
     fn open(&mut self) -> Result<(), String>;
     fn close(&mut self);
     fn callback_target(&self, request: &[u8], port: u16) -> Option<Zeroizing<String>>;
@@ -140,7 +140,33 @@ pub(crate) struct DriveTokenMaterial {
     pub(crate) scope: Option<Zeroizing<String>>,
 }
 
-enum RefreshAdmission<P> {
+pub(crate) trait RegisteredBrokerPort: Send + Sync {
+    fn check_account_operation(&self, ticket: LifecycleTicket) -> Result<(), String>;
+    fn finish_account_operation(&self, ticket: LifecycleTicket);
+    fn check_drive_operation(&self, ticket: LifecycleTicket) -> Result<(), String>;
+    fn finish_drive_operation(&self, ticket: LifecycleTicket);
+    fn commit_drive(
+        &self,
+        ticket: LifecycleTicket,
+        token: &Zeroizing<String>,
+    ) -> Result<(), String>;
+    fn drive_provider_exchange(
+        &self,
+        ticket: LifecycleTicket,
+        client_id: String,
+        redirect_uri: Zeroizing<String>,
+        code: Zeroizing<String>,
+        verifier: Zeroizing<String>,
+    ) -> Result<DriveTokenMaterial, String>;
+    fn drive_provider_refresh(
+        &self,
+        ticket: LifecycleTicket,
+        client_id: String,
+        refresh: Zeroizing<String>,
+    ) -> Result<DriveTokenMaterial, String>;
+}
+
+pub(crate) enum RefreshAdmission<P> {
     Ready(Zeroizing<String>),
     Wait(Arc<(Mutex<bool>, Condvar)>),
     Work {
@@ -217,23 +243,19 @@ pub(crate) struct LifecycleTicket {
 pub(crate) struct AccountOperationGuard {
     ticket: LifecycleTicket,
     drain: Arc<OperationDrain>,
+    broker: Arc<dyn RegisteredBrokerPort>,
 }
 
 impl AccountOperationGuard {
     pub(crate) fn check(&self) -> Result<(), String> {
-        production_lifecycle()
-            .lock()
-            .map_err(|_| public_error("auth_unavailable"))?
-            .check_account_operation(self.ticket)
+        self.broker.check_account_operation(self.ticket)
     }
 }
 
 impl Drop for AccountOperationGuard {
     fn drop(&mut self) {
         self.drain.release();
-        if let Ok(mut lifecycle) = production_lifecycle().lock() {
-            lifecycle.finish_account_operation(self.ticket);
-        }
+        self.broker.finish_account_operation(self.ticket);
     }
 }
 
@@ -255,6 +277,12 @@ pub(crate) struct SessionLifecycle<K, C, L, P> {
     provider: P,
     account_drain: Arc<OperationDrain>,
     drive_drain: Arc<OperationDrain>,
+}
+
+pub(crate) struct DriveOperationLease {
+    pub(crate) ticket: LifecycleTicket,
+    pub(crate) drain: Arc<OperationDrain>,
+    pub(crate) broker: Arc<dyn RegisteredBrokerPort>,
 }
 
 impl<K, C, L, P> SessionLifecycle<K, C, L, P>
@@ -427,7 +455,9 @@ where
         Ok(())
     }
 
-    pub(crate) fn begin_account_operation(&mut self) -> Result<AccountOperationGuard, String> {
+    fn begin_account_operation(
+        &mut self,
+    ) -> Result<(LifecycleTicket, Arc<OperationDrain>), String> {
         if self.quiescing
             || matches!(
                 self.account.state,
@@ -441,15 +471,15 @@ where
         let operation_id = self.next_operation();
         self.account.pending_operations.insert(operation_id);
         self.account_drain.admit();
-        Ok(AccountOperationGuard {
-            ticket: LifecycleTicket {
+        Ok((
+            LifecycleTicket {
                 operation_id,
                 account_epoch: self.account_epoch,
                 account_generation: self.account.generation,
                 drive_generation: self.drive.drive_generation,
             },
-            drain: self.account_drain.clone(),
-        })
+            self.account_drain.clone(),
+        ))
     }
 
     pub(crate) fn check_account_operation(&self, ticket: LifecycleTicket) -> Result<(), String> {
@@ -697,18 +727,6 @@ where
         Ok(self.outcome(if shutdown { "shutdown" } else { "signed_out" }, None))
     }
 
-    pub(crate) fn logout(&mut self) -> Result<LifecycleOutcome, String> {
-        let (account_drain, drive_drain) = self.begin_terminal_transition();
-        account_drain.wait_empty();
-        drive_drain.wait_empty();
-        self.finish_terminal_transition(false)
-    }
-    pub(crate) fn shutdown(&mut self) -> Result<LifecycleOutcome, String> {
-        let (account_drain, drive_drain) = self.begin_terminal_transition();
-        account_drain.wait_empty();
-        drive_drain.wait_empty();
-        self.finish_terminal_transition(true)
-    }
     #[cfg(test)]
     pub(crate) fn seed_active(&mut self, value: &str) -> Result<(), String> {
         commit_credential(
@@ -719,13 +737,6 @@ where
             "keyring_unavailable",
             &mut self.commit_fence,
         )
-    }
-    #[cfg(test)]
-    pub(crate) fn seed_drive_active(&mut self, domain: &str, value: &str) -> Result<(), String> {
-        let ticket = self.begin_drive_operation(domain.to_owned())?;
-        let result = self.drive_commit(ticket, &Zeroizing::new(value.to_owned()));
-        self.finish_drive_operation(ticket);
-        result
     }
     #[cfg(test)]
     pub(crate) fn fail_keyring_at(&mut self, stage: usize) {
@@ -811,7 +822,6 @@ where
     }
     pub(crate) fn finish_drive_operation(&mut self, ticket: LifecycleTicket) {
         self.drive.pending_operations.remove(&ticket.operation_id);
-        self.drive_drain.release();
     }
     pub(crate) fn begin_drive_disconnect(&mut self) -> Arc<OperationDrain> {
         self.drive.quiescing = true;
@@ -832,12 +842,6 @@ where
         self.drive.quiescing = false;
         Ok(())
     }
-    pub(crate) fn disconnect_drive(&mut self) -> Result<(), String> {
-        let drain = self.begin_drive_disconnect();
-        drain.wait_empty();
-        self.finish_drive_disconnect()
-    }
-
     pub(crate) fn listener_callback_target(
         &self,
         request: &[u8],
@@ -882,6 +886,479 @@ where
     pub(crate) fn drive_status(&mut self, base: String) -> Result<bool, String> {
         self.drive.slot_base = Some(base.clone());
         Ok(load_committed(&mut self.keyring, &base, &format!("{base}-marker"))?.is_some())
+    }
+}
+
+pub(crate) struct RegisteredBrokerEntrypoints<K, C, L, P> {
+    lifecycle: Mutex<SessionLifecycle<K, C, L, P>>,
+}
+
+impl<K, C, L, P> RegisteredBrokerEntrypoints<K, C, L, P>
+where
+    K: KeyringPort,
+    C: ClockPort,
+    L: ListenerCallbackPort,
+    P: ProviderHttpPort + Clone,
+{
+    pub(crate) fn new(keyring: K, clock: C, listener: L, provider: P) -> Self {
+        Self {
+            lifecycle: Mutex::new(SessionLifecycle::new(keyring, clock, listener, provider)),
+        }
+    }
+
+    fn with<R>(
+        &self,
+        operation: impl FnOnce(&mut SessionLifecycle<K, C, L, P>) -> Result<R, String>,
+    ) -> Result<R, String> {
+        let mut lifecycle = self
+            .lifecycle
+            .lock()
+            .map_err(|_| public_error("auth_unavailable"))?;
+        operation(&mut lifecycle)
+    }
+
+    pub(crate) fn registered_login_begin(&self, pending: PendingLogin) -> Result<u64, String> {
+        self.with(|lifecycle| lifecycle.registered_login_begin(pending))
+    }
+
+    pub(crate) fn registered_login_take_for_exchange(
+        &self,
+        request_id: &str,
+        generation: u64,
+    ) -> Option<(PendingLogin, LifecycleTicket, P)> {
+        self.lifecycle.lock().ok().and_then(|mut lifecycle| {
+            lifecycle.registered_login_take_for_exchange(request_id, generation)
+        })
+    }
+
+    pub(crate) fn registered_login_complete(
+        &self,
+        ticket: LifecycleTicket,
+        result: Result<LifecycleMaterial, String>,
+    ) -> Result<LifecycleOutcome, String> {
+        self.with(|lifecycle| lifecycle.registered_login_complete(ticket, result))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn registered_accept_material(
+        &self,
+        material: LifecycleMaterial,
+    ) -> Result<LifecycleOutcome, String> {
+        self.with(|lifecycle| lifecycle.accept_material(material))
+    }
+
+    pub(crate) fn registered_cancel_login(&self, request_id: &str) -> Result<(), String> {
+        self.with(|lifecycle| lifecycle.cancel_login(request_id))
+    }
+
+    pub(crate) fn listener_callback_target(
+        &self,
+        request: &[u8],
+        port: u16,
+    ) -> Option<Zeroizing<String>> {
+        self.lifecycle
+            .lock()
+            .ok()
+            .and_then(|lifecycle| lifecycle.listener_callback_target(request, port))
+    }
+
+    pub(crate) fn begin_account_operation(
+        self: &Arc<Self>,
+    ) -> Result<AccountOperationGuard, String> {
+        let (ticket, drain) = self.with(|lifecycle| lifecycle.begin_account_operation())?;
+        let broker: Arc<dyn RegisteredBrokerPort> = self.clone();
+        Ok(AccountOperationGuard {
+            ticket,
+            drain,
+            broker,
+        })
+    }
+
+    pub(crate) fn begin_refresh(&self) -> Result<RefreshAdmission<P>, String> {
+        self.with(|lifecycle| lifecycle.begin_refresh())
+    }
+
+    pub(crate) fn finish_refresh(
+        &self,
+        ticket: LifecycleTicket,
+        result: Result<LifecycleMaterial, String>,
+    ) -> Result<
+        (
+            Result<Zeroizing<String>, String>,
+            Option<Arc<(Mutex<bool>, Condvar)>>,
+        ),
+        String,
+    > {
+        self.with(|lifecycle| Ok(lifecycle.finish_refresh(ticket, result)))
+    }
+
+    pub(crate) fn begin_drive_work(
+        self: &Arc<Self>,
+        slot_base: String,
+    ) -> Result<DriveOperationLease, String> {
+        let ticket = self.with(|lifecycle| lifecycle.begin_drive_operation(slot_base))?;
+        let drain = self
+            .lifecycle
+            .lock()
+            .map_err(|_| public_error("auth_unavailable"))?
+            .drive_drain
+            .clone();
+        let broker: Arc<dyn RegisteredBrokerPort> = self.clone();
+        Ok(DriveOperationLease {
+            ticket,
+            drain,
+            broker,
+        })
+    }
+
+    pub(crate) fn drive_status(&self, slot_base: String) -> Result<bool, String> {
+        self.with(|lifecycle| lifecycle.drive_status(slot_base))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn check_drive(&self, ticket: LifecycleTicket) -> Result<(), String> {
+        self.with(|lifecycle| lifecycle.ensure_drive_ticket(ticket))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn commit_drive(
+        &self,
+        ticket: LifecycleTicket,
+        token: &Zeroizing<String>,
+    ) -> Result<(), String> {
+        self.with(|lifecycle| lifecycle.drive_commit(ticket, token))
+    }
+
+    pub(crate) fn drive_load(
+        &self,
+        slot_base: String,
+    ) -> Result<Option<Zeroizing<String>>, String> {
+        self.with(|lifecycle| {
+            lifecycle.drive.slot_base = Some(slot_base.clone());
+            load_committed(
+                &mut lifecycle.keyring,
+                &slot_base,
+                &format!("{slot_base}-marker"),
+            )
+        })
+    }
+
+    pub(crate) fn begin_drive_disconnect(&self) -> Result<Arc<OperationDrain>, String> {
+        self.with(|lifecycle| Ok(lifecycle.begin_drive_disconnect()))
+    }
+
+    pub(crate) fn finish_drive_disconnect(&self) -> Result<(), String> {
+        self.with(|lifecycle| lifecycle.finish_drive_disconnect())
+    }
+
+    pub(crate) fn disconnect_drive(&self) -> Result<(), String> {
+        let drain = self.begin_drive_disconnect()?;
+        drain.wait_empty();
+        self.finish_drive_disconnect()
+    }
+
+    pub(crate) fn logout(&self) -> Result<LifecycleOutcome, String> {
+        let (account_drain, drive_drain) =
+            self.with(|lifecycle| Ok(lifecycle.begin_terminal_transition()))?;
+        account_drain.wait_empty();
+        drive_drain.wait_empty();
+        self.with(|lifecycle| lifecycle.finish_terminal_transition(false))
+    }
+
+    pub(crate) fn shutdown(&self) -> Result<LifecycleOutcome, String> {
+        let (account_drain, drive_drain) =
+            self.with(|lifecycle| Ok(lifecycle.begin_terminal_transition()))?;
+        account_drain.wait_empty();
+        drive_drain.wait_empty();
+        self.with(|lifecycle| lifecycle.finish_terminal_transition(true))
+    }
+
+    pub(crate) fn startup_recover(&self) -> Result<(), String> {
+        self.with(|lifecycle| lifecycle.recover_startup())
+    }
+
+    pub(crate) fn account_startup_checked(&self) -> Result<bool, String> {
+        self.with(|lifecycle| Ok(lifecycle.account.startup_checked))
+    }
+
+    pub(crate) fn has_committed_account(&self) -> Result<bool, String> {
+        self.with(|lifecycle| {
+            Ok(load_committed(&mut lifecycle.keyring, ACCOUNT_DOMAIN, ACCOUNT_MARKER)?.is_some())
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn load_account(&self) -> Result<Option<Zeroizing<String>>, String> {
+        self.with(|lifecycle| {
+            load_committed(&mut lifecycle.keyring, ACCOUNT_DOMAIN, ACCOUNT_MARKER)
+        })
+    }
+
+    pub(crate) fn session_snapshot(
+        &self,
+    ) -> Result<(&'static str, Option<String>, Option<String>, Option<u64>), String> {
+        self.with(|lifecycle| {
+            Ok((
+                lifecycle.account.state.as_str(),
+                lifecycle.account.user_id.clone(),
+                lifecycle.account.email.clone(),
+                lifecycle.account.access_expires_at_ms,
+            ))
+        })
+    }
+
+    pub(crate) fn login_is_current(&self, request_id: &str, generation: u64) -> bool {
+        self.lifecycle.lock().ok().is_some_and(|lifecycle| {
+            lifecycle.account.generation == generation
+                && lifecycle
+                    .account
+                    .pending_login
+                    .as_ref()
+                    .is_some_and(|pending| pending.request_id == request_id)
+        })
+    }
+
+    pub(crate) fn take_callback(
+        &self,
+        request_id: &str,
+        generation: u64,
+    ) -> Option<Zeroizing<String>> {
+        self.lifecycle.lock().ok().and_then(|lifecycle| {
+            if lifecycle.account.generation != generation
+                || lifecycle
+                    .account
+                    .pending_login
+                    .as_ref()
+                    .is_none_or(|pending| pending.request_id != request_id)
+            {
+                return None;
+            }
+            lifecycle
+                .account
+                .pending_login
+                .as_ref()
+                .and_then(|pending| {
+                    pending
+                        .callback
+                        .lock()
+                        .ok()
+                        .and_then(|mut slot| slot.take())
+                })
+        })
+    }
+
+    pub(crate) fn login_expired(&self) -> bool {
+        self.lifecycle
+            .lock()
+            .ok()
+            .map(|lifecycle| lifecycle.login_expired())
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn expire_login(&self, generation: u64) {
+        if let Ok(mut lifecycle) = self.lifecycle.lock() {
+            lifecycle.account.pending_login = None;
+            if lifecycle.account.generation == generation {
+                lifecycle.account.state = SessionLifecycleState::SignedOut;
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn generation(&self) -> u64 {
+        self.lifecycle
+            .lock()
+            .map(|lifecycle| lifecycle.generation())
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn state_name(&self) -> &'static str {
+        self.lifecycle
+            .lock()
+            .map(|lifecycle| lifecycle.state_name())
+            .unwrap_or("credential_cleanup_failed")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn disposed(&self) -> bool {
+        self.lifecycle
+            .lock()
+            .map(|lifecycle| lifecycle.disposed())
+            .unwrap_or(true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn seed_active(&self, value: &str) -> Result<(), String> {
+        self.with(|lifecycle| lifecycle.seed_active(value))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn seed_drive_active(
+        self: &Arc<Self>,
+        domain: &str,
+        value: &str,
+    ) -> Result<(), String> {
+        let lease = self.begin_drive_work(domain.to_owned())?;
+        let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
+        let result = self.with(|lifecycle| {
+            lifecycle.drive_commit(guard.ticket(), &Zeroizing::new(value.to_owned()))
+        });
+        drop(guard);
+        result
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_keyring_at(&self, stage: usize) {
+        let _ = self.with(|lifecycle| {
+            lifecycle.keyring.inject_failure(stage);
+            Ok(())
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_cleanup(&self) {
+        let _ = self.with(|lifecycle| {
+            lifecycle.keyring.inject_cleanup_failure();
+            Ok(())
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_provider_with(&self, code: &'static str) {
+        let _ = self.with(|lifecycle| {
+            lifecycle.provider.inject_failure(code);
+            Ok(())
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn provider_calls(&self) -> usize {
+        self.lifecycle
+            .lock()
+            .map(|lifecycle| lifecycle.provider_calls())
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn keyring_events(&self) -> usize {
+        self.lifecycle
+            .lock()
+            .map(|lifecycle| lifecycle.keyring_events())
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn invalidate_generation(&self) {
+        let _ = self.with(|lifecycle| {
+            lifecycle.invalidate_generation();
+            Ok(())
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn write_keyring_slot(&self, slot: &str, value: &str) -> Result<(), String> {
+        self.with(|lifecycle| {
+            lifecycle
+                .keyring
+                .write(slot, &Zeroizing::new(value.to_owned()))
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn keyring_slot_present(&self, slot: &str) -> Result<bool, String> {
+        self.with(|lifecycle| Ok(lifecycle.keyring.read(slot)?.is_some()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn account_access_present(&self) -> bool {
+        self.lifecycle
+            .lock()
+            .map(|lifecycle| lifecycle.account.access_token.is_some())
+            .unwrap_or(true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_quiescing(&self, value: bool) {
+        let _ = self.with(|lifecycle| {
+            lifecycle.quiescing = value;
+            Ok(())
+        });
+    }
+}
+
+impl<K, C, L, P> RegisteredBrokerPort for RegisteredBrokerEntrypoints<K, C, L, P>
+where
+    K: KeyringPort,
+    C: ClockPort,
+    L: ListenerCallbackPort,
+    P: ProviderHttpPort + Clone,
+{
+    fn check_account_operation(&self, ticket: LifecycleTicket) -> Result<(), String> {
+        self.with(|lifecycle| lifecycle.check_account_operation(ticket))
+    }
+
+    fn finish_account_operation(&self, ticket: LifecycleTicket) {
+        if let Ok(mut lifecycle) = self.lifecycle.lock() {
+            lifecycle.finish_account_operation(ticket);
+        }
+    }
+
+    fn check_drive_operation(&self, ticket: LifecycleTicket) -> Result<(), String> {
+        self.with(|lifecycle| lifecycle.ensure_drive_ticket(ticket))
+    }
+
+    fn finish_drive_operation(&self, ticket: LifecycleTicket) {
+        if let Ok(mut lifecycle) = self.lifecycle.lock() {
+            lifecycle.finish_drive_operation(ticket);
+        }
+    }
+
+    fn commit_drive(
+        &self,
+        ticket: LifecycleTicket,
+        token: &Zeroizing<String>,
+    ) -> Result<(), String> {
+        self.with(|lifecycle| lifecycle.drive_commit(ticket, token))
+    }
+
+    fn drive_provider_exchange(
+        &self,
+        ticket: LifecycleTicket,
+        client_id: String,
+        redirect_uri: Zeroizing<String>,
+        code: Zeroizing<String>,
+        verifier: Zeroizing<String>,
+    ) -> Result<DriveTokenMaterial, String> {
+        let provider = self.with(|lifecycle| {
+            lifecycle.ensure_drive_ticket(ticket)?;
+            Ok(lifecycle.provider.clone())
+        })?;
+        let material = provider.drive_exchange(client_id, redirect_uri, code, verifier)?;
+        self.with(|lifecycle| {
+            lifecycle.ensure_drive_ticket(ticket)?;
+            Ok(material)
+        })
+    }
+
+    fn drive_provider_refresh(
+        &self,
+        ticket: LifecycleTicket,
+        client_id: String,
+        refresh: Zeroizing<String>,
+    ) -> Result<DriveTokenMaterial, String> {
+        let provider = self.with(|lifecycle| {
+            lifecycle.ensure_drive_ticket(ticket)?;
+            Ok(lifecycle.provider.clone())
+        })?;
+        let material = provider.drive_refresh(client_id, refresh)?;
+        self.with(|lifecycle| {
+            lifecycle.ensure_drive_ticket(ticket)?;
+            if let Some(refresh) = material.refresh.as_ref() {
+                lifecycle.drive_commit(ticket, refresh)?;
+            }
+            Ok(material)
+        })
     }
 }
 
@@ -1685,12 +2162,12 @@ impl DriveHttpPort for NativeProvider {}
 impl ArchiveJobPort for NativeProvider {}
 impl CommitObservationPort for NativeProvider {}
 
-type NativeSessionLifecycle =
-    SessionLifecycle<NativeKeyring, NativeClock, NativeListener, NativeProvider>;
-fn production_lifecycle() -> &'static Mutex<NativeSessionLifecycle> {
-    static LIFECYCLE: OnceLock<Mutex<NativeSessionLifecycle>> = OnceLock::new();
+type NativeRegisteredBroker =
+    RegisteredBrokerEntrypoints<NativeKeyring, NativeClock, NativeListener, NativeProvider>;
+fn production_lifecycle() -> &'static Arc<NativeRegisteredBroker> {
+    static LIFECYCLE: OnceLock<Arc<NativeRegisteredBroker>> = OnceLock::new();
     LIFECYCLE.get_or_init(|| {
-        Mutex::new(SessionLifecycle::new(
+        Arc::new(RegisteredBrokerEntrypoints::new(
             NativeKeyring,
             NativeClock,
             NativeListener,
@@ -1700,126 +2177,25 @@ fn production_lifecycle() -> &'static Mutex<NativeSessionLifecycle> {
 }
 
 fn registered_listener_callback(request: &[u8], port: u16) -> Option<Zeroizing<String>> {
-    production_lifecycle()
-        .lock()
-        .ok()
-        .and_then(|lifecycle| lifecycle.listener_callback_target(request, port))
+    production_lifecycle().listener_callback_target(request, port)
 }
-pub(crate) fn drive_begin(
-    slot_base: String,
-) -> Result<(LifecycleTicket, Arc<OperationDrain>), String> {
-    let mut lifecycle = production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?;
-    let ticket = lifecycle.begin_drive_operation(slot_base)?;
-    Ok((ticket, lifecycle.drive_drain.clone()))
+pub(crate) fn drive_begin(slot_base: String) -> Result<DriveOperationLease, String> {
+    production_lifecycle().begin_drive_work(slot_base)
 }
 pub(crate) fn account_begin_operation() -> Result<AccountOperationGuard, String> {
-    production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .begin_account_operation()
-}
-pub(crate) fn drive_check(ticket: LifecycleTicket) -> Result<(), String> {
-    production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .ensure_drive_ticket(ticket)
-}
-pub(crate) fn drive_commit(
-    ticket: LifecycleTicket,
-    token: &Zeroizing<String>,
-) -> Result<(), String> {
-    production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .drive_commit(ticket, token)
-}
-pub(crate) fn drive_finish(ticket: LifecycleTicket) {
-    if let Ok(mut lifecycle) = production_lifecycle().lock() {
-        lifecycle.finish_drive_operation(ticket);
-    }
+    production_lifecycle().begin_account_operation()
 }
 pub(crate) fn drive_status(slot_base: String) -> Result<bool, String> {
-    production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .drive_status(slot_base)
+    production_lifecycle().drive_status(slot_base)
 }
 pub(crate) fn drive_load(slot_base: String) -> Result<Option<Zeroizing<String>>, String> {
-    let mut lifecycle = production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?;
-    lifecycle.drive.slot_base = Some(slot_base.clone());
-    load_committed(
-        &mut lifecycle.keyring,
-        &slot_base,
-        &format!("{slot_base}-marker"),
-    )
+    production_lifecycle().drive_load(slot_base)
 }
 pub(crate) fn drive_disconnect() -> Result<(), String> {
-    let drain = {
-        let mut lifecycle = production_lifecycle()
-            .lock()
-            .map_err(|_| public_error("auth_unavailable"))?;
-        lifecycle.begin_drive_disconnect()
-    };
-    drain.wait_empty();
-    production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .finish_drive_disconnect()
-}
-
-pub(crate) fn drive_provider_exchange(
-    ticket: LifecycleTicket,
-    client_id: String,
-    redirect_uri: Zeroizing<String>,
-    code: Zeroizing<String>,
-    verifier: Zeroizing<String>,
-) -> Result<DriveTokenMaterial, String> {
-    let provider = {
-        let lifecycle = production_lifecycle()
-            .lock()
-            .map_err(|_| public_error("auth_unavailable"))?;
-        lifecycle.ensure_drive_ticket(ticket)?;
-        lifecycle.provider.clone()
-    };
-    let material = provider.drive_exchange(client_id, redirect_uri, code, verifier)?;
-    production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .ensure_drive_ticket(ticket)?;
-    Ok(material)
-}
-
-pub(crate) fn drive_provider_refresh(
-    ticket: LifecycleTicket,
-    client_id: String,
-    refresh: Zeroizing<String>,
-) -> Result<DriveTokenMaterial, String> {
-    let provider = {
-        let lifecycle = production_lifecycle()
-            .lock()
-            .map_err(|_| public_error("auth_unavailable"))?;
-        lifecycle.ensure_drive_ticket(ticket)?;
-        lifecycle.provider.clone()
-    };
-    let material = provider.drive_refresh(client_id, refresh)?;
-    let mut lifecycle = production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?;
-    lifecycle.ensure_drive_ticket(ticket)?;
-    if let Some(refresh) = material.refresh.as_ref() {
-        lifecycle.drive_commit(ticket, refresh)?;
-    }
-    Ok(material)
+    production_lifecycle().disconnect_drive()
 }
 pub(crate) fn startup_recover() -> Result<(), String> {
-    let mut lifecycle = production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?;
-    lifecycle.recover_startup()
+    production_lifecycle().startup_recover()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2139,11 +2515,7 @@ fn spawn_listener(
 }
 
 async fn ensure_startup() -> Result<(), String> {
-    let checked = production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .account
-        .startup_checked;
+    let checked = production_lifecycle().account_startup_checked()?;
     if !checked {
         startup_recover()?;
     }
@@ -2153,10 +2525,7 @@ async fn ensure_startup() -> Result<(), String> {
 pub(crate) async fn ensure_access_token() -> Result<Zeroizing<String>, String> {
     ensure_startup().await?;
     loop {
-        let admission = production_lifecycle()
-            .lock()
-            .map_err(|_| public_error("auth_unavailable"))?
-            .begin_refresh()?;
+        let admission = production_lifecycle().begin_refresh()?;
         let (ticket, refresh, provider) = match admission {
             RefreshAdmission::Ready(token) => return Ok(token),
             RefreshAdmission::Wait(wait) => {
@@ -2183,10 +2552,7 @@ pub(crate) async fn ensure_access_token() -> Result<Zeroizing<String>, String> {
         })
         .await
         .map_err(|_| public_error("auth_refresh_unavailable"))?;
-        let (result, notify) = production_lifecycle()
-            .lock()
-            .map_err(|_| public_error("auth_unavailable"))?
-            .finish_refresh(ticket, result);
+        let (result, notify) = production_lifecycle().finish_refresh(ticket, result)?;
         if let Some(notify) = notify {
             let (lock, signal) = &*notify;
             if let Ok(mut done) = lock.lock() {
@@ -2200,37 +2566,20 @@ pub(crate) async fn ensure_access_token() -> Result<Zeroizing<String>, String> {
 
 pub(crate) fn native_user_id() -> Option<String> {
     production_lifecycle()
-        .lock()
+        .session_snapshot()
         .ok()
-        .and_then(|state| state.account.user_id.clone())
+        .and_then(|(_, user_id, _, _)| user_id)
 }
 
 async fn finish_login(_app: AppHandle, request_id: String, generation: u64) {
     loop {
-        let maybe = {
-            let state = match production_lifecycle().lock() {
-                Ok(value) => value,
-                Err(_) => return,
-            };
-            if state.account.generation != generation
-                || state
-                    .account
-                    .pending_login
-                    .as_ref()
-                    .is_none_or(|p| p.request_id != request_id)
-            {
-                return;
-            }
-            state
-                .account
-                .pending_login
-                .as_ref()
-                .and_then(|p| p.callback.lock().ok().and_then(|mut slot| slot.take()))
-        };
+        if !production_lifecycle().login_is_current(&request_id, generation) {
+            return;
+        }
+        let maybe = production_lifecycle().take_callback(&request_id, generation);
         if let Some(raw) = maybe {
-            let work = production_lifecycle().lock().ok().and_then(|mut state| {
-                state.registered_login_take_for_exchange(&request_id, generation)
-            });
+            let work =
+                production_lifecycle().registered_login_take_for_exchange(&request_id, generation);
             if let Some((pending, ticket, provider)) = work {
                 let result = match parse_callback(raw.as_str(), &pending) {
                     Ok(code) => match tauri::async_runtime::spawn_blocking(move || {
@@ -2244,24 +2593,13 @@ async fn finish_login(_app: AppHandle, request_id: String, generation: u64) {
                     },
                     Err(error) => Err(error),
                 };
-                if let Ok(mut state) = production_lifecycle().lock() {
-                    let _ = state.registered_login_complete(ticket, result);
-                }
+                let _ = production_lifecycle().registered_login_complete(ticket, result);
             }
             return;
         }
-        let expired = production_lifecycle()
-            .lock()
-            .ok()
-            .map(|state| state.login_expired())
-            .unwrap_or(true);
+        let expired = production_lifecycle().login_expired();
         if expired {
-            if let Ok(mut state) = production_lifecycle().lock() {
-                state.account.pending_login = None;
-                if state.account.generation == generation {
-                    state.account.state = SessionLifecycleState::SignedOut;
-                }
-            }
+            production_lifecycle().expire_login(generation);
             return;
         }
         let _ =
@@ -2283,25 +2621,17 @@ pub(crate) async fn broker_session_login_begin(app: AppHandle) -> Result<LoginSt
     let (verifier, challenge) = callback_pair();
     let callback = Arc::new(Mutex::new(None));
     let cancelled = Arc::new(AtomicBool::new(false));
-    let generation = production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .registered_login_begin(PendingLogin {
-            request_id: request_id.clone(),
-            generation: 0,
-            port,
-            state: state_value.clone(),
-            verifier,
-            expires_at: SystemTime::now() + LOGIN_TTL,
-            expires_at_ms: now_ms() + LOGIN_TTL.as_millis() as u64,
-            callback: callback.clone(),
-            cancelled: cancelled.clone(),
-        })?;
-    if let Ok(mut state) = production_lifecycle().lock() {
-        if let Some(pending) = state.account.pending_login.as_mut() {
-            pending.generation = generation;
-        }
-    }
+    let generation = production_lifecycle().registered_login_begin(PendingLogin {
+        request_id: request_id.clone(),
+        generation: 0,
+        port,
+        state: state_value.clone(),
+        verifier,
+        expires_at: SystemTime::now() + LOGIN_TTL,
+        expires_at_ms: now_ms() + LOGIN_TTL.as_millis() as u64,
+        callback: callback.clone(),
+        cancelled: cancelled.clone(),
+    })?;
     spawn_listener(listener, port, callback, cancelled);
     let mut redirect_to = Zeroizing::new(String::with_capacity(64));
     redirect_to.push_str("http://127.0.0.1:");
@@ -2322,10 +2652,7 @@ pub(crate) async fn broker_session_login_begin(app: AppHandle) -> Result<LoginSt
     url.push('=');
     url.push_str(pkce_method.1);
     if app.opener().open_url(url.as_str(), None::<&str>).is_err() {
-        if let Ok(mut state) = production_lifecycle().lock() {
-            state.account.pending_login = None;
-            state.account.state = SessionLifecycleState::SignedOut;
-        }
+        production_lifecycle().expire_login(generation);
         return Err(public_error("auth_url_open_failed"));
     }
     tauri::async_runtime::spawn(finish_login(app, request_id.clone(), generation));
@@ -2337,10 +2664,7 @@ pub(crate) async fn broker_session_login_begin(app: AppHandle) -> Result<LoginSt
 
 #[tauri::command]
 pub(crate) async fn broker_session_login_cancel(request_id: String) -> Result<Cancelled, String> {
-    production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .cancel_login(&request_id)?;
+    production_lifecycle().registered_cancel_login(&request_id)?;
     Ok(Cancelled {
         request_id,
         status: "cancelled",
@@ -2349,58 +2673,34 @@ pub(crate) async fn broker_session_login_cancel(request_id: String) -> Result<Ca
 
 #[tauri::command]
 pub(crate) async fn broker_session_status() -> Result<SessionStatus, String> {
-    let has_keyring = production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .account
-        .startup_checked
-        || load_committed(
-            &mut production_lifecycle()
-                .lock()
-                .map_err(|_| public_error("auth_unavailable"))?
-                .keyring,
-            ACCOUNT_DOMAIN,
-            ACCOUNT_MARKER,
-        )?
-        .is_some();
+    let has_keyring = production_lifecycle().account_startup_checked()?
+        || production_lifecycle().has_committed_account()?;
     let _ = ensure_startup().await;
     if has_keyring {
         let _ = ensure_access_token().await;
     }
-    let state = production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?;
+    let (state, user_id, email, access_expires_at_ms) =
+        production_lifecycle().session_snapshot()?;
     Ok(SessionStatus {
-        state: state.account.state.as_str(),
-        user_id: state.account.user_id.clone(),
-        email: state.account.email.clone(),
-        access_expires_at_ms: state.account.access_expires_at_ms,
+        state,
+        user_id,
+        email,
+        access_expires_at_ms,
     })
 }
 
 #[tauri::command]
 pub(crate) async fn broker_session_logout() -> Result<SessionStatus, String> {
-    let (account_drain, drive_drain) = {
-        let mut state = production_lifecycle()
-            .lock()
-            .map_err(|_| public_error("auth_unavailable"))?;
-        if state.account.state == SessionLifecycleState::Shutdown {
-            return Ok(SessionStatus {
-                state: "shutdown",
-                user_id: None,
-                email: None,
-                access_expires_at_ms: None,
-            });
-        }
-        state.account.state = SessionLifecycleState::LogoutPending;
-        state.begin_terminal_transition()
-    };
-    account_drain.wait_empty();
-    drive_drain.wait_empty();
+    if production_lifecycle().session_snapshot()?.0 == "shutdown" {
+        return Ok(SessionStatus {
+            state: "shutdown",
+            user_id: None,
+            email: None,
+            access_expires_at_ms: None,
+        });
+    }
     production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .finish_terminal_transition(false)
+        .logout()
         .map_err(|_| public_error("auth_logout_incomplete"))?;
     Ok(SessionStatus {
         state: "signed_out",
@@ -2411,19 +2711,7 @@ pub(crate) async fn broker_session_logout() -> Result<SessionStatus, String> {
 }
 
 pub(crate) fn shutdown() -> Result<(), String> {
-    let (account_drain, drive_drain) = {
-        let mut lifecycle = production_lifecycle()
-            .lock()
-            .map_err(|_| public_error("auth_unavailable"))?;
-        lifecycle.begin_terminal_transition()
-    };
-    account_drain.wait_empty();
-    drive_drain.wait_empty();
-    production_lifecycle()
-        .lock()
-        .map_err(|_| public_error("auth_unavailable"))?
-        .finish_terminal_transition(true)
-        .map(|_| ())
+    production_lifecycle().shutdown().map(|_| ())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -3126,13 +3414,16 @@ mod tests {
     impl DriveHttpPort for FakeProvider {}
     impl ArchiveJobPort for FakeProvider {}
     impl CommitObservationPort for FakeProvider {}
-    fn make_broker() -> SessionLifecycle<FakeKeyring, FakeClock, FakeListener, FakeProvider> {
-        SessionLifecycle::new(
+    type TestBroker =
+        RegisteredBrokerEntrypoints<FakeKeyring, FakeClock, FakeListener, FakeProvider>;
+
+    fn make_broker() -> Arc<TestBroker> {
+        Arc::new(RegisteredBrokerEntrypoints::new(
             FakeKeyring::default(),
             FakeClock::default(),
             FakeListener::default(),
             FakeProvider::default(),
-        )
+        ))
     }
 
     fn pending_login(expired: bool) -> PendingLogin {
@@ -3154,7 +3445,7 @@ mod tests {
     }
 
     fn take_login(
-        broker: &mut SessionLifecycle<FakeKeyring, FakeClock, FakeListener, FakeProvider>,
+        broker: &TestBroker,
         expired: bool,
     ) -> Option<(PendingLogin, LifecycleTicket, FakeProvider)> {
         let generation = broker.generation();
@@ -3165,7 +3456,7 @@ mod tests {
     }
 
     fn complete_login(
-        broker: &mut SessionLifecycle<FakeKeyring, FakeClock, FakeListener, FakeProvider>,
+        broker: &TestBroker,
         pending: PendingLogin,
         ticket: LifecycleTicket,
         mut provider: FakeProvider,
@@ -3178,9 +3469,7 @@ mod tests {
         broker.registered_login_complete(ticket, result)
     }
 
-    fn refresh_once(
-        broker: &mut SessionLifecycle<FakeKeyring, FakeClock, FakeListener, FakeProvider>,
-    ) -> Result<Zeroizing<String>, String> {
+    fn refresh_once(broker: &TestBroker) -> Result<Zeroizing<String>, String> {
         let admission = broker.begin_refresh()?;
         match admission {
             RefreshAdmission::Work {
@@ -3189,7 +3478,7 @@ mod tests {
                 mut provider,
             } => {
                 let result = provider.refresh(refresh);
-                let (result, notify) = broker.finish_refresh(ticket, result);
+                let (result, notify) = broker.finish_refresh(ticket, result).unwrap();
                 if let Some(notify) = notify {
                     let (lock, signal) = &*notify;
                     *lock.lock().unwrap() = true;
@@ -3204,11 +3493,11 @@ mod tests {
 
     #[test]
     fn native_behavioral_success_redacted_and_disposed() {
-        let mut broker = make_broker();
-        let (pending, ticket, provider) = take_login(&mut broker, false).unwrap();
+        let broker = make_broker();
+        let (pending, ticket, provider) = take_login(&broker, false).unwrap();
         assert_eq!(
             complete_login(
-                &mut broker,
+                &broker,
                 pending,
                 ticket,
                 provider,
@@ -3224,16 +3513,16 @@ mod tests {
 
     #[test]
     fn native_behavioral_startup_missing_and_restart() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         assert!(matches!(broker.begin_refresh(), Err(error) if error == "auth_required"));
         broker.seed_active("restart").unwrap();
-        assert_eq!(refresh_once(&mut broker).unwrap().as_str(), "access");
+        assert_eq!(refresh_once(&broker).unwrap().as_str(), "access");
         assert_eq!(broker.logout().unwrap().state, "signed_out");
     }
 
     #[test]
     fn native_behavioral_registered_listener_clock_and_lifecycle_entrypoints() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         let mut pending = pending_login(false);
         pending.port = 43123;
         let generation = broker.registered_login_begin(pending).unwrap();
@@ -3260,57 +3549,59 @@ mod tests {
             ("compact_index", 11usize),
         ];
         for (ordering, stage) in cases {
-            let mut broker = make_broker();
+            let broker = make_broker();
             broker.seed_active("account-restart").unwrap();
             broker
                 .seed_drive_active("drive-restart", "drive-restart-token")
                 .unwrap();
             if ordering == "old_slot_deletion" || ordering == "compact_index" {
-                broker.keyring.slots.insert(
-                    versioned_slot("drive-restart", 1),
-                    Zeroizing::new("old-drive-token".to_owned()),
-                );
-                broker.keyring.slots.insert(
-                    versioned_slot("drive-restart", 2),
-                    Zeroizing::new("drive-restart-token".to_owned()),
-                );
-                broker.keyring.slots.insert(
-                    index_slot("drive-restart"),
-                    encode_index("drive-restart", &[1, 2]).unwrap(),
-                );
-                broker.keyring.slots.insert(
-                    "drive-restart-marker".to_owned(),
-                    encode_marker("drive-restart", 2, "drive-restart-token").unwrap(),
-                );
+                broker
+                    .write_keyring_slot(&versioned_slot("drive-restart", 1), "old-drive-token")
+                    .unwrap();
+                broker
+                    .write_keyring_slot(&versioned_slot("drive-restart", 2), "drive-restart-token")
+                    .unwrap();
+                broker
+                    .write_keyring_slot(
+                        &index_slot("drive-restart"),
+                        encode_index("drive-restart", &[1, 2]).unwrap().as_str(),
+                    )
+                    .unwrap();
+                broker
+                    .write_keyring_slot(
+                        "drive-restart-marker",
+                        encode_marker("drive-restart", 2, "drive-restart-token")
+                            .unwrap()
+                            .as_str(),
+                    )
+                    .unwrap();
             }
             broker.fail_keyring_at(stage);
-            let result = broker.recover_startup();
+            let result = broker.startup_recover();
             assert!(
                 result.is_err(),
                 "recovery ordering {ordering} unexpectedly succeeded"
             );
             assert_eq!(broker.state_name(), "credential_cleanup_failed");
             assert!(broker.begin_refresh().is_err());
-            assert!(broker
-                .begin_drive_operation("drive-restart".to_owned())
-                .is_err());
+            assert!(broker.begin_drive_work("drive-restart".to_owned()).is_err());
         }
 
-        let mut recovered = make_broker();
+        let recovered = make_broker();
         recovered.seed_active("account-restart").unwrap();
         recovered
             .seed_drive_active("drive-restart", "drive-restart-token")
             .unwrap();
-        recovered.recover_startup().unwrap();
+        recovered.startup_recover().unwrap();
         assert_eq!(recovered.state_name(), "signed_out");
     }
 
     #[test]
     fn native_behavioral_rotation_order_and_staged_failures() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         assert_eq!(
             broker
-                .accept_material(LifecycleMaterial {
+                .registered_accept_material(LifecycleMaterial {
                     access: Zeroizing::new("access".to_owned()),
                     refresh: Zeroizing::new("new".to_owned()),
                     user_id: None,
@@ -3322,10 +3613,10 @@ mod tests {
             "authenticated"
         );
         for failure in 0..10 {
-            let mut failing = make_broker();
+            let failing = make_broker();
             failing.fail_keyring_at(failure);
             assert!(failing
-                .accept_material(LifecycleMaterial {
+                .registered_accept_material(LifecycleMaterial {
                     access: Zeroizing::new("access".to_owned()),
                     refresh: Zeroizing::new("new".to_owned()),
                     user_id: None,
@@ -3338,7 +3629,7 @@ mod tests {
 
     #[test]
     fn native_behavioral_refresh_single_flight() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         broker.seed_active("refresh").unwrap();
         let admission = broker.begin_refresh().unwrap();
         assert!(matches!(
@@ -3351,7 +3642,9 @@ mod tests {
             mut provider,
         } = admission
         {
-            let (result, notify) = broker.finish_refresh(ticket, provider.refresh(refresh));
+            let (result, notify) = broker
+                .finish_refresh(ticket, provider.refresh(refresh))
+                .unwrap();
             assert_eq!(result.unwrap().as_str(), "access");
             if let Some(notify) = notify {
                 let (lock, signal) = &*notify;
@@ -3365,8 +3658,8 @@ mod tests {
 
     #[test]
     fn native_behavioral_denial_before_provider_effect() {
-        let mut broker = make_broker();
-        broker.quiescing = true;
+        let broker = make_broker();
+        broker.set_quiescing(true);
         assert!(matches!(
             broker.begin_account_operation(),
             Err(error) if error == "auth_transition_in_progress"
@@ -3377,11 +3670,11 @@ mod tests {
 
     #[test]
     fn native_behavioral_malformed_callback() {
-        let mut broker = make_broker();
-        let (pending, ticket, provider) = take_login(&mut broker, false).unwrap();
+        let broker = make_broker();
+        let (pending, ticket, provider) = take_login(&broker, false).unwrap();
         assert_eq!(
             complete_login(
-                &mut broker,
+                &broker,
                 pending,
                 ticket,
                 provider,
@@ -3394,26 +3687,26 @@ mod tests {
 
     #[test]
     fn native_behavioral_timeout() {
-        let mut broker = make_broker();
-        assert!(take_login(&mut broker, true).is_none());
+        let broker = make_broker();
+        assert!(take_login(&broker, true).is_none());
     }
 
     #[test]
     fn native_behavioral_cancel() {
-        let mut broker = make_broker();
-        broker.begin_login(pending_login(false)).unwrap();
-        broker.cancel_login("behavioral").unwrap();
+        let broker = make_broker();
+        broker.registered_login_begin(pending_login(false)).unwrap();
+        broker.registered_cancel_login("behavioral").unwrap();
         assert!(broker.disposed());
     }
 
     #[test]
     fn native_behavioral_exchange_failure() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         broker.fail_provider_with("exchange_failed");
-        let (pending, ticket, provider) = take_login(&mut broker, false).unwrap();
+        let (pending, ticket, provider) = take_login(&broker, false).unwrap();
         assert_eq!(
             complete_login(
-                &mut broker,
+                &broker,
                 pending,
                 ticket,
                 provider,
@@ -3426,22 +3719,22 @@ mod tests {
 
     #[test]
     fn native_behavioral_logout() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         broker.seed_active("logout").unwrap();
-        broker.begin_login(pending_login(false)).unwrap();
+        broker.registered_login_begin(pending_login(false)).unwrap();
         assert_eq!(broker.logout().unwrap().state, "signed_out");
     }
 
     #[test]
     fn native_behavioral_shutdown() {
-        let mut broker = make_broker();
-        broker.begin_login(pending_login(false)).unwrap();
+        let broker = make_broker();
+        broker.registered_login_begin(pending_login(false)).unwrap();
         assert_eq!(broker.shutdown().unwrap().state, "shutdown");
     }
 
     #[test]
     fn native_behavioral_cleanup_failure() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         broker.seed_active("cleanup").unwrap();
         broker.fail_cleanup();
         assert_eq!(broker.shutdown().unwrap_err(), "cleanup_failed");
@@ -3450,12 +3743,12 @@ mod tests {
 
     #[test]
     fn native_behavioral_stale_generation() {
-        let mut broker = make_broker();
-        let (pending, ticket, provider) = take_login(&mut broker, false).unwrap();
+        let broker = make_broker();
+        let (pending, ticket, provider) = take_login(&broker, false).unwrap();
         broker.invalidate_generation();
         assert_eq!(
             complete_login(
-                &mut broker,
+                &broker,
                 pending,
                 ticket,
                 provider,
@@ -3468,132 +3761,241 @@ mod tests {
 
     #[test]
     fn native_behavioral_drive_disconnect_wins_against_stale_commit() {
-        let mut broker = make_broker();
-        let ticket = broker
-            .begin_drive_operation("drive-test".to_owned())
-            .unwrap();
-        broker.drive.quiescing = true;
+        let broker = make_broker();
+        let lease = broker.begin_drive_work("drive-test".to_owned()).unwrap();
+        let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
+        let ticket = guard.ticket();
+        let drain = broker.begin_drive_disconnect().unwrap();
+        assert!(matches!(
+            broker.begin_drive_work("drive-test-2".to_owned()),
+            Err(error) if error == "auth_transition_in_progress"
+        ));
+        assert_eq!(guard.check().unwrap_err(), "drive_transition_in_progress");
+        drop(guard);
+        drain.wait_empty();
+        broker.finish_drive_disconnect().unwrap();
         assert_eq!(
-            broker
-                .begin_drive_operation("drive-test-2".to_owned())
-                .unwrap_err(),
-            "auth_transition_in_progress"
-        );
-        broker.drive_drain.release();
-        broker.finish_drive_operation(ticket);
-        broker.disconnect_drive().unwrap();
-        assert_eq!(
-            broker.ensure_drive_ticket(ticket).unwrap_err(),
+            broker.check_drive(ticket).unwrap_err(),
             "drive_transition_in_progress"
         );
     }
 
-    #[test]
-    fn native_behavioral_drive_transition_drains_without_deadlock() {
-        let broker = Arc::new(Mutex::new(make_broker()));
-        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(0);
-        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
-        let worker_broker = broker.clone();
-        let worker = std::thread::spawn(move || {
-            let (ticket, drain) = {
-                let mut broker = worker_broker.lock().unwrap();
-                let ticket = broker
-                    .begin_drive_operation("drive-race".to_owned())
-                    .unwrap();
-                (ticket, broker.drive_drain.clone())
-            };
-            ready_tx.send(()).unwrap();
-            release_rx.recv().unwrap();
-            drain.release();
-            worker_broker.lock().unwrap().finish_drive_operation(ticket);
-        });
-        ready_rx.recv().unwrap();
-        let transition_broker = broker.clone();
-        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(0);
-        let transition = std::thread::spawn(move || {
-            let drain = transition_broker.lock().unwrap().begin_drive_disconnect();
-            drain.wait_empty();
-            transition_broker
+    struct BarrierAuthorization;
+
+    impl crate::drive_oauth::DriveAuthorizationPort for BarrierAuthorization {
+        fn ensure_valid(&self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    struct BarrierResumableProvider {
+        entered: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+        calls: Arc<std::sync::Mutex<usize>>,
+    }
+
+    impl BarrierResumableProvider {
+        fn count(&self) {
+            *self.calls.lock().unwrap() += 1;
+        }
+    }
+
+    impl crate::drive_oauth::ResumableProviderPort for BarrierResumableProvider {
+        fn start(
+            &self,
+            _access_token: &str,
+            _payload: &crate::drive_oauth::ResumableMetadata,
+            _total_size: u64,
+        ) -> Result<String, String> {
+            self.count();
+            Ok("deterministic://upload".to_owned())
+        }
+
+        fn send_chunk(
+            &self,
+            _location: &str,
+            _access_token: &str,
+            _content_range: &str,
+            _bytes: Vec<u8>,
+        ) -> Result<crate::drive_oauth::ResumableSendResult, String> {
+            self.count();
+            self.entered
+                .send(())
+                .map_err(|_| "barrier_unavailable".to_owned())?;
+            self.release
                 .lock()
                 .unwrap()
-                .finish_drive_disconnect()
-                .unwrap();
-            done_tx.send(()).unwrap();
+                .take()
+                .ok_or_else(|| "barrier_unavailable".to_owned())?
+                .recv()
+                .map_err(|_| "barrier_unavailable".to_owned())?;
+            Ok(crate::drive_oauth::ResumableSendResult::Complete(
+                crate::drive_oauth::DriveFile {
+                    id: "archive-id".to_owned(),
+                    name: Some("archive.zip".to_owned()),
+                    size: Some("1".to_owned()),
+                    modified_time: None,
+                    app_properties: None,
+                },
+            ))
+        }
+    }
+
+    fn run_drive_provider_race(transition: &'static str) {
+        let broker = make_broker();
+        let lease = broker.begin_drive_work("drive-race".to_owned()).unwrap();
+        let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+        let calls = Arc::new(std::sync::Mutex::new(0));
+        let provider = BarrierResumableProvider {
+            entered: entered_tx,
+            release: std::sync::Mutex::new(Some(release_rx)),
+            calls: calls.clone(),
+        };
+        let archive_path =
+            std::env::temp_dir().join(format!("fung-d-gda6-{}-{}.bin", transition, Uuid::new_v4()));
+        std::fs::write(&archive_path, b"x").unwrap();
+        let worker_path = archive_path.clone();
+        let worker = std::thread::spawn(move || {
+            crate::drive_oauth::upload_resumable_file(
+                &guard,
+                &BarrierAuthorization,
+                &provider,
+                "access-token",
+                &serde_json::json!({}),
+                &worker_path,
+                1,
+            )
         });
-        assert!(done_rx.recv_timeout(Duration::from_millis(50)).is_err());
+        entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("provider send boundary was not reached");
+        assert_eq!(*calls.lock().unwrap(), 2);
+
+        let transition_broker = broker.clone();
+        let (transition_started_tx, transition_started_rx) = std::sync::mpsc::sync_channel(0);
+        let transition_thread = std::thread::spawn(move || match transition {
+            "disconnect" => {
+                transition_started_tx.send(()).unwrap();
+                transition_broker.disconnect_drive().map(|_| ())
+            }
+            "logout" => {
+                transition_started_tx.send(()).unwrap();
+                transition_broker.logout().map(|_| ())
+            }
+            "shutdown" => {
+                transition_started_tx.send(()).unwrap();
+                transition_broker.shutdown().map(|_| ())
+            }
+            _ => Err("unknown_transition".to_owned()),
+        });
+        transition_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("transition did not start");
         release_tx.send(()).unwrap();
-        done_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        transition.join().unwrap();
-        worker.join().unwrap();
-        let mut broker = broker.lock().unwrap();
-        assert!(matches!(
-            broker.begin_drive_operation("after-quiesce".to_owned()),
-            Ok(_)
-        ));
+        let result = worker.join().unwrap();
+        assert_eq!(result.unwrap_err(), "drive_transition_in_progress");
+        transition_thread.join().unwrap().unwrap();
+        let _ = std::fs::remove_file(&archive_path);
+        assert!(!broker.drive_status("drive-race".to_owned()).unwrap());
+        if transition == "logout" {
+            assert_eq!(broker.state_name(), "signed_out");
+        } else if transition == "shutdown" {
+            assert_eq!(broker.state_name(), "shutdown");
+        }
+    }
+
+    #[test]
+    fn native_behavioral_drive_transition_drains_at_real_send_boundary() {
+        run_drive_provider_race("disconnect");
+        run_drive_provider_race("logout");
+        run_drive_provider_race("shutdown");
+    }
+
+    #[test]
+    fn native_behavioral_drive_denies_before_resumable_provider_send() {
+        let broker = make_broker();
+        let lease = broker
+            .begin_drive_work("drive-pre-send".to_owned())
+            .unwrap();
+        let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
+        let drain = broker.begin_drive_disconnect().unwrap();
+        let (entered_tx, _entered_rx) = std::sync::mpsc::sync_channel(0);
+        let (_release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+        let calls = Arc::new(std::sync::Mutex::new(0));
+        let provider = BarrierResumableProvider {
+            entered: entered_tx,
+            release: std::sync::Mutex::new(Some(release_rx)),
+            calls: calls.clone(),
+        };
+        let result = crate::drive_oauth::upload_resumable_file(
+            &guard,
+            &BarrierAuthorization,
+            &provider,
+            "access-token",
+            &serde_json::json!({}),
+            std::path::Path::new("unused-pre-send.bin"),
+            1,
+        );
+        assert_eq!(result.unwrap_err(), "drive_transition_in_progress");
+        assert_eq!(*calls.lock().unwrap(), 0);
+        drop(guard);
+        drain.wait_empty();
+        broker.finish_drive_disconnect().unwrap();
     }
 
     #[test]
     fn native_behavioral_drive_marker_failure_compensates_before_publish() {
-        let mut broker = make_broker();
-        let ticket = broker
-            .begin_drive_operation("drive-fault".to_owned())
-            .unwrap();
+        let broker = make_broker();
+        let lease = broker.begin_drive_work("drive-fault".to_owned()).unwrap();
+        let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
         broker.fail_keyring_at(7);
         assert_eq!(
             broker
-                .drive_commit(ticket, &Zeroizing::new("drive-refresh".to_owned()))
+                .commit_drive(guard.ticket(), &Zeroizing::new("drive-refresh".to_owned()))
                 .unwrap_err(),
             "drive_token_storage_failed"
         );
-        broker.drive_drain.release();
-        broker.finish_drive_operation(ticket);
-        assert!(
-            load_committed(&mut broker.keyring, "drive-fault", "drive-fault-marker")
-                .unwrap()
-                .is_none()
-        );
+        drop(guard);
+        assert!(!broker.keyring_slot_present("drive-fault-marker").unwrap());
     }
 
     #[test]
     fn native_behavioral_no_entry_is_absence_but_corrupt_marker_is_not() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         assert!(matches!(broker.begin_refresh(), Err(error) if error == "auth_required"));
-        broker
-            .keyring
-            .write(ACCOUNT_MARKER, &Zeroizing::new("broken".to_owned()))
-            .unwrap();
+        broker.write_keyring_slot(ACCOUNT_MARKER, "broken").unwrap();
         assert!(matches!(broker.begin_refresh(), Err(error) if error == "keyring_unavailable"));
     }
 
     #[test]
     fn native_behavioral_marker_content_integrity_is_verified() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         broker.seed_active("old").unwrap();
-        broker.keyring.slots.insert(
-            versioned_slot(ACCOUNT_DOMAIN, 1),
-            Zeroizing::new("tampered".to_owned()),
-        );
+        broker
+            .write_keyring_slot(&versioned_slot(ACCOUNT_DOMAIN, 1), "tampered")
+            .unwrap();
         assert!(matches!(broker.begin_refresh(), Err(error) if error == "keyring_unavailable"));
     }
 
     #[test]
     fn native_behavioral_registry_integrity_is_verified() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         broker.seed_active("old").unwrap();
-        broker.keyring.slots.insert(
-            ACCOUNT_INDEX.to_owned(),
-            Zeroizing::new("{\"versions\":[1]}".to_owned()),
-        );
+        broker
+            .write_keyring_slot(ACCOUNT_INDEX, "{\"versions\":[1]}")
+            .unwrap();
         assert!(matches!(broker.begin_refresh(), Err(error) if error == "keyring_unavailable"));
     }
 
     #[test]
     fn native_behavioral_pre_marker_failure_preserves_previous_authority() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         broker.seed_active("old").unwrap();
         broker.fail_keyring_at(6);
         assert!(broker
-            .accept_material(LifecycleMaterial {
+            .registered_accept_material(LifecycleMaterial {
                 access: Zeroizing::new("access".to_owned()),
                 refresh: Zeroizing::new("new".to_owned()),
                 user_id: None,
@@ -3601,45 +4003,33 @@ mod tests {
                 access_expires_at_ms: Some(1),
             })
             .is_err());
-        assert_eq!(
-            load_committed(&mut broker.keyring, ACCOUNT_DOMAIN, ACCOUNT_MARKER)
-                .unwrap()
-                .unwrap()
-                .as_str(),
-            "old"
-        );
+        assert_eq!(broker.load_account().unwrap().unwrap().as_str(), "old");
     }
 
     #[test]
     fn native_behavioral_registry_enumerates_orphans_before_access() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         broker.seed_active("old").unwrap();
         broker
-            .keyring
-            .write(
+            .write_keyring_slot(
                 &index_slot(ACCOUNT_DOMAIN),
-                &encode_index(ACCOUNT_DOMAIN, &[1, 99]).unwrap(),
+                encode_index(ACCOUNT_DOMAIN, &[1, 99]).unwrap().as_str(),
             )
             .unwrap();
         broker
-            .keyring
-            .write(
-                &versioned_slot(ACCOUNT_DOMAIN, 99),
-                &Zeroizing::new("orphan".to_owned()),
-            )
+            .write_keyring_slot(&versioned_slot(ACCOUNT_DOMAIN, 99), "orphan")
             .unwrap();
-        assert_eq!(refresh_once(&mut broker).unwrap().as_str(), "access");
+        assert_eq!(refresh_once(&broker).unwrap().as_str(), "access");
         assert!(!broker
-            .keyring
-            .slots
-            .contains_key(&versioned_slot(ACCOUNT_DOMAIN, 99)));
+            .keyring_slot_present(&versioned_slot(ACCOUNT_DOMAIN, 99))
+            .unwrap());
     }
 
     #[test]
     fn native_behavioral_post_marker_cleanup_failure_is_terminal() {
-        let mut broker = make_broker();
+        let broker = make_broker();
         broker.fail_keyring_at(9);
-        let result = broker.accept_material(LifecycleMaterial {
+        let result = broker.registered_accept_material(LifecycleMaterial {
             access: Zeroizing::new("access".to_owned()),
             refresh: Zeroizing::new("refresh".to_owned()),
             user_id: None,
@@ -3648,17 +4038,17 @@ mod tests {
         });
         assert_eq!(result.unwrap_err(), "cleanup_failed");
         assert_eq!(broker.state_name(), "credential_cleanup_failed");
-        assert!(broker.account.access_token.is_none());
+        assert!(!broker.account_access_present());
     }
 
     #[test]
     fn native_behavioral_login_completion_loses_to_logout() {
-        let mut broker = make_broker();
-        let (pending, ticket, provider) = take_login(&mut broker, false).unwrap();
+        let broker = make_broker();
+        let (pending, ticket, provider) = take_login(&broker, false).unwrap();
         broker.logout().unwrap();
         assert_eq!(
             complete_login(
-                &mut broker,
+                &broker,
                 pending,
                 ticket,
                 provider,

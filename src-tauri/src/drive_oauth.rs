@@ -5,7 +5,7 @@
 //! stored in the OS credential store. The frontend receives only redacted
 //! status and archive metadata.
 
-use crate::auth_session::{self, LifecycleTicket};
+use crate::auth_session::{self, DriveOperationLease, LifecycleTicket, RegisteredBrokerPort};
 use crate::backup::{self, BackupJobState, RestoreResult};
 use crate::backup_archive::{self, ArchiveManifest};
 use crate::filesystem_backup::{self, FilesystemArchiveRecord, FilesystemBackupState};
@@ -93,8 +93,7 @@ struct PendingOAuth {
     callback: Arc<Mutex<Option<OAuthCallback>>>,
     terminal: OAuthTerminal,
     expires_at: Instant,
-    lifecycle_ticket: LifecycleTicket,
-    lifecycle_drain: Arc<auth_session::OperationDrain>,
+    lifecycle_guard: Arc<DriveOperationGuard>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -204,22 +203,92 @@ pub(crate) struct DriveOAuthState {
     pending: Mutex<Option<PendingOAuth>>,
 }
 
-struct DriveOperationGuard {
+pub(crate) struct DriveOperationGuard {
     ticket: LifecycleTicket,
     drain: Arc<auth_session::OperationDrain>,
+    broker: Arc<dyn RegisteredBrokerPort>,
 }
 
 impl DriveOperationGuard {
-    fn check(&self) -> Result<(), String> {
-        auth_session::drive_check(self.ticket)
+    pub(crate) fn from_lease(lease: DriveOperationLease) -> Self {
+        Self {
+            ticket: lease.ticket,
+            drain: lease.drain,
+            broker: lease.broker,
+        }
+    }
+
+    pub(crate) fn ticket(&self) -> LifecycleTicket {
+        self.ticket
+    }
+
+    fn broker(&self) -> Arc<dyn RegisteredBrokerPort> {
+        self.broker.clone()
+    }
+
+    pub(crate) fn check(&self) -> Result<(), String> {
+        self.broker.check_drive_operation(self.ticket)
+    }
+
+    fn commit(&self, token: &Zeroizing<String>) -> Result<(), String> {
+        self.broker.commit_drive(self.ticket, token)
+    }
+
+    fn provider_exchange(
+        &self,
+        oauth_client_id: String,
+        redirect_uri: Zeroizing<String>,
+        code: Zeroizing<String>,
+        verifier: Zeroizing<String>,
+    ) -> Result<auth_session::DriveTokenMaterial, String> {
+        self.broker.drive_provider_exchange(
+            self.ticket,
+            oauth_client_id,
+            redirect_uri,
+            code,
+            verifier,
+        )
     }
 }
 
 impl Drop for DriveOperationGuard {
     fn drop(&mut self) {
         self.drain.release();
-        auth_session::drive_finish(self.ticket);
+        self.broker.finish_drive_operation(self.ticket);
     }
+}
+
+pub(crate) trait DriveAuthorizationPort {
+    fn ensure_valid(&self) -> Result<(), String>;
+}
+
+impl DriveAuthorizationPort for DriveInvocation {
+    fn ensure_valid(&self) -> Result<(), String> {
+        DriveInvocation::ensure_valid(self)
+    }
+}
+
+pub(crate) enum ResumableSendResult {
+    Complete(DriveFile),
+    Partial { acknowledged: u64 },
+}
+
+pub(crate) type ResumableMetadata = serde_json::Value;
+
+pub(crate) trait ResumableProviderPort {
+    fn start(
+        &self,
+        access_token: &str,
+        metadata: &ResumableMetadata,
+        total_size: u64,
+    ) -> Result<String, String>;
+    fn send_chunk(
+        &self,
+        location: &str,
+        access_token: &str,
+        content_range: &str,
+        bytes: Vec<u8>,
+    ) -> Result<ResumableSendResult, String>;
 }
 
 fn begin_drive_work(invocation: &DriveInvocation) -> Result<DriveOperationGuard, String> {
@@ -229,8 +298,9 @@ fn begin_drive_work(invocation: &DriveInvocation) -> Result<DriveOperationGuard,
         invocation.device_id(),
         invocation.device_fingerprint(),
     );
-    let (ticket, drain) = auth_session::drive_begin(slot_base)?;
-    Ok(DriveOperationGuard { ticket, drain })
+    Ok(DriveOperationGuard::from_lease(auth_session::drive_begin(
+        slot_base,
+    )?))
 }
 
 pub(crate) struct RecoveryPhrase(Zeroizing<String>);
@@ -251,12 +321,12 @@ struct DriveFileList {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DriveFile {
-    id: String,
-    name: Option<String>,
-    size: Option<String>,
-    modified_time: Option<String>,
-    app_properties: Option<std::collections::HashMap<String, String>>,
+pub(crate) struct DriveFile {
+    pub(crate) id: String,
+    pub(crate) name: Option<String>,
+    pub(crate) size: Option<String>,
+    pub(crate) modified_time: Option<String>,
+    pub(crate) app_properties: Option<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -390,10 +460,10 @@ fn keyring_slot_for(user_id: &str, device_id: &str, device_fingerprint: &str) ->
 }
 
 fn save_refresh_token(
-    ticket: LifecycleTicket,
+    operation: &DriveOperationGuard,
     refresh_token: Zeroizing<String>,
 ) -> Result<(), String> {
-    auth_session::drive_commit(ticket, &refresh_token)
+    operation.commit(&refresh_token)
 }
 
 fn load_refresh_token(invocation: &DriveInvocation) -> Result<Option<Zeroizing<String>>, String> {
@@ -542,10 +612,8 @@ fn remove_pending(state: &DriveOAuthState, session_id: &str) {
             .as_ref()
             .is_some_and(|entry| entry.session_id == session_id)
         {
-            if let Some(entry) = pending.as_ref() {
-                entry.lifecycle_drain.release();
-                auth_session::drive_finish(entry.lifecycle_ticket);
-            }
+            // Removing the last Arc owner drops the real DriveOperationGuard.
+            // Its Drop is the sole normal drain release for this operation.
             *pending = None;
         }
     }
@@ -599,7 +667,9 @@ pub(crate) async fn broker_drive_connect_begin(
     .map_err(|_| public_error("drive_oauth_callback_unavailable"))?;
     let (code_verifier, code_challenge) = pkce_pair();
     let oauth_state = random_state();
-    let (lifecycle_ticket, lifecycle_drain) = auth_session::drive_begin(slot_base)?;
+    let lifecycle_guard = Arc::new(DriveOperationGuard::from_lease(auth_session::drive_begin(
+        slot_base,
+    )?));
     let session_id = Uuid::new_v4().to_string();
     let callback = Arc::new(Mutex::new(None));
     let terminal = OAuthTerminal::default();
@@ -645,16 +715,13 @@ pub(crate) async fn broker_drive_connect_begin(
         callback,
         terminal,
         expires_at: Instant::now() + OAUTH_TTL,
-        lifecycle_ticket,
-        lifecycle_drain: lifecycle_drain.clone(),
+        lifecycle_guard: lifecycle_guard.clone(),
     });
     if app
         .opener()
         .open_url(authorization_url.as_str(), None::<&str>)
         .is_err()
     {
-        lifecycle_drain.release();
-        auth_session::drive_finish(lifecycle_ticket);
         *pending_guard = None;
         return Err(public_error("drive_oauth_open_failed"));
     }
@@ -724,7 +791,7 @@ pub(crate) async fn broker_drive_connect_complete(
         remove_pending(&state, &session_id);
         return Err(error);
     }
-    auth_session::drive_check(pending.lifecycle_ticket)?;
+    pending.lifecycle_guard.check()?;
     let authorization =
         match native_auth::authorize_drive(&app, DriveOperation::ConnectionAuthorize).await {
             Ok(context) => match context.into_invocation() {
@@ -745,10 +812,9 @@ pub(crate) async fn broker_drive_connect_complete(
     let exchange_client_id = pending.oauth_client_id.clone();
     let exchange_redirect_uri = pending.redirect_uri.clone();
     let exchange_verifier = pending.code_verifier.clone();
-    let lifecycle_ticket = pending.lifecycle_ticket;
+    let lifecycle_guard = pending.lifecycle_guard.clone();
     let token = match tauri::async_runtime::spawn_blocking(move || {
-        auth_session::drive_provider_exchange(
-            lifecycle_ticket,
+        lifecycle_guard.provider_exchange(
             exchange_client_id,
             exchange_redirect_uri,
             code,
@@ -798,7 +864,7 @@ pub(crate) async fn broker_drive_connect_complete(
         remove_pending(&state, &session_id);
         return Err(public_error("drive_connection_activation_failed"));
     }
-    if let Err(error) = save_refresh_token(pending.lifecycle_ticket, refresh_token) {
+    if let Err(error) = save_refresh_token(&pending.lifecycle_guard, refresh_token) {
         pending.terminal.mark_failed();
         remove_pending(&state, &session_id);
         return Err(error);
@@ -879,9 +945,10 @@ async fn access_token(
     let client_id = configured_client_id()?;
     let refresh_token =
         load_refresh_token(invocation)?.ok_or_else(|| public_error("drive_not_connected"))?;
-    let ticket = operation.ticket;
+    let ticket = operation.ticket();
+    let broker = operation.broker();
     let token = tauri::async_runtime::spawn_blocking(move || {
-        auth_session::drive_provider_refresh(ticket, client_id, refresh_token)
+        broker.drive_provider_refresh(ticket, client_id, refresh_token)
     })
     .await
     .map_err(|_| public_error("drive_token_refresh_failed"))??;
@@ -901,13 +968,13 @@ fn drive_query_literal(value: &str) -> String {
 }
 
 async fn list_files(
-    ticket: LifecycleTicket,
+    operation: &DriveOperationGuard,
     invocation: &DriveInvocation,
     access_token: &str,
     query: &str,
 ) -> Result<Vec<DriveFile>, String> {
     invocation.ensure_valid()?;
-    auth_session::drive_check(ticket)?;
+    operation.check()?;
     let response = async_http_client(Duration::from_secs(120), "drive_list_failed")?
         .get(DRIVE_FILES_ENDPOINT)
         .bearer_auth(access_token)
@@ -920,7 +987,7 @@ async fn list_files(
         .send()
         .await
         .map_err(|_| public_error("drive_list_failed"))?;
-    auth_session::drive_check(ticket)?;
+    operation.check()?;
     if !response.status().is_success() {
         return Err(public_error("drive_list_failed"));
     }
@@ -942,7 +1009,7 @@ pub(crate) async fn broker_drive_list_archives(
     let operation = begin_drive_work(&authorization)?;
     let token = access_token(&authorization, &operation).await?;
     let files = list_files(
-        operation.ticket,
+        &operation,
         &authorization,
         token.as_str(),
         "'appDataFolder' in parents and trashed = false and name contains '.fungbk'",
@@ -1005,7 +1072,7 @@ pub(crate) async fn broker_drive_upload_archive(
     let result = tauri::async_runtime::spawn_blocking(move || {
         authorization.ensure_valid()?;
         upload_archive_files(
-            operation.ticket,
+            &operation,
             &authorization,
             token.as_str(),
             &archive_path,
@@ -1019,12 +1086,11 @@ pub(crate) async fn broker_drive_upload_archive(
     })
     .await
     .map_err(|_| public_error("drive_upload_failed"))??;
-    operation.check()?;
     Ok(result)
 }
 
 fn upload_archive_files(
-    ticket: LifecycleTicket,
+    operation: &DriveOperationGuard,
     invocation: &DriveInvocation,
     access_token: &str,
     archive_path: &Path,
@@ -1036,7 +1102,7 @@ fn upload_archive_files(
     digest: &str,
 ) -> Result<DriveArchiveSummary, String> {
     invocation.ensure_valid()?;
-    auth_session::drive_check(ticket)?;
+    operation.check()?;
     let client = BlockingClient::builder()
         .timeout(Duration::from_secs(120))
         .build()
@@ -1045,7 +1111,7 @@ fn upload_archive_files(
         "'appDataFolder' in parents and trashed = false and name = '{}'",
         drive_query_literal(archive_name)
     );
-    let existing = blocking_list_files(ticket, invocation, &client, access_token, &query)?;
+    let existing = blocking_list_files(operation, invocation, &client, access_token, &query)?;
     if let Some(file) = existing.into_iter().next() {
         if validate_drive_file_contract(&file, archive_id, "archive", Some(digest)).is_ok() {
             return summary_from_file(file, archive_id);
@@ -1057,7 +1123,14 @@ fn upload_archive_files(
         "'appDataFolder' in parents and trashed = false and name = '{}'",
         drive_query_literal(manifest_name)
     );
-    if !blocking_list_files(ticket, invocation, &client, access_token, &manifest_query)?.is_empty()
+    if !blocking_list_files(
+        operation,
+        invocation,
+        &client,
+        access_token,
+        &manifest_query,
+    )?
+    .is_empty()
     {
         return Err(public_error("drive_manifest_already_exists"));
     }
@@ -1073,7 +1146,7 @@ fn upload_archive_files(
         }
     });
     let manifest_file = upload_small_file(
-        ticket,
+        operation,
         invocation,
         &client,
         access_token,
@@ -1094,9 +1167,9 @@ fn upload_archive_files(
         }
     });
     let archive = match upload_resumable_file(
-        ticket,
+        operation,
         invocation,
-        &client,
+        &NativeResumableProvider { client: &client },
         access_token,
         &archive_metadata,
         archive_path,
@@ -1104,8 +1177,13 @@ fn upload_archive_files(
     ) {
         Ok(file) => file,
         Err(error) => {
-            let _ =
-                blocking_delete_file(ticket, invocation, &client, access_token, &manifest_file.id);
+            let _ = blocking_delete_file(
+                operation,
+                invocation,
+                &client,
+                access_token,
+                &manifest_file.id,
+            );
             return Err(error);
         }
     };
@@ -1132,14 +1210,14 @@ fn summary_from_file(file: DriveFile, archive_id: &str) -> Result<DriveArchiveSu
 }
 
 fn blocking_list_files(
-    ticket: LifecycleTicket,
+    operation: &DriveOperationGuard,
     invocation: &DriveInvocation,
     client: &BlockingClient,
     access_token: &str,
     query: &str,
 ) -> Result<Vec<DriveFile>, String> {
     invocation.ensure_valid()?;
-    auth_session::drive_check(ticket)?;
+    operation.check()?;
     let response = client
         .get(DRIVE_FILES_ENDPOINT)
         .bearer_auth(access_token)
@@ -1151,7 +1229,7 @@ fn blocking_list_files(
         ])
         .send()
         .map_err(|_| public_error("drive_upload_failed"))?;
-    auth_session::drive_check(ticket)?;
+    operation.check()?;
     if !response.status().is_success() {
         return Err(public_error("drive_upload_failed"));
     }
@@ -1162,7 +1240,7 @@ fn blocking_list_files(
 }
 
 fn upload_small_file(
-    ticket: LifecycleTicket,
+    operation: &DriveOperationGuard,
     invocation: &DriveInvocation,
     client: &BlockingClient,
     access_token: &str,
@@ -1171,7 +1249,7 @@ fn upload_small_file(
     mime_type: &str,
 ) -> Result<DriveFile, String> {
     invocation.ensure_valid()?;
-    auth_session::drive_check(ticket)?;
+    operation.check()?;
     let metadata_part = multipart::Part::text(metadata.to_string())
         .mime_str("application/json")
         .map_err(|_| public_error("drive_upload_failed"))?;
@@ -1189,7 +1267,7 @@ fn upload_small_file(
         )
         .send()
         .map_err(|_| public_error("drive_upload_failed"))?;
-    auth_session::drive_check(ticket)?;
+    operation.check()?;
     if !response.status().is_success() {
         return Err(public_error("drive_upload_failed"));
     }
@@ -1198,65 +1276,58 @@ fn upload_small_file(
         .map_err(|_| public_error("drive_upload_failed"))
 }
 
-fn upload_resumable_file(
-    ticket: LifecycleTicket,
-    invocation: &DriveInvocation,
-    client: &BlockingClient,
-    access_token: &str,
-    metadata: &serde_json::Value,
-    archive_path: &Path,
-    total_size: u64,
-) -> Result<DriveFile, String> {
-    invocation.ensure_valid()?;
-    auth_session::drive_check(ticket)?;
-    let start_response = client
-        .post(format!("{DRIVE_UPLOAD_ENDPOINT}?uploadType=resumable"))
-        .bearer_auth(access_token)
-        .header("X-Upload-Content-Type", "application/octet-stream")
-        .header("X-Upload-Content-Length", total_size)
-        .header("Content-Type", "application/json; charset=UTF-8")
-        .body(metadata.to_string())
-        .send()
-        .map_err(|_| public_error("drive_upload_failed"))?;
-    auth_session::drive_check(ticket)?;
-    if !start_response.status().is_success() {
-        return Err(public_error("drive_upload_failed"));
-    }
-    let location = start_response
-        .headers()
-        .get("Location")
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| public_error("drive_upload_failed"))?
-        .to_owned();
-    let mut file = File::open(archive_path).map_err(|_| public_error("drive_upload_failed"))?;
-    let mut next_offset = 0u64;
-    let mut buffer = vec![0u8; DRIVE_CHUNK_SIZE];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|_| public_error("drive_upload_failed"))?;
-        if read == 0 {
-            return Err(public_error("drive_upload_failed"));
-        }
-        let end = next_offset + read as u64 - 1;
-        invocation.ensure_valid()?;
-        auth_session::drive_check(ticket)?;
-        let response = client
-            .put(&location)
+struct NativeResumableProvider<'a> {
+    client: &'a BlockingClient,
+}
+
+impl ResumableProviderPort for NativeResumableProvider<'_> {
+    fn start(
+        &self,
+        access_token: &str,
+        metadata: &serde_json::Value,
+        total_size: u64,
+    ) -> Result<String, String> {
+        let response = self
+            .client
+            .post(format!("{DRIVE_UPLOAD_ENDPOINT}?uploadType=resumable"))
             .bearer_auth(access_token)
-            .header("Content-Length", read)
-            .header(
-                "Content-Range",
-                format!("bytes {next_offset}-{end}/{total_size}"),
-            )
-            .body(buffer[..read].to_vec())
+            .header("X-Upload-Content-Type", "application/octet-stream")
+            .header("X-Upload-Content-Length", total_size)
+            .header("Content-Type", "application/json; charset=UTF-8")
+            .body(metadata.to_string())
             .send()
             .map_err(|_| public_error("drive_upload_failed"))?;
-        invocation.ensure_valid()?;
-        auth_session::drive_check(ticket)?;
+        if !response.status().is_success() {
+            return Err(public_error("drive_upload_failed"));
+        }
+        response
+            .headers()
+            .get("Location")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+            .ok_or_else(|| public_error("drive_upload_failed"))
+    }
+
+    fn send_chunk(
+        &self,
+        location: &str,
+        access_token: &str,
+        content_range: &str,
+        bytes: Vec<u8>,
+    ) -> Result<ResumableSendResult, String> {
+        let response = self
+            .client
+            .put(location)
+            .bearer_auth(access_token)
+            .header("Content-Length", bytes.len())
+            .header("Content-Range", content_range)
+            .body(bytes)
+            .send()
+            .map_err(|_| public_error("drive_upload_failed"))?;
         if response.status().is_success() {
             return response
                 .json::<DriveFile>()
+                .map(ResumableSendResult::Complete)
                 .map_err(|_| public_error("drive_upload_failed"));
         }
         if response.status().as_u16() != 308 {
@@ -1269,37 +1340,85 @@ fn upload_resumable_file(
             .and_then(|value| value.rsplit('-').next())
             .and_then(|value| value.parse::<u64>().ok())
             .map(|end| end + 1)
-            .unwrap_or(end + 1);
-        if acknowledged > end + 1 || acknowledged > total_size {
+            .unwrap_or(0);
+        Ok(ResumableSendResult::Partial { acknowledged })
+    }
+}
+
+pub(crate) fn upload_resumable_file<I, P>(
+    operation: &DriveOperationGuard,
+    invocation: &I,
+    provider: &P,
+    access_token: &str,
+    metadata: &ResumableMetadata,
+    archive_path: &Path,
+    total_size: u64,
+) -> Result<DriveFile, String>
+where
+    I: DriveAuthorizationPort,
+    P: ResumableProviderPort,
+{
+    invocation.ensure_valid()?;
+    operation.check()?;
+    let location = provider.start(access_token, metadata, total_size)?;
+    invocation.ensure_valid()?;
+    operation.check()?;
+    let mut file = File::open(archive_path).map_err(|_| public_error("drive_upload_failed"))?;
+    let mut next_offset = 0u64;
+    let mut buffer = vec![0u8; DRIVE_CHUNK_SIZE];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|_| public_error("drive_upload_failed"))?;
+        if read == 0 {
             return Err(public_error("drive_upload_failed"));
         }
-        if acknowledged != end + 1 {
-            file.seek(SeekFrom::Start(acknowledged))
-                .map_err(|_| public_error("drive_upload_failed"))?;
-        }
-        next_offset = acknowledged;
-        if next_offset >= total_size {
-            return Err(public_error("drive_upload_failed"));
+        let end = next_offset + read as u64 - 1;
+        invocation.ensure_valid()?;
+        operation.check()?;
+        let response = provider.send_chunk(
+            &location,
+            access_token,
+            &format!("bytes {next_offset}-{end}/{total_size}"),
+            buffer[..read].to_vec(),
+        )?;
+        invocation.ensure_valid()?;
+        operation.check()?;
+        match response {
+            ResumableSendResult::Complete(file) => return Ok(file),
+            ResumableSendResult::Partial { acknowledged } => {
+                if acknowledged > end + 1 || acknowledged > total_size {
+                    return Err(public_error("drive_upload_failed"));
+                }
+                if acknowledged != end + 1 {
+                    file.seek(SeekFrom::Start(acknowledged))
+                        .map_err(|_| public_error("drive_upload_failed"))?;
+                }
+                next_offset = acknowledged;
+                if next_offset >= total_size {
+                    return Err(public_error("drive_upload_failed"));
+                }
+            }
         }
     }
 }
 
 fn blocking_delete_file(
-    ticket: LifecycleTicket,
+    operation: &DriveOperationGuard,
     invocation: &DriveInvocation,
     client: &BlockingClient,
     access_token: &str,
     file_id: &str,
 ) -> Result<(), String> {
     invocation.ensure_valid()?;
-    auth_session::drive_check(ticket)?;
+    operation.check()?;
     validate_drive_file_id(file_id)?;
     let response = client
         .delete(format!("{DRIVE_FILES_ENDPOINT}/{file_id}"))
         .bearer_auth(access_token)
         .send()
         .map_err(|_| public_error("drive_upload_failed"))?;
-    auth_session::drive_check(ticket)?;
+    operation.check()?;
     if response.status().is_success() || response.status().as_u16() == 404 {
         Ok(())
     } else {
@@ -1308,13 +1427,13 @@ fn blocking_delete_file(
 }
 
 async fn download_file(
-    ticket: LifecycleTicket,
+    operation: &DriveOperationGuard,
     invocation: &DriveInvocation,
     access_token: &str,
     file_id: &str,
 ) -> Result<Vec<u8>, String> {
     invocation.ensure_valid()?;
-    auth_session::drive_check(ticket)?;
+    operation.check()?;
     validate_drive_file_id(file_id)?;
     let mut response = async_http_client(Duration::from_secs(120), "drive_download_failed")?
         .get(format!("{DRIVE_FILES_ENDPOINT}/{file_id}"))
@@ -1323,7 +1442,7 @@ async fn download_file(
         .send()
         .await
         .map_err(|_| public_error("drive_download_failed"))?;
-    auth_session::drive_check(ticket)?;
+    operation.check()?;
     if !response.status().is_success() {
         return Err(public_error("drive_download_failed"));
     }
@@ -1340,7 +1459,7 @@ async fn download_file(
         .map_err(|_| public_error("drive_download_failed"))?
     {
         invocation.ensure_valid()?;
-        auth_session::drive_check(ticket)?;
+        operation.check()?;
         if bytes.len() as u64 + chunk.len() as u64 > MAX_DRIVE_DOWNLOAD_BYTES {
             return Err(public_error("drive_archive_too_large"));
         }
@@ -1400,38 +1519,27 @@ pub(crate) async fn broker_drive_restore(
         "'appDataFolder' in parents and trashed = false and name = '{}'",
         drive_query_literal(&archive_name)
     );
-    let archive_file = list_files(
-        operation.ticket,
-        &authorization,
-        token.as_str(),
-        &archive_query,
-    )
-    .await?
-    .into_iter()
-    .find(|file| file.id == file_id)
-    .ok_or_else(|| public_error("drive_archive_not_found"))?;
+    let archive_file = list_files(&operation, &authorization, token.as_str(), &archive_query)
+        .await?
+        .into_iter()
+        .find(|file| file.id == file_id)
+        .ok_or_else(|| public_error("drive_archive_not_found"))?;
     validate_drive_file_contract(&archive_file, &archive_id, "archive", None)?;
     let manifest_name = format!("{archive_id}{MANIFEST_SUFFIX}");
     let manifest_query = format!(
         "'appDataFolder' in parents and trashed = false and name = '{}'",
         drive_query_literal(&manifest_name)
     );
-    let manifest_file = list_files(
-        operation.ticket,
-        &authorization,
-        token.as_str(),
-        &manifest_query,
-    )
-    .await?
-    .into_iter()
-    .next()
-    .ok_or_else(|| public_error("drive_manifest_not_found"))?;
+    let manifest_file = list_files(&operation, &authorization, token.as_str(), &manifest_query)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| public_error("drive_manifest_not_found"))?;
     validate_drive_file_contract(&manifest_file, &archive_id, "manifest", None)?;
     let manifest_file_id = manifest_file.id.clone();
-    let archive_bytes =
-        download_file(operation.ticket, &authorization, token.as_str(), &file_id).await?;
+    let archive_bytes = download_file(&operation, &authorization, token.as_str(), &file_id).await?;
     let manifest_bytes = download_file(
-        operation.ticket,
+        &operation,
         &authorization,
         token.as_str(),
         &manifest_file_id,

@@ -39,6 +39,7 @@ mod local_diarization;
 mod media_fetch;
 mod meeting_intel;
 mod mobile;
+#[rustfmt::skip]
 mod native_auth;
 mod native_recorder;
 mod on_device_ai;
@@ -198,7 +199,9 @@ fn open_external_account_portal(app: tauri::AppHandle) -> AppResult<()> {
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AccountPortalStatus { pub(crate) status: &'static str }
+pub(crate) struct AccountPortalStatus {
+    pub(crate) status: &'static str,
+}
 
 #[tauri::command(rename = "account_portal_open")]
 fn account_portal_open(app: tauri::AppHandle) -> AppResult<AccountPortalStatus> {
@@ -207,12 +210,17 @@ fn account_portal_open(app: tauri::AppHandle) -> AppResult<AccountPortalStatus> 
 }
 
 #[tauri::command(rename = "broker_fungwire_status")]
-fn broker_fungwire_status(state: State<'_, AppState>) -> AppResult<fungwire_server::FungwireStatus> {
+fn broker_fungwire_status(
+    state: State<'_, AppState>,
+) -> AppResult<fungwire_server::FungwireStatus> {
     fungwire_server::fungwire_status(state)
 }
 
 #[tauri::command(rename = "broker_fungwire_set_enabled")]
-fn broker_fungwire_set_enabled(enabled: bool, state: State<'_, AppState>) -> AppResult<fungwire_server::FungwireStatus> {
+fn broker_fungwire_set_enabled(
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> AppResult<fungwire_server::FungwireStatus> {
     fungwire_server::fungwire_server_set_enabled(enabled, state)
 }
 
@@ -582,7 +590,9 @@ fn fungwire_local_endpoint(state: State<'_, AppState>) -> AppResult<Option<Strin
     fungwire_local_endpoint_native(state)
 }
 
-pub(crate) fn fungwire_local_endpoint_native(state: State<'_, AppState>) -> AppResult<Option<String>> {
+pub(crate) fn fungwire_local_endpoint_native(
+    state: State<'_, AppState>,
+) -> AppResult<Option<String>> {
     let bind = {
         let guard = state.fungwire.lock().expect("fungwire mutex poisoned");
         match guard.as_ref() {

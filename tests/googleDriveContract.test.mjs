@@ -11,6 +11,7 @@ test("Google Drive contract is an exact-scope native PKCE flow", () => {
   const rust = read("src-tauri/src/drive_oauth.rs");
   const lifecycle = read("src-tauri/src/auth_session.rs");
   assert.match(lifecycle, /SessionLifecycle/);
+  assert.match(lifecycle, /RegisteredBrokerEntrypoints/);
   assert.match(`${rust}\n${lifecycle}`, /DriveConnection|DriveCredential/);
   assert.match(`${rust}\n${lifecycle}`, /drive_generation|account_epoch/);
   assert.match(`${rust}\n${lifecycle}`, /commit_marker|marker/);
@@ -83,14 +84,17 @@ test("Drive provider work remains fenced by the live lifecycle engine", () => {
   const rust = read("src-tauri/src/drive_oauth.rs");
   const session = read("src-tauri/src/auth_session.rs");
   assert.match(rust, /DriveOperationGuard/);
+  assert.match(rust, /DriveOperationGuard::from_lease/);
   assert.match(rust, /begin_drive_work/);
+  assert.match(rust, /ResumableProviderPort/);
+  assert.match(rust, /NativeResumableProvider/);
   assert.match(rust, /operation\.check/);
   assert.match(session, /drive_provider_exchange/);
   assert.match(session, /drive_provider_refresh/);
   assert.match(session, /pending_operations/);
   assert.match(session, /account_begin_operation/);
   assert.match(session, /OperationDrain|wait_empty/);
-  assert.match(rust, /drive_check\(ticket\)/);
-  assert.match(rust, /blocking_delete_file\(ticket/);
-  assert.match(rust, /download_file\(operation\.ticket/);
+  assert.match(rust, /check_drive_operation\(self\.ticket\)/);
+  assert.match(rust, /blocking_delete_file\(\n\s+operation/);
+  assert.match(rust, /download_file\(\n\s+operation/);
 });

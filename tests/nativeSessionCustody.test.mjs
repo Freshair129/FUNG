@@ -233,6 +233,25 @@ test("registered adapters and behavioral tests share production lifecycle entryp
     assert.doesNotMatch(session, new RegExp(`#\\[cfg\\(test\\)\\][\\s\\S]{0,120}fn ${helper}\\b`));
   }
   assert.doesNotMatch(session, /LifecycleCore|SessionMemory|dead.*port/i);
+  for (const recoveryEvidence of [
+    "struct RecoveryRow",
+    "recovery_trace",
+    "marker_id",
+    "index_id",
+    "slot_id",
+    "orphan_id",
+    "first_lifecycle_state",
+    "restart_lifecycle_state",
+    "terminal_cleanup_failed_expected",
+    "first_publication_outcome",
+    "restart_publication_outcome",
+    "public_publication_outcome",
+    "make_fixture_with_keyring",
+  ]) {
+    assert.match(session, new RegExp(recoveryEvidence));
+  }
+  assert.match(session, /first_result[\s\S]*restart_result[\s\S]*first_readback[\s\S]*restart_readback/);
+  assert.match(session, /RecoveryCase::CorruptTarget[\s\S]*RecoveryCase::ValidPersisted/);
 });
 
 test("Drive admission drains without holding the lifecycle mutex and fences each provider boundary", () => {

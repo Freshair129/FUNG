@@ -3566,6 +3566,7 @@ mod tests {
         VerifiedNoEntry,
         MarkerMissingOrphan,
         CorruptTarget,
+        ValidPersisted,
     }
 
     impl RecoveryCase {
@@ -3580,11 +3581,235 @@ mod tests {
                 Self::VerifiedNoEntry => "verified_no_entry",
                 Self::MarkerMissingOrphan => "marker_missing_orphan",
                 Self::CorruptTarget => "corrupt_target",
+                Self::ValidPersisted => "valid_persisted",
             }
         }
 
-        fn is_expected_success(self) -> bool {
-            matches!(self, Self::VerifiedNoEntry | Self::MarkerMissingOrphan)
+        fn fault_point(self) -> &'static str {
+            match self {
+                Self::StagedIndex => "staged_index_delete_current",
+                Self::Slot => "committed_slot_read",
+                Self::Marker => "committed_marker_parse",
+                Self::OldSlotDeletion => "old_slot_delete_orphan",
+                Self::CompactIndex => "compact_index_write",
+                Self::PostMarkerFailure => "post_marker_orphan_verify_absent",
+                Self::VerifiedNoEntry => "none",
+                Self::MarkerMissingOrphan => "marker_missing_orphan_cleanup",
+                Self::CorruptTarget => "committed_slot_content_integrity",
+                Self::ValidPersisted => "none",
+            }
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum RecoveryResultClass {
+        Ok,
+        KeyringUnavailable,
+        CleanupFailed,
+    }
+
+    impl RecoveryResultClass {
+        fn error_code(self) -> Option<&'static str> {
+            match self {
+                Self::Ok => None,
+                Self::KeyringUnavailable => Some("keyring_unavailable"),
+                Self::CleanupFailed => Some("cleanup_failed"),
+            }
+        }
+
+        fn is_ok(self) -> bool {
+            matches!(self, Self::Ok)
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum MarkerReadback {
+        Absent,
+        ValidOriginal,
+        Corrupt,
+    }
+
+    #[derive(Clone, Copy)]
+    enum IndexReadback {
+        Absent,
+        Versions(&'static [u64]),
+    }
+
+    #[derive(Clone, Copy)]
+    enum SlotReadback {
+        Absent,
+        Original,
+        Orphan,
+        Tampered,
+    }
+
+    #[derive(Clone, Copy)]
+    struct RecoveryReadback {
+        marker: MarkerReadback,
+        index: IndexReadback,
+        current_slot: SlotReadback,
+        orphan_slot: SlotReadback,
+    }
+
+    struct RecoveryRow {
+        domain: &'static str,
+        operation: &'static str,
+        fault_point: &'static str,
+        case: RecoveryCase,
+        marker_id: String,
+        index_id: String,
+        current_slot_id: String,
+        orphan_slot_id: String,
+        first_result: RecoveryResultClass,
+        restart_result: RecoveryResultClass,
+        first_readback: RecoveryReadback,
+        restart_readback: RecoveryReadback,
+        first_lifecycle_state: &'static str,
+        restart_lifecycle_state: &'static str,
+        first_terminal_cleanup_failed: bool,
+        restart_terminal_cleanup_failed: bool,
+        first_publication_outcome: &'static str,
+        restart_publication_outcome: &'static str,
+    }
+
+    fn recovery_row(domain: &'static str, case: RecoveryCase) -> RecoveryRow {
+        let marker_id = target_marker(domain);
+        let index_id = index_slot(domain);
+        let current_slot_id = versioned_slot(domain, 1);
+        let orphan_slot_id = versioned_slot(domain, 99);
+        let valid = RecoveryReadback {
+            marker: MarkerReadback::ValidOriginal,
+            index: IndexReadback::Versions(&[1]),
+            current_slot: SlotReadback::Original,
+            orphan_slot: SlotReadback::Absent,
+        };
+        let absent = RecoveryReadback {
+            marker: MarkerReadback::Absent,
+            index: IndexReadback::Absent,
+            current_slot: SlotReadback::Absent,
+            orphan_slot: SlotReadback::Absent,
+        };
+        let (first_result, restart_result, first_readback, restart_readback) = match case {
+            RecoveryCase::StagedIndex => (
+                RecoveryResultClass::CleanupFailed,
+                RecoveryResultClass::Ok,
+                RecoveryReadback {
+                    marker: MarkerReadback::Absent,
+                    index: IndexReadback::Versions(&[1]),
+                    current_slot: SlotReadback::Original,
+                    orphan_slot: SlotReadback::Absent,
+                },
+                absent,
+            ),
+            RecoveryCase::Slot => (
+                RecoveryResultClass::KeyringUnavailable,
+                RecoveryResultClass::KeyringUnavailable,
+                RecoveryReadback {
+                    current_slot: SlotReadback::Absent,
+                    ..valid
+                },
+                RecoveryReadback {
+                    current_slot: SlotReadback::Absent,
+                    ..valid
+                },
+            ),
+            RecoveryCase::Marker => (
+                RecoveryResultClass::KeyringUnavailable,
+                RecoveryResultClass::KeyringUnavailable,
+                RecoveryReadback {
+                    marker: MarkerReadback::Corrupt,
+                    ..valid
+                },
+                RecoveryReadback {
+                    marker: MarkerReadback::Corrupt,
+                    ..valid
+                },
+            ),
+            RecoveryCase::OldSlotDeletion => (
+                RecoveryResultClass::CleanupFailed,
+                RecoveryResultClass::Ok,
+                RecoveryReadback {
+                    index: IndexReadback::Versions(&[1, 99]),
+                    orphan_slot: SlotReadback::Orphan,
+                    ..valid
+                },
+                valid,
+            ),
+            RecoveryCase::CompactIndex => (
+                RecoveryResultClass::CleanupFailed,
+                RecoveryResultClass::Ok,
+                valid,
+                valid,
+            ),
+            RecoveryCase::PostMarkerFailure => (
+                RecoveryResultClass::CleanupFailed,
+                RecoveryResultClass::Ok,
+                RecoveryReadback {
+                    index: IndexReadback::Versions(&[1, 99]),
+                    ..valid
+                },
+                valid,
+            ),
+            RecoveryCase::VerifiedNoEntry | RecoveryCase::MarkerMissingOrphan => (
+                RecoveryResultClass::Ok,
+                RecoveryResultClass::Ok,
+                absent,
+                absent,
+            ),
+            RecoveryCase::CorruptTarget => (
+                RecoveryResultClass::KeyringUnavailable,
+                RecoveryResultClass::KeyringUnavailable,
+                RecoveryReadback {
+                    current_slot: SlotReadback::Tampered,
+                    ..valid
+                },
+                RecoveryReadback {
+                    current_slot: SlotReadback::Tampered,
+                    ..valid
+                },
+            ),
+            RecoveryCase::ValidPersisted => (
+                RecoveryResultClass::Ok,
+                RecoveryResultClass::Ok,
+                valid,
+                valid,
+            ),
+        };
+        RecoveryRow {
+            domain,
+            operation: "startup_recover",
+            fault_point: case.fault_point(),
+            case,
+            marker_id,
+            index_id,
+            current_slot_id,
+            orphan_slot_id,
+            first_result,
+            restart_result,
+            first_readback,
+            restart_readback,
+            first_lifecycle_state: if first_result.is_ok() {
+                "signed_out"
+            } else {
+                "credential_cleanup_failed"
+            },
+            restart_lifecycle_state: if restart_result.is_ok() {
+                "signed_out"
+            } else {
+                "credential_cleanup_failed"
+            },
+            first_terminal_cleanup_failed: !first_result.is_ok(),
+            restart_terminal_cleanup_failed: !restart_result.is_ok(),
+            first_publication_outcome: if first_result.is_ok() {
+                "redacted_startup_only_no_access"
+            } else {
+                "blocked_no_publication"
+            },
+            restart_publication_outcome: if restart_result.is_ok() {
+                "redacted_startup_only_no_access"
+            } else {
+                "blocked_no_publication"
+            },
         }
     }
 
@@ -3638,6 +3863,7 @@ mod tests {
             RecoveryCase::CorruptTarget => {
                 write_port_slot(keyring, &slot, "tampered-token");
             }
+            RecoveryCase::ValidPersisted => {}
         }
     }
 
@@ -3660,73 +3886,248 @@ mod tests {
         }
     }
 
-    fn assert_recovery_terminal(
+    fn expected_slot_hash(domain: &str, slot: SlotReadback) -> Option<String> {
+        match slot {
+            SlotReadback::Absent => None,
+            SlotReadback::Original if domain == ACCOUNT_DOMAIN => Some(content_sha256("refresh")),
+            SlotReadback::Original => Some(content_sha256(&format!("{domain}-token"))),
+            SlotReadback::Orphan => Some(content_sha256("orphan-token")),
+            SlotReadback::Tampered => Some(content_sha256("tampered-token")),
+        }
+    }
+
+    fn assert_marker_readback(
+        keyring: &FakeKeyring,
+        row: &RecoveryRow,
+        expected: MarkerReadback,
+    ) -> String {
+        match expected {
+            MarkerReadback::Absent => {
+                keyring.verify_slot_absent(&row.marker_id).unwrap();
+                assert!(keyring.read_slot(&row.marker_id).unwrap().is_none());
+                "absent".to_owned()
+            }
+            MarkerReadback::ValidOriginal => {
+                let value = keyring
+                    .read_slot(&row.marker_id)
+                    .unwrap()
+                    .expect("expected persisted marker");
+                let marker = parse_marker(&value, row.domain).unwrap();
+                let expected_hash = expected_slot_hash(row.domain, SlotReadback::Original).unwrap();
+                assert_eq!(marker.format_version, KEYRING_FORMAT_VERSION);
+                assert_eq!(marker.domain, row.domain);
+                assert_eq!(marker.version, 1);
+                assert_eq!(marker.slot, row.current_slot_id);
+                assert_eq!(marker.content_sha256, expected_hash);
+                assert_eq!(
+                    marker.integrity,
+                    marker_digest(
+                        row.domain,
+                        marker.version,
+                        &marker.slot,
+                        &marker.content_sha256
+                    )
+                );
+                format!("valid:v1:sha256={}", marker.content_sha256)
+            }
+            MarkerReadback::Corrupt => {
+                let value = keyring
+                    .read_slot(&row.marker_id)
+                    .unwrap()
+                    .expect("expected corrupt marker");
+                assert_eq!(value.as_str(), "corrupt-marker");
+                let hash = content_sha256(value.as_str());
+                assert_eq!(hash, content_sha256("corrupt-marker"));
+                format!("corrupt:sha256={hash}")
+            }
+        }
+    }
+
+    fn assert_index_readback(
+        keyring: &FakeKeyring,
+        row: &RecoveryRow,
+        expected: IndexReadback,
+    ) -> String {
+        match expected {
+            IndexReadback::Absent => {
+                keyring.verify_slot_absent(&row.index_id).unwrap();
+                assert!(keyring.read_slot(&row.index_id).unwrap().is_none());
+                "absent".to_owned()
+            }
+            IndexReadback::Versions(expected_versions) => {
+                let value = keyring
+                    .read_slot(&row.index_id)
+                    .unwrap()
+                    .expect("expected persisted index");
+                let index = serde_json::from_str::<SlotIndex>(value.as_str()).unwrap();
+                assert_eq!(index.format_version, KEYRING_FORMAT_VERSION);
+                assert_eq!(index.domain, row.domain);
+                assert_eq!(index.versions, expected_versions);
+                assert_eq!(index.integrity, index_digest(row.domain, expected_versions));
+                format!(
+                    "versions={:?}:integrity={}",
+                    index.versions, index.integrity
+                )
+            }
+        }
+    }
+
+    fn assert_slot_readback(
+        keyring: &FakeKeyring,
+        slot_id: &str,
+        domain: &str,
+        expected: SlotReadback,
+    ) -> String {
+        match expected {
+            SlotReadback::Absent => {
+                keyring.verify_slot_absent(slot_id).unwrap();
+                assert!(keyring.read_slot(slot_id).unwrap().is_none());
+                "absent".to_owned()
+            }
+            expected => {
+                let value = keyring
+                    .read_slot(slot_id)
+                    .unwrap()
+                    .expect("expected persisted slot");
+                let actual_hash = content_sha256(value.as_str());
+                assert_eq!(
+                    Some(actual_hash.clone()),
+                    expected_slot_hash(domain, expected)
+                );
+                format!("hash_verified={actual_hash}")
+            }
+        }
+    }
+
+    fn assert_recovery_readback(
+        keyring: &FakeKeyring,
+        row: &RecoveryRow,
+        expected: RecoveryReadback,
+    ) -> String {
+        let marker = assert_marker_readback(keyring, row, expected.marker);
+        let index = assert_index_readback(keyring, row, expected.index);
+        let current = assert_slot_readback(
+            keyring,
+            &row.current_slot_id,
+            row.domain,
+            expected.current_slot,
+        );
+        let orphan = assert_slot_readback(
+            keyring,
+            &row.orphan_slot_id,
+            row.domain,
+            expected.orphan_slot,
+        );
+        format!("marker={marker};index={index};current_slot={current};orphan_slot={orphan}")
+    }
+
+    fn assert_recovery_call(
         broker: &TestBroker,
         keyring: &FakeKeyring,
-        domain: &str,
-        case: RecoveryCase,
+        row: &RecoveryRow,
+        phase: &str,
+        expected_result: RecoveryResultClass,
+        expected_readback: RecoveryReadback,
+        terminal_cleanup_failed: bool,
         result: &Result<(), String>,
     ) {
-        println!(
-            "recovery case={} domain={} result={} state={}",
-            case.label(),
-            domain,
-            if result.is_ok() { "ok" } else { "error" },
-            broker.state_name()
-        );
-        if case.is_expected_success() {
-            assert!(result.is_ok(), "{} unexpectedly failed", case.label());
-            assert_eq!(broker.state_name(), "signed_out");
-            assert!(!broker.account_access_present());
-            assert!(!broker.drive_connected());
-        } else {
-            assert!(result.is_err(), "{} unexpectedly succeeded", case.label());
-            assert_eq!(broker.state_name(), "credential_cleanup_failed");
-            assert!(!broker.account_access_present());
-            assert!(!broker.drive_connected());
+        let (expected_lifecycle_state, expected_publication_outcome) = match phase {
+            "first" => (row.first_lifecycle_state, row.first_publication_outcome),
+            "restart" => (row.restart_lifecycle_state, row.restart_publication_outcome),
+            _ => panic!("unexpected recovery phase: {phase}"),
+        };
+        match expected_result.error_code() {
+            None => assert!(result.is_ok(), "{} unexpectedly failed", row.case.label()),
+            Some(error_code) => {
+                assert_eq!(result.as_ref().err().map(String::as_str), Some(error_code));
+            }
         }
-        keyring.clear_faults();
-        let _ = keyring.read_slot(&target_marker(domain)).unwrap();
-        let _ = keyring.read_slot(&index_slot(domain)).unwrap();
+        if expected_result.is_ok() {
+            assert_eq!(broker.state_name(), expected_lifecycle_state);
+        } else {
+            assert_eq!(broker.state_name(), expected_lifecycle_state);
+        }
+        assert_eq!(
+            broker.account_startup_checked().unwrap(),
+            expected_result.is_ok()
+        );
+        assert!(!broker.account_access_present());
+        assert!(!broker.drive_connected());
+        assert_eq!(terminal_cleanup_failed, !expected_result.is_ok());
+        let cleanup_proof = assert_recovery_readback(keyring, row, expected_readback);
+        let result_class = result.as_ref().err().map(String::as_str).unwrap_or("ok");
+        assert_eq!(
+            expected_publication_outcome,
+            if expected_result.is_ok() {
+                "redacted_startup_only_no_access"
+            } else {
+                "blocked_no_publication"
+            }
+        );
+        println!(
+            "recovery_trace phase={} domain={} operation={} fault_point={} marker_id={} index_id={} slot_id={} orphan_id={} result_class={} lifecycle_state={} cleanup_proof={} terminal_cleanup_failed_expected={} public_publication_outcome={}",
+            phase,
+            row.domain,
+            row.operation,
+            row.fault_point,
+            row.marker_id,
+            row.index_id,
+            row.current_slot_id,
+            row.orphan_slot_id,
+            result_class,
+            broker.state_name(),
+            cleanup_proof,
+            terminal_cleanup_failed,
+            expected_publication_outcome,
+        );
     }
 
     #[test]
     fn native_behavioral_registered_startup_recovery_both_domains_fault_matrix() {
-        let fault_cases = [
+        let cases = [
             RecoveryCase::StagedIndex,
             RecoveryCase::Slot,
             RecoveryCase::Marker,
             RecoveryCase::OldSlotDeletion,
             RecoveryCase::CompactIndex,
             RecoveryCase::PostMarkerFailure,
+            RecoveryCase::VerifiedNoEntry,
+            RecoveryCase::MarkerMissingOrphan,
             RecoveryCase::CorruptTarget,
+            RecoveryCase::ValidPersisted,
         ];
         for domain in RECOVERY_TARGETS {
-            for case in fault_cases {
+            for case in cases {
+                let row = recovery_row(domain, case);
                 let keyring = seed_recovery_keyring();
                 prepare_recovery_case(&keyring, domain, case);
                 inject_recovery_fault(&keyring, domain, case);
-                let fixture = make_fixture_with_keyring(keyring.clone());
-                let result = fixture.broker.startup_recover();
-                assert_recovery_terminal(&fixture.broker, &keyring, domain, case, &result);
-            }
-        }
-
-        for domain in RECOVERY_TARGETS {
-            for case in [
-                RecoveryCase::VerifiedNoEntry,
-                RecoveryCase::MarkerMissingOrphan,
-            ] {
-                let keyring = seed_recovery_keyring();
-                prepare_recovery_case(&keyring, domain, case);
                 let first = make_fixture_with_keyring(keyring.clone());
                 let first_result = first.broker.startup_recover();
-                assert_recovery_terminal(&first.broker, &keyring, domain, case, &first_result);
+                keyring.clear_faults();
+                assert_recovery_call(
+                    &first.broker,
+                    &keyring,
+                    &row,
+                    "first",
+                    row.first_result,
+                    row.first_readback,
+                    row.first_terminal_cleanup_failed,
+                    &first_result,
+                );
+                drop(first);
                 let second = make_fixture_with_keyring(keyring.clone());
                 let second_result = second.broker.startup_recover();
-                assert_recovery_terminal(&second.broker, &keyring, domain, case, &second_result);
-                assert!(!port_slot_present(&keyring, &target_marker(domain)));
-                assert!(!port_slot_present(&keyring, &index_slot(domain)));
+                assert_recovery_call(
+                    &second.broker,
+                    &keyring,
+                    &row,
+                    "restart",
+                    row.restart_result,
+                    row.restart_readback,
+                    row.restart_terminal_cleanup_failed,
+                    &second_result,
+                );
             }
         }
     }

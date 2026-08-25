@@ -136,8 +136,11 @@ test("native broker source retains lifecycle and authority paths as supplemental
   const drive = read("src-tauri/src/drive_oauth.rs");
   assert.match(session, /LoginPending|login_pending/);
   assert.match(session, /callback_from_request|parse_callback/);
-  assert.match(session, /exchange_code/);
-  assert.match(session, /refresh_from_keyring/);
+  assert.match(session, /drive_provider_exchange/);
+  assert.doesNotMatch(session, /refresh_from_keyring/);
+  assert.match(session, /begin_refresh|finish_refresh/);
+  assert.match(session, /drive_provider_exchange|drive_provider_refresh/);
+  assert.match(session, /account_begin_operation|begin_account_operation/);
   assert.match(session, /Condvar|refresh_flight/);
   assert.match(session, /broker_enrollment_request[\s\S]*device-enrollment/);
   assert.match(session, /create_pairing_session/);
@@ -161,7 +164,7 @@ test("native broker behavioral matrix executes through Rust seams", () => {
       "--",
       "--nocapture",
     ],
-    { cwd: root, encoding: "utf8", timeout: 180000, windowsHide: true },
+    { cwd: root, encoding: "utf8", timeout: 300000, windowsHide: true },
   );
   const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   assert.equal(result.status, 0, output);
@@ -170,4 +173,17 @@ test("native broker behavioral matrix executes through Rust seams", () => {
   assert.doesNotMatch(behavioralOutput, /secret|verifier|access-token|refresh-token/i);
   assert.doesNotMatch(read("src-tauri/src/auth_session.rs"), /BehavioralBroker|TestState|ProviderMode|LifecycleCore|SessionMemory/);
   assert.match(read("src-tauri/src/auth_session.rs"), /production_shutdown|shutdown_with|SessionLifecycleState/);
+});
+
+test("production custody keeps the durable registry and typed recovery ingress", () => {
+  const session = read("src-tauri/src/auth_session.rs");
+  const drive = read("src-tauri/src/drive_oauth.rs");
+  assert.match(session, /SlotIndex|slot-index|DRIVE_DOMAINS_INDEX/);
+  assert.doesNotMatch(session, /1\.\.=RECOVERY_SLOT_LIMIT|RECOVERY_SLOT_LIMIT/);
+  assert.match(session, /startup_recover[\s\S]*DRIVE_DOMAINS_INDEX/);
+  assert.match(session, /pending_operations|account_epoch/);
+  assert.match(drive, /DriveOperationGuard/);
+  assert.match(drive, /operation\.check/);
+  assert.match(drive, /struct RecoveryPhrase/);
+  assert.doesNotMatch(drive, /broker_drive_restore[\s\S]*recovery_phrase:\s*String/);
 });

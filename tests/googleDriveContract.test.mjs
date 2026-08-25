@@ -78,3 +78,15 @@ test("security lane requires native key migration, restore intent, and atomic ca
   assert.doesNotMatch(metadata, /upsert\(/);
   assert.doesNotMatch(metadata, /status:\s*"revoked"/);
 });
+
+test("Drive provider work remains fenced by the live lifecycle engine", () => {
+  const rust = read("src-tauri/src/drive_oauth.rs");
+  const session = read("src-tauri/src/auth_session.rs");
+  assert.match(rust, /DriveOperationGuard/);
+  assert.match(rust, /begin_drive_work/);
+  assert.match(rust, /operation\.check/);
+  assert.match(session, /drive_provider_exchange/);
+  assert.match(session, /drive_provider_refresh/);
+  assert.match(session, /pending_operations/);
+  assert.match(session, /account_begin_operation/);
+});

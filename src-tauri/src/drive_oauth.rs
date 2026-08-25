@@ -34,7 +34,6 @@ use zeroize::Zeroizing;
 pub(crate) const DRIVE_SCOPE: &str = "https://www.googleapis.com/auth/drive.appdata";
 
 const DRIVE_AUTH_ENDPOINT: &str = "https://accounts.google.com/o/oauth2/v2/auth";
-const DRIVE_TOKEN_ENDPOINT: &str = "https://oauth2.googleapis.com/token";
 const DRIVE_FILES_ENDPOINT: &str = "https://www.googleapis.com/drive/v3/files";
 const DRIVE_UPLOAD_ENDPOINT: &str = "https://www.googleapis.com/upload/drive/v3/files";
 const OAUTH_TTL: Duration = Duration::from_secs(10 * 60);
@@ -204,33 +203,43 @@ pub(crate) struct DriveOAuthState {
     pending: Mutex<Option<PendingOAuth>>,
 }
 
-fn deserialize_optional_zeroizing<'de, D>(
-    deserializer: D,
-) -> Result<Option<Zeroizing<String>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Option::<String>::deserialize(deserializer).map(|value| value.map(Zeroizing::new))
+struct DriveOperationGuard {
+    ticket: LifecycleTicket,
 }
 
-#[derive(Deserialize)]
-struct TokenResponse {
-    #[serde(
-        rename = "access_token",
-        default,
-        deserialize_with = "deserialize_optional_zeroizing"
-    )]
-    access: Option<Zeroizing<String>>,
-    #[serde(
-        rename = "refresh_token",
-        default,
-        deserialize_with = "deserialize_optional_zeroizing"
-    )]
-    refresh: Option<Zeroizing<String>>,
-    #[serde(default, deserialize_with = "deserialize_optional_zeroizing")]
-    scope: Option<Zeroizing<String>>,
-    #[serde(default, deserialize_with = "deserialize_optional_zeroizing")]
-    error: Option<Zeroizing<String>>,
+impl DriveOperationGuard {
+    fn check(&self) -> Result<(), String> {
+        auth_session::drive_check(self.ticket)
+    }
+}
+
+impl Drop for DriveOperationGuard {
+    fn drop(&mut self) {
+        auth_session::drive_finish(self.ticket);
+    }
+}
+
+fn begin_drive_work(invocation: &DriveInvocation) -> Result<DriveOperationGuard, String> {
+    invocation.ensure_valid()?;
+    let slot_base = keyring_slot_for(
+        invocation.user_id(),
+        invocation.device_id(),
+        invocation.device_fingerprint(),
+    );
+    Ok(DriveOperationGuard {
+        ticket: auth_session::drive_begin(slot_base)?,
+    })
+}
+
+pub(crate) struct RecoveryPhrase(Zeroizing<String>);
+
+impl<'de> Deserialize<'de> for RecoveryPhrase {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        String::deserialize(deserializer).map(|value| Self(Zeroizing::new(value)))
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -727,12 +736,32 @@ pub(crate) async fn broker_drive_connect_complete(
                 return Err(error);
             }
         };
-    let token = match exchange_code(&pending, &authorization, code).await {
-        Ok(token) => token,
-        Err(error) => {
+    authorization.ensure_valid()?;
+    let exchange_client_id = pending.oauth_client_id.clone();
+    let exchange_redirect_uri = pending.redirect_uri.clone();
+    let exchange_verifier = pending.code_verifier.clone();
+    let lifecycle_ticket = pending.lifecycle_ticket;
+    let token = match tauri::async_runtime::spawn_blocking(move || {
+        auth_session::drive_provider_exchange(
+            lifecycle_ticket,
+            exchange_client_id,
+            exchange_redirect_uri,
+            code,
+            exchange_verifier,
+        )
+    })
+    .await
+    {
+        Ok(Ok(token)) => token,
+        Ok(Err(error)) => {
             pending.terminal.mark_failed();
             remove_pending(&state, &session_id);
             return Err(error);
+        }
+        Err(_) => {
+            pending.terminal.mark_failed();
+            remove_pending(&state, &session_id);
+            return Err(public_error("drive_oauth_token_exchange_failed"));
         }
     };
     if token
@@ -776,37 +805,6 @@ pub(crate) async fn broker_drive_connect_complete(
         scope: Some(DRIVE_SCOPE.to_owned()),
         provider: "google_drive",
     })
-}
-
-async fn exchange_code(
-    pending: &PendingOAuth,
-    invocation: &DriveInvocation,
-    code: Zeroizing<String>,
-) -> Result<TokenResponse, String> {
-    invocation.ensure_valid()?;
-    let response = async_http_client(Duration::from_secs(30), "drive_oauth_token_exchange_failed")?
-        .post(DRIVE_TOKEN_ENDPOINT)
-        .form(&[
-            ("client_id", pending.oauth_client_id.as_str()),
-            ("code", code.as_str()),
-            ("code_verifier", pending.code_verifier.as_str()),
-            ("grant_type", "authorization_code"),
-            ("redirect_uri", pending.redirect_uri.as_str()),
-        ])
-        .send()
-        .await
-        .map_err(|_| public_error("drive_oauth_token_exchange_failed"))?;
-    if !response.status().is_success() {
-        return Err(public_error("drive_oauth_token_exchange_failed"));
-    }
-    let token: TokenResponse = response
-        .json()
-        .await
-        .map_err(|_| public_error("drive_oauth_token_exchange_failed"))?;
-    if token.error.is_some() || token.access.is_none() {
-        return Err(public_error("drive_oauth_token_exchange_failed"));
-    }
-    Ok(token)
 }
 
 #[tauri::command]
@@ -868,58 +866,29 @@ pub(crate) async fn broker_drive_disconnect(
     })
 }
 
-async fn access_token(invocation: &DriveInvocation) -> Result<Zeroizing<String>, String> {
-    invocation.ensure_valid()?;
+async fn access_token(
+    invocation: &DriveInvocation,
+    operation: &DriveOperationGuard,
+) -> Result<Zeroizing<String>, String> {
+    operation.check()?;
     let client_id = configured_client_id()?;
-    let slot_base = keyring_slot_for(
-        invocation.user_id(),
-        invocation.device_id(),
-        invocation.device_fingerprint(),
-    );
-    let ticket = auth_session::drive_begin(slot_base)?;
-    let result = async {
-        let refresh_token =
-            load_refresh_token(invocation)?.ok_or_else(|| public_error("drive_not_connected"))?;
-        let response = async_http_client(Duration::from_secs(30), "drive_token_refresh_failed")?
-            .post(DRIVE_TOKEN_ENDPOINT)
-            .form(&[
-                ("client_id", client_id.as_str()),
-                ("grant_type", "refresh_token"),
-                ("refresh_token", refresh_token.as_str()),
-            ])
-            .send()
-            .await
-            .map_err(|_| public_error("drive_token_refresh_failed"))?;
-        if !response.status().is_success() {
-            return Err(public_error("drive_token_refresh_failed"));
-        }
-        let token: TokenResponse = response
-            .json()
-            .await
-            .map_err(|_| public_error("drive_token_refresh_failed"))?;
-        if token.error.is_some() || token.access.is_none() {
-            return Err(public_error("drive_token_refresh_failed"));
-        }
-        let returned_scope = token.scope.as_deref();
-        if returned_scope.is_none_or(|scope| !exact_scope(scope)) {
-            return Err(public_error("drive_oauth_scope_mismatch"));
-        }
-        token
-            .access
-            .ok_or_else(|| public_error("drive_token_refresh_failed"))
+    let refresh_token =
+        load_refresh_token(invocation)?.ok_or_else(|| public_error("drive_not_connected"))?;
+    let ticket = operation.ticket;
+    let token = tauri::async_runtime::spawn_blocking(move || {
+        auth_session::drive_provider_refresh(ticket, client_id, refresh_token)
+    })
+    .await
+    .map_err(|_| public_error("drive_token_refresh_failed"))??;
+    if token
+        .scope
+        .as_deref()
+        .is_none_or(|scope| !exact_scope(scope))
+    {
+        return Err(public_error("drive_oauth_scope_mismatch"));
     }
-    .await;
-    match result {
-        Ok(token) => {
-            auth_session::drive_check(ticket)?;
-            auth_session::drive_finish(ticket);
-            Ok(token)
-        }
-        Err(error) => {
-            auth_session::drive_finish(ticket);
-            Err(error)
-        }
-    }
+    operation.check()?;
+    Ok(token.access)
 }
 
 fn drive_query_literal(value: &str) -> String {
@@ -962,13 +931,15 @@ pub(crate) async fn broker_drive_list_archives(
         .await?
         .into_invocation()?;
     authorization.require_operation(DriveOperation::BackupRead)?;
-    let token = access_token(&authorization).await?;
+    let operation = begin_drive_work(&authorization)?;
+    let token = access_token(&authorization, &operation).await?;
     let files = list_files(
         &authorization,
         token.as_str(),
         "'appDataFolder' in parents and trashed = false and name contains '.fungbk'",
     )
     .await?;
+    operation.check()?;
     Ok(files
         .into_iter()
         .filter_map(|file| {
@@ -1008,7 +979,8 @@ pub(crate) async fn broker_drive_upload_archive(
     let (archive_path, record, manifest) =
         filesystem_backup::verified_archive_details_at_root(&root, &archive_id)
             .map_err(|_| public_error("filesystem_archive_unavailable"))?;
-    let token = access_token(&authorization).await?;
+    let operation = begin_drive_work(&authorization)?;
+    let token = access_token(&authorization, &operation).await?;
     let digest = record.digest.clone();
     let archive_name = format!("{archive_id}{ARCHIVE_SUFFIX}");
     let manifest_name = format!("{archive_id}{MANIFEST_SUFFIX}");
@@ -1037,6 +1009,7 @@ pub(crate) async fn broker_drive_upload_archive(
     })
     .await
     .map_err(|_| public_error("drive_upload_failed"))??;
+    operation.check()?;
     Ok(result)
 }
 
@@ -1361,12 +1334,12 @@ pub(crate) async fn broker_drive_restore(
     app: tauri::AppHandle,
     file_id: String,
     archive_id: String,
-    recovery_phrase: String,
+    recovery_phrase: RecoveryPhrase,
     restore_intent_id: String,
     app_state: State<'_, crate::AppState>,
     job_state: State<'_, BackupJobState>,
 ) -> Result<RestoreResult, String> {
-    let recovery_phrase = Zeroizing::new(recovery_phrase);
+    let RecoveryPhrase(recovery_phrase) = recovery_phrase;
     let authorization = native_auth::authorize_drive(&app, DriveOperation::BackupRestore)
         .await?
         .into_invocation()?;
@@ -1386,7 +1359,8 @@ pub(crate) async fn broker_drive_restore(
     if restore_parent.starts_with(&app_state.data_root) {
         return Err(public_error("restore_target_must_be_outside_app_data"));
     }
-    let token = access_token(&authorization).await?;
+    let operation = begin_drive_work(&authorization)?;
+    let token = access_token(&authorization, &operation).await?;
     let archive_name = format!("{archive_id}{ARCHIVE_SUFFIX}");
     let archive_query = format!(
         "'appDataFolder' in parents and trashed = false and name = '{}'",
@@ -1456,6 +1430,7 @@ pub(crate) async fn broker_drive_restore(
     })
     .await
     .map_err(|_| public_error("restore_failed"))?;
+    operation.check()?;
     result.map_err(|_| public_error("backup_verification_failed"))
 }
 

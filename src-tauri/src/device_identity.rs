@@ -1,15 +1,21 @@
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use base64::Engine;
-use ed25519_dalek::{SigningKey, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use serde::Serialize;
 use sha2::{Digest, Sha256, Sha512};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use uuid::Uuid;
 
 use crate::{AppError, AppResult};
 
 const KEY_FILE: &str = "device_identity.key";
+const KEYRING_SERVICE: &str = "FUNG";
+const DEVICE_IDENTITY_KEYRING_ACCOUNT: &str = "device_identity_keyring";
+const ENROLLMENT_PROOF_TTL: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DeviceIdentity {
@@ -27,9 +33,287 @@ fn fingerprint_of(signing_key: &SigningKey) -> String {
     digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// File-backed identity storage inside the app data dir. On Windows the file
-/// lives in %APPDATA%; on Android inside the app-private files dir. Keystore /
-/// keyring hardening is a Phase 1 backlog item (spec §15.4).
+fn identity_keyring_entry() -> AppResult<keyring::Entry> {
+    keyring::Entry::new(KEYRING_SERVICE, DEVICE_IDENTITY_KEYRING_ACCOUNT)
+        .map_err(|_| AppError::InvalidInput("device_identity_keyring_unavailable".to_owned()))
+}
+
+fn parse_seed(bytes: &[u8]) -> AppResult<[u8; 32]> {
+    bytes
+        .try_into()
+        .map_err(|_| AppError::InvalidInput("device_identity_keyring_invalid".to_owned()))
+}
+
+trait IdentityBackend {
+    fn read_keyring(&mut self) -> AppResult<Option<Vec<u8>>>;
+    fn write_keyring(&mut self, seed: &[u8; 32]) -> AppResult<()>;
+    fn read_legacy(&mut self) -> AppResult<Option<Vec<u8>>>;
+    fn remove_legacy(&mut self) -> AppResult<()>;
+}
+
+struct OsIdentityBackend {
+    dir: PathBuf,
+    entry: keyring::Entry,
+}
+
+impl OsIdentityBackend {
+    fn new(dir: &Path) -> AppResult<Self> {
+        Ok(Self {
+            dir: dir.to_path_buf(),
+            entry: identity_keyring_entry()?,
+        })
+    }
+
+    fn legacy_path(&self) -> PathBuf {
+        self.dir.join(KEY_FILE)
+    }
+}
+
+impl IdentityBackend for OsIdentityBackend {
+    fn read_keyring(&mut self) -> AppResult<Option<Vec<u8>>> {
+        match self.entry.get_secret() {
+            Ok(secret) => Ok(Some(secret)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(_) => Err(AppError::InvalidInput(
+                "device_identity_keyring_unavailable".to_owned(),
+            )),
+        }
+    }
+
+    fn write_keyring(&mut self, seed: &[u8; 32]) -> AppResult<()> {
+        self.entry
+            .set_secret(seed)
+            .map_err(|_| AppError::InvalidInput("device_identity_keyring_write_failed".to_owned()))
+    }
+
+    fn read_legacy(&mut self) -> AppResult<Option<Vec<u8>>> {
+        let path = self.legacy_path();
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let encoded = fs::read_to_string(path).map_err(|error| io_error("identity read", error))?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded.trim())
+            .map_err(|error| io_error("identity decode", error))?;
+        Ok(Some(bytes))
+    }
+
+    fn remove_legacy(&mut self) -> AppResult<()> {
+        let path = self.legacy_path();
+        if path.is_file() {
+            fs::remove_file(&path).map_err(|error| io_error("identity legacy removal", error))?;
+            if path.exists() {
+                return Err(AppError::InvalidInput(
+                    "device_identity_legacy_removal_failed".to_owned(),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+struct MigratedIdentity {
+    seed: [u8; 32],
+    created: bool,
+}
+
+fn migrate_identity_with_backend<B: IdentityBackend>(
+    backend: &mut B,
+) -> AppResult<MigratedIdentity> {
+    let keyring_seed = backend
+        .read_keyring()?
+        .map(|bytes| parse_seed(&bytes))
+        .transpose()?;
+    let legacy_seed = backend
+        .read_legacy()?
+        .map(|bytes| parse_seed(&bytes))
+        .transpose()?;
+
+    let (seed, created) = match (keyring_seed, legacy_seed) {
+        (Some(keyring_seed), Some(legacy_seed)) if keyring_seed != legacy_seed => {
+            return Err(AppError::InvalidInput(
+                "device_identity_conflict".to_owned(),
+            ));
+        }
+        (Some(seed), Some(_)) => (seed, false),
+        (Some(seed), None) => (seed, false),
+        (None, Some(seed)) => {
+            backend.write_keyring(&seed)?;
+            let verified = backend.read_keyring()?.ok_or_else(|| {
+                AppError::InvalidInput("device_identity_keyring_readback_failed".to_owned())
+            })?;
+            let verified = parse_seed(&verified).map_err(|_| {
+                AppError::InvalidInput("device_identity_keyring_readback_failed".to_owned())
+            })?;
+            if verified != seed {
+                return Err(AppError::InvalidInput(
+                    "device_identity_keyring_readback_failed".to_owned(),
+                ));
+            }
+            (seed, false)
+        }
+        (None, None) => {
+            let generated = SigningKey::generate(&mut rand::rngs::OsRng).to_bytes();
+            backend.write_keyring(&generated)?;
+            let verified = backend.read_keyring()?.ok_or_else(|| {
+                AppError::InvalidInput("device_identity_keyring_readback_failed".to_owned())
+            })?;
+            let verified = parse_seed(&verified).map_err(|_| {
+                AppError::InvalidInput("device_identity_keyring_readback_failed".to_owned())
+            })?;
+            if verified != generated {
+                return Err(AppError::InvalidInput(
+                    "device_identity_keyring_readback_failed".to_owned(),
+                ));
+            }
+            (generated, true)
+        }
+    };
+
+    if legacy_seed.is_some() {
+        backend.remove_legacy()?;
+    }
+
+    Ok(MigratedIdentity { seed, created })
+}
+
+fn identity_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn identity_from_seed(seed: &[u8; 32], created: bool) -> DeviceIdentity {
+    let key = SigningKey::from_bytes(seed);
+    DeviceIdentity {
+        fingerprint: fingerprint_of(&key),
+        created,
+    }
+}
+
+/// Secure desktop identity lifecycle. A legacy file is accepted only as a
+/// migration input: the keyring write and verified readback must succeed before
+/// the file is removed. A conflicting file/keyring pair fails closed so the
+/// device fingerprint can never silently change.
+pub(crate) fn secure_identity_in_dir(dir: &Path) -> AppResult<DeviceIdentity> {
+    let _guard = identity_lock()
+        .lock()
+        .map_err(|_| AppError::InvalidInput("device_identity_keyring_unavailable".to_owned()))?;
+    fs::create_dir_all(dir).map_err(|e| io_error("identity dir", e))?;
+    let mut backend = OsIdentityBackend::new(dir)?;
+    let migrated = migrate_identity_with_backend(&mut backend)?;
+    Ok(identity_from_seed(&migrated.seed, migrated.created))
+}
+
+pub(crate) fn secure_signing_key_in_dir(dir: &Path) -> AppResult<SigningKey> {
+    secure_identity_in_dir(dir)?;
+    let seed = OsIdentityBackend::new(dir)?
+        .read_keyring()?
+        .map(|bytes| parse_seed(&bytes))
+        .transpose()?
+        .ok_or_else(|| AppError::InvalidInput("device_identity_keyring_unavailable".to_owned()))?;
+    Ok(SigningKey::from_bytes(&seed))
+}
+
+pub(crate) fn authorization_identity_in_dir(dir: &Path) -> AppResult<(String, String)> {
+    let key = secure_signing_key_in_dir(dir)?;
+    let public_key = key.verifying_key();
+    Ok((
+        base64::engine::general_purpose::STANDARD.encode(public_key.as_bytes()),
+        fingerprint_of(&key),
+    ))
+}
+
+pub(crate) fn sign_authorization_in_dir(dir: &Path, message: &[u8]) -> AppResult<String> {
+    let key = secure_signing_key_in_dir(dir)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(key.sign(message).to_bytes()))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeEnrollmentProof {
+    pub public_key: String,
+    pub fingerprint: String,
+    pub proof: String,
+    pub expires_at_ms: u64,
+}
+
+fn enrollment_timestamp_ms() -> AppResult<u64> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .map_err(|_| AppError::InvalidInput("device_identity_clock_invalid".to_owned()))
+}
+
+fn validate_device_label(label: &str) -> AppResult<()> {
+    if label.is_empty()
+        || label.len() > 120
+        || label.chars().any(|character| character.is_control())
+    {
+        return Err(AppError::InvalidInput("device_label_invalid".to_owned()));
+    }
+    Ok(())
+}
+
+fn sign_pending_enrollment_challenge(
+    dir: &Path,
+    device_label: &str,
+    public_key_fingerprint: &str,
+    issued_at_ms: u64,
+    expires_at_ms: u64,
+    nonce: &str,
+) -> AppResult<String> {
+    let canonical = format!(
+        "fung-device-enrollment-v1\npending-enrollment\nwindows\n{device_label}\n{public_key_fingerprint}\n{issued_at_ms}\n{expires_at_ms}\n{nonce}"
+    );
+    let key = secure_signing_key_in_dir(dir)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(key.sign(canonical.as_bytes()).to_bytes()))
+}
+
+/// Creates only the short-lived native proof used by the server-owned pending
+/// enrollment request. It never returns a private key or accepts a caller
+/// supplied message to sign.
+#[tauri::command]
+pub fn device_enrollment_proof(
+    app: tauri::AppHandle,
+    device_label: String,
+) -> AppResult<NativeEnrollmentProof> {
+    validate_device_label(&device_label)?;
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| AppError::MissingAppDataDir)?;
+    #[cfg(desktop)]
+    {
+        let (public_key, fingerprint) = authorization_identity_in_dir(&dir)?;
+        let issued_at_ms = enrollment_timestamp_ms()?;
+        let expires_at_ms = issued_at_ms + ENROLLMENT_PROOF_TTL.as_millis() as u64;
+        let nonce = Uuid::new_v4().to_string();
+        let proof = sign_pending_enrollment_challenge(
+            &dir,
+            &device_label,
+            &fingerprint,
+            issued_at_ms,
+            expires_at_ms,
+            &nonce,
+        )?;
+        return Ok(NativeEnrollmentProof {
+            public_key,
+            fingerprint,
+            proof,
+            expires_at_ms,
+        });
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = dir;
+        Err(AppError::InvalidInput("desktop_enrollment_only".to_owned()))
+    }
+}
+
+/// Legacy file-backed identity helper used by FUNGWIRE fixture tests and for
+/// reading pre-migration test data. Desktop commands use `secure_identity_in_dir`
+/// above and never create a new plaintext identity file.
 pub fn ensure_identity_in_dir(dir: &Path) -> AppResult<DeviceIdentity> {
     fs::create_dir_all(dir).map_err(|e| io_error("identity dir", e))?;
     let path = dir.join(KEY_FILE);
@@ -63,19 +347,47 @@ pub fn device_identity_ensure(app: tauri::AppHandle) -> AppResult<DeviceIdentity
         .path()
         .app_data_dir()
         .map_err(|_| AppError::MissingAppDataDir)?;
-    ensure_identity_in_dir(&dir)
+    #[cfg(desktop)]
+    {
+        secure_identity_in_dir(&dir)
+    }
+    #[cfg(not(desktop))]
+    {
+        ensure_identity_in_dir(&dir)
+    }
 }
 
-/// Load the raw 32-byte ed25519 seed (same file/format as ensure_identity_in_dir).
+/// Load the raw seed for the FUNGWIRE boundary. Existing fixture files remain
+/// supported; migrated desktop identities are read from the OS keyring.
 fn load_seed(dir: &Path) -> AppResult<[u8; 32]> {
-    let path = dir.join(KEY_FILE);
-    let encoded = fs::read_to_string(&path).map_err(|e| io_error("identity read", e))?;
+    #[cfg(all(desktop, not(test)))]
+    {
+        secure_identity_in_dir(dir)?;
+        return OsIdentityBackend::new(dir)?
+            .read_keyring()?
+            .map(|bytes| parse_seed(&bytes))
+            .transpose()?
+            .ok_or_else(|| io_error("identity read", "secure identity missing"));
+    }
+    #[cfg(any(not(desktop), test))]
+    {
+        let path = dir.join(KEY_FILE);
+        read_legacy_seed(&path)?.ok_or_else(|| io_error("identity read", "identity missing"))
+    }
+}
+
+fn read_legacy_seed(path: &Path) -> AppResult<Option<[u8; 32]>> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let encoded = fs::read_to_string(path).map_err(|error| io_error("identity read", error))?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded.trim())
-        .map_err(|e| io_error("identity decode", e))?;
-    bytes
+        .map_err(|error| io_error("identity decode", error))?;
+    let seed = bytes
         .try_into()
-        .map_err(|_| io_error("identity key length", "expected 32 bytes"))
+        .map_err(|_| io_error("identity key length", "expected 32 bytes"))?;
+    Ok(Some(seed))
 }
 
 /// Export the full ed25519 verifying key as base64, for publishing to Supabase.
@@ -126,12 +438,106 @@ pub fn device_public_key(app: tauri::AppHandle) -> AppResult<String> {
         .path()
         .app_data_dir()
         .map_err(|_| AppError::MissingAppDataDir)?;
-    public_key_b64_in_dir(&dir)
+    #[cfg(desktop)]
+    let key = secure_signing_key_in_dir(&dir)?;
+    #[cfg(not(desktop))]
+    let key = SigningKey::from_bytes(&load_seed(&dir)?);
+    Ok(base64::engine::general_purpose::STANDARD.encode(key.verifying_key().as_bytes()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct FakeIdentityBackend {
+        keyring: Option<Vec<u8>>,
+        legacy: Option<Vec<u8>>,
+        readback: Option<Vec<u8>>,
+        read_keyring_count: usize,
+        fail_write: bool,
+        fail_remove: bool,
+        removed: bool,
+        events: Vec<&'static str>,
+    }
+
+    impl FakeIdentityBackend {
+        fn with_legacy(seed: [u8; 32]) -> Self {
+            Self {
+                keyring: None,
+                legacy: Some(seed.to_vec()),
+                readback: None,
+                read_keyring_count: 0,
+                fail_write: false,
+                fail_remove: false,
+                removed: false,
+                events: Vec::new(),
+            }
+        }
+
+        fn with_readback(mut self, seed: [u8; 32]) -> Self {
+            self.readback = Some(seed.to_vec());
+            self
+        }
+
+        fn fail_write(mut self) -> Self {
+            self.fail_write = true;
+            self
+        }
+
+        fn fail_remove(mut self) -> Self {
+            self.fail_remove = true;
+            self
+        }
+
+        fn legacy_present(&self) -> bool {
+            self.legacy.is_some()
+        }
+
+        fn was_removed(&self) -> bool {
+            self.removed
+        }
+
+        fn events(&self) -> &[&'static str] {
+            &self.events
+        }
+    }
+
+    impl IdentityBackend for FakeIdentityBackend {
+        fn read_keyring(&mut self) -> AppResult<Option<Vec<u8>>> {
+            self.events.push("read_keyring");
+            let value = if self.read_keyring_count == 0 {
+                self.keyring.clone()
+            } else {
+                self.readback.clone().or_else(|| self.keyring.clone())
+            };
+            self.read_keyring_count += 1;
+            Ok(value)
+        }
+
+        fn write_keyring(&mut self, seed: &[u8; 32]) -> AppResult<()> {
+            self.events.push("write_keyring");
+            if self.fail_write {
+                return Err(AppError::InvalidInput("fake_write_failed".to_owned()));
+            }
+            self.keyring = Some(seed.to_vec());
+            Ok(())
+        }
+
+        fn read_legacy(&mut self) -> AppResult<Option<Vec<u8>>> {
+            self.events.push("read_legacy");
+            Ok(self.legacy.clone())
+        }
+
+        fn remove_legacy(&mut self) -> AppResult<()> {
+            self.events.push("remove_legacy");
+            self.removed = true;
+            if self.fail_remove {
+                return Err(AppError::InvalidInput("fake_remove_failed".to_owned()));
+            }
+            self.legacy = None;
+            Ok(())
+        }
+    }
 
     #[test]
     fn generates_and_reloads_same_identity() {
@@ -187,5 +593,60 @@ mod tests {
         let ab = x25519_dalek::x25519(a_sec, b_pub);
         let ba = x25519_dalek::x25519(b_sec, a_pub);
         assert_eq!(ab, ba);
+    }
+
+    #[test]
+    fn legacy_migration_writes_reads_compares_then_removes_legacy_key() {
+        let seed = [7u8; 32];
+        let mut backend = FakeIdentityBackend::with_legacy(seed);
+
+        let migrated = migrate_identity_with_backend(&mut backend).unwrap();
+
+        assert_eq!(migrated.seed, seed);
+        assert!(!backend.legacy_present());
+        assert_eq!(
+            backend.events(),
+            [
+                "read_keyring",
+                "read_legacy",
+                "write_keyring",
+                "read_keyring",
+                "remove_legacy"
+            ]
+        );
+    }
+
+    #[test]
+    fn legacy_migration_keeps_file_when_keyring_readback_differs() {
+        let seed = [8u8; 32];
+        let mut backend = FakeIdentityBackend::with_legacy(seed).with_readback([9u8; 32]);
+
+        assert!(migrate_identity_with_backend(&mut backend).is_err());
+        assert!(backend.legacy_present());
+        assert!(!backend.was_removed());
+        assert_eq!(
+            backend.events(),
+            [
+                "read_keyring",
+                "read_legacy",
+                "write_keyring",
+                "read_keyring"
+            ]
+        );
+    }
+
+    #[test]
+    fn legacy_migration_keeps_file_when_write_or_remove_fails() {
+        let seed = [10u8; 32];
+
+        let mut write_failure = FakeIdentityBackend::with_legacy(seed).fail_write();
+        assert!(migrate_identity_with_backend(&mut write_failure).is_err());
+        assert!(write_failure.legacy_present());
+        assert!(!write_failure.was_removed());
+
+        let mut remove_failure = FakeIdentityBackend::with_legacy(seed).fail_remove();
+        assert!(migrate_identity_with_backend(&mut remove_failure).is_err());
+        assert!(remove_failure.legacy_present());
+        assert!(remove_failure.was_removed());
     }
 }

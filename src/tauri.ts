@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   EMPTY_MEETING_SUMMARIES as EMPTY_SUMMARIES,
   type MeetingSummaries as MeetingSummariesShape,
-} from "./lib/meetingSummaries";
+} from "./lib/meetingSummaries.ts";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
@@ -17,7 +17,7 @@ import type {
   MeetingToolExecutionEnvelope,
   MeetingToolPreviewEnvelope,
   MeetingToolRevokeReceipt,
-} from "./lib/externalMeetingTools";
+} from "./lib/externalMeetingTools.ts";
 
 export type Health = {
   app: string;
@@ -99,7 +99,7 @@ const fallbackHealth: Health = {
   },
 };
 
-const canInvoke = () => Boolean("__TAURI_INTERNALS__" in window);
+const canInvoke = () => typeof window !== "undefined" && Boolean("__TAURI_INTERNALS__" in window);
 
 /** Raw command bridge for panels that own their own error handling, or `null`
  * when this surface is a plain browser and no command can run. */
@@ -387,9 +387,45 @@ const EMPTY_TRANSCRIPT: TranscriptView = {
   cappedRecordingIds: [],
 };
 
-export async function listTranscriptSegments(projectId: string): Promise<TranscriptView> {
+export type TranscriptLoadState = {
+  requestId: number;
+  recordingId: string | null;
+  status: "idle" | "loading" | "ready" | "rejected";
+  view: TranscriptView | null;
+};
+
+export function beginTranscriptLoad(recordingId: string | null, requestId: number): TranscriptLoadState {
+  return {
+    requestId,
+    recordingId,
+    status: recordingId ? "loading" : "idle",
+    view: null,
+  };
+}
+
+export function settleTranscriptLoad(
+  state: TranscriptLoadState,
+  request: {
+    requestId: number;
+    recordingId: string;
+    outcome:
+      | { status: "fulfilled"; view: TranscriptView }
+      | { status: "rejected" };
+  },
+): TranscriptLoadState {
+  if (state.requestId !== request.requestId || state.recordingId !== request.recordingId) return state;
+  if (request.outcome.status === "rejected") {
+    return { ...state, status: "rejected", view: null };
+  }
+  return { ...state, status: "ready", view: request.outcome.view };
+}
+
+export async function listTranscriptSegments(
+  projectId: string,
+  recordingId: string,
+): Promise<TranscriptView> {
   if (!canInvoke()) return EMPTY_TRANSCRIPT;
-  return invoke<TranscriptView>("list_transcript_segments", { projectId });
+  return invoke<TranscriptView>("list_transcript_segments", { projectId, recordingId });
 }
 
 export async function renameSpeaker(speakerId: string, displayName: string): Promise<void> {
@@ -578,8 +614,8 @@ export type AskAnswer = {
 export type {
   MeetingSummaries,
   SummaryRow,
-} from "./lib/meetingSummaries";
-export { EMPTY_MEETING_SUMMARIES } from "./lib/meetingSummaries";
+} from "./lib/meetingSummaries.ts";
+export { EMPTY_MEETING_SUMMARIES } from "./lib/meetingSummaries.ts";
 
 export async function liveMeetingStart(options?: {
   projectId?: string;

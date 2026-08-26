@@ -398,6 +398,34 @@ pub(crate) fn read_archive_record_at_root(
     Ok(persisted.record)
 }
 
+/// Return the canonical archive path plus the validated non-secret record and
+/// manifest for transport to an external adapter. Validation is repeated
+/// through `read_archive_at_root` so callers cannot upload a partial or
+/// tampered archive by using only the sidecar metadata.
+pub(crate) fn verified_archive_details_at_root(
+    root: &FilesystemRoot,
+    archive_id: &str,
+) -> Result<(PathBuf, FilesystemArchiveRecord, ArchiveManifest), FilesystemBackupError> {
+    let archive_id = validate_archive_id(archive_id)?;
+    let _bytes = read_archive_at_root(root, archive_id, None)?;
+    let archive_path = canonical_file_inside_root(
+        root,
+        &root
+            .archives_dir
+            .join(format!("{archive_id}{ARCHIVE_EXTENSION}")),
+    )?;
+    let manifest_path = canonical_file_inside_root(
+        root,
+        &root
+            .manifests_dir
+            .join(format!("{archive_id}{MANIFEST_EXTENSION}")),
+    )?;
+    let manifest_bytes = fs::read(manifest_path).map_err(|_| FilesystemBackupError::Io)?;
+    let persisted: PersistedFilesystemManifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|_| FilesystemBackupError::InvalidManifest)?;
+    Ok((archive_path, persisted.record, persisted.archive))
+}
+
 /// Rebuild the in-memory envelope for a persisted archive so it can be
 /// authenticated and decrypted. The sidecar stores the manifest re-labelled
 /// `verified`; decryption pins the pre-transport terminal state, so it is

@@ -1,7 +1,7 @@
 ---
-version: "0.2.11b"
+version: "0.2.13b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-08-19T08:30:00+07:00,ATHER"
+last_update: "2026-08-23T03:47:57+07:00,ATHER"
 status: "beta"
 superseded_by: null
 attributes:
@@ -14,11 +14,19 @@ attributes:
 
 ## Current Status
 
-FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The current source tree builds after dependency restoration, but the local `.venv-whisper` directory is empty and `py -3` cannot import `faster_whisper`, so live transcription is not currently UAT-ready on this machine. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
+FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The host `py -3` interpreter cannot import `faster_whisper`, but FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the pinned `small` model, and uses the staged CUDA 12/cuDNN 9 bundle. The standalone GPU worker smoke passed; Live Meeting real-capture, device, connector, and visual UAT remain open. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
 
 This document separates implemented truth from planned capability.
 
-## Routing and backup-payload overlay (2026-08-19, PR #16 open)
+## Current truth sync (2026-08-23)
+
+PR #16 is merged into `origin/main` at merge commit `26da78466364e479085d0aa5d7f06e24a08bd12c`. Its routing, backup-payload, and connector-timeout changes are therefore part of the current mainline. The physical Android, clean-install restore, real connector, and release gates remain open as recorded below.
+
+The local staged runtime check is split into separate facts: `D:\FUNG\.venv-whisper\Scripts\python.exe` imports `faster-whisper` 1.2.1 and exposes the worker CLI; `D:\FUNG\.venv-whisper\models\small` contains the pinned `Systran/faster-whisper-small` revision `536b0662742c02347bc0e980a01041f333bce120`; `D:\FUNG\runtime\manifest.json` records 11 staged CUDA 12/cuDNN 9 DLLs. `scripts/smoke_gpu_standalone.ps1` passed with `C:\Windows\Media\Alarm01.wav` and `--profile gpu`; this proves the packaged worker path, not Live Meeting real-capture or device UAT.
+
+## Routing and backup-payload overlay (historical snapshot, 2026-08-19; superseded)
+
+This section preserves the pre-merge state. PR #16 was subsequently merged as recorded in the current truth sync above.
 
 `fix/routing-predicate-and-backup-audio` is pushed and open as PR #16 with
 both CI jobs green (`frontend` 27s, `rust` 6m8s). It is **not merged**, so
@@ -195,7 +203,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | --- | --- |
 | `npm run build` | Passed on 2026-08-14 after `npm ci` restored missing local CLI binaries |
 | `cargo check` | Passed |
-| `npm audit --audit-level=moderate` | **2 high vulnerabilities** (`nanoid`, `postcss`); production dependency remediation remains open |
+| `npm audit --audit-level=moderate` | Passed on 2026-08-23; current lockfile reports **0 vulnerabilities** across 84 audited dependencies. |
 | SVG XML validation | Passed |
 | Browser layout check | Signals parent is `.panel-glass`; floating signal count is `0` |
 | Compact viewport check | `1200 x 780` rendered without body scroll |
@@ -218,7 +226,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | Rebuilt Desktop runtime | The debug `fung.exe` launched with title `FUNG`; a close/relaunch smoke observed PID 37720 then PID 9088 and non-zero window handles, with Genesis counts unchanged (`projects=1`, `recordings=1`, `transcript_segments=13`, `audit_events=1`). Windows Graphics Capture, browser screenshot, and keyboard automation remain unavailable, so visual/keyboard UAT is still open. |
 | Real connector/device diagnostics | Claude Desktop MCP registry is empty, no approved vendor endpoint/credential is configured, and `adb`/`scrcpy` are absent. The real-connector and physical-device gates remain blocked, not waived. |
 | Python worker syntax | `py_compile scripts/transcribe.py` passed. |
-| Current Whisper runtime availability | `scripts/transcribe_live.py` exists, but `.venv-whisper` is empty and `py -3` reports no `faster_whisper`; capture-only/degraded mode is the truthful current state until the runtime is installed. |
+| Current Whisper runtime availability | `py -3` reports no `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the pinned `small` model, and passes the standalone GPU smoke with the staged CUDA 12/cuDNN 9 bundle. Live Meeting real-capture, device, visual, and connector UAT remain open. |
 
 Screenshot artifacts from the latest UI validation:
 
@@ -273,6 +281,8 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.13b | 2026-08-23 | beta | Staged the pinned faster-whisper small model and 11-file CUDA 12/cuDNN 9 bundle; standalone GPU smoke passed, while Live Meeting/device/connector UAT remains open. | working-tree | ATHER |
+| 0.2.12b | 2026-08-23 | beta | Truth-synced the merged PR #16 state and separated staged package, model, and CUDA-runtime evidence; physical, restore, connector, and release gates remain open. | working-tree | ATHER |
 | 0.2.11b | 2026-08-19 | beta | PR #16 pushed and green but unmerged; routing, backup-payload and connector-timeout defects closed at source with 238/238 Rust and 46/46 Node evidence; device and restore gates unchanged. | `68f0201` | ATHER |
 | 0.2.10b | 2026-08-19 | beta | Phase 4 Tasks 5–9 landed on `codex/phase-4-filesystem-test-backup`; automated backup/restore and reconciliation evidence recorded, release/U9 gates unchanged. | working-tree | ATHER |
 | 0.2.9b | 2026-08-14 | beta | Current desktop/web build and 212-test Rust evidence recorded; missing Whisper runtime and two high npm audit findings prevent a live-transcription/release claim. | working-tree | ATHER |

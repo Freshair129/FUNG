@@ -1,64 +1,100 @@
 import { supabase } from "./supabase.ts";
-import { parseAuthCallbackUrl } from "./authParse.ts";
+import { parseAuthCallbackUrl, type AuthCallbackOptions } from "./authParse.ts";
 import { hashPairingCode } from "./authHash.ts";
 
 export { hashPairingCode };
 
-const DEEP_LINK_REDIRECT = "fung://auth/callback";
-
-export async function beginGoogleLogin(redirectTo: string = DEEP_LINK_REDIRECT): Promise<void> {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: { redirectTo, skipBrowserRedirect: true },
-  });
-  if (error) throw error;
-  if (!data?.url) throw new Error("ไม่ได้รับ URL สำหรับเข้าสู่ระบบ");
-  const { openUrl } = await import("@tauri-apps/plugin-opener");
-  await openUrl(data.url);
+export interface NativeAuthStarted {
+  requestId: string;
+  redirectUri: string;
+  expiresAtMs: number;
 }
 
-export async function beginLoopbackFallbackLogin(): Promise<void> {
+export interface NativeAuthCallback {
+  requestId: string;
+  session: {
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+    tokenType: string;
+    userId: string;
+  } | null;
+  error: string | null;
+}
+
+let activeRequestId: string | null = null;
+
+async function tauriInvoke() {
   const { invoke } = await import("@tauri-apps/api/core");
-  const port = await invoke<number>("auth_loopback_listen");
-  await beginGoogleLogin(`http://127.0.0.1:${port}/auth/callback`);
+  return invoke;
 }
 
-export async function completeFromCallbackUrl(url: string): Promise<void> {
-  const { code, error } = parseAuthCallbackUrl(url);
+/** Native creates and opens the exact OAuth URL; no caller URL is accepted. */
+export async function beginGoogleLogin(): Promise<string> {
+  const invoke = await tauriInvoke();
+  const started = await invoke<NativeAuthStarted>("auth_begin_google_login");
+  if (!started?.requestId) throw new Error("auth_start_failed");
+  activeRequestId = started.requestId;
+  return started.requestId;
+}
+
+export async function beginLoopbackFallbackLogin(): Promise<string> {
+  return beginGoogleLogin();
+}
+
+export async function cancelGoogleLogin(requestId: string = activeRequestId ?? ""): Promise<void> {
+  if (!requestId) return;
+  const invoke = await tauriInvoke();
+  await invoke<void>("auth_cancel_google_login", { requestId });
+  if (activeRequestId === requestId) activeRequestId = null;
+}
+
+export async function completeFromCallbackUrl(
+  url: string,
+  options: AuthCallbackOptions,
+): Promise<void> {
+  const { code, error } = parseAuthCallbackUrl(url, options);
   if (error) throw new Error(error);
   if (!code) throw new Error("missing_code");
-  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-  if (exchangeError) throw exchangeError;
+  throw new Error("native_exchange_required");
 }
 
-/** Wires BOTH callback channels (deep link + loopback event). Returns cleanup. */
+/** Wires the one native callback channel. Returns cleanup. */
 export async function listenForAuthCallback(
   onDone: (err: string | null) => void,
 ): Promise<() => void> {
-  const cleanups: Array<() => void> = [];
-  try {
-    const { onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
-    const un = await onOpenUrl((urls) => {
-      const target = urls.find((u) => u.includes("/auth/callback") || u.startsWith("fung://auth"));
-      if (!target) return;
-      completeFromCallbackUrl(target)
-        .then(() => onDone(null))
-        .catch((e) => onDone(e instanceof Error ? e.message : String(e)));
+  const { listen } = await import("@tauri-apps/api/event");
+  let terminal = false;
+  const unlisten = await listen<NativeAuthCallback>("auth-callback", (event) => {
+    if (terminal) return;
+    terminal = true;
+    const callback = event.payload;
+    if (!callback?.requestId || callback.requestId !== activeRequestId) {
+      activeRequestId = null;
+      onDone("invalid_callback");
+      return;
+    }
+    activeRequestId = null;
+    if (callback.error) {
+      onDone(callback.error);
+      return;
+    }
+    if (
+      !callback.session?.accessToken ||
+      !callback.session.refreshToken
+    ) {
+      onDone("missing_session");
+      return;
+    }
+    void supabase.auth.setSession({
+      access_token: callback.session.accessToken,
+      refresh_token: callback.session.refreshToken,
+    }).then(({ error }) => {
+      onDone(error ? error.message : null);
     });
-    cleanups.push(un);
-  } catch {
-    // plugin unavailable (e.g. web preview) — loopback listener below still applies
-  }
-  try {
-    const { listen } = await import("@tauri-apps/api/event");
-    const un = await listen<string>("auth-callback", (event) => {
-      completeFromCallbackUrl(event.payload)
-        .then(() => onDone(null))
-        .catch((e) => onDone(e instanceof Error ? e.message : String(e)));
-    });
-    cleanups.push(un);
-  } catch {
-    // not in Tauri
-  }
-  return () => cleanups.forEach((fn) => fn());
+  });
+  return () => {
+    terminal = true;
+    unlisten();
+  };
 }

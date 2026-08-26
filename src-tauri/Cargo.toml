@@ -41,6 +41,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2.4.9"
 thiserror = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
+url = "2"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 zeroize = "1"
 

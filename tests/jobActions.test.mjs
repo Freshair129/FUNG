@@ -8,6 +8,8 @@ import {
   jobActionBlockedReason,
   resolveJobAction,
 } from "../src/lib/jobActions.ts";
+globalThis.window = {};
+const { beginTranscriptLoad, settleTranscriptLoad } = await import("../src/tauri.ts");
 
 /**
  * The whole point of this module is that a button either does something or
@@ -138,4 +140,125 @@ test("queued jobs target the project's active recording", () => {
     app,
     /createJob\(plan\.jobType, selectedProjectId, activeRecordingId\)/,
   );
+});
+
+// @req D-MVP-01
+test("transcript load state rejects stale completions and failed reads", () => {
+  const viewA = {
+    segments: [{ recordingId: "rec-a" }],
+    capped: false,
+    cap: 1000,
+    cappedRecordingIds: [],
+  };
+  const viewB = {
+    segments: [{ recordingId: "rec-b" }],
+    capped: false,
+    cap: 1000,
+    cappedRecordingIds: [],
+  };
+
+  let state = beginTranscriptLoad("rec-a", 1);
+  state = settleTranscriptLoad(state, {
+    requestId: 1,
+    recordingId: "rec-a",
+    outcome: { status: "fulfilled", view: viewA },
+  });
+  assert.equal(state.status, "ready");
+  assert.equal(state.view, viewA);
+
+  state = beginTranscriptLoad("rec-b", 2);
+  const stale = settleTranscriptLoad(state, {
+    requestId: 1,
+    recordingId: "rec-a",
+    outcome: { status: "fulfilled", view: viewA },
+  });
+  assert.equal(stale.status, "loading");
+  assert.equal(stale.view, null);
+
+  const current = settleTranscriptLoad(state, {
+    requestId: 2,
+    recordingId: "rec-b",
+    outcome: { status: "fulfilled", view: viewB },
+  });
+  assert.equal(current.status, "ready");
+  assert.equal(current.recordingId, "rec-b");
+  assert.equal(current.view, viewB);
+
+  const rejected = settleTranscriptLoad(beginTranscriptLoad("rec-c", 3), {
+    requestId: 3,
+    recordingId: "rec-c",
+    outcome: { status: "rejected" },
+  });
+  assert.equal(rejected.status, "rejected");
+  assert.equal(rejected.view, null);
+});
+
+// @req D-MVP-01
+test("an imported transcription success activates and finalizes its recording", () => {
+  const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
+  const pipeline = lib.slice(lib.indexOf("fn run_import_pipeline"));
+  const success = pipeline.slice(pipeline.indexOf("Ok(output)"), pipeline.indexOf("Err(message)", pipeline.indexOf("Ok(output)")));
+  const finalizer = lib.slice(lib.indexOf("fn finalize_import_success"), lib.indexOf("fn run_import_pipeline"));
+
+  assert.match(
+    success,
+    /finalize_import_success\(/,
+    "successful import must run the atomic handoff finalizer",
+  );
+  assert.match(
+    finalizer,
+    /upsert\(\s*"projects"[\s\S]*active_recording_id[\s\S]*recording_id[\s\S]*\)/,
+    "successful import must atomically select the imported recording",
+  );
+  assert.match(
+    finalizer,
+    /audio_chunks[\s\S]*end_ms[\s\S]*output\.duration_ms[\s\S]*transcribed_at/,
+    "successful import must finalize the imported chunk and stamp transcription",
+  );
+});
+
+test("transcript retrieval is recording-scoped through the desktop bridge", () => {
+  const api = readFileSync("src/tauri.ts", "utf8");
+  const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
+  const app = readFileSync("src/App.tsx", "utf8");
+
+  assert.match(
+    api,
+    /export async function listTranscriptSegments\(\s*projectId: string,\s*recordingId: string,\s*\)/,
+    "the bridge must require the selected recording",
+  );
+  assert.match(
+    lib,
+    /fn list_transcript_segments\([\s\S]*project_id: String,[\s\S]*recording_id: String,/,
+    "the Tauri command must require the selected recording",
+  );
+  assert.match(
+    lib,
+    /transcript_segments[\s\S]*recording_id[\s\S]*serde_json::json!\(recording_id\)/,
+    "the backend query must filter by recording id",
+  );
+  assert.match(
+    app,
+    /listTranscriptSegments\(selectedProjectId, activeRecordingId\)/,
+    "the shell must load only the active recording transcript",
+  );
+});
+
+test("an import rejection is shown as a terminal failure with a next step", () => {
+  const app = readFileSync("src/App.tsx", "utf8");
+  const importFlow = app.slice(
+    app.indexOf("const handleImportAndTranscribe"),
+    app.indexOf("const transcriptBlockedReason"),
+  );
+  assert.match(
+    importFlow,
+    /const job = await importAndTranscribe\([\s\S]*const finished = await pollJobUntilDone\(job\.id\)[\s\S]*catch \{[\s\S]*setActionNotice\("นำเข้าและถอดเสียงไม่สำเร็จ — ตรวจสอบไฟล์และ local model แล้วลองใหม่"\)/,
+    "the import flow must surface rejected import or polling calls with an actionable notice",
+  );
+  assert.match(
+    importFlow,
+    /finished\?\.status === "failed"[\s\S]*setActionNotice\("นำเข้าและถอดเสียงไม่สำเร็จ — ตรวจสอบไฟล์และ local model แล้วลองใหม่"\)/,
+    "a terminal failed job must use the same non-secret notice",
+  );
+  assert.doesNotMatch(importFlow, /finished\.errorMessage/, "the notice must not echo worker error details");
 });

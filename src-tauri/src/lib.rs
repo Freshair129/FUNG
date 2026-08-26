@@ -10,11 +10,11 @@ use std::{
     thread,
 };
 use tauri::{Manager, State};
-use tauri_plugin_opener::OpenerExt;
 use thiserror::Error;
 use uuid::Uuid;
 
 mod audio_custody;
+mod auth_session;
 mod backup;
 mod backup_archive;
 mod backup_payload;
@@ -23,6 +23,7 @@ mod cloud_config;
 mod cloud_executor;
 mod device_identity;
 mod diarization;
+mod drive_oauth;
 mod external_mcp;
 mod external_mcp_commands;
 mod external_mcp_transport;
@@ -38,6 +39,8 @@ mod local_diarization;
 mod media_fetch;
 mod meeting_intel;
 mod mobile;
+#[rustfmt::skip]
+mod native_auth;
 mod native_recorder;
 mod on_device_ai;
 mod policy;
@@ -187,22 +190,63 @@ fn bundled_whisper_model(runtime: &WhisperRuntime) -> Option<PathBuf> {
     Some(runtime_root.join("models").join("small"))
 }
 
-/// Opens the configured FUNG account portal in the system browser. OAuth is
-/// intentionally completed by the hosted web surface; the embedded local
-/// runtime never receives a provider client secret.
+fn child_compatible_whisper_model_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(path) = path.to_str() {
+        if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = path.strip_prefix(r"\\?\") {
+            let bytes = rest.as_bytes();
+            if bytes.len() >= 3
+                && bytes[0].is_ascii_alphabetic()
+                && bytes[1] == b':'
+                && matches!(bytes[2], b'\\' | b'/')
+            {
+                return PathBuf::from(rest);
+            }
+        }
+    }
+
+    path
+}
+
+fn worker_whisper_model_env_path(runtime: &WhisperRuntime) -> Option<PathBuf> {
+    bundled_whisper_model(runtime).map(child_compatible_whisper_model_path)
+}
+
+/// Opens the configured FUNG account portal through the native trusted URL
+/// registry. The webview never supplies the destination.
 #[tauri::command]
 fn open_external_account_portal(app: tauri::AppHandle) -> AppResult<()> {
-    let url = env::var("FUNG_WEB_APP_URL")
-        .map_err(|_| AppError::InvalidInput("FUNG_WEB_APP_URL is not configured".to_string()))?;
-    let url = url.trim();
-    if !url.starts_with("https://") {
-        return Err(AppError::InvalidInput(
-            "FUNG_WEB_APP_URL must use https".to_string(),
-        ));
-    }
-    app.opener()
-        .open_url(url, None::<&str>)
-        .map_err(|error| AppError::InvalidInput(format!("could not open account portal: {error}")))
+    native_auth::open_trusted_account_portal(app)
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AccountPortalStatus {
+    pub(crate) status: &'static str,
+}
+
+#[tauri::command(rename = "account_portal_open")]
+fn account_portal_open(app: tauri::AppHandle) -> AppResult<AccountPortalStatus> {
+    native_auth::open_trusted_account_portal(app)?;
+    Ok(AccountPortalStatus { status: "opened" })
+}
+
+#[tauri::command(rename = "broker_fungwire_status")]
+fn broker_fungwire_status(
+    state: State<'_, AppState>,
+) -> AppResult<fungwire_server::FungwireStatus> {
+    fungwire_server::fungwire_status(state)
+}
+
+#[tauri::command(rename = "broker_fungwire_set_enabled")]
+fn broker_fungwire_set_enabled(
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> AppResult<fungwire_server::FungwireStatus> {
+    fungwire_server::fungwire_server_set_enabled(enabled, state)
 }
 
 #[derive(Debug, Error)]
@@ -568,6 +612,12 @@ pub(crate) fn primary_lan_ipv4() -> Option<String> {
 /// combined with `primary_lan_ipv4()` rather than returned as-is.
 #[tauri::command]
 fn fungwire_local_endpoint(state: State<'_, AppState>) -> AppResult<Option<String>> {
+    fungwire_local_endpoint_native(state)
+}
+
+pub(crate) fn fungwire_local_endpoint_native(
+    state: State<'_, AppState>,
+) -> AppResult<Option<String>> {
     let bind = {
         let guard = state.fungwire.lock().expect("fungwire mutex poisoned");
         match guard.as_ref() {
@@ -1558,9 +1608,10 @@ struct TranscriptView {
 #[tauri::command]
 fn list_transcript_segments(
     project_id: String,
+    recording_id: String,
     state: State<'_, AppState>,
 ) -> AppResult<TranscriptView> {
-    transcript_view(&state.genesis, &project_id)
+    transcript_view(&state.genesis, &project_id, &recording_id)
 }
 
 /// The body of [`list_transcript_segments`], taking the storage handle rather
@@ -1568,6 +1619,7 @@ fn list_transcript_segments(
 fn transcript_view(
     genesis: &genesis_block_native::Storage,
     project_id: &str,
+    recording_id: &str,
 ) -> AppResult<TranscriptView> {
     // Resolve speaker display names once per call: query the project's
     // speakers (capped like every other query against this engine) and build
@@ -1594,87 +1646,89 @@ fn transcript_view(
         })
         .collect();
 
-    // Read per recording rather than per project. The ceiling is per query,
-    // so scoping each read to one recording is not a workaround for the
-    // limit — it moves the limit from "this project's transcripts total" to
-    // "this recording's transcript", which is where a real transcript can
-    // actually be long. A project of five 800-segment recordings used to
-    // lose 3000 of its 4000 segments; now it loses none.
-    let recording_rows = genesis_adapter::query(
+    // Resolve the selected recording inside the selected project before
+    // reading segments. The id is globally unique, but checking ownership
+    // here keeps the bridge recording-scoped at the project boundary too.
+    let recording_exists = genesis_adapter::query(
         genesis,
         "recordings",
         &["id"],
-        vec![genesis_adapter::eq(
-            "recordings",
-            "project_id",
-            serde_json::json!(project_id),
-        )],
-        genesis_adapter::ROW_CAP,
+        vec![
+            genesis_adapter::eq("recordings", "project_id", serde_json::json!(project_id)),
+            genesis_adapter::eq("recordings", "id", serde_json::json!(recording_id)),
+        ],
+        1,
     )
     .map_err(AppError::Genesis)?;
-    let recording_ids: Vec<String> = recording_rows
-        .into_iter()
-        .filter_map(|row| Some(row.get("recordings.id")?.as_str()?.to_string()))
-        .collect();
+    if recording_exists.is_empty() {
+        return Err(AppError::InvalidInput(format!(
+            "ไม่พบการบันทึก {recording_id} ในโปรเจกต์ {project_id}"
+        )));
+    }
 
     let mut segments: Vec<TranscriptSegment> = Vec::new();
     let mut capped_recording_ids: Vec<String> = Vec::new();
 
-    for recording_id in recording_ids {
-        let page = genesis_adapter::query_capped(
-            genesis,
-            "transcript_segments",
-            &[
-                "id",
+    let page = genesis_adapter::query_capped(
+        genesis,
+        "transcript_segments",
+        &[
+            "id",
+            "project_id",
+            "recording_id",
+            "speaker_id",
+            "start_ms",
+            "end_ms",
+            "text",
+            "confidence",
+            "created_at",
+        ],
+        vec![
+            genesis_adapter::eq(
+                "transcript_segments",
                 "project_id",
-                "recording_id",
-                "speaker_id",
-                "start_ms",
-                "end_ms",
-                "text",
-                "confidence",
-                "created_at",
-            ],
-            vec![genesis_adapter::eq(
+                serde_json::json!(project_id),
+            ),
+            genesis_adapter::eq(
                 "transcript_segments",
                 "recording_id",
-                serde_json::json!(recording_id.clone()),
-            )],
-        )
-        .map_err(AppError::Genesis)?;
-        if page.capped {
-            capped_recording_ids.push(recording_id);
-        }
-        for row in page.rows {
-            let speaker_id = row
-                .get("transcript_segments.speaker_id")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned);
-            let speaker_name = speaker_id
-                .as_ref()
-                .and_then(|id| speaker_names.get(id).cloned());
-            segments.push(TranscriptSegment {
-                id: genesis_adapter::string(&row, "transcript_segments.id")
-                    .map_err(AppError::Genesis)?,
-                project_id: genesis_adapter::string(&row, "transcript_segments.project_id")
-                    .map_err(AppError::Genesis)?,
-                recording_id: genesis_adapter::string(&row, "transcript_segments.recording_id")
-                    .map_err(AppError::Genesis)?,
-                speaker_id,
-                speaker_name,
-                start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms")
-                    .map_err(AppError::Genesis)?,
-                end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms")
-                    .map_err(AppError::Genesis)?,
-                text: genesis_adapter::string(&row, "transcript_segments.text")
-                    .map_err(AppError::Genesis)?,
-                confidence: row
-                    .get("transcript_segments.confidence")
-                    .and_then(serde_json::Value::as_f64),
-                created_at: genesis_adapter::string(&row, "transcript_segments.created_at")
-                    .map_err(AppError::Genesis)?,
-            });
-        }
+                serde_json::json!(recording_id),
+            ),
+        ],
+    )
+    .map_err(AppError::Genesis)?;
+    if page.capped {
+        capped_recording_ids.push(recording_id.to_string());
+    }
+    for row in page.rows {
+        let speaker_id = row
+            .get("transcript_segments.speaker_id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        let speaker_name = speaker_id
+            .as_ref()
+            .and_then(|id| speaker_names.get(id).cloned());
+        segments.push(TranscriptSegment {
+            id: genesis_adapter::string(&row, "transcript_segments.id")
+                .map_err(AppError::Genesis)?,
+            project_id: genesis_adapter::string(&row, "transcript_segments.project_id")
+                .map_err(AppError::Genesis)?,
+            recording_id: genesis_adapter::string(&row, "transcript_segments.recording_id")
+                .map_err(AppError::Genesis)?,
+            speaker_id,
+            speaker_name,
+            start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms")
+                .map_err(AppError::Genesis)?,
+            end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms")
+                .map_err(AppError::Genesis)?,
+            text: genesis_adapter::string(&row, "transcript_segments.text")
+                .map_err(AppError::Genesis)?,
+            confidence: row
+                .get("transcript_segments.confidence")
+                .and_then(serde_json::Value::as_f64),
+            created_at: genesis_adapter::string(&row, "transcript_segments.created_at")
+                .map_err(AppError::Genesis)?,
+        });
     }
 
     segments.sort_by_key(|segment| segment.start_ms);
@@ -2000,6 +2054,106 @@ fn create_import_job(
 /// same paths as a local one, because it is the same kind of thing once it
 /// has landed.
 #[allow(clippy::too_many_arguments)]
+fn finalize_import_success(
+    genesis: &Arc<genesis_block_native::Storage>,
+    project_id: &str,
+    recording_id: &str,
+    chunk_id: &str,
+    source: &str,
+    input_path: &str,
+    stored_path: &str,
+    byte_size: i64,
+    checksum: &str,
+    created_at: &str,
+    output: &WhisperOutput,
+) -> AppResult<()> {
+    let project = genesis_adapter::query(
+        genesis,
+        "projects",
+        &["id", "name", "storage_path", "created_at"],
+        vec![genesis_adapter::eq(
+            "projects",
+            "id",
+            serde_json::json!(project_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput(format!("ไม่พบโปรเจกต์ {project_id}")))?;
+    let project_name =
+        genesis_adapter::string(&project, "projects.name").map_err(AppError::Genesis)?;
+    let project_storage_path =
+        genesis_adapter::string(&project, "projects.storage_path").map_err(AppError::Genesis)?;
+    let project_created_at =
+        genesis_adapter::string(&project, "projects.created_at").map_err(AppError::Genesis)?;
+    let finished_at = now();
+    let mut mutations = Vec::new();
+    for segment in &output.segments {
+        let segment_timestamp = now();
+        mutations.push(genesis_adapter::upsert(
+            "transcript_segments",
+            serde_json::json!({
+                "id": Uuid::new_v4().to_string(),
+                "project_id": project_id,
+                "recording_id": recording_id,
+                "speaker_id": null,
+                "start_ms": segment.start_ms,
+                "end_ms": segment.end_ms,
+                "text": segment.text,
+                "confidence": segment.confidence,
+                "created_at": segment_timestamp,
+                "updated_at": segment_timestamp,
+            }),
+        ));
+    }
+    mutations.extend([
+        genesis_adapter::upsert(
+            "recordings",
+            serde_json::json!({
+                "id": recording_id,
+                "project_id": project_id,
+                "source": source,
+                "input_path": input_path,
+                "canonical_audio_path": stored_path,
+                "status": "completed",
+                "duration_ms": output.duration_ms,
+                "created_at": created_at,
+                "updated_at": finished_at,
+            }),
+        ),
+        genesis_adapter::upsert(
+            "audio_chunks",
+            serde_json::json!({
+                "id": chunk_id,
+                "recording_id": recording_id,
+                "sequence_no": 1,
+                "file_path": stored_path,
+                "start_ms": 0,
+                "end_ms": output.duration_ms,
+                "byte_size": byte_size,
+                "checksum": checksum,
+                "created_at": created_at,
+                "transcribed_at": finished_at,
+            }),
+        ),
+        genesis_adapter::upsert(
+            "projects",
+            serde_json::json!({
+                "id": project_id,
+                "name": project_name,
+                "storage_path": project_storage_path,
+                "active_recording_id": recording_id,
+                "created_at": project_created_at,
+                "updated_at": finished_at,
+            }),
+        ),
+    ]);
+    genesis_adapter::commit_rows(genesis, mutations).map_err(AppError::Genesis)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_import_pipeline(
     genesis: &Arc<genesis_block_native::Storage>,
     runtime: &WhisperRuntime,
@@ -2032,6 +2186,7 @@ fn run_import_pipeline(
             }
         };
     let stored_path = custodied.stored_path.display().to_string();
+    let chunk_id = Uuid::new_v4().to_string();
 
     let registered = genesis_adapter::commit_rows(
         genesis,
@@ -2045,7 +2200,7 @@ fn run_import_pipeline(
             // `end_ms` is filled in once transcription reports the duration.
             genesis_adapter::upsert(
                 "audio_chunks",
-                serde_json::json!({"id":Uuid::new_v4().to_string(),"recording_id":recording_id,"sequence_no":1,"file_path":stored_path,"start_ms":0,"end_ms":0,"byte_size":custodied.byte_size,"checksum":custodied.sha256,"created_at":timestamp}),
+                serde_json::json!({"id":chunk_id,"recording_id":recording_id,"sequence_no":1,"file_path":stored_path,"start_ms":0,"end_ms":0,"byte_size":custodied.byte_size,"checksum":custodied.sha256,"created_at":timestamp,"transcribed_at":null}),
             ),
         ],
     );
@@ -2068,17 +2223,19 @@ fn run_import_pipeline(
 
     match outcome {
         Ok(output) => {
-            let insert_result = (|| -> AppResult<()> {
-                let timestamp = now();
-                let mut mutations = Vec::new();
-                for segment in &output.segments {
-                    let seg_timestamp = now();
-                    mutations.push(genesis_adapter::upsert("transcript_segments", serde_json::json!({"id":Uuid::new_v4().to_string(),"project_id":project_id,"recording_id":recording_id,"speaker_id":null,"start_ms":segment.start_ms,"end_ms":segment.end_ms,"text":segment.text,"confidence":segment.confidence,"created_at":seg_timestamp,"updated_at":seg_timestamp})));
-                }
-                mutations.push(genesis_adapter::upsert("recordings", serde_json::json!({"id":recording_id,"project_id":project_id,"source":source,"input_path":input_path,"canonical_audio_path":stored_path,"status":"completed","duration_ms":output.duration_ms,"created_at":timestamp,"updated_at":timestamp})));
-                genesis_adapter::commit_rows(genesis, mutations).map_err(AppError::Genesis)?;
-                Ok(())
-            })();
+            let insert_result = finalize_import_success(
+                genesis,
+                project_id,
+                &recording_id,
+                &chunk_id,
+                source,
+                input_path,
+                &stored_path,
+                custodied.byte_size,
+                &custodied.sha256,
+                &timestamp,
+                &output,
+            );
 
             match insert_result {
                 Ok(()) => {
@@ -2355,7 +2512,7 @@ pub(crate) fn run_python_worker(
 
     let mut command = Command::new(&runtime.python);
     command.arg(script).args(args);
-    if let Some(model) = bundled_whisper_model(runtime) {
+    if let Some(model) = worker_whisper_model_env_path(runtime) {
         command.env("FUNG_WHISPER_MODEL", model);
     }
     match hf_home {
@@ -2573,41 +2730,6 @@ fn handle_api_stream(
         body
     );
     let _ = stream.write_all(response.as_bytes());
-}
-
-/// One-shot loopback HTTP listener used as a fallback when the `fung://`
-/// deep link fails to activate the app (some desktop environments never wire
-/// custom protocol handlers correctly). The browser is redirected here after
-/// OAuth completes; the first request's full URL is forwarded to the webview
-/// via the `auth-callback` event, then the listener thread exits.
-#[tauri::command]
-fn auth_loopback_listen(app: tauri::AppHandle) -> AppResult<u16> {
-    use tauri::Emitter;
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let port = listener.local_addr()?.port();
-    thread::spawn(move || {
-        if let Ok((mut stream, _)) = listener.accept() {
-            let mut buf = [0u8; 4096];
-            let n = stream.read(&mut buf).unwrap_or(0);
-            let request = String::from_utf8_lossy(&buf[..n]);
-            let path = request
-                .lines()
-                .next()
-                .and_then(|line| line.split_whitespace().nth(1))
-                .unwrap_or("/")
-                .to_string();
-            let body = "<html><body style=\"font-family:sans-serif\"><p>เข้าสู่ระบบสำเร็จ ปิดหน้าต่างนี้ได้เลย</p></body></html>";
-            let _ = write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            let full_url = format!("http://127.0.0.1:{port}{path}");
-            let _ = app.emit("auth-callback", full_url);
-        }
-    });
-    Ok(port)
 }
 
 /// Temporary diagnostic used by `bin/dbcheck.rs` only — remove together with
@@ -2988,6 +3110,10 @@ pub fn run() {
             app.manage(state);
             app.manage(filesystem_backup::FilesystemBackupState::default());
             app.manage(backup::BackupJobState::default());
+            app.manage(drive_oauth::DriveOAuthState::default());
+            if let Err(error) = auth_session::startup_recover() {
+                eprintln!("[auth-session] deterministic startup recovery failed: {error}");
+            }
 
             // The worker starts only now: its handlers reach back into
             // AppState, so it must not run before the state is managed.
@@ -3024,11 +3150,21 @@ pub fn run() {
             recovery_scan,
             recovery_recover,
             start_local_api,
-            auth_loopback_listen,
             open_external_account_portal,
-            paired_device_upsert,
-            paired_device_list,
-            paired_device_revoke,
+            account_portal_open,
+            auth_session::broker_session_login_begin,
+            auth_session::broker_session_login_cancel,
+            auth_session::broker_session_status,
+            auth_session::broker_session_logout,
+            auth_session::broker_enrollment_request,
+            auth_session::broker_enrollment_status,
+            auth_session::broker_device_list,
+            auth_session::broker_pairing_create,
+            auth_session::broker_pairing_poll,
+            auth_session::broker_pairing_reconcile,
+            auth_session::broker_device_revoke,
+            auth_session::broker_device_audit_list,
+            auth_session::broker_device_endpoint_publish,
             device_identity::device_identity_ensure,
             device_identity::device_public_key,
             zoom_sync::zoom_connect,
@@ -3088,9 +3224,8 @@ pub fn run() {
             mobile::mobile_pairing_complete,
             mobile::mobile_voice_parse,
             mobile::mobile_mcp_set_enabled,
-            fungwire_server::fungwire_server_set_enabled,
-            fungwire_server::fungwire_status,
-            fungwire_local_endpoint,
+            broker_fungwire_set_enabled,
+            broker_fungwire_status,
             fungwire_client::fungwire_desktop_reachable,
             fungwire_client::fungwire_desktop_status_probe,
             fungwire_client::fungwire_delegate_transcription,
@@ -3108,6 +3243,15 @@ pub fn run() {
             backup::backup_restore,
             backup::backup_restore_select_target,
             filesystem_backup::filesystem_backup_select_root,
+            drive_oauth::broker_drive_connect_begin,
+            drive_oauth::broker_drive_connect_complete,
+            drive_oauth::broker_drive_connect_cancel,
+            drive_oauth::broker_drive_status,
+            drive_oauth::broker_drive_disconnect,
+            drive_oauth::broker_drive_list_archives,
+            drive_oauth::broker_drive_upload_archive,
+            drive_oauth::broker_drive_restore_intent,
+            drive_oauth::broker_drive_restore,
             tts_provider_register,
             tts_provider_update,
             tts_provider_toggle,
@@ -3121,6 +3265,9 @@ pub fn run() {
             // queued in the ledger and is adopted on the next launch —
             // shutdown is not cancellation.
             if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                if let Err(error_code) = auth_session::shutdown() {
+                    eprintln!("{error_code}");
+                }
                 if let Some(state) = app.try_state::<AppState>() {
                     state.jobs.shutdown();
                 }
@@ -3175,18 +3322,19 @@ mod transcript_view_tests {
     }
 
     #[test]
-    fn a_multi_recording_project_is_no_longer_truncated_at_the_project_level() {
-        // The old read filtered by `project_id` at the engine ceiling, so a
-        // project of five 400-segment recordings returned 1000 of its 2000
-        // segments and said nothing. None of those recordings is individually
-        // long enough to hit the ceiling; the truncation was an artifact of
-        // reading them together.
+    fn a_selected_recording_is_read_without_other_recordings() {
+        // The review surface names one recording, so the other recordings in
+        // the project must not enter its transcript or completeness state.
         let (path, storage) = open_storage();
         seed(&storage, 5, 400);
 
-        let view = transcript_view(&storage, "p1").unwrap();
-        assert_eq!(view.segments.len(), 2000);
-        assert!(!view.capped, "no single recording reaches the ceiling");
+        let view = transcript_view(&storage, "p1", "r3").unwrap();
+        assert_eq!(view.segments.len(), 400);
+        assert!(view
+            .segments
+            .iter()
+            .all(|segment| segment.recording_id == "r3"));
+        assert!(!view.capped, "the selected recording is below the ceiling");
         assert!(view.capped_recording_ids.is_empty());
 
         drop(storage);
@@ -3194,22 +3342,19 @@ mod transcript_view_tests {
     }
 
     #[test]
-    fn a_recording_past_the_ceiling_is_reported_and_named() {
+    fn a_selected_recording_past_the_ceiling_is_reported_and_named() {
         // Truncation is unavoidable here — the engine has no cursor — so the
-        // requirement is that it is visible, and specific enough to act on:
-        // which recording is short, not merely that something is.
+        // requirement is that it is visible and names the selected recording.
         let (path, storage) = open_storage();
         seed(&storage, 2, genesis_adapter::ROW_CAP as i64 + 100);
 
-        let view = transcript_view(&storage, "p1").unwrap();
+        let view = transcript_view(&storage, "p1", "r1").unwrap();
         assert!(view.capped);
         assert_eq!(view.cap, genesis_adapter::ROW_CAP);
-        let mut named = view.capped_recording_ids.clone();
-        named.sort();
-        assert_eq!(named, vec!["r0".to_string(), "r1".to_string()]);
+        assert_eq!(view.capped_recording_ids, vec!["r1".to_string()]);
         // The segments it did read are still returned: incomplete is not
         // empty, and the user keeps what there is.
-        assert_eq!(view.segments.len(), 2 * genesis_adapter::ROW_CAP as usize);
+        assert_eq!(view.segments.len(), genesis_adapter::ROW_CAP as usize);
 
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
@@ -3222,11 +3367,23 @@ mod transcript_view_tests {
         let (path, storage) = open_storage();
         seed(&storage, 1, 120);
 
-        let view = transcript_view(&storage, "p1").unwrap();
+        let view = transcript_view(&storage, "p1", "r0").unwrap();
         assert_eq!(view.segments.len(), 120);
         assert!(!view.capped);
         assert!(view.capped_recording_ids.is_empty());
 
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn transcript_view_rejects_a_recording_owned_by_another_project() {
+        let (path, storage) = open_storage();
+        seed(&storage, 1, 1);
+
+        let error = transcript_view(&storage, "different-project", "r0").unwrap_err();
+
+        assert!(error.to_string().contains("ไม่พบการบันทึก"));
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
     }
@@ -3259,6 +3416,67 @@ mod worker_tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_local_drive_verbatim_model_path_is_child_compatible() {
+        assert_eq!(
+            child_compatible_whisper_model_path(PathBuf::from(r"\\?\C:\folder\model",)),
+            PathBuf::from(r"C:\folder\model")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_verbatim_unc_model_path_is_child_compatible() {
+        assert_eq!(
+            child_compatible_whisper_model_path(PathBuf::from(r"\\?\UNC\server\share\model",)),
+            PathBuf::from(r"\\server\share\model")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_unsupported_verbatim_namespace_remains_unchanged() {
+        let path = PathBuf::from(r"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}\model");
+        assert_eq!(child_compatible_whisper_model_path(path.clone()), path);
+    }
+
+    #[test]
+    fn ordinary_model_path_remains_unchanged() {
+        let path = PathBuf::from(r"C:\folder\model");
+        assert_eq!(child_compatible_whisper_model_path(path.clone()), path);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn non_windows_model_path_remains_unchanged() {
+        let path = PathBuf::from(r"\\?\C:\folder\model");
+        assert_eq!(child_compatible_whisper_model_path(path.clone()), path);
+    }
+
+    #[test]
+    fn worker_uses_child_compatible_bundled_model_path() {
+        let runtime = WhisperRuntime {
+            python: if cfg!(windows) {
+                PathBuf::from(r"\\?\C:\Program Files\FUNG\.venv-whisper\Scripts\python.exe")
+            } else {
+                PathBuf::from("/opt/FUNG/.venv-whisper/Scripts/python")
+            },
+            script: PathBuf::from(r"C:\Program Files\FUNG\scripts\transcribe.py"),
+            cuda_bin: PathBuf::new(),
+        };
+
+        let model = worker_whisper_model_env_path(&runtime).expect("bundled model path");
+        if cfg!(windows) {
+            assert_eq!(
+                model,
+                PathBuf::from(r"C:\Program Files\FUNG\.venv-whisper\models\small")
+            );
+        } else {
+            assert_eq!(model, PathBuf::from("/opt/FUNG/.venv-whisper/models/small"));
+        }
+    }
+
     #[test]
     fn append_bounded_caps_length_and_keeps_latest_line() {
         let mut buffer = String::new();
@@ -3289,6 +3507,178 @@ mod worker_tests {
             let parsed: std::net::Ipv4Addr = ip.parse().expect("must be a valid IPv4 string");
             assert!(!parsed.is_loopback(), "must not report loopback: {ip}");
         }
+    }
+}
+
+#[cfg(test)]
+mod import_handoff_tests {
+    use super::*;
+
+    fn open_storage() -> (PathBuf, genesis_block_native::Storage) {
+        let path =
+            std::env::temp_dir().join(format!("fung-import-handoff-test-{}", Uuid::new_v4()));
+        let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
+            path: path.display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+        })
+        .unwrap();
+        genesis_adapter::install(&storage).unwrap();
+        (path, storage)
+    }
+
+    #[test]
+    fn finalize_import_success_persists_import_handoff() {
+        let (path, storage) = open_storage();
+        let genesis = Arc::new(storage);
+        genesis_adapter::commit_rows(
+            &genesis,
+            vec![
+                genesis_adapter::upsert(
+                    "projects",
+                    serde_json::json!({
+                        "id": "project-1",
+                        "name": "Boss review",
+                        "storage_path": "C:/fung/projects/project-1",
+                        "active_recording_id": "previous-recording",
+                        "created_at": "project-created",
+                        "updated_at": "project-updated",
+                    }),
+                ),
+                genesis_adapter::upsert(
+                    "recordings",
+                    serde_json::json!({
+                        "id": "recording-1",
+                        "project_id": "project-1",
+                        "source": "import",
+                        "input_path": "D:/incoming/meeting.m4a",
+                        "canonical_audio_path": "C:/fung/projects/project-1/recording-1/audio.m4a",
+                        "status": "pending",
+                        "duration_ms": 0,
+                        "created_at": "recording-created",
+                        "updated_at": "recording-updated",
+                    }),
+                ),
+                genesis_adapter::upsert(
+                    "audio_chunks",
+                    serde_json::json!({
+                        "id": "chunk-1",
+                        "recording_id": "recording-1",
+                        "sequence_no": 1,
+                        "file_path": "C:/fung/projects/project-1/recording-1/audio.m4a",
+                        "start_ms": 0,
+                        "end_ms": 0,
+                        "byte_size": 9876,
+                        "checksum": "sha-before",
+                        "created_at": "chunk-created",
+                        "transcribed_at": null,
+                    }),
+                ),
+            ],
+        )
+        .unwrap();
+
+        let output = WhisperOutput {
+            duration_ms: 4321,
+            segments: vec![WhisperSegment {
+                start_ms: 100,
+                end_ms: 900,
+                text: "hello".to_string(),
+                confidence: Some(0.91),
+            }],
+        };
+        finalize_import_success(
+            &genesis,
+            "project-1",
+            "recording-1",
+            "chunk-1",
+            "import",
+            "D:/incoming/meeting.m4a",
+            "C:/fung/projects/project-1/recording-1/audio.m4a",
+            9876,
+            "sha-before",
+            "recording-created",
+            &output,
+        )
+        .unwrap();
+
+        let project = genesis_adapter::query(
+            &genesis,
+            "projects",
+            &["name", "storage_path", "active_recording_id", "created_at"],
+            vec![genesis_adapter::eq(
+                "projects",
+                "id",
+                serde_json::json!("project-1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
+        assert_eq!(project["projects.name"], "Boss review");
+        assert_eq!(
+            project["projects.storage_path"],
+            "C:/fung/projects/project-1"
+        );
+        assert_eq!(project["projects.active_recording_id"], "recording-1");
+        assert_eq!(project["projects.created_at"], "project-created");
+
+        let recording = genesis_adapter::query(
+            &genesis,
+            "recordings",
+            &["status", "duration_ms", "canonical_audio_path"],
+            vec![genesis_adapter::eq(
+                "recordings",
+                "id",
+                serde_json::json!("recording-1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
+        assert_eq!(recording["recordings.status"], "completed");
+        assert_eq!(recording["recordings.duration_ms"], 4321);
+        assert_eq!(
+            recording["recordings.canonical_audio_path"],
+            "C:/fung/projects/project-1/recording-1/audio.m4a"
+        );
+
+        let chunk = genesis_adapter::query(
+            &genesis,
+            "audio_chunks",
+            &[
+                "file_path",
+                "checksum",
+                "byte_size",
+                "sequence_no",
+                "end_ms",
+                "transcribed_at",
+            ],
+            vec![genesis_adapter::eq(
+                "audio_chunks",
+                "id",
+                serde_json::json!("chunk-1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
+        assert_eq!(
+            chunk["audio_chunks.file_path"],
+            "C:/fung/projects/project-1/recording-1/audio.m4a"
+        );
+        assert_eq!(chunk["audio_chunks.checksum"], "sha-before");
+        assert_eq!(chunk["audio_chunks.byte_size"], 9876);
+        assert_eq!(chunk["audio_chunks.sequence_no"], 1);
+        assert_eq!(chunk["audio_chunks.end_ms"], 4321);
+        assert!(chunk["audio_chunks.transcribed_at"].as_str().is_some());
+
+        drop(genesis);
+        let _ = std::fs::remove_dir_all(path);
     }
 }
 

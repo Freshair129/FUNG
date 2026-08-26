@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
-created_at: "2026-08-26T00:00:00+07:00,Luna 5.6,base f9a139b7907dfdd4cab9bbb36ab1e0bee21c92c5"
-last_update: "2026-08-26T00:00:00+07:00,Luna 5.6"
+version: "0.2.0b"
+created_at: "2026-08-26T00:00:00+07:00,Luna 5.6,cycle-2 base 1ce72c51cfc5849381d3506ddbc4f94f096f62c8"
+last_update: "2026-08-26T00:00:00+07:00,Luna 5.6,cycle-2 correction"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -12,7 +12,7 @@ attributes:
   risk: "HIGH"
   complexity: "C-3"
   authorization: "Draft only; Boss exact-hash approval, Terra review, and separate lifecycle approval required"
-  base_commit: "f9a139b7907dfdd4cab9bbb36ab1e0bee21c92c5"
+  base_commit: "1ce72c51cfc5849381d3506ddbc4f94f096f62c8"
   candidate_commit: "externally bound after focused commit"
   candidate_sha256: "externally bound after final bytes"
 ---
@@ -60,7 +60,7 @@ Provisioning PASS หมายถึงเฉพาะ VM boundary และ bas
 | Authority | process `Elevated=false`; identity ไม่อยู่ใน Hyper-V Administrators; `Get-VM` ล้มเหลวด้วย `VirtualizationException` | ปัจจุบันยังไม่มี operator access ที่เลือกและอนุมัติแล้ว |
 | Host resources | RAM รวม 32 GB, free ประมาณ 7.1 GB, 12 logical processors, D: free ประมาณ 677.7 GB | ต่ำกว่า conservative free-RAM threshold 12 GB; สถานะปัจจุบัน `NOT READY` |
 | CPU feature report | virtualization booleans รายงาน false ขณะที่ hypervisor ทำงานอยู่ | non-authoritative ภายใต้ active hypervisor; ไม่ใช่หลักฐานว่า hardware ไม่มี virtualization |
-| Approved targets | `D:\FUNG-W2-VM`, `D:\FUNG-W2-VM\D-GDA7\E1`, `D:\FUNG-W2-Evidence\D-GDA7\E1` ยังไม่มี | ยังไม่มี exact target ที่ approved/provisioned |
+| Approved targets | one VM identity `FUNG-W2-E1-KEYRING-C1`, two filesystem roots ตาม §2, and one exact VHDX file ตาม §2 ยังไม่มี; source worktree/artifact references เป็น provenance inputs ไม่ใช่ target roots | ยังไม่มี exact target ที่ approved/provisioned |
 | Media/harness | ยังไม่มี approved VM/ISO/media/harness path | provisioning และ lifecycle ยังเริ่มไม่ได้ |
 
 ### 1.2 Evidence-backed boundary
@@ -78,22 +78,28 @@ setup และ registered broker façade เป็น non-test route. สิ่
 
 ## 2. Immutable identity และ target boundary
 
-หาก Boss อนุมัติการ provisioning ในภายหลัง ต้องใช้ identity ต่อไปนี้แบบ exact match
-เท่านั้น และต้อง fail-closed เมื่อมี collision, path mismatch, alias, wildcard,
-junction หรือ target ที่ resolve ออกนอก root:
+หาก Boss อนุมัติการ provisioning ในภายหลัง ต้องใช้ **one VM identity, two filesystem
+roots, and one exact VHDX file** ต่อไปนี้แบบ exact match เท่านั้น และต้อง fail-closed
+เมื่อมี collision, path mismatch, alias, wildcard, junction, mount หรือ target ที่
+resolve ออกนอก root. Source worktree และ artifact references เป็น provenance inputs
+เท่านั้น ไม่ใช่ target roots:
 
 | รายการ | ค่าเสนอแบบ immutable | สถานะตอนร่าง |
 |---|---|---|
-| VM name | `FUNG-W2-E1-KEYRING-C1` | ยังไม่สร้าง |
-| VM/config/VHD root | `D:\FUNG-W2-VM\D-GDA7\E1\cycle-1` | ยังไม่สร้าง |
-| Evidence root | `D:\FUNG-W2-Evidence\D-GDA7\E1\cycle-1` | ยังไม่สร้าง |
-| Source boundary | clean worktree ที่ exact approved source commit | ต้องเลือกและ hash ก่อน staging |
+| VM identity | `FUNG-W2-E1-KEYRING-C1` | ยังไม่สร้าง |
+| VM/config filesystem root | `D:\FUNG-W2-VM\D-GDA7\E1\cycle-1` | ยังไม่สร้าง |
+| Exact VHDX file | `D:\FUNG-W2-VM\D-GDA7\E1\cycle-1\FUNG-W2-E1-KEYRING-C1.vhdx` | ยังไม่สร้าง |
+| Evidence filesystem root | `D:\FUNG-W2-Evidence\D-GDA7\E1\cycle-1` | ยังไม่สร้าง |
+| Source/artifact provenance inputs | clean worktree และ artifact references ที่ผูกกับ exact approved source commit | ต้องเลือกและ hash ก่อน staging; ไม่ใช่ target roots |
 | Lifecycle boundary | หยุดก่อน E1 lifecycle | บังคับโดย amendment นี้ |
 
 ห้ามใช้ broad root เช่น `D:\`, workspace root, glob, recursive discovery หรือชื่อ VM
 ที่คล้ายกันแทน exact target. การมี parent directory อยู่ไม่เท่ากับการอนุมัติให้
-สร้าง child target; collision check ต้องตรวจชื่อ, resolved path, mount/junction,
-VM identity, VHD identity และ evidence root ก่อนทุก write.
+reuse หรือสร้าง child target. Collision preflight ต้องตรวจครบทั้ง VM identity/name,
+VM/config filesystem root, evidence filesystem root, exact VHDX file, parent
+existence/ownership, canonical/resolved path, reparse point/junction, mount/path
+escape และ existing Hyper-V registration ก่อนทุก write; ความไม่แน่นอนใด ๆ ให้
+fail-closed. ห้าม wildcard หรือ broad target ใด ๆ.
 
 ## 3. Decisions D-GDA8-01 ถึง D-GDA8-08
 
@@ -104,13 +110,13 @@ media rule หรือ lifecycle boundary ทำให้ review/hash/approval 
 | ID | Decision และข้อบังคับ | สถานะ |
 |---|---|---|
 | **D-GDA8-01** | **Authority/access:** Boss เป็น operator และ approval authority. Preferred non-persistent path คือ Boss-provided elevated provisioning session ที่ Boss ควบคุมเอง. ห้าม agent เพิ่มสมาชิก Hyper-V Administrators, เปลี่ยน IAM/group, ปรับ policy หรือยกระดับสิทธิ์อัตโนมัติ. ทุก group membership/IAM mutation ต้องมี explicit approval แยก. | candidate |
-| **D-GDA8-02** | **Exact identity/path collision:** ใช้ VM name และสาม target roots ตาม §2 แบบ exact เท่านั้น. ตรวจ canonical path, reparse/junction, existing VM/config/VHD, mount และ evidence collision แล้ว fail-closed เมื่อพบความไม่แน่นอน. ห้าม wildcard, glob, broad recursive target, alias หรือ reuse target ที่ provenance ไม่ชัด. | candidate |
+| **D-GDA8-02** | **Exact identity/path collision:** ใช้ one VM identity, two filesystem roots, and one exact VHDX file ตาม §2 แบบ exact เท่านั้น: VM `FUNG-W2-E1-KEYRING-C1`, VM/config root `D:\FUNG-W2-VM\D-GDA7\E1\cycle-1`, exact VHDX `D:\FUNG-W2-VM\D-GDA7\E1\cycle-1\FUNG-W2-E1-KEYRING-C1.vhdx` และ evidence root `D:\FUNG-W2-Evidence\D-GDA7\E1\cycle-1`. ตรวจ VM name, both roots, exact VHDX, parent existence/ownership, canonical/resolved path, reparse/junction, mount/path escape และ existing Hyper-V registration; parent existence ไม่ authorize reuse. ความไม่แน่นอน, wildcard, glob, broad target, alias หรือ provenance ไม่ชัด = fail-closed. | candidate |
 | **D-GDA8-03** | **Resource envelope:** Gen2 VM, 4 vCPU, static RAM 6 GB, dynamic VHDX maximum 80 GB. ก่อน start ต้องมี free RAM อย่างน้อย 12 GB และ free disk อย่างน้อย 120 GB บน volume ที่ใช้. Current free RAM ประมาณ 7.1 GB จึงเป็น `NOT READY` และห้าม provision/start จาก fact นี้. | candidate |
 | **D-GDA8-04** | **OS media:** Boss ต้อง supply currently supported Windows x64 ISO/path, SHA-256 และ license provenance out-of-band. Agent ห้าม download ISO, เก็บ activation key หรือใส่ ISO content ใน repo/chat. ใช้ Gen2 Secure Boot; เปิด vTPM เฉพาะเมื่อ selected OS ต้องใช้และต้องบันทึกเหตุผล/setting แบบ redacted. media/hash/license ขาด = `BLOCKED`. | candidate |
 | **D-GDA8-05** | **Isolation:** default คือไม่มี vNIC และไม่มี external network. Artifact transfer ทำได้เฉพาะ read-only hash-pinned media หรือกลไก no-network อื่นที่อนุมัติแยก. ห้าม host share, clipboard, provider credential, personal account และ production material. Guest account/material ต้องเป็น synthetic และ disposable เท่านั้น. | candidate |
-| **D-GDA8-06** | **Checkpoint/secret contamination:** ปิด automatic checkpoints. สร้าง baseline checkpoint ได้เฉพาะก่อน keyring/test material. หลังมี secret/test material ห้าม checkpoint/export/clone และห้าม memory dump/keyring dump. Test values ห้ามเข้า evidence. หลัง review ให้ power off VM; การลบ VM/VHD/evidence เป็น separate exact approval. | candidate |
+| **D-GDA8-06** | **Checkpoint/secret contamination:** ปิด automatic checkpoints และห้ามสร้าง Hyper-V checkpoint/snapshot ทุกชนิดตลอด provisioning รวม baseline/manual/production checkpoint. ห้ามใช้ export, clone, memory dump หรือ save-state เป็นสิ่งทดแทน checkpoint. Baseline ต้องเป็น redacted immutable settings/install/provenance manifest พร้อม hashes ที่ capture ขณะ VM clean และ powered off ก่อน guest account, password, authentication state, keyring/test material หรือ secret-bearing state; baseline ไม่ใช่ VM checkpoint. Synthetic guest credentials อาจมีอยู่นอก evidence ได้ แต่ห้ามเข้า evidence และห้ามถูก snapshot/checkpointed, cloned, exported หรือ dump; test values ห้ามเข้า evidence. หลัง review ให้ power off VM; การลบ VM/VHD/evidence เป็น separate exact approval. Future checkpoint ต้องมี amendment ใหม่ที่ผูก exact hash และ address guest credential persistence. | candidate |
 | **D-GDA8-07** | **Artifact/harness gate:** staging ต้องมาจาก clean worktree ที่ exact approved source commit และบันทึก hash ของ artifact/dependencies. ทุก artifact ต้องระบุชัดว่า non-production. Provisioning ต้องหยุดก่อน lifecycle execution. ก่อน E1 lifecycle ต้องมี approval แยกสำหรับ real `NativeKeyring`/registered-broker evidence harness ที่ hash-pinned หรือ later provider lane; fake keyring และ test-only façade ห้ามถูกอ้างเป็น production proof. | candidate |
-| **D-GDA8-08** | **E1 evidence matrix and stop/rollback/retention:** lifecycle ภายหลังต้องครอบคลุม baseline absence, synthetic write/rotate, app restart, guest reboot, `startup_recover`, logout/revoke/shutdown cleanup, stale-generation denial/readback/absence พร้อม Terra review. Provisioning PASS ไม่ใช่ lifecycle PASS. เมื่อเกิด ambiguity ให้ stop, power off, retain immutable evidence และเปิด cleanup ด้วย approval แยก. | candidate |
+| **D-GDA8-08** | **E1 evidence matrix and stop/rollback/retention:** lifecycle ภายหลังต้องครอบคลุม baseline absence, synthetic write/rotate, app restart, guest reboot, `startup_recover`, logout/revoke/shutdown cleanup, stale-generation denial/readback/absence พร้อม Terra review. Provisioning PASS ไม่ใช่ lifecycle PASS. เมื่อเกิด ambiguity หรือพบ checkpoint/snapshot/export/clone/memory dump/save-state ให้ stop, power off, retain immutable evidence และเปิด cleanup ด้วย approval แยก. | candidate |
 
 ## 4. PIC และ authority matrix
 
@@ -132,7 +138,7 @@ media rule หรือ lifecycle boundary ทำให้ review/hash/approval 
 | Elevated access path | ชื่อ session/host boundary และวิธีที่ Boss ควบคุม elevated provisioning; ไม่ใช่ automatic group mutation | `BLOCKED`; ห้าม retry ด้วย current unelevated process |
 | ISO/media | supported Windows x64 ISO path, SHA-256, license provenance และ Secure Boot/vTPM decision | `BLOCKED`; ห้าม agent download/activate |
 | Resource availability | ยืนยัน free RAM ≥ 12 GB, free disk ≥ 120 GB, CPU/volume ที่จะใช้ และ timestamp สด | `NOT READY/BLOCKED`; current ~7.1 GB RAM ไม่ผ่าน |
-| Exact target | ยืนยัน VM name, config/VHD root, evidence root และ collision-check authority | `BLOCKED`; ห้ามสร้าง guessed path |
+| Exact target | ยืนยัน one VM identity, two filesystem roots, one exact VHDX file และ collision-check authority ตาม §2; source/artifact refs เป็น provenance inputs เท่านั้น | `BLOCKED`; ห้ามสร้าง guessed path หรือ reuse parent/child จากการมีอยู่ของ parent |
 | Guest accounts | synthetic local account, password handoff out-of-band, retention/expiry และ no-network boundary | `BLOCKED`; ห้าม personal account/credential ใน chat |
 | Artifact/harness candidate | exact source commit, artifact/dependency hashes และ candidate ที่ non-production; lifecycle harness ต้องแยก approval | provisioning อาจหยุดหลัง baseline แต่ E1 lifecycle = `BLOCKED` |
 | Retention/cleanup | Boss ระบุผู้ถือ VM powered-off และอนุมัติภายหลังหากจะ cleanup | retain; ห้าม delete/overwrite จาก amendment นี้ |
@@ -150,11 +156,13 @@ P0 Authority preflight:
   gate = current process/identity must match approved boundary
 
 P1 Exact collision preflight:
-  category = canonical path, reparse-point, existing VM/config/VHD, mount and
-             evidence-root identity inspection
-  inputs = <exact VM name>, <exact config/VHD root>, <exact evidence root>
-  gate = all targets absent or explicitly approved as the same disposable target;
-         any ambiguity fails closed
+  category = exact VM identity/name, both filesystem roots, exact VHDX, parent
+             existence/ownership, canonical path, reparse-point/junction, mount,
+             path-escape and existing Hyper-V registration inspection
+  inputs = <exact VM identity>, <exact VM/config root>, <exact VHDX file>,
+           <exact evidence root>
+  gate = all exact targets and any parent/reuse decision are explicitly resolved;
+         parent existence never authorizes reuse; any ambiguity fails closed
 
 P2 Resource preflight:
   category = host free RAM, free disk, logical processor, volume and Hyper-V
@@ -178,13 +186,16 @@ P5 VM definition:
   category = approved Hyper-V generation, vCPU, static-memory, dynamic-VHDX and
              Secure Boot configuration record
   inputs = Gen2 / 4 vCPU / 6 GB / 80 GB / <vTPM decision>
-  gate = exact VM/config/VHD identity and settings match D-GDA8
+  gate = one VM identity, two filesystem roots, one exact VHDX file and settings
+         match D-GDA8; no broad path or alternate VHDX is accepted
 
 P6 Baseline:
-  category = power-on only for supported guest installation/bootstrap, clean
-             baseline fingerprint, checkpoint policy and guest shutdown record
-  inputs = <Boss-supplied media/account>, <baseline artifact hashes>
-  gate = baseline occurs before keyring/test material; no automatic checkpoint
+  category = supported guest installation/bootstrap followed by power-off and a
+             redacted immutable settings/install/provenance manifest with hashes
+  inputs = <Boss-supplied media>, <baseline manifest hashes>
+  gate = capture while VM is clean and powered off, before any guest account,
+         password, authentication state, keyring/test material or other secret;
+         no checkpoint/snapshot/export/clone/memory dump/save-state at any time
 
 P7 Artifact staging:
   category = hash verification of clean-source build/artifact/dependencies via
@@ -194,14 +205,17 @@ P7 Artifact staging:
 
 P8 Provisioning stop and evidence:
   category = redacted envelope, final settings readback, powered-off state,
-             target identity, provenance and Terra review package
-  inputs = <artifact hashes>, <redacted target refs>, <cleanup disposition>
-  gate = stop before lifecycle; provisioning result is not E1 lifecycle result
+              one VM identity, two filesystem roots, one exact VHDX file,
+              provenance and Terra review package
+  inputs = <artifact hashes>, <redacted exact target refs>, <cleanup disposition>
+  gate = stop before lifecycle; no checkpoint/snapshot/export/clone/memory
+         dump/save-state occurred; provisioning result is not E1 lifecycle result
 ```
 
 ไม่มีขั้นตอนใดใน runbook นี้อนุญาตให้เข้าถึง real keyring, ทำ OAuth/provider call,
 ใช้ Supabase, ส่ง credential, รัน `startup_recover`, ทดสอบ logout/revoke/shutdown,
-หรือ claim ว่า E1 ผ่าน. คำสั่งลบ/ทำลาย VM, VHD, checkpoint, evidence หรือ source
+หรือ claim ว่า E1 ผ่าน. คำสั่งสร้าง checkpoint/snapshot, export, clone, memory dump,
+save-state หรือลบ/ทำลาย VM, VHD, evidence หรือ source
 ไม่อยู่ใน write/rollback boundary ของ amendment นี้.
 
 ## 7. E1 lifecycle matrix ที่ต้องอนุมัติแยกภายหลัง
@@ -231,12 +245,12 @@ simulation เพียงอย่างเดียว.
 
 | ID | Criterion | Required evidence |
 |---|---|---|
-| AC-PROV-01 | VM name, config/VHD root และ evidence root ตรง exact identity และไม่ชน target อื่น | canonical identity/collision record |
+| AC-PROV-01 | one VM identity, two filesystem roots, and one exact VHDX file ตรง exact identity และไม่ชน target อื่น; ตรวจ parent existence/ownership, reparse/junction, mount/path escape และ existing Hyper-V registration แล้ว | canonical identity/collision record |
 | AC-PROV-02 | provisioning ทำใน Boss-approved elevated boundary โดยไม่มี automatic group/IAM mutation | redacted authority envelope |
 | AC-PROV-03 | VM settings เป็น Gen2, 4 vCPU, static 6 GB, dynamic VHDX 80 GB และ start preflight ผ่าน RAM ≥ 12 GB/disk ≥ 120 GB | settings readback + timestamped resource record |
 | AC-PROV-04 | ISO เป็น Boss-supplied supported Windows x64 media ที่ hash/license provenance ตรง และ Secure Boot/vTPM decision ถูกบันทึก | redacted media provenance |
 | AC-PROV-05 | guest default ไม่มี vNIC/external network, ไม่มี host share/clipboard/provider credential และ transfer เป็น approved hash-pinned no-network path | isolation record |
-| AC-PROV-06 | automatic checkpoint ปิด, baseline อยู่ก่อน test material, ไม่มี post-secret checkpoint/export/clone/dump และ VM ปิดหลัง review | checkpoint/contamination record |
+| AC-PROV-06 | automatic checkpoint ปิด และไม่มี Hyper-V checkpoint/snapshot ทุกชนิด; baseline เป็น redacted immutable settings/install/provenance manifest พร้อม hashes ขณะ VM clean และ powered off; ไม่มี guest credential/test material ใน baseline และไม่มี checkpoint/snapshot/export/clone/memory dump/save-state; VM ปิดหลัง review | checkpoint/contamination record |
 | AC-PROV-07 | source/artifact/dependency hash ตรง exact approved commit และ provisioning หยุดก่อน lifecycle | manifest + stop-state record |
 | AC-PROV-08 | envelope redacted ครบ, evidence root แยก, provenance/review ครบ และ Terra PASS/WARN ที่ยอมรับได้ | immutable provisioning envelope + Terra review |
 
@@ -247,9 +261,12 @@ simulation เพียงอย่างเดียว.
   artifact hashes, result และ retention disposition.
 - SC-PROV-02: ไม่มี token, OAuth code, password, activation key, recovery phrase,
   keyring value, memory dump, personal identity หรือ provider response ใน repo,
-  evidence root, log, screenshot หรือ chat.
+  evidence root, log, screenshot หรือ chat. Synthetic guest credentials ที่อยู่นอก
+  evidence ต้องไม่ถูก snapshot/checkpointed, cloned, exported หรือ dump.
 - SC-PROV-03: VM boundary อ่านกลับได้และอยู่ใน `powered-off` state หลัง provisioning
-  review โดยไม่ลบ target และไม่ overwrite evidence.
+  review โดยไม่ลบ target และไม่ overwrite evidence; baseline เป็น manifest ที่
+  capture ตอน VM clean/powered-off และไม่มี checkpoint/snapshot/export/clone/
+  memory dump/save-state เกิดขึ้น.
 - SC-PROV-04: artifact/harness status แยกชัดเจนว่า `provisioning-ready`,
   `lifecycle-blocked` หรือ `lifecycle-approved`; ไม่มี inference ข้าม evidence class.
 - SC-PROV-05: Terra ตรวจ exact package และ Codex final gate ยืนยัน one-file candidate
@@ -260,9 +277,11 @@ simulation เพียงอย่างเดียว.
 ### 10.1 Provisioning exit
 
 Provisioning จะถือว่า `PASS — provisioning only` ได้เมื่อ AC-PROV-01 ถึง
-AC-PROV-08 ผ่าน, VM ถูก power off, no-network/isolation และ contamination controls
-อ่านกลับได้, artifact/evidence hashes ตรง, Terra review ผ่าน และไม่มี lifecycle
-execution. ถ้า resource/media/authority/target/harness ใดขาด ให้ `BLOCKED` พร้อม
+AC-PROV-08 ผ่าน, one VM identity, two filesystem roots, one exact VHDX file ถูก
+อ่านกลับได้, VM ถูก power off, baseline manifest อยู่ในสถานะ clean/powered-off,
+ไม่มี checkpoint/snapshot/export/clone/memory dump/save-state, no-network/isolation
+และ contamination controls อ่านกลับได้, artifact/evidence hashes ตรง, Terra review
+ผ่าน และไม่มี lifecycle execution. ถ้า resource/media/authority/target/harness ใดขาด ให้ `BLOCKED` พร้อม
 เหตุผลที่ตรวจสอบได้; ห้ามแปลงเป็น PASS ด้วย inference.
 
 ### 10.2 E1 lifecycle exit (ยัง pending)
@@ -279,14 +298,18 @@ current-host run หรือ static source inspection ไม่ปิดเง�
 
 STOP และคงสถานะ `BLOCKED` เมื่อเกิดข้อใดข้อหนึ่ง:
 
-- elevated authority, operator, VM name หรือ resolved target ไม่ตรง approved packet;
-- collision, junction, mount, path escape, existing VM/VHD หรือ ownership ไม่ชัด;
+- elevated authority, operator, VM identity/name หรือ resolved target ไม่ตรง approved packet;
+- one VM identity, two filesystem roots, one exact VHDX file หรือ collision check
+  ไม่ตรง approved packet; parent existence/ownership ambiguity, junction, mount,
+  path escape, existing Hyper-V registration หรือ existing exact VHDX = stop;
 - free RAM ต่ำกว่า 12 GB หรือ free disk ต่ำกว่า 120 GB ณ เวลาเริ่ม;
 - ISO hash/license provenance ขาดหรือไม่ตรง, OS support ไม่ชัด, Secure Boot/vTPM
   setting ไม่ตรง;
 - network, host share, clipboard, personal account, provider credential หรือ
   production identifier ปรากฏใน guest/material/transfer boundary;
-- checkpoint/export/clone/dump เกิดหลัง test material หรือ evidence มี secret;
+- checkpoint/snapshot/export/clone/memory dump/save-state เกิดขึ้นเมื่อใดก็ตาม หรือ
+  synthetic guest credential/authentication state ถูก snapshot/checkpointed, cloned,
+  exported หรือ dump;
 - source/artifact/dependency hash ไม่ตรง หรือ lifecycle harness ไม่ได้ approval;
 - มีความจำเป็นต้องแก้ source/config/migration, ปรับ IAM/group, ดาวน์โหลด media,
   ใช้ provider หรือเข้าถึง keyringนอก scope นี้.
@@ -295,14 +318,15 @@ STOP และคงสถานะ `BLOCKED` เมื่อเกิดข้�
 
 - หาก preflight ยังไม่ผ่าน: ไม่สร้าง target และเก็บเฉพาะ redacted blocked envelope.
 - หาก provisioning เริ่มแล้วพบปัญหา: หยุดการสร้าง/ติดตั้งที่ boundary ปัจจุบัน,
-  power off เมื่อทำได้อย่างปลอดภัย, retain VM/config/VHD และ evidence เพื่อ Terra
-  ตรวจ; ห้ามลบเพื่อกลบหลักฐาน.
+  power off เมื่อทำได้อย่างปลอดภัย, retain one VM identity, two filesystem roots,
+  one exact VHDX file และ evidence เพื่อ Terra ตรวจ; ห้ามลบเพื่อกลบหลักฐาน.
 - ไม่มี delete, `Remove-VM`, `Remove-Item`, recursive cleanup, VHD overwrite,
-  checkpoint deletion หรือ evidence deletion ที่ได้รับอนุญาตจาก amendment นี้.
-- การ cleanup ภายหลังต้องเป็น approval ใหม่ที่ระบุ exact VM name, exact config/VHD
-  root, exact evidence root, ผู้ปฏิบัติ, เหตุผล, retention check และผลลัพธ์.
+  checkpoint/snapshot deletion หรือ evidence deletion ที่ได้รับอนุญาตจาก amendment นี้.
+- การ cleanup ภายหลังต้องเป็น approval ใหม่ที่ระบุ one VM identity, two filesystem
+  roots, one exact VHDX file, ผู้ปฏิบัติ, เหตุผล, retention check และผลลัพธ์.
 - Retention default คือเก็บ VM powered-off และ immutable provisioning evidence
-  จน Boss/Terra อนุมัติ disposition ใหม่; ห้าม export/clone ไป target อื่น.
+  ที่ exact evidence root จน Boss/Terra อนุมัติ disposition ใหม่; ห้าม checkpoint,
+  snapshot, export หรือ clone ไป target อื่น.
 
 ## 12. Evidence/provenance schema และ redaction
 
@@ -316,10 +340,10 @@ hash หรือ boolean ที่ไม่เปิดเผย secret:
 | `candidate_commit` / `candidate_sha256` | amendment commit และ file SHA-256 แบบ immutable |
 | `lane` / `environment_class` | `E1` / `clean-vm-provisioning`, ห้ามใช้ `production` |
 | `operator_ref` / `authority_ref` | redacted Boss/session reference ไม่ใช่ token หรือ password |
-| `vm_ref` / `target_refs` | exact VM/path identitiesตาม §2; redact personal parent context |
+| `vm_ref` / `target_refs` | one VM identity, two filesystem roots, one exact VHDX file ตาม §2; parent existence/ownership and collision result; source/artifact refs เป็น provenance inputs ไม่ใช่ target roots; redact personal parent context |
 | `host_preflight` | OS/build/hypervisor/resources/tools/threshold result โดยไม่เก็บ credential |
 | `media_ref` / `media_sha256` / `license_ref` | out-of-band references และ hash; ห้าม ISO content/key |
-| `settings` | Gen2, vCPU, RAM, VHDX, Secure Boot, vTPM, network/checkpoint state |
+| `settings` | Gen2, vCPU, RAM, exact VHDX file, Secure Boot, vTPM, network state, automatic-checkpoint-disabled state, and zero checkpoint/snapshot/export/clone/memory-dump/save-state occurrence |
 | `artifact_manifest` | artifact/dependency names, versions, hashes และ non-production label |
 | `command_refs` | category/hashed invocation reference; ไม่บันทึก secret-bearing command line |
 | `timestamps` | raw UTC และ ICT offsets เดิม, ไม่ overwrite timezone evidence |
@@ -339,7 +363,7 @@ artifact อย่างเดียวไม่ทำให้การเก�
 |---|---|---|
 | local/static | source graph, contract, deterministic tests, build, diff | real OS keyring หรือ VM lifecycle |
 | host-preflight | command/service presence, current resource/authority observation | VM creation success หรือ hardware virtualization absence |
-| provisioning | exact VM boundary, settings, isolation, baseline, powered-off retention | keyring write/rotate/restart/revoke lifecycle |
+| provisioning | one VM identity, two filesystem roots, one exact VHDX file, settings, isolation, redacted immutable clean/powered-off baseline manifest, zero checkpoint/snapshot/export/clone/memory-dump/save-state occurrence, powered-off retention | keyring write/rotate/restart/revoke lifecycle |
 | real-keyring lifecycle | E1 matrix บน named clean VM และ registered route | provider/device/release/production readiness โดยลำพัง |
 | provider/staging | real OAuth/Drive/Supabase/Edge evidence ตาม D-GDA7 | clean VM หรือ physical device |
 | device/UAT | physical Android/Dashboard/FUNGWIRE identity/delegation/revoke | VM/keyring/provider completeness |
@@ -384,25 +408,36 @@ approve D-GDA8-01 through D-GDA8-08 — commit <candidate-commit> — SHA-256 <6
 ```
 
 Approval นี้ (เมื่อเกิดขึ้น) จะ authorize เฉพาะ provisioning workflow ตาม D-GDA8
-และไม่รวม lifecycle execution, group/IAM mutation, credential/provider action,
-cleanup, push/PR/merge/release/deploy หรือ production. E1 lifecycle ต้องมี
-separate amendment/approval และ fresh Terra review.
+สำหรับ one VM identity, two filesystem roots, one exact VHDX file ตาม §2 และไม่รวม
+lifecycle execution, group/IAM mutation, credential/provider action, cleanup,
+push/PR/merge/release/deploy หรือ production. E1 lifecycle ต้องมี separate
+amendment/approval และ fresh Terra review.
 
 ## Version Diff
 
-- new -> `0.1.0b`: เพิ่ม HIGH/C-3 candidate สำหรับ disposable Hyper-V clean Windows
-  VM provisioning เพื่อเตรียม E1 real OS-keyring evidence.
-- เพิ่ม observed host/preflight boundary, exact VM/path identities, D-GDA8-01…08,
-  authority/PIC, prerequisites, category-only runbook, AC/SC/exit, lifecycle
-  separation, stop/rollback/retention, schema/redaction และ evidence classes.
-- ยืนยัน current host RAM ประมาณ 7.1 GB เป็น `NOT READY`, virtualization feature
-  booleans เป็น non-authoritative ภายใต้ active hypervisor และไม่มี VM/external
-  action ใน drafting task.
+- `0.1.0b` -> `0.2.0b`: cycle-2 แก้ Terra P1-01 โดย normalize เป็น one VM
+  identity, two filesystem roots, and one exact VHDX file และแยก source/artifact
+  references เป็น provenance inputs ไม่ใช่ target roots.
+- `0.1.0b` -> `0.2.0b`: cycle-2 แก้ Terra P1-02 โดยห้าม Hyper-V checkpoint/snapshot
+  ทุกชนิด และแทน baseline checkpoint ด้วย redacted immutable settings/install/
+  provenance manifest + hashes ขณะ VM clean และ powered off; ห้าม export/clone/
+  memory dump/save-state เป็น substitute และห้าม guest credential state เข้า evidence.
+- คง controls เดิมทั้งหมด: current host RAM ประมาณ 7.1 GB เป็น `NOT READY`,
+  automatic elevation/group mutation, ISO download, vNIC/external network,
+  lifecycle/harness, cleanup, provider, release และ production ยังคงแยก approval.
+
+## Cycle-2 Fix Matrix — Terra P1-01/P1-02
+
+| Terra finding | Cycle-2 correction | Changed clauses |
+|---|---|---|
+| P1-01 — exact target boundary contradictory | กำหนด one VM identity `FUNG-W2-E1-KEYRING-C1`, two filesystem roots, exact VHDX file และระบุ source/artifact references เป็น provenance inputs; เพิ่ม collision checks ครบ VM name, roots, VHDX, parent ownership, reparse/junction, mount/path escape และ existing Hyper-V registration; parent existence ไม่ authorize reuse | §1.1, §2, D-GDA8-02, prerequisites, P1, P5, P8, AC-PROV-01, §11.1–11.2, §12, §16 |
+| P1-02 — baseline checkpoint may retain guest credential state | ห้าม checkpoint/snapshot ทุกชนิดตลอด provisioning; baseline เป็น redacted immutable settings/install/provenance manifest + hashes ตอน VM clean/powered off ก่อน guest account/credential/secret state; ห้าม export/clone/memory dump/save-state และ guest credentials ห้ามเข้า evidence หรือถูก snapshot/clone/export/dump | D-GDA8-05–06, P6/P8, AC-PROV-06, SC-PROV-02–03, §10.1, §11.1–11.2, §12–13 |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| `0.2.0b` | 2026-08-26 | candidate | Cycle-2 correction for Terra P1-01/P1-02: exact target identity normalized; all Hyper-V checkpoints/snapshots and substitutes prohibited; clean powered-off manifest baseline defined. No provisioning executed. | externally bound after focused commit | Luna 5.6 |
 | `0.1.0b` | 2026-08-26 | candidate | Drafted D-GDA8 Hyper-V provisioning boundary; lifecycle and destructive cleanup remain separately gated. | externally bound after focused commit | Luna 5.6 |
 
 — End of D-GDA8 candidate —

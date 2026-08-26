@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.2.0b"
 created_at: "2026-08-23T16:47:01+07:00,ATHER"
-last_update: "2026-08-23T16:54:34+07:00,ATHER"
+last_update: "2026-08-26T23:51:37+07:00,ATHER,888aded"
 status: "beta"
 superseded_by: null
 attributes:
@@ -19,7 +19,7 @@ attributes:
 | Parent specification | `docs/specs/2026-08-23-phase-4-google-drive-oauth-iam-handshake-spec.md` |
 | Trigger | Terra review of commit `617eba0` |
 | Risk | **HIGH** — session/device authority, proof-of-possession, provider token custody, restore authorization |
-| Status | Candidate; implementation blocked pending Boss approval |
+| Status | Approved and implemented locally; external/provider/production gates remain open |
 | Proposed design | Revised Design A: server-verified, native-only authorization context |
 
 This amendment supersedes the parent specification only for native
@@ -207,12 +207,16 @@ lane passes Terra.
 ## 11. Implementation and rollback gates
 
 - Boss approved D-GDA-01 through D-GDA-07 with OS keyring on 2026-08-23.
-- A fresh Luna worker implements the amended security lane.
-- Terra reviews before any remaining UI/evidence lane starts.
-- The existing commit `617eba0` remains unpushed and unmerged; it is not an
-  accepted security baseline.
-- If the amendment is rejected, do not add further code. The controller will
-  propose a non-destructive Git disposition for `617eba0` separately.
+- The original `617eba0` candidate remains historical discovery evidence and
+  is not the accepted security baseline.
+- The inherited D-GDA/D-GDA2/D-GDA3 controls were carried into the registered
+  Native Session Broker. D-GDA6 received independent Terra local/static PASS
+  at implementation commit `9fc663981a19e0638e1d89efe96fc4e4ce1298db`.
+- Current `main` at `888adeded643f448c283c7990aabc421f71a20be`
+  contains the local implementation and UI/document handoff. This merge is not
+  provider, deployment, device, release, or production approval.
+- Any future source/test change to the exhausted D-GDA6 slice requires a new
+  amendment and approval; the external gates below remain separately gated.
 
 ## 12. External gates retained
 
@@ -229,10 +233,13 @@ lane passes Terra.
   operation capability, restore intent, cancellation, and trusted URL boundaries
   after Luna discovery and Terra architecture review.
 - `0.1.0b`: Boss approved D-GDA-01 through D-GDA-07 and selected OS keyring.
+- `0.1.0b -> 0.2.0b`: truth-synced the approved local implementation and
+  D-GDA6 Terra PASS while retaining all external and production gates.
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.0b | 2026-08-26 | beta | Local implementation accepted through D-GDA6; external/provider/production gates remain open | `888aded` | ATHER |
 | 0.1.0b | 2026-08-23 | beta | Boss approved revised Design A with OS keyring | working-tree | ATHER |
 | 0.1.0b | 2026-08-23 | candidate | HIGH-risk Google Drive native authorization amendment for Boss approval | `617eba0` | ATHER |

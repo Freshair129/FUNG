@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-08-23T14:15:44+07:00,ATHER"
-last_update: "2026-08-23T14:15:44+07:00,ATHER"
+last_update: "2026-08-26T23:51:37+07:00,ATHER,888aded"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -23,8 +23,8 @@ attributes:
 | Field | Value |
 |---|---|
 | Source audio | `C:\Users\freshair\OneDrive\Documents\Sound recordings\Recording2.m4a` |
-| Transcript | [`full-transcript.md`](../../.tmp-transcript/recording2-large-v3-20260822-r3/artifacts/full-transcript.md) |
-| Minute of Note | [`FUNG-Minute-of-Note-Recording2.docx`](../../.tmp-transcript/recording2-large-v3-20260822-r3/artifacts/FUNG-Minute-of-Note-Recording2.docx) |
+| Transcript | `.tmp-transcript/recording2-large-v3-20260822-r3/artifacts/full-transcript.md` — local-only, not tracked by Git |
+| Minute of Note | `.tmp-transcript/recording2-large-v3-20260822-r3/artifacts/FUNG-Minute-of-Note-Recording2.docx` — local-only, not tracked by Git |
 | Meeting context | The Street 5 — Meeting Session 4 — 2026-08-20, 13:00–17:00 |
 | Product scope | Smart Gift; catalog, product presentation, pricing, sales workflow, AI/RAG assistant, brand direction |
 | Document owner | ATHER — draft extraction; business ownerยังต้องยืนยัน |
@@ -358,11 +358,16 @@ Collection / Campaign
 - Transcript average confidence: ประมาณ `0.5771`
 - Speaker diarization: ไม่ได้ทำในรอบนี้
 - Timecodes: อ้างอิง transcript ที่สร้างจากไฟล์เสียง 107.40 นาที; คำถอดบางช่วงมีความคลาดเคลื่อน จึงต้องเปิดเสียงยืนยันก่อนใช้เป็น legal/commercial commitment
-- Related artifact: [`minutes-content.json`](../../.tmp-transcript/recording2-large-v3-20260822-r3/artifacts/minutes-content.json)
-- Related attribution note: [`speaker-attribution-inferred.md`](../../.tmp-transcript/recording2-large-v3-20260822-r3/artifacts/speaker-attribution-inferred.md)
+- Related local-only artifact: `.tmp-transcript/recording2-large-v3-20260822-r3/artifacts/minutes-content.json`
+- Related local-only attribution note: `.tmp-transcript/recording2-large-v3-20260822-r3/artifacts/speaker-attribution-inferred.md`
+- Artifact portability boundary: `.tmp-transcript/` is intentionally excluded
+  from Git. These paths are provenance pointers for the current workstation,
+  not repository or GitHub links. Publish approved/redacted evidence to a
+  governed artifact store before using it as a shared review dependency.
 
 ## 12. CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.1.1b | 2026-08-26 | candidate | Marked transcript/minutes evidence as local-only provenance instead of repository links | `888aded` | ATHER |
 | 0.1.0b | 2026-08-23 | candidate | แตก task จาก Recording2 พร้อม timecode, Goal, AC, SC, PIC, Approver และ approval gaps | pending | ATHER |

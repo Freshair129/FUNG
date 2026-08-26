@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Archive,
@@ -51,8 +51,9 @@ import {
   type Job,
   type ModelProvider,
   type Project,
-  type TranscriptSegment,
-  type TranscriptView,
+  type TranscriptLoadState,
+  beginTranscriptLoad,
+  settleTranscriptLoad,
 } from "./tauri";
 import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
 import { MediaFetchPanel } from "./components/MediaFetchPanel";
@@ -674,11 +675,11 @@ export function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [providers, setProviders] = useState<ModelProvider[]>([]);
-  const [segments, setSegments] = useState<TranscriptSegment[]>([]);
-  // Held rather than derived: an incomplete transcript is a fact about the
-  // read, not about the segments in hand, and nothing in `segments` can say
-  // that more was left behind.
-  const [transcriptCapped, setTranscriptCapped] = useState<TranscriptView | null>(null);
+  const transcriptRequestId = useRef(0);
+  const [transcriptRefreshToken, setTranscriptRefreshToken] = useState(0);
+  const [transcriptLoad, setTranscriptLoad] = useState<TranscriptLoadState>(() =>
+    beginTranscriptLoad(null, 0),
+  );
   const [transcribing, setTranscribing] = useState(false);
   /// Why the last action could not run. Shown instead of the silent
   /// no-op the inert job buttons used to produce.
@@ -769,16 +770,45 @@ export function App() {
     [projects, selectedRecording],
   );
 
+  const activeRecordingId = useMemo(
+    () =>
+      projects.find((project) => project.id === selectedProjectId)
+        ?.activeRecordingId ?? null,
+    [projects, selectedProjectId],
+  );
+
+  const transcriptView =
+    transcriptLoad.status === "ready" && transcriptLoad.recordingId === activeRecordingId
+      ? transcriptLoad.view
+      : null;
+  const segments = transcriptView?.segments ?? [];
+  const transcriptCapped = transcriptView?.capped ? transcriptView : null;
+
   useEffect(() => {
-    if (!selectedProjectId) {
-      setSegments([]);
-      return;
-    }
-    void listTranscriptSegments(selectedProjectId).then((view) => {
-      setSegments(view.segments);
-      setTranscriptCapped(view.capped ? view : null);
-    });
-  }, [selectedProjectId, jobs]);
+    const requestId = transcriptRequestId.current + 1;
+    transcriptRequestId.current = requestId;
+    setTranscriptLoad(beginTranscriptLoad(activeRecordingId, requestId));
+    if (!selectedProjectId || !activeRecordingId) return;
+
+    const request = { requestId, recordingId: activeRecordingId };
+    void listTranscriptSegments(selectedProjectId, activeRecordingId)
+      .then((view) => {
+        setTranscriptLoad((state) =>
+          settleTranscriptLoad(state, {
+            ...request,
+            outcome: { status: "fulfilled", view },
+          }),
+        );
+      })
+      .catch(() => {
+        setTranscriptLoad((state) =>
+          settleTranscriptLoad(state, {
+            ...request,
+            outcome: { status: "rejected" },
+          }),
+        );
+      });
+  }, [activeRecordingId, jobs, selectedProjectId, transcriptRefreshToken]);
 
   const currentPage = pageContent[activeAnchor];
   const currentTile =
@@ -987,11 +1017,7 @@ export function App() {
 
   const handleRenameSpeaker = async (speakerId: string, displayName: string) => {
     await renameSpeaker(speakerId, displayName);
-    if (selectedProjectId) {
-      const view = await listTranscriptSegments(selectedProjectId);
-      setSegments(view.segments);
-      setTranscriptCapped(view.capped ? view : null);
-    }
+    setTranscriptRefreshToken((current) => current + 1);
   };
 
   const handleTtsPlay = async (text: string) => {
@@ -1062,25 +1088,32 @@ export function App() {
     try {
       const job = await importAndTranscribe(filePath, projectId);
       setJobs((current) => [job, ...current.filter((entry) => entry.id !== job.id)]);
-      await pollJobUntilDone(job.id);
+      const finished = await pollJobUntilDone(job.id);
+      if (finished?.status === "failed") {
+        setActionNotice("นำเข้าและถอดเสียงไม่สำเร็จ — ตรวจสอบไฟล์และ local model แล้วลองใหม่");
+      }
       await refresh();
+    } catch {
+      setActionNotice("นำเข้าและถอดเสียงไม่สำเร็จ — ตรวจสอบไฟล์และ local model แล้วลองใหม่");
     } finally {
       setTranscribing(false);
     }
   };
 
-  /// The recording a queued job would run against.
-  ///
-  /// There is no recording picker in this shell — the library list selects a
-  /// project — so the target is the project's active recording. A project
-  /// with none cannot have summary or transcript work queued against it, and
-  /// the button says so rather than filing a job with nothing to read.
-  const activeRecordingId = useMemo(
-    () =>
-      projects.find((project) => project.id === selectedProjectId)
-        ?.activeRecordingId ?? null,
-    [projects, selectedProjectId],
-  );
+  const transcriptBlockedReason = (jobType: string) => {
+    if (jobType !== "summary.generate" && jobType !== "export.render") return null;
+    if (transcriptLoad.status === "rejected") {
+      return "อ่าน transcript ไม่สำเร็จ — ตรวจสอบไฟล์และพื้นที่จัดเก็บในเครื่อง แล้วลองใหม่";
+    }
+    if (!transcriptView) return "กำลังอ่าน transcript ของการบันทึกนี้…";
+    if (transcriptView.capped) {
+      return `ยังสร้างผลลัพธ์ไม่ได้ — transcript ชนเพดาน ${transcriptView.cap} ท่อน จึงไม่ใช่ผลลัพธ์ที่ครบ`;
+    }
+    if (transcriptView.segments.length === 0) {
+      return "ยังสร้างผลลัพธ์ไม่ได้ — ยังไม่มี transcript ที่อ่านได้ ให้ตรวจสอบ local model แล้วลองถอดเสียงใหม่";
+    }
+    return null;
+  };
 
   const handleCreateJob = async (jobType: string) => {
     setActionNotice(null);
@@ -1098,6 +1131,11 @@ export function App() {
     }
     if (!selectedProjectId || !activeRecordingId) {
       setActionNotice("ต้องมีการบันทึกในโปรเจกต์นี้ก่อน");
+      return;
+    }
+    const transcriptBlocker = transcriptBlockedReason(plan.jobType ?? "");
+    if (transcriptBlocker) {
+      setActionNotice(transcriptBlocker);
       return;
     }
     if (plan.jobType === "speakers.diarize") {
@@ -1164,15 +1202,26 @@ export function App() {
   /// Only `job` actions can be unavailable; anchors, capture, and the local
   /// API are always live, so they are enabled unconditionally rather than
   /// routed through the job vocabulary.
-  const tileActionEnabled = (action: TileAction) =>
-    action.kind !== "job" ||
-    isJobActionEnabled(action.value, Boolean(activeRecordingId));
+  const tileActionEnabled = (action: TileAction) => {
+    if (action.kind !== "job") return true;
+    const plan = resolveJobAction(action.value);
+    const planJobType = plan.kind === "queue" ? plan.jobType : "";
+    return (
+      isJobActionEnabled(action.value, Boolean(activeRecordingId)) &&
+      !transcriptBlockedReason(planJobType)
+    );
+  };
 
-  const tileActionTitle = (action: TileAction) =>
-    action.kind === "job"
-      ? (jobActionBlockedReason(action.value, Boolean(activeRecordingId)) ??
-        action.label)
-      : action.label;
+  const tileActionTitle = (action: TileAction) => {
+    if (action.kind !== "job") return action.label;
+    const plan = resolveJobAction(action.value);
+    const planJobType = plan.kind === "queue" ? plan.jobType : "";
+    return (
+      jobActionBlockedReason(action.value, Boolean(activeRecordingId)) ??
+      transcriptBlockedReason(planJobType) ??
+      action.label
+    );
+  };
 
   const performTileAction = async (action: TileAction) => {
     if (action.kind === "anchor") {

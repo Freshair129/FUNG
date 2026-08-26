@@ -27,11 +27,26 @@ supabase db push
 
 Do not run the migration from a browser SQL editor without first reviewing it. Before production, run the Supabase Database Linter/Advisors and verify all four tables have RLS enabled.
 
-## OAuth exchange Edge Function (not created yet)
+## Google Drive metadata Edge Function
 
-No Edge Function is included because the first external OAuth provider, exact issuer, registered redirect URIs, and approved scopes are still unresolved. Shipping a generic token-exchange endpoint before those values exist would create an unsafe, non-functional production surface.
+The approved Google Drive slice includes
+`supabase/functions/google-drive-metadata/index.ts`. It is an authenticated,
+metadata-only writer for the native Desktop/Mobile clients. It accepts the
+allowlisted event types and the exact `drive.appdata` scope, derives the user
+from the verified Supabase JWT, generates the audit correlation ID on the
+server, and writes only `oauth_connections` / `oauth_audit_events` metadata.
+It does not exchange Google tokens and it never accepts a token, authorization
+code, user ID, or provider response from the client.
 
-Once a provider is approved, the server-side Edge Function may require these secrets, set only with `supabase secrets set` or the Supabase dashboard:
+Deploy only after reviewing the linked migration and project environment:
+
+```powershell
+supabase functions deploy google-drive-metadata
+```
+
+The native installed-app PKCE flow does not require a Google client secret. If
+a future provider-specific server exchange is approved, its secrets must be
+set only with `supabase secrets set` or the Supabase dashboard:
 
 ```text
 OAUTH_PROVIDER_ISSUER
@@ -43,6 +58,10 @@ OAUTH_PROVIDER_ALLOWED_REDIRECT_URI
 ```
 
 Never put these secrets in a `VITE_*` variable, Desktop bundle, repository file, browser client, or chat. The function must validate its caller session, use a provider allowlist and exact redirect URI, redact all logs, and write only redacted metadata to `oauth_connections` and `oauth_audit_events`.
+
+Real Google consent, upload/download/revoke, clean-install restore, and
+function deployment remain external gates. Local FUNG mode does not depend on
+this function or on Google Drive configuration.
 
 ## RLS model
 

@@ -1,0 +1,76 @@
+.drive-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line, #d8ccba);
+  border-radius: 8px;
+  background: var(--porcelain-top, #fffaf0);
+  color: var(--ink, #191a1d);
+}
+
+.drive-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.drive-panel-note,
+.drive-panel-state {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--graphite, #5f6268);
+}
+
+.drive-panel-note code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+}
+
+.drive-panel-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.drive-panel-state {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.drive-panel-connected {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--local-sage, #4f6c60);
+  overflow-wrap: anywhere;
+}
+
+.drive-panel-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line, #d8ccba);
+}
+
+.drive-panel-secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--evidence-indigo, #3d4f82);
+}
+
+.drive-panel-danger-btn {
+  background: var(--destructive-signal, #b34b4b);
+}
+
+.backup-panel-message.warning {
+  color: var(--provenance-metal, #8b6d3b);
+}

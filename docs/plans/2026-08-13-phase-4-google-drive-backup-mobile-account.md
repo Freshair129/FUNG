@@ -1,7 +1,7 @@
 ---
-version: "0.2.8b"
+version: "0.2.9b"
 created_at: "2026-08-13T00:00:00+07:00,ATHER"
-last_update: "2026-08-19T00:00:00+07:00,ATHER"
+last_update: "2026-08-23T00:00:00+07:00,ATHER,working-tree"
 status: "beta"
 superseded_by: null
 attributes:
@@ -17,7 +17,9 @@ attributes:
 Deliver one opt-in, encrypted desktop backup target using a user-selected
 filesystem root for development/test only, prove clean-target Genesis restore,
 and reconcile the existing mobile Supabase session/device registration without
-creating a second identity model. Google Drive production transport is TODO.
+creating a second identity model. The separately approved Google Drive slice
+now has a local native PKCE/keyring adapter and Desktop UI; provider, deployment,
+clean-install, and device proof remain external gates.
 
 ## Inputs
 
@@ -38,8 +40,9 @@ creating a second identity model. Google Drive production transport is TODO.
   logs. The filesystem test transport has no provider credential.
 - The filesystem test transport receives its root only from the native folder
   picker, writes only encrypted archives/non-secret manifests beneath that
-  root, and is labelled development/test in the UI. Google Drive remains TODO;
-  when separately approved, its scope is exactly `drive.appdata`.
+  root, and is labelled development/test in the UI. Google Drive is a separate
+  opt-in surface with exactly `drive.appdata`; it must not alter Local-mode
+  behavior or share provider tokens with Mobile.
 - No Supabase migration is planned. If an ownership/RLS defect is found, stop
   and submit a separately reviewed migration proposal; do not alter production
   Supabase state during implementation.
@@ -56,19 +59,22 @@ creating a second identity model. Google Drive production transport is TODO.
 2. Boss confirms a safe user-selected filesystem test root and a separate,
    empty clean-target restore location; no real user archive is used for first
    restore proof.
-3. Google Drive OAuth/client configuration is TODO for a later production
-   adapter and is not a gate for the filesystem test transport.
+3. Google Drive OAuth/client configuration and real provider UAT are external
+   gates for the separately approved adapter and are not gates for the
+   filesystem test transport.
 
 ## Controller-Gate Audit (2026-08-13)
 
 **Execution status: Gate 1 and the bounded local-root decision are available;
-implementation remains development/test-only and Google Drive stays TODO.**
+the filesystem transport remains development/test-only. The approved Google
+Drive adapter is implemented locally, but real provider/deployment/device
+evidence is still open.**
 
 | Gate | Evidence | Result | Required next action |
 | --- | --- | --- | --- |
 | Genesis full-export + clean-target restore | FUNG pins `origin/agent/u9-backup-restore` commit `27cbb285aea635e31311ef2053d21f16e915f1fb`. The FUNG fixture commits two notes, one graph relation, and one `audio_chunks` metadata row; it exports through `Storage::export_backup`, restores through `Storage::restore_backup` into a non-existing target, and verifies source frontier, nodes, relation, and metadata. | Proven in focused automated fixture | Keep U9/release closure open pending encrypted FUNG transport and clean-install evidence. |
 | Filesystem test transport | Dedicated empty roots now exist at `D:\FUNG-Phase4-TestStorage\FUNG-DEV-TEST` and `D:\FUNG-Phase4-TestRestore`. | Approved development/test proof locations | Keep all final archives encrypted and create each `restore-<archive-id>` only when restoring to a clean target. |
-| Google Drive OAuth | No Drive adapter, Drive client ID, or Drive callback configuration exists in the FUNG workspace. | TODO — deferred production work | Do not implement until a later approved production-adapter slice. |
+| Google Drive OAuth | `docs/specs/2026-08-23-phase-4-google-drive-oauth-iam-handshake-spec.md`, native PKCE/keyring adapter, metadata Edge Function, and separate Desktop UI are present. | Local implementation beta; provider configuration and UAT open | Configure the installed-app client, deploy the metadata function, then run real consent/upload/download/revoke and clean-install/device proof. |
 
 The approved plan prohibits a mock archive, direct Genesis projection access, or
 generic OAuth/token-exchange implementation while these gates are absent.
@@ -206,22 +212,29 @@ generic OAuth/token-exchange implementation while these gates are absent.
 - Desktop, mobile, and Dashboard agree on the signed-in user's device rows.
 - Real provider/device/release evidence is labeled separately from automated
   tests; U9 closes only after the clean-install proof.
-- Google Drive production OAuth and transport remain TODO and are excluded from
-  this filesystem test completion claim.
+- Google Drive production readiness is not claimed: local adapter code exists,
+  but provider, deployment, clean-install, and device evidence remain open.
 
-## Deferred TODO — Google Drive Production Adapter
+## Deferred / External Gates — Google Drive Adapter
 
-- [ ] Create/approve installed-app OAuth client, callback, consent text, and
-  `drive.appdata` scope.
-- [ ] Implement keyring-only PKCE credential lifecycle and `appDataFolder`
-  resumable transport in a separately approved production plan.
-- [ ] Run real Drive clean-install restore UAT and update production readiness
-  only from observed evidence.
+- [x] Approve the native PKCE/keyring, exact-scope, IAM-reuse, and separate-UI
+  contract in `docs/specs/2026-08-23-phase-4-google-drive-oauth-iam-handshake-spec.md`.
+- [x] Implement the local keyring-only PKCE lifecycle, authenticated metadata
+  function, `appDataFolder` resumable transport, and digest-bound restore.
+- [ ] Create/approve the Google Cloud installed-app OAuth client, callback, and
+  consent configuration; set `VITE_GOOGLE_DRIVE_CLIENT_ID` only in the local
+  environment.
+- [ ] Deploy and verify `google-drive-metadata` against the linked Supabase
+  project and confirm migration/RLS state.
+- [ ] Run real Drive consent/upload/download/revoke, clean-install restore, and
+  paired Android/FUNGWIRE delegation UAT; update readiness only from observed
+  evidence.
 
 ## Version Diff
 
 | Version | Change |
 | --- | --- |
+| 0.2.9b | Approved and implemented the separate Google Drive native PKCE/keyring adapter, authenticated metadata/audit function, and Desktop UI. Local tests/build pass; real provider, deployment, clean-install, and device gates remain open. |
 | 0.2.8b | Completed Tasks 5–9: backup job (export → encrypt → atomic write, failure-preserving), clean-target restore with post-restore digest identity and deep fixture verification, bounded desktop test UI with one-time recovery-phrase display and restore confirmation, ownership-verified mobile device reconciliation with sign-out cache clearing, and closure runs (Rust 217/217, tsc clean, focused Node suites green). Clean-install restore UAT and physical Android identity check remain open gates. |
 | 0.2.7b | Fixed the full-suite verification procedure: the exact plan command now passes all 212 Rust library tests in 27.19s; the prior serial override exceeded the shell timeout and caused a broken-pipe artifact. |
 | 0.2.6b | Implemented the bounded filesystem adapter with canonical root/layout checks, traversal/symlink rejection, atomic create-new staging, non-secret sidecar metadata, digest verification, and interrupted-write preservation tests; no UI/provider/restore orchestration was added. |
@@ -238,6 +251,7 @@ generic OAuth/token-exchange implementation while these gates are absent.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.2.9b | 2026-08-23 | beta | Approved and implemented local Google Drive PKCE/keyring, metadata audit, separate Desktop UI, resumable appDataFolder transport, and digest-bound restore; external provider/deployment/device gates remain open. | working-tree | ATHER |
 | 0.2.8b | 2026-08-19 | beta | Tasks 5–9 implemented and verified with 217/217 Rust plus green focused Node suites; U9/release stay open pending clean-install restore and physical-device evidence. | working-tree | ATHER |
 | 0.2.7b | 2026-08-14 | beta | Full exact-plan Rust library suite passed 212/212; serial override timeout RCA recorded and verification command corrected. | working-tree | ATHER |
 | 0.2.6b | 2026-08-14 | beta | Task 4 bounded filesystem adapter and nine focused boundary/atomicity/digest/opaque-status tests passed; UI/provider/restore orchestration and clean-install proof remain open. | working-tree | ATHER |

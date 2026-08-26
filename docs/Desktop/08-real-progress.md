@@ -1,7 +1,7 @@
 ---
-version: "0.2.13b"
+version: "0.2.14b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-08-23T03:47:57+07:00,ATHER"
+last_update: "2026-08-23T00:00:00+07:00,ATHER,working-tree"
 status: "beta"
 superseded_by: null
 attributes:
@@ -23,6 +23,14 @@ This document separates implemented truth from planned capability.
 PR #16 is merged into `origin/main` at merge commit `26da78466364e479085d0aa5d7f06e24a08bd12c`. Its routing, backup-payload, and connector-timeout changes are therefore part of the current mainline. The physical Android, clean-install restore, real connector, and release gates remain open as recorded below.
 
 The local staged runtime check is split into separate facts: `D:\FUNG\.venv-whisper\Scripts\python.exe` imports `faster-whisper` 1.2.1 and exposes the worker CLI; `D:\FUNG\.venv-whisper\models\small` contains the pinned `Systran/faster-whisper-small` revision `536b0662742c02347bc0e980a01041f333bce120`; `D:\FUNG\runtime\manifest.json` records 11 staged CUDA 12/cuDNN 9 DLLs. `scripts/smoke_gpu_standalone.ps1` passed with `C:\Windows\Media\Alarm01.wav` and `--profile gpu`; this proves the packaged worker path, not Live Meeting real-capture or device UAT.
+
+The approved Phase 4 Google Drive slice is now implemented locally: native
+Authorization Code + PKCE on loopback, exact `drive.appdata` scope, OS-keyring
+refresh-token custody, authenticated redacted metadata/audit function, and a
+separate Desktop connect/upload/restore UI. This is implementation-beta truth,
+not provider or release proof: Google Cloud client configuration, Supabase
+function deployment, real consent/upload/download/revoke, clean-install
+restore, and physical Android/FUNGWIRE delegation remain open.
 
 ## Routing and backup-payload overlay (historical snapshot, 2026-08-19; superseded)
 
@@ -136,7 +144,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | External retrieval trust foundation | Default-deny grant policy, canonical preview hash, exact field minimization, zeroized OS-keyring lifecycle, connector disconnect/revoke, typed Genesis audit payloads, and hostile-result sanitization are implemented and tested. |
 | External retrieval backend | Allowlisted stdio MCP `2025-11-25` initialize/list/call, bounded process I/O, timeout/cancel/cleanup, durable one-time execution, all eight planned Tauri commands, and document/CRM fixture execution are implemented behind default-off `FUNG_EXTERNAL_MEETING_TOOLS=1`. |
 | External retrieval operator UI | `ExternalMeetingToolsPanel` is embedded in Live Meeting behind default-off `VITE_FUNG_EXTERNAL_MEETING_TOOLS=1` with connector list/register/disconnect, exact field and transcript-evidence selection, preview/deny/approve, running/cancel, meeting-scope revoke, sanitized result, inert source references, policy/evidence/time provenance, and run history. |
-| Phase 4 filesystem test backup | Genesis full export → XChaCha20-Poly1305/Argon2id encryption → atomic bounded-root write is wired end-to-end with clean-target restore, post-restore digest identity, and deep fixture verification. The backup controls live in a shared `BackupPanel` mounted by both shells (root picker, one-time 24-word recovery-phrase display, restore confirmation); before PR #16 they were reachable from no surface that could invoke them. Archives carry source audio with per-file digests and explicit omission accounting. Google Drive production transport remains TODO, and no clean-install restore has been run. |
+| Phase 4 filesystem/Google Drive backup | The local filesystem path remains a development/test transport with Genesis full export → XChaCha20-Poly1305/Argon2id encryption → atomic bounded-root write, clean-target restore, and deep fixture verification. The separate Google Drive path now has native PKCE/keyring custody, exact `drive.appdata`, redacted metadata/audit, resumable appDataFolder upload, digest-bound download, and clean-target restore controls. No real provider or clean-install restore has been run. |
 | Mobile device reconciliation | The Android `devices` row is always resolved by (current user, fingerprint); the cached `fung.device.id` is only a mirror, replaced when stale and cleared on sign-out/revocation. Supabase RLS ownership policies were rechecked and required no migration. |
 | GPU runtime staging | `stage_gpu_runtime.ps1` stages FUNG-owned CUDA 12/cuDNN DLLs and writes a SHA-256 manifest. |
 | GPU worker launch | The transcription subprocess resolves FUNG resources at runtime, selects an explicit CPU/GPU profile, and prepends FUNG's CUDA directory to its own `PATH`. |
@@ -260,6 +268,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.14b | Added the approved local Google Drive implementation slice: native PKCE/keyring adapter, authenticated metadata/audit function, separate Desktop UI, resumable appDataFolder transport, and digest-bound restore. Real provider, deployment, clean-install, and device proof remain open. |
 | 0.2.11b | Recorded PR #16: mobile/desktop routing fix, reachable backup UI, audio-bearing backup payload, and the connector startup/timeout split. Corrected two 0.2.10b inaccuracies (desktop AccountSettings, audio import). Physical Android and clean-install restore stay open. |
 | 0.2.10b | Recorded Phase 4 filesystem test backup/restore implementation and mobile device-reconciliation hardening with 217/217 Rust plus green focused Node evidence; clean-install restore and physical Android identity gates stay open. |
 | 0.2.9b | Truth-synced current frontend/Rust verification, the missing local Whisper runtime, and two high npm audit findings; desktop capture/transcription and release/UAT boundaries remain distinct. (Renumbered from a parallel 0.2.7b during the Phase 4 merge; `main` had assigned 0.2.7b/0.2.8b to the Desktop release records below.) |
@@ -281,6 +290,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.14b | 2026-08-23 | beta | Added the approved local Google Drive native PKCE/keyring, metadata audit, separate UI, resumable appDataFolder transport, and digest-bound restore; external provider/deployment/device gates remain open. | working-tree | ATHER |
 | 0.2.13b | 2026-08-23 | beta | Staged the pinned faster-whisper small model and 11-file CUDA 12/cuDNN 9 bundle; standalone GPU smoke passed, while Live Meeting/device/connector UAT remains open. | working-tree | ATHER |
 | 0.2.12b | 2026-08-23 | beta | Truth-synced the merged PR #16 state and separated staged package, model, and CUDA-runtime evidence; physical, restore, connector, and release gates remain open. | working-tree | ATHER |
 | 0.2.11b | 2026-08-19 | beta | PR #16 pushed and green but unmerged; routing, backup-payload and connector-timeout defects closed at source with 238/238 Rust and 46/46 Node evidence; device and restore gates unchanged. | `68f0201` | ATHER |

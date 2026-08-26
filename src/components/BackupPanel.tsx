@@ -27,6 +27,7 @@ import {
   type InvokeFn,
 } from "../lib/backupFlow";
 import "./BackupPanel.css";
+import { GoogleDrivePanel } from "./GoogleDrivePanel";
 
 type BackupPanelProps = {
   /** Native bridge. Absent when the host surface cannot reach Tauri, which
@@ -301,6 +302,8 @@ export function BackupPanel({ invoke, projectId = null }: BackupPanelProps) {
           </button>
         </div>
       )}
+
+      <GoogleDrivePanel invoke={invoke} localArchives={overview.archives} />
 
       {projectId && (
         <div className="backup-panel-archives">

@@ -57,6 +57,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          # Pulling a warm cache is useful for PR verification, but uploading
+          # the Windows target directory can keep the required check open long
+          # after all verification steps have passed.
+          save-if: ${{ github.event_name != 'pull_request' }}
       # Formatting first: it needs no build, so a formatting-only failure
       # reports in seconds instead of after a full compile.
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --all --check

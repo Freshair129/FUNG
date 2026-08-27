@@ -33,6 +33,11 @@ fails before tests because Clippy warnings are promoted to errors.
   - `glib-sys v0.18.1` cannot build because the runner has no `glib-2.0.pc`;
   - the same suite passes locally and belongs with the Windows Rust toolchain
     job, which already owns the Cargo behavioral matrix.
+- Corrected run `33080122765`, Rust job `98544979288`:
+  - `cargo fmt`, Clippy, `cargo test`, and `test:native-session-custody` all
+    completed successfully;
+  - the job remained `in_progress` in `Post Run Swatinem/rust-cache@v2`, with
+    checkout cleanup pending after all verification steps had passed.
 
 ## Root cause
 
@@ -62,6 +67,8 @@ reproduce the complete CI frontend sequence and did not run Clippy with
    transaction/test helpers with narrow, reasoned lint annotations where a
    refactor would obscure the security boundary.
 4. Re-run the complete frontend sequence and Rust fmt, Clippy, and test gates.
+5. Restore Rust cache on pull requests without saving the Windows target
+   directory during post-run cleanup; retain cache publication for non-PR runs.
 
 ## Prevention
 
@@ -70,6 +77,8 @@ reproduce the complete CI frontend sequence and did not run Clippy with
 - Keep Cargo-backed JavaScript suites on the Rust runner; do not make the
   frontend runner install native GTK/GLib development dependencies to exercise
   a Rust-owned behavioral matrix.
+- Do not make required PR completion depend on uploading a large Windows Rust
+  target cache after the verification steps have passed.
 - Treat `cargo clippy --all-targets -- -D warnings` as a required local check
   whenever Rust code or the Rust toolchain changes.
 - Keep legacy command removal and test-only compatibility helpers explicit in

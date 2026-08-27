@@ -37,6 +37,10 @@ const DRIVE_DOMAINS_INDEX: &str = "drive-credential-domains";
 const ACCOUNT_DOMAIN: &str = "desktop-session";
 const ACCOUNT_MARKER: &str = "desktop-session-commit-marker";
 
+type RefreshWaiter = Arc<(Mutex<bool>, Condvar)>;
+type RefreshOutcome = (Result<Zeroizing<String>, String>, Option<RefreshWaiter>);
+type SessionSnapshot = (&'static str, Option<String>, Option<String>, Option<u64>);
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SessionLifecycleState {
     SignedOut,
@@ -430,11 +434,10 @@ where
     fn ensure_account_ticket(&self, ticket: LifecycleTicket) -> Result<(), String> {
         if self.account_epoch != ticket.account_epoch
             || self.account.generation != ticket.account_generation
-            || self
+            || !self
                 .account
                 .pending_operations
                 .contains(&ticket.operation_id)
-                == false
         {
             return Err(public_error("auth_transition_in_progress"));
         }
@@ -615,10 +618,7 @@ where
         &mut self,
         ticket: LifecycleTicket,
         result: Result<LifecycleMaterial, String>,
-    ) -> (
-        Result<Zeroizing<String>, String>,
-        Option<Arc<(Mutex<bool>, Condvar)>>,
-    ) {
+    ) -> RefreshOutcome {
         let valid = self
             .account
             .pending_operations
@@ -666,6 +666,7 @@ where
     }
     fn begin_terminal_transition(&mut self) -> (Arc<OperationDrain>, Arc<OperationDrain>) {
         self.quiescing = true;
+        self.account.state = SessionLifecycleState::LogoutPending;
         self.account_epoch = self.account_epoch.wrapping_add(1);
         self.account.generation = self.account.generation.wrapping_add(1);
         self.account.pending_operations.clear();
@@ -925,13 +926,7 @@ where
         &self,
         ticket: LifecycleTicket,
         result: Result<LifecycleMaterial, String>,
-    ) -> Result<
-        (
-            Result<Zeroizing<String>, String>,
-            Option<Arc<(Mutex<bool>, Condvar)>>,
-        ),
-        String,
-    > {
+    ) -> Result<RefreshOutcome, String> {
         self.with(|lifecycle| Ok(lifecycle.finish_refresh(ticket, result)))
     }
 
@@ -1030,9 +1025,7 @@ where
         })
     }
 
-    pub(crate) fn session_snapshot(
-        &self,
-    ) -> Result<(&'static str, Option<String>, Option<String>, Option<u64>), String> {
+    pub(crate) fn session_snapshot(&self) -> Result<SessionSnapshot, String> {
         self.with(|lifecycle| {
             Ok((
                 lifecycle.account.state.as_str(),
@@ -1379,7 +1372,7 @@ fn parse_index(value: &Zeroizing<String>, domain: &str) -> Result<Vec<u64>, Stri
         || index.domain != domain
         || index.integrity != index_digest(domain, &versions)
         || versions.is_empty()
-        || versions.iter().any(|version| *version == 0)
+        || versions.contains(&0)
         || versions.windows(2).any(|pair| pair[0] == pair[1])
     {
         return Err(public_error("keyring_unavailable"));
@@ -1574,6 +1567,9 @@ fn restore_marker<K: KeyringPort>(
     Ok(())
 }
 
+// The rollback boundary intentionally carries each storage key and prior value
+// explicitly so each mutation remains visible during security review.
+#[allow(clippy::too_many_arguments)]
 fn compensate_commit<K: KeyringPort>(
     keyring: &mut K,
     domain: &str,
@@ -4021,6 +4017,9 @@ mod tests {
         format!("marker={marker};index={index};current_slot={current};orphan_slot={orphan}")
     }
 
+    // This test helper mirrors the complete recovery assertion contract so a
+    // trace cannot omit a lifecycle, cleanup, or readback dimension.
+    #[allow(clippy::too_many_arguments)]
     fn assert_recovery_call(
         broker: &TestBroker,
         keyring: &FakeKeyring,
@@ -4042,11 +4041,7 @@ mod tests {
                 assert_eq!(result.as_ref().err().map(String::as_str), Some(error_code));
             }
         }
-        if expected_result.is_ok() {
-            assert_eq!(broker.state_name(), expected_lifecycle_state);
-        } else {
-            assert_eq!(broker.state_name(), expected_lifecycle_state);
-        }
+        assert_eq!(broker.state_name(), expected_lifecycle_state);
         assert_eq!(
             broker.account_startup_checked().unwrap(),
             expected_result.is_ok()

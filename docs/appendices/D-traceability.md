@@ -1,18 +1,18 @@
 ---
-version: "0.1.11b"
+version: "0.2.0b"
 created_at: "2026-08-11T10:37:54+07:00,Agent: ATHER"
-last_update: "2026-08-12T03:39:30+07:00,Agent: ATHER"
+last_update: "2026-08-26T23:51:37+07:00,Agent: ATHER,888aded"
 status: "candidate"
 superseded_by: null
 attributes:
   domain: "documentation-governance"
-  scope: "Live Meeting and controlled external retrieval"
+  scope: "Live Meeting, controlled external retrieval, and Phase 4 Google Drive"
   doc_type: "traceability-matrix"
 ---
 
-# Appendix D — Live Meeting External Retrieval Traceability
+# Appendix D — FUNG Runtime Traceability
 
-*Refreshed by RWANG doc-graph on 2026-08-12. `Implemented` means current-working-tree code route evidence exists; it does not mean real external/runtime verification passed.*
+*Refreshed by RWANG doc-graph on 2026-08-26. `Implemented locally` means current-main code and focused local evidence exist; it does not mean real external/provider/runtime verification passed.*
 
 ## Historical Documentation Conflict — Resolved in This Reflight
 
@@ -38,6 +38,25 @@ annotation rather than an implementation-file annotation. The focused contract
 node records the 1/1 assertion that the eleven target files carry canonical IDs
 required by the contract. Annotation coverage remains source/test intent only
 and does not replace retained manual, code-inspection, or test-run mappings.
+
+## Phase 4 Google Drive and Native Session Broker
+
+This supplemental matrix records the approved local implementation chain added
+after the original Live Meeting traceability scope. Code remains the source of
+runtime truth. Approval and local/static evidence do not promote external,
+provider, staging, device, release, or production status.
+
+| Decision scope | Authoritative documents | Implemented by | Verified by | Current status |
+|---|---|---|---|---|
+| D-GDA-01 through D-GDA-07 | `2026-08-23-google-drive-native-authorization-amendment.md` | `GoogleDrivePanel.tsx`, `googleDriveFlow.ts`, `drive_oauth.rs`, `native_auth.rs` | `googleDriveContract.test.mjs`, Rust Drive tests | Approved and implemented locally; provider/deployment gates open |
+| D-GDA2-01 through D-GDA2-10 | `2026-08-23-google-drive-authority-schema-amendment.md` | W1 authority migrations and `google-drive-authorize` Edge function | `w1AuthoritySchema.test.mjs`, committed pgTAP evidence | Local/source evidence retained; staging RLS/grant/UAT open |
+| D-GDA3-01 through D-GDA3-03 | `2026-08-24-enrollment-proof-nonce-amendment.md` | proof-nonce migration, native enrollment proof, device-enrollment Edge path | `authFlow.test.mjs`, `w1AuthoritySchema.test.mjs` | Approved and implemented locally; current host skips executable PostgreSQL check without Docker |
+| D-GDA6-01 through D-GDA6-06 | `2026-08-25-native-session-broker-registered-entrypoint-evidence-amendment.md` | `auth_session.rs`, `drive_oauth.rs`, registered Tauri broker entrypoints | final Terra cycle-3 report; current Rust Drive 16/16 | PASS locally; fix budget exhausted; any source/test change needs a new amendment |
+| AC-GDA6-11 external boundary | final D-GDA6 Terra cycle-3 report and Phase 4 plan | Not established by local code | Clean Windows keyring, Supabase/Edge/RLS, Google provider, clean-install, device, signing/release evidence | OPEN externally |
+
+The Recording2 catalog task document deliberately points to local-only
+`.tmp-transcript/` provenance as plain paths. Those artifacts are not graph
+nodes and are not portable repository evidence.
 
 ## Functional Requirements
 
@@ -149,6 +168,7 @@ historical evidence and left H3 plus all release/UAT gates open.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.0b | 2026-08-26 | candidate | Expanded traceability with the Phase 4 Google Drive/D-GDA6 local-versus-external evidence boundary and local-only Recording2 provenance | `888aded` | ATHER |
 | 0.1.11b | 2026-08-12 | candidate | Corrected implementation-versus-test annotation counts and retained 26/26 union coverage. | pending | ATHER |
 | 0.1.10b | 2026-08-12 | candidate | Recorded full Rust closure and bounded relaunch evidence while retaining UAT blockers. | pending | ATHER |
 | 0.1.9b | 2026-08-12 | candidate | Recorded exact 68-required/68-observed annotation-contract parity. | pending | ATHER |

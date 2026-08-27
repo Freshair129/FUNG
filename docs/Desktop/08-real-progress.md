@@ -1,7 +1,7 @@
 ---
-version: "0.2.14b"
+version: "0.2.15b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-08-23T00:00:00+07:00,ATHER,working-tree"
+last_update: "2026-08-26T23:51:37+07:00,ATHER,888aded"
 status: "beta"
 superseded_by: null
 attributes:
@@ -31,6 +31,16 @@ separate Desktop connect/upload/restore UI. This is implementation-beta truth,
 not provider or release proof: Google Cloud client configuration, Supabase
 function deployment, real consent/upload/download/revoke, clean-install
 restore, and physical Android/FUNGWIRE delegation remain open.
+
+The 2026-08-26 truth sync is based on `main` commit
+`888adeded643f448c283c7990aabc421f71a20be`. Focused verification passes
+Backup 17/17, Google Drive contract 6/6, Auth 8/8, Rust Drive 16/16, TypeScript,
+and the Vite production build. `cargo check` exits 0 with the same 18 retained
+baseline warnings recorded by the final D-GDA6 Terra review. The W1 source
+contract passes 7 checks in the current host, while its executable PostgreSQL
+17 check is skipped because Docker Desktop is unavailable; this run therefore
+does not replace the earlier independently recorded PostgreSQL evidence and
+does not close staging, provider, device, or production gates.
 
 ## Routing and backup-payload overlay (historical snapshot, 2026-08-19; superseded)
 
@@ -268,6 +278,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.15b | Truth-synced merged Google Drive/Native Broker local evidence, current focused tests, baseline warnings, and the Docker-bounded W1 verification gap. |
 | 0.2.14b | Added the approved local Google Drive implementation slice: native PKCE/keyring adapter, authenticated metadata/audit function, separate Desktop UI, resumable appDataFolder transport, and digest-bound restore. Real provider, deployment, clean-install, and device proof remain open. |
 | 0.2.11b | Recorded PR #16: mobile/desktop routing fix, reachable backup UI, audio-bearing backup payload, and the connector startup/timeout split. Corrected two 0.2.10b inaccuracies (desktop AccountSettings, audio import). Physical Android and clean-install restore stay open. |
 | 0.2.10b | Recorded Phase 4 filesystem test backup/restore implementation and mobile device-reconciliation hardening with 217/217 Rust plus green focused Node evidence; clean-install restore and physical Android identity gates stay open. |
@@ -290,6 +301,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.15b | 2026-08-26 | beta | Truth-synced merged Google Drive/Native Broker local evidence, current focused tests, baseline warnings, and the Docker-bounded W1 verification gap. | `888aded` | ATHER |
 | 0.2.14b | 2026-08-23 | beta | Added the approved local Google Drive native PKCE/keyring, metadata audit, separate UI, resumable appDataFolder transport, and digest-bound restore; external provider/deployment/device gates remain open. | working-tree | ATHER |
 | 0.2.13b | 2026-08-23 | beta | Staged the pinned faster-whisper small model and 11-file CUDA 12/cuDNN 9 bundle; standalone GPU smoke passed, while Live Meeting/device/connector UAT remains open. | working-tree | ATHER |
 | 0.2.12b | 2026-08-23 | beta | Truth-synced the merged PR #16 state and separated staged package, model, and CUDA-runtime evidence; physical, restore, connector, and release gates remain open. | working-tree | ATHER |

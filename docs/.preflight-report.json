@@ -1,9 +1,9 @@
 {
-  "version": "1.4.0",
+  "version": "1.5.0",
   "generated_by": "rwang:doc-preflight",
-  "generated_at": "2026-08-22T21:09:23Z",
+  "generated_at": "2026-08-26T16:51:37Z",
   "project": "FUNG",
-  "scope": "FUNG governed product, AI system, and live meeting documentation scaffold audit",
+  "scope": "FUNG governed product, AI system, Live Meeting, and Phase 4 Google Drive truth-sync audit",
   "trust_hierarchy": "Code > SDD > PRD",
   "summary": {
     "total_checks": 10,
@@ -13,26 +13,30 @@
     "info": 3
   },
   "scan": {
-    "markdown_documents": 120,
-    "code_and_test_files": 96,
-    "relative_links_checked": 28,
-    "mermaid_documents": 14,
+    "markdown_documents": 247,
+    "code_and_test_files": 116,
+    "relative_links_checked": 61,
+    "mermaid_documents": 20,
     "structured_annotations": 68,
-    "unique_document_requirement_ids": 46,
+    "unique_document_requirement_ids": 57,
     "unique_source_test_requirement_ids": 26
   },
   "scaffold_validation": {
-    "new_documents": 15,
-    "new_document_control_failures": 0,
-    "new_document_relative_links_checked": 21,
-    "new_document_broken_links": 0,
-    "graph_nodes": 80,
-    "graph_edges": 298,
+    "truth_synced_documents": 5,
+    "truth_synced_document_control_failures": 0,
+    "relative_links_checked": 61,
+    "broken_relative_links": 0,
+    "graph_nodes": 105,
+    "graph_edges": 335,
     "graph_missing_endpoints": 0,
-    "new_document_hash_mismatches": 0,
-    "additional_indexed_documents": 4,
+    "graph_hash_mismatches": 0,
+    "graph_duplicate_node_ids": 0,
+    "graph_duplicate_edge_objects": 0,
+    "additional_indexed_nodes": 25,
     "traceability_test": "npm run test:traceability — 1/1 passed",
-    "mermaid_fence_check": "1 new document with balanced fences; renderer not installed"
+    "mermaid_fence_check": "20 Mermaid documents have balanced fences; renderer not installed",
+    "phase4_drive_traceability": "12/12 code, Edge, and migration nodes linked to authoritative docs; 4/4 focused test nodes linked",
+    "recording2_artifact_boundary": ".tmp-transcript paths are local-only plain provenance, not repository links"
   },
   "findings": [
     {
@@ -50,7 +54,7 @@
       "severity": "warning",
       "check": "document-control",
       "title": "Historical and support-document control metadata is incomplete",
-      "details": "15 of 62 Markdown documents lack one or more version, date, status, or history controls. Current scoped governance artifacts have front matter and changelogs.",
+      "details": "62 of 247 Markdown documents lack one or more version, date, or status controls. Most are historical task briefs, support notes, or legacy plans; the five truth-synced authoritative documents have current controls and changelogs.",
       "files": ["docs"],
       "requirement_ids": [],
       "action": "Normalize authoritative documents first; preserve historical provenance rather than rewriting it."
@@ -60,7 +64,7 @@
       "severity": "warning",
       "check": "requirement-coverage",
       "title": "Traceability is mixed; annotations are intent-only",
-      "details": "46 FR/NFR/BR/AC IDs are defined in docs. The expanded H3 contract adds 57 canonical @req occurrences across nine implementation files (25/26 unique IDs) and 11 across two test files; together they cover all 26 scoped FR/NFR IDs; npm run test:traceability passes 1/1. Retained graph edges still provide 22 of 26 code and 16 of 26 test mappings through manual, code-inspection, and test-run sources. Annotations establish source/test intent only and do not close runtime or UAT gates.",
+      "details": "57 FR/NFR/BR/AC IDs are present across the expanded documentation corpus. The H3 contract retains all 26 scoped Live Meeting FR/NFR IDs and npm run test:traceability passes 1/1. The Phase 4 extension adds 12 linked code, Edge, and migration nodes plus four focused test nodes. Annotations and graph edges establish source/test intent only and do not close runtime, provider, staging, device, release, or UAT gates.",
       "files": ["docs/Desktop/LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md", "src", "src-tauri", "tests"],
       "requirement_ids": ["FR-101", "FR-106", "FR-116", "NFR-101", "NFR-110"],
       "action": "Keep the all-26 annotation contract separate from retained manual/inspection mappings; do not promote runtime or UAT status from annotations."
@@ -80,7 +84,7 @@
       "severity": "info",
       "check": "diagram-validation",
       "title": "Mermaid renderer validation is not available",
-      "details": "13 Mermaid-containing documents have balanced fences; no renderer parser was installed or run.",
+      "details": "20 Mermaid-containing documents have balanced fences; no renderer parser was installed or run.",
       "files": ["docs"],
       "requirement_ids": [],
       "action": "Add a Mermaid renderer check when diagram changes require syntax assurance."
@@ -94,6 +98,28 @@
       "files": ["docs"],
       "requirement_ids": [],
       "action": "Add a compact glossary only when its product-document owner is approved."
+    }
+  ],
+  "truth_sync_results": [
+    {
+      "id": "SYNC-01",
+      "status": "resolved",
+      "evidence": "Google Drive native authorization and enrollment nonce documents now record approved local implementation while retaining separate external and production gates."
+    },
+    {
+      "id": "SYNC-02",
+      "status": "resolved",
+      "evidence": "Document graph now includes Phase 4 Google Drive, Native Session Broker, Edge, migration, and focused test nodes with 0 missing endpoints and 0 hash mismatches."
+    },
+    {
+      "id": "SYNC-03",
+      "status": "resolved",
+      "evidence": "Recording2 transcript and minutes paths are labelled local-only provenance and are no longer represented as portable repository links."
+    },
+    {
+      "id": "SYNC-04",
+      "status": "bounded_open",
+      "evidence": "Current local tests pass, but W1 executable PostgreSQL verification is skipped without Docker Desktop and all external/provider/device/production gates remain open."
     }
   ],
   "reconciled_findings": [
@@ -133,7 +159,8 @@
     "reasons": [
       "No current critical documentation contradiction remains.",
       "H3 scoped executable traceability is GREEN; broader requirement coverage remains mixed and evidence-bounded.",
-      "Real-connector, visual/keyboard, summary/export review after restart, artifact-secret-scan, device, and packaging gates remain open; full Rust regression is 217/217."
+      "Phase 4 Google Drive and Native Session Broker local evidence is graph-linked and truth-synced; W1 executable PostgreSQL verification is environment-bounded on this host.",
+      "Real-provider, Supabase/Edge/RLS staging, clean Windows keyring, clean-install restore, device, signing/release, monitoring, and production gates remain open."
     ],
     "code_gate": "Do not promote feature flags, release status, or external-runtime readiness from this documentation audit."
   }

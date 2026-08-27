@@ -1,8 +1,8 @@
 ---
-version: "0.2.0b"
+version: "0.3.0b"
 created_at: "2026-08-24T10:25:00+07:00,ATHER"
-last_update: "2026-08-24T10:45:00+07:00,ATHER"
-status: "candidate"
+last_update: "2026-08-26T23:51:37+07:00,ATHER,888aded"
+status: "beta"
 superseded_by: null
 attributes:
   domain: "cloud-backup-security"
@@ -15,10 +15,13 @@ attributes:
 
 ## Status and authorization boundary
 
-Candidate only. No code, migration, deployment, or promotion is authorized by
-this document until Boss approves the decisions below. This amendment changes
-no operator ownership, device class, grant issuer, or deployment policy from
-the approved authority/schema amendment.
+Boss approved D-GDA3-01 through D-GDA3-03 against the recorded candidate bytes.
+The forward migration and native/Edge contract are implemented and accepted as
+local/static evidence through the later D-GDA6 review chain. This approval does
+not authorize Supabase/Edge deployment, Google provider operation, device UAT,
+release, promotion, or production use. This amendment changes no operator
+ownership, device class, grant issuer, or deployment policy from the approved
+authority/schema amendment.
 
 ## Evidence and root cause
 
@@ -176,9 +179,9 @@ is authorized.
 
 | ID | Decision | Proposed value | Status |
 |---|---|---|---|
-| D-GDA3-01 | Canonical proof encoding | Exact binary layout and Ed25519 domain separation defined above | candidate |
-| D-GDA3-02 | Replay authority and retention | New append-only global nonce-hash table; indefinite W1 retention; atomic pending creation | candidate |
-| D-GDA3-03 | Fix-cycle boundary | One new forward-only schema migration plus listed native/Edge/tests; fresh Luna and Terra; deployment remains separately gated | candidate |
+| D-GDA3-01 | Canonical proof encoding | Exact binary layout and Ed25519 domain separation defined above | approved; implemented locally |
+| D-GDA3-02 | Replay authority and retention | New append-only global nonce-hash table; indefinite W1 retention; atomic pending creation | approved; implemented locally |
+| D-GDA3-03 | Fix-cycle boundary | One new forward-only schema migration plus listed native/Edge/tests; fresh Luna and Terra; deployment remains separately gated | approved; local/static review complete |
 
 ## Version Diff
 
@@ -187,10 +190,13 @@ is authorized.
 - `0.1.0b -> 0.2.0b`: added exact canonical bytes, immutable global nonce-hash
   semantics, new forward-only migration, inherited-decision crosswalk, and full
   native PKCE adversarial inheritance after Terra FAIL.
+- `0.2.0b -> 0.3.0b`: truth-synced Boss approval, local implementation, and
+  later D-GDA6 acceptance without promoting external or production readiness.
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.3.0b | 2026-08-26 | beta | D-GDA3 approved and implemented locally; external/deployment gates remain open | `888aded` | ATHER |
 | 0.2.0b | 2026-08-24 | candidate | Corrected amendment after Terra architecture FAIL | `11f8b52` | ATHER |
 | 0.1.0b | 2026-08-24 | candidate | Proposed schema/native remediation for S2 P0 findings | `7bc84c1` | ATHER |

@@ -1089,6 +1089,9 @@ pub(crate) async fn broker_drive_upload_archive(
     Ok(result)
 }
 
+// The upload transaction deliberately keeps authority, archive identity, and
+// integrity inputs explicit at this provider boundary.
+#[allow(clippy::too_many_arguments)]
 fn upload_archive_files(
     operation: &DriveOperationGuard,
     invocation: &DriveInvocation,

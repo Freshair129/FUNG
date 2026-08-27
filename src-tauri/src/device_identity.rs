@@ -7,15 +7,12 @@ use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use serde::Serialize;
 use sha2::{Digest, Sha256, Sha512};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use uuid::Uuid;
 
 use crate::{AppError, AppResult};
 
 const KEY_FILE: &str = "device_identity.key";
 const KEYRING_SERVICE: &str = "FUNG";
 const DEVICE_IDENTITY_KEYRING_ACCOUNT: &str = "device_identity_keyring";
-const ENROLLMENT_PROOF_TTL: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DeviceIdentity {
@@ -228,92 +225,10 @@ pub(crate) fn sign_authorization_in_dir(dir: &Path, message: &[u8]) -> AppResult
     Ok(base64::engine::general_purpose::STANDARD.encode(key.sign(message).to_bytes()))
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NativeEnrollmentProof {
-    pub public_key: String,
-    pub fingerprint: String,
-    pub proof: String,
-    pub expires_at_ms: u64,
-}
-
-fn enrollment_timestamp_ms() -> AppResult<u64> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .map_err(|_| AppError::InvalidInput("device_identity_clock_invalid".to_owned()))
-}
-
-fn validate_device_label(label: &str) -> AppResult<()> {
-    if label.is_empty()
-        || label.len() > 120
-        || label.chars().any(|character| character.is_control())
-    {
-        return Err(AppError::InvalidInput("device_label_invalid".to_owned()));
-    }
-    Ok(())
-}
-
-fn sign_pending_enrollment_challenge(
-    dir: &Path,
-    device_label: &str,
-    public_key_fingerprint: &str,
-    issued_at_ms: u64,
-    expires_at_ms: u64,
-    nonce: &str,
-) -> AppResult<String> {
-    let canonical = format!(
-        "fung-device-enrollment-v1\npending-enrollment\nwindows\n{device_label}\n{public_key_fingerprint}\n{issued_at_ms}\n{expires_at_ms}\n{nonce}"
-    );
-    let key = secure_signing_key_in_dir(dir)?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(key.sign(canonical.as_bytes()).to_bytes()))
-}
-
-/// Creates only the short-lived native proof used by the server-owned pending
-/// enrollment request. It never returns a private key or accepts a caller
-/// supplied message to sign.
-#[tauri::command]
-pub fn device_enrollment_proof(
-    app: tauri::AppHandle,
-    device_label: String,
-) -> AppResult<NativeEnrollmentProof> {
-    validate_device_label(&device_label)?;
-    use tauri::Manager;
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| AppError::MissingAppDataDir)?;
-    #[cfg(desktop)]
-    {
-        let (public_key, fingerprint) = authorization_identity_in_dir(&dir)?;
-        let issued_at_ms = enrollment_timestamp_ms()?;
-        let expires_at_ms = issued_at_ms + ENROLLMENT_PROOF_TTL.as_millis() as u64;
-        let nonce = Uuid::new_v4().to_string();
-        let proof = sign_pending_enrollment_challenge(
-            &dir,
-            &device_label,
-            &fingerprint,
-            issued_at_ms,
-            expires_at_ms,
-            &nonce,
-        )?;
-        return Ok(NativeEnrollmentProof {
-            public_key,
-            fingerprint,
-            proof,
-            expires_at_ms,
-        });
-    }
-    #[cfg(not(desktop))]
-    {
-        let _ = dir;
-        Err(AppError::InvalidInput("desktop_enrollment_only".to_owned()))
-    }
-}
-
 /// Legacy file-backed identity helper used by FUNGWIRE fixture tests and for
 /// reading pre-migration test data. Desktop commands use `secure_identity_in_dir`
 /// above and never create a new plaintext identity file.
+#[cfg(any(not(desktop), test))]
 pub fn ensure_identity_in_dir(dir: &Path) -> AppResult<DeviceIdentity> {
     fs::create_dir_all(dir).map_err(|e| io_error("identity dir", e))?;
     let path = dir.join(KEY_FILE);
@@ -363,11 +278,11 @@ fn load_seed(dir: &Path) -> AppResult<[u8; 32]> {
     #[cfg(all(desktop, not(test)))]
     {
         secure_identity_in_dir(dir)?;
-        return OsIdentityBackend::new(dir)?
+        OsIdentityBackend::new(dir)?
             .read_keyring()?
             .map(|bytes| parse_seed(&bytes))
             .transpose()?
-            .ok_or_else(|| io_error("identity read", "secure identity missing"));
+            .ok_or_else(|| io_error("identity read", "secure identity missing"))
     }
     #[cfg(any(not(desktop), test))]
     {
@@ -376,6 +291,7 @@ fn load_seed(dir: &Path) -> AppResult<[u8; 32]> {
     }
 }
 
+#[cfg(any(not(desktop), test))]
 fn read_legacy_seed(path: &Path) -> AppResult<Option<[u8; 32]>> {
     if !path.is_file() {
         return Ok(None);
@@ -391,6 +307,7 @@ fn read_legacy_seed(path: &Path) -> AppResult<Option<[u8; 32]>> {
 }
 
 /// Export the full ed25519 verifying key as base64, for publishing to Supabase.
+#[cfg(test)]
 pub fn public_key_b64_in_dir(dir: &Path) -> AppResult<String> {
     let seed = load_seed(dir)?;
     let key = SigningKey::from_bytes(&seed);

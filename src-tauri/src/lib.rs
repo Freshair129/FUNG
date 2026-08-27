@@ -407,6 +407,7 @@ struct ModelProvider {
 /// concept). Sharing that file/name would let the legacy importer sweep rows
 /// out of this table using the wrong column set. See Task 5 report for
 /// details.
+#[cfg(test)]
 #[derive(Debug, Deserialize)]
 pub(crate) struct PairedDeviceInput {
     pub(crate) id: String,
@@ -459,6 +460,7 @@ fn ensure_paired_devices_table(conn: &Connection) -> AppResult<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn upsert_paired_device(conn: &Connection, device: PairedDeviceInput) -> AppResult<()> {
     conn.execute(
         r#"
@@ -482,6 +484,7 @@ fn upsert_paired_device(conn: &Connection, device: PairedDeviceInput) -> AppResu
     Ok(())
 }
 
+#[cfg(test)]
 fn list_paired_devices(conn: &Connection) -> AppResult<Vec<PairedDeviceRow>> {
     let mut statement = conn.prepare(
         "SELECT id, name, platform, fingerprint, paired_at, revoked_at, pairing_session_id, public_key \
@@ -504,6 +507,7 @@ fn list_paired_devices(conn: &Connection) -> AppResult<Vec<PairedDeviceRow>> {
     Ok(rows)
 }
 
+#[cfg(test)]
 fn revoke_paired_device(conn: &Connection, id: &str) -> AppResult<()> {
     conn.execute(
         "UPDATE paired_devices SET revoked_at = ?1 WHERE id = ?2",
@@ -568,24 +572,6 @@ pub(crate) fn lookup_paired_peer(
     }
 }
 
-#[tauri::command]
-fn paired_device_upsert(device: PairedDeviceInput, state: State<'_, AppState>) -> AppResult<()> {
-    let conn = paired_devices_connection(&state)?;
-    upsert_paired_device(&conn, device)
-}
-
-#[tauri::command]
-fn paired_device_list(state: State<'_, AppState>) -> AppResult<Vec<PairedDeviceRow>> {
-    let conn = paired_devices_connection(&state)?;
-    list_paired_devices(&conn)
-}
-
-#[tauri::command]
-fn paired_device_revoke(id: String, state: State<'_, AppState>) -> AppResult<()> {
-    let conn = paired_devices_connection(&state)?;
-    revoke_paired_device(&conn, &id)
-}
-
 /// Best-effort LAN-routable IPv4 for this machine, found without any network
 /// traffic or external dependency: `connect`ing a UDP socket to a public
 /// address just makes the OS pick a local route/interface (no packet is
@@ -610,11 +596,6 @@ pub(crate) fn primary_lan_ipv4() -> Option<String> {
 /// server isn't currently bound or the LAN IP can't be determined; the
 /// stored bind is `"0.0.0.0:PORT"` (unroutable), so the concrete port is
 /// combined with `primary_lan_ipv4()` rather than returned as-is.
-#[tauri::command]
-fn fungwire_local_endpoint(state: State<'_, AppState>) -> AppResult<Option<String>> {
-    fungwire_local_endpoint_native(state)
-}
-
 pub(crate) fn fungwire_local_endpoint_native(
     state: State<'_, AppState>,
 ) -> AppResult<Option<String>> {

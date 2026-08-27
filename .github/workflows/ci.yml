@@ -29,6 +29,9 @@ jobs:
       - run: npm run test:mobile
       - run: npm run test:design-system
       - run: npm run test:auth
+      - run: npm run test:native-session-custody
+      - run: npm run test:w1-authority-schema
+      - run: npm run test:google-drive
       # Every suite runs, and `test:ci-coverage` is what makes that a fact
       # rather than a claim. This comment previously asserted it after six
       # unwired suites were found, and was wrong when written: test:release

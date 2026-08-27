@@ -198,6 +198,19 @@ be — [§3.1](#31-the-transcription-worker-was-offline-by-habit-not-by-constrai
   `connect-src ipc: http://127.0.0.1:*` (`tauri.conf.json`). The frontend cannot
   reach a remote host even if someone later writes the code to try.
 
+### 1.10 Supabase native session broker — authentication and authorization
+
+| Path | Payload | Destination | Consent gate |
+|---|---|---|---|
+| `auth_session.rs` | PKCE code/verifier, refresh credential, session metadata, device/pairing requests, and audit RPC bodies | The configured Supabase HTTPS origin, plus `oauth2.googleapis.com` for Google Drive token exchange | User-initiated login/Drive/pairing operation; access and refresh credentials remain native and are read from the OS keyring |
+
+The native broker owns these requests. It does not expose access or refresh
+credentials to the webview or persist them in GenesisBlockDB/Supabase. Request
+responses are reduced to typed, non-secret lifecycle results before crossing
+the Tauri command boundary. This entry is separate from the cloud STT/LLM
+paths above because it sends authorization material and metadata, not meeting
+audio or transcript content.
+
 ---
 
 ## 2. Inbound exposure

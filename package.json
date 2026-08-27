@@ -12,6 +12,8 @@
     "design-system:export": "node scripts/export_mobile_design_system.mjs",
     "test:design-system": "node --test tests/designSystemPublishing.test.mjs",
     "test:auth": "node --test --experimental-strip-types tests/authFlow.test.mjs",
+    "test:native-session-custody": "node --test tests/nativeSessionCustody.test.mjs",
+    "test:w1-authority-schema": "node --test tests/w1AuthoritySchema.test.mjs",
     "test:backup-flow": "node --test --experimental-strip-types tests/backupFlow.test.mjs",
     "test:device-reconcile": "node --test --experimental-strip-types tests/deviceReconcile.test.mjs",
     "test:recovery": "node --test --experimental-strip-types tests/recoveryFlow.test.mjs",

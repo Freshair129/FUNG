@@ -27,6 +27,12 @@ fails before tests because Clippy warnings are promoted to errors.
     and two needless returns.
 - The working tree before remediation is clean and PR #33 currently changes
   only the documentation truth-sync set.
+- Follow-up run `33079417544`, frontend job `98542212277`:
+  - the source-contract checks pass, but `nativeSessionCustody.test.mjs`
+    invokes Cargo on the Ubuntu frontend runner;
+  - `glib-sys v0.18.1` cannot build because the runner has no `glib-2.0.pc`;
+  - the same suite passes locally and belongs with the Windows Rust toolchain
+    job, which already owns the Cargo behavioral matrix.
 
 ## Root cause
 
@@ -45,8 +51,9 @@ reproduce the complete CI frontend sequence and did not run Clippy with
 
 ## Remediation
 
-1. Add npm scripts for both orphan test files and invoke all three missing
-   suites from the frontend workflow.
+1. Add npm scripts for both orphan test files, invoke the platform-independent
+   suites from the frontend workflow, and run the Cargo-backed Native Session
+   Custody suite in the Rust workflow after the Rust build/test gate.
 2. Remove deregistered legacy command wrappers and the unused legacy enrollment
    proof implementation; mark test-only filesystem helpers with test/non-
    desktop cfg boundaries.
@@ -60,6 +67,9 @@ reproduce the complete CI frontend sequence and did not run Clippy with
 
 - Keep `test:ci-coverage` first in the frontend workflow and require it to pass
   before suite execution.
+- Keep Cargo-backed JavaScript suites on the Rust runner; do not make the
+  frontend runner install native GTK/GLib development dependencies to exercise
+  a Rust-owned behavioral matrix.
 - Treat `cargo clippy --all-targets -- -D warnings` as a required local check
   whenever Rust code or the Rust toolchain changes.
 - Keep legacy command removal and test-only compatibility helpers explicit in

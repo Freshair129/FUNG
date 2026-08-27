@@ -29,7 +29,6 @@ jobs:
       - run: npm run test:mobile
       - run: npm run test:design-system
       - run: npm run test:auth
-      - run: npm run test:native-session-custody
       - run: npm run test:w1-authority-schema
       - run: npm run test:google-drive
       # Every suite runs, and `test:ci-coverage` is what makes that a fact
@@ -70,3 +69,10 @@ jobs:
       # carries that reason inline.
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib --all-targets -- -D warnings
       - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # This suite invokes the Rust behavioral matrix. Keep it on the Rust
+      # runner so it uses the platform/toolchain that owns that matrix rather
+      # than requiring GTK/GLib development packages on the frontend runner.
+      - run: npm run test:native-session-custody

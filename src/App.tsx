@@ -695,6 +695,7 @@ export function App() {
   const [cloudProvidersPanelOpen, setCloudProvidersPanelOpen] = useState(false);
   const [liveMeetingOpen, setLiveMeetingOpen] = useState(false);
   const [accountLoginPanelOpen, setAccountLoginPanelOpen] = useState(false);
+  const [devicePairingPanelOpen, setDevicePairingPanelOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [ttsPlaying, setTtsPlaying] = useState(false);
   const [ttsLoading, setTtsLoading] = useState(false);
@@ -1291,7 +1292,6 @@ export function App() {
                 )}
               >
                 <AccountLoginPanel onClose={() => setAccountLoginPanelOpen(false)} />
-                <DevicePairingPanel onClose={() => setAccountLoginPanelOpen(false)} />
               </Suspense>
             ) : (
               <section className="account-login-panel" aria-label="บัญชี FUNG ยังไม่พร้อมใช้งาน">
@@ -1320,6 +1320,25 @@ export function App() {
               )}
             >
               <BackupPanel invoke={nativeInvoke} projectId={selectedProjectId} />
+            </Suspense>
+          </div>
+        </div>
+      )}
+      {devicePairingPanelOpen && (
+        <div
+          className="account-login-overlay"
+          role="presentation"
+          onClick={() => setDevicePairingPanelOpen(false)}
+        >
+          <div className="account-login-stack" onClick={(event) => event.stopPropagation()}>
+            <Suspense
+              fallback={(
+                <section className="account-login-panel" aria-label="กำลังเปิดการจับคู่อุปกรณ์">
+                  <p className="account-login-status">กำลังเปิดการจับคู่อุปกรณ์…</p>
+                </section>
+              )}
+            >
+              <DevicePairingPanel onClose={() => setDevicePairingPanelOpen(false)} />
             </Suspense>
           </div>
         </div>

@@ -28,16 +28,16 @@ const AccountLoginPanel = lazy(() =>
 );
 const BackupPanel = lazy(() => import("./BackupPanel").then((m) => ({ default: m.BackupPanel })));
 
-type SettingsTab = "account" | "tts" | "cloud" | "fetch" | "zoom" | "runtime" | "account-login";
+export type SettingsTab = "account" | "tts" | "cloud" | "fetch" | "zoom" | "runtime" | "account-login";
 
 const TABS: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
-  { id: "account", label: "Account and connection", icon: SlidersHorizontal },
+  { id: "account", label: "External Connections", icon: SlidersHorizontal },
+  { id: "account-login", label: "Sign In and Backup", icon: UserCircle },
   { id: "tts", label: "TTS Providers", icon: Volume2 },
   { id: "cloud", label: "Cloud Providers", icon: Cloud },
   { id: "fetch", label: "Fetch from URL", icon: Link2 },
   { id: "zoom", label: "Zoom import", icon: Cloud },
   { id: "runtime", label: "Runtime", icon: Activity },
-  { id: "account-login", label: "Account and Backup", icon: UserCircle },
 ];
 
 interface SettingsPanelProps {
@@ -48,6 +48,7 @@ interface SettingsPanelProps {
   apiRunning: boolean;
   onFetchStarted: (job: Job) => void;
   onOpenExternalAccountPortal: () => Promise<void>;
+  initialTab?: SettingsTab;
 }
 
 export function SettingsPanel({
@@ -58,8 +59,9 @@ export function SettingsPanel({
   apiRunning,
   onFetchStarted,
   onOpenExternalAccountPortal,
+  initialTab,
 }: SettingsPanelProps) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("account");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "account");
 
   return (
     <div className="settings-overlay" role="presentation" onClick={onClose}>

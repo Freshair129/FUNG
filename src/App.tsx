@@ -51,6 +51,7 @@ import {
 import { LiveMeetingPanel } from "./components/LiveMeetingPanel";
 import { InstrumentRail } from "./components/InstrumentRail";
 import { HomeScreen } from "./components/HomeScreen";
+import type { SettingsTab } from "./components/SettingsPanel";
 import {
   isJobActionEnabled,
   jobActionBlockedReason,
@@ -674,6 +675,7 @@ export function App() {
   const [liveMeetingOpen, setLiveMeetingOpen] = useState(false);
   const [devicePairingPanelOpen, setDevicePairingPanelOpen] = useState(false);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>("account");
   const [showHome, setShowHome] = useState(true);
   const [recording, setRecording] = useState(false);
   const [ttsPlaying, setTtsPlaying] = useState(false);
@@ -1037,9 +1039,11 @@ export function App() {
       setTtsAudio(audio);
       setTtsPlaying(true);
     } catch (e: unknown) {
-      // If no provider registered, open TTS settings
+      // If no provider registered, deep-link straight to the TTS tab of
+      // Settings rather than leaving the user on whatever tab last opened.
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes("ยังไม่ได้ลงทะเบียน")) {
+        setSettingsInitialTab("tts");
         setSettingsPanelOpen(true);
       }
     } finally {
@@ -1258,6 +1262,7 @@ export function App() {
               void pollJobUntilDone(job.id).then(() => void refresh());
             }}
             onOpenExternalAccountPortal={openExternalAccountPortal}
+            initialTab={settingsInitialTab}
           />
         </Suspense>
       )}
@@ -1295,27 +1300,28 @@ export function App() {
       </svg>
 
       <div className="stage-wrap" style={{ transform: `scale(${scale})` }}>
-        {showHome ? (
-          <HomeScreen
-            items={libraryItems}
-            onStartRecording={() => {
-              enterMeetingWorkspace("P1");
-              setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
-              setLiveMeetingOpen(true);
-            }}
-            onImport={() => {
-              enterMeetingWorkspace("P1");
-              void handleImportAndTranscribe();
-            }}
-            onOpenItem={(id) => {
-              setSelectedRecording(id);
-              enterMeetingWorkspace("P2");
-            }}
-          />
-        ) : (
         <main className="stage" aria-label="FUNG review workspace">
           <div className="panel-glow" data-tauri-drag-region aria-hidden="true" />
           <div className="panel-glass" data-tauri-drag-region>
+            {showHome ? (
+              <HomeScreen
+                items={libraryItems}
+                onStartRecording={() => {
+                  enterMeetingWorkspace("P1");
+                  setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
+                  setLiveMeetingOpen(true);
+                }}
+                onImport={() => {
+                  enterMeetingWorkspace("P1");
+                  void handleImportAndTranscribe();
+                }}
+                onOpenItem={(id) => {
+                  setSelectedRecording(id);
+                  enterMeetingWorkspace("P2");
+                }}
+              />
+            ) : (
+              <>
             <section className="zone score-header" data-tauri-drag-region aria-label="Score header">
               <div>
                 <div className="eyebrow">Meeting Mode / {activeAnchor}</div>
@@ -1565,6 +1571,8 @@ export function App() {
                 </button>
               ))}
             </section>
+              </>
+            )}
           </div>
 
           <svg className="panel-rim" viewBox="0 0 1280 720" aria-hidden="true">
@@ -1590,10 +1598,10 @@ export function App() {
                 <Search size={16} />
               </button>
               <span>Command deck</span>
+              <button type="button" className="icon-button no-drag" aria-label="Back to Home" onClick={returnToHome}>
+                <Home size={16} />
+              </button>
             </div>
-            <button type="button" className="icon-button no-drag" aria-label="Back to Home" onClick={returnToHome}>
-              <Home size={16} />
-            </button>
             <Segmented
               compact
               items={navItems.map((item) => item.label)}
@@ -1677,7 +1685,6 @@ export function App() {
           </div>
 
         </main>
-        )}
       </div>
     </div>
   );

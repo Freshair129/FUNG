@@ -1,0 +1,119 @@
+import { useId } from "react";
+import { Circle, Download, Play, Settings, Upload, Wifi } from "lucide-react";
+import "./InstrumentRail.css";
+
+interface InstrumentRailProps {
+  recording: boolean;
+  onRecord: () => void;
+  onImport: () => void;
+  importDisabled: boolean;
+  onPlayback: () => void;
+  onExport: () => void;
+  exportTitle: string;
+  onPairDevice: () => void;
+  onOpenSettings: () => void;
+  levelLeft: number;
+  levelRight: number;
+}
+
+const NOTCH_PATH =
+  "M 16,0 H 54 A 16 16 0 0 1 70,16 V 292 A 16 16 0 0 0 86,308 V 308 A 16 16 0 0 1 74,328 V 622 A 16 16 0 0 1 58,638 H 16 A 16 16 0 0 1 0,622 V 16 A 16 16 0 0 1 16,0 Z";
+
+function VuBar({ level, id }: { level: number; id: string }) {
+  const clamped = Math.max(0, Math.min(1, level));
+  const segments = 6;
+  const litSegments = Math.round(clamped * segments);
+  const segEls = [];
+  for (let i = 0; i < segments; i += 1) {
+    const lit = i < litSegments;
+    let color = "#6e897d"; // sage — normal
+    if (i === segments - 1) color = "#b34b4b"; // signal — peak/overload
+    else if (i >= segments - 2) color = "#9a8260"; // metal — near-peak
+    segEls.push(
+      <div
+        key={`${id}-${i}`}
+        className="instrument-rail__bar-seg"
+        style={{ height: `${100 / segments}%`, background: lit ? color : "transparent" }}
+      />,
+    );
+  }
+  return <div className="instrument-rail__bar">{segEls}</div>;
+}
+
+export function InstrumentRail({
+  recording,
+  onRecord,
+  onImport,
+  importDisabled,
+  onPlayback,
+  onExport,
+  exportTitle,
+  onPairDevice,
+  onOpenSettings,
+  levelLeft,
+  levelRight,
+}: InstrumentRailProps) {
+  const gradientId = useId();
+
+  return (
+    <div className="instrument-rail no-drag" aria-label="Instrument rail">
+      <svg className="instrument-rail__shape" viewBox="0 0 74 638" aria-hidden="true">
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#fffdf8" />
+            <stop offset="100%" stopColor="#e6dac8" />
+          </linearGradient>
+        </defs>
+        <path d={NOTCH_PATH} fill={`url(#${gradientId})`} />
+        <path d={NOTCH_PATH} className="instrument-rail__stroke-outer" />
+        <path d={NOTCH_PATH} className="instrument-rail__stroke-inner" />
+      </svg>
+      <div className="instrument-rail__content">
+        <div className="instrument-rail__vu" role="meter" aria-label="Input level">
+          <VuBar level={levelLeft} id="vu-l" />
+          <VuBar level={levelRight} id="vu-r" />
+        </div>
+        <div className="instrument-rail__vu-label">L&nbsp;&nbsp;R</div>
+
+        <div className="instrument-rail__buttons">
+          <button
+            type="button"
+            className={`instrument-rail__button ${recording ? "is-active" : ""}`}
+            aria-label={recording ? "Pause recording" : "Start recording"}
+            onClick={onRecord}
+          >
+            <Circle size={18} fill={recording ? "currentColor" : "none"} />
+          </button>
+          <button
+            type="button"
+            className="instrument-rail__button"
+            aria-label="Import audio"
+            title="Import audio or video and transcribe locally"
+            disabled={importDisabled}
+            onClick={onImport}
+          >
+            <Upload size={18} />
+          </button>
+          <button type="button" className="instrument-rail__button" aria-label="Playback" onClick={onPlayback}>
+            <Play size={18} />
+          </button>
+          <button
+            type="button"
+            className="instrument-rail__button"
+            aria-label="Export subtitles"
+            title={exportTitle}
+            onClick={onExport}
+          >
+            <Download size={18} />
+          </button>
+          <button type="button" className="instrument-rail__button" aria-label="Pair device" onClick={onPairDevice}>
+            <Wifi size={18} />
+          </button>
+          <button type="button" className="instrument-rail__button" aria-label="Settings" onClick={onOpenSettings}>
+            <Settings size={18} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

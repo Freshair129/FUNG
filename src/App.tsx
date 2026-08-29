@@ -951,8 +951,7 @@ export function App() {
 
   const onViewChange = (label: NavLabel) => {
     const nextView = navItems.find((item) => item.label === label)?.id ?? "review";
-    setActiveView(nextView);
-    setActiveAnchor(anchorByView[nextView]);
+    enterMeetingWorkspace(anchorByView[nextView]);
   };
 
   const activateAnchor = (anchor: Anchor) => {
@@ -1631,15 +1630,23 @@ export function App() {
           <InstrumentRail
             recording={liveMeetingOpen}
             onRecord={() => {
-              setActiveAnchor("P1");
-              setActiveView(viewByAnchor.P1);
+              enterMeetingWorkspace("P1");
               setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
               setLiveMeetingOpen(true);
             }}
-            onImport={() => void handleImportAndTranscribe()}
+            onImport={() => {
+              enterMeetingWorkspace("P1");
+              void handleImportAndTranscribe();
+            }}
             importDisabled={transcribing}
-            onPlayback={() => void handleCreateJob("transcript.transcribe")}
-            onExport={() => void handleCreateJob("export.render")}
+            onPlayback={() => {
+              enterMeetingWorkspace(activeAnchor);
+              void handleCreateJob("transcript.transcribe");
+            }}
+            onExport={() => {
+              enterMeetingWorkspace(activeAnchor);
+              void handleCreateJob("export.render");
+            }}
             exportTitle={
               jobActionBlockedReason("export.render", Boolean(activeRecordingId)) ??
               "ส่งออกซับไตเติล .srt และ .vtt ของการบันทึกนี้"

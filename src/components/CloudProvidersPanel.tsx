@@ -27,9 +27,10 @@ const PROVIDER_LABELS: Record<string, string> = { anthropic: "Anthropic", openai
 
 interface CloudProvidersPanelProps {
   onClose: () => void;
+  embedded?: boolean;
 }
 
-export function CloudProvidersPanel({ onClose }: CloudProvidersPanelProps) {
+export function CloudProvidersPanel({ onClose, embedded }: CloudProvidersPanelProps) {
   const [statuses, setStatuses] = useState<CloudConfigStatus[]>([]);
   const [policy, setPolicy] = useState<TierPolicy>({ sttCloudEnabled: false, llmCloudEnabled: false, dailyCap: 20 });
   const [counts, setCounts] = useState<CloudCallCounts>({ stt: 0, llm: 0 });
@@ -126,132 +127,138 @@ export function CloudProvidersPanel({ onClose }: CloudProvidersPanelProps) {
     { provider: "custom", taskKind: "llm" },
   ];
 
+  const content = (
+    <section
+      className="cloud-providers-panel"
+      aria-label="ผู้ให้บริการคลาวด์"
+      aria-modal="true"
+      role="dialog"
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <header className="cloud-providers-header">
+        <Cloud size={18} />
+        <h2>ผู้ให้บริการคลาวด์</h2>
+        <button type="button" className="cloud-providers-close" onClick={onClose} aria-label="ปิด">
+          <X size={16} />
+        </button>
+      </header>
+
+      <section className="cloud-providers-section">
+        <h3>คีย์ API</h3>
+        {slots.map(({ provider, taskKind }) => {
+          const key = draftKey(provider, taskKind);
+          const status = statuses.find((s) => s.provider === provider && s.taskKind === taskKind);
+          return (
+            <div key={key} className="cloud-providers-card">
+              <div className="cloud-providers-card-title">
+                <strong>{PROVIDER_LABELS[provider]}</strong>
+                <small>{taskKind === "stt" ? "ถอดเสียง (STT)" : "LLM"}</small>
+                {status?.configured && <span className="cloud-providers-badge">ตั้งค่าแล้ว ✓</span>}
+              </div>
+              {provider === "custom" && (
+                <>
+                  <input
+                    className="cloud-providers-input"
+                    type="text"
+                    placeholder="https://your-endpoint.example.com"
+                    value={endpointDrafts[key] ?? ""}
+                    onChange={(e) => setEndpointDrafts((prev) => ({ ...prev, [key]: e.target.value }))}
+                  />
+                  <p className="cloud-providers-hint">
+                    ใส่คีย์ในช่อง API key ด้านล่าง อย่าใส่ไว้ใน URL
+                  </p>
+                </>
+              )}
+              <input
+                className="cloud-providers-input"
+                type="password"
+                placeholder="API key"
+                value={keyDrafts[key] ?? ""}
+                onChange={(e) => setKeyDrafts((prev) => ({ ...prev, [key]: e.target.value }))}
+              />
+              <div className="cloud-providers-card-actions">
+                <button type="button" onClick={() => void saveKey(provider, taskKind)}>
+                  <KeyRound size={14} /> บันทึก
+                </button>
+                {status?.configured && (
+                  <button type="button" className="cloud-providers-clear" onClick={() => void clearKey(provider, taskKind)}>
+                    ลบ
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        <p className="cloud-providers-hint">
+          สำหรับ LLM หากตั้งค่าหลายผู้ให้บริการ ระบบจะใช้ตามลำดับ: Anthropic → OpenAI → กำหนดเอง
+        </p>
+      </section>
+
+      <section className="cloud-providers-section">
+        <h3>นโยบายลำดับการประมวลผล</h3>
+        <div className="cloud-providers-card">
+          <p className="cloud-providers-chain">อุปกรณ์นี้ → เดสก์ท็อปที่จับคู่ → คลาวด์</p>
+          <label className="cloud-providers-toggle-row">
+            <span>อนุญาตให้ใช้คลาวด์สำหรับถอดเสียง (STT)</span>
+            <button
+              type="button"
+              className={`cloud-providers-switch ${policy.sttCloudEnabled ? "is-on" : ""}`}
+              role="switch"
+              aria-checked={policy.sttCloudEnabled}
+              onClick={() => void savePolicy({ ...policy, sttCloudEnabled: !policy.sttCloudEnabled })}
+            >
+              <i />
+            </button>
+          </label>
+          <label className="cloud-providers-toggle-row">
+            <span>อนุญาตให้ใช้คลาวด์สำหรับ LLM</span>
+            <button
+              type="button"
+              className={`cloud-providers-switch ${policy.llmCloudEnabled ? "is-on" : ""}`}
+              role="switch"
+              aria-checked={policy.llmCloudEnabled}
+              onClick={() => void savePolicy({ ...policy, llmCloudEnabled: !policy.llmCloudEnabled })}
+            >
+              <i />
+            </button>
+          </label>
+        </div>
+      </section>
+
+      <section className="cloud-providers-section">
+        <h3>ขีดจำกัดต่อวัน</h3>
+        <div className="cloud-providers-card">
+          <label className="cloud-providers-field">
+            <span>จำนวนครั้งสูงสุดต่อวัน (ต่อประเภทงาน)</span>
+            <input
+              className="cloud-providers-input cloud-providers-input--narrow"
+              type="number"
+              min={1}
+              value={dailyCapDraft}
+              onChange={(e) => setDailyCapDraft(e.target.value)}
+              onBlur={() => {
+                const dailyCap = Math.max(1, Number(dailyCapDraft) || 1);
+                setDailyCapDraft(String(dailyCap));
+                void savePolicy({ ...policy, dailyCap });
+              }}
+            />
+          </label>
+          <dl className="cloud-providers-counts">
+            <div><dt>ถอดเสียงวันนี้</dt><dd>{counts.stt} / {policy.dailyCap}</dd></div>
+            <div><dt>LLM วันนี้</dt><dd>{counts.llm} / {policy.dailyCap}</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      {error && <p className="cloud-providers-error">{error}</p>}
+    </section>
+  );
+
+  if (embedded) return content;
+
   return (
     <div className="cloud-providers-overlay" role="presentation" onMouseDown={onClose}>
-      <section
-        className="cloud-providers-panel"
-        aria-label="ผู้ให้บริการคลาวด์"
-        aria-modal="true"
-        role="dialog"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header className="cloud-providers-header">
-          <Cloud size={18} />
-          <h2>ผู้ให้บริการคลาวด์</h2>
-          <button type="button" className="cloud-providers-close" onClick={onClose} aria-label="ปิด">
-            <X size={16} />
-          </button>
-        </header>
-
-        <section className="cloud-providers-section">
-          <h3>คีย์ API</h3>
-          {slots.map(({ provider, taskKind }) => {
-            const key = draftKey(provider, taskKind);
-            const status = statuses.find((s) => s.provider === provider && s.taskKind === taskKind);
-            return (
-              <div key={key} className="cloud-providers-card">
-                <div className="cloud-providers-card-title">
-                  <strong>{PROVIDER_LABELS[provider]}</strong>
-                  <small>{taskKind === "stt" ? "ถอดเสียง (STT)" : "LLM"}</small>
-                  {status?.configured && <span className="cloud-providers-badge">ตั้งค่าแล้ว ✓</span>}
-                </div>
-                {provider === "custom" && (
-                  <>
-                    <input
-                      className="cloud-providers-input"
-                      type="text"
-                      placeholder="https://your-endpoint.example.com"
-                      value={endpointDrafts[key] ?? ""}
-                      onChange={(e) => setEndpointDrafts((prev) => ({ ...prev, [key]: e.target.value }))}
-                    />
-                    <p className="cloud-providers-hint">
-                      ใส่คีย์ในช่อง API key ด้านล่าง อย่าใส่ไว้ใน URL
-                    </p>
-                  </>
-                )}
-                <input
-                  className="cloud-providers-input"
-                  type="password"
-                  placeholder="API key"
-                  value={keyDrafts[key] ?? ""}
-                  onChange={(e) => setKeyDrafts((prev) => ({ ...prev, [key]: e.target.value }))}
-                />
-                <div className="cloud-providers-card-actions">
-                  <button type="button" onClick={() => void saveKey(provider, taskKind)}>
-                    <KeyRound size={14} /> บันทึก
-                  </button>
-                  {status?.configured && (
-                    <button type="button" className="cloud-providers-clear" onClick={() => void clearKey(provider, taskKind)}>
-                      ลบ
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-          <p className="cloud-providers-hint">
-            สำหรับ LLM หากตั้งค่าหลายผู้ให้บริการ ระบบจะใช้ตามลำดับ: Anthropic → OpenAI → กำหนดเอง
-          </p>
-        </section>
-
-        <section className="cloud-providers-section">
-          <h3>นโยบายลำดับการประมวลผล</h3>
-          <div className="cloud-providers-card">
-            <p className="cloud-providers-chain">อุปกรณ์นี้ → เดสก์ท็อปที่จับคู่ → คลาวด์</p>
-            <label className="cloud-providers-toggle-row">
-              <span>อนุญาตให้ใช้คลาวด์สำหรับถอดเสียง (STT)</span>
-              <button
-                type="button"
-                className={`cloud-providers-switch ${policy.sttCloudEnabled ? "is-on" : ""}`}
-                role="switch"
-                aria-checked={policy.sttCloudEnabled}
-                onClick={() => void savePolicy({ ...policy, sttCloudEnabled: !policy.sttCloudEnabled })}
-              >
-                <i />
-              </button>
-            </label>
-            <label className="cloud-providers-toggle-row">
-              <span>อนุญาตให้ใช้คลาวด์สำหรับ LLM</span>
-              <button
-                type="button"
-                className={`cloud-providers-switch ${policy.llmCloudEnabled ? "is-on" : ""}`}
-                role="switch"
-                aria-checked={policy.llmCloudEnabled}
-                onClick={() => void savePolicy({ ...policy, llmCloudEnabled: !policy.llmCloudEnabled })}
-              >
-                <i />
-              </button>
-            </label>
-          </div>
-        </section>
-
-        <section className="cloud-providers-section">
-          <h3>ขีดจำกัดต่อวัน</h3>
-          <div className="cloud-providers-card">
-            <label className="cloud-providers-field">
-              <span>จำนวนครั้งสูงสุดต่อวัน (ต่อประเภทงาน)</span>
-              <input
-                className="cloud-providers-input cloud-providers-input--narrow"
-                type="number"
-                min={1}
-                value={dailyCapDraft}
-                onChange={(e) => setDailyCapDraft(e.target.value)}
-                onBlur={() => {
-                  const dailyCap = Math.max(1, Number(dailyCapDraft) || 1);
-                  setDailyCapDraft(String(dailyCap));
-                  void savePolicy({ ...policy, dailyCap });
-                }}
-              />
-            </label>
-            <dl className="cloud-providers-counts">
-              <div><dt>ถอดเสียงวันนี้</dt><dd>{counts.stt} / {policy.dailyCap}</dd></div>
-              <div><dt>LLM วันนี้</dt><dd>{counts.llm} / {policy.dailyCap}</dd></div>
-            </dl>
-          </div>
-        </section>
-
-        {error && <p className="cloud-providers-error">{error}</p>}
-      </section>
+      {content}
     </div>
   );
 }

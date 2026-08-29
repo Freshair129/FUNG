@@ -1,0 +1,89 @@
+/* src/components/HomeScreen.css */
+.home-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 32px 40px 32px 104px;
+  gap: 24px;
+}
+
+.home-screen__brand {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--graphite-soft);
+  text-transform: uppercase;
+}
+
+.home-screen__actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.home-screen__hero {
+  height: 52px;
+  padding: 0 28px;
+  border-radius: 14px;
+  border: none;
+  background: linear-gradient(145deg, #6573a0, #34456c);
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.home-screen__secondary {
+  height: 44px;
+  padding: 0 20px;
+  border-radius: 14px;
+  border: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.home-screen__list-label {
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--graphite-soft);
+  text-transform: uppercase;
+}
+
+.home-screen__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.home-screen__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #fffdf8, #ebe0cf);
+  box-shadow: var(--shadow);
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.home-screen__row-subtitle {
+  color: var(--graphite-soft);
+  font-size: 12px;
+}
+
+.theme-dark .home-screen__row {
+  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+}

@@ -248,7 +248,7 @@ button {
 .score-header {
   left: 104px;
   top: 18px;
-  width: 690px;
+  width: 666px;
   height: 50px;
   border-radius: 8px;
   padding: 12px 18px;
@@ -1121,9 +1121,9 @@ button {
 }
 
 .fab-topbar {
-  left: 848px;
+  left: 794px;
   top: 24px;
-  width: 432px;
+  width: 486px;
   height: 50px;
   border-radius: 14px;
   padding: 0 12px;

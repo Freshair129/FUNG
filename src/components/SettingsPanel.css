@@ -1,0 +1,126 @@
+/* src/components/SettingsPanel.css */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(25, 26, 29, 0.45);
+}
+
+.settings-stack {
+  width: min(720px, 92vw);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(145deg, #fffdf8, #ebe0cf);
+  border-radius: 16px;
+  border: 1px solid var(--line-soft);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.settings-header h2 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.settings-close {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #fffdf7, #e5dac7);
+  border: none;
+  color: var(--graphite);
+  cursor: pointer;
+}
+
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.settings-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-soft);
+  background: linear-gradient(145deg, #fffdf7, #e5dac7);
+  color: var(--graphite);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-tab.is-active {
+  background: linear-gradient(145deg, #6573a0, #34456c);
+  color: white;
+  border-color: transparent;
+}
+
+.settings-body {
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.settings-loading {
+  color: var(--graphite-soft);
+  font-size: 13px;
+}
+
+.settings-runtime {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.settings-runtime-start {
+  align-self: flex-start;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(145deg, #6573a0, #34456c);
+  color: white;
+  cursor: pointer;
+}
+
+.settings-runtime-start:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.settings-account-login {
+  display: grid;
+  gap: 16px;
+}
+
+.theme-dark .settings-stack {
+  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+}
+
+.theme-dark .settings-tab {
+  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+}
+
+.theme-dark .settings-tab.is-active {
+  background: linear-gradient(145deg, #7280aa, #394a77);
+  color: #fffdf7;
+}

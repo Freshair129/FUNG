@@ -1,0 +1,118 @@
+/* src/components/InstrumentRail.css */
+.instrument-rail {
+  position: absolute;
+  left: 16px;
+  top: 22px;
+  width: 74px;
+  height: 638px; /* 660 - 22, clears power-dock (top: 668px) by 8px */
+  z-index: 5;
+}
+
+.instrument-rail__shape {
+  position: absolute;
+  inset: 0;
+  filter: drop-shadow(4px 5px 10px rgba(112, 95, 74, 0.16));
+}
+
+.instrument-rail__stroke-outer {
+  fill: none;
+  stroke: rgba(82, 70, 54, 0.24);
+  stroke-width: 1.4;
+}
+
+.instrument-rail__stroke-inner {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.72);
+  stroke-width: 1;
+}
+
+.instrument-rail__content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.instrument-rail__vu {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  height: 96px;
+  margin-top: 14px;
+}
+
+.instrument-rail__bar {
+  width: 12px;
+  height: 100%;
+  border-radius: 4px;
+  background: rgba(232, 224, 208, 0.9);
+  display: flex;
+  flex-direction: column-reverse;
+  overflow: hidden;
+  box-shadow: inset 1px 1px 2px rgba(92, 78, 58, 0.2);
+}
+
+.instrument-rail__bar-seg {
+  width: 100%;
+}
+
+.instrument-rail__vu-label {
+  margin-top: 4px;
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: var(--graphite-soft);
+}
+
+.instrument-rail__buttons {
+  margin-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 11px;
+}
+
+.instrument-rail__button {
+  width: 48px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--line-soft);
+  background: linear-gradient(145deg, #fffdf7, #e5dac7);
+  box-shadow:
+    inset 1px 1px 0 var(--bevel-light),
+    inset -1px -1px 0 rgba(117, 99, 74, 0.1);
+  color: var(--graphite);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.instrument-rail__button.is-active {
+  background: linear-gradient(145deg, #6573a0, #34456c);
+  color: white;
+  box-shadow: inset 3px 3px 8px rgba(21, 29, 51, 0.32), inset -2px -2px 6px rgba(255, 255, 255, 0.18);
+  border-color: transparent;
+}
+
+.instrument-rail__button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.theme-dark .instrument-rail {
+  --rail-fill-start: #2f2b25;
+  --rail-fill-end: #1d1b18;
+}
+
+.theme-dark .instrument-rail__bar {
+  background: #3a342b;
+}
+
+.theme-dark .instrument-rail__button {
+  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+}
+
+.theme-dark .instrument-rail__button.is-active {
+  background: linear-gradient(145deg, #7280aa, #394a77);
+}

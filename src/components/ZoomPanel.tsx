@@ -17,7 +17,7 @@ const STATUS_LABEL: Record<ZoomConnectionStatus["status"], string> = {
   error: "ต้องเชื่อมต่อใหม่",
 };
 
-export function ZoomPanel({ onClose }: { onClose: () => void }) {
+export function ZoomPanel({ onClose, embedded }: { onClose: () => void; embedded?: boolean }) {
   const [status, setStatus] = useState<ZoomConnectionStatus>({ status: "disconnected", accountLabel: null, revokeFailed: false });
   // Held separately from `status`: the 2000ms poll overwrites `status` with
   // `read_connection`'s hardcoded `revoke_failed: false` on its very next
@@ -97,64 +97,70 @@ export function ZoomPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const content = (
+    <div className="zoom-panel">
+      <header className="zoom-panel-header">
+        <h2>นำเข้าจาก Zoom</h2>
+        <button type="button" onClick={onClose} aria-label="Close">×</button>
+      </header>
+      <div className="zoom-panel-status">
+        <span data-status={status.status}>{STATUS_LABEL[status.status]}</span>
+        {status.accountLabel && <span className="zoom-panel-account">{status.accountLabel}</span>}
+        {status.status === "connected" ? (
+          <button type="button" onClick={handleDisconnect}>ยกเลิกการเชื่อมต่อ</button>
+        ) : (
+          <button type="button" onClick={handleConnect} disabled={status.status === "connecting"}>
+            เชื่อมต่อ Zoom
+          </button>
+        )}
+      </div>
+      {error && <p className="zoom-panel-error">{error}</p>}
+      {revokeFailed && (
+        <p className="zoom-panel-error">
+          ยกเลิกการเชื่อมต่อในเครื่องแล้ว แต่เพิกถอนสิทธิ์ฝั่ง Zoom ไม่สำเร็จ — ลบแอปออกจาก Zoom Marketplace เพื่อตัดสิทธิ์ให้สมบูรณ์
+        </p>
+      )}
+      {status.status === "connected" && (
+        <ul className="zoom-panel-list">
+          {recordingsLoaded && recordings.length === 0 && (
+            <li className="zoom-panel-empty">ไม่พบ cloud recording ใน 30 วันที่ผ่านมา</li>
+          )}
+          {recordings.map((recording) => (
+            <li key={recording.uuid}>
+              <div>
+                <strong>{recording.topic}</strong>
+                <span>
+                  {new Date(recording.startTime).toLocaleString()} · {recording.durationMinutes} นาที ·{" "}
+                  {recording.hasParticipantAudio ? "เสียงแยกรายคน ✓" : "เสียงรวม (แยกผู้พูดด้วย AI)"}
+                </span>
+              </div>
+              <button
+                type="button"
+                disabled={busyUuids.has(recording.uuid) || queuedUuids.has(recording.uuid)}
+                onClick={() => void handleImport(recording.uuid)}
+              >
+                {queuedUuids.has(recording.uuid)
+                  ? "ส่งเข้าคิวแล้ว"
+                  : busyUuids.has(recording.uuid)
+                    ? "กำลังส่ง…"
+                    : "นำเข้า"}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="zoom-panel-note">
+        ไฟล์เสียงและ transcript ประมวลผลและเก็บในเครื่องนี้เท่านั้น การส่งเข้าคิวยังไม่ใช่การนำเข้าเสร็จสมบูรณ์ —
+        ติดตามผลลัพธ์จริงได้จากรายการ Jobs
+      </p>
+    </div>
+  );
+
+  if (embedded) return content;
+
   return (
     <div className="zoom-panel-backdrop" role="dialog" aria-label="Zoom import">
-      <div className="zoom-panel">
-        <header className="zoom-panel-header">
-          <h2>นำเข้าจาก Zoom</h2>
-          <button type="button" onClick={onClose} aria-label="Close">×</button>
-        </header>
-        <div className="zoom-panel-status">
-          <span data-status={status.status}>{STATUS_LABEL[status.status]}</span>
-          {status.accountLabel && <span className="zoom-panel-account">{status.accountLabel}</span>}
-          {status.status === "connected" ? (
-            <button type="button" onClick={handleDisconnect}>ยกเลิกการเชื่อมต่อ</button>
-          ) : (
-            <button type="button" onClick={handleConnect} disabled={status.status === "connecting"}>
-              เชื่อมต่อ Zoom
-            </button>
-          )}
-        </div>
-        {error && <p className="zoom-panel-error">{error}</p>}
-        {revokeFailed && (
-          <p className="zoom-panel-error">
-            ยกเลิกการเชื่อมต่อในเครื่องแล้ว แต่เพิกถอนสิทธิ์ฝั่ง Zoom ไม่สำเร็จ — ลบแอปออกจาก Zoom Marketplace เพื่อตัดสิทธิ์ให้สมบูรณ์
-          </p>
-        )}
-        {status.status === "connected" && (
-          <ul className="zoom-panel-list">
-            {recordingsLoaded && recordings.length === 0 && (
-              <li className="zoom-panel-empty">ไม่พบ cloud recording ใน 30 วันที่ผ่านมา</li>
-            )}
-            {recordings.map((recording) => (
-              <li key={recording.uuid}>
-                <div>
-                  <strong>{recording.topic}</strong>
-                  <span>
-                    {new Date(recording.startTime).toLocaleString()} · {recording.durationMinutes} นาที ·{" "}
-                    {recording.hasParticipantAudio ? "เสียงแยกรายคน ✓" : "เสียงรวม (แยกผู้พูดด้วย AI)"}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  disabled={busyUuids.has(recording.uuid) || queuedUuids.has(recording.uuid)}
-                  onClick={() => void handleImport(recording.uuid)}
-                >
-                  {queuedUuids.has(recording.uuid)
-                    ? "ส่งเข้าคิวแล้ว"
-                    : busyUuids.has(recording.uuid)
-                      ? "กำลังส่ง…"
-                      : "นำเข้า"}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <p className="zoom-panel-note">
-          ไฟล์เสียงและ transcript ประมวลผลและเก็บในเครื่องนี้เท่านั้น การส่งเข้าคิวยังไม่ใช่การนำเข้าเสร็จสมบูรณ์ —
-          ติดตามผลลัพธ์จริงได้จากรายการ Jobs
-        </p>
-      </div>
+      {content}
     </div>
   );
 }

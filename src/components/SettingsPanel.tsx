@@ -74,13 +74,13 @@ export function SettingsPanel({
         </nav>
         <div className="settings-body">
           <Suspense fallback={<p className="settings-loading">Loading…</p>}>
-            {activeTab === "account" && <ExternalAccountPanel onClose={() => {}} onOpenPortal={onOpenExternalAccountPortal} embedded />}
-            {activeTab === "tts" && <TtsProviderPanel onClose={() => {}} embedded />}
-            {activeTab === "cloud" && <CloudProvidersPanel onClose={() => {}} embedded />}
+            {activeTab === "account" && <ExternalAccountPanel onClose={onClose} onOpenPortal={onOpenExternalAccountPortal} embedded />}
+            {activeTab === "tts" && <TtsProviderPanel onClose={onClose} embedded />}
+            {activeTab === "cloud" && <CloudProvidersPanel onClose={onClose} embedded />}
             {activeTab === "fetch" && (
-              <MediaFetchPanel projectId={projectId} onClose={() => {}} onStarted={onFetchStarted} embedded />
+              <MediaFetchPanel projectId={projectId} onClose={onClose} onStarted={onFetchStarted} embedded />
             )}
-            {activeTab === "zoom" && <ZoomPanel onClose={() => {}} embedded />}
+            {activeTab === "zoom" && <ZoomPanel onClose={onClose} embedded />}
             {activeTab === "runtime" && (
               <div className="settings-runtime">
                 <p>Local API runtime status: <strong>{apiRunning ? "Running" : "Stopped"}</strong></p>

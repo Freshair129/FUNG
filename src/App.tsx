@@ -3,7 +3,6 @@ import {
   Activity,
   Archive,
   AudioLines,
-  Bell,
   Cloud,
   Download,
   Home,
@@ -1616,9 +1615,6 @@ export function App() {
                 title={theme === "light" ? "Dark mode" : "Light mode"}
               >
                 {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
-              </button>
-              <button type="button" className="icon-button no-drag" aria-label="Notifications">
-                <Bell size={16} />
               </button>
               <button type="button" className="action-chip no-drag" onClick={handleNewProject}>
                 <Download size={16} />

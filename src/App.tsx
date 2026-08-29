@@ -6,6 +6,7 @@ import {
   Bell,
   Cloud,
   Download,
+  Home,
   Loader2,
   Minimize2,
   Moon,
@@ -49,6 +50,7 @@ import {
 } from "./tauri";
 import { LiveMeetingPanel } from "./components/LiveMeetingPanel";
 import { InstrumentRail } from "./components/InstrumentRail";
+import { HomeScreen } from "./components/HomeScreen";
 import {
   isJobActionEnabled,
   jobActionBlockedReason,
@@ -672,6 +674,7 @@ export function App() {
   const [liveMeetingOpen, setLiveMeetingOpen] = useState(false);
   const [devicePairingPanelOpen, setDevicePairingPanelOpen] = useState(false);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
+  const [showHome, setShowHome] = useState(true);
   const [recording, setRecording] = useState(false);
   const [ttsPlaying, setTtsPlaying] = useState(false);
   const [ttsLoading, setTtsLoading] = useState(false);
@@ -954,6 +957,13 @@ export function App() {
     setActiveAnchor(anchor);
     setActiveView(viewByAnchor[anchor]);
   };
+
+  const enterMeetingWorkspace = (anchor: Anchor) => {
+    setShowHome(false);
+    activateAnchor(anchor);
+  };
+
+  const returnToHome = () => setShowHome(true);
 
   const activateTile = (tileId: string) => {
     setActiveTileByAnchor((current) => ({ ...current, [activeAnchor]: tileId }));
@@ -1285,6 +1295,24 @@ export function App() {
       </svg>
 
       <div className="stage-wrap" style={{ transform: `scale(${scale})` }}>
+        {showHome ? (
+          <HomeScreen
+            items={libraryItems}
+            onStartRecording={() => {
+              enterMeetingWorkspace("P1");
+              setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
+              setLiveMeetingOpen(true);
+            }}
+            onImport={() => {
+              enterMeetingWorkspace("P1");
+              void handleImportAndTranscribe();
+            }}
+            onOpenItem={(id) => {
+              setSelectedRecording(id);
+              enterMeetingWorkspace("P2");
+            }}
+          />
+        ) : (
         <main className="stage" aria-label="FUNG review workspace">
           <div className="panel-glow" data-tauri-drag-region aria-hidden="true" />
           <div className="panel-glass" data-tauri-drag-region>
@@ -1563,6 +1591,9 @@ export function App() {
               </button>
               <span>Command deck</span>
             </div>
+            <button type="button" className="icon-button no-drag" aria-label="Back to Home" onClick={returnToHome}>
+              <Home size={16} />
+            </button>
             <Segmented
               compact
               items={navItems.map((item) => item.label)}
@@ -1646,6 +1677,7 @@ export function App() {
           </div>
 
         </main>
+        )}
       </div>
     </div>
   );

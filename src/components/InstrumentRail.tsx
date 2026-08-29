@@ -16,8 +16,17 @@ interface InstrumentRailProps {
   levelRight: number;
 }
 
+// Right edge is a constant x=74 for the full height. The left edge steps
+// from x=0 (upper zone, wider) to x=10 (lower zone, narrower/stepped in) via
+// a single sweep=0 arc at local y:320-340 — the same relative direction and
+// sweep as the app's own panel notch (PANEL_PATH in App.tsx), whose seam
+// sits at canonical panel-space y:330-350. InstrumentRail renders as a
+// sibling of .panel-glass (stage space), while PANEL_PATH is drawn inside
+// .panel-rim at `inset: 12px` (panel space) — so panel-space y maps to
+// stage-space y+12, and this rail's own `top: 22px` subtracts again to get
+// local y. Seam: (330+12-22)=320 to (350+12-22)=340.
 const NOTCH_PATH =
-  "M 16,0 H 54 A 16 16 0 0 1 70,16 V 292 A 16 16 0 0 0 86,308 V 308 A 16 16 0 0 1 74,328 V 622 A 16 16 0 0 1 58,638 H 16 A 16 16 0 0 1 0,622 V 16 A 16 16 0 0 1 16,0 Z";
+  "M 16,0 H 58 A 16 16 0 0 1 74,16 V 622 A 16 16 0 0 1 58,638 H 26 A 16 16 0 0 1 10,622 V 340 A 16 16 0 0 0 0,320 V 16 A 16 16 0 0 1 16,0 Z";
 
 function VuBar({ level, id }: { level: number; id: string }) {
   const clamped = Math.max(0, Math.min(1, level));

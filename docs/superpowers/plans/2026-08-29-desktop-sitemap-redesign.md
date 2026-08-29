@@ -239,13 +239,51 @@ export function SettingsPanel({
 }
 ```
 
-- [ ] **Step 3: Check whether the wrapped panels accept an `embedded` prop**
+- [ ] **Step 3: Suppress each panel's own backdrop when rendered inside `SettingsPanel`**
 
-Run: `grep -n "interface.*Props" src/components/ExternalAccountPanel.tsx src/components/TtsProviderPanel.tsx src/components/CloudProvidersPanel.tsx src/components/MediaFetchPanel.tsx src/components/ZoomPanel.tsx`
+Every one of the five wrapped panels renders its own full-screen backdrop `<div>` around a single inner content element — nesting them inside `SettingsPanel`'s own `.settings-overlay` as-is would stack two backdrops. Each file follows the identical shape:
 
-None of them currently declare `embedded`. Add `embedded?: boolean` to each of these five prop interfaces (default unused — a no-op flag reserved for a follow-up pass that suppresses each panel's own backdrop/close-button chrome when shown inside `SettingsPanel`'s shared shell). For this task, just add the optional prop to each interface so `SettingsPanel.tsx` compiles; do not change each panel's internal rendering yet — that visual de-duplication (removing double backdrops) is follow-up work, noted in this plan's Task 4 Step 6 verification.
+```tsx
+  return (
+    <div className="X-overlay-or-backdrop" ...backdropProps>
+      <INNER className="Y" ...innerProps>
+        ...unchanged content...
+      </INNER>
+    </div>
+  );
+}
+```
 
-For each of the five files, find the line matching `interface .*Props {` and add `embedded?: boolean;` as the last field before the closing `}`.
+For each of the five files below, apply the same transform: add `embedded?: boolean;` to the props interface, then change the `return (` block to extract the inner element into a `content` variable and only render the outer backdrop `<div>` when `embedded` is not `true`. Do not change anything *inside* `INNER` — only the wrapper structure moves.
+
+**`src/components/ExternalAccountPanel.tsx`** — outer opens at line 31 (`<div className="account-overlay" role="presentation" onMouseDown={onClose}>`), inner opens at line 32 (`<section className="account-panel" aria-label="Account and external connections" ...>`), file ends at line 103 with `</section>\n    </div>\n  );\n}`. Change the return to:
+
+```tsx
+  const content = (
+    <section className="account-panel" aria-label="Account and external connections" /* keep every other existing prop on this element exactly as-is */>
+      {/* ...unchanged existing content... */}
+    </section>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <div className="account-overlay" role="presentation" onMouseDown={onClose}>
+      {content}
+    </div>
+  );
+}
+```
+
+**`src/components/TtsProviderPanel.tsx`** — outer opens at line 181 (`<div className="tts-panel-overlay" onClick={onClose}>`), inner opens at line 182 (`<div className="tts-panel" onClick={(e) => e.stopPropagation()}>`), file ends at line 320 with `</div>\n    </div>\n  );\n}`. Same transform: `content` becomes the `tts-panel` div (keep its own `onClick={(e) => e.stopPropagation()}` — harmless with no parent `onClick` when embedded), outer `tts-panel-overlay` div only renders when `!embedded`.
+
+**`src/components/CloudProvidersPanel.tsx`** — outer opens at line 130 (`<div className="cloud-providers-overlay" role="presentation" onMouseDown={onClose}>`), inner opens at line 131 (`<section className="cloud-providers-panel" aria-label="ผู้ให้บริการคลาวด์" ...>`), file ends at line 257 with `</section>\n    </div>\n  );\n}`. Same transform.
+
+**`src/components/MediaFetchPanel.tsx`** — outer opens at line 81 (`<div className="media-fetch-backdrop" role="dialog" aria-modal="true" aria-label="ดึงสื่อจากลิงก์">`), inner opens at line 82 (`<div className="media-fetch">`), file ends at line 156 with `</div>\n    </div>\n  );\n}`. Same transform.
+
+**`src/components/ZoomPanel.tsx`** — outer opens at line 101 (`<div className="zoom-panel-backdrop" role="dialog" aria-label="Zoom import">`), inner opens at line 102 (`<div className="zoom-panel">`), file ends at line 160 with `</div>\n    </div>\n  );\n}`. Same transform.
+
+After editing all five, run `grep -n "embedded" src/components/ExternalAccountPanel.tsx src/components/TtsProviderPanel.tsx src/components/CloudProvidersPanel.tsx src/components/MediaFetchPanel.tsx src/components/ZoomPanel.tsx` and confirm each file shows both the prop declaration and an `if (embedded) return content;` line.
 
 - [ ] **Step 4: Write `src/components/SettingsPanel.css`**
 
@@ -1108,5 +1146,6 @@ git commit -m "feat: add Home screen as the app's landing view"
 - §8 Open Questions (live VU data, modal-vs-screen for Settings, icon source, exact rail pixel math) → resolved where the plan needed a concrete answer (Settings = modal overlay; icons = `lucide-react`; rail math re-derived in canonical `1280×720` space in Task 3) or explicitly deferred with a note (live VU data — Task 4 Step 6 hardcodes `levelLeft`/`levelRight` to `0` and states this is follow-up work).
 
 **Known follow-up work not in this plan** (flagged inline where relevant, repeated here for visibility):
-- Live audio-level wiring for the VU meter.
-- Removing each wrapped settings panel's own backdrop/close-button chrome now that `SettingsPanel` provides a shared shell (Task 2 Step 3 adds the `embedded` prop but doesn't yet use it to suppress duplicate chrome — first pass will show a panel-within-a-panel look that a follow-up visual pass should clean up).
+- Live audio-level wiring for the VU meter (`InstrumentRail`'s `levelLeft`/`levelRight` are hardcoded to `0`).
+
+**Pre-flight finding resolved before execution:** the original draft of Task 2 Step 3 only declared an unused `embedded` prop, which would have left all five wrapped panels double-backdropped inside `SettingsPanel`. Confirmed by reading all five files' actual return statements (all follow the same backdrop-wrapping-content shape) and rewrote Step 3 to actually suppress each panel's own backdrop when `embedded` is true, with exact line numbers and wrapper tags for each file.

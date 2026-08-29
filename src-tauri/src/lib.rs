@@ -3060,8 +3060,134 @@ pub fn __debug_live_smoke(
     Ok(report)
 }
 
+/// Parses `KEY=value` lines from a `.env` file's contents. Blank lines and
+/// lines starting with `#` are skipped; surrounding whitespace and a single
+/// pair of wrapping double quotes on the value are trimmed. A line whose
+/// value is empty (`KEY=`, the repo's committed template) is skipped rather
+/// than emitted as `("KEY", "")`: `native_auth::configured_value` already
+/// treats an empty value as unconfigured, and leaving the key genuinely
+/// unset — instead of set-but-empty — keeps that the same for any other
+/// future reader that checks presence without also checking emptiness. This
+/// is the pure, testable half of `.env` loading — no filesystem or
+/// process-environment access happens here.
+fn parse_dotenv(contents: &str) -> Vec<(String, String)> {
+    contents
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+            let (key, value) = line.split_once('=')?;
+            let key = key.trim();
+            if key.is_empty() {
+                return None;
+            }
+            let value = value.trim();
+            let value = value
+                .strip_prefix('"')
+                .and_then(|rest| rest.strip_suffix('"'))
+                .unwrap_or(value);
+            if value.is_empty() {
+                return None;
+            }
+            Some((key.to_owned(), value.to_owned()))
+        })
+        .collect()
+}
+
+/// Loads `.env` into the process environment at startup so the native
+/// broker's `env::var("FUNG_SUPABASE_URL")`-style reads (see
+/// `native_auth::configured_value`) see the same project configuration the
+/// Vite frontend already reads automatically. `tauri dev` runs `cargo run`
+/// with the working directory at `src-tauri`, one level below the repo root
+/// where `.env` lives, so this walks up from the current directory looking
+/// for it — the same convention `dotenvy`/`dotenv` tooling uses. A missing
+/// file is not an error: packaged installs are expected to supply real
+/// OS/environment configuration instead. Variables already set in the process
+/// environment are never overwritten, so a real deployment value always wins
+/// over whatever is checked into `.env`.
+fn load_dotenv() {
+    let mut dir = env::current_dir().ok();
+    while let Some(candidate) = dir {
+        let path = candidate.join(".env");
+        if path.is_file() {
+            if let Ok(contents) = std::fs::read_to_string(&path) {
+                for (key, value) in parse_dotenv(&contents) {
+                    if env::var_os(&key).is_none() {
+                        // SAFETY: called once, synchronously, as the very
+                        // first statement in `run()` before Tauri spawns any
+                        // thread, so no concurrent env reader can observe a
+                        // torn write.
+                        unsafe { env::set_var(key, value) };
+                    }
+                }
+            }
+            break;
+        }
+        dir = candidate.parent().map(|parent| parent.to_path_buf());
+    }
+}
+
+#[cfg(test)]
+mod dotenv_tests {
+    use super::parse_dotenv;
+
+    #[test]
+    fn parse_dotenv_reads_simple_assignment() {
+        assert_eq!(
+            parse_dotenv("VITE_SUPABASE_URL=https://example.supabase.co"),
+            vec![(
+                "VITE_SUPABASE_URL".to_owned(),
+                "https://example.supabase.co".to_owned()
+            )]
+        );
+    }
+
+    #[test]
+    fn parse_dotenv_skips_blank_lines_and_comments() {
+        let contents = "\n# a comment\nFUNG_SUPABASE_URL=https://example.supabase.co\n\n";
+        assert_eq!(
+            parse_dotenv(contents),
+            vec![(
+                "FUNG_SUPABASE_URL".to_owned(),
+                "https://example.supabase.co".to_owned()
+            )]
+        );
+    }
+
+    #[test]
+    fn parse_dotenv_skips_empty_values_like_the_checked_in_env() {
+        // Regression for the desktop login flow: a blank `KEY=` line (the
+        // repo's committed `.env` template) must not become `("KEY", "")`
+        // that would then satisfy `env::var_os` and mask the real
+        // `auth_config_invalid` failure with something even more confusing.
+        assert_eq!(
+            parse_dotenv("VITE_SUPABASE_URL=\nVITE_SUPABASE_ANON_KEY="),
+            Vec::<(String, String)>::new()
+        );
+    }
+
+    #[test]
+    fn parse_dotenv_trims_wrapping_quotes_and_whitespace() {
+        assert_eq!(
+            parse_dotenv("  FUNG_SUPABASE_ANON_KEY = \"anon-key-value\"  "),
+            vec![(
+                "FUNG_SUPABASE_ANON_KEY".to_owned(),
+                "anon-key-value".to_owned()
+            )]
+        );
+    }
+
+    #[test]
+    fn parse_dotenv_ignores_malformed_lines_without_an_equals_sign() {
+        assert_eq!(parse_dotenv("not-a-valid-line"), Vec::new());
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    load_dotenv();
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())

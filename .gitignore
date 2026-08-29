@@ -36,3 +36,6 @@ public/*.apk
 
 # Local tooling config
 .claude/
+
+# Superpowers brainstorming session files (local mockups, not project artifacts)
+.superpowers/

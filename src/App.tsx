@@ -15,7 +15,6 @@ import {
   Sparkles,
   Sun,
   TimerReset,
-  UserCircle,
   Volume2,
   Wifi,
 } from "lucide-react";
@@ -50,24 +49,14 @@ import {
 } from "./tauri";
 import { LiveMeetingPanel } from "./components/LiveMeetingPanel";
 import { InstrumentRail } from "./components/InstrumentRail";
-import { supabaseConfigured } from "./lib/bootstrap";
-import "./components/AccountLoginPanel.css";
 import {
   isJobActionEnabled,
   jobActionBlockedReason,
   resolveJobAction,
 } from "./lib/jobActions";
 
-const AccountLoginPanel = lazy(() =>
-  import("./components/AccountLoginPanel").then((module) => ({ default: module.AccountLoginPanel })),
-);
 const DevicePairingPanel = lazy(() =>
   import("./components/DevicePairingPanel").then((module) => ({ default: module.DevicePairingPanel })),
-);
-// Backup needs no Supabase session, so it sits outside the `supabaseConfigured`
-// branch below: a local-only install must still be able to back itself up.
-const BackupPanel = lazy(() =>
-  import("./components/BackupPanel").then((module) => ({ default: module.BackupPanel })),
 );
 // Rendered at launch: an interrupted recording that nobody is told about is
 // indistinguishable from lost audio.
@@ -681,7 +670,6 @@ export function App() {
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
   const [liveMeetingOpen, setLiveMeetingOpen] = useState(false);
-  const [accountLoginPanelOpen, setAccountLoginPanelOpen] = useState(false);
   const [devicePairingPanelOpen, setDevicePairingPanelOpen] = useState(false);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -1265,54 +1253,6 @@ export function App() {
       )}
       {liveMeetingOpen && (
         <LiveMeetingPanel onClose={() => setLiveMeetingOpen(false)} projectId={selectedProjectId ?? null} />
-      )}
-      {accountLoginPanelOpen && (
-        <div
-          className="account-login-overlay"
-          role="presentation"
-          onClick={() => setAccountLoginPanelOpen(false)}
-        >
-          <div className="account-login-stack" onClick={(event) => event.stopPropagation()}>
-            {supabaseConfigured ? (
-              <Suspense
-                fallback={(
-                  <section className="account-login-panel" aria-label="กำลังเปิดบัญชี FUNG">
-                    <p className="account-login-status">กำลังเปิดบัญชีและอุปกรณ์…</p>
-                  </section>
-                )}
-              >
-                <AccountLoginPanel onClose={() => setAccountLoginPanelOpen(false)} />
-              </Suspense>
-            ) : (
-              <section className="account-login-panel" aria-label="บัญชี FUNG ยังไม่พร้อมใช้งาน">
-                <header className="account-login-header">
-                  <UserCircle size={18} />
-                  <h3>บัญชี &amp; อุปกรณ์</h3>
-                  <button
-                    type="button"
-                    className="account-login-close"
-                    onClick={() => setAccountLoginPanelOpen(false)}
-                    aria-label="ปิด"
-                  >
-                    ×
-                  </button>
-                </header>
-                <p className="account-login-error">
-                  ยังไม่ได้ตั้งค่า Supabase — เพิ่ม VITE_SUPABASE_URL และ VITE_SUPABASE_ANON_KEY เพื่อเปิดใช้บัญชีและการจับคู่อุปกรณ์
-                </p>
-              </section>
-            )}
-            <Suspense
-              fallback={(
-                <section className="account-login-panel" aria-label="กำลังเปิดการสำรองข้อมูล">
-                  <p className="account-login-status">กำลังเปิดการสำรองข้อมูล…</p>
-                </section>
-              )}
-            >
-              <BackupPanel invoke={nativeInvoke} projectId={selectedProjectId} />
-            </Suspense>
-          </div>
-        </div>
       )}
       {devicePairingPanelOpen && (
         <div

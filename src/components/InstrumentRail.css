@@ -100,6 +100,15 @@
   cursor: default;
 }
 
+.theme-dark .instrument-rail {
+  --rail-fill-start: #2f2b25;
+  --rail-fill-end: #1d1b18;
+}
+
+.theme-dark .instrument-rail__bar {
+  background: #3a342b;
+}
+
 .theme-dark .instrument-rail__button {
   background: linear-gradient(145deg, #2f2b25, #1d1b18);
 }

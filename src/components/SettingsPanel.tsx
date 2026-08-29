@@ -1,8 +1,14 @@
 import { lazy, Suspense, useState } from "react";
-import { Activity, Cloud, Link2, SlidersHorizontal, Volume2, X } from "lucide-react";
+import { Activity, Cloud, Link2, SlidersHorizontal, UserCircle, Volume2, X } from "lucide-react";
 import type { InvokeFn } from "../lib/backupFlow";
 import type { Job } from "../tauri";
+import { supabaseConfigured } from "../lib/bootstrap";
 import "./SettingsPanel.css";
+// Eagerly imported (not lazy) because the "Supabase not configured" fallback
+// below reuses these class names directly, and that fallback can render
+// without ever mounting the lazy AccountLoginPanel that normally pulls this
+// stylesheet in — mirrors the same eager import in App.tsx.
+import "./AccountLoginPanel.css";
 
 const ExternalAccountPanel = lazy(() =>
   import("./ExternalAccountPanel").then((m) => ({ default: m.ExternalAccountPanel })),
@@ -17,8 +23,12 @@ const MediaFetchPanel = lazy(() =>
   import("./MediaFetchPanel").then((m) => ({ default: m.MediaFetchPanel })),
 );
 const ZoomPanel = lazy(() => import("./ZoomPanel").then((m) => ({ default: m.ZoomPanel })));
+const AccountLoginPanel = lazy(() =>
+  import("./AccountLoginPanel").then((m) => ({ default: m.AccountLoginPanel })),
+);
+const BackupPanel = lazy(() => import("./BackupPanel").then((m) => ({ default: m.BackupPanel })));
 
-type SettingsTab = "account" | "tts" | "cloud" | "fetch" | "zoom" | "runtime";
+type SettingsTab = "account" | "tts" | "cloud" | "fetch" | "zoom" | "runtime" | "account-login";
 
 const TABS: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
   { id: "account", label: "Account and connection", icon: SlidersHorizontal },
@@ -27,6 +37,7 @@ const TABS: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[]
   { id: "fetch", label: "Fetch from URL", icon: Link2 },
   { id: "zoom", label: "Zoom import", icon: Cloud },
   { id: "runtime", label: "Runtime", icon: Activity },
+  { id: "account-login", label: "Account and Backup", icon: UserCircle },
 ];
 
 interface SettingsPanelProps {
@@ -81,6 +92,24 @@ export function SettingsPanel({
               <MediaFetchPanel projectId={projectId} onClose={onClose} onStarted={onFetchStarted} embedded />
             )}
             {activeTab === "zoom" && <ZoomPanel onClose={onClose} embedded />}
+            {activeTab === "account-login" && (
+              <div className="settings-account-login">
+                {supabaseConfigured ? (
+                  <AccountLoginPanel onClose={onClose} />
+                ) : (
+                  <section className="account-login-panel" aria-label="บัญชี FUNG ยังไม่พร้อมใช้งาน">
+                    <header className="account-login-header">
+                      <UserCircle size={18} />
+                      <h3>บัญชี &amp; อุปกรณ์</h3>
+                    </header>
+                    <p className="account-login-error">
+                      ยังไม่ได้ตั้งค่า Supabase — เพิ่ม VITE_SUPABASE_URL และ VITE_SUPABASE_ANON_KEY เพื่อเปิดใช้บัญชีและการจับคู่อุปกรณ์
+                    </p>
+                  </section>
+                )}
+                <BackupPanel invoke={invoke} projectId={projectId} />
+              </div>
+            )}
             {activeTab === "runtime" && (
               <div className="settings-runtime">
                 <p>Local API runtime status: <strong>{apiRunning ? "Running" : "Stopped"}</strong></p>

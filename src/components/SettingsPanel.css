@@ -106,3 +106,8 @@
   opacity: 0.5;
   cursor: default;
 }
+
+.settings-account-login {
+  display: grid;
+  gap: 16px;
+}

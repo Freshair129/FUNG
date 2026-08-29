@@ -43,9 +43,10 @@ test("web root keeps the landing surface", () => {
 });
 
 test("desktop bootstrap keeps Supabase consumers behind lazy boundaries", async () => {
-  const [mainSource, appSource] = await Promise.all([
+  const [mainSource, appSource, settingsSource] = await Promise.all([
     readFile(new URL("../src/main.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/App.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/SettingsPanel.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.doesNotMatch(mainSource, /^import .*\.\/landing\/LandingPage/m);
@@ -54,10 +55,18 @@ test("desktop bootstrap keeps Supabase consumers behind lazy boundaries", async 
   assert.match(mainSource, /^import \{ App \} from "\.\/App";/m);
   assert.doesNotMatch(mainSource, /import\("\.\/App"\)/);
 
-  assert.doesNotMatch(appSource, /^import .*\.\/components\/AccountLoginPanel"/m);
+  // AccountLoginPanel now mounts inside SettingsPanel (consolidated behind
+  // the rail's single Settings entry point) rather than directly in
+  // App.tsx, so it's SettingsPanel's lazy boundary that matters here -- App
+  // itself must not statically or dynamically reference it at all anymore.
+  // DevicePairingPanel still mounts directly from App.tsx (its own rail
+  // button), so that half is unchanged.
+  assert.doesNotMatch(appSource, /\.\/components\/AccountLoginPanel"/);
   assert.doesNotMatch(appSource, /^import .*\.\/components\/DevicePairingPanel"/m);
-  assert.match(appSource, /import\("\.\/components\/AccountLoginPanel"\)/);
   assert.match(appSource, /import\("\.\/components\/DevicePairingPanel"\)/);
+
+  assert.doesNotMatch(settingsSource, /^import .*\.\/AccountLoginPanel"/m);
+  assert.match(settingsSource, /import\("\.\/AccountLoginPanel"\)/);
 });
 
 test("left action rail contains added actions instead of overlapping the power dock", async () => {
@@ -69,18 +78,35 @@ test("left action rail contains added actions instead of overlapping the power d
   assert.doesNotMatch(sidebarRule, /grid-template-rows:\s*repeat\(6,/);
 });
 
-test("microphone rail control opens the real Live Meeting panel", async () => {
+test("record rail control opens the real Live Meeting panel", async () => {
+  // The mic/record control moved from a static aria-label="Open Live
+  // Meeting" button in the old fab-sidebar into InstrumentRail's onRecord
+  // prop (aria-label is now dynamic: "Start recording" / "Pause recording"),
+  // and its anchor navigation now goes through enterMeetingWorkspace()
+  // rather than calling setActiveAnchor directly. Locate the callback by its
+  // prop name and confirm both the callback body and the helper it calls
+  // still reach the same underlying state.
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
-  const labelIndex = appSource.indexOf('aria-label="Open Live Meeting"');
-  const buttonStart = appSource.lastIndexOf("<button", labelIndex);
-  const buttonEnd = appSource.indexOf("</button>", labelIndex);
-  const microphoneControl = appSource.slice(buttonStart, buttonEnd + "</button>".length);
+  const propIndex = appSource.indexOf("onRecord={");
+  const blockEnd = appSource.indexOf("}}", propIndex);
+  const onRecordCallback = appSource.slice(propIndex, blockEnd + "}}".length);
 
-  assert.notEqual(labelIndex, -1);
-  assert.match(microphoneControl, /setLiveMeetingOpen\(true\)/);
-  assert.match(microphoneControl, /setActiveAnchor\("P1"\)/);
-  assert.match(microphoneControl, /P1:\s*"live-capture"/);
-  assert.doesNotMatch(microphoneControl, /setRecording/);
+  assert.notEqual(propIndex, -1);
+  assert.match(onRecordCallback, /setLiveMeetingOpen\(true\)/);
+  assert.match(onRecordCallback, /enterMeetingWorkspace\("P1"\)/);
+  assert.match(onRecordCallback, /P1:\s*"live-capture"/);
+  assert.doesNotMatch(onRecordCallback, /setRecording/);
+
+  const enterWorkspaceIndex = appSource.indexOf("const enterMeetingWorkspace");
+  const enterWorkspaceEnd = appSource.indexOf("};", enterWorkspaceIndex);
+  const enterWorkspaceBody = appSource.slice(enterWorkspaceIndex, enterWorkspaceEnd + "};".length);
+
+  assert.notEqual(enterWorkspaceIndex, -1);
+  // enterMeetingWorkspace must still actually change the active P, not just
+  // hide Home -- otherwise "opens Live Meeting" would silently stop moving
+  // the user onto P1.
+  assert.match(enterWorkspaceBody, /activateAnchor\(anchor\)/);
+  assert.match(enterWorkspaceBody, /setShowHome\(false\)/);
 });
 
 test("the Android shell boots the mobile app, not the desktop shell", () => {
@@ -152,11 +178,27 @@ test("the desktop shell can reach the backup panel", async () => {
   // Regression: every backup command's only caller lived in src/web/, a
   // surface the Tauri runtime can never route to, so none of them were
   // reachable from the app that can actually run them.
+  //
+  // BackupPanel now mounts inside SettingsPanel (consolidated behind the
+  // rail's single Settings entry point) rather than directly in App.tsx, so
+  // this checks the whole chain: App.tsx wires its real native bridge into
+  // SettingsPanel, and SettingsPanel forwards that same bridge into
+  // BackupPanel — not just that BackupPanel appears somewhere.
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
-  assert.match(appSource, /import\("\.\/components\/BackupPanel"\)/);
+  assert.match(appSource, /import\("\.\/components\/SettingsPanel"\)/);
   // Matches the mount and its native bridge without pinning the prop list, so
   // adding a prop is not a test failure while removing the bridge still is.
-  assert.match(appSource, /<BackupPanel[^>]*invoke=\{nativeInvoke\}/);
+  // Non-greedy [\s\S]*? (not [^>]*) because an earlier prop's arrow function
+  // (e.g. onClose={() => ...}) contains its own ">", which would otherwise
+  // end the match before reaching the invoke prop.
+  assert.match(appSource, /<SettingsPanel[\s\S]*?invoke=\{nativeInvoke\}/);
+
+  const settingsSource = await readFile(
+    new URL("../src/components/SettingsPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(settingsSource, /import\("\.\/BackupPanel"\)/);
+  assert.match(settingsSource, /<BackupPanel[^>]*invoke=\{invoke\}/);
 
   const panelSource = await readFile(
     new URL("../src/components/BackupPanel.tsx", import.meta.url),

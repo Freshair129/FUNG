@@ -4,24 +4,17 @@ import {
   Archive,
   AudioLines,
   Bell,
-  ChevronRight,
   Cloud,
   Download,
-  HardDriveDownload,
-  Link2,
   Loader2,
-  Mic,
   Minimize2,
   Moon,
-  Play,
   Power,
   Search,
   ShieldCheck,
-  SlidersHorizontal,
   Sparkles,
   Sun,
   TimerReset,
-  Upload,
   UserCircle,
   Volume2,
   Wifi,
@@ -55,12 +48,8 @@ import {
   beginTranscriptLoad,
   settleTranscriptLoad,
 } from "./tauri";
-import { ExternalAccountPanel } from "./components/ExternalAccountPanel";
-import { MediaFetchPanel } from "./components/MediaFetchPanel";
-import { ZoomPanel } from "./components/ZoomPanel";
-import { TtsProviderPanel } from "./components/TtsProviderPanel";
 import { LiveMeetingPanel } from "./components/LiveMeetingPanel";
-import { CloudProvidersPanel } from "./components/CloudProvidersPanel";
+import { InstrumentRail } from "./components/InstrumentRail";
 import { supabaseConfigured } from "./lib/bootstrap";
 import "./components/AccountLoginPanel.css";
 import {
@@ -84,6 +73,9 @@ const BackupPanel = lazy(() =>
 // indistinguishable from lost audio.
 const RecoveryNotice = lazy(() =>
   import("./components/RecoveryNotice").then((module) => ({ default: module.RecoveryNotice })),
+);
+const SettingsPanel = lazy(() =>
+  import("./components/SettingsPanel").then((module) => ({ default: module.SettingsPanel })),
 );
 
 function formatMs(ms: number): string {
@@ -688,14 +680,10 @@ export function App() {
   const [activeView, setActiveView] = useState<ViewId>("review");
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
-  const [accountPanelOpen, setAccountPanelOpen] = useState(false);
-  const [zoomPanelOpen, setZoomPanelOpen] = useState(false);
-  const [mediaFetchOpen, setMediaFetchOpen] = useState(false);
-  const [ttsPanelOpen, setTtsPanelOpen] = useState(false);
-  const [cloudProvidersPanelOpen, setCloudProvidersPanelOpen] = useState(false);
   const [liveMeetingOpen, setLiveMeetingOpen] = useState(false);
   const [accountLoginPanelOpen, setAccountLoginPanelOpen] = useState(false);
   const [devicePairingPanelOpen, setDevicePairingPanelOpen] = useState(false);
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [ttsPlaying, setTtsPlaying] = useState(false);
   const [ttsLoading, setTtsLoading] = useState(false);
@@ -1054,7 +1042,7 @@ export function App() {
       // If no provider registered, open TTS settings
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes("ยังไม่ได้ลงทะเบียน")) {
-        setTtsPanelOpen(true);
+        setSettingsPanelOpen(true);
       }
     } finally {
       setTtsLoading(false);
@@ -1256,23 +1244,25 @@ export function App() {
 
   return (
     <div className={`app-shell theme-${theme}`}>
-      {accountPanelOpen && <ExternalAccountPanel onClose={() => setAccountPanelOpen(false)} onOpenPortal={openExternalAccountPortal} />}
-      {zoomPanelOpen && <ZoomPanel onClose={() => setZoomPanelOpen(false)} />}
-      {mediaFetchOpen && (
-        <MediaFetchPanel
-          projectId={selectedProjectId ?? null}
-          onClose={() => setMediaFetchOpen(false)}
-          onStarted={(job) => {
-            setJobs((current) => [job, ...current.filter((entry) => entry.id !== job.id)]);
-            void pollJobUntilDone(job.id).then(() => void refresh());
-          }}
-        />
-      )}
-      {ttsPanelOpen && <TtsProviderPanel onClose={() => setTtsPanelOpen(false)} />}
       <Suspense fallback={null}>
         <RecoveryNotice invoke={nativeInvoke} />
       </Suspense>
-      {cloudProvidersPanelOpen && <CloudProvidersPanel onClose={() => setCloudProvidersPanelOpen(false)} />}
+      {settingsPanelOpen && (
+        <Suspense fallback={null}>
+          <SettingsPanel
+            onClose={() => setSettingsPanelOpen(false)}
+            invoke={nativeInvoke}
+            projectId={selectedProjectId ?? null}
+            onStartApi={() => void handleStartApi()}
+            apiRunning={Boolean(health?.localApi.running)}
+            onFetchStarted={(job) => {
+              setJobs((current) => [job, ...current.filter((entry) => entry.id !== job.id)]);
+              void pollJobUntilDone(job.id).then(() => void refresh());
+            }}
+            onOpenExternalAccountPortal={openExternalAccountPortal}
+          />
+        </Suspense>
+      )}
       {liveMeetingOpen && (
         <LiveMeetingPanel onClose={() => setLiveMeetingOpen(false)} projectId={selectedProjectId ?? null} />
       )}
@@ -1358,23 +1348,6 @@ export function App() {
         <main className="stage" aria-label="FUNG review workspace">
           <div className="panel-glow" data-tauri-drag-region aria-hidden="true" />
           <div className="panel-glass" data-tauri-drag-region>
-            <section className="zone anchor-rail" aria-label="Anchor rail">
-              <div className="eyebrow">Pages</div>
-              {pageAnchors.map((anchor) => (
-                <button
-                  key={anchor.id}
-                  type="button"
-                  className={`anchor-chip ${anchor.id === activeAnchor ? "is-active" : ""}`}
-                  onClick={() => activateAnchor(anchor.id)}
-                  title={anchor.domain}
-                >
-                  <span>{anchor.id}</span>
-                  <em>{anchor.label}</em>
-                  <ChevronRight size={13} />
-                </button>
-              ))}
-            </section>
-
             <section className="zone score-header" data-tauri-drag-region aria-label="Score header">
               <div>
                 <div className="eyebrow">Meeting Mode / {activeAnchor}</div>
@@ -1676,113 +1649,27 @@ export function App() {
             </div>
           </div>
 
-          <div className="fab fab-sidebar no-drag">
-            <button
-              type="button"
-              className={`sidebar-action ${liveMeetingOpen ? "is-active" : ""}`}
-              aria-label="Open Live Meeting"
-              onClick={() => {
-                setActiveAnchor("P1");
-                setActiveView(viewByAnchor.P1);
-                setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
-                setLiveMeetingOpen(true);
-              }}
-            >
-              <Mic size={20} />
-            </button>
-            <button
-              type="button"
-              className={`sidebar-action ${transcribing ? "is-active" : ""}`}
-              aria-label="Import audio"
-              title="Import audio or video and transcribe locally"
-              disabled={transcribing}
-              onClick={() => void handleImportAndTranscribe()}
-            >
-              <Upload size={20} />
-            </button>
-            <button
-              type="button"
-              className="sidebar-action"
-              aria-label="Fetch from URL"
-              title="ดึงเสียงจากลิงก์แล้วถอดเสียงในเครื่อง"
-              onClick={() => setMediaFetchOpen(true)}
-            >
-              <Link2 size={20} />
-            </button>
-            <button
-              type="button"
-              className="sidebar-action"
-              aria-label="Playback"
-              onClick={() => void handleCreateJob("transcript.transcribe")}
-            >
-              <Play size={20} />
-            </button>
-            <button
-              type="button"
-              className="sidebar-action"
-              aria-label="Export subtitles"
-              title={
-                jobActionBlockedReason("export.render", Boolean(activeRecordingId)) ??
-                "ส่งออกซับไตเติล .srt และ .vtt ของการบันทึกนี้"
-              }
-              onClick={() => void handleCreateJob("export.render")}
-            >
-              <HardDriveDownload size={20} />
-            </button>
-            <button
-              type="button"
-              className="sidebar-action"
-              aria-label="Runtime"
-              onClick={() => void handleStartApi()}
-            >
-              <Activity size={20} />
-            </button>
-              <button
-                type="button"
-                className="sidebar-action"
-                aria-label="Settings"
-                title="Account and connection settings"
-                onClick={() => setAccountPanelOpen(true)}
-              >
-                <SlidersHorizontal size={20} />
-              </button>
-              <button
-                type="button"
-                className="sidebar-action"
-                aria-label="TTS Providers"
-                title="TTS Providers"
-                onClick={() => setTtsPanelOpen(true)}
-              >
-                <Volume2 size={20} />
-              </button>
-              <button
-                type="button"
-                className="sidebar-action"
-                aria-label="ผู้ให้บริการคลาวด์"
-                title="ผู้ให้บริการคลาวด์"
-                onClick={() => setCloudProvidersPanelOpen(true)}
-              >
-                <Cloud size={20} />
-              </button>
-              <button
-                type="button"
-                className="sidebar-action"
-                aria-label="บัญชี & อุปกรณ์"
-                title="บัญชี & อุปกรณ์"
-                onClick={() => setAccountLoginPanelOpen((open) => !open)}
-              >
-                <UserCircle size={20} />
-              </button>
-              <button
-                type="button"
-                className="sidebar-action"
-                aria-label="Zoom"
-                title="Import from Zoom"
-                onClick={() => setZoomPanelOpen(true)}
-              >
-                <Cloud size={20} />
-              </button>
-          </div>
+          <InstrumentRail
+            recording={liveMeetingOpen}
+            onRecord={() => {
+              setActiveAnchor("P1");
+              setActiveView(viewByAnchor.P1);
+              setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
+              setLiveMeetingOpen(true);
+            }}
+            onImport={() => void handleImportAndTranscribe()}
+            importDisabled={transcribing}
+            onPlayback={() => void handleCreateJob("transcript.transcribe")}
+            onExport={() => void handleCreateJob("export.render")}
+            exportTitle={
+              jobActionBlockedReason("export.render", Boolean(activeRecordingId)) ??
+              "ส่งออกซับไตเติล .srt และ .vtt ของการบันทึกนี้"
+            }
+            onPairDevice={() => setDevicePairingPanelOpen((open) => !open)}
+            onOpenSettings={() => setSettingsPanelOpen(true)}
+            levelLeft={0}
+            levelRight={0}
+          />
 
           <div className={`power-dock no-drag ${powerMenuOpen ? "is-open" : ""}`}>
             <div className="power-radial" aria-hidden={!powerMenuOpen}>

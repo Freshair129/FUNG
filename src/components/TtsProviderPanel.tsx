@@ -17,7 +17,7 @@ import type {
 } from "../mobile/model";
 import "./TtsProviderPanel.css";
 
-type Props = { onClose: () => void };
+type Props = { onClose: () => void; embedded?: boolean };
 
 type FormState = {
   label: string;
@@ -83,7 +83,7 @@ function buildConfigJson(form: FormState): string {
   }
 }
 
-export function TtsProviderPanel({ onClose }: Props) {
+export function TtsProviderPanel({ onClose, embedded }: Props) {
   const [providers, setProviders] = useState<ModelProvider[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -177,144 +177,150 @@ export function TtsProviderPanel({ onClose }: Props) {
   const f = (key: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((prev) => ({ ...prev, [key]: e.target.value } as FormState));
 
+  const content = (
+    <div className="tts-panel" onClick={(e) => e.stopPropagation()}>
+      <h2>
+        <Volume2 size={18} />
+        ผู้ให้บริการเสียงสังเคราะห์
+        <button className="tts-panel-close" onClick={onClose}><X size={16} /></button>
+      </h2>
+
+      {/* Provider cards */}
+      {providers.map((p) => {
+        const result = testResults[p.id];
+        const isTesting = testingId === p.id;
+        const indicatorClass = !p.enabled ? "off"
+          : isTesting ? "warn"
+          : result ? result.status
+          : "warn";
+        return (
+          <div key={p.id} className="tts-provider-card">
+            <div className="tts-provider-card-header">
+              <span className={`indicator ${indicatorClass}`} />
+              <strong>{p.label}</strong>
+            </div>
+            <div className="tts-provider-card-meta">
+              {p.runtimeLocation} · {p.enabled ? "เปิดใช้งาน" : "ปิดใช้งาน"}
+            </div>
+            <div className="tts-provider-card-actions">
+              <button onClick={() => void handleTest(p.id)} disabled={testingId !== null}>
+                {isTesting ? <Loader2 size={12} className="spin" /> : <Play size={12} />}
+                {" "}ทดสอบ
+              </button>
+              <button onClick={() => handleEdit(p)}><Pencil size={12} /> แก้ไข</button>
+              <button onClick={() => void handleToggle(p.id, p.enabled)}>
+                {p.enabled ? <ToggleRight size={12} /> : <ToggleLeft size={12} />}
+                {" "}{p.enabled ? "ปิดใช้งาน" : "เปิดใช้งาน"}
+              </button>
+            </div>
+            {result && !isTesting && (
+              <div className={`tts-test-result ${result.status}`}>
+                {result.status === "ok"
+                  ? `✅ สำเร็จ · ${result.latencyMs} ms`
+                  : `❌ ${result.message}`}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Empty state */}
+      {providers.length === 0 && !showForm && (
+        <div className="tts-empty">
+          <Volume2 size={32} />
+          <p>ยังไม่ได้ตั้งค่า TTS provider</p>
+          <p>เพิ่ม provider เพื่อใช้งานเสียงสังเคราะห์</p>
+        </div>
+      )}
+
+      {/* Add button */}
+      {!showForm && (
+        <button
+          className="btn-secondary"
+          style={{ width: "100%", marginTop: 12 }}
+          onClick={() => { setShowForm(true); setEditId(null); setForm(emptyForm); }}
+        >
+          <Plus size={14} /> เพิ่ม TTS Provider
+        </button>
+      )}
+
+      {/* Registration form */}
+      {showForm && (
+        <div className="tts-form">
+          <label>ประเภท</label>
+          <select value={form.runtimeType} onChange={f("runtimeType")}>
+            <option value="python_script">Python Script</option>
+            <option value="rest_api">REST API</option>
+            <option value="local_binary">Local Binary</option>
+          </select>
+
+          <label>ชื่อ</label>
+          <input value={form.label} onChange={f("label")} placeholder="เช่น F5-TTS-THAI" />
+
+          {form.runtimeType === "python_script" && (
+            <>
+              <label>Venv path</label>
+              <input value={form.venvPath} onChange={f("venvPath")} placeholder="D:\tts\.venv" />
+              <label>Script path</label>
+              <input value={form.scriptPath} onChange={f("scriptPath")} placeholder="D:\tts\synthesize.py" />
+              <label>Model path (optional)</label>
+              <input value={form.modelPath} onChange={f("modelPath")} placeholder="D:\tts\models\v1" />
+              <label>Device</label>
+              <div className="tts-form-row">
+                <label><input type="radio" name="device" value="cuda" checked={form.device === "cuda"} onChange={f("device")} /> CUDA</label>
+                <label><input type="radio" name="device" value="cpu" checked={form.device === "cpu"} onChange={f("device")} /> CPU</label>
+              </div>
+            </>
+          )}
+
+          {form.runtimeType === "rest_api" && (
+            <>
+              <label>Endpoint URL</label>
+              <input value={form.endpoint} onChange={f("endpoint")} placeholder="http://127.0.0.1:5000/synthesize" />
+              <label>Authorization header (optional)</label>
+              <input value={form.authHeader} onChange={f("authHeader")} placeholder="Bearer ..." />
+            </>
+          )}
+
+          {form.runtimeType === "local_binary" && (
+            <>
+              <label>Binary path</label>
+              <input value={form.binaryPath} onChange={f("binaryPath")} placeholder="C:\piper\piper.exe" />
+              <label>Model path (optional)</label>
+              <input value={form.modelPath} onChange={f("modelPath")} />
+              <label>Arguments template</label>
+              <input value={form.argsTemplate} onChange={f("argsTemplate")} placeholder="--text {text} --output {output}" />
+            </>
+          )}
+
+          {/* Validation feedback */}
+          {validation && !validation.ok && (
+            <div className="tts-test-result error">❌ {validation.error}</div>
+          )}
+          {validation && validation.warnings.length > 0 && (
+            <div className="tts-warnings">
+              ⚠️ {validation.warnings.join(" · ")}
+            </div>
+          )}
+
+          <div className="tts-form-actions">
+            <button className="btn-primary" onClick={() => void handleSave()} disabled={saving || !form.label}>
+              {saving ? "กำลังบันทึก..." : editId ? "อัปเดต" : "บันทึก"}
+            </button>
+            <button className="btn-secondary" onClick={() => { setShowForm(false); setEditId(null); }}>
+              ยกเลิก
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  if (embedded) return content;
+
   return (
     <div className="tts-panel-overlay" onClick={onClose}>
-      <div className="tts-panel" onClick={(e) => e.stopPropagation()}>
-        <h2>
-          <Volume2 size={18} />
-          ผู้ให้บริการเสียงสังเคราะห์
-          <button className="tts-panel-close" onClick={onClose}><X size={16} /></button>
-        </h2>
-
-        {/* Provider cards */}
-        {providers.map((p) => {
-          const result = testResults[p.id];
-          const isTesting = testingId === p.id;
-          const indicatorClass = !p.enabled ? "off"
-            : isTesting ? "warn"
-            : result ? result.status
-            : "warn";
-          return (
-            <div key={p.id} className="tts-provider-card">
-              <div className="tts-provider-card-header">
-                <span className={`indicator ${indicatorClass}`} />
-                <strong>{p.label}</strong>
-              </div>
-              <div className="tts-provider-card-meta">
-                {p.runtimeLocation} · {p.enabled ? "เปิดใช้งาน" : "ปิดใช้งาน"}
-              </div>
-              <div className="tts-provider-card-actions">
-                <button onClick={() => void handleTest(p.id)} disabled={testingId !== null}>
-                  {isTesting ? <Loader2 size={12} className="spin" /> : <Play size={12} />}
-                  {" "}ทดสอบ
-                </button>
-                <button onClick={() => handleEdit(p)}><Pencil size={12} /> แก้ไข</button>
-                <button onClick={() => void handleToggle(p.id, p.enabled)}>
-                  {p.enabled ? <ToggleRight size={12} /> : <ToggleLeft size={12} />}
-                  {" "}{p.enabled ? "ปิดใช้งาน" : "เปิดใช้งาน"}
-                </button>
-              </div>
-              {result && !isTesting && (
-                <div className={`tts-test-result ${result.status}`}>
-                  {result.status === "ok"
-                    ? `✅ สำเร็จ · ${result.latencyMs} ms`
-                    : `❌ ${result.message}`}
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {/* Empty state */}
-        {providers.length === 0 && !showForm && (
-          <div className="tts-empty">
-            <Volume2 size={32} />
-            <p>ยังไม่ได้ตั้งค่า TTS provider</p>
-            <p>เพิ่ม provider เพื่อใช้งานเสียงสังเคราะห์</p>
-          </div>
-        )}
-
-        {/* Add button */}
-        {!showForm && (
-          <button
-            className="btn-secondary"
-            style={{ width: "100%", marginTop: 12 }}
-            onClick={() => { setShowForm(true); setEditId(null); setForm(emptyForm); }}
-          >
-            <Plus size={14} /> เพิ่ม TTS Provider
-          </button>
-        )}
-
-        {/* Registration form */}
-        {showForm && (
-          <div className="tts-form">
-            <label>ประเภท</label>
-            <select value={form.runtimeType} onChange={f("runtimeType")}>
-              <option value="python_script">Python Script</option>
-              <option value="rest_api">REST API</option>
-              <option value="local_binary">Local Binary</option>
-            </select>
-
-            <label>ชื่อ</label>
-            <input value={form.label} onChange={f("label")} placeholder="เช่น F5-TTS-THAI" />
-
-            {form.runtimeType === "python_script" && (
-              <>
-                <label>Venv path</label>
-                <input value={form.venvPath} onChange={f("venvPath")} placeholder="D:\tts\.venv" />
-                <label>Script path</label>
-                <input value={form.scriptPath} onChange={f("scriptPath")} placeholder="D:\tts\synthesize.py" />
-                <label>Model path (optional)</label>
-                <input value={form.modelPath} onChange={f("modelPath")} placeholder="D:\tts\models\v1" />
-                <label>Device</label>
-                <div className="tts-form-row">
-                  <label><input type="radio" name="device" value="cuda" checked={form.device === "cuda"} onChange={f("device")} /> CUDA</label>
-                  <label><input type="radio" name="device" value="cpu" checked={form.device === "cpu"} onChange={f("device")} /> CPU</label>
-                </div>
-              </>
-            )}
-
-            {form.runtimeType === "rest_api" && (
-              <>
-                <label>Endpoint URL</label>
-                <input value={form.endpoint} onChange={f("endpoint")} placeholder="http://127.0.0.1:5000/synthesize" />
-                <label>Authorization header (optional)</label>
-                <input value={form.authHeader} onChange={f("authHeader")} placeholder="Bearer ..." />
-              </>
-            )}
-
-            {form.runtimeType === "local_binary" && (
-              <>
-                <label>Binary path</label>
-                <input value={form.binaryPath} onChange={f("binaryPath")} placeholder="C:\piper\piper.exe" />
-                <label>Model path (optional)</label>
-                <input value={form.modelPath} onChange={f("modelPath")} />
-                <label>Arguments template</label>
-                <input value={form.argsTemplate} onChange={f("argsTemplate")} placeholder="--text {text} --output {output}" />
-              </>
-            )}
-
-            {/* Validation feedback */}
-            {validation && !validation.ok && (
-              <div className="tts-test-result error">❌ {validation.error}</div>
-            )}
-            {validation && validation.warnings.length > 0 && (
-              <div className="tts-warnings">
-                ⚠️ {validation.warnings.join(" · ")}
-              </div>
-            )}
-
-            <div className="tts-form-actions">
-              <button className="btn-primary" onClick={() => void handleSave()} disabled={saving || !form.label}>
-                {saving ? "กำลังบันทึก..." : editId ? "อัปเดต" : "บันทึก"}
-              </button>
-              <button className="btn-secondary" onClick={() => { setShowForm(false); setEditId(null); }}>
-                ยกเลิก
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      {content}
     </div>
   );
 }

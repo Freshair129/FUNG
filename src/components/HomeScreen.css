@@ -83,3 +83,7 @@
   color: var(--graphite-soft);
   font-size: 12px;
 }
+
+.theme-dark .home-screen__row {
+  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+}

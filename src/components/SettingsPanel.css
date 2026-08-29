@@ -111,3 +111,16 @@
   display: grid;
   gap: 16px;
 }
+
+.theme-dark .settings-stack {
+  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+}
+
+.theme-dark .settings-tab {
+  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+}
+
+.theme-dark .settings-tab.is-active {
+  background: linear-gradient(145deg, #7280aa, #394a77);
+  color: #fffdf7;
+}

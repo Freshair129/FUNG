@@ -14,10 +14,6 @@
   filter: drop-shadow(4px 5px 10px rgba(112, 95, 74, 0.16));
 }
 
-.instrument-rail__fill {
-  fill: url(#instrumentRailGradient);
-}
-
 .instrument-rail__stroke-outer {
   fill: none;
   stroke: rgba(82, 70, 54, 0.24);
@@ -28,8 +24,6 @@
   fill: none;
   stroke: rgba(255, 255, 255, 0.72);
   stroke-width: 1;
-  transform: scale(0.985);
-  transform-origin: center;
 }
 
 .instrument-rail__content {
@@ -104,4 +98,12 @@
 .instrument-rail__button:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+.theme-dark .instrument-rail__button {
+  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+}
+
+.theme-dark .instrument-rail__button.is-active {
+  background: linear-gradient(145deg, #7280aa, #394a77);
 }

@@ -579,7 +579,7 @@ function Segmented<T extends string>({
   compact?: boolean;
   items: readonly T[];
   onChange: (item: T) => void;
-  value: T;
+  value?: T;
 }) {
   return (
     <div className={`segmented ${compact ? "segmented--compact" : ""}`} role="tablist">
@@ -1597,17 +1597,17 @@ export function App() {
                 <Search size={16} />
               </button>
               <span>Command deck</span>
-              <button type="button" className="icon-button no-drag" aria-label="Back to Home" onClick={returnToHome}>
-                <Home size={16} />
-              </button>
             </div>
             <Segmented
               compact
               items={navItems.map((item) => item.label)}
               onChange={onViewChange}
-              value={viewLabel}
+              value={showHome ? undefined : viewLabel}
             />
             <div className="topbar-actions">
+              <button type="button" className="icon-button no-drag" aria-label="Back to Home" onClick={returnToHome}>
+                <Home size={16} />
+              </button>
               <button
                 type="button"
                 className="icon-button no-drag"

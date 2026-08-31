@@ -727,6 +727,7 @@ mod tests {
             page_cache_mb: Some(16),
             read_only: Some(false),
             vector_dim: Some(4),
+            retention: None,
         })
         .unwrap();
         crate::genesis_adapter::install(&storage).unwrap();
@@ -871,6 +872,7 @@ mod tests {
             page_cache_mb: Some(16),
             read_only: Some(false),
             vector_dim: Some(4),
+            retention: None,
         })
         .unwrap();
         assert_eq!(restored.stable_frontier(), source_frontier);

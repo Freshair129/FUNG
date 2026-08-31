@@ -1534,6 +1534,7 @@ mod tests {
             page_cache_mb: Some(16),
             read_only: Some(false),
             vector_dim: Some(4),
+            retention: None,
         })
         .expect("open Genesis storage");
         crate::genesis_adapter::install(&storage).expect("install FUNG schema");

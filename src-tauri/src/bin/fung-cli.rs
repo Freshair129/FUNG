@@ -16,6 +16,7 @@ fn main() {
                 page_cache_mb: Some(16),
                 read_only: Some(false),
                 vector_dim: Some(384),
+                retention: None,
             }) {
                 Ok(storage) => {
                     println!(

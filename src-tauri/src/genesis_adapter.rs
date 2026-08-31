@@ -1781,6 +1781,7 @@ mod tests {
             page_cache_mb: Some(16),
             read_only: Some(false),
             vector_dim: Some(4),
+            retention: None,
         })
         .unwrap();
         install(&storage).unwrap();
@@ -1846,6 +1847,10 @@ mod tests {
     #[test]
     fn note_and_relation_share_genesis_row_graph_commit_path() {
         let (path, storage) = open();
+        // Relative, not absolute: since WP-1.3 the engine's frontier also
+        // counts the schema registrations `open()` performs, so the invariant
+        // under test is the delta — one durable transaction per commit.
+        let base = storage.stable_frontier();
         let timestamp = "2026-07-20T00:00:00Z".to_string();
         for id in ["note-a", "note-b"] {
             commit_note(
@@ -1886,7 +1891,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(storage.stable_frontier(), 3);
+        assert_eq!(storage.stable_frontier(), base + 3);
         assert!(storage.node_view("note-a").is_some());
         assert!(storage.node_view("note-b").is_some());
         drop(storage);
@@ -1902,6 +1907,7 @@ mod tests {
             page_cache_mb: Some(16),
             read_only: Some(false),
             vector_dim: Some(4),
+            retention: None,
         })
         .unwrap();
         install(&storage).unwrap();
@@ -1984,6 +1990,7 @@ mod tests {
             page_cache_mb: Some(16),
             read_only: Some(false),
             vector_dim: Some(4),
+            retention: None,
         })
         .unwrap();
         let edges = query(
@@ -2186,6 +2193,7 @@ mod tests {
             page_cache_mb: Some(16),
             read_only: Some(false),
             vector_dim: Some(4),
+            retention: None,
         })
         .unwrap();
 
@@ -2204,6 +2212,10 @@ mod tests {
     #[test]
     fn capture_checkpoint_is_durable_in_genesis_transactions() {
         let (path, storage) = open();
+        // Delta, not absolute: `open()`'s schema registrations advance the
+        // frontier too since WP-1.3. One durable transaction per step is the
+        // invariant.
+        let base = storage.stable_frontier();
         let started = start_capture(
             &storage,
             "project-mobile",
@@ -2234,7 +2246,7 @@ mod tests {
 
         let finished = finish_capture(&storage, &appended, "2026-07-20T00:00:03Z").unwrap();
         assert_eq!(finished.status, "completed");
-        assert_eq!(storage.stable_frontier(), 3);
+        assert_eq!(storage.stable_frontier(), base + 3);
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
     }
@@ -2242,6 +2254,8 @@ mod tests {
     #[test]
     fn legacy_sqlite_is_read_once_into_signed_genesis_rows() {
         let (path, storage) = open();
+        // Delta, not absolute — see capture_checkpoint test.
+        let base = storage.stable_frontier();
         let legacy = path.join("fung.db");
         let connection = Connection::open(&legacy).unwrap();
         connection.execute_batch("CREATE TABLE projects(id TEXT PRIMARY KEY,name TEXT NOT NULL,storage_path TEXT NOT NULL,active_recording_id TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL); INSERT INTO projects VALUES('legacy-project','Legacy','projects/legacy',NULL,'t','t');").unwrap();
@@ -2256,7 +2270,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(rows[0]["projects.name"], "Legacy");
-        assert_eq!(storage.stable_frontier(), 1);
+        assert_eq!(storage.stable_frontier(), base + 1);
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
     }

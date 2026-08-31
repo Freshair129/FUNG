@@ -1,5 +1,5 @@
 ---
-version: "0.2.16b"
+version: "0.2.17b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-08-31T00:00:00+07:00,Claude"
 status: "beta"
@@ -270,6 +270,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.17b | Bumped GenesisBlockDB to main tip `79b41a3` (0.2.5): offset paging now rides mainline plus the SQL-surface/edge-projection/journal-retention work. `OpenOptions` gained `retention` (FUNG passes `None` = `frontier_only`, the prior behavior), and three frontier assertions became deltas because `open()`'s schema registrations now advance the frontier. Rust 419/419, Vite build and focused Node suites passing. |
 | 0.2.16b | Closed the 1000-row read ceiling: GenesisBlockDB `1ff6862` adds primary-key-ordered offset paging, FUNG pins it, `query_all` reads length-driven tables whole, and every refusal/truncation reader now reads complete. Rust 419/419, engine relational suites green, frontend build and focused Node suites passing. |
 | 0.2.15b | Truth-synced merged Google Drive/Native Broker local evidence, current focused tests, baseline warnings, and the Docker-bounded W1 verification gap. |
 | 0.2.14b | Added the approved local Google Drive implementation slice: native PKCE/keyring adapter, authenticated metadata/audit function, separate Desktop UI, resumable appDataFolder transport, and digest-bound restore. Real provider, deployment, clean-install, and device proof remain open. |
@@ -294,7 +295,8 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
-| 0.2.16b | 2026-08-31 | beta | Closed the 1000-row read ceiling via GenesisBlockDB offset paging (`1ff6862`) and whole-read `query_all` across all length-driven readers; summarise/export/delegate/backup now cover recordings past 1000 rows. | working-tree | Claude |
+| 0.2.17b | 2026-08-31 | beta | Bumped GenesisBlockDB to main `79b41a3` (0.2.5) with `retention: None` on every `OpenOptions` and delta-based frontier assertions; Rust 419/419, frontend build and Node suites green. | working-tree | Claude |
+| 0.2.16b | 2026-08-31 | beta | Closed the 1000-row read ceiling via GenesisBlockDB offset paging (`1ff6862`) and whole-read `query_all` across all length-driven readers; summarise/export/delegate/backup now cover recordings past 1000 rows. | `db0b779` | Claude |
 | 0.2.15b | 2026-08-26 | beta | Truth-synced merged Google Drive/Native Broker local evidence, current focused tests, baseline warnings, and the Docker-bounded W1 verification gap. | `888aded` | ATHER |
 | 0.2.14b | 2026-08-23 | beta | Added the approved local Google Drive native PKCE/keyring, metadata audit, separate UI, resumable appDataFolder transport, and digest-bound restore; external provider/deployment/device gates remain open. | working-tree | ATHER |
 | 0.2.13b | 2026-08-23 | beta | Staged the pinned faster-whisper small model and 11-file CUDA 12/cuDNN 9 bundle; standalone GPU smoke passed, while Live Meeting/device/connector UAT remains open. | working-tree | ATHER |

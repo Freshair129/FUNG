@@ -840,6 +840,7 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         page_cache_mb: Some(64),
         read_only: Some(false),
         vector_dim: Some(384),
+        retention: None,
     })
     .map_err(|error| AppError::Genesis(error.to_string()))?;
     genesis_adapter::install(&genesis).map_err(AppError::Genesis)?;
@@ -2717,6 +2718,7 @@ pub fn __debug_db_probe(path: &str) -> Result<String, String> {
         page_cache_mb: Some(16),
         read_only: Some(false),
         vector_dim: Some(384),
+        retention: None,
     })
     .map_err(|error| format!("open failed: {error}"))?;
 
@@ -2812,6 +2814,7 @@ pub fn __debug_live_smoke(
         page_cache_mb: Some(32),
         read_only: Some(false),
         vector_dim: Some(384),
+        retention: None,
     })
     .map_err(|error| format!("open storage: {error}"))?;
     genesis_adapter::install(&storage)?;
@@ -3388,6 +3391,7 @@ mod transcript_view_tests {
             page_cache_mb: Some(16),
             read_only: Some(false),
             vector_dim: Some(4),
+            retention: None,
         })
         .unwrap();
         genesis_adapter::install(&storage).unwrap();
@@ -3635,6 +3639,7 @@ mod import_handoff_tests {
             page_cache_mb: Some(16),
             read_only: Some(false),
             vector_dim: Some(4),
+            retention: None,
         })
         .unwrap();
         genesis_adapter::install(&storage).unwrap();

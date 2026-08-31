@@ -25,7 +25,7 @@ cpal = "0.16"
 hound = "3.5"
 curve25519-dalek = "4"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
-genesis-block-native = { git = "https://github.com/Freshair129/GenesisBlock.git", rev = "1ff6862968d125970008c3c4bd31c9b4260b8c13", default-features = false, features = ["mobile"] }
+genesis-block-native = { git = "https://github.com/Freshair129/GenesisBlock.git", rev = "79b41a3f4ae4026d086b634c631f4f4a7ccbd142", default-features = false, features = ["mobile"] }
 keyring = { version = "3", features = ["windows-native"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "multipart"] }
 rand = "0.8"

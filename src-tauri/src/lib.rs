@@ -1054,7 +1054,9 @@ fn job_by_id(storage: &genesis_block_native::Storage, job_id: &str) -> AppResult
 
 #[tauri::command]
 fn list_jobs(state: State<'_, AppState>) -> AppResult<Vec<Job>> {
-    let mut jobs = genesis_adapter::query(
+    // Read whole before sorting: with more than one engine page of jobs, a
+    // single capped read could miss the newest rows entirely.
+    let mut jobs = genesis_adapter::query_all(
         &state.genesis,
         "jobs",
         &[
@@ -1074,7 +1076,6 @@ fn list_jobs(state: State<'_, AppState>) -> AppResult<Vec<Job>> {
             "updated_at",
         ],
         vec![],
-        genesis_adapter::ROW_CAP,
     )
     .map_err(AppError::Genesis)?
     .into_iter()
@@ -1561,28 +1562,23 @@ fn tts_synthesize_text(
     })
 }
 
-/// A project's transcript, and whether it is all of it.
+/// A recording's transcript, read whole.
 ///
-/// This used to be a bare `Vec<TranscriptSegment>` read with one
-/// project-scoped query at the engine's row ceiling. A project past that
-/// ceiling rendered a transcript that simply stopped — no marker, no
-/// scrollbar hint, nothing to distinguish it from a meeting that ended
-/// there. The count is not incidental to FUNG: a three-hour session is
-/// roughly 1500–2500 segments, so the truncated case was the normal one for
-/// the product's own headline use.
+/// The read pages past the engine's single-query row ceiling via
+/// `genesis_adapter::query_all`, so `segments` is always the complete
+/// transcript. The `capped`/`cap`/`capped_recording_ids` fields date from
+/// when the engine had no offset and a long recording could only be
+/// truncated; they are kept so the frontend contract does not change shape,
+/// and they now always report "nothing missing".
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TranscriptView {
     segments: Vec<TranscriptSegment>,
-    /// True when at least one recording could not be read whole, so
-    /// `segments` is known to be missing material.
+    /// Always false: the read pages until the last short page.
     capped: bool,
-    /// The engine ceiling responsible, so the UI can name a number rather
-    /// than say "too long".
+    /// The engine's single-read page size, kept for contract stability.
     cap: u32,
-    /// Which recordings are incomplete. A project can have one oversized
-    /// recording and five intact ones, and saying which is the difference
-    /// between a usable transcript and a suspect one.
+    /// Always empty, kept for contract stability.
     capped_recording_ids: Vec<String>,
 }
 
@@ -1648,9 +1644,8 @@ fn transcript_view(
     }
 
     let mut segments: Vec<TranscriptSegment> = Vec::new();
-    let mut capped_recording_ids: Vec<String> = Vec::new();
 
-    let page = genesis_adapter::query_capped(
+    let rows = genesis_adapter::query_all(
         genesis,
         "transcript_segments",
         &[
@@ -1678,10 +1673,7 @@ fn transcript_view(
         ],
     )
     .map_err(AppError::Genesis)?;
-    if page.capped {
-        capped_recording_ids.push(recording_id.to_string());
-    }
-    for row in page.rows {
+    for row in rows {
         let speaker_id = row
             .get("transcript_segments.speaker_id")
             .and_then(serde_json::Value::as_str)
@@ -1714,9 +1706,12 @@ fn transcript_view(
 
     segments.sort_by_key(|segment| segment.start_ms);
     Ok(TranscriptView {
-        capped: !capped_recording_ids.is_empty(),
+        // `query_all` pages past the engine's single-read ceiling, so the
+        // read is always whole now. The fields stay for frontend contract
+        // stability; they are truthfully never set.
+        capped: false,
         cap: genesis_adapter::ROW_CAP,
-        capped_recording_ids,
+        capped_recording_ids: Vec::new(),
         segments,
     })
 }
@@ -3449,19 +3444,30 @@ mod transcript_view_tests {
     }
 
     #[test]
-    fn a_selected_recording_past_the_ceiling_is_reported_and_named() {
-        // Truncation is unavoidable here — the engine has no cursor — so the
-        // requirement is that it is visible and names the selected recording.
+    fn a_selected_recording_past_the_ceiling_is_read_whole() {
+        // The engine now takes an offset, so a recording longer than one
+        // engine page is read in full — ordered, complete, and unflagged.
         let (path, storage) = open_storage();
         seed(&storage, 2, genesis_adapter::ROW_CAP as i64 + 100);
 
         let view = transcript_view(&storage, "p1", "r1").unwrap();
-        assert!(view.capped);
-        assert_eq!(view.cap, genesis_adapter::ROW_CAP);
-        assert_eq!(view.capped_recording_ids, vec!["r1".to_string()]);
-        // The segments it did read are still returned: incomplete is not
-        // empty, and the user keeps what there is.
-        assert_eq!(view.segments.len(), genesis_adapter::ROW_CAP as usize);
+        assert!(!view.capped, "a paged read has nothing to warn about");
+        assert!(view.capped_recording_ids.is_empty());
+        assert_eq!(
+            view.segments.len(),
+            genesis_adapter::ROW_CAP as usize + 100
+        );
+        // Whole and in playback order: every page landed, none twice.
+        assert!(view
+            .segments
+            .windows(2)
+            .all(|pair| pair[0].start_ms <= pair[1].start_ms));
+        let ids: std::collections::HashSet<&str> = view
+            .segments
+            .iter()
+            .map(|segment| segment.id.as_str())
+            .collect();
+        assert_eq!(ids.len(), view.segments.len(), "no duplicated page rows");
 
         drop(storage);
         let _ = std::fs::remove_dir_all(path);

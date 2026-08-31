@@ -1141,16 +1141,6 @@ fn spawn_coordinator(
     });
 }
 
-/// Transcribes chunks the live worker missed, after the session has ended.
-/// Returns how many are *still* untranscribed, so the caller can report the
-/// shortfall rather than implying the transcript is complete.
-///
-/// Failure here is not fatal: the audio is already durable, and a recording
-/// with a partial transcript is a truthful state as long as it is stated.
-#[allow(clippy::too_many_arguments)]
-/// Rows read per query. GenesisBlockDB rejects any limit outside `1..1000`.
-const GAP_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
-
 /// Maps a chunk filename back to the capture channel that wrote it.
 ///
 /// The channel decides which speaker a recovered segment is attributed to, so
@@ -1189,7 +1179,7 @@ fn chunks_missing_transcript(
     project_id: &str,
     recording_id: &str,
 ) -> Result<Vec<RawChunk>, String> {
-    let segments = genesis_adapter::query(
+    let segments = genesis_adapter::query_all(
         storage,
         "transcript_segments",
         &["speaker_id", "start_ms"],
@@ -1198,16 +1188,7 @@ fn chunks_missing_transcript(
             "recording_id",
             serde_json::json!(recording_id),
         )],
-        GAP_QUERY_LIMIT,
     )?;
-    // A truncated read would make already-transcribed chunks look empty and
-    // this pass would write their segments a second time. Refuse instead.
-    if segments.len() as u32 >= GAP_QUERY_LIMIT {
-        return Err(format!(
-            "recording has at least {GAP_QUERY_LIMIT} transcript segments, more than one query \
-             can enumerate — filling gaps could duplicate existing text"
-        ));
-    }
     let covered: Vec<(String, i64)> = segments
         .iter()
         .map(|row| {
@@ -1223,7 +1204,7 @@ fn chunks_missing_transcript(
         })
         .collect();
 
-    let chunks = genesis_adapter::query(
+    let chunks = genesis_adapter::query_all(
         storage,
         "audio_chunks",
         &[
@@ -1240,14 +1221,7 @@ fn chunks_missing_transcript(
             "recording_id",
             serde_json::json!(recording_id),
         )],
-        GAP_QUERY_LIMIT,
     )?;
-    if chunks.len() as u32 >= GAP_QUERY_LIMIT {
-        return Err(format!(
-            "recording has at least {GAP_QUERY_LIMIT} audio chunks, more than one query can \
-             enumerate"
-        ));
-    }
 
     let mut missing = Vec::new();
     for row in &chunks {

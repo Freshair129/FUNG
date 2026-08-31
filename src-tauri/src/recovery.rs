@@ -134,7 +134,7 @@ fn reconcile_recording(
     recording_id: &str,
     canonical_audio_path: &str,
 ) -> Result<(usize, Vec<String>, usize), String> {
-    let rows = genesis_adapter::query(
+    let rows = genesis_adapter::query_all(
         storage,
         "audio_chunks",
         &["file_path"],
@@ -143,7 +143,6 @@ fn reconcile_recording(
             "recording_id",
             serde_json::json!(recording_id),
         )],
-        GENESIS_QUERY_LIMIT,
     )?;
     let known: Vec<String> = rows
         .iter()
@@ -360,7 +359,7 @@ pub(crate) fn recover_recording(
 
     // Where each channel's timeline currently ends, from the rows that did
     // commit before the crash.
-    let rows = genesis_adapter::query(
+    let rows = genesis_adapter::query_all(
         storage,
         "audio_chunks",
         &["file_path", "end_ms"],
@@ -369,7 +368,6 @@ pub(crate) fn recover_recording(
             "recording_id",
             serde_json::json!(recording_id),
         )],
-        GENESIS_QUERY_LIMIT,
     )?;
     let mut high_water: BTreeMap<String, i64> = BTreeMap::new();
     for row in &rows {

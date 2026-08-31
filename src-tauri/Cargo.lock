@@ -1932,7 +1932,7 @@ dependencies = [
 [[package]]
 name = "genesis-block-native"
 version = "0.2.0"
-source = "git+https://github.com/Freshair129/GenesisBlock.git?rev=27cbb285aea635e31311ef2053d21f16e915f1fb#27cbb285aea635e31311ef2053d21f16e915f1fb"
+source = "git+https://github.com/Freshair129/GenesisBlock.git?rev=1ff6862968d125970008c3c4bd31c9b4260b8c13#1ff6862968d125970008c3c4bd31c9b4260b8c13"
 dependencies = [
  "axum",
  "bincode",

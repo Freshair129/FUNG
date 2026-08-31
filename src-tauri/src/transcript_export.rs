@@ -34,10 +34,9 @@ use uuid::Uuid;
 
 use crate::genesis_adapter;
 
-/// Rows one query can return. GenesisBlockDB rejects any limit outside
-/// `1..1000` and its relational filters are equality-only with no offset, so
-/// this is a hard ceiling on a single read rather than a page size — see
-/// [`load_cues`], which refuses rather than truncating.
+/// The engine's single-read page size. Segment reads go through
+/// `genesis_adapter::query_all`, which pages past it; this remains the bound
+/// for reads that genuinely want at most one page (speakers, artifact list).
 const SEGMENT_READ_CAP: u32 = crate::genesis_adapter::ROW_CAP;
 
 /// Shortest cue this will write. A zero-length cue is not displayed by any
@@ -173,12 +172,8 @@ pub(crate) fn to_vtt(cues: &[Cue]) -> String {
     out
 }
 
-/// Reads one recording's segments, with speaker names resolved.
-///
-/// Refuses rather than truncates when the read hits [`SEGMENT_READ_CAP`]. A
-/// subtitle file is judged complete by whether it plays to the end, so one
-/// that stops at cue 1000 does not look broken — it looks like the recording
-/// ended there. Failing is the only outcome that tells the truth.
+/// Reads one recording's segments whole, with speaker names resolved, in
+/// playback order.
 pub(crate) fn load_cues(
     storage: &genesis_block_native::Storage,
     project_id: &str,
@@ -204,7 +199,10 @@ pub(crate) fn load_cues(
     })
     .collect();
 
-    let page = genesis_adapter::query_capped(
+    // `query_all` pages past the engine's single-read ceiling, so the file
+    // written is always the whole transcript — the truncated-but-silent
+    // export this read used to refuse against cannot happen.
+    let rows = genesis_adapter::query_all(
         storage,
         "transcript_segments",
         &["id", "speaker_id", "start_ms", "end_ms", "text"],
@@ -215,15 +213,7 @@ pub(crate) fn load_cues(
         )],
     )?;
 
-    if page.capped {
-        return Err(format!(
-            "ถอดเสียงได้ {SEGMENT_READ_CAP} ท่อนขึ้นไป ซึ่งเกินเพดานการอ่านครั้งเดียวของ storage engine \
-             — ไฟล์ที่ได้จะขาดท้ายโดยไม่มีอะไรบอก จึงไม่เขียนไฟล์ (ต้องแก้ที่ engine ให้อ่านเป็นหน้าได้ก่อน)"
-        ));
-    }
-
-    Ok(page
-        .rows
+    let mut cues: Vec<Cue> = rows
         .into_iter()
         .filter_map(|row| {
             Some(Cue {
@@ -241,7 +231,11 @@ pub(crate) fn load_cues(
                     .to_string(),
             })
         })
-        .collect())
+        .collect();
+    // Paged reads come back in primary-key order, which is unrelated to
+    // playback order for UUID ids; a subtitle file needs its cues in time.
+    cues.sort_by_key(|cue| cue.start_ms);
+    Ok(cues)
 }
 
 /// Writes `.srt` and `.vtt` for one recording and records both in
@@ -625,21 +619,24 @@ mod tests {
     }
 
     #[test]
-    fn a_recording_past_the_read_ceiling_is_refused_not_truncated() {
-        // The defect this exists to prevent: a subtitle file that stops at
-        // cue 1000 does not look broken to a viewer — it looks like the
-        // recording ended there. No file is better than a plausible one.
+    fn a_recording_past_the_read_ceiling_is_exported_whole() {
+        // This used to refuse, because a subtitle file that stops at cue
+        // 1000 looks like a recording that ended there. The engine now takes
+        // an offset, so the export pages instead: every cue lands, tail
+        // included, in playback order.
         let (path, storage) = open_storage();
         let project_dir = path.join("project");
         std::fs::create_dir_all(&project_dir).unwrap();
-        seed(&storage, &project_dir, SEGMENT_READ_CAP as i64 + 200);
+        let total = SEGMENT_READ_CAP as i64 + 200;
+        seed(&storage, &project_dir, total);
 
-        let error = render_subtitles(&storage, "p1", "r1").unwrap_err();
-        assert!(error.contains(&SEGMENT_READ_CAP.to_string()), "{error}");
-        assert!(
-            !project_dir.join("exports").exists(),
-            "a refused export must not leave a partial file behind"
-        );
+        let export = render_subtitles(&storage, "p1", "r1").unwrap();
+        assert_eq!(export.cue_count, total as usize);
+
+        let srt = std::fs::read_to_string(&export.srt_path).unwrap();
+        // The last cue is the one that used to vanish.
+        assert!(srt.contains(&format!("บรรทัด {}", total - 1)), "srt tail missing");
+        assert!(srt.trim_end().ends_with(&format!("บรรทัด {}", total - 1)));
 
         drop(storage);
         let _ = std::fs::remove_dir_all(path);

@@ -182,11 +182,6 @@ pub(crate) struct LocalDiarizationOutcome {
 /// provenance; only the far side is unknown. See the module docs.
 const SUBJECT_CHANNEL: &str = crate::live_meeting::CHANNEL_SYSTEM;
 
-/// The storage engine caps one query at 1000 rows and offers no cursor, so a
-/// recording past this many chunks or segments loses its tail. Stated at the
-/// call sites below rather than silently truncated.
-const QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
-
 /// Diarizes a locally captured recording's far-side audio and re-labels the
 /// segments it covers.
 ///
@@ -344,7 +339,7 @@ fn system_chunks(
     storage: &genesis_block_native::Storage,
     recording_id: &str,
 ) -> Result<Vec<SystemChunk>, String> {
-    let rows = crate::genesis_adapter::query(
+    let rows = crate::genesis_adapter::query_all(
         storage,
         "audio_chunks",
         &["file_path", "start_ms", "sequence_no"],
@@ -353,13 +348,7 @@ fn system_chunks(
             "recording_id",
             serde_json::json!(recording_id),
         )],
-        QUERY_LIMIT,
     )?;
-    if rows.len() as u32 >= QUERY_LIMIT {
-        return Err(format!(
-            "การบันทึกนี้มีมากกว่า {QUERY_LIMIT} ช่วงเสียง — เกินกว่าที่จะอ่านได้ในคำสั่งเดียว"
-        ));
-    }
 
     let mut chunks: Vec<(i64, SystemChunk)> = Vec::new();
     for row in &rows {
@@ -420,7 +409,7 @@ fn apply_turns(
     turns: &[crate::speaker_merge::SpeakerTurn],
 ) -> Result<(usize, usize), String> {
     let subject_speaker_id = crate::live_meeting::speaker_id_for(project_id, "them");
-    let rows = crate::genesis_adapter::query(
+    let rows = crate::genesis_adapter::query_all(
         storage,
         "transcript_segments",
         &[
@@ -437,13 +426,7 @@ fn apply_turns(
             "recording_id",
             serde_json::json!(recording_id),
         )],
-        QUERY_LIMIT,
     )?;
-    if rows.len() as u32 >= QUERY_LIMIT {
-        return Err(format!(
-            "การบันทึกนี้มีมากกว่า {QUERY_LIMIT} ช่วงข้อความ — เกินกว่าที่จะอ่านได้ในคำสั่งเดียว"
-        ));
-    }
 
     let existing: Vec<crate::speaker_merge::ExistingSegment> = rows
         .iter()

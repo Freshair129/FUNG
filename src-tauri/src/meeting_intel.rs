@@ -23,16 +23,11 @@ use crate::graph_build::{call_llm, llm_provider_config};
 use crate::live_meeting::{RecentSegment, SharedRecent};
 use crate::{genesis_adapter, now, AppError, AppResult, AppState};
 
-/// GenesisBlockDB rejects any relational query with a limit above 1000 and
-/// offers no cursor, so a project past this many summaries or a ledger past
-/// this many model runs loses the tail. The previous read used 200, which
-/// was below the engine's own ceiling for no stated reason.
-const SUMMARY_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
-
 const TOPIC_INTERVAL: Duration = Duration::from_secs(45);
 const TOPIC_WINDOW_SEGMENTS: usize = 40;
-/// The relational engine caps every query at 1000 rows with no cursor
-/// (see graph_build.rs); searches below inherit that cap and say so.
+/// The engine's single-read page size. Length-driven reads in this module go
+/// through `genesis_adapter::query_all`, which pages past it; this constant
+/// remains for reads that genuinely want "at most one page".
 const ENGINE_ROW_CAP: u32 = crate::genesis_adapter::ROW_CAP;
 
 // ---------------------------------------------------------------------------
@@ -265,7 +260,7 @@ pub(crate) fn meeting_ask(
         )],
         None => vec![],
     };
-    let segment_rows = genesis_adapter::query(
+    let segment_rows = genesis_adapter::query_all(
         &state.genesis,
         "transcript_segments",
         &[
@@ -277,10 +272,12 @@ pub(crate) fn meeting_ask(
             "created_at",
         ],
         segment_filter,
-        ENGINE_ROW_CAP,
     )
     .map_err(AppError::Genesis)?;
-    let searched_rows_capped = segment_rows.len() >= ENGINE_ROW_CAP as usize;
+    // `query_all` pages past the engine ceiling, so the search corpus is
+    // whole. Kept as a field for frontend contract stability; truthfully
+    // never set any more.
+    let searched_rows_capped = false;
 
     let mut scored: Vec<(usize, String, serde_json::Value)> = segment_rows
         .into_iter()
@@ -302,12 +299,11 @@ pub(crate) fn meeting_ask(
     scored.truncate(12);
 
     // Knowledge-graph nodes (topics/decisions/actions extracted earlier).
-    let graph_rows = genesis_adapter::query(
+    let graph_rows = genesis_adapter::query_all(
         &state.genesis,
         "graph_nodes",
         &["id", "project_id", "entity_type", "label"],
         vec![],
-        ENGINE_ROW_CAP,
     )
     .unwrap_or_default();
     let mut graph_hits: Vec<serde_json::Value> = graph_rows
@@ -507,7 +503,12 @@ fn load_segments(
     })
     .collect();
 
-    let page = genesis_adapter::query_capped(
+    // Read whole, not refused: `query_all` pages past the engine's
+    // single-read ceiling, so a summary is always built on the complete
+    // transcript — the failure mode this read used to refuse against (a
+    // summary missing its last hour that read like a complete one) is gone
+    // at the source.
+    let rows = genesis_adapter::query_all(
         storage,
         "transcript_segments",
         &["id", "recording_id", "speaker_id", "start_ms", "text"],
@@ -517,21 +518,7 @@ fn load_segments(
             serde_json::json!(recording_id),
         )],
     )?;
-    // Refused, not truncated. Everything downstream of this read goes into an
-    // LLM prompt and comes back as "the meeting" — a narrative, a timeline, a
-    // decisions list. A summary built on a transcript missing its last hour
-    // does not look partial; it looks like a meeting that ended early, and it
-    // is written into `summaries` with the same provenance as a complete one.
-    // Of every consequence of this ceiling, that is the one nobody can spot
-    // afterwards.
-    if page.capped {
-        return Err(format!(
-            "การบันทึกนี้มีอย่างน้อย {} ท่อน ซึ่งเกินเพดานการอ่านครั้งเดียวของ storage engine              — สรุปที่ได้จะขาดช่วงท้ายโดยอ่านเหมือนสรุปครบ จึงไม่สรุปให้",
-            genesis_adapter::ROW_CAP
-        ));
-    }
-    let mut segments: Vec<SegmentView> = page
-        .rows
+    let mut segments: Vec<SegmentView> = rows
         .into_iter()
         .filter_map(|row| {
             Some(SegmentView {
@@ -1048,18 +1035,12 @@ pub(crate) fn meeting_summaries(
     state: State<'_, AppState>,
 ) -> AppResult<MeetingSummaries> {
     let run_ids = |filters: Vec<_>| -> AppResult<HashSet<String>> {
-        Ok(genesis_adapter::query(
-            &state.genesis,
-            "model_runs",
-            &["id"],
-            filters,
-            SUMMARY_QUERY_LIMIT,
-        )
-        .map_err(AppError::Genesis)?
-        .iter()
-        .filter_map(|row| row.get("model_runs.id").and_then(serde_json::Value::as_str))
-        .map(str::to_owned)
-        .collect())
+        Ok(genesis_adapter::query_all(&state.genesis, "model_runs", &["id"], filters)
+            .map_err(AppError::Genesis)?
+            .iter()
+            .filter_map(|row| row.get("model_runs.id").and_then(serde_json::Value::as_str))
+            .map(str::to_owned)
+            .collect())
     };
 
     let runs_for_recording = run_ids(vec![genesis_adapter::eq(
@@ -1068,14 +1049,13 @@ pub(crate) fn meeting_summaries(
         serde_json::json!(recording_id),
     )])?;
     // Genesis filters are equality-only with no `IN` and no join, so the
-    // second set is fetched whole and membership is decided in Rust. A
-    // ledger with more model runs than the ceiling returns a partial set,
-    // which is reported rather than quietly turning unread runs into
-    // orphans.
+    // second set is fetched whole and membership is decided in Rust. Whole
+    // now means whole: `query_all` pages past the engine's single-read
+    // ceiling, so no run count leaves unread runs to misattribute.
     let known_runs = run_ids(vec![])?;
-    let attribution_complete = (known_runs.len() as u32) < SUMMARY_QUERY_LIMIT;
+    let attribution_complete = true;
 
-    let summary_rows = genesis_adapter::query(
+    let summary_rows = genesis_adapter::query_all(
         &state.genesis,
         "summaries",
         &[
@@ -1091,7 +1071,6 @@ pub(crate) fn meeting_summaries(
             "project_id",
             serde_json::json!(project_id),
         )],
-        SUMMARY_QUERY_LIMIT,
     )
     .map_err(AppError::Genesis)?;
 
@@ -1389,20 +1368,26 @@ mod tests {
     }
 
     #[test]
-    fn a_transcript_past_the_read_ceiling_is_refused_not_summarised() {
-        // The defect: everything downstream of `load_segments` goes into an
-        // LLM prompt and comes back as "the meeting". A summary built on a
-        // transcript missing its last hour does not read as partial — it
-        // reads as a meeting that ended early, and lands in `summaries` with
-        // the same provenance as a complete one. A 3-hour session is roughly
-        // 1500-2500 segments, so this was the normal case, not the edge one.
+    fn a_transcript_past_the_read_ceiling_is_loaded_whole() {
+        // This used to refuse, because a summary built on a truncated
+        // transcript reads as a meeting that ended early. The engine now
+        // takes an offset, so `load_segments` pages instead: a 3-hour
+        // session (~1500-2500 segments) summarises from its whole
+        // transcript, tail included.
         let (path, storage) = open_storage();
-        seed(&storage, genesis_adapter::ROW_CAP as i64 + 300);
+        let total = genesis_adapter::ROW_CAP as i64 + 300;
+        seed(&storage, total);
 
-        let error = load_segments(&storage, "p1", "r1").unwrap_err();
-        assert!(
-            error.contains(&genesis_adapter::ROW_CAP.to_string()),
-            "the refusal must name the ceiling that caused it: {error}"
+        let segments = load_segments(&storage, "p1", "r1").unwrap();
+        assert_eq!(segments.len(), total as usize);
+        // In playback order with the tail present — the rows past the old
+        // ceiling are the ones that used to vanish.
+        assert!(segments
+            .windows(2)
+            .all(|pair| pair[0].start_ms <= pair[1].start_ms));
+        assert_eq!(
+            segments.last().unwrap().text,
+            format!("บรรทัด {}", total - 1)
         );
 
         drop(storage);

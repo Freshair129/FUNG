@@ -7,12 +7,6 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-/// The storage engine hard-caps every relational query at 1000 rows and
-/// offers no offset/cursor, so a project or recording whose rows exceed this
-/// ceiling loses visibility past the first page. Documented at each call site
-/// below rather than silently working around it.
-const QUERY_ROW_CEILING: u32 = crate::genesis_adapter::ROW_CAP;
-
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct ExtractedItem {
     pub(crate) label: String,
@@ -458,13 +452,10 @@ pub(crate) fn run_graph_build(
     job_id: &str,
 ) -> Result<(), String> {
     // 1) Structural layer (always succeeds independently of the LLM).
-    // NOTE (query ceiling): capped at 1000 transcript segments — the engine
-    // rejects any limit above that. A recording with more than 1000 segments
-    // silently loses its tail here: those segments are absent from both the
-    // evidence-segment-id list used below and the LLM prompt. There is no
-    // offset/cursor to page around this for a read that must return every
-    // segment in one shot the way this prompt needs it.
-    let mut segment_rows = genesis_adapter::query(
+    // `query_all` pages past the engine's single-read ceiling, so a long
+    // recording's tail reaches both the evidence-segment-id list and the LLM
+    // prompt.
+    let mut segment_rows = genesis_adapter::query_all(
         storage,
         "transcript_segments",
         &["id", "start_ms", "text", "speaker_id"],
@@ -473,29 +464,12 @@ pub(crate) fn run_graph_build(
             "recording_id",
             serde_json::json!(recording_id),
         )],
-        QUERY_ROW_CEILING,
     )?;
     segment_rows.sort_by_key(|row| {
         row.get("transcript_segments.start_ms")
             .and_then(serde_json::Value::as_i64)
             .unwrap_or(0)
     });
-    if segment_rows.len() >= QUERY_ROW_CEILING as usize {
-        let timestamp = now();
-        let _ = genesis_adapter::commit_rows(
-            storage,
-            vec![genesis_adapter::upsert(
-                "job_events",
-                serde_json::json!({
-                    "id": Uuid::new_v4().to_string(),
-                    "job_id": job_id,
-                    "status": "running",
-                    "message": "transcript exceeds the 1000-row query ceiling; graph extraction covers only the first 1000 segments",
-                    "created_at": timestamp,
-                }),
-            )],
-        );
-    }
 
     // Speakers for the `spoke_in` edges must be scoped to *this recording*,
     // not the whole project: a project can hold multiple recordings, and
@@ -514,7 +488,7 @@ pub(crate) fn run_graph_build(
         })
         .map(str::to_owned)
         .collect();
-    let turn_rows = genesis_adapter::query(
+    let turn_rows = genesis_adapter::query_all(
         storage,
         "speaker_turns",
         &["speaker_id"],
@@ -523,31 +497,14 @@ pub(crate) fn run_graph_build(
             "recording_id",
             serde_json::json!(recording_id),
         )],
-        QUERY_ROW_CEILING,
     )?;
-    if turn_rows.len() >= QUERY_ROW_CEILING as usize {
-        let timestamp = now();
-        let _ = genesis_adapter::commit_rows(
-            storage,
-            vec![genesis_adapter::upsert(
-                "job_events",
-                serde_json::json!({
-                    "id": Uuid::new_v4().to_string(),
-                    "job_id": job_id,
-                    "status": "running",
-                    "message": "recording's speaker turns exceed the 1000-row query ceiling; some turn-only speakers may be missing from the graph",
-                    "created_at": timestamp,
-                }),
-            )],
-        );
-    }
     recording_speaker_ids.extend(turn_rows.iter().filter_map(|row| {
         row.get("speaker_turns.speaker_id")
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned)
     }));
 
-    let speaker_rows = genesis_adapter::query(
+    let speaker_rows = genesis_adapter::query_all(
         storage,
         "speakers",
         &["id", "display_name"],
@@ -556,24 +513,7 @@ pub(crate) fn run_graph_build(
             "project_id",
             serde_json::json!(project_id),
         )],
-        QUERY_ROW_CEILING,
     )?;
-    if speaker_rows.len() >= QUERY_ROW_CEILING as usize {
-        let timestamp = now();
-        let _ = genesis_adapter::commit_rows(
-            storage,
-            vec![genesis_adapter::upsert(
-                "job_events",
-                serde_json::json!({
-                    "id": Uuid::new_v4().to_string(),
-                    "job_id": job_id,
-                    "status": "running",
-                    "message": "project speakers exceed the 1000-row query ceiling; some of this recording's speakers may be missing from the graph",
-                    "created_at": timestamp,
-                }),
-            )],
-        );
-    }
     let speakers: Vec<(String, String)> = speaker_rows
         .iter()
         .filter_map(|row| {
@@ -599,19 +539,11 @@ pub(crate) fn run_graph_build(
     let _ = crate::set_job_status(storage, job_id, "running", Some(20), None);
 
     // 2) Find (but do not yet delete) old extraction rows for this recording,
-    //    so a re-run replaces rather than duplicates them.
-    // NOTE (query ceiling): these two queries are filtered by project_id (the
-    // only equality filter available — prefix filtering happens in Rust), so
-    // they return this recording's stale gx:/gxe: rows mixed in with every
-    // other graph node/edge in the project, still capped at 1000 rows total.
-    // If a project's cumulative graph_nodes/graph_edges exceed 1000, some of
-    // this recording's prior extraction rows can fall outside the page and
-    // survive the cleanup below — a re-run would then leave orphaned rows
-    // from the previous run alongside the freshly-inserted ones instead of
-    // replacing them. There is no offset to page further into an
-    // equality-only, non-deletable remainder, so this is a known limitation
-    // rather than a silently-patched one.
-    let node_rows = genesis_adapter::query(
+    //    so a re-run replaces rather than duplicates them. These queries are
+    //    filtered by project_id (the only equality filter available — prefix
+    //    filtering happens in Rust) and read whole via paging, so a re-run
+    //    always sees every prior gx:/gxe: row it must replace.
+    let node_rows = genesis_adapter::query_all(
         storage,
         "graph_nodes",
         &["id"],
@@ -620,9 +552,8 @@ pub(crate) fn run_graph_build(
             "project_id",
             serde_json::json!(project_id),
         )],
-        QUERY_ROW_CEILING,
     )?;
-    let edge_rows = genesis_adapter::query(
+    let edge_rows = genesis_adapter::query_all(
         storage,
         "graph_edges",
         &["id"],
@@ -631,26 +562,7 @@ pub(crate) fn run_graph_build(
             "project_id",
             serde_json::json!(project_id),
         )],
-        QUERY_ROW_CEILING,
     )?;
-    if node_rows.len() >= QUERY_ROW_CEILING as usize
-        || edge_rows.len() >= QUERY_ROW_CEILING as usize
-    {
-        let timestamp = now();
-        let _ = genesis_adapter::commit_rows(
-            storage,
-            vec![genesis_adapter::upsert(
-                "job_events",
-                serde_json::json!({
-                    "id": Uuid::new_v4().to_string(),
-                    "job_id": job_id,
-                    "status": "running",
-                    "message": "project graph exceeds the 1000-row query ceiling; some superseded extraction rows may remain",
-                    "created_at": timestamp,
-                }),
-            )],
-        );
-    }
     // Computed here (queries happen where they always did) but NOT committed
     // yet: deleting the prior extraction before the LLM call means an
     // ordinary failure (Ollama not running) destroys the previous good

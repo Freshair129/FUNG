@@ -11,13 +11,13 @@ use uuid::Uuid;
 
 pub(crate) const NAMESPACE: &str = "fung_mobile";
 
-/// The most rows one relational query can return.
+/// The most rows one relational query can return — now a page size.
 ///
-/// `Storage::query_relational` rejects any limit outside `1..1000`,
-/// `RelationalFilter` is equality-only, and `RelationalQuery` carries no
-/// offset — so this is a ceiling on a single read with no cursor behind it,
-/// not a page size. A caller that needs more rows than this cannot get them
-/// today; what it can do is know that it did not.
+/// `Storage::query_relational` rejects any limit outside `1..1000`, and
+/// `RelationalFilter` is equality-only. Since the engine grew
+/// `RelationalQuery::offset`, this is no longer a ceiling on what a caller
+/// can read: [`query_all`] pages past it. It remains the bound on a single
+/// read.
 ///
 /// Stated once here because it had been stated eight times: `ENGINE_ROW_CAP`,
 /// `QUERY_ROW_CEILING`, `QUERY_LIMIT`, `GENESIS_QUERY_LIMIT`,
@@ -25,38 +25,38 @@ pub(crate) const NAMESPACE: &str = "fung_mobile";
 /// is how two readers came to hit it without noticing.
 pub(crate) const ROW_CAP: u32 = 1000;
 
-/// Rows, and whether the read stopped because it ran out of ceiling.
+/// Every row the filters match, read in [`ROW_CAP`]-sized pages.
 ///
-/// Returned together so that taking the rows means seeing the flag. The two
-/// call sites this type was written for each read a transcript, dropped
-/// everything past row 1000, and reported the result as complete — one to the
-/// screen, one into an LLM prompt that then summarised "the meeting".
-#[derive(Debug, Clone)]
-pub(crate) struct CappedRows {
-    pub(crate) rows: Vec<Value>,
-    /// True when the row count reached [`ROW_CAP`]. Deliberately "reached",
-    /// not "exceeded": the engine cannot report how many it withheld, so a
-    /// read that lands exactly on the ceiling is indistinguishable from one
-    /// that was cut, and the honest answer is that completeness is unknown.
-    pub(crate) capped: bool,
-}
-
-/// [`query`] at the engine ceiling, reporting whether it hit it.
+/// Use this for any read whose row count is driven by how long a recording
+/// is — transcript segments, audio chunks. Use [`query`] when the limit is a
+/// genuine "give me at most N" — a single row by id, the top 12 matches.
 ///
-/// Use this rather than `query(.., 1000)` for any read whose row count is
-/// driven by how long a recording is. Use `query` directly when the limit is
-/// a genuine "give me at most N" — a single row by id, the top 12 matches.
-pub(crate) fn query_capped(
+/// Passing an offset makes the engine order each page by the base table's
+/// primary key, so consecutive pages partition the result set rather than
+/// sampling an unordered scan. Callers that need a domain order (`start_ms`,
+/// `sequence_no`) still sort the collected rows themselves, as before.
+pub(crate) fn query_all(
     storage: &Storage,
     table: &str,
     columns: &[&str],
     filters: Vec<RelationalFilter>,
-) -> Result<CappedRows, String> {
-    let rows = query(storage, table, columns, filters, ROW_CAP)?;
-    Ok(CappedRows {
-        capped: rows.len() as u32 >= ROW_CAP,
-        rows,
-    })
+) -> Result<Vec<Value>, String> {
+    let mut rows: Vec<Value> = Vec::new();
+    let mut offset: u32 = 0;
+    loop {
+        let page = query_at(storage, table, columns, filters.clone(), ROW_CAP, offset)?;
+        let filled = page.len() as u32 >= ROW_CAP;
+        rows.extend(page);
+        // A page that came back short is the last one. A page that came back
+        // exactly full is indistinguishable from a cut one, so read on: the
+        // next page is empty when the boundary was exact.
+        if !filled {
+            return Ok(rows);
+        }
+        offset = offset
+            .checked_add(ROW_CAP)
+            .ok_or_else(|| "relational read exceeded the addressable offset range".to_string())?;
+    }
 }
 
 fn required(name: &str, column_type: RelationalColumnType) -> RelationalColumn {
@@ -1211,6 +1211,33 @@ pub(crate) fn query(
             joins: vec![],
             filters,
             limit: Some(limit),
+            offset: None,
+        })
+        .map_err(|error| error.to_string())
+}
+
+/// One page of [`query_all`]: `limit` rows starting `offset` rows in, ordered
+/// by the base table's primary key on the engine side.
+fn query_at(
+    storage: &Storage,
+    table: &str,
+    columns: &[&str],
+    filters: Vec<RelationalFilter>,
+    limit: u32,
+    offset: u32,
+) -> Result<Vec<Value>, String> {
+    storage
+        .query_relational(RelationalQuery {
+            namespace: NAMESPACE.to_string(),
+            table: table.to_string(),
+            columns: columns
+                .iter()
+                .map(|column| format!("{table}.{column}"))
+                .collect(),
+            joins: vec![],
+            filters,
+            limit: Some(limit),
+            offset: Some(offset),
         })
         .map_err(|error| error.to_string())
 }

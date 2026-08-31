@@ -251,15 +251,10 @@ pub(crate) struct AudioIntegrityReport {
     /// Everything that is not `Intact`. A clean project reports an empty list
     /// rather than a summary the caller has to interpret.
     pub(crate) problems: Vec<ChunkFinding>,
-    /// Recordings whose chunk list could not be read whole, because the read
-    /// hit [`genesis_adapter::ROW_CAP`] and the engine offers no cursor.
-    ///
-    /// Not a chunk state: these chunks were never classified, so they are not
-    /// intact, missing, or modified — they are unlooked-at. That distinction
-    /// is the whole point of the field. Verification exists to answer "is the
-    /// audio still there and still itself", and a pass that silently skipped
-    /// part of the inventory answers a narrower question while sounding like
-    /// it answered that one.
+    /// Recordings whose chunk list could not be read whole. Chunk reads now
+    /// page past the engine's single-read ceiling, so nothing populates this
+    /// any more; the field stays so `is_clean()` and the serialized report
+    /// keep their shape.
     pub(crate) unread_recordings: Vec<String>,
 }
 
@@ -373,7 +368,10 @@ pub(crate) fn verify_project_audio(
         else {
             continue;
         };
-        let page = genesis_adapter::query_capped(
+        // `query_all` pages past the engine's single-read ceiling, so every
+        // chunk the ledger references is classified; `unread_recordings`
+        // stays on the report type but no read leaves anything unread now.
+        let chunks = genesis_adapter::query_all(
             storage,
             "audio_chunks",
             &[
@@ -393,10 +391,6 @@ pub(crate) fn verify_project_audio(
             )],
         )
         .map_err(CustodyError::InventoryFailed)?;
-        if page.capped {
-            report.unread_recordings.push(recording_id.to_string());
-        }
-        let chunks = page.rows;
 
         for chunk in &chunks {
             let text = |key: &str| {

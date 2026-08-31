@@ -59,10 +59,9 @@ const MAX_BACKOFF: Duration = Duration::from_secs(300);
 /// notification, not the normal wake path.
 const IDLE_PARK: Duration = Duration::from_secs(60);
 
-/// GenesisBlockDB refuses any relational query with a limit above 1000 and
-/// offers no cursor, so a ledger holding more pending jobs than this loses
-/// the tail. Not a practical bound for a queue one person drives, but stated
-/// rather than assumed away.
+/// The engine's single-read page size (paging past it exists via
+/// `genesis_adapter::query_all`). One page of pending jobs is far more than
+/// a queue one person drives ever holds, so the single read stays.
 const GENESIS_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
 
 /// The `jobs.status` values that mean "this job is not finished".

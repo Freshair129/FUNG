@@ -57,27 +57,11 @@ pub(crate) enum BackupJobError {
     StagingFailed,
     #[error("audio inventory could not be read from Genesis: {0}")]
     AudioInventoryFailed(String),
-    #[error(
-        "{0} has more than {GENESIS_QUERY_LIMIT} rows, above what GenesisBlockDB can enumerate in \
-         one query, so this archive would omit audio without saying so"
-    )]
-    AudioInventoryTooLarge(String),
     #[error("backup payload failed: {0}")]
     PayloadFailed(PayloadError),
     #[error("audio could not be restored into the target: {0}")]
     AudioRestoreFailed(PayloadError),
 }
-
-/// GenesisBlockDB rejects any relational query whose limit falls outside
-/// `1..1000` (`REL_QUERY_LIMIT_EXCEEDED`), supports equality filters only, and
-/// exposes no offset — so there is no way to page a large table.
-///
-/// The inventory works around that by reading chunks one recording at a time,
-/// which keeps ordinary projects well inside the bound. A read that *does*
-/// saturate is treated as a failure rather than a partial inventory: silently
-/// dropping the overflow would reproduce the exact defect this module exists
-/// to close — an archive that reports success while omitting audio.
-const GENESIS_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
 
 /// Guard that serializes backup/restore jobs and always releases the flag.
 pub(crate) struct JobGuard(Arc<AtomicBool>);
@@ -261,17 +245,13 @@ fn collect_audio_inventory(storage: &Storage) -> Result<AudioInventory, BackupJo
             .filter(|value| !value.is_empty())
     };
 
-    let recording_rows = crate::genesis_adapter::query(
+    let recording_rows = crate::genesis_adapter::query_all(
         storage,
         "recordings",
         &["id", "canonical_audio_path"],
         vec![],
-        GENESIS_QUERY_LIMIT,
     )
     .map_err(BackupJobError::AudioInventoryFailed)?;
-    if recording_rows.len() as u32 >= GENESIS_QUERY_LIMIT {
-        return Err(BackupJobError::AudioInventoryTooLarge("recordings".into()));
-    }
 
     let mut inventory = AudioInventory::default();
     let mut claimed_paths: HashSet<String> = HashSet::new();
@@ -306,9 +286,10 @@ fn collect_audio_inventory(storage: &Storage) -> Result<AudioInventory, BackupJo
             continue;
         };
 
-        // Chunks are read per recording because the engine has no offset and
-        // caps one query at GENESIS_QUERY_LIMIT rows.
-        let chunk_rows = crate::genesis_adapter::query(
+        // Still read per recording to keep each paged read small, but
+        // `query_all` pages past the engine ceiling, so a long recording is
+        // inventoried whole instead of failing the backup.
+        let chunk_rows = crate::genesis_adapter::query_all(
             storage,
             "audio_chunks",
             &["file_path", "checksum"],
@@ -317,14 +298,8 @@ fn collect_audio_inventory(storage: &Storage) -> Result<AudioInventory, BackupJo
                 "recording_id",
                 serde_json::json!(recording_id),
             )],
-            GENESIS_QUERY_LIMIT,
         )
         .map_err(BackupJobError::AudioInventoryFailed)?;
-        if chunk_rows.len() as u32 >= GENESIS_QUERY_LIMIT {
-            return Err(BackupJobError::AudioInventoryTooLarge(format!(
-                "recording {recording_id}"
-            )));
-        }
         for chunk in &chunk_rows {
             let Some(file_path) = text(chunk, "audio_chunks.file_path") else {
                 continue;

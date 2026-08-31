@@ -1,7 +1,7 @@
 ---
-version: "0.2.15b"
+version: "0.2.16b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-08-26T23:51:37+07:00,ATHER,888aded"
+last_update: "2026-08-31T00:00:00+07:00,Claude"
 status: "beta"
 superseded_by: null
 attributes:
@@ -166,8 +166,8 @@ overlay does not promote Phase 3 to fully release-ready.
 | Project CRUD | Backend commands exist for project creation/listing. | Needs full UI workflows and persistence QA. |
 | Job model | Basic create/list commands exist. | Needs execution engine, retries, pause/resume, failure recovery. |
 | Model providers | Seed local providers exist. | Needs provider diagnostics and real adapter execution. |
-| Transcript read completeness | The storage engine caps one relational query at 1000 rows with no cursor, and six differently-named copies of that constant had grown up around it. There is now one — `genesis_adapter::ROW_CAP` — and a `query_capped` helper that returns the rows together with whether the ceiling was reached. `list_transcript_segments` reads per recording instead of per project (a project of five 400-segment recordings used to return 1000 of its 2000 segments) and reports which recordings are still short; `meeting_intel::load_segments` refuses rather than summarising a transcript missing its tail. | The refusal is a stopgap, not the fix: a recording past 1000 segments still cannot be summarised or exported at all, and a 3-hour session is roughly 1500-2500 segments. The real fix is a cursor or offset in GenesisBlockDB, which is a change in a different repository and a dependency bump. Every reader of a length-driven table now either reads whole or says it could not: `fungwire_client::gather_segments` refuses instead of sending a renumbered, gap-free-looking partial manifest to a paired device, and `AudioIntegrityReport` carries `unread_recordings` so `is_clean()` cannot answer "nothing is wrong" when it means "nothing wrong was found". |
-| Export UI | Subtitle export is real: `export.render` is a job the engine runs, `transcript_export` writes `.srt` and `.vtt` beside the recording, both are recorded in `export_artifacts`, and `list_export_artifacts` lets the shell tell the user where they landed. Formatting is unit-tested against the ways transcript text corrupts each format (blank lines, `<`, `-->`, zero-length cues). | Capped at one recording per run and at the storage engine's 1000-row single-read ceiling — past that the export refuses rather than writing a file that stops early. Audio export (WAV/MP3) and the separate export queue are still unimplemented. The write path is tested against a real GenesisBlockDB store (files on disk, both artifact rows, retry idempotence, refusal past the ceiling); what is untested is the packaged app's own click-to-file round trip. |
+| Transcript read completeness | Closed at the source: GenesisBlockDB commit `1ff6862` adds `RelationalQuery::offset` (offset pages are ordered by the base table's primary key, so consecutive pages partition the result set), and FUNG pins that rev. `genesis_adapter::query_all` reads length-driven tables whole in `ROW_CAP`-sized pages, and every reader that used to refuse or truncate at the ceiling now reads whole: transcript view, `meeting_intel::load_segments`/`meeting_ask`/`meeting_summaries`, subtitle export, `fungwire_client::gather_segments`, audio integrity, backup inventory, recovery, diarization, graph build, and gap fill. Rust regression 419/419 includes tests proving a ROW_CAP+N recording is read whole, ordered, and unduplicated. | `capped`/`searchedRowsCapped`/`unread_recordings` fields stay in the serialized contracts for frontend stability but are truthfully never set any more; removing them (and their dormant UI notices) is cleanup, not correctness. Reads that genuinely want at most one page (single row by id, top-N) still use the single-read path. |
+| Export UI | Subtitle export is real: `export.render` is a job the engine runs, `transcript_export` writes `.srt` and `.vtt` beside the recording, both are recorded in `export_artifacts`, and `list_export_artifacts` lets the shell tell the user where they landed. Formatting is unit-tested against the ways transcript text corrupts each format (blank lines, `<`, `-->`, zero-length cues). Segment reads page past the engine ceiling, so a long recording exports whole, cues sorted by start time. | Capped at one recording per run. Audio export (WAV/MP3) and the separate export queue are still unimplemented. The write path is tested against a real GenesisBlockDB store (files on disk, both artifact rows, retry idempotence, whole-file export past the old ceiling); what is untested is the packaged app's own click-to-file round trip. |
 | Summary/intent UI | Summary/action output pipeline and display surface exist. | Intent-specific UI and complete evidence-span review remain incomplete. |
 | Live speaker attribution | Source channels map to editable `เรา`/`อีกฝ่าย` labels. | This is capture provenance, not arbitrary live multi-speaker diarization. |
 | Live intelligence runtime | Topic and summary routes exist; capture can degrade without the worker. | Current machine has no bundled Whisper interpreter/model and `faster_whisper` is unavailable, so live transcription requires runtime installation plus UAT. |
@@ -200,14 +200,6 @@ overlay does not promote Phase 3 to fully release-ready.
   a build six months old will fail on links a current yt-dlp handles, and
   nothing in the app tells the user that is why. Re-pinning is a lockfile
   regeneration (`stage_media_fetch_runtime.ps1 -GenerateLock`) and a release.
-- A cursor for reads past 1000 rows. `Storage::query_relational` rejects any
-  limit outside `1..1000`, `RelationalFilter` is equality-only, and
-  `RelationalQuery` has no offset, so no read path in FUNG can page. Every
-  reader now either refuses or reports when it hits the ceiling — silence was
-  the defect, and that is fixed — but "reports" is not "reads". Until the
-  engine grows a cursor, a recording longer than roughly 90 minutes cannot be
-  summarised or exported at all. That work is in the GenesisBlock repository,
-  not this one, and lands here as a dependency bump.
 - Noise reduction.
 - Source separation/layer generation.
 - Real transcript editor.
@@ -278,6 +270,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.16b | Closed the 1000-row read ceiling: GenesisBlockDB `1ff6862` adds primary-key-ordered offset paging, FUNG pins it, `query_all` reads length-driven tables whole, and every refusal/truncation reader now reads complete. Rust 419/419, engine relational suites green, frontend build and focused Node suites passing. |
 | 0.2.15b | Truth-synced merged Google Drive/Native Broker local evidence, current focused tests, baseline warnings, and the Docker-bounded W1 verification gap. |
 | 0.2.14b | Added the approved local Google Drive implementation slice: native PKCE/keyring adapter, authenticated metadata/audit function, separate Desktop UI, resumable appDataFolder transport, and digest-bound restore. Real provider, deployment, clean-install, and device proof remain open. |
 | 0.2.11b | Recorded PR #16: mobile/desktop routing fix, reachable backup UI, audio-bearing backup payload, and the connector startup/timeout split. Corrected two 0.2.10b inaccuracies (desktop AccountSettings, audio import). Physical Android and clean-install restore stay open. |
@@ -301,6 +294,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.16b | 2026-08-31 | beta | Closed the 1000-row read ceiling via GenesisBlockDB offset paging (`1ff6862`) and whole-read `query_all` across all length-driven readers; summarise/export/delegate/backup now cover recordings past 1000 rows. | working-tree | Claude |
 | 0.2.15b | 2026-08-26 | beta | Truth-synced merged Google Drive/Native Broker local evidence, current focused tests, baseline warnings, and the Docker-bounded W1 verification gap. | `888aded` | ATHER |
 | 0.2.14b | 2026-08-23 | beta | Added the approved local Google Drive native PKCE/keyring, metadata audit, separate UI, resumable appDataFolder transport, and digest-bound restore; external provider/deployment/device gates remain open. | working-tree | ATHER |
 | 0.2.13b | 2026-08-23 | beta | Staged the pinned faster-whisper small model and 11-file CUDA 12/cuDNN 9 bundle; standalone GPU smoke passed, while Live Meeting/device/connector UAT remains open. | working-tree | ATHER |

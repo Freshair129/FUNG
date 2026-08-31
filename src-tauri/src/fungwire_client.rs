@@ -363,7 +363,13 @@ fn gather_segments(
     storage: &genesis_block_native::Storage,
     recording_id: &str,
 ) -> Result<Vec<SegmentRef>, String> {
-    let page = crate::genesis_adapter::query_capped(
+    // Read whole via paging. This used to refuse past the engine's
+    // single-read ceiling, because the renumbering below rewrites
+    // `sequence_no` into a contiguous 0-based `seq` — a truncated read would
+    // have produced a gap-free-looking manifest missing its tail. Paging
+    // removes the truncation at the source; the sort below still puts the
+    // chunks in capture order.
+    let rows = crate::genesis_adapter::query_all(
         storage,
         "audio_chunks",
         &["sequence_no", "file_path", "checksum"],
@@ -373,22 +379,7 @@ fn gather_segments(
             json!(recording_id),
         )],
     )?;
-    // Refused rather than sent short, and this one is the least visible
-    // truncation in the tree: the renumbering below rewrites `sequence_no`
-    // into a contiguous 0-based `seq`, so a job built from a truncated read
-    // arrives at the desktop as a gap-free manifest of exactly the shape a
-    // complete one has. The transcript that comes back covers the first
-    // ~83 minutes, is written to `transcript_segments` like any other, and
-    // nothing anywhere records that the tail was never sent. Delegating a
-    // long recording is the entire reason this path exists.
-    if page.capped {
-        return Err(format!(
-            "การบันทึกนี้มีอย่างน้อย {} ท่อนเสียง ซึ่งเกินเพดานการอ่านครั้งเดียวของ storage engine              — ส่งไปถอดเสียงได้ไม่ครบและจะดูเหมือนครบ จึงไม่ส่ง",
-            crate::genesis_adapter::ROW_CAP
-        ));
-    }
-    let mut ordered: Vec<(i64, PathBuf, String)> = page
-        .rows
+    let mut ordered: Vec<(i64, PathBuf, String)> = rows
         .into_iter()
         .map(|row| {
             let sequence_no = row
@@ -1101,12 +1092,11 @@ mod tests {
     const E2E_TERMINAL_POLL_ATTEMPTS: usize = 600; // 60s at 100ms per poll
 
     #[test]
-    fn a_recording_past_the_chunk_read_ceiling_is_not_delegated_short() {
-        // The renumbering in `gather_segments` is what makes this dangerous:
-        // a truncated read becomes a contiguous 0-based manifest that looks
-        // exactly like a complete one, the desktop transcribes it, and the
-        // result is written back with nothing recording that the tail was
-        // never sent. Delegating a long recording is why this path exists.
+    fn a_recording_past_the_chunk_read_ceiling_is_delegated_whole() {
+        // This used to refuse: the renumbering in `gather_segments` turns a
+        // truncated read into a contiguous manifest that looks complete. The
+        // engine now takes an offset, so the read pages — every chunk lands,
+        // in capture order, and the manifest really is complete.
         let (path, storage) = open_genesis();
         let mut rows = vec![
             crate::genesis_adapter::upsert(
@@ -1133,11 +1123,15 @@ mod tests {
             crate::genesis_adapter::commit_rows(&storage, page.to_vec()).unwrap();
         }
 
-        let error = gather_segments(&storage, "r1").unwrap_err();
-        assert!(
-            error.contains(&crate::genesis_adapter::ROW_CAP.to_string()),
-            "the refusal must name the ceiling that caused it: {error}"
-        );
+        let total = crate::genesis_adapter::ROW_CAP as i64 + 50;
+        let segments = gather_segments(&storage, "r1").unwrap();
+        assert_eq!(segments.len(), total as usize);
+        // Contiguous 0-based seq covering every chunk — the tail rows past
+        // the old ceiling are the ones that used to vanish.
+        assert!(segments
+            .iter()
+            .enumerate()
+            .all(|(index, segment)| segment.seq == index as u32));
 
         drop(storage);
         let _ = std::fs::remove_dir_all(path);

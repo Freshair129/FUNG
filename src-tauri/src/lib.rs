@@ -55,6 +55,20 @@ mod zoom_sync;
 /// worker resources from the installed application's resource directory.
 const PROJECT_ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
+/// Default local Ollama endpoint. Seeded into the `model_providers` row
+/// `ollama-summary-intent` on first run (both the raw-SQL bootstrap and the
+/// genesis JSON upsert below) and used by `graph_build::llm_provider_config`
+/// as the fallback when that row's `config_json` has no `endpoint` key.
+/// Single source of truth so the seed and the fallback cannot drift apart
+/// (issue #36).
+pub(crate) const DEFAULT_OLLAMA_ENDPOINT: &str = "http://127.0.0.1:11434";
+/// Default local vLLM endpoint, seeded into the `model_providers` row
+/// `vllm-summary-intent` alongside the Ollama row (disabled by default).
+pub(crate) const DEFAULT_VLLM_ENDPOINT: &str = "http://127.0.0.1:8000";
+/// Default local model name used by `graph_build::llm_provider_config` when
+/// a `model_providers` row's `config_json` has no `model` key.
+pub(crate) const DEFAULT_OLLAMA_MODEL: &str = "llama3.1:8b";
+
 #[derive(Clone)]
 pub(crate) struct WhisperRuntime {
     pub(crate) python: PathBuf,
@@ -814,16 +828,16 @@ fn init_database(db_path: PathBuf) -> AppResult<Connection> {
     mobile::init_schema(&conn)?;
 
     let inserted_at = now();
-    conn.execute(
+    let seed_model_providers_sql = format!(
         r#"
         INSERT OR IGNORE INTO model_providers
             (id, label, runtime_location, kind, enabled, config_json, created_at, updated_at)
         VALUES
-            ('ollama-summary-intent', 'Ollama / llama.cpp', 'local', 'summary_intent', 1, '{"endpoint":"http://127.0.0.1:11434"}', ?1, ?1),
-            ('vllm-summary-intent', 'vLLM', 'local', 'summary_intent', 0, '{"endpoint":"http://127.0.0.1:8000"}', ?1, ?1)
-        "#,
-        params![inserted_at],
-    )?;
+            ('ollama-summary-intent', 'Ollama / llama.cpp', 'local', 'summary_intent', 1, '{{"endpoint":"{DEFAULT_OLLAMA_ENDPOINT}"}}', ?1, ?1),
+            ('vllm-summary-intent', 'vLLM', 'local', 'summary_intent', 0, '{{"endpoint":"{DEFAULT_VLLM_ENDPOINT}"}}', ?1, ?1)
+        "#
+    );
+    conn.execute(&seed_model_providers_sql, params![inserted_at])?;
 
     Ok(conn)
 }
@@ -852,8 +866,8 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
     }
     let seeded_at = now();
     genesis_adapter::commit_rows(&genesis, vec![
-        genesis_adapter::upsert("model_providers", serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":"http://127.0.0.1:11434"},"created_at":seeded_at,"updated_at":seeded_at})),
-        genesis_adapter::upsert("model_providers", serde_json::json!({"id":"vllm-summary-intent","label":"vLLM","runtime_location":"local","kind":"summary_intent","enabled":false,"config_json":{"endpoint":"http://127.0.0.1:8000"},"created_at":seeded_at,"updated_at":seeded_at})),
+        genesis_adapter::upsert("model_providers", serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":DEFAULT_OLLAMA_ENDPOINT},"created_at":seeded_at,"updated_at":seeded_at})),
+        genesis_adapter::upsert("model_providers", serde_json::json!({"id":"vllm-summary-intent","label":"vLLM","runtime_location":"local","kind":"summary_intent","enabled":false,"config_json":{"endpoint":DEFAULT_VLLM_ENDPOINT},"created_at":seeded_at,"updated_at":seeded_at})),
     ]).map_err(AppError::Genesis)?;
     let genesis = Arc::new(genesis);
     Ok(AppState {
@@ -2776,7 +2790,7 @@ pub fn __debug_db_probe(path: &str) -> Result<String, String> {
         &storage,
         vec![genesis_adapter::upsert(
             "model_providers",
-            serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":"http://127.0.0.1:11434"},"created_at":seeded_at,"updated_at":seeded_at}),
+            serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":DEFAULT_OLLAMA_ENDPOINT},"created_at":seeded_at,"updated_at":seeded_at}),
         )],
     );
     match seed {
@@ -2827,7 +2841,7 @@ pub fn __debug_live_smoke(
         vec![
             genesis_adapter::upsert(
                 "model_providers",
-                serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":"http://127.0.0.1:11434"},"created_at":timestamp,"updated_at":timestamp}),
+                serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":DEFAULT_OLLAMA_ENDPOINT},"created_at":timestamp,"updated_at":timestamp}),
             ),
             genesis_adapter::upsert(
                 "projects",

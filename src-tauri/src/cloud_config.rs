@@ -16,9 +16,21 @@ pub(crate) enum CloudTaskKind {
 pub(crate) enum CloudProviderConfig {
     Anthropic {
         api_key: String,
+        /// User-chosen model override (e.g. "claude-3-5-sonnet-20241022").
+        /// `None` means the caller should fall back to its own default
+        /// constant. `#[serde(default)]` keeps deserialization backward
+        /// compatible with configs saved before this field existed.
+        #[serde(default)]
+        model: Option<String>,
     },
     OpenAi {
         api_key: String,
+        /// Same override as `Anthropic::model`, but read by whichever task
+        /// this config instance was loaded for — a config loaded from the
+        /// "cloud-stt-openai" slot supplies a STT model name, one loaded
+        /// from "cloud-llm-openai" supplies a chat model name.
+        #[serde(default)]
+        model: Option<String>,
     },
     Custom {
         endpoint: String,
@@ -30,8 +42,12 @@ pub(crate) enum CloudProviderConfig {
 impl std::fmt::Debug for CloudProviderConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Anthropic { .. } => write!(f, "Anthropic {{ api_key: <redacted> }}"),
-            Self::OpenAi { .. } => write!(f, "OpenAi {{ api_key: <redacted> }}"),
+            Self::Anthropic { model, .. } => {
+                write!(f, "Anthropic {{ api_key: <redacted>, model: {model:?} }}")
+            }
+            Self::OpenAi { model, .. } => {
+                write!(f, "OpenAi {{ api_key: <redacted>, model: {model:?} }}")
+            }
             Self::Custom {
                 endpoint,
                 task_kind,
@@ -54,7 +70,7 @@ pub(crate) struct CloudConfigValidation {
 impl CloudProviderConfig {
     pub(crate) fn validate(&self) -> CloudConfigValidation {
         let key = match self {
-            Self::Anthropic { api_key } | Self::OpenAi { api_key } => api_key,
+            Self::Anthropic { api_key, .. } | Self::OpenAi { api_key, .. } => api_key,
             Self::Custom { api_key, .. } => api_key,
         };
         if key.trim().is_empty() {
@@ -126,7 +142,10 @@ mod tests {
 
     #[test]
     fn missing_key_is_invalid() {
-        let config = CloudProviderConfig::OpenAi { api_key: "".into() };
+        let config = CloudProviderConfig::OpenAi {
+            api_key: "".into(),
+            model: None,
+        };
         let result = config.validate();
         assert!(!result.ok);
         assert!(result.error.as_deref().unwrap().contains("API key"));
@@ -158,6 +177,7 @@ mod tests {
     fn debug_never_exposes_the_key() {
         let config = CloudProviderConfig::OpenAi {
             api_key: "sk-super-secret-value".into(),
+            model: None,
         };
         let debug_output = format!("{config:?}");
         assert!(!debug_output.contains("sk-super-secret-value"));
@@ -180,11 +200,12 @@ mod tests {
     fn serde_roundtrip_anthropic() {
         let config = CloudProviderConfig::Anthropic {
             api_key: "sk-ant-test".into(),
+            model: None,
         };
         let json = serde_json::to_string(&config).unwrap();
         let parsed: CloudProviderConfig = serde_json::from_str(&json).unwrap();
         match parsed {
-            CloudProviderConfig::Anthropic { api_key } => assert_eq!(api_key, "sk-ant-test"),
+            CloudProviderConfig::Anthropic { api_key, .. } => assert_eq!(api_key, "sk-ant-test"),
             _ => panic!("wrong variant"),
         }
     }

@@ -42,13 +42,6 @@ export async function beginLoopbackFallbackLogin(): Promise<string> {
   return beginGoogleLogin();
 }
 
-export async function cancelGoogleLogin(requestId: string = activeRequestId ?? ""): Promise<void> {
-  if (!requestId) return;
-  const invoke = await tauriInvoke();
-  await invoke<void>("auth_cancel_google_login", { requestId });
-  if (activeRequestId === requestId) activeRequestId = null;
-}
-
 export async function completeFromCallbackUrl(
   url: string,
   options: AuthCallbackOptions,

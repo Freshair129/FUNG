@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { supabase } from "../lib/supabase";
-import type { DelegatedExecutor, DelegatedJob, EffectNode, GraphEdge, GraphNode, MobileNote, StorySequence, TimelineData, VoiceProfile } from "./model";
+import type { DelegatedExecutor, DelegatedJob, EffectNode, GraphEdge, GraphNode, MobileNote, StorySequence, TimelineData } from "./model";
 
 const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -97,11 +97,6 @@ export async function controlNativeRecorder(recordingId: string, action: "pause"
 export async function persistNote(note: MobileNote): Promise<void> {
   if (!isTauri()) return;
   await invoke("mobile_note_upsert", { note });
-}
-
-export async function persistRelation(edge: GraphEdge): Promise<void> {
-  if (!isTauri()) return;
-  await invoke("mobile_relation_upsert", { edge });
 }
 
 export async function queryGraph(projectId: string): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] } | null> {
@@ -214,11 +209,6 @@ export async function updateEffectChain(projectId: string, ownerKind: "project" 
   if (!isTauri()) return null;
   const nodes = effects.map((effect, position) => ({ id: effect.id, kind: effect.kind, position, parameters: effect.parameters, bypassed: effect.bypassed }));
   return invoke("mobile_effect_chain_update", { projectId, ownerKind, ownerId, label, nodes });
-}
-
-export async function queryVoiceProfiles(projectId: string): Promise<VoiceProfile[]> {
-  if (!isTauri()) return [];
-  return invoke("mobile_voice_profiles_query", { projectId });
 }
 
 export async function setAgentVoiceGrant(projectId: string, voiceProfileId: string, enabled: boolean): Promise<boolean> {

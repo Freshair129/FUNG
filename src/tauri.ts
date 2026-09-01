@@ -305,12 +305,6 @@ export async function listExportArtifacts(projectId: string): Promise<ExportArti
   return invoke<ExportArtifact[]>("list_export_artifacts", { projectId });
 }
 
-/** The job types this build can actually run, straight from the engine. */
-export async function runnableJobTypes(): Promise<string[]> {
-  if (!canInvoke()) return [];
-  return invoke<string[]>("runnable_job_types");
-}
-
 export async function listModelProviders(): Promise<ModelProvider[]> {
   if (!canInvoke()) return [];
   return invoke<ModelProvider[]>("list_model_providers");

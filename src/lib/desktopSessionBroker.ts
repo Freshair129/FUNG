@@ -30,9 +30,6 @@ export type DriveConnectStart = { requestId: string; scope: "drive.appdata"; exp
 
 export function brokerSessionStatus(): Promise<SessionStatus> { return invoke("broker_session_status"); }
 export function brokerSessionLoginBegin(): Promise<LoginStarted> { return invoke("broker_session_login_begin"); }
-export function brokerSessionLoginCancel(requestId: string): Promise<{ requestId: string; status: "cancelled" }> {
-  return invoke("broker_session_login_cancel", { requestId });
-}
 export function brokerSessionLogout(): Promise<SessionStatus> { return invoke("broker_session_logout"); }
 export function brokerEnrollmentRequest(deviceLabel: string): Promise<EnrollmentResult> {
   return invoke("broker_enrollment_request", { input: { deviceLabel } });

@@ -42,22 +42,40 @@ const EMPTY_FUNGWIRE: FungwireStatus = { enabled: false, bind: null, activeJobs:
 
 export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
   const [devices, setDevices] = useState<PairedDeviceRow[]>([]);
+  /// null once the fetch has succeeded (the list itself may still be
+  /// genuinely empty); a message when the fetch failed. Keeps "no devices"
+  /// and "could not check" visually and textually distinct — see issue #34.
+  const [devicesLoadError, setDevicesLoadError] = useState<string | null>(null);
   const [pairing, setPairing] = useState<PairingState>({ kind: "idle" });
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [fungwire, setFungwire] = useState<FungwireStatus>(EMPTY_FUNGWIRE);
   const [fungwireError, setFungwireError] = useState<string | null>(null);
+  const [fungwireLoadError, setFungwireLoadError] = useState<string | null>(null);
   const pollTimer = useRef<number | null>(null);
   const publishTimer = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
-    try { setDevices(await brokerDeviceList()); }
-    catch { setDevices([]); }
+    try {
+      const next = await brokerDeviceList();
+      setDevices(next);
+      setDevicesLoadError(null);
+    } catch {
+      // Leave the last-known list alone: replacing it with [] would render
+      // as "no devices paired" when the truth is "could not check".
+      setDevicesLoadError("โหลดรายการอุปกรณ์ไม่สำเร็จ — ตรวจสอบการเชื่อมต่อแล้วลองรีเฟรช");
+    }
   }, []);
 
   const refreshFungwire = useCallback(async () => {
-    try { setFungwire(await brokerFungwireStatus()); }
-    catch { setFungwire(EMPTY_FUNGWIRE); }
+    try {
+      const next = await brokerFungwireStatus();
+      setFungwire(next);
+      setFungwireLoadError(null);
+    } catch {
+      // Same reasoning as refresh(): a failed status check is not "off".
+      setFungwireLoadError("โหลดสถานะ FUNGWIRE ไม่สำเร็จ — ตรวจสอบการเชื่อมต่อแล้วลองรีเฟรช");
+    }
   }, []);
 
   useEffect(() => { void refresh(); void refreshFungwire(); }, [refresh, refreshFungwire]);
@@ -147,7 +165,11 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
       </header>
 
       <div className="device-pairing-list">
-        {devices.length === 0 && <p className="device-pairing-empty">ยังไม่มีอุปกรณ์ที่เชื่อมต่อ</p>}
+        {devicesLoadError ? (
+          <p className="device-pairing-error">{devicesLoadError}</p>
+        ) : devices.length === 0 ? (
+          <p className="device-pairing-empty">ยังไม่มีอุปกรณ์ที่เชื่อมต่อ</p>
+        ) : null}
         {devices.map((device) => (
           <div className={`device-pairing-item${device.revokedAt ? " device-pairing-item-revoked" : ""}`} key={device.id}>
             <div><strong>{device.label || device.platform}</strong><small>{device.platform} · {device.authorityState}</small></div>
@@ -164,7 +186,11 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
 
       <div className="device-pairing-fungwire">
         <div className="device-pairing-fungwire-header"><strong>FUNGWIRE</strong><small>เชื่อมต่อภายในเครือข่าย</small><button className={`device-pairing-fungwire-switch${fungwire.enabled ? " is-on" : ""}`} onClick={() => void toggleFungwire()} disabled={busy} aria-label="สลับ FUNGWIRE"><i /></button></div>
-        <dl className="device-pairing-fungwire-status"><div><dt>สถานะ</dt><dd>{fungwire.enabled ? "เปิดใช้งาน" : "ปิดใช้งาน"}</dd></div><div><dt>อุปกรณ์เชื่อมต่อ</dt><dd>{fungwire.connectedPeers}</dd></div><div><dt>งานที่ทำงาน</dt><dd>{fungwire.activeJobs}</dd></div></dl>
+        {fungwireLoadError ? (
+          <p className="device-pairing-error">{fungwireLoadError}</p>
+        ) : (
+          <dl className="device-pairing-fungwire-status"><div><dt>สถานะ</dt><dd>{fungwire.enabled ? "เปิดใช้งาน" : "ปิดใช้งาน"}</dd></div><div><dt>อุปกรณ์เชื่อมต่อ</dt><dd>{fungwire.connectedPeers}</dd></div><div><dt>งานที่ทำงาน</dt><dd>{fungwire.activeJobs}</dd></div></dl>
+        )}
         {fungwireError && <p className="device-pairing-error">{fungwireError}</p>}
       </div>
     </section>

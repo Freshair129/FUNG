@@ -32,21 +32,30 @@ export function HomeScreen({ items, onStartRecording, onImport, onOpenItem }: Ho
       </div>
 
       <div className="home-screen__list-label">การประชุมล่าสุด</div>
-      <div className="home-screen__list">
-        {items.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className="home-screen__row"
-            onClick={() => onOpenItem(item.id)}
-          >
-            <span>{item.title}</span>
-            <span className="home-screen__row-subtitle">
-              {item.subtitle} · {item.state}
-            </span>
-          </button>
-        ))}
-      </div>
+      {items.length === 0 ? (
+        <div className="home-screen__empty">
+          <p>ยังไม่มีการประชุมที่บันทึกไว้</p>
+          <p className="home-screen__empty-hint">
+            กด “เริ่มบันทึกประชุม” เพื่อเริ่มบันทึกใหม่ หรือ “นำเข้าไฟล์เสียง” เพื่อถอดเสียงจากไฟล์ที่มีอยู่
+          </p>
+        </div>
+      ) : (
+        <div className="home-screen__list">
+          {items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="home-screen__row"
+              onClick={() => onOpenItem(item.id)}
+            >
+              <span>{item.title}</span>
+              <span className="home-screen__row-subtitle">
+                {item.subtitle} · {item.state}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

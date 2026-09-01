@@ -7,13 +7,10 @@ interface InstrumentRailProps {
   onRecord: () => void;
   onImport: () => void;
   importDisabled: boolean;
-  onPlayback: () => void;
   onExport: () => void;
   exportTitle: string;
   onPairDevice: () => void;
   onOpenSettings: () => void;
-  levelLeft: number;
-  levelRight: number;
 }
 
 // Right edge is a constant x=74 for the full height. The left edge steps
@@ -28,25 +25,22 @@ interface InstrumentRailProps {
 const NOTCH_PATH =
   "M 16,0 H 58 A 16 16 0 0 1 74,16 V 622 A 16 16 0 0 1 58,638 H 26 A 16 16 0 0 1 10,622 V 340 A 16 16 0 0 0 0,320 V 16 A 16 16 0 0 1 16,0 Z";
 
-function VuBar({ level, id }: { level: number; id: string }) {
-  const clamped = Math.max(0, Math.min(1, level));
+// There is no real input-level source wired up in the desktop frontend, so
+// this renders a visibly inactive meter (all segments dark, reduced
+// opacity) instead of one that looks live but is permanently stuck at 0.
+function VuBar({ id }: { id: string }) {
   const segments = 6;
-  const litSegments = Math.round(clamped * segments);
   const segEls = [];
   for (let i = 0; i < segments; i += 1) {
-    const lit = i < litSegments;
-    let color = "#6e897d"; // sage — normal
-    if (i === segments - 1) color = "#b34b4b"; // signal — peak/overload
-    else if (i >= segments - 2) color = "#9a8260"; // metal — near-peak
     segEls.push(
       <div
         key={`${id}-${i}`}
         className="instrument-rail__bar-seg"
-        style={{ height: `${100 / segments}%`, background: lit ? color : "transparent" }}
+        style={{ height: `${100 / segments}%`, background: "transparent" }}
       />,
     );
   }
-  return <div className="instrument-rail__bar">{segEls}</div>;
+  return <div className="instrument-rail__bar instrument-rail__bar--inactive">{segEls}</div>;
 }
 
 export function InstrumentRail({
@@ -54,13 +48,10 @@ export function InstrumentRail({
   onRecord,
   onImport,
   importDisabled,
-  onPlayback,
   onExport,
   exportTitle,
   onPairDevice,
   onOpenSettings,
-  levelLeft,
-  levelRight,
 }: InstrumentRailProps) {
   const gradientId = useId();
 
@@ -78,9 +69,9 @@ export function InstrumentRail({
         <path d={NOTCH_PATH} className="instrument-rail__stroke-inner" />
       </svg>
       <div className="instrument-rail__content">
-        <div className="instrument-rail__vu" role="meter" aria-label="Input level">
-          <VuBar level={levelLeft} id="vu-l" />
-          <VuBar level={levelRight} id="vu-r" />
+        <div className="instrument-rail__vu" aria-label="Input level meter unavailable" title="No live input level source in this build">
+          <VuBar id="vu-l" />
+          <VuBar id="vu-r" />
         </div>
         <div className="instrument-rail__vu-label">L&nbsp;&nbsp;R</div>
 
@@ -103,7 +94,13 @@ export function InstrumentRail({
           >
             <Upload size={18} />
           </button>
-          <button type="button" className="instrument-rail__button" aria-label="Playback" onClick={onPlayback}>
+          <button
+            type="button"
+            className="instrument-rail__button"
+            aria-label="Playback unavailable"
+            title="No local playback in this desktop build"
+            disabled
+          >
             <Play size={18} />
           </button>
           <button

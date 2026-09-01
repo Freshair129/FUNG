@@ -84,6 +84,22 @@
   font-size: 12px;
 }
 
+.home-screen__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px;
+  border-radius: 12px;
+  border: 1px dashed var(--line-soft);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.home-screen__empty-hint {
+  color: var(--graphite-soft);
+  font-size: 12px;
+}
+
 .theme-dark .home-screen__row {
   background: linear-gradient(145deg, #2f2b25, #1d1b18);
 }

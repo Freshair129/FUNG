@@ -19,6 +19,7 @@ import ribbonAsset from "./assets/porcelain-memory-ribbon.png";
 import { supabase } from "../lib/supabase";
 import {
   DESKTOP_RELEASE_DOWNLOAD_URL,
+  DESKTOP_RELEASE_SIZE_LABEL,
   DESKTOP_RELEASE_VERSION,
 } from "../lib/release";
 import type { User } from "@supabase/supabase-js";
@@ -132,14 +133,14 @@ export function LandingPage() {
           <a href="#privacy">Privacy</a>
         </nav>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <a
-            className="landing-header-cta"
-            href="/fung-android-debug.apk"
-            download
+          <span
+            className="landing-header-cta landing-cta-disabled"
+            aria-disabled="true"
+            title="APK สำหรับ Android ยังไม่เปิดให้ดาวน์โหลด"
             style={{ background: "rgba(111, 137, 126, 0.12)", color: "#3d4f82", border: "1px solid rgba(61, 79, 130, 0.2)" }}
           >
-            <Download size={15} style={{ marginRight: 6 }} /> โหลด APK
-          </a>
+            <Download size={15} style={{ marginRight: 6 }} /> APK Android (เร็ว ๆ นี้)
+          </span>
           {user ? (
             <div
               className="landing-avatar-btn"
@@ -224,14 +225,14 @@ export function LandingPage() {
                   เข้าสู่ระบบด้วย Google
                 </button>
               )}
-              <a
-                className="landing-button landing-button-secondary"
-                href="/fung-android-debug.apk"
-                download
+              <span
+                className="landing-button landing-button-secondary landing-cta-disabled"
+                aria-disabled="true"
+                title="APK สำหรับ Android ยังไม่เปิดให้ดาวน์โหลด"
                 style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
               >
-                <Download size={18} /> ดาวน์โหลด Android APK
-              </a>
+                <Download size={18} /> ดาวน์โหลด Android APK (เร็ว ๆ นี้)
+              </span>
               <a className="landing-button landing-button-secondary" href="#how-it-works">
                 ดูวิธีทำงาน <ArrowDown aria-hidden="true" size={17} strokeWidth={1.6} />
               </a>
@@ -378,32 +379,32 @@ export function LandingPage() {
         <div className="demo-shell">
           <div className="demo-heading">
             <span>04 / Demo-ready</span>
-            <h2>à¸žà¸£à¸µà¹€à¸‹à¸™à¸•à¹Œà¸ˆà¸²à¸à¹€à¸§à¹‡à¸š<br />à¹à¸¥à¹‰à¸§à¸žà¸²à¹„à¸›à¸–à¸¶à¸‡à¹€à¸”à¹‚à¸¡à¸ˆà¸£à¸´à¸‡<br />à¹‚à¸”à¸¢à¹„à¸¡à¹ˆà¹€à¸ªà¸µà¸¢à¸ˆà¸±à¸‡à¸«à¸§à¸°</h2>
+            <h2>พรีเซนต์จากเว็บ<br />แล้วพาไปถึงเดโมจริง<br />โดยไม่เสียจังหวะ</h2>
             <p>
-              à¸«à¸™à¹‰à¸²à¹€à¸§à¹‡à¸šà¸™à¸µà¹‰à¹ƒà¸Šà¹‰à¹€à¸¥à¹ˆà¸² product story à¹„à¸”à¹‰à¸—à¸±à¸™à¸—à¸µ à¸ˆà¸²à¸à¸™à¸±à¹‰à¸™à¸„à¹ˆà¸­à¸¢à¸žà¸²à¹€à¸‚à¹‰à¸²à¸«à¸™à¹‰à¸² app à¸«à¸£à¸·à¸­ desktop demo
-              à¸•à¸²à¸¡ flow à¸‚à¸­à¸‡à¸«à¹‰à¸­à¸‡à¸žà¸£à¸µà¹€à¸‹à¸™à¸•à¹Œ à¹‚à¸”à¸¢à¹„à¸¡à¹ˆà¸•à¹‰à¸­à¸‡à¸­à¸˜à¸´à¸šà¸²à¸¢ architecture à¸¢à¸²à¸§à¹€à¸à¸´à¸™à¸ˆà¸³à¹€à¸›à¹‡à¸™
+              หน้าเว็บนี้ใช้เล่า product story ได้ทันที จากนั้นค่อยพาเข้าหน้า app หรือ desktop demo
+              ตาม flow ของห้องพรีเซนต์ โดยไม่ต้องอธิบาย architecture ยาวเกินจำเป็น
             </p>
           </div>
 
           <div className="demo-grid">
             <article className="demo-card">
               <small>Story</small>
-              <h3>Scroll à¹€à¸žà¸·à¹ˆà¸­à¸‚à¸²à¸¢ vision</h3>
-              <p>à¹€à¸¥à¹ˆà¸²à¹ƒà¸«à¹‰à¹€à¸«à¹‡à¸™à¸§à¹ˆà¸²à¸ˆà¸²à¸à¹€à¸ªà¸µà¸¢à¸‡ à¸„à¸§à¸²à¸¡à¹€à¸‡à¸µà¸¢à¸š à¹à¸¥à¸°à¸šà¸£à¸´à¸šà¸— FUNG à¹€à¸›à¸¥à¸µà¹ˆà¸¢à¸™à¹€à¸›à¹‡à¸™ knowledge à¸—à¸µà¹ˆà¸­à¹‰à¸²à¸‡à¸­à¸´à¸‡à¸¢à¹‰à¸­à¸™à¸à¸¥à¸±à¸šà¹„à¸”à¹‰à¸­à¸¢à¹ˆà¸²à¸‡à¹„à¸£</p>
-              <a href="#top">à¹€à¸£à¸´à¹ˆà¸¡à¸žà¸£à¸µà¹€à¸‹à¸™à¸•à¹Œà¸ˆà¸²à¸à¸«à¸™à¹‰à¸²à¹à¸£à¸ <ArrowIcon /></a>
+              <h3>Scroll เพื่อขาย vision</h3>
+              <p>เล่าให้เห็นว่าจากเสียง ความเงียบ และบริบท FUNG เปลี่ยนเป็น knowledge ที่อ้างอิงย้อนกลับได้อย่างไร</p>
+              <a href="#top">เริ่มพรีเซนต์จากหน้าแรก <ArrowIcon /></a>
             </article>
 
             <article className="demo-card">
               <small>Product</small>
-              <h3>à¹€à¸›à¸´à¸” app surface à¸•à¹ˆà¸­à¸—à¸±à¸™à¸—à¸µ</h3>
-              <p>à¸à¸£à¸°à¹‚à¸”à¸”à¹€à¸‚à¹‰à¸²à¸«à¸™à¹‰à¸² product à¹€à¸žà¸·à¹ˆà¸­à¹‚à¸Šà¸§à¹Œ capture, transcript, summary à¹à¸¥à¸° runtime control à¹‚à¸”à¸¢à¹„à¸¡à¹ˆà¸•à¹‰à¸­à¸‡à¸­à¸­à¸à¸ˆà¸²à¸ flow</p>
-              <a href="/app">à¹€à¸›à¸´à¸” FUNG app <ArrowIcon /></a>
+              <h3>เปิด app surface ต่อทันที</h3>
+              <p>กระโดดเข้าหน้า product เพื่อโชว์ capture, transcript, summary และ runtime control โดยไม่ต้องออกจาก flow</p>
+              <a href="/app">เปิด FUNG app <ArrowIcon /></a>
             </article>
 
             <article className="demo-card demo-card-highlight">
               <small>Desktop demo</small>
               <h3>ดาวน์โหลด FUNG สำหรับ Windows</h3>
-              <p>เวอร์ชัน {DESKTOP_RELEASE_VERSION} สำหรับ Windows x64 · ขนาดดาวน์โหลดประมาณ 491 MB พร้อม Live Meeting และโมเดลถอดเสียงในเครื่อง ข้อมูลเสียงไม่ต้องส่งขึ้น cloud</p>
+              <p>เวอร์ชัน {DESKTOP_RELEASE_VERSION} สำหรับ Windows x64 · ขนาดดาวน์โหลดประมาณ {DESKTOP_RELEASE_SIZE_LABEL} พร้อม Live Meeting และโมเดลถอดเสียงในเครื่อง ข้อมูลเสียงไม่ต้องส่งขึ้น cloud</p>
               <p className="release-notice">Public beta · ตัวติดตั้งยังไม่ได้เซ็นโค้ด Windows จึงอาจแสดงคำเตือน SmartScreen</p>
               <a href={DESKTOP_RELEASE_DOWNLOAD_URL}>ดาวน์โหลด FUNG สำหรับ Windows <Download size={17} /></a>
             </article>

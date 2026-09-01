@@ -251,6 +251,13 @@ body[data-surface="landing"] #root {
   border: 1px solid rgba(23, 24, 27, 0.62);
 }
 
+/* Unavailable/coming-soon state: not a real link, so kill hover/focus affordances. */
+.landing-cta-disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
 .hero-signal {
   position: absolute;
   z-index: 4;

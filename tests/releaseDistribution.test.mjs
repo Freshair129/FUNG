@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   DESKTOP_RELEASE_DOWNLOAD_URL,
+  DESKTOP_RELEASE_SIZE_LABEL,
   DESKTOP_RELEASE_VERSION,
 } from "../src/lib/release.ts";
 
@@ -37,13 +38,30 @@ test("package and Tauri versions agree with the public release", async () => {
   assert.match(cargoToml, /^version = "0\.1\.0"$/m);
 });
 
+test("release.ts version matches src-tauri/tauri.conf.json (no drift between the two sources of truth)", async () => {
+  const tauriConfig = await readJson(new URL("../src-tauri/tauri.conf.json", import.meta.url));
+
+  assert.equal(
+    DESKTOP_RELEASE_VERSION,
+    tauriConfig.version,
+    `DESKTOP_RELEASE_VERSION ("${DESKTOP_RELEASE_VERSION}") in src/lib/release.ts is out of sync with ` +
+      `"version" ("${tauriConfig.version}") in src-tauri/tauri.conf.json`,
+  );
+});
+
 test("landing page exposes a Windows download CTA and unsigned beta notice", async () => {
   const source = await readFile(new URL("../src/landing/LandingPage.tsx", import.meta.url), "utf8");
 
   assert.match(source, /DESKTOP_RELEASE_DOWNLOAD_URL/);
+  assert.match(source, /DESKTOP_RELEASE_SIZE_LABEL/);
   assert.match(source, /ดาวน์โหลด FUNG สำหรับ Windows/);
-  assert.match(source, /491 MB/);
   assert.match(source, /SmartScreen/);
+  // The download size must come from the shared constant, not a hardcoded literal.
+  assert.doesNotMatch(source, /\d+(\.\d+)?\s*MB/);
+});
+
+test("desktop release size label is defined once, next to the version", async () => {
+  assert.match(DESKTOP_RELEASE_SIZE_LABEL, /^\d+(\.\d+)?\s*(MB|GB)$/);
 });
 
 test("portable runtime staging is pinned and bundles a local model", async () => {

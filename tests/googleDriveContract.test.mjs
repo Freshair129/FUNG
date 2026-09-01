@@ -38,6 +38,37 @@ test("Desktop UI keeps provider backup separate from the filesystem test panel",
   assert.doesNotMatch(flow, /InvokeFn|args\s*\?\s*:\s*Record/);
 });
 
+test("Edge functions derive CORS from the shared module instead of a hardcoded wildcard", () => {
+  const cors = read("supabase/functions/_shared/cors.ts");
+  assert.match(cors, /export function buildCorsHeaders/);
+  assert.match(cors, /ALLOWED_ORIGIN/);
+  assert.match(cors, /Access-Control-Allow-Headers/);
+  assert.match(cors, /Access-Control-Allow-Methods/);
+  // The default posture (no ALLOWED_ORIGIN configured) must not hand back a
+  // hardcoded "*" — see supabase/functions/_shared/cors.ts for rationale.
+  assert.doesNotMatch(cors, /"Access-Control-Allow-Origin":\s*"\*"/);
+
+  for (
+    const relativePath of [
+      "supabase/functions/device-enrollment/index.ts",
+      "supabase/functions/google-drive-authorize/index.ts",
+      "supabase/functions/google-drive-metadata/index.ts",
+    ]
+  ) {
+    const source = read(relativePath);
+    assert.match(
+      source,
+      /import\s*\{\s*buildCorsHeaders\s*\}\s*from\s*"\.\.\/_shared\/cors\.ts"/,
+      `${relativePath} should import the shared CORS helper`,
+    );
+    assert.doesNotMatch(
+      source,
+      /"Access-Control-Allow-Origin":\s*"\*"/,
+      `${relativePath} should not hardcode a wildcard CORS origin`,
+    );
+  }
+});
+
 test("Supabase metadata writer is authenticated and token-free", () => {
   const edgeFunction = read("supabase/functions/google-drive-metadata/index.ts");
   assert.match(edgeFunction, /withSupabase\(\{ auth: "user" \}/);

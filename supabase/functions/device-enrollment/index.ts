@@ -1,16 +1,11 @@
 import { withSupabase } from "npm:@supabase/server@1.4.1";
+import { buildCorsHeaders } from "../_shared/cors.ts";
 
 const AUTHORITY_ACTIONS = new Set(["pending", "pairing_only", "revoke"]);
 const ENROLLMENT_OPERATION = "device.enrollment.request";
 const ENROLLMENT_DOMAIN = "FUNG\0DEVICE_ENROLLMENT\0V1\0";
 const MAX_PROOF_TTL_MS = 300_000;
 const MAX_CLOCK_SKEW_MS = 30_000;
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
 
 type EnrollmentProof = {
   version: number;
@@ -44,11 +39,18 @@ type CanonicalProof = {
   signature: Uint8Array;
 };
 
-function response(body: Record<string, unknown>, status = 200): Response {
+function jsonResponse(
+  corsHeaders: Record<string, string>,
+  body: Record<string, unknown>,
+  status = 200,
+): Response {
   return Response.json(body, { status, headers: corsHeaders });
 }
 
-function withCors(result: Response): Response {
+function withCors(
+  corsHeaders: Record<string, string>,
+  result: Response,
+): Response {
   const headers = new Headers(result.headers);
   for (const [key, value] of Object.entries(corsHeaders)) {
     headers.set(key, value);
@@ -258,6 +260,10 @@ async function verifyEnrollmentProof(
 }
 
 const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
+  const corsHeaders = buildCorsHeaders(request.headers.get("origin"));
+  const response = (body: Record<string, unknown>, status = 200): Response =>
+    jsonResponse(corsHeaders, body, status);
+
   if (request.method !== "POST") {
     return response({ code: "method_not_allowed" }, 405);
   }
@@ -384,9 +390,10 @@ const handler = withSupabase({ auth: "user" }, async (request, ctx) => {
 
 export default {
   fetch: async (request: Request) => {
+    const corsHeaders = buildCorsHeaders(request.headers.get("origin"));
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
-    return withCors(await handler(request));
+    return withCors(corsHeaders, await handler(request));
   },
 };

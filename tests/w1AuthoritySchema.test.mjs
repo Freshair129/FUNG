@@ -401,6 +401,16 @@ test("Drive Edge authority uses the exact device predicate, grants, and RPC lock
   assert.doesNotMatch(metadata, /oauth_operation_grants|reserve_oauth_authorization|approve_bootstrap_enrollment/);
   assert.match(lock, /npm:@supabase\/server@1\.4\.1/);
   assert.doesNotMatch(lock, /npm:@supabase\/server@\*/);
+
+  // Authorization-granting edge functions must build CORS headers from the
+  // shared, env-driven module rather than hardcoding a public wildcard.
+  for (const source of [authorize, metadata]) {
+    assert.match(
+      source,
+      /import\s*\{\s*buildCorsHeaders\s*\}\s*from\s*"\.\.\/_shared\/cors\.ts"/,
+    );
+    assert.doesNotMatch(source, /"Access-Control-Allow-Origin":\s*"\*"/);
+  }
 });
 
 test("Committed SQL evidence covers privileges, fixed search paths, and no project authority", () => {

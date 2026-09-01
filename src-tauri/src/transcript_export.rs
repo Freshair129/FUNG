@@ -636,7 +636,10 @@ mod tests {
 
         let srt = std::fs::read_to_string(&export.srt_path).unwrap();
         // The last cue is the one that used to vanish.
-        assert!(srt.contains(&format!("บรรทัด {}", total - 1)), "srt tail missing");
+        assert!(
+            srt.contains(&format!("บรรทัด {}", total - 1)),
+            "srt tail missing"
+        );
         assert!(srt.trim_end().ends_with(&format!("บรรทัด {}", total - 1)));
 
         drop(storage);

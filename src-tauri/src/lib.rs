@@ -3471,10 +3471,7 @@ mod transcript_view_tests {
         let view = transcript_view(&storage, "p1", "r1").unwrap();
         assert!(!view.capped, "a paged read has nothing to warn about");
         assert!(view.capped_recording_ids.is_empty());
-        assert_eq!(
-            view.segments.len(),
-            genesis_adapter::ROW_CAP as usize + 100
-        );
+        assert_eq!(view.segments.len(), genesis_adapter::ROW_CAP as usize + 100);
         // Whole and in playback order: every page landed, none twice.
         assert!(view
             .segments

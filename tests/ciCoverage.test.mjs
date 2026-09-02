@@ -36,10 +36,13 @@ test("every test script in package.json runs in CI", () => {
 
 test("every suite file has a script that runs it", () => {
   // The other direction: a `.test.mjs` nobody can invoke is dead weight that
-  // still looks like coverage to anyone reading the directory.
+  // still looks like coverage to anyone reading the directory. Matched by
+  // `.test.<ext>` rather than hardcoding `.mjs`, so a suite written in any
+  // other language (e.g. `.test.py`) can't slip through the same gap that
+  // let `tests/transcribeConcatOnly.test.py` go unwired.
   const commands = Object.values(scripts).join("\n");
   const orphans = readdirSync("tests")
-    .filter((name) => name.endsWith(".test.mjs"))
+    .filter((name) => /\.test\.\w+$/.test(name))
     .filter((name) => !commands.includes(`tests/${name}`));
   assert.deepEqual(orphans, [], `${orphans.join(", ")} is never run by any npm script`);
 });

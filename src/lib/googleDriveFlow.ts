@@ -15,9 +15,6 @@ import {
 
 export type { DriveArchiveSummary, DriveConnectionStatus } from "./desktopSessionBroker";
 
-export const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
-export type DriveConnectState = "idle" | "authorizing" | "connected" | "disconnected";
-
 function publicError(code: string): Error { return new Error(code); }
 
 export function googleDriveClientId(): string | null {

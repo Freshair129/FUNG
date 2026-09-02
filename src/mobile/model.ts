@@ -1,28 +1,4 @@
-export type MobileTab = "home" | "notes" | "voice" | "pitching" | "timeline" | "graph" | "devices";
-
-export type PitchTimerMode = "topic_countdown" | "total_countdown" | "count_up";
-
-export type PitchTopic = {
-  id: string;
-  title: string;
-  targetDurationSec: number;
-  notes?: string;
-};
-
-export type PitchSessionState = {
-  active: boolean;
-  recordingId: string | null;
-  startedAt: number | null;
-  pausedAt: number | null;
-  elapsedMs: number;
-  currentTopicIndex: number;
-  timerMode: PitchTimerMode;
-  topics: PitchTopic[];
-  enableFrontCamera: boolean;
-  enableVoiceCommands: boolean;
-  dndEnabled: boolean;
-  walLastSyncedAt: number | null;
-};
+export type MobileTab = "home" | "notes" | "voice" | "timeline" | "graph" | "devices";
 
 export type ThemePreference = "system" | "light" | "dark";
 

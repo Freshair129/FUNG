@@ -1035,12 +1035,14 @@ pub(crate) fn meeting_summaries(
     state: State<'_, AppState>,
 ) -> AppResult<MeetingSummaries> {
     let run_ids = |filters: Vec<_>| -> AppResult<HashSet<String>> {
-        Ok(genesis_adapter::query_all(&state.genesis, "model_runs", &["id"], filters)
-            .map_err(AppError::Genesis)?
-            .iter()
-            .filter_map(|row| row.get("model_runs.id").and_then(serde_json::Value::as_str))
-            .map(str::to_owned)
-            .collect())
+        Ok(
+            genesis_adapter::query_all(&state.genesis, "model_runs", &["id"], filters)
+                .map_err(AppError::Genesis)?
+                .iter()
+                .filter_map(|row| row.get("model_runs.id").and_then(serde_json::Value::as_str))
+                .map(str::to_owned)
+                .collect(),
+        )
     };
 
     let runs_for_recording = run_ids(vec![genesis_adapter::eq(

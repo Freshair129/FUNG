@@ -53,6 +53,19 @@
   box-shadow: inset 1px 1px 2px rgba(92, 78, 58, 0.2);
 }
 
+/* No real input-level source exists in this build. Dimmed and diagonally
+   hatched so it reads as "no data" rather than a live meter parked at 0. */
+.instrument-rail__bar--inactive {
+  opacity: 0.4;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(232, 224, 208, 0.9),
+    rgba(232, 224, 208, 0.9) 3px,
+    rgba(180, 170, 150, 0.6) 3px,
+    rgba(180, 170, 150, 0.6) 6px
+  );
+}
+
 .instrument-rail__bar-seg {
   width: 100%;
 }
@@ -107,6 +120,16 @@
 
 .theme-dark .instrument-rail__bar {
   background: #3a342b;
+}
+
+.theme-dark .instrument-rail__bar--inactive {
+  background: repeating-linear-gradient(
+    45deg,
+    #3a342b,
+    #3a342b 3px,
+    #2a251f 3px,
+    #2a251f 6px
+  );
 }
 
 .theme-dark .instrument-rail__button {

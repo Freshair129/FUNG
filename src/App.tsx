@@ -134,14 +134,10 @@ type FocusTile = {
   detail: string;
   action: string;
   status: string;
-  meterLabel: string;
-  meterValue: string;
   currentLabel: string;
   tone: Tone;
   primaryAction: TileAction;
   secondaryAction: TileAction;
-  activities: readonly ActivityEntry[];
-  events: readonly EventEntry[];
 };
 
 const viewByAnchor: Record<Anchor, ViewId> = {
@@ -185,24 +181,10 @@ const pageContent: Record<
         detail: "Name the meeting, confirm the source input, and arm a long-take preset before anyone starts talking.",
         action: "Start recording",
         status: "Ready to arm",
-        meterLabel: "Input readiness",
-        meterValue: "88%",
         currentLabel: "Next step",
         tone: "sage",
         primaryAction: { kind: "record", label: "Start recording", value: "start" },
         secondaryAction: { kind: "anchor", label: "Open transcript", value: "P2" },
-        activities: [
-          { time: "09:42", title: "Meeting shell armed", detail: "Default local-first preset loaded for this session." },
-          { time: "09:46", title: "Input map confirmed", detail: "Primary microphone and fallback device are available." },
-          { time: "09:51", title: "Chunk autosave primed", detail: "SQLite WAL and file sink are ready for long recording." },
-          { time: "09:57", title: "Consent note inserted", detail: "Meeting opener includes privacy-safe recording notice." },
-        ],
-        events: [
-          { type: "Source", detail: "USB microphone / 48kHz", state: "Ready" },
-          { type: "Preset", detail: "Long meeting / chunked autosave", state: "Armed" },
-          { type: "Storage", detail: "Local project folder visible", state: "OK" },
-          { type: "Privacy", detail: "No cloud route on this mode", state: "Local" },
-        ],
       },
       {
         id: "live-capture",
@@ -211,24 +193,10 @@ const pageContent: Record<
         detail: "Watch elapsed time, chunk sealing, clipping, and silence so the meeting can run without babysitting.",
         action: "Pause or resume",
         status: "Recording watch",
-        meterLabel: "Capture stability",
-        meterValue: "93%",
         currentLabel: "Current focus",
         tone: "indigo",
         primaryAction: { kind: "record", label: "Pause or resume", value: "toggle" },
         secondaryAction: { kind: "job", label: "Add marker", value: "capture.marker" },
-        activities: [
-          { time: "10:03", title: "Chunk 18 sealed", detail: "Recovered from standby in 190ms and resumed cleanly." },
-          { time: "10:06", title: "Noise floor steady", detail: "Room tone stayed below the cleanup threshold." },
-          { time: "10:09", title: "Side marker dropped", detail: "Budget discussion tagged for later recap." },
-          { time: "10:12", title: "Battery warning dismissed", detail: "External power is holding during the session." },
-        ],
-        events: [
-          { type: "Live meter", detail: "No clipping in the last 12 minutes", state: "Stable" },
-          { type: "Chunks", detail: "Autosave sealing every 02:00", state: "On" },
-          { type: "Silence", detail: "Short pause windows detected", state: "Normal" },
-          { type: "Transcript", detail: "Ready when recording stops", state: "Next" },
-        ],
       },
       {
         id: "side-notes",
@@ -237,24 +205,10 @@ const pageContent: Record<
         detail: "Drop quick flags for agenda shifts, decisions, and moments worth exporting before details disappear.",
         action: "Add marker",
         status: "Marker lane open",
-        meterLabel: "Note coverage",
-        meterValue: "64%",
         currentLabel: "Capture aid",
         tone: "metal",
         primaryAction: { kind: "job", label: "Add marker", value: "capture.marker" },
         secondaryAction: { kind: "anchor", label: "Go to transcript", value: "P2" },
-        activities: [
-          { time: "10:14", title: "Decision marker added", detail: "Hiring budget section tagged for action extraction." },
-          { time: "10:17", title: "Question marker added", detail: "Pending legal review called out for follow-up." },
-          { time: "10:20", title: "Speaker handoff marked", detail: "Useful transition stored for diarization review." },
-          { time: "10:24", title: "Noise note attached", detail: "Coffee machine burst flagged for cleanup pass." },
-        ],
-        events: [
-          { type: "Marker", detail: "Decision / question / follow-up presets", state: "Ready" },
-          { type: "Agenda", detail: "Three sections logged so far", state: "Tracked" },
-          { type: "Evidence", detail: "Markers will surface in recap review", state: "Linked" },
-          { type: "Cleanup", detail: "Noise notes preserved for later pass", state: "Held" },
-        ],
       },
     ],
   },
@@ -273,24 +227,10 @@ const pageContent: Record<
         detail: "Read the latest meeting transcript, keep timestamps visible, and fix obvious wording before analysis begins.",
         action: "Review transcript",
         status: "Transcript ready",
-        meterLabel: "Transcript completeness",
-        meterValue: "91%",
         currentLabel: "Review step",
         tone: "indigo",
         primaryAction: { kind: "job", label: "Review transcript", value: "transcript.transcribe" },
         secondaryAction: { kind: "job", label: "Rerun transcript", value: "transcript.retry" },
-        activities: [
-          { time: "10:32", title: "Transcript generated", detail: "Timestamped text arrived for the latest meeting chunk set." },
-          { time: "10:36", title: "Punctuation refined", detail: "Japanese and English punctuation pass completed locally." },
-          { time: "10:41", title: "Silence spans merged", detail: "Small dead air windows collapsed for easier reading." },
-          { time: "10:45", title: "Open issue flagged", detail: "One phrase remains low confidence for manual review." },
-        ],
-        events: [
-          { type: "Transcript", detail: "Current pass covers the full meeting", state: "Ready" },
-          { type: "Language", detail: "JP / EN mixed transcript preserved", state: "OK" },
-          { type: "Confidence", detail: "One span below confidence threshold", state: "Review" },
-          { type: "Evidence", detail: "Timestamps remain attached while editing", state: "Pinned" },
-        ],
       },
       {
         id: "speaker-pass",
@@ -299,24 +239,10 @@ const pageContent: Record<
         detail: "Merge, rename, and lock speaker lanes only where the meeting recap actually depends on who said what.",
         action: "Lock speakers",
         status: "Speaker map in review",
-        meterLabel: "Speaker confidence",
-        meterValue: "82%",
         currentLabel: "Speaker task",
         tone: "sage",
         primaryAction: { kind: "job", label: "Lock speakers", value: "speakers.lock" },
         secondaryAction: { kind: "job", label: "Rerun diarization", value: "speakers.diarize" },
-        activities: [
-          { time: "10:48", title: "Speaker lane merged", detail: "Two adjacent voices were merged after a short interruption." },
-          { time: "10:52", title: "Display names updated", detail: "Role labels replaced temporary speaker IDs for recap use." },
-          { time: "10:55", title: "Overlap detected", detail: "Cross-talk segment flagged for manual listen-through." },
-          { time: "10:58", title: "Lock point suggested", detail: "Most major turns are stable enough for summary jobs." },
-        ],
-        events: [
-          { type: "Speaker map", detail: "2 primary speakers / 1 guest lane", state: "Active" },
-          { type: "Overlap", detail: "Short interruption at 14:26 requires review", state: "Open" },
-          { type: "Identity", detail: "Labels stay editable, never biometric", state: "Safe" },
-          { type: "Summary", detail: "Per-person recap unlocks after speaker lock", state: "Next" },
-        ],
       },
       {
         id: "highlight-pass",
@@ -325,24 +251,10 @@ const pageContent: Record<
         detail: "Mark decisions, questions, and quotes worth carrying into summary, intent, and export bundles.",
         action: "Mark evidence",
         status: "Evidence pass open",
-        meterLabel: "Evidence coverage",
-        meterValue: "74%",
         currentLabel: "Highlight layer",
         tone: "metal",
         primaryAction: { kind: "job", label: "Mark evidence", value: "review.evidence" },
         secondaryAction: { kind: "anchor", label: "Open summary", value: "P3" },
-        activities: [
-          { time: "11:02", title: "Decision span pinned", detail: "Budget approval exchange linked for the recap card." },
-          { time: "11:05", title: "Quote preserved", detail: "One stakeholder concern tagged for intent comparison." },
-          { time: "11:09", title: "Action owner noted", detail: "Follow-up responsibility marked beside the transcript turn." },
-          { time: "11:12", title: "Open question tagged", detail: "Procurement answer remains unresolved for later review." },
-        ],
-        events: [
-          { type: "Highlights", detail: "Decisions / concerns / follow-ups", state: "Tagged" },
-          { type: "Quote bank", detail: "Three spans saved for export bundle", state: "Ready" },
-          { type: "Actions", detail: "Ownership hints flow into action extraction", state: "Linked" },
-          { type: "Intent", detail: "Pinned spans improve per-person analysis", state: "Useful" },
-        ],
       },
     ],
   },
@@ -361,24 +273,10 @@ const pageContent: Record<
         detail: "Generate a short, evidence-backed story of what happened, what changed, and what still needs attention.",
         action: "Generate recap",
         status: "Recap available",
-        meterLabel: "Recap completeness",
-        meterValue: "89%",
         currentLabel: "Summary layer",
         tone: "sage",
         primaryAction: { kind: "job", label: "Generate recap", value: "summary.recap" },
         secondaryAction: { kind: "job", label: "Compare summaries", value: "summary.compare" },
-        activities: [
-          { time: "11:18", title: "Recap draft generated", detail: "A concise story summary was built from pinned evidence spans." },
-          { time: "11:22", title: "Timeline tightened", detail: "Non-essential side chatter was collapsed out of the main narrative." },
-          { time: "11:25", title: "Decision cluster grouped", detail: "Budget, hiring, and vendor decisions were separated cleanly." },
-          { time: "11:28", title: "Evidence audit passed", detail: "Every recap paragraph still points back to transcript time ranges." },
-        ],
-        events: [
-          { type: "Recap", detail: "Short, evidence-backed meeting story", state: "Ready" },
-          { type: "Timeline", detail: "Chronology preserved in the draft", state: "Kept" },
-          { type: "Proof", detail: "Evidence spans attached to recap blocks", state: "Linked" },
-          { type: "Risk", detail: "Low-confidence lines stay outside the lead", state: "Safe" },
-        ],
       },
       {
         id: "people-intent",
@@ -387,24 +285,10 @@ const pageContent: Record<
         detail: "Separate what each speaker likely wanted, worried about, or committed to, without presenting inference as fact.",
         action: "Analyze intent",
         status: "Intent in review",
-        meterLabel: "Intent confidence",
-        meterValue: "78%",
         currentLabel: "Inference layer",
         tone: "indigo",
         primaryAction: { kind: "job", label: "Analyze intent", value: "summary.intent" },
         secondaryAction: { kind: "anchor", label: "Review speakers", value: "P2" },
-        activities: [
-          { time: "11:31", title: "Intent map refreshed", detail: "Per-speaker motivations were recomputed from the corrected transcript." },
-          { time: "11:35", title: "Concern highlighted", detail: "One stakeholder repeatedly returned to timeline risk." },
-          { time: "11:38", title: "Commitment extracted", detail: "A likely owner was inferred for the vendor follow-up thread." },
-          { time: "11:41", title: "Weak span isolated", detail: "One uncertain inference was quarantined until speaker review improves." },
-        ],
-        events: [
-          { type: "Intent", detail: "AI inference stays labelled with uncertainty", state: "Visible" },
-          { type: "Concerns", detail: "Three recurring concern patterns found", state: "Tracked" },
-          { type: "Commitments", detail: "Likely owners surfaced from final turns", state: "Draft" },
-          { type: "Evidence", detail: "Intent cards only cite pinned transcript spans", state: "Bounded" },
-        ],
       },
       {
         id: "action-register",
@@ -413,24 +297,10 @@ const pageContent: Record<
         detail: "Pull follow-ups, decisions, owners, and unresolved questions into a package people can actually use after the call.",
         action: "Extract actions",
         status: "Actions ready",
-        meterLabel: "Action coverage",
-        meterValue: "84%",
         currentLabel: "Follow-up layer",
         tone: "metal",
         primaryAction: { kind: "job", label: "Extract actions", value: "summary.actions" },
         secondaryAction: { kind: "anchor", label: "Prepare export", value: "P4" },
-        activities: [
-          { time: "11:44", title: "Action list compiled", detail: "Follow-ups were grouped by owner and dependency." },
-          { time: "11:48", title: "Deadline note added", detail: "One task was linked to the Friday procurement checkpoint." },
-          { time: "11:51", title: "Question bucket created", detail: "Open issues stayed separate from confirmed commitments." },
-          { time: "11:54", title: "Export tags staged", detail: "Action items are ready for bundle rendering." },
-        ],
-        events: [
-          { type: "Actions", detail: "Owners, next steps, and due cues", state: "Ready" },
-          { type: "Questions", detail: "Unresolved topics stay visible after export", state: "Held" },
-          { type: "Dependencies", detail: "Cross-team follow-ups grouped together", state: "Mapped" },
-          { type: "Bundle", detail: "Action sheet can ride with recap export", state: "Next" },
-        ],
       },
     ],
   },
@@ -449,24 +319,10 @@ const pageContent: Record<
         detail: "Render the meeting package as WAV, MP3, transcript, recap, and structured metadata without breaking local provenance.",
         action: "Export bundle",
         status: "Bundle queued",
-        meterLabel: "Bundle readiness",
-        meterValue: "87%",
         currentLabel: "Delivery step",
         tone: "metal",
         primaryAction: { kind: "job", label: "Export bundle", value: "export.render" },
         secondaryAction: { kind: "job", label: "Open export queue", value: "export.queue" },
-        activities: [
-          { time: "12:02", title: "Bundle profile selected", detail: "Meeting recap package chosen with transcript and audio outputs." },
-          { time: "12:05", title: "Export queue armed", detail: "Primary artifacts are ready to render in one local pass." },
-          { time: "12:09", title: "Transcript sidecars staged", detail: "TXT, SRT, VTT, and JSON outputs are aligned to the same source." },
-          { time: "12:12", title: "Audio outputs validated", detail: "Original WAV and processed MP3 are both eligible for export." },
-        ],
-        events: [
-          { type: "Bundle", detail: "WAV / MP3 / TXT / SRT / VTT / JSON / MD", state: "Ready" },
-          { type: "Queue", detail: "No active export contention", state: "Clear" },
-          { type: "Path", detail: "Artifacts stay inside the local project tree", state: "Local" },
-          { type: "Proof", detail: "Summary and intent outputs keep provenance", state: "Bound" },
-        ],
       },
       {
         id: "privacy-policy",
@@ -475,24 +331,10 @@ const pageContent: Record<
         detail: "Confirm local-only mode, provider posture, and inference labeling before the meeting leaves your machine.",
         action: "Review policy",
         status: "Policy guarded",
-        meterLabel: "Privacy posture",
-        meterValue: "96%",
         currentLabel: "Governance step",
         tone: "sage",
         primaryAction: { kind: "anchor", label: "Review policy", value: "P4" },
         secondaryAction: { kind: "api", label: "Start local API", value: "start" },
-        activities: [
-          { time: "12:16", title: "Policy banner confirmed", detail: "Intent stays labeled as AI inference in this export profile." },
-          { time: "12:19", title: "Remote route blocked", detail: "No cloud provider is enabled for this meeting project." },
-          { time: "12:22", title: "Consent note preserved", detail: "Meeting metadata keeps the recording disclosure note." },
-          { time: "12:25", title: "Retention rule attached", detail: "Local-only archive policy follows the export bundle." },
-        ],
-        events: [
-          { type: "Privacy", detail: "Loopback-only and no remote upload", state: "On-device" },
-          { type: "Inference", detail: "Intent remains marked as probabilistic", state: "Clear" },
-          { type: "Retention", detail: "Project keeps a local-only archive policy", state: "Attached" },
-          { type: "API", detail: "Background API available on demand", state: "Ready" },
-        ],
       },
       {
         id: "runtime-archive",
@@ -501,24 +343,10 @@ const pageContent: Record<
         detail: "Check provider health, storage path, and archive safety so this meeting can be reopened or audited later.",
         action: "Archive project",
         status: "Runtime stable",
-        meterLabel: "Runtime health",
-        meterValue: "90%",
         currentLabel: "System step",
         tone: "indigo",
         primaryAction: { kind: "job", label: "Archive project", value: "archive.project" },
         secondaryAction: { kind: "api", label: "Start local API", value: "start" },
-        activities: [
-          { time: "12:28", title: "Provider check passed", detail: "Enabled local models are reachable from this workspace." },
-          { time: "12:31", title: "Archive lane created", detail: "Meeting folder is ready for post-export retention." },
-          { time: "12:34", title: "Job history linked", detail: "Model provenance and export steps remain queryable." },
-          { time: "12:37", title: "Recovery point saved", detail: "The project can be reopened without reprocessing core artifacts." },
-        ],
-        events: [
-          { type: "Providers", detail: "BYOM route and local runtime check", state: "Ready" },
-          { type: "Database", detail: "Project path and WAL state remain visible", state: "WAL" },
-          { type: "Archive", detail: "Source, recap, and provenance stay together", state: "Stable" },
-          { type: "Recovery", detail: "Job history remains local and queryable", state: "Kept" },
-        ],
       },
     ],
   },
@@ -711,29 +539,26 @@ export function App() {
     void refresh();
   }, []);
 
+  // State reflects what the backend actually reports for each project, not
+  // its position in the list: an active recording, then a running/queued
+  // job, then a plain "Saved" for a project with neither.
   const libraryItems = useMemo<LibraryItem[]>(() => {
-    if (projects.length === 0) {
-      return [
-        { id: "REC-241", title: "Morning notes", subtitle: "24m capture", state: "Armed" },
-        { id: "REC-198", title: "Board memo", subtitle: "Import ready", state: "Queued" },
-        { id: "REC-212", title: "Field interview", subtitle: "2 speakers", state: "Live" },
-        { id: "REC-207", title: "Cafe ambience", subtitle: "Reference bed", state: "Soft" },
-        { id: "REC-190", title: "Voice journal", subtitle: "Draft marked", state: "Saved" },
-      ];
-    }
+    return projects.slice(0, 5).map((project) => {
+      const hasActiveRecording = project.activeRecordingId !== null;
+      const hasPendingJob = jobs.some(
+        (job) => job.projectId === project.id && (job.status === "running" || job.status === "queued"),
+      );
+      const state = hasActiveRecording ? "Live" : hasPendingJob ? "Queued" : "Saved";
+      return {
+        id: project.id,
+        title: project.name,
+        subtitle: `Updated ${new Date(project.updatedAt).toLocaleDateString()}`,
+        state,
+      };
+    });
+  }, [projects, jobs]);
 
-    return projects.slice(0, 5).map((project, index) => ({
-      id: project.id,
-      title: project.name,
-      subtitle:
-        index === 0
-          ? `Updated ${new Date(project.updatedAt).toLocaleDateString()}`
-          : `Created ${new Date(project.createdAt).toLocaleDateString()}`,
-      state: index === 0 ? "Live" : index === 1 ? "Queued" : "Saved",
-    }));
-  }, [projects]);
-
-  const [selectedRecording, setSelectedRecording] = useState<string>("REC-212");
+  const [selectedRecording, setSelectedRecording] = useState<string>("");
 
   useEffect(() => {
     if (!libraryItems.some((item) => item.id === selectedRecording)) {
@@ -794,8 +619,8 @@ export function App() {
   const currentPage = pageContent[activeAnchor];
   const currentTile =
     currentPage.tiles.find((tile) => tile.id === activeTileByAnchor[activeAnchor]) ?? currentPage.tiles[0];
-  const meetingTitle = selectedCard?.title ?? "Leadership weekly sync";
-  const meetingSubtitle = selectedCard?.subtitle ?? "2 speakers / local review deck";
+  const meetingTitle = selectedCard?.title ?? "ยังไม่ได้เลือกการบันทึก";
+  const meetingSubtitle = selectedCard?.subtitle ?? "เลือกการบันทึกจากหน้าแรกเพื่อเริ่มรีวิว";
 
   const providerSummary = useMemo(() => {
     if (providers.length === 0) return "BYOM not configured";
@@ -813,6 +638,11 @@ export function App() {
     }
   }, [activeAnchor, activeTileByAnchor, currentPage.tiles]);
 
+  const speakerCount = useMemo(
+    () => new Set(segments.map((segment) => segment.speakerId).filter((id) => id != null)).size,
+    [segments],
+  );
+
   const runtimeStats = useMemo(() => {
     const apiState = health?.localApi.running ? "API live" : "Offline";
     const providerCount = providers.filter((provider) => provider.enabled).length;
@@ -820,23 +650,27 @@ export function App() {
     switch (activeAnchor) {
       case "P1":
         return [
-          { label: "Session", value: recording ? "Live" : "Armed", meta: selectedCard?.state ?? "Ready" },
-          { label: "Capture", value: recording ? "01:24" : "00:00", meta: "Chunked" },
-          { label: "Noise", value: "-34dB", meta: "Room tone" },
+          { label: "Session", value: recording ? "Live" : "Armed", meta: selectedCard?.state ?? "—" },
+          { label: "Capture", value: recording ? "กำลังอัด" : "หยุดอยู่", meta: "Chunked" },
+          { label: "Queue", value: jobs.length ? `${jobs.length} งาน` : "ว่าง", meta: "Jobs" },
           { label: "Next", value: "Transcript", meta: "After stop" },
         ];
       case "P2":
         return [
-          { label: "Transcript", value: "91%", meta: "Ready" },
-          { label: "Speakers", value: "2 lanes", meta: "Editable" },
-          { label: "Evidence", value: "7 spans", meta: "Pinned" },
+          {
+            label: "Transcript",
+            value: segments.length ? `${segments.length} ท่อน` : "ยังไม่มี",
+            meta: segments.length ? (transcriptCapped ? "ไม่ครบ" : "โหลดแล้ว") : "รอถอดเสียง",
+          },
+          { label: "Speakers", value: speakerCount ? `${speakerCount} คน` : "ยังไม่ระบุ", meta: "Editable" },
+          { label: "Evidence", value: "ยังไม่มี", meta: "ยังไม่รองรับ" },
           { label: "Next", value: "Summary", meta: "After review" },
         ];
       case "P3":
         return [
-          { label: "Recap", value: "1 draft", meta: "Cited" },
-          { label: "Intent", value: "3 people", meta: "AI inference" },
-          { label: "Actions", value: "6 items", meta: "Owners tagged" },
+          { label: "Recap", value: "ยังไม่มี", meta: "รอสร้าง" },
+          { label: "Intent", value: "ยังไม่มี", meta: "รอสร้าง" },
+          { label: "Actions", value: "ยังไม่มี", meta: "ยังไม่รองรับ" },
           { label: "Export", value: jobs.length ? `${jobs.length} queued` : "Ready", meta: "Bundle" },
         ];
       case "P4":
@@ -847,9 +681,9 @@ export function App() {
           { label: "Runtime", value: apiState, meta: health?.sqliteWal ? "WAL" : "Idle" },
         ];
     }
-  }, [activeAnchor, health, jobs.length, providers, recording, selectedCard]);
+  }, [activeAnchor, health, jobs.length, providers, recording, segments.length, selectedCard, speakerCount, transcriptCapped]);
 
-  const activityFeed = useMemo(() => {
+  const activityFeed = useMemo<ActivityEntry[]>(() => {
     if (activeAnchor === "P2" && currentTile.id === "transcript-pass" && segments.length > 0) {
       const lines = segments.slice(0, 16).map((segment) => ({
         time: formatMs(segment.startMs),
@@ -873,17 +707,25 @@ export function App() {
       return lines;
     }
 
-    const items = currentTile.activities.map((entry) => ({ ...entry }));
+    // No per-tile activity source exists beyond the job queue and the
+    // transcript above, so every remaining row here has to come from real
+    // jobs — never invented copy standing in for activity that never
+    // happened.
     if (jobs.length > 0) {
-      const latestJob = jobs[0];
-      items[0] = {
-        time: new Date(latestJob.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        title: `${latestJob.type} ${latestJob.status}`,
-        detail: latestJob.errorMessage ?? `Progress ${latestJob.progress}% for ${latestJob.projectId}`,
-      };
+      return jobs.slice(0, 8).map((job) => ({
+        time: new Date(job.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        title: `${job.type} ${job.status}`,
+        detail: job.errorMessage ?? `Progress ${job.progress}% for ${job.projectId}`,
+      }));
     }
-    return items;
-  }, [activeAnchor, currentTile.activities, currentTile.id, jobs, segments, transcriptCapped]);
+    return [
+      {
+        time: "",
+        title: "ยังไม่มีกิจกรรม",
+        detail: "เริ่มบันทึกหรือเลือกไฟล์เสียงเพื่อสร้างงานแรก",
+      },
+    ];
+  }, [activeAnchor, currentTile.id, jobs, segments, transcriptCapped]);
 
   const activeTranscribeJob = jobs.find(
     (job) => job.type === "transcript.transcribe" && job.status === "running",
@@ -894,7 +736,7 @@ export function App() {
       ? `Transcribing… ${activeTranscribeJob?.progress ?? 0}%`
       : currentTile.primaryAction.label;
 
-  const eventFeed = useMemo(() => {
+  const eventFeed = useMemo<EventEntry[]>(() => {
     if (activeAnchor === "P4" && providers.length > 0) {
       return providers.slice(0, 4).map((provider) => ({
         type: provider.kind,
@@ -902,28 +744,53 @@ export function App() {
         state: provider.enabled ? provider.runtimeLocation : "Disabled",
       }));
     }
-    return currentTile.events.map((entry) => ({ ...entry }));
-  }, [activeAnchor, currentTile.events, providers]);
+    // Same rule as the activity feed: no per-tile event source exists other
+    // than the job queue, so distinct job types stand in for "events" and an
+    // honest empty state replaces invented event rows.
+    if (jobs.length > 0) {
+      const latestByType = new Map<string, Job>();
+      for (const job of jobs) {
+        if (!latestByType.has(job.type)) latestByType.set(job.type, job);
+      }
+      return Array.from(latestByType.values())
+        .slice(0, 4)
+        .map((job) => ({
+          type: job.type,
+          detail: job.errorMessage ?? `Progress ${job.progress}%`,
+          state: job.status,
+        }));
+    }
+    return [{ type: "งาน", detail: "ยังไม่มีเหตุการณ์", state: "รอเริ่ม" }];
+  }, [activeAnchor, jobs, providers]);
 
   const signalCards = useMemo(
     () => {
       const byPage: Record<Anchor, Array<{ id: SignalId; title: string; value: string; foot: string }>> = {
         P1: [
-          { id: "health", title: "Capture safety", value: recording ? "Guarded" : "Armed", foot: "Chunks and WAL are ready." },
-          { id: "privacy", title: "Audio cleanliness", value: "Stable", foot: "Noise floor stays under the cleanup threshold." },
+          { id: "health", title: "Capture safety", value: recording ? "Guarded" : "Armed", foot: health?.sqliteWal ? "SQLite WAL พร้อมใช้งาน" : "รอตรวจสถานะ storage" },
+          { id: "privacy", title: "Audio level", value: "ไม่มีข้อมูล", foot: "บิลด์นี้ยังไม่วัดระดับเสียงขณะอัด" },
           { id: "queue", title: "Session readiness", value: "Transcript next", foot: "Stop capture to begin transcript review." },
           { id: "focus", title: currentPage.signalTitle, value: currentTile.title, foot: meetingSubtitle },
         ],
         P2: [
-          { id: "health", title: "Transcript completeness", value: "91%", foot: "Full meeting transcript is available." },
-          { id: "privacy", title: "Speaker confidence", value: "82%", foot: "Editable labels remain non-biometric." },
-          { id: "queue", title: "Evidence coverage", value: "7 spans", foot: "Pinned spans will feed recap and export." },
+          {
+            id: "health",
+            title: "Transcript",
+            value: segments.length ? (transcriptCapped ? "ไม่ครบ" : `${segments.length} ท่อน`) : "ยังไม่มี",
+            foot: transcriptCapped
+              ? "อ่านได้ไม่ครบเพราะเพดานของ storage engine"
+              : segments.length
+                ? "โหลดจากการบันทึกจริงแล้ว"
+                : "ถอดเสียงก่อนเพื่อเริ่มรีวิว",
+          },
+          { id: "privacy", title: "Speakers", value: speakerCount ? `${speakerCount} คน` : "ยังไม่ระบุ", foot: "ป้ายชื่อแก้ไขได้และไม่ผูกกับข้อมูลชีวมิติ" },
+          { id: "queue", title: "Evidence", value: "ยังไม่มี", foot: "ยังไม่รองรับการปักหลักฐานในบิลด์นี้" },
           { id: "focus", title: currentPage.signalTitle, value: currentTile.title, foot: meetingSubtitle },
         ],
         P3: [
-          { id: "health", title: "Recap completeness", value: "Drafted", foot: "Evidence-backed meeting story is ready." },
-          { id: "privacy", title: "Intent confidence", value: "Bounded", foot: "Inference stays labeled with uncertainty." },
-          { id: "queue", title: "Action extraction", value: "6 open", foot: "Owners and follow-ups are staged for export." },
+          { id: "health", title: "Recap", value: "ยังไม่มี", foot: "ยังไม่มีการสร้าง recap สำหรับการบันทึกนี้" },
+          { id: "privacy", title: "Intent", value: "ยังไม่มี", foot: "ยังไม่มีการอนุมานเจตนา" },
+          { id: "queue", title: "Actions", value: "ยังไม่มี", foot: "ยังไม่รองรับการสกัด action item" },
           { id: "focus", title: currentPage.signalTitle, value: currentTile.title, foot: meetingSubtitle },
         ],
         P4: [
@@ -943,7 +810,7 @@ export function App() {
           <TimerReset size={15} />,
       }));
     },
-    [activeAnchor, currentPage.signalTitle, currentTile.title, health, jobs.length, meetingSubtitle, providerSummary, providers.length, recording],
+    [activeAnchor, currentPage.signalTitle, currentTile.title, health, jobs.length, meetingSubtitle, providerSummary, providers.length, recording, segments.length, speakerCount, transcriptCapped],
   );
 
   const viewLabel = navItems.find((item) => item.id === activeView)?.label ?? "Transcript";
@@ -1419,16 +1286,6 @@ export function App() {
               </div>
 
               <div className="agent-card__stack">
-                <div className="agent-meter">
-                  <div>
-                    <span>{currentTile.meterLabel}</span>
-                    <strong>{currentTile.meterValue}</strong>
-                  </div>
-                  <div className="meter">
-                    <span style={{ width: currentTile.meterValue }} />
-                  </div>
-                </div>
-
                 <div className="agent-current">
                   <span>{currentTile.currentLabel}</span>
                   <strong>
@@ -1635,10 +1492,6 @@ export function App() {
               void handleImportAndTranscribe();
             }}
             importDisabled={transcribing}
-            onPlayback={() => {
-              enterMeetingWorkspace(activeAnchor);
-              void handleCreateJob("transcript.transcribe");
-            }}
             onExport={() => {
               enterMeetingWorkspace(activeAnchor);
               void handleCreateJob("export.render");
@@ -1649,8 +1502,6 @@ export function App() {
             }
             onPairDevice={() => setDevicePairingPanelOpen((open) => !open)}
             onOpenSettings={() => setSettingsPanelOpen(true)}
-            levelLeft={0}
-            levelRight={0}
           />
 
           <div className={`power-dock no-drag ${powerMenuOpen ? "is-open" : ""}`}>

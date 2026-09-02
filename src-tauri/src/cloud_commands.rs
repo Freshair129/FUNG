@@ -16,6 +16,12 @@ pub(crate) struct CloudConfigInput {
     task_kind: cloud_config::CloudTaskKind,
     api_key: String,
     endpoint: Option<String>, // required when provider == "custom"
+    /// Optional model override for the "anthropic"/"openai" providers (e.g.
+    /// "claude-3-5-sonnet-20241022", "gpt-4o-mini", "whisper-1"). Ignored for
+    /// "custom", which has no model concept of its own. `None`/absent falls
+    /// back to cloud_executor.rs's hardcoded defaults.
+    #[serde(default)]
+    model: Option<String>,
 }
 
 #[tauri::command]
@@ -25,9 +31,11 @@ pub(crate) fn cloud_config_set(
     let config = match input.provider.as_str() {
         "anthropic" => cloud_config::CloudProviderConfig::Anthropic {
             api_key: input.api_key,
+            model: input.model,
         },
         "openai" => cloud_config::CloudProviderConfig::OpenAi {
             api_key: input.api_key,
+            model: input.model,
         },
         "custom" => cloud_config::CloudProviderConfig::Custom {
             endpoint: input.endpoint.ok_or_else(|| {
@@ -133,6 +141,7 @@ mod tests {
             task_kind: crate::cloud_config::CloudTaskKind::Stt,
             api_key: "".into(),
             endpoint: None,
+            model: None,
         };
         let result = cloud_config_set(input);
         assert!(result.is_ok()); // command succeeds; validation.ok is false
@@ -146,6 +155,7 @@ mod tests {
             task_kind: crate::cloud_config::CloudTaskKind::Stt,
             api_key: "key".into(),
             endpoint: None,
+            model: None,
         };
         let result = cloud_config_set(input);
         assert!(result.is_err());

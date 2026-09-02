@@ -2,7 +2,7 @@
 //! LLM extraction (Topic/Decision/ActionItem/Mention) with evidence links to
 //! transcript segments, persisted via genesis_adapter.
 
-use crate::{genesis_adapter, now};
+use crate::{genesis_adapter, now, DEFAULT_OLLAMA_ENDPOINT, DEFAULT_OLLAMA_MODEL};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -241,12 +241,12 @@ pub(crate) fn llm_provider_config(
     let endpoint = config
         .get("endpoint")
         .and_then(serde_json::Value::as_str)
-        .unwrap_or("http://127.0.0.1:11434")
+        .unwrap_or(DEFAULT_OLLAMA_ENDPOINT)
         .to_string();
     let model = config
         .get("model")
         .and_then(serde_json::Value::as_str)
-        .unwrap_or("llama3.1:8b")
+        .unwrap_or(DEFAULT_OLLAMA_MODEL)
         .to_string();
     let model = resolve_available_model(&endpoint, model);
     Ok((endpoint, model))

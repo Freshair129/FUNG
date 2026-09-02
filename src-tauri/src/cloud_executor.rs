@@ -11,6 +11,16 @@ use std::time::Duration;
 const STT_TIMEOUT: Duration = Duration::from_secs(120);
 const LLM_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Fallback OpenAI STT model, used when the user's `CloudProviderConfig` has
+/// no `model` override configured.
+const DEFAULT_OPENAI_STT_MODEL: &str = "whisper-1";
+/// Fallback Anthropic chat model, used when the user's `CloudProviderConfig`
+/// has no `model` override configured.
+const DEFAULT_ANTHROPIC_MODEL: &str = "claude-3-5-sonnet-20241022";
+/// Fallback OpenAI chat model, used when the user's `CloudProviderConfig` has
+/// no `model` override configured.
+const DEFAULT_OPENAI_LLM_MODEL: &str = "gpt-4o-mini";
+
 fn truncated(body: &str) -> &str {
     if body.len() <= 500 {
         return body;
@@ -54,7 +64,9 @@ pub(crate) fn dispatch_stt(
     audio_path: &Path,
 ) -> Result<Vec<Segment>, String> {
     match config {
-        CloudProviderConfig::OpenAi { api_key } => openai_stt(api_key, audio_path),
+        CloudProviderConfig::OpenAi { api_key, model } => {
+            openai_stt(api_key, model.as_deref(), audio_path)
+        }
         CloudProviderConfig::Custom {
             endpoint, api_key, ..
         } => custom_stt(endpoint, api_key, audio_path),
@@ -64,15 +76,23 @@ pub(crate) fn dispatch_stt(
 
 pub(crate) fn dispatch_llm(config: &CloudProviderConfig, prompt: &str) -> Result<String, String> {
     match config {
-        CloudProviderConfig::Anthropic { api_key } => anthropic_llm(api_key, prompt),
-        CloudProviderConfig::OpenAi { api_key } => openai_llm(api_key, prompt),
+        CloudProviderConfig::Anthropic { api_key, model } => {
+            anthropic_llm(api_key, model.as_deref(), prompt)
+        }
+        CloudProviderConfig::OpenAi { api_key, model } => {
+            openai_llm(api_key, model.as_deref(), prompt)
+        }
         CloudProviderConfig::Custom {
             endpoint, api_key, ..
         } => custom_llm(endpoint, api_key, prompt),
     }
 }
 
-fn openai_stt(api_key: &str, audio_path: &Path) -> Result<Vec<Segment>, String> {
+fn openai_stt(
+    api_key: &str,
+    model: Option<&str>,
+    audio_path: &Path,
+) -> Result<Vec<Segment>, String> {
     #[derive(serde::Deserialize)]
     struct OpenAiSttSegment {
         start: f64,
@@ -96,7 +116,10 @@ fn openai_stt(api_key: &str, audio_path: &Path) -> Result<Vec<Segment>, String> 
         .map_err(|e| e.to_string())?;
     let form = reqwest::blocking::multipart::Form::new()
         .part("file", part)
-        .text("model", "whisper-1")
+        .text(
+            "model",
+            model.unwrap_or(DEFAULT_OPENAI_STT_MODEL).to_string(),
+        )
         .text("response_format", "verbose_json");
 
     let client = reqwest::blocking::Client::builder()
@@ -170,7 +193,7 @@ fn custom_stt(endpoint: &str, api_key: &str, audio_path: &Path) -> Result<Vec<Se
         .map_err(|e| format!("อ่าน response custom STT ไม่ได้: {e}"))
 }
 
-fn anthropic_llm(api_key: &str, prompt: &str) -> Result<String, String> {
+fn anthropic_llm(api_key: &str, model: Option<&str>, prompt: &str) -> Result<String, String> {
     #[derive(serde::Deserialize)]
     struct ContentBlock {
         text: String,
@@ -189,14 +212,14 @@ fn anthropic_llm(api_key: &str, prompt: &str) -> Result<String, String> {
         .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .json(&serde_json::json!({
-            "model": "claude-3-5-sonnet-20241022",
+            "model": model.unwrap_or(DEFAULT_ANTHROPIC_MODEL),
             "max_tokens": 2048,
             "messages": [{"role": "user", "content": prompt}],
         }))
         .send()
         .map_err(|e| {
             if e.is_timeout() {
-                "Anthropic ไม่ตอบสนองภายใน 60 วินาที".to_string()
+                format!("Anthropic ไม่ตอบสนองภายใน {} วินาที", LLM_TIMEOUT.as_secs())
             } else {
                 format!("เชื่อมต่อ Anthropic ไม่ได้: {e}")
             }
@@ -218,7 +241,7 @@ fn anthropic_llm(api_key: &str, prompt: &str) -> Result<String, String> {
         .ok_or_else(|| "Anthropic ตอบกลับไม่มีเนื้อหา".to_string())
 }
 
-fn openai_llm(api_key: &str, prompt: &str) -> Result<String, String> {
+fn openai_llm(api_key: &str, model: Option<&str>, prompt: &str) -> Result<String, String> {
     #[derive(serde::Deserialize)]
     struct Choice {
         message: ChoiceMessage,
@@ -240,13 +263,13 @@ fn openai_llm(api_key: &str, prompt: &str) -> Result<String, String> {
         .post("https://api.openai.com/v1/chat/completions")
         .header("Authorization", format!("Bearer {api_key}"))
         .json(&serde_json::json!({
-            "model": "gpt-4o-mini",
+            "model": model.unwrap_or(DEFAULT_OPENAI_LLM_MODEL),
             "messages": [{"role": "user", "content": prompt}],
         }))
         .send()
         .map_err(|e| {
             if e.is_timeout() {
-                "OpenAI ไม่ตอบสนองภายใน 60 วินาที".to_string()
+                format!("OpenAI ไม่ตอบสนองภายใน {} วินาที", LLM_TIMEOUT.as_secs())
             } else {
                 format!("เชื่อมต่อ OpenAI ไม่ได้: {e}")
             }
@@ -294,7 +317,10 @@ fn custom_llm(endpoint: &str, api_key: &str, prompt: &str) -> Result<String, Str
         .send()
         .map_err(|e| {
             if e.is_timeout() {
-                "custom LLM endpoint ไม่ตอบสนองภายใน 60 วินาที".to_string()
+                format!(
+                    "custom LLM endpoint ไม่ตอบสนองภายใน {} วินาที",
+                    LLM_TIMEOUT.as_secs()
+                )
             } else {
                 format!("เชื่อมต่อ custom LLM endpoint ไม่ได้: {e}")
             }
@@ -544,6 +570,7 @@ mod tests {
     fn anthropic_dispatch_stt_is_rejected_with_a_clear_message() {
         let config = CloudProviderConfig::Anthropic {
             api_key: "sk-ant-test".into(),
+            model: None,
         };
         let dir = tempfile::tempdir().unwrap();
         let audio_path = dir.path().join("test.wav");

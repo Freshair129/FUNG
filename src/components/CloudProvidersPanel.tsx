@@ -25,6 +25,15 @@ interface CloudCallCounts {
 
 const PROVIDER_LABELS: Record<string, string> = { anthropic: "Anthropic", openai: "OpenAI", custom: "กำหนดเอง (Custom)" };
 
+// Placeholder = the backend's fallback when no override is saved; must match
+// DEFAULT_ANTHROPIC_MODEL / DEFAULT_OPENAI_STT_MODEL / DEFAULT_OPENAI_LLM_MODEL
+// in src-tauri/src/cloud_executor.rs. "custom" has no model concept, so no entry.
+const DEFAULT_MODEL_PLACEHOLDERS: Record<string, string> = {
+  "anthropic-llm": "claude-3-5-sonnet-20241022",
+  "openai-stt": "whisper-1",
+  "openai-llm": "gpt-4o-mini",
+};
+
 interface CloudProvidersPanelProps {
   onClose: () => void;
   embedded?: boolean;
@@ -36,6 +45,7 @@ export function CloudProvidersPanel({ onClose, embedded }: CloudProvidersPanelPr
   const [counts, setCounts] = useState<CloudCallCounts>({ stt: 0, llm: 0 });
   const [keyDrafts, setKeyDrafts] = useState<Record<string, string>>({});
   const [endpointDrafts, setEndpointDrafts] = useState<Record<string, string>>({});
+  const [modelDrafts, setModelDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   // Local typing buffer for the daily-cap input, kept separate from `policy`
   // so every keystroke doesn't call savePolicy: typing "20" -> "100" would
@@ -77,6 +87,9 @@ export function CloudProvidersPanel({ onClose, embedded }: CloudProvidersPanelPr
             taskKind,
             apiKey: keyDrafts[key] ?? "",
             endpoint: provider === "custom" ? endpointDrafts[key] ?? "" : null,
+            // Optional override; null/absent keeps the backend's default model
+            // (serde(default) on CloudConfigInput.model stays backward compatible).
+            model: provider === "custom" ? null : (modelDrafts[key] ?? "").trim() || null,
           },
         });
         if (!validation.ok) {
@@ -89,7 +102,7 @@ export function CloudProvidersPanel({ onClose, embedded }: CloudProvidersPanelPr
         setError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
       }
     },
-    [keyDrafts, endpointDrafts, refresh],
+    [keyDrafts, endpointDrafts, modelDrafts, refresh],
   );
 
   const clearKey = useCallback(
@@ -176,6 +189,18 @@ export function CloudProvidersPanel({ onClose, embedded }: CloudProvidersPanelPr
                 value={keyDrafts[key] ?? ""}
                 onChange={(e) => setKeyDrafts((prev) => ({ ...prev, [key]: e.target.value }))}
               />
+              {provider !== "custom" && (
+                <label className="cloud-providers-field">
+                  <span>โมเดล (เว้นว่างเพื่อใช้ค่าเริ่มต้น)</span>
+                  <input
+                    className="cloud-providers-input"
+                    type="text"
+                    placeholder={DEFAULT_MODEL_PLACEHOLDERS[key]}
+                    value={modelDrafts[key] ?? ""}
+                    onChange={(e) => setModelDrafts((prev) => ({ ...prev, [key]: e.target.value }))}
+                  />
+                </label>
+              )}
               <div className="cloud-providers-card-actions">
                 <button type="button" onClick={() => void saveKey(provider, taskKind)}>
                   <KeyRound size={14} /> บันทึก

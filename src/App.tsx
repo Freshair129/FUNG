@@ -619,8 +619,8 @@ export function App() {
   const currentPage = pageContent[activeAnchor];
   const currentTile =
     currentPage.tiles.find((tile) => tile.id === activeTileByAnchor[activeAnchor]) ?? currentPage.tiles[0];
-  const meetingTitle = selectedCard?.title ?? "Leadership weekly sync";
-  const meetingSubtitle = selectedCard?.subtitle ?? "2 speakers / local review deck";
+  const meetingTitle = selectedCard?.title ?? "ยังไม่ได้เลือกการบันทึก";
+  const meetingSubtitle = selectedCard?.subtitle ?? "เลือกการบันทึกจากหน้าแรกเพื่อเริ่มรีวิว";
 
   const providerSummary = useMemo(() => {
     if (providers.length === 0) return "BYOM not configured";
@@ -638,6 +638,11 @@ export function App() {
     }
   }, [activeAnchor, activeTileByAnchor, currentPage.tiles]);
 
+  const speakerCount = useMemo(
+    () => new Set(segments.map((segment) => segment.speakerId).filter((id) => id != null)).size,
+    [segments],
+  );
+
   const runtimeStats = useMemo(() => {
     const apiState = health?.localApi.running ? "API live" : "Offline";
     const providerCount = providers.filter((provider) => provider.enabled).length;
@@ -645,23 +650,27 @@ export function App() {
     switch (activeAnchor) {
       case "P1":
         return [
-          { label: "Session", value: recording ? "Live" : "Armed", meta: selectedCard?.state ?? "Ready" },
-          { label: "Capture", value: recording ? "01:24" : "00:00", meta: "Chunked" },
-          { label: "Noise", value: "-34dB", meta: "Room tone" },
+          { label: "Session", value: recording ? "Live" : "Armed", meta: selectedCard?.state ?? "—" },
+          { label: "Capture", value: recording ? "กำลังอัด" : "หยุดอยู่", meta: "Chunked" },
+          { label: "Queue", value: jobs.length ? `${jobs.length} งาน` : "ว่าง", meta: "Jobs" },
           { label: "Next", value: "Transcript", meta: "After stop" },
         ];
       case "P2":
         return [
-          { label: "Transcript", value: "91%", meta: "Ready" },
-          { label: "Speakers", value: "2 lanes", meta: "Editable" },
-          { label: "Evidence", value: "7 spans", meta: "Pinned" },
+          {
+            label: "Transcript",
+            value: segments.length ? `${segments.length} ท่อน` : "ยังไม่มี",
+            meta: segments.length ? (transcriptCapped ? "ไม่ครบ" : "โหลดแล้ว") : "รอถอดเสียง",
+          },
+          { label: "Speakers", value: speakerCount ? `${speakerCount} คน` : "ยังไม่ระบุ", meta: "Editable" },
+          { label: "Evidence", value: "ยังไม่มี", meta: "ยังไม่รองรับ" },
           { label: "Next", value: "Summary", meta: "After review" },
         ];
       case "P3":
         return [
-          { label: "Recap", value: "1 draft", meta: "Cited" },
-          { label: "Intent", value: "3 people", meta: "AI inference" },
-          { label: "Actions", value: "6 items", meta: "Owners tagged" },
+          { label: "Recap", value: "ยังไม่มี", meta: "รอสร้าง" },
+          { label: "Intent", value: "ยังไม่มี", meta: "รอสร้าง" },
+          { label: "Actions", value: "ยังไม่มี", meta: "ยังไม่รองรับ" },
           { label: "Export", value: jobs.length ? `${jobs.length} queued` : "Ready", meta: "Bundle" },
         ];
       case "P4":
@@ -672,7 +681,7 @@ export function App() {
           { label: "Runtime", value: apiState, meta: health?.sqliteWal ? "WAL" : "Idle" },
         ];
     }
-  }, [activeAnchor, health, jobs.length, providers, recording, selectedCard]);
+  }, [activeAnchor, health, jobs.length, providers, recording, segments.length, selectedCard, speakerCount, transcriptCapped]);
 
   const activityFeed = useMemo<ActivityEntry[]>(() => {
     if (activeAnchor === "P2" && currentTile.id === "transcript-pass" && segments.length > 0) {
@@ -758,21 +767,30 @@ export function App() {
     () => {
       const byPage: Record<Anchor, Array<{ id: SignalId; title: string; value: string; foot: string }>> = {
         P1: [
-          { id: "health", title: "Capture safety", value: recording ? "Guarded" : "Armed", foot: "Chunks and WAL are ready." },
-          { id: "privacy", title: "Audio cleanliness", value: "Stable", foot: "Noise floor stays under the cleanup threshold." },
+          { id: "health", title: "Capture safety", value: recording ? "Guarded" : "Armed", foot: health?.sqliteWal ? "SQLite WAL พร้อมใช้งาน" : "รอตรวจสถานะ storage" },
+          { id: "privacy", title: "Audio level", value: "ไม่มีข้อมูล", foot: "บิลด์นี้ยังไม่วัดระดับเสียงขณะอัด" },
           { id: "queue", title: "Session readiness", value: "Transcript next", foot: "Stop capture to begin transcript review." },
           { id: "focus", title: currentPage.signalTitle, value: currentTile.title, foot: meetingSubtitle },
         ],
         P2: [
-          { id: "health", title: "Transcript completeness", value: "91%", foot: "Full meeting transcript is available." },
-          { id: "privacy", title: "Speaker confidence", value: "82%", foot: "Editable labels remain non-biometric." },
-          { id: "queue", title: "Evidence coverage", value: "7 spans", foot: "Pinned spans will feed recap and export." },
+          {
+            id: "health",
+            title: "Transcript",
+            value: segments.length ? (transcriptCapped ? "ไม่ครบ" : `${segments.length} ท่อน`) : "ยังไม่มี",
+            foot: transcriptCapped
+              ? "อ่านได้ไม่ครบเพราะเพดานของ storage engine"
+              : segments.length
+                ? "โหลดจากการบันทึกจริงแล้ว"
+                : "ถอดเสียงก่อนเพื่อเริ่มรีวิว",
+          },
+          { id: "privacy", title: "Speakers", value: speakerCount ? `${speakerCount} คน` : "ยังไม่ระบุ", foot: "ป้ายชื่อแก้ไขได้และไม่ผูกกับข้อมูลชีวมิติ" },
+          { id: "queue", title: "Evidence", value: "ยังไม่มี", foot: "ยังไม่รองรับการปักหลักฐานในบิลด์นี้" },
           { id: "focus", title: currentPage.signalTitle, value: currentTile.title, foot: meetingSubtitle },
         ],
         P3: [
-          { id: "health", title: "Recap completeness", value: "Drafted", foot: "Evidence-backed meeting story is ready." },
-          { id: "privacy", title: "Intent confidence", value: "Bounded", foot: "Inference stays labeled with uncertainty." },
-          { id: "queue", title: "Action extraction", value: "6 open", foot: "Owners and follow-ups are staged for export." },
+          { id: "health", title: "Recap", value: "ยังไม่มี", foot: "ยังไม่มีการสร้าง recap สำหรับการบันทึกนี้" },
+          { id: "privacy", title: "Intent", value: "ยังไม่มี", foot: "ยังไม่มีการอนุมานเจตนา" },
+          { id: "queue", title: "Actions", value: "ยังไม่มี", foot: "ยังไม่รองรับการสกัด action item" },
           { id: "focus", title: currentPage.signalTitle, value: currentTile.title, foot: meetingSubtitle },
         ],
         P4: [
@@ -792,7 +810,7 @@ export function App() {
           <TimerReset size={15} />,
       }));
     },
-    [activeAnchor, currentPage.signalTitle, currentTile.title, health, jobs.length, meetingSubtitle, providerSummary, providers.length, recording],
+    [activeAnchor, currentPage.signalTitle, currentTile.title, health, jobs.length, meetingSubtitle, providerSummary, providers.length, recording, segments.length, speakerCount, transcriptCapped],
   );
 
   const viewLabel = navItems.find((item) => item.id === activeView)?.label ?? "Transcript";

@@ -120,21 +120,32 @@ pub(crate) async fn filesystem_backup_select_root(
     state: tauri::State<'_, FilesystemBackupState>,
 ) -> Result<FilesystemRootStatus, String> {
     let current_root = Arc::clone(&state.root);
-    let (sender, receiver) = std::sync::mpsc::channel();
-    app.dialog().file().pick_folder(move |selection| {
-        let path = selection.and_then(|file_path| file_path.into_path().ok());
-        let _ = sender.send(path);
-    });
-
-    let selected = tauri::async_runtime::spawn_blocking(move || {
-        receiver
-            .recv_timeout(Duration::from_secs(300))
-            .ok()
-            .flatten()
-    })
-    .await
-    .ok()
-    .flatten();
+    // The dialog plugin has no folder picker on mobile, so there the command
+    // resolves as "nothing selected" — the same outcome as cancelling the
+    // picker on desktop — instead of failing to compile against a method
+    // that only exists for desktop targets.
+    #[cfg(desktop)]
+    let selected = {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        app.dialog().file().pick_folder(move |selection| {
+            let path = selection.and_then(|file_path| file_path.into_path().ok());
+            let _ = sender.send(path);
+        });
+        tauri::async_runtime::spawn_blocking(move || {
+            receiver
+                .recv_timeout(Duration::from_secs(300))
+                .ok()
+                .flatten()
+        })
+        .await
+        .ok()
+        .flatten()
+    };
+    #[cfg(mobile)]
+    let selected: Option<std::path::PathBuf> = {
+        let _ = &app;
+        None
+    };
     let Some(selected) = selected else {
         clear_selected_root(&current_root);
         return Ok(unavailable_root_status());

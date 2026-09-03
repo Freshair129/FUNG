@@ -262,6 +262,15 @@ button {
   font-size: 20px;
   line-height: 1;
   font-weight: 600;
+  /* The title zone ends before the command-deck bar; a long recording name
+     must truncate instead of running underneath it. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.score-header > div {
+  min-width: 0;
 }
 
 .score-meta {
@@ -382,6 +391,9 @@ button {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+  /* Tiles taller than the row must scroll inside it — without this their
+     action pills paint over the detail dock below. */
+  overflow-y: auto;
 }
 
 .focus-tile {

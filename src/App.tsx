@@ -76,8 +76,12 @@ function formatMs(ms: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+// Plain rounded rectangle: the earlier notched silhouette let the instrument
+// rail and command-deck bar float half outside the panel, which read as
+// elements overlapping each other. Same outer bounds (12..1268 x 12..708) so
+// every absolutely-positioned zone keeps its coordinates.
 const PANEL_PATH =
-  "M 40,12 H 800 A 20 20 0 0 1 820,32 V 54 A 20 20 0 0 0 840,74 H 1248 A 20 20 0 0 1 1268,94 V 688 A 20 20 0 0 1 1248,708 H 112 A 20 20 0 0 1 92,688 V 350 A 20 20 0 0 0 72,330 H 32 A 20 20 0 0 1 12,310 V 40 A 28 28 0 0 1 40,12 Z";
+  "M 40,12 H 1240 A 28 28 0 0 1 1268,40 V 680 A 28 28 0 0 1 1240,708 H 40 A 28 28 0 0 1 12,680 V 40 A 28 28 0 0 1 40,12 Z";
 
 const navItems = [
   { id: "capture", label: "Capture" },

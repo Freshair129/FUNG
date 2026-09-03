@@ -12,11 +12,15 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["fung"]
+        "schemes": [
+          "fung"
+        ]
       },
       "mobile": [
         {
-          "scheme": ["fung"],
+          "scheme": [
+            "fung"
+          ],
           "appLink": false
         }
       ]
@@ -40,19 +44,27 @@
     ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' data: asset:; font-src 'self' data: asset:; style-src 'self' 'unsafe-inline'; media-src 'self' asset:; connect-src ipc: http://127.0.0.1:*",
-      "capabilities": ["default"]
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
     "resources": {
       "../.venv-whisper": ".venv-whisper",
       "../scripts/transcribe.py": "scripts/transcribe.py",
       "../scripts/transcribe_live.py": "scripts/transcribe_live.py",
       "../scripts/diarize.py": "scripts/diarize.py",
-    "../scripts/fetch_media.py": "scripts/fetch_media.py"
+      "../scripts/fetch_media.py": "scripts/fetch_media.py"
+    },
+    "android": {
+      "minSdkVersion": 26
     }
   }
 }

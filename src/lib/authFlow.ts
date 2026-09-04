@@ -1,12 +1,13 @@
 // Mobile Google login: TypeScript-owned OAuth per the phase-1 pairing design
 // (docs/specs/2026-08-09-phase-1-pairing-desktop-login-design.md §4) and the
-// native-session-custody contract. supabase-js runs the PKCE flow, the system
-// browser hosts the Google page (Google blocks embedded webviews), and Rust's
-// only role is the deep-link scheme registration that routes
-// fung://auth/callback back into the app. The Desktop shell does NOT use this
-// module — it logs in through the native broker (desktopSessionBroker.ts);
-// the legacy native `auth_begin_google_login` command this file once invoked
-// was deliberately removed as a secret-bearing alias and must not return
+// native-session-custody contract. This module generates the PKCE pair, opens
+// the authorize URL in the system browser (Google blocks embedded webviews),
+// and exchanges the deep-link code for tokens itself; Rust's only role is the
+// deep-link scheme registration that routes fung://auth/callback back into
+// the app. The Desktop shell does NOT use this module — it logs in through
+// the native broker (desktopSessionBroker.ts); the legacy native
+// `auth_begin_google_login` command this file once invoked was deliberately
+// removed as a secret-bearing alias and must not return
 // (tests/nativeSessionCustody.test.mjs pins its absence).
 import { supabase } from "./supabase.ts";
 import { hashPairingCode } from "./authHash.ts";
@@ -25,7 +26,7 @@ function safeValue(value: string | null): value is string {
 }
 
 /** Defensive parser for the deep-link callback; PKCE binding itself is
- * enforced by exchangeCodeForSession's stored verifier, not by this check. */
+ * enforced by the token exchange's code_verifier, not by this check. */
 export function parseDeepLinkCallback(url: string): { code: string | null; error: string | null } {
   const invalid = { code: null, error: "invalid_callback" };
   try {
@@ -46,18 +47,92 @@ export function parseDeepLinkCallback(url: string): { code: string | null; error
   }
 }
 
-/** Starts Google login in the system browser. supabase-js builds the PKCE
- * authorize URL and keeps the verifier; the opener plugin leaves the webview
- * untouched. Resolution arrives via the deep-link listener below. */
+// PKCE is owned HERE, not delegated to the supabase-js OAuth helper —
+// tests/authFlow.test.mjs pins that boundary so URL construction and
+// verifier handling stay explicit and auditable. The flow builds
+// /auth/v1/authorize itself and exchanges the code at
+// /auth/v1/token?grant_type=pkce, handing only the resulting tokens to
+// supabase-js via setSession.
+const VERIFIER_STORAGE_KEY = "fung.auth.pkce_verifier";
+let pendingVerifier: string | null = null;
+
+function base64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function createPkcePair(): Promise<{ verifier: string; challenge: string }> {
+  const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return { verifier, challenge: base64Url(new Uint8Array(digest)) };
+}
+
+function rememberVerifier(verifier: string): void {
+  pendingVerifier = verifier;
+  try {
+    sessionStorage.setItem(VERIFIER_STORAGE_KEY, verifier);
+  } catch {
+    // In-memory copy still covers the common same-process round trip.
+  }
+}
+
+function takeVerifier(): string | null {
+  const verifier = pendingVerifier ?? (() => {
+    try {
+      return sessionStorage.getItem(VERIFIER_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  })();
+  pendingVerifier = null;
+  try {
+    sessionStorage.removeItem(VERIFIER_STORAGE_KEY);
+  } catch {
+    // Ignore.
+  }
+  return verifier;
+}
+
+/** Starts Google login in the system browser with a locally generated PKCE
+ * pair; the opener plugin leaves the webview untouched. Resolution arrives
+ * via the deep-link listener below. */
 export async function beginGoogleLogin(): Promise<string> {
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: { redirectTo: REDIRECT_URI, skipBrowserRedirect: true },
-  });
-  if (error || !data?.url) throw new Error(error?.message ?? "auth_start_failed");
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  if (!supabaseUrl) throw new Error("auth_config_missing");
+  const { verifier, challenge } = await createPkcePair();
+  rememberVerifier(verifier);
+  const authorize = new URL("/auth/v1/authorize", supabaseUrl);
+  authorize.searchParams.set("provider", "google");
+  authorize.searchParams.set("redirect_to", REDIRECT_URI);
+  authorize.searchParams.set("code_challenge", challenge);
+  authorize.searchParams.set("code_challenge_method", "s256");
   const { openUrl } = await import("@tauri-apps/plugin-opener");
-  await openUrl(data.url);
-  return data.url;
+  await openUrl(authorize.toString());
+  return authorize.toString();
+}
+
+async function exchangeCode(code: string): Promise<string | null> {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  if (!supabaseUrl || !anonKey) return "auth_config_missing";
+  const verifier = takeVerifier();
+  if (!verifier) return "missing_verifier";
+  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=pkce`, {
+    method: "POST",
+    headers: { "content-type": "application/json", apikey: anonKey },
+    body: JSON.stringify({ auth_code: code, code_verifier: verifier }),
+  });
+  const payload: { access_token?: string; refresh_token?: string; error_description?: string; msg?: string } =
+    await response.json().catch(() => ({}));
+  if (!response.ok || !payload.access_token || !payload.refresh_token) {
+    return payload.error_description ?? payload.msg ?? "exchange_failed";
+  }
+  const { error } = await supabase.auth.setSession({
+    access_token: payload.access_token,
+    refresh_token: payload.refresh_token,
+  });
+  return error ? error.message : null;
 }
 
 /** Wires the deep-link callback channel. Returns cleanup. */
@@ -76,9 +151,7 @@ export async function listenForAuthCallback(
       onDone(error ?? "invalid_callback");
       return;
     }
-    void supabase.auth.exchangeCodeForSession(code).then(({ error: exchangeError }) => {
-      onDone(exchangeError ? exchangeError.message : null);
-    });
+    void exchangeCode(code).then(onDone);
   });
   return () => {
     terminal = true;

@@ -1,89 +1,83 @@
+// Mobile Google login: TypeScript-owned OAuth per the phase-1 pairing design
+// (docs/specs/2026-08-09-phase-1-pairing-desktop-login-design.md §4) and the
+// native-session-custody contract. supabase-js runs the PKCE flow, the system
+// browser hosts the Google page (Google blocks embedded webviews), and Rust's
+// only role is the deep-link scheme registration that routes
+// fung://auth/callback back into the app. The Desktop shell does NOT use this
+// module — it logs in through the native broker (desktopSessionBroker.ts);
+// the legacy native `auth_begin_google_login` command this file once invoked
+// was deliberately removed as a secret-bearing alias and must not return
+// (tests/nativeSessionCustody.test.mjs pins its absence).
 import { supabase } from "./supabase.ts";
-import { parseAuthCallbackUrl, type AuthCallbackOptions } from "./authParse.ts";
 import { hashPairingCode } from "./authHash.ts";
 
 export { hashPairingCode };
 
-export interface NativeAuthStarted {
-  requestId: string;
-  redirectUri: string;
-  expiresAtMs: number;
+const REDIRECT_URI = "fung://auth/callback";
+const MAX_VALUE_LENGTH = 8192;
+
+function safeValue(value: string | null): value is string {
+  return Boolean(
+    value &&
+      value.length <= MAX_VALUE_LENGTH &&
+      ![...value].some((character) => character < " " || character === ""),
+  );
 }
 
-export interface NativeAuthCallback {
-  requestId: string;
-  session: {
-    accessToken: string;
-    refreshToken: string;
-    expiresIn: number;
-    tokenType: string;
-    userId: string;
-  } | null;
-  error: string | null;
+/** Defensive parser for the deep-link callback; PKCE binding itself is
+ * enforced by exchangeCodeForSession's stored verifier, not by this check. */
+export function parseDeepLinkCallback(url: string): { code: string | null; error: string | null } {
+  const invalid = { code: null, error: "invalid_callback" };
+  try {
+    const parsed = new URL(url);
+    // "fung://auth/callback" parses with host "auth" and pathname "/callback".
+    if (parsed.protocol !== "fung:" || `${parsed.host}${parsed.pathname}` !== "auth/callback") {
+      return invalid;
+    }
+    const code = parsed.searchParams.get("code");
+    const errorCode = parsed.searchParams.get("error");
+    const errorDescription = parsed.searchParams.get("error_description");
+    if ((code !== null) === (errorCode !== null)) return invalid;
+    if (code !== null) return safeValue(code) ? { code, error: null } : invalid;
+    if (!safeValue(errorCode)) return invalid;
+    return { code: null, error: errorDescription && safeValue(errorDescription) ? errorDescription : errorCode };
+  } catch {
+    return invalid;
+  }
 }
 
-let activeRequestId: string | null = null;
-
-async function tauriInvoke() {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke;
-}
-
-/** Native creates and opens the exact OAuth URL; no caller URL is accepted. */
+/** Starts Google login in the system browser. supabase-js builds the PKCE
+ * authorize URL and keeps the verifier; the opener plugin leaves the webview
+ * untouched. Resolution arrives via the deep-link listener below. */
 export async function beginGoogleLogin(): Promise<string> {
-  const invoke = await tauriInvoke();
-  const started = await invoke<NativeAuthStarted>("auth_begin_google_login");
-  if (!started?.requestId) throw new Error("auth_start_failed");
-  activeRequestId = started.requestId;
-  return started.requestId;
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: REDIRECT_URI, skipBrowserRedirect: true },
+  });
+  if (error || !data?.url) throw new Error(error?.message ?? "auth_start_failed");
+  const { openUrl } = await import("@tauri-apps/plugin-opener");
+  await openUrl(data.url);
+  return data.url;
 }
 
-export async function beginLoopbackFallbackLogin(): Promise<string> {
-  return beginGoogleLogin();
-}
-
-export async function completeFromCallbackUrl(
-  url: string,
-  options: AuthCallbackOptions,
-): Promise<void> {
-  const { code, error } = parseAuthCallbackUrl(url, options);
-  if (error) throw new Error(error);
-  if (!code) throw new Error("missing_code");
-  throw new Error("native_exchange_required");
-}
-
-/** Wires the one native callback channel. Returns cleanup. */
+/** Wires the deep-link callback channel. Returns cleanup. */
 export async function listenForAuthCallback(
   onDone: (err: string | null) => void,
 ): Promise<() => void> {
-  const { listen } = await import("@tauri-apps/api/event");
+  const { onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
   let terminal = false;
-  const unlisten = await listen<NativeAuthCallback>("auth-callback", (event) => {
+  const unlisten = await onOpenUrl((urls) => {
     if (terminal) return;
+    const url = urls.find((candidate) => candidate.startsWith("fung://auth/callback"));
+    if (!url) return;
     terminal = true;
-    const callback = event.payload;
-    if (!callback?.requestId || callback.requestId !== activeRequestId) {
-      activeRequestId = null;
-      onDone("invalid_callback");
+    const { code, error } = parseDeepLinkCallback(url);
+    if (error || !code) {
+      onDone(error ?? "invalid_callback");
       return;
     }
-    activeRequestId = null;
-    if (callback.error) {
-      onDone(callback.error);
-      return;
-    }
-    if (
-      !callback.session?.accessToken ||
-      !callback.session.refreshToken
-    ) {
-      onDone("missing_session");
-      return;
-    }
-    void supabase.auth.setSession({
-      access_token: callback.session.accessToken,
-      refresh_token: callback.session.refreshToken,
-    }).then(({ error }) => {
-      onDone(error ? error.message : null);
+    void supabase.auth.exchangeCodeForSession(code).then(({ error: exchangeError }) => {
+      onDone(exchangeError ? exchangeError.message : null);
     });
   });
   return () => {

@@ -3320,6 +3320,7 @@ pub fn run() {
             mobile::mobile_relation_upsert,
             mobile::mobile_graph_query,
             mobile::mobile_timeline_query,
+            mobile::mobile_recordings_query,
             mobile::mobile_diarization_start,
             mobile::mobile_processing_job_start,
             mobile::mobile_diarization_import,

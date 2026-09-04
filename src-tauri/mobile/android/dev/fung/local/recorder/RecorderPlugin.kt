@@ -183,7 +183,11 @@ class RecorderPlugin(private val activity: Activity) : Plugin(activity) {
                 }
                 return
             }
-            val dir = File(File(activity.filesDir, "native-recordings"), args.recordingId)
+            // dataDir, not filesDir: Tauri's app_data_dir on Android is the app
+            // dir root (genesisdb/ and projects/ live there), and mobile.rs
+            // reconciles from <data_root>/native-recordings — verified on a
+            // Galaxy A07 where filesDir segments were invisible to the ledger.
+            val dir = File(File(activity.dataDir, "native-recordings"), args.recordingId)
             if (!dir.isDirectory && !dir.mkdirs()) {
                 invoke.reject("cannot create recording directory")
                 return
@@ -277,6 +281,19 @@ class RecorderPlugin(private val activity: Activity) : Plugin(activity) {
         )
     }
 
+    /** Live input amplitude as 0-100. MediaRecorder.getMaxAmplitude returns
+     * the peak since the previous call (0..32767), which suits the UI's
+     * polling cadence; anything but an active recording reads 0. */
+    private fun currentLevelPercent(): Long {
+        val active = recorder ?: return 0L
+        if (state != "recording") return 0L
+        return try {
+            (active.maxAmplitude.toLong() * 100L) / 32767L
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
     private fun probeDurationMs(file: File): Long {
         return try {
             val retriever = MediaMetadataRetriever()
@@ -312,6 +329,7 @@ class RecorderPlugin(private val activity: Activity) : Plugin(activity) {
         if (activeId == null || activeId != requestedId) {
             result.put("recordingId", requestedId)
             result.put("state", "idle")
+            result.put("levelPercent", 0L)
             result.put("safeOffsetMs", 0L)
             result.put("segmentCount", 0L)
             result.put("segments", JSArray())
@@ -319,6 +337,7 @@ class RecorderPlugin(private val activity: Activity) : Plugin(activity) {
         }
         result.put("recordingId", activeId)
         result.put("state", state)
+        result.put("levelPercent", currentLevelPercent())
         result.put("safeOffsetMs", sealed.sumOf { it.durationMs })
         result.put("segmentCount", sealed.size.toLong())
         val segments = JSArray()

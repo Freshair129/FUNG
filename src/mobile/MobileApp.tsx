@@ -34,9 +34,9 @@ import {
   X,
 } from "lucide-react";
 import { addNote, loadSnapshot, markDeviceRevoked, removeDevice, saveSnapshot, setDeviceReachability, upsertPairedDevice } from "./mobileStore";
-import { appendCaptureSegment, controlNativeRecorder, desktopCloudEnabled, desktopEndpoint, desktopReachable, deviceIdentityEnsure, devicePublicKey, finishCapture, loadPlaybackSegment, nativeRecorderStatus, pairingComplete, persistNote, queryGraph, reconcileNativeCapture, setMcpEnabled, startCapture, startNativeRecorder } from "./bridge";
+import { appendCaptureSegment, controlNativeRecorder, desktopCloudEnabled, desktopEndpoint, desktopReachable, deviceIdentityEnsure, devicePublicKey, finishCapture, loadPlaybackSegment, nativeRecorderStatus, pairingComplete, persistNote, queryGraph, queryRecordings, reconcileNativeCapture, setMcpEnabled, startCapture, startNativeRecorder } from "./bridge";
 import { acquireCaptureBackend, CaptureStartError, resumeCaptureClock } from "./captureOrchestration";
-import type { CaptureState, DeviceState, EpistemicStatus, MobileNote, MobileSnapshot, MobileTab, ThemePreference } from "./model";
+import type { CaptureState, DeviceState, EpistemicStatus, MobileNote, MobileSnapshot, MobileTab, RecordingListItem, ThemePreference } from "./model";
 import { TimelineScreen } from "./TimelineScreen";
 import { supabase } from "../lib/supabase";
 import { beginGoogleLogin, listenForAuthCallback } from "../lib/authFlow";
@@ -63,6 +63,7 @@ const idleCapture: CaptureState = {
   safeOffsetMs: 0,
   segmentCount: 0,
   storageWarning: false,
+  levelPercent: null,
   backend: null,
   error: null,
 };
@@ -75,11 +76,21 @@ const formatClock = (milliseconds: number) => {
   return [hours, minutes, rest].map((value) => value.toString().padStart(2, "0")).join(":");
 };
 
-function Waveform({ active = false }: { active?: boolean }) {
-  const bars = [12, 24, 38, 18, 31, 17, 45, 29, 20, 42, 23, 34, 16, 27, 39, 19, 31, 14];
+// Bar heights are driven by the measured input level (0-100); the static
+// pattern only shapes the meter. With no real reading the bars sit flat at
+// their idle height — the waveform never animates on invented amplitude.
+const WAVEFORM_SHAPE = [12, 24, 38, 18, 31, 17, 45, 29, 20, 42, 23, 34, 16, 27, 39, 19, 31, 14];
+
+function Waveform({ active = false, level = null }: { active?: boolean; level?: number | null }) {
+  const scale = active && level != null ? 0.2 + (Math.min(100, Math.max(0, level)) / 100) * 0.8 : null;
   return (
     <div className={`m-waveform ${active ? "is-active" : ""}`} aria-hidden="true">
-      {bars.map((height, index) => <i key={index} style={{ height }} />)}
+      {WAVEFORM_SHAPE.map((height, index) => (
+        <i
+          key={index}
+          style={{ height: scale != null ? Math.max(4, Math.round(height * scale)) : active ? height : 6, transition: "height 120ms linear" }}
+        />
+      ))}
     </div>
   );
 }
@@ -124,9 +135,28 @@ type ScreenProps = {
   cycleTheme: () => void;
 };
 
+const RECORDING_STATUS_LABELS: Record<string, string> = {
+  recording: "กำลังบันทึก",
+  paused: "หยุดชั่วคราว",
+  completed: "เสร็จแล้ว",
+};
+
 function HomeScreen({ snapshot, capture, go }: ScreenProps) {
   const recent = snapshot.notes[0];
   const isRecording = capture.state === "recording";
+  const [recordings, setRecordings] = useState<RecordingListItem[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void queryRecordings(snapshot.projectId)
+      .then((rows) => {
+        if (!cancelled) setRecordings(rows);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [snapshot.projectId, capture.state]);
   return (
     <main className="m-screen m-home-screen">
       <header className="m-header">
@@ -136,7 +166,7 @@ function HomeScreen({ snapshot, capture, go }: ScreenProps) {
       <section className="m-home-intro">
         <h1>วันนี้</h1>
         <div className={`m-voice-orbit ${isRecording ? "is-recording" : ""}`}>
-          <Waveform active={isRecording} />
+          <Waveform active={isRecording} level={capture.levelPercent} />
           <button className="m-voice-core" type="button" onClick={() => go("voice")} aria-label="เปิดการสั่งงานด้วยเสียง">
             {isRecording ? <Radio size={54} /> : <Mic size={61} strokeWidth={1.7} />}
             <strong>{isRecording ? "กำลังบันทึก" : "กดค้างเพื่อพูด"}</strong>
@@ -150,6 +180,16 @@ function HomeScreen({ snapshot, capture, go }: ScreenProps) {
       </section>
       <section className="m-recent">
         <div className="m-section-title"><h2>งานล่าสุด</h2><button onClick={() => go("notes")}>ดูทั้งหมด <ChevronRight size={18} /></button></div>
+        {recordings.slice(0, 5).map((recording) => (
+          <button key={recording.id} className="m-recent-row" type="button" onClick={() => go("voice")}>
+            <span className="m-recent-icon"><Mic size={25} /></span>
+            <span>
+              <strong>การบันทึกเสียง {formatClock(recording.durationMs)}</strong>
+              <small>{RECORDING_STATUS_LABELS[recording.status] ?? recording.status} · {new Date(recording.createdAt).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small>
+            </span>
+            <ChevronRight size={21} />
+          </button>
+        ))}
         {recent && (
           <button className="m-recent-row" type="button" onClick={() => go("notes")}>
             <span className="m-recent-icon"><Users size={25} /></span>
@@ -157,6 +197,9 @@ function HomeScreen({ snapshot, capture, go }: ScreenProps) {
             <time>{new Date(recent.updatedAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })}</time>
             <ChevronRight size={21} />
           </button>
+        )}
+        {recordings.length === 0 && !recent && (
+          <p className="m-recent-empty">ยังไม่มีงานบันทึก — กด "เริ่มบันทึก" หรือกดค้างปุ่มพูดเพื่อสร้างงานแรก</p>
         )}
       </section>
     </main>
@@ -206,9 +249,45 @@ function CaptureScreen({ snapshot, capture, setCapture, go }: ScreenProps) {
       state: status.state === "recovery_required" ? "recovery_required" : current.state,
       safeOffsetMs: session?.safeOffsetMs ?? status.safeOffsetMs,
       segmentCount: session?.segmentCount ?? status.segmentCount,
+      levelPercent: typeof status.levelPercent === "number" ? status.levelPercent : current.levelPercent,
     }));
     return status;
   };
+
+  // Web-path level meter: an AnalyserNode on the live MediaStream feeds
+  // CaptureState.levelPercent so the waveform reflects the actual input.
+  const audioContext = useRef<AudioContext | null>(null);
+  const levelTimer = useRef<number | null>(null);
+
+  const startLevelMeter = (media: MediaStream) => {
+    try {
+      const context = new AudioContext();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 512;
+      context.createMediaStreamSource(media).connect(analyser);
+      const samples = new Uint8Array(analyser.frequencyBinCount);
+      audioContext.current = context;
+      levelTimer.current = window.setInterval(() => {
+        analyser.getByteTimeDomainData(samples);
+        let peak = 0;
+        for (const sample of samples) peak = Math.max(peak, Math.abs(sample - 128));
+        const level = Math.round((peak / 128) * 100);
+        setCapture((current) => (current.state === "recording" ? { ...current, levelPercent: level } : current));
+      }, 120);
+    } catch {
+      // No meter is better than a fabricated one; capture itself continues.
+    }
+  };
+
+  const stopLevelMeter = () => {
+    if (levelTimer.current != null) window.clearInterval(levelTimer.current);
+    levelTimer.current = null;
+    void audioContext.current?.close().catch(() => undefined);
+    audioContext.current = null;
+    setCapture((current) => ({ ...current, levelPercent: null }));
+  };
+
+  useEffect(() => () => stopLevelMeter(), []);
 
   useEffect(() => {
     if (capture.state !== "recording" || !capture.startedAt) return;
@@ -267,6 +346,7 @@ function CaptureScreen({ snapshot, capture, setCapture, go }: ScreenProps) {
         pendingWrites.current.push(write);
       };
       recorder.start(5000);
+      startLevelMeter(media);
       setCapture({ ...idleCapture, backend: "web", state: "recording", recordingId, startedAt: Date.now() });
     } catch (error) {
       const failure = error instanceof CaptureStartError
@@ -296,6 +376,7 @@ function CaptureScreen({ snapshot, capture, setCapture, go }: ScreenProps) {
       await Promise.all(pendingWrites.current);
       pendingWrites.current = [];
       stream.current?.getTracks().forEach((track) => track.stop());
+      stopLevelMeter();
     }
     if (id) await finishCapture(id);
     window.setTimeout(() => setCapture((current) => ({ ...current, state: "completed", safeOffsetMs: current.elapsedMs })), 350);
@@ -348,7 +429,7 @@ function CaptureScreen({ snapshot, capture, setCapture, go }: ScreenProps) {
       <section className="m-capture-stage">
         <span className={`m-capture-state ${active ? "is-live" : ""}`}><i />{capture.state === "paused" ? "หยุดชั่วคราว" : active ? "กำลังบันทึกบนอุปกรณ์" : "พร้อมบันทึกบนอุปกรณ์"}</span>
         <strong className="m-timer">{formatClock(capture.elapsedMs)}</strong>
-        <Waveform active={capture.state === "recording"} />
+        <Waveform active={capture.state === "recording"} level={capture.levelPercent} />
         <p>{active ? `บันทึกปลอดภัยถึง ${formatClock(capture.safeOffsetMs)}` : "เสียงจะถูกเก็บไว้ในอุปกรณ์นี้ก่อนเสมอ"}</p>
       </section>
       {capture.state === "completed" && <><button className="m-context-action" type="button" onClick={togglePlayback}>{playing ? <Pause size={20} /> : <Play size={20} />}{playing ? "หยุดเล่นเสียง" : "เล่นเสียงต้นฉบับ"}</button><button className="m-context-action" type="button" onClick={() => go("timeline")}><AudioLines size={20} />เปิดไทม์ไลน์ของเสียงนี้</button></>}

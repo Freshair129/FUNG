@@ -22,6 +22,10 @@ pub(crate) struct NativeRecorderStatus {
     pub(crate) available: bool,
     pub(crate) recording_id: Option<String>,
     pub(crate) state: String,
+    /// Live input amplitude 0-100 from the Android recorder; defaulted so
+    /// older plugin payloads (and the desktop stub) deserialize as silent.
+    #[serde(default)]
+    pub(crate) level_percent: i64,
     pub(crate) safe_offset_ms: i64,
     pub(crate) segment_count: i64,
     pub(crate) segments: Vec<NativeSegment>,
@@ -81,6 +85,7 @@ fn run(
         available: false,
         recording_id: None,
         state: "unavailable".to_string(),
+        level_percent: 0,
         safe_offset_ms: 0,
         segment_count: 0,
         segments: Vec::new(),

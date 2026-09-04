@@ -225,11 +225,24 @@ export type CaptureState = {
   safeOffsetMs: number;
   segmentCount: number;
   storageWarning: boolean;
+  /** Live input level 0-100 measured from the actual audio (web AnalyserNode
+   * or the native recorder's amplitude); null when no real reading exists so
+   * the waveform never fabricates motion. */
+  levelPercent: number | null;
   backend: "web" | "android-native" | null;
   error: {
     stage: "session" | "native-start" | "web-permission" | "native-sync";
     detail: string;
   } | null;
+};
+
+export type RecordingListItem = {
+  id: string;
+  status: string;
+  durationMs: number;
+  createdAt: string;
+  updatedAt: string;
+  source: string;
 };
 
 export type MobileSnapshot = {

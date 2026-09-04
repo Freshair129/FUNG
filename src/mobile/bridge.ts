@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { supabase } from "../lib/supabase";
-import type { DelegatedExecutor, DelegatedJob, EffectNode, GraphEdge, GraphNode, MobileNote, StorySequence, TimelineData } from "./model";
+import type { DelegatedExecutor, DelegatedJob, EffectNode, GraphEdge, GraphNode, MobileNote, RecordingListItem, StorySequence, TimelineData } from "./model";
 
 const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -25,6 +25,8 @@ export type NativeRecorderStatus = {
   state: string;
   safeOffsetMs: number;
   segmentCount: number;
+  /** Live amplitude 0-100 from MediaRecorder.getMaxAmplitude; 0 when idle. */
+  levelPercent?: number;
   segments: NativeSegment[];
 };
 
@@ -133,6 +135,11 @@ export async function setMcpEnabled(enabled: boolean, exposeLan: boolean): Promi
 export async function onDeviceAiStatus(): Promise<OnDeviceAiStatus | null> {
   if (!isTauri()) return null;
   return invoke<OnDeviceAiStatus>("mobile_on_device_ai_status");
+}
+
+export async function queryRecordings(projectId: string): Promise<RecordingListItem[]> {
+  if (!isTauri()) return [];
+  return invoke<RecordingListItem[]>("mobile_recordings_query", { projectId });
 }
 
 export async function queryTimeline(projectId: string): Promise<TimelineData | null> {

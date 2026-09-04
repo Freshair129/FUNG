@@ -1226,6 +1226,74 @@ pub(crate) fn mobile_timeline_query(
     timeline_output(&state.genesis, &project_id)
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingListItem {
+    id: String,
+    status: String,
+    duration_ms: i64,
+    created_at: String,
+    updated_at: String,
+    source: String,
+}
+
+/// Lists the project's recordings newest-first so the mobile shell can show
+/// a real library. Until this existed the only route to a recording was the
+/// capture screen right after recording it.
+#[tauri::command]
+pub(crate) fn mobile_recordings_query(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<RecordingListItem>> {
+    let mut rows = crate::genesis_adapter::query(
+        &state.genesis,
+        "recordings",
+        &[
+            "id",
+            "status",
+            "duration_ms",
+            "created_at",
+            "updated_at",
+            "source",
+        ],
+        vec![crate::genesis_adapter::eq(
+            "recordings",
+            "project_id",
+            serde_json::json!(project_id),
+        )],
+        100,
+    )
+    .map_err(AppError::Genesis)?;
+    rows.sort_by_key(|row| {
+        std::cmp::Reverse(
+            row.get("recordings.updated_at")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        )
+    });
+    let text = |row: &serde_json::Value, key: &str| {
+        row.get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    Ok(rows
+        .iter()
+        .map(|row| RecordingListItem {
+            id: text(row, "recordings.id"),
+            status: text(row, "recordings.status"),
+            duration_ms: row
+                .get("recordings.duration_ms")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or_default(),
+            created_at: text(row, "recordings.created_at"),
+            updated_at: text(row, "recordings.updated_at"),
+            source: text(row, "recordings.source"),
+        })
+        .collect())
+}
+
 #[tauri::command]
 pub(crate) fn mobile_diarization_start(
     project_id: String,

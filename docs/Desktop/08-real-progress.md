@@ -1,7 +1,7 @@
 ---
-version: "0.2.17b"
+version: "0.2.18b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-08-31T00:00:00+07:00,Claude"
+last_update: "2026-09-04T08:30:00+07:00,Claude"
 status: "beta"
 superseded_by: null
 attributes:
@@ -17,6 +17,105 @@ attributes:
 FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The host `py -3` interpreter cannot import `faster_whisper`, but FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the pinned `small` model, and uses the staged CUDA 12/cuDNN 9 bundle. The standalone GPU worker smoke passed; Live Meeting real-capture, device, connector, and visual UAT remain open. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
 
 This document separates implemented truth from planned capability.
+
+## Current truth sync (2026-09-04)
+
+The development machine moved: `D:\FUNG` no longer exists, and the working
+tree is `C:\Users\pc\workspace\fung`. Every staged-runtime path recorded below
+under `D:\FUNG\...` is historical; the whisper/CUDA runtime has not been
+restaged on the new tree, so the packaged-worker evidence from 0.2.12b-0.2.13b
+describes an environment that is gone. This machine now has the full local
+toolchain the repo needs: rustup/cargo 1.98 (stable-msvc), VS Build Tools 2022,
+and a project-local Android stack under `.toolchains/` (JDK 17, SDK platform 34,
+build-tools 36.0.0, NDK 29.0.14206865, platform-tools). Windows Smart App
+Control, which blocked freshly built binaries with os error 4551, is
+permanently off. `cargo fmt --check`, `clippy --all-targets -D warnings`, and
+`cargo test` (419/419) all pass locally.
+
+PR #39 (merge `f6d352f`) landed the 2026-09-01 audit: the desktop shell no
+longer renders fabricated data (fake five-recording library, twelve hardcoded
+meters, invented activity/event rows, index-derived recording states, fake
+default meeting title, `signalCards`/`runtimeStats` fictions) — every surface
+now shows real segment/speaker/job/health data or an honest Thai empty state;
+the three Supabase edge functions share an env-driven CORS allowlist instead of
+a hardcoded wildcard; the BYOM cloud path reads an optional per-provider model
+override (UI input included) with the old IDs as named defaults; the landing
+page's mojibake Demo section, 404 APK links, and personal-account download URL
+are fixed; ~4,600 lines of confirmed dead code were removed (13 unreferenced
+assets, 2 unwired scripts, dead TS exports including the never-built "pitching"
+tab); and `tests/transcribeConcatOnly.test.py` is wired into CI with the
+coverage guard extended beyond `.test.mjs`. The repository is now public with
+secret scanning, push protection, and Dependabot enabled (history scanned
+clean; the one `glib` alert is dismissed `not_used` — it lives only in tauri's
+Linux gtk chain and FUNG ships Windows+Android).
+
+PR #40 (merge `7b37a6e`) made the Android build real again and yielded the
+first physical-device render evidence: `pick_folder` is desktop-only in
+tauri-plugin-dialog and is now cfg-gated in `backup.rs`/`filesystem_backup.rs`;
+`minSdkVersion` is 26 so the NDK links `libaaudio` for cpal; and the two Kotlin
+plugin classes the Rust core hard-requires at startup — `RecorderPlugin`
+(gapless 5s AAC segments via `setNextOutputFile`, sha256 per segment, plugin
+permission flow for the microphone) and `AiProfilePlugin` (sdk/arm64/RAM/
+storage probe) — were reimplemented from the Rust contracts as tracked sources
+under `src-tauri/mobile/android/`, synced into the generated project by
+`mobile_android.ps1` on every init/build. Their originals lived only in the
+gitignored `gen/android` tree and were lost with it; the crash was
+`ClassNotFoundException` at launch. The rebuilt arm64 debug APK installs,
+launches, and renders the mobile surface on a Galaxy A07 (Android 16) — the
+0.2.11b "no physical Android device has rendered the mobile surface" gap is
+closed at the render level. Later the same day, capture UAT passed on that
+device end-to-end: a voice note records/lists/plays with Thailand-local
+timestamps; a stranded native meeting capture (recorded before the recorder
+path fix below) reconciled into canonical storage and resumed; and the
+waveform moves with the actual input level. Pairing UAT stays open behind the
+Supabase gate recorded below.
+The desktop shell silhouette is now a plain rounded rectangle (the notched
+`PANEL_PATH` let the rail and command-deck bar read as overlapping UI), long
+titles truncate under the command deck, and over-tall workbench tiles scroll
+instead of painting over the detail dock.
+
+Working-tree truth beyond the merges (not yet committed as of this sync):
+mobile Google login was dead end-to-end — `authFlow.ts` still invoked
+`auth_begin_google_login`, a native command deliberately removed by the
+native-session-broker redesign (its absence is pinned by
+`tests/nativeSessionCustody.test.mjs`), so every login tap failed with
+"command not found". It is rewritten to the phase-1 contract the tests expect:
+supabase-js PKCE via `signInWithOAuth(skipBrowserRedirect)` opened in the
+system browser through the opener plugin, deep-link return on
+`fung://auth/callback`, and `exchangeCodeForSession`. The webview capability
+gained `opener:default` (the login tap was otherwise ACL-blocked) and
+`core:window:allow-start-dragging`. `fung://auth/callback` is now whitelisted
+in the Supabase project's redirect URLs.
+
+The mobile shell also had its own fabricated-data debt, found by on-device
+use: `mobileStore` seeded three invented notes plus graph edges ("ประชุมทีม
+เสียง 09:42–10:18" et al.) that rendered as real work, no surface listed the
+project's recordings at all (the only route to one was the capture screen
+immediately after recording it), the RecorderPlugin wrote segments under
+`filesDir` while `mobile.rs` reconciles from the app-dir root — so a real
+native capture was invisible to the ledger — and the waveform was eighteen
+hardcoded bars on a CSS loop. All four are fixed on device: the seeds are
+gone (with a purge migration for previously polluted localStorage), a new
+`mobile_recordings_query` command lists recordings newest-first on the home
+screen with an honest empty state, the recorder writes to `dataDir`
+(device-verified reconcile into canonical storage), and the waveform is
+driven by measured input level — web via an `AnalyserNode`, native via
+`MediaRecorder.getMaxAmplitude` surfaced as `levelPercent` — and sits flat
+when no real reading exists. One follow-up is recorded rather than fixed:
+the resumed-session path selected the web recorder instead of native-first.
+
+Two operational discoveries: (1) the desktop panicked on second boot against
+the pre-September `%APPDATA%\dev.fung.local` state with
+`REL_SCHEMA_VERSION_CONFLICT` (issue #41); the data root held no projects and
+was reset, after which repeated boots are clean — the idempotency bug is
+recorded, not fixed. (2) The Supabase project (`nqnrvqnijzovkrhxslfp`) had been
+auto-paused by the free tier, which removes its DNS entirely — every auth
+surface fails with NXDOMAIN until it is restored; at the time of this sync the
+restore itself is blocked by a Supabase-wide "Project Lifecycle Actions"
+outage, so desktop↔mobile login/pairing UAT remains open behind that external
+gate. GitHub Actions minutes are no longer a constraint (public repo), closing
+the billing-block failure mode that silently skipped CI from 2026-08-30 to
+2026-09-01 and let unformatted code merge.
 
 ## Current truth sync (2026-08-23)
 
@@ -270,6 +369,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.18b | Truth-synced the audit sweep (PR #39: honest desktop UI, CORS allowlist, BYOM model override, landing fixes, ~4,600 lines of dead code out, `.py` suite in CI, repo public + secret scanning/push protection/Dependabot), the Android build restoration (PR #40: cfg-gated `pick_folder`, minSdk 26, reimplemented tracked `RecorderPlugin`/`AiProfilePlugin`, rectangular shell) with first physical Galaxy A07 render, the working-tree mobile login rewrite to supabase-js PKCE + deep link with opener capability, the `D:\FUNG` → `C:\Users\pc\workspace\fung` machine move with full local toolchain, issue #41's second-boot schema conflict, and the Supabase free-tier pause/NXDOMAIN gate blocking login/pairing UAT. |
 | 0.2.17b | Bumped GenesisBlockDB to main tip `79b41a3` (0.2.5): offset paging now rides mainline plus the SQL-surface/edge-projection/journal-retention work. `OpenOptions` gained `retention` (FUNG passes `None` = `frontier_only`, the prior behavior), and three frontier assertions became deltas because `open()`'s schema registrations now advance the frontier. Rust 419/419, Vite build and focused Node suites passing. |
 | 0.2.16b | Closed the 1000-row read ceiling: GenesisBlockDB `1ff6862` adds primary-key-ordered offset paging, FUNG pins it, `query_all` reads length-driven tables whole, and every refusal/truncation reader now reads complete. Rust 419/419, engine relational suites green, frontend build and focused Node suites passing. |
 | 0.2.15b | Truth-synced merged Google Drive/Native Broker local evidence, current focused tests, baseline warnings, and the Docker-bounded W1 verification gap. |
@@ -295,6 +395,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.18b | 2026-09-04 | beta | Truth-synced PR #39 audit merge, PR #40 Android restoration with first physical A07 render, mobile login rewrite (working tree), machine move + full local toolchain, issue #41, and the Supabase pause gate. | `7b37a6e` | Claude |
 | 0.2.17b | 2026-08-31 | beta | Bumped GenesisBlockDB to main `79b41a3` (0.2.5) with `retention: None` on every `OpenOptions` and delta-based frontier assertions; Rust 419/419, frontend build and Node suites green. | working-tree | Claude |
 | 0.2.16b | 2026-08-31 | beta | Closed the 1000-row read ceiling via GenesisBlockDB offset paging (`1ff6862`) and whole-read `query_all` across all length-driven readers; summarise/export/delegate/backup now cover recordings past 1000 rows. | `db0b779` | Claude |
 | 0.2.15b | 2026-08-26 | beta | Truth-synced merged Google Drive/Native Broker local evidence, current focused tests, baseline warnings, and the Docker-bounded W1 verification gap. | `888aded` | ATHER |

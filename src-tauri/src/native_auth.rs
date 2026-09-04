@@ -259,6 +259,90 @@ pub(crate) async fn native_device_enrollment_proof(app: &tauri::AppHandle, devic
     Ok(NativeEnrollmentProof { version: 1, operation: ENROLLMENT_OPERATION.to_owned(), user_id, public_key: URL_SAFE_NO_PAD.encode(public_key), fingerprint: URL_SAFE_NO_PAD.encode(fingerprint), fingerprint_hex, platform: ENROLLMENT_PLATFORM.to_owned(), device_label: label.to_owned(), issued_at_ms, expires_at_ms, nonce: URL_SAFE_NO_PAD.encode(nonce), signature: URL_SAFE_NO_PAD.encode(signature) })
 }
 
+#[derive(serde::Deserialize)]
+struct GoogleTokenResponse {
+    access_token: Option<String>,
+    refresh_token: Option<String>,
+}
+
+/// Tokens handed to the mobile webview so supabase-js can adopt the session.
+/// This is the mobile custody model (session lives in webview localStorage,
+/// per the phase-1 design); the desktop shell uses the broker instead and
+/// never receives tokens this way.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MobileSession {
+    access_token: String,
+    refresh_token: String,
+}
+
+/// Exchanges a PKCE authorization code for a session on the mobile login
+/// path. All network egress stays Rust-side (the webview never fetches), and
+/// the URL authority is fixed to the configured Supabase project.
+pub(crate) async fn exchange_google_code(code: &str, verifier: &str) -> AppResult<MobileSession> {
+    let code = code.trim();
+    let verifier = verifier.trim();
+    if code.is_empty() || verifier.is_empty() {
+        return Err(AppError::InvalidInput("invalid_exchange".to_owned()));
+    }
+    let mut url = configured_supabase_origin().map_err(AppError::InvalidInput)?;
+    url.set_path("/auth/v1/token");
+    url.set_query(Some("grant_type=pkce"));
+    let anon = configured_supabase_anon_key().map_err(AppError::InvalidInput)?;
+    let response = Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|_| AppError::InvalidInput("auth_exchange_failed".to_owned()))?
+        .post(url)
+        .header("apikey", anon)
+        .form(&[("code", code), ("code_verifier", verifier)])
+        .send()
+        .await
+        .map_err(|_| AppError::InvalidInput("auth_exchange_failed".to_owned()))?;
+    if !response.status().is_success() {
+        return Err(AppError::InvalidInput("auth_exchange_failed".to_owned()));
+    }
+    let token = response
+        .json::<GoogleTokenResponse>()
+        .await
+        .map_err(|_| AppError::InvalidInput("auth_exchange_failed".to_owned()))?;
+    match (token.access_token, token.refresh_token) {
+        (Some(access_token), Some(refresh_token)) => Ok(MobileSession {
+            access_token,
+            refresh_token,
+        }),
+        _ => Err(AppError::InvalidInput("auth_exchange_failed".to_owned())),
+    }
+}
+
+/// Opens this project's Google authorize URL in the system browser for the
+/// mobile login flow. The webview supplies only the PKCE code challenge; the
+/// origin, path, provider, and redirect target are fixed here, so the caller
+/// holds no URL authority.
+pub(crate) fn open_google_authorize(app: tauri::AppHandle, code_challenge: &str) -> AppResult<()> {
+    let challenge = code_challenge.trim();
+    if challenge.is_empty()
+        || challenge.len() > 128
+        || !challenge
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return Err(AppError::InvalidInput("invalid_code_challenge".to_owned()));
+    }
+    let origin = configured_supabase_origin().map_err(AppError::InvalidInput)?;
+    let mut url = origin
+        .join("/auth/v1/authorize")
+        .map_err(|_| AppError::InvalidInput("auth_config_invalid".to_owned()))?;
+    url.query_pairs_mut()
+        .append_pair("provider", "google")
+        .append_pair("redirect_to", "fung://auth/callback")
+        .append_pair("code_challenge", challenge)
+        .append_pair("code_challenge_method", "s256");
+    app.opener()
+        .open_url(url.as_str(), None::<&str>)
+        .map_err(|error| AppError::InvalidInput(format!("could not open authorize url: {error}")))
+}
+
 pub(crate) fn open_trusted_account_portal(app: tauri::AppHandle) -> AppResult<()> {
     let raw = env::var("FUNG_WEB_APP_URL").map_err(|_| AppError::InvalidInput("FUNG_WEB_APP_URL is not configured".to_owned()))?;
     let url = Url::parse(raw.trim()).map_err(|_| AppError::InvalidInput("FUNG_WEB_APP_URL is invalid".to_owned()))?;

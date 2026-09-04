@@ -95,21 +95,16 @@ function takeVerifier(): string | null {
 }
 
 /** Starts Google login in the system browser with a locally generated PKCE
- * pair; the opener plugin leaves the webview untouched. Resolution arrives
- * via the deep-link listener below. */
+ * pair. The webview never holds URL-opening authority: it hands only the
+ * code challenge to `auth_open_google_authorize`, and native code fixes the
+ * origin, path, provider, and redirect target itself. Resolution arrives via
+ * the deep-link listener below. */
 export async function beginGoogleLogin(): Promise<string> {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  if (!supabaseUrl) throw new Error("auth_config_missing");
   const { verifier, challenge } = await createPkcePair();
   rememberVerifier(verifier);
-  const authorize = new URL("/auth/v1/authorize", supabaseUrl);
-  authorize.searchParams.set("provider", "google");
-  authorize.searchParams.set("redirect_to", REDIRECT_URI);
-  authorize.searchParams.set("code_challenge", challenge);
-  authorize.searchParams.set("code_challenge_method", "s256");
-  const { openUrl } = await import("@tauri-apps/plugin-opener");
-  await openUrl(authorize.toString());
-  return authorize.toString();
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("auth_open_google_authorize", { codeChallenge: challenge });
+  return challenge;
 }
 
 async function exchangeCode(code: string): Promise<string | null> {

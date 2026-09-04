@@ -236,6 +236,14 @@ fn open_external_account_portal(app: tauri::AppHandle) -> AppResult<()> {
     native_auth::open_trusted_account_portal(app)
 }
 
+/// Opens this project's Google authorize URL for the mobile login flow. The
+/// webview supplies only the PKCE code challenge; every other part of the
+/// URL is fixed natively.
+#[tauri::command]
+fn auth_open_google_authorize(app: tauri::AppHandle, code_challenge: String) -> AppResult<()> {
+    native_auth::open_google_authorize(app, &code_challenge)
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AccountPortalStatus {
@@ -3270,6 +3278,7 @@ pub fn run() {
             recovery_recover,
             start_local_api,
             open_external_account_portal,
+            auth_open_google_authorize,
             account_portal_open,
             auth_session::broker_session_login_begin,
             auth_session::broker_session_login_cancel,

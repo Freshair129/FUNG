@@ -244,6 +244,17 @@ fn auth_open_google_authorize(app: tauri::AppHandle, code_challenge: String) -> 
     native_auth::open_google_authorize(app, &code_challenge)
 }
 
+/// Exchanges the mobile login's PKCE code for a session natively so the
+/// webview never performs network egress. Returns the tokens for supabase-js
+/// to adopt in the webview (the mobile session-custody model).
+#[tauri::command]
+async fn auth_exchange_google_code(
+    code: String,
+    code_verifier: String,
+) -> AppResult<native_auth::MobileSession> {
+    native_auth::exchange_google_code(&code, &code_verifier).await
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AccountPortalStatus {
@@ -3279,6 +3290,7 @@ pub fn run() {
             start_local_api,
             open_external_account_portal,
             auth_open_google_authorize,
+            auth_exchange_google_code,
             account_portal_open,
             auth_session::broker_session_login_begin,
             auth_session::broker_session_login_cancel,

@@ -14,7 +14,6 @@ import { hashPairingCode } from "./authHash.ts";
 
 export { hashPairingCode };
 
-const REDIRECT_URI = "fung://auth/callback";
 const MAX_VALUE_LENGTH = 8192;
 
 function safeValue(value: string | null): value is string {
@@ -108,26 +107,25 @@ export async function beginGoogleLogin(): Promise<string> {
 }
 
 async function exchangeCode(code: string): Promise<string | null> {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  if (!supabaseUrl || !anonKey) return "auth_config_missing";
   const verifier = takeVerifier();
   if (!verifier) return "missing_verifier";
-  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=pkce`, {
-    method: "POST",
-    headers: { "content-type": "application/json", apikey: anonKey },
-    body: JSON.stringify({ auth_code: code, code_verifier: verifier }),
-  });
-  const payload: { access_token?: string; refresh_token?: string; error_description?: string; msg?: string } =
-    await response.json().catch(() => ({}));
-  if (!response.ok || !payload.access_token || !payload.refresh_token) {
-    return payload.error_description ?? payload.msg ?? "exchange_failed";
+  try {
+    // The exchange runs natively so the webview performs no network egress
+    // (tests/egressRegister.test.mjs pins this). Only the resulting tokens
+    // come back for supabase-js to adopt — the mobile session-custody model.
+    const { invoke } = await import("@tauri-apps/api/core");
+    const session = await invoke<{ accessToken: string; refreshToken: string }>(
+      "auth_exchange_google_code",
+      { code, codeVerifier: verifier },
+    );
+    const { error } = await supabase.auth.setSession({
+      access_token: session.accessToken,
+      refresh_token: session.refreshToken,
+    });
+    return error ? error.message : null;
+  } catch (error) {
+    return error instanceof Error ? error.message : "exchange_failed";
   }
-  const { error } = await supabase.auth.setSession({
-    access_token: payload.access_token,
-    refresh_token: payload.refresh_token,
-  });
-  return error ? error.message : null;
 }
 
 /** Wires the deep-link callback channel. Returns cleanup. */

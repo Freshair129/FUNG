@@ -1,0 +1,41 @@
+/* FUNG brand tokens — Quiet Archive
+ * Reference values for the identity. App surfaces map these onto their own
+ * component variables; semantic state colours extend the four CI hues.
+ */
+:root {
+  /* --- Core / CI --- */
+  --fung-porcelain: #faf8f3; /* primary ground & material */
+  --fung-ink:       #171918; /* text, dark surfaces, app-icon tile */
+  --fung-sage:      #6f897e; /* brand accent, wordmark, positive */
+  --fung-slate:     #4a5b8b; /* interactive: primary action, links, focus */
+
+  /* --- Semantic extensions --- */
+  --fung-metal:     #9a8260; /* caution / pending */
+  --fung-clay:      #b0553f; /* critical / error only */
+
+  /* --- Logo --- */
+  /* The mark has no background of its own; it fills currentColor —
+   * ink on light surfaces, porcelain on dark. Never box it. */
+  --fung-mark-fill: currentColor;
+
+  /* --- Type --- */
+  --fung-serif: "Fraunces", Georgia, serif;                       /* display / concept */
+  --fung-thai:  "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif; /* Thai UI */
+  --fung-sans:  "DM Sans", "IBM Plex Sans Thai", system-ui, sans-serif; /* Latin UI / wordmark */
+  --fung-mono:  "IBM Plex Mono", ui-monospace, monospace;         /* data / labels */
+  --fung-wordmark-tracking: 0.34em; /* uppercase FUNG */
+
+  /* --- Spacing (4px base) --- */
+  --fung-space-1: 4px;
+  --fung-space-2: 8px;
+  --fung-space-3: 12px;
+  --fung-space-4: 16px;
+  --fung-space-6: 24px;
+  --fung-space-8: 32px;
+
+  /* --- Radius --- */
+  --fung-radius-sm: 8px;
+  --fung-radius-md: 12px;
+  --fung-radius-lg: 16px;
+  --fung-radius-pill: 999px;
+}

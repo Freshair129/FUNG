@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="FUNG">
+  <!-- The mark takes currentColor: ink (#171918) on light, porcelain (#FAF8F3) on dark.
+       It has no background of its own — never lock it inside a filled box. -->
+  <path fill="currentColor" fill-rule="evenodd" d="M32 8H68A24 24 0 0 1 92 32V68A24 24 0 0 1 68 92H32A24 24 0 0 1 8 68V32A24 24 0 0 1 32 8ZM47 22H53A14 14 0 0 1 67 36V64A14 14 0 0 1 53 78H47A14 14 0 0 1 33 64V36A14 14 0 0 1 47 22Z"/>
+</svg>

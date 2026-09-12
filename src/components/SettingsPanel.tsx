@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 import { Activity, Cloud, Link2, SlidersHorizontal, UserCircle, Volume2, X } from "lucide-react";
 import type { InvokeFn } from "../lib/backupFlow";
-import type { Job } from "../tauri";
+import { startLocalApi, type Job, type LocalApiInfo } from "../tauri";
 import { supabaseConfigured } from "../lib/bootstrap";
 import "./SettingsPanel.css";
 // Eagerly imported (not lazy) because the "Supabase not configured" fallback
@@ -62,6 +62,31 @@ export function SettingsPanel({
   initialTab,
 }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "account");
+  const [localApi, setLocalApi] = useState<LocalApiInfo | null>(null);
+  const [localApiError, setLocalApiError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Idempotent on the Rust side: re-reading the URL never rotates the token,
+  // so a web tab that already pasted it keeps working.
+  const revealConnectUrl = async () => {
+    setLocalApiError(null);
+    try {
+      setLocalApi(await startLocalApi());
+    } catch (error) {
+      setLocalApiError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const copyConnectUrl = async () => {
+    if (!localApi?.connectUrl) return;
+    try {
+      await navigator.clipboard.writeText(localApi.connectUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard denied: the URL is still shown in the field to select by hand.
+    }
+  };
 
   return (
     <div className="settings-overlay" role="presentation" onClick={onClose}>
@@ -118,6 +143,33 @@ export function SettingsPanel({
                 <button type="button" className="settings-runtime-start" onClick={onStartApi} disabled={apiRunning}>
                   Start local API
                 </button>
+                <section className="settings-local-api" aria-label="ลิงก์เชื่อมต่อเว็บ">
+                  <h4>ฟังไฟล์ที่อัดไว้จากหน้าเว็บ (เครื่องนี้)</h4>
+                  <p className="settings-local-api-note">
+                    หน้าเว็บ FUNG ที่เปิดบนเครื่องนี้อ่านรายการและเล่นไฟล์ตรงจากแอปนี้ผ่าน 127.0.0.1 — ไม่มีเสียงขึ้น cloud
+                    ลิงก์ใช้ได้จนกว่าจะปิดแอป
+                  </p>
+                  {localApi?.connectUrl ? (
+                    <div className="settings-local-api-row">
+                      <input
+                        className="settings-local-api-url"
+                        type="text"
+                        readOnly
+                        value={localApi.connectUrl}
+                        onFocus={(event) => event.currentTarget.select()}
+                        aria-label="ลิงก์เชื่อมต่อเว็บ"
+                      />
+                      <button type="button" className="settings-runtime-start" onClick={() => void copyConnectUrl()}>
+                        {copied ? "คัดลอกแล้ว" : "คัดลอก"}
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" className="settings-runtime-start" onClick={() => void revealConnectUrl()}>
+                      แสดงลิงก์เชื่อมต่อเว็บ
+                    </button>
+                  )}
+                  {localApiError && <p className="settings-local-api-error">{localApiError}</p>}
+                </section>
               </div>
             )}
           </Suspense>

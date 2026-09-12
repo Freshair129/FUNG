@@ -1,7 +1,7 @@
 ---
-version: "0.2.19b"
+version: "0.2.20b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-13T00:00:00+07:00,Claude"
+last_update: "2026-09-13T12:00:00+07:00,Claude"
 status: "beta"
 superseded_by: null
 attributes:
@@ -36,6 +36,69 @@ write, and reload — and separate load-error from empty (a failed query reads
 "โหลดรายการอุปกรณ์ไม่สำเร็จ — ไม่ใช่ว่าไม่มีอุปกรณ์" with retry, not a false
 empty list). PR #43 (`98017c7`) added the tracked brand kit under
 `docs/brand-kit/` (scalable `fung-mark.svg`, `tokens.css`, README).
+
+Later the same day the Google provider was enabled with a real OAuth client
+and web login succeeded end to end — but the callback first landed on
+`localhost:3000`, the **ZURI** app: FUNG and ZURI share the Supabase project,
+whose Site URL is ZURI's dev server, so a redirect not on the allow-list fell
+back there. Adding `https://fung-seven.vercel.app/auth/callback` to the
+project's Redirect URLs fixed it (config, not code). Two harder facts surfaced
+while checking what the signed-in web could show:
+
+- **The live project's `public` schema is empty.** `information_schema`
+  lists no user tables and `select … from public.devices` fails with `42P01`.
+  The migrations in `supabase/migrations/` (profiles, devices, pairing,
+  OAuth control plane) have never been applied to `nqnrvqnijzovkrhxslfp`.
+  Auth works because `auth.users` is built in; every `profiles`/`devices`
+  query the web makes fails against live. The deployed bundle predates the
+  PR #44 live query, which is why it still shows a static empty-devices
+  placeholder rather than the load error. Applying the migrations is an
+  owner-directed infra step and remains open.
+- **No audio has ever reached the cloud, and no path exists for it.**
+  Supabase Storage has 0 buckets / 0 objects. Recordings live only in the
+  GenesisBlockDB ledger (`recordings` + `audio_chunks`) as per-channel WAV
+  slices on desktop (`live/{id}/chunks/{mic|system}-NNNNN.wav`) or `.m4a`
+  segments on the phone; the only off-device copy is the E2E-encrypted Drive
+  archive, which the web cannot open. `cloud_config.rs` guard-tests the
+  auth-only cloud surface deliberately.
+
+Rather than upload raw meeting audio (which would break that invariant), the
+web now reads recordings from the desktop **on the same machine** over
+loopback — the owner's chosen direction ("self-host the local GenesisBlockDB
+as the storage"):
+
+- `src-tauri/src/local_api.rs` replaces the old `/health`-only listener in
+  `lib.rs`. Same `127.0.0.1:0` bind, hand-rolled HTTP like the mobile gateway
+  (no new crate). New routes `GET /recordings` (ledger list: project name,
+  duration, created, channels present) and `GET /recordings/{id}/audio`
+  (stitches the selected channel's WAV slices in filename order via `hound`;
+  whole-file imports are served as-is with their MIME; HTTP `Range`/206 for
+  seeking; missing slices skipped and counted in `X-Fung-Missing-Chunks`).
+  Every route but `/health` needs a 256-bit per-launch bearer token shown as a
+  connect URL (`http://127.0.0.1:PORT/#TOKEN`) in Settings › Runtime; CORS
+  reflects only the production web origin and `localhost`/`127.0.0.1` dev
+  origins and answers Chrome's Private Network Access preflight. Chunk paths
+  resolve through `audio_custody::resolve_chunk_path`, so a ledger row cannot
+  climb out of the project directory.
+- Web: `src/web/localApiClient.ts` (the frontend's one permitted `fetch`,
+  refused unless the parsed hostname is loopback — checked on paste, on
+  `localStorage` read-back, and on every built URL), `useLocalRecordings`,
+  and the Dashboard "ไฟล์ล่าสุด" tile, which was a hard-coded "เร็วๆ นี้" and
+  now separates *unconfigured* (paste the link) from *error* (open the desktop)
+  from *empty*, lists recordings newest-first with a channel toggle, and plays
+  them in `<audio>` (token in the query, since media elements cannot carry
+  headers). `tests/egressRegister.test.mjs` now allow-lists exactly that file
+  and fails on any other `fetch`, an unguarded one there, or a non-loopback
+  host literal; `docs/appendices/E-egress-register.md` §1.9/§2 record the
+  boundary.
+
+Scope is honestly *same-machine*: a browser on another device cannot reach
+`http://<LAN-IP>` from an HTTPS page (mixed content), so cross-device playback
+needs a relay or on-device TLS later. The stitched WAV is built in memory
+(~345 MB per hour of 48 kHz mono) — fine for one desktop tab, not a server.
+Verified by Rust and Node tests below; the real-browser pass on the production
+web (which needs this change deployed) and Chrome's one-time "local network"
+permission prompt are still to be observed on the owner's machine.
 
 Two follow-ups from 0.2.18b are now corrected rather than left as open bugs:
 
@@ -378,6 +441,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | Real connector/device diagnostics | Claude Desktop MCP registry is empty, no approved vendor endpoint/credential is configured, and `adb`/`scrcpy` are absent. The real-connector and physical-device gates remain blocked, not waived. |
 | Python worker syntax | `py_compile scripts/transcribe.py` passed. |
 | Current Whisper runtime availability | `py -3` reports no `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the pinned `small` model, and passes the standalone GPU smoke with the staged CUDA 12/cuDNN 9 bundle. Live Meeting real-capture, device, visual, and connector UAT remain open. |
+| Loopback recordings API (0.2.20b) | Rust **434/434** on 2026-09-13 (419 prior + 15 in `local_api::tests`: request/range/origin/token parsing, open `/health` vs 401 elsewhere, 204 preflight, 405, newest-first list with channels from chunk names, in-order stitching independent of row order, whole-file import passthrough with MIME, not-found/traversal rows never followed, missing slices skipped and counted, 200/206/416 `Range`, nested-id rejection, and two real-socket tests for exact `Content-Length` and CORS grant only for allow-listed origins). `cargo clippy --all-targets -D warnings` clean. `npm run build` passed; Node `test:local-api-client` 4/4 (loopback-only parse/build), `test:egress` 8/8 with the single-file `fetch` allowance, `test:ci-coverage` 2/2, `test:diarization` 8/8. Real-browser playback against the production web is not yet observed (needs deploy). |
 
 Screenshot artifacts from the latest UI validation:
 
@@ -411,6 +475,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.20b | Google login works end to end after the shared-project Redirect-URL fix (callback had landed on ZURI's `localhost:3000`). Recorded that the live `public` schema is empty (migrations never applied) and Storage has no buckets. Added the same-machine loopback recordings API (`local_api.rs`: token-gated `/recordings` + stitched/ranged `/recordings/{id}/audio`, allow-listed CORS, custody-resolved paths) and the web "ไฟล์ล่าสุด" tile with a loopback-only client pinned by the egress suite. Rust 434/434, clippy clean, build and Node suites green; real-browser pass on production pending deploy. |
 | 0.2.19b | Supabase back online but login gated on the disabled Google provider (dashboard config, not code); recorded PR #44 (web paired-device list, REQ-B-08) and PR #43 (tracked brand kit); corrected two 0.2.18b follow-ups — mobile capture is native-first in the one `begin()` path (no resume-picks-web bug), and issue #41 is fail-closed on an incompatible pre-September genesisdb, not an install-idempotency bug (`install` is reboot-idempotent, test-proven). |
 | 0.2.18b | Truth-synced the audit sweep (PR #39: honest desktop UI, CORS allowlist, BYOM model override, landing fixes, ~4,600 lines of dead code out, `.py` suite in CI, repo public + secret scanning/push protection/Dependabot), the Android build restoration (PR #40: cfg-gated `pick_folder`, minSdk 26, reimplemented tracked `RecorderPlugin`/`AiProfilePlugin`, rectangular shell) with first physical Galaxy A07 render, the working-tree mobile login rewrite to supabase-js PKCE + deep link with opener capability, the `D:\FUNG` → `C:\Users\pc\workspace\fung` machine move with full local toolchain, issue #41's second-boot schema conflict, and the Supabase free-tier pause/NXDOMAIN gate blocking login/pairing UAT. |
 | 0.2.17b | Bumped GenesisBlockDB to main tip `79b41a3` (0.2.5): offset paging now rides mainline plus the SQL-surface/edge-projection/journal-retention work. `OpenOptions` gained `retention` (FUNG passes `None` = `frontier_only`, the prior behavior), and three frontier assertions became deltas because `open()`'s schema registrations now advance the frontier. Rust 419/419, Vite build and focused Node suites passing. |
@@ -438,6 +503,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.20b | 2026-09-13 | beta | Web Google login works (Redirect-URL fix on the ZURI-shared project); live `public` schema found empty and Storage bucket-less; added the same-machine loopback recordings API and the web recordings tile with a loopback-only, egress-pinned client. Rust 434/434, clippy clean, build + Node suites green. | working-tree | Claude |
 | 0.2.19b | 2026-09-13 | beta | Supabase online; login gated on disabled Google provider. Recorded PR #44 (web paired devices) and PR #43 (brand kit); corrected the native-first and issue-#41 characterizations from 0.2.18b. | `f161a1d` | Claude |
 | 0.2.18b | 2026-09-04 | beta | Truth-synced PR #39 audit merge, PR #40 Android restoration with first physical A07 render, mobile login rewrite (working tree), machine move + full local toolchain, issue #41, and the Supabase pause gate. | `7b37a6e` | Claude |
 | 0.2.17b | 2026-08-31 | beta | Bumped GenesisBlockDB to main `79b41a3` (0.2.5) with `retention: None` on every `OpenOptions` and delta-based frontier assertions; Rust 419/419, frontend build and Node suites green. | working-tree | Claude |

@@ -193,8 +193,15 @@ be — [§3.1](#31-the-transcription-worker-was-offline-by-habit-not-by-constrai
 - **Backup.** `backup.rs`, `backup_archive.rs`, `backup_payload.rs`,
   `filesystem_backup.rs` contain no network primitive of any kind. Backup is
   filesystem-only; there is no upload path.
-- **The webview.** No `fetch`, `XMLHttpRequest`, `WebSocket`, or HTTP client
-  anywhere in `src/`. The CSP pins it shut regardless:
+- **The webview.** No `XMLHttpRequest`, `WebSocket`, or HTTP client anywhere
+  in `src/`, and exactly one `fetch`: `src/web/localApiClient.ts`, the web
+  dashboard's client for the desktop's loopback API (§2). Every call there is
+  refused unless the parsed hostname is `127.0.0.1`, `localhost`, or `[::1]`
+  — a pasted connect URL, a value read back from `localStorage`, and a built
+  playback URL are each checked at that boundary (`tests/localApiClient.test.mjs`),
+  and `tests/egressRegister.test.mjs` fails on any other `fetch` in `src/`, on
+  an unguarded one in that file, or on a non-loopback host literal in it. The
+  desktop CSP pins the webview shut regardless:
   `connect-src ipc: http://127.0.0.1:*` (`tauri.conf.json`). The frontend cannot
   reach a remote host even if someone later writes the code to try.
 
@@ -222,16 +229,29 @@ side, so they belong in the same register.
 |---|---|---|---|
 | `fungwire_server` (`:152`) | `0.0.0.0:0` | Noise + pairing | Job protocol |
 | Mobile gateway (`mobile.rs:2630`) | `0.0.0.0:0` **or** `127.0.0.1:0` | Per-session token | MCP tool surface |
-| `start_local_api` (`lib.rs:2127`) | `127.0.0.1:0` | **None** | `/health` only |
-| `auth_loopback_listen` (`lib.rs:2194`) | `127.0.0.1:0` | One-shot | OAuth callback |
+| `start_local_api` (`local_api.rs`) | `127.0.0.1:0` | Per-launch bearer token (`/health` open) | `/recordings` list, `/recordings/{id}/audio` |
+| `auth_loopback_listen` (`auth_session.rs:2464`) | `127.0.0.1:0` | One-shot | OAuth callback |
 
 Both LAN binds are opt-in and unbound by default. The mobile gateway's LAN
 exposure is a separate `expose_lan` argument from its enablement, so the
 loopback-only mode is a real choice rather than a comment.
 
-`start_local_api` is unauthenticated. It answers `/health` and nothing else,
-but that response includes the absolute database path — a small disclosure to
-any process on the machine.
+`start_local_api` is how the web dashboard, opened in a browser **on the same
+machine**, lists and plays recordings without any audio leaving the PC: it
+reads the GenesisBlockDB ledger and stitches the per-channel chunk files on
+demand. It binds loopback only and is started by the user from Settings ›
+Runtime. Every route except `/health` requires a 256-bit token generated per
+launch and never persisted; the desktop shows it as a connect URL
+(`http://127.0.0.1:PORT/#TOKEN`) for the user to paste into the web page, which
+stores it in `localStorage` and sends it as a bearer header (JSON) or `?token=`
+(`<audio src>`, which cannot carry headers). CORS reflects only the production
+web origin and `localhost`/`127.0.0.1` dev origins, so another page open in
+the same browser gets no readable response even with the token. Chunk paths
+from the ledger are resolved through `audio_custody::resolve_chunk_path`,
+which refuses a recorded path that climbs out of the project directory.
+
+`/health` predates the token and stays unauthenticated; its response includes
+the absolute database path — a small disclosure to any process on the machine.
 
 ---
 

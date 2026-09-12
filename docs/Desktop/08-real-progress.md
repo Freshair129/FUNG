@@ -1,7 +1,7 @@
 ---
-version: "0.2.18b"
+version: "0.2.19b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-04T08:30:00+07:00,Claude"
+last_update: "2026-09-13T00:00:00+07:00,Claude"
 status: "beta"
 superseded_by: null
 attributes:
@@ -17,6 +17,46 @@ attributes:
 FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The host `py -3` interpreter cannot import `faster_whisper`, but FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the pinned `small` model, and uses the staged CUDA 12/cuDNN 9 bundle. The standalone GPU worker smoke passed; Live Meeting real-capture, device, connector, and visual UAT remain open. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
 
 This document separates implemented truth from planned capability.
+
+## Current truth sync (2026-09-13)
+
+Supabase (`nqnrvqnijzovkrhxslfp`) is back online (auth API responds; project
+settings return 200 with the anon key) after the free-tier pause. Login is
+still gated one step earlier: the Google provider is **not enabled** on the
+project — `/auth/v1/authorize?provider=google` returns
+`validation_failed: provider is not enabled`, and the account has no Google
+OAuth client yet (Google Cloud first-run ToS not accepted). So desktop↔mobile
+login/pairing UAT stays open on a dashboard-config gate, not a code gate.
+
+PR #44 (merge `f161a1d`) closed REQ-B-08 on the web: the Account-settings
+paired-device section was a literal `ยังไม่พร้อมใช้งาน` placeholder while the
+Dashboard tile beside it already queried the rows. Both surfaces now read
+through one `usePairedDevices` hook — same RLS-scoped query, revoke + audit
+write, and reload — and separate load-error from empty (a failed query reads
+"โหลดรายการอุปกรณ์ไม่สำเร็จ — ไม่ใช่ว่าไม่มีอุปกรณ์" with retry, not a false
+empty list). PR #43 (`98017c7`) added the tracked brand kit under
+`docs/brand-kit/` (scalable `fung-mark.svg`, `tokens.css`, README).
+
+Two follow-ups from 0.2.18b are now corrected rather than left as open bugs:
+
+- **Mobile "resume selected web recorder" is not a standing bug.** Capture
+  backend is chosen in exactly one place — `begin()` via
+  `acquireCaptureBackend`, which is native-first and falls to web only when
+  `startNativeRecorder` reports unavailable (i.e. off-Tauri preview). There is
+  no separate resume path that re-picks web. The UAT observation was the
+  `dataDir` recorder bug (fixed in PR #42) reporting `available:false` at that
+  moment, so capture fell to web. On a real Android device native is always
+  tried first.
+- **Issue #41 is fail-closed on incompatible state, not an install-idempotency
+  bug.** `genesis_adapter::install` registers v1..v10 stepwise, skips
+  `REL_SCHEMA_VERSION_CONFLICT` on already-registered steps, and re-registering
+  the current version is idempotent (proven by
+  `schema_v4_adds_external_tables_and_upgrade_is_idempotent`, which re-runs
+  `install` on a v10 store). Normal reboots therefore do not crash. The crash
+  was a genuinely incompatible pre-September genesisdb (written by an older
+  GenesisBlockDB) — the right behavior is to refuse rather than proceed on
+  mismatched state. A friendlier recovery/error is a product decision, not a
+  latent correctness bug; left for the owner to direct.
 
 ## Current truth sync (2026-09-04)
 
@@ -101,14 +141,16 @@ screen with an honest empty state, the recorder writes to `dataDir`
 (device-verified reconcile into canonical storage), and the waveform is
 driven by measured input level — web via an `AnalyserNode`, native via
 `MediaRecorder.getMaxAmplitude` surfaced as `levelPercent` — and sits flat
-when no real reading exists. One follow-up is recorded rather than fixed:
-the resumed-session path selected the web recorder instead of native-first.
+when no real reading exists.
 
 Two operational discoveries: (1) the desktop panicked on second boot against
 the pre-September `%APPDATA%\dev.fung.local` state with
 `REL_SCHEMA_VERSION_CONFLICT` (issue #41); the data root held no projects and
-was reset, after which repeated boots are clean — the idempotency bug is
-recorded, not fixed. (2) The Supabase project (`nqnrvqnijzovkrhxslfp`) had been
+was reset, after which repeated boots are clean. See the 2026-09-13 sync below
+for the corrected characterization — `genesis_adapter::install` is idempotent
+across same-version reboots (test-proven), so this was fail-closed on an
+incompatible pre-September genesisdb, not an install-idempotency bug. (2) The
+Supabase project (`nqnrvqnijzovkrhxslfp`) had been
 auto-paused by the free tier, which removes its DNS entirely — every auth
 surface fails with NXDOMAIN until it is restored; at the time of this sync the
 restore itself is blocked by a Supabase-wide "Project Lifecycle Actions"
@@ -369,6 +411,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.19b | Supabase back online but login gated on the disabled Google provider (dashboard config, not code); recorded PR #44 (web paired-device list, REQ-B-08) and PR #43 (tracked brand kit); corrected two 0.2.18b follow-ups — mobile capture is native-first in the one `begin()` path (no resume-picks-web bug), and issue #41 is fail-closed on an incompatible pre-September genesisdb, not an install-idempotency bug (`install` is reboot-idempotent, test-proven). |
 | 0.2.18b | Truth-synced the audit sweep (PR #39: honest desktop UI, CORS allowlist, BYOM model override, landing fixes, ~4,600 lines of dead code out, `.py` suite in CI, repo public + secret scanning/push protection/Dependabot), the Android build restoration (PR #40: cfg-gated `pick_folder`, minSdk 26, reimplemented tracked `RecorderPlugin`/`AiProfilePlugin`, rectangular shell) with first physical Galaxy A07 render, the working-tree mobile login rewrite to supabase-js PKCE + deep link with opener capability, the `D:\FUNG` → `C:\Users\pc\workspace\fung` machine move with full local toolchain, issue #41's second-boot schema conflict, and the Supabase free-tier pause/NXDOMAIN gate blocking login/pairing UAT. |
 | 0.2.17b | Bumped GenesisBlockDB to main tip `79b41a3` (0.2.5): offset paging now rides mainline plus the SQL-surface/edge-projection/journal-retention work. `OpenOptions` gained `retention` (FUNG passes `None` = `frontier_only`, the prior behavior), and three frontier assertions became deltas because `open()`'s schema registrations now advance the frontier. Rust 419/419, Vite build and focused Node suites passing. |
 | 0.2.16b | Closed the 1000-row read ceiling: GenesisBlockDB `1ff6862` adds primary-key-ordered offset paging, FUNG pins it, `query_all` reads length-driven tables whole, and every refusal/truncation reader now reads complete. Rust 419/419, engine relational suites green, frontend build and focused Node suites passing. |
@@ -395,6 +438,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.19b | 2026-09-13 | beta | Supabase online; login gated on disabled Google provider. Recorded PR #44 (web paired devices) and PR #43 (brand kit); corrected the native-first and issue-#41 characterizations from 0.2.18b. | `f161a1d` | Claude |
 | 0.2.18b | 2026-09-04 | beta | Truth-synced PR #39 audit merge, PR #40 Android restoration with first physical A07 render, mobile login rewrite (working tree), machine move + full local toolchain, issue #41, and the Supabase pause gate. | `7b37a6e` | Claude |
 | 0.2.17b | 2026-08-31 | beta | Bumped GenesisBlockDB to main `79b41a3` (0.2.5) with `retention: None` on every `OpenOptions` and delta-based frontier assertions; Rust 419/419, frontend build and Node suites green. | working-tree | Claude |
 | 0.2.16b | 2026-08-31 | beta | Closed the 1000-row read ceiling via GenesisBlockDB offset paging (`1ff6862`) and whole-read `query_all` across all length-driven readers; summarise/export/delegate/backup now cover recordings past 1000 rows. | `db0b779` | Claude |

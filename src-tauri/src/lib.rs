@@ -2,8 +2,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::{
     env,
-    io::{BufRead, BufReader, Read, Write},
-    net::{TcpListener, TcpStream},
+    io::{BufRead, BufReader, Read},
     path::PathBuf,
     process::{Command, Stdio},
     sync::{Arc, Mutex},
@@ -35,6 +34,7 @@ mod genesis_adapter;
 mod graph_build;
 mod job_engine;
 mod live_meeting;
+mod local_api;
 mod local_diarization;
 mod media_fetch;
 mod meeting_intel;
@@ -315,7 +315,7 @@ pub(crate) struct AppState {
     pub(crate) data_root: PathBuf,
     pub(crate) genesis: Arc<genesis_block_native::Storage>,
     pub(crate) genesis_path: PathBuf,
-    local_api: Mutex<Option<String>>,
+    pub(crate) local_api: Mutex<Option<local_api::LocalApiControl>>,
     whisper_runtime: WhisperRuntime,
     pub(crate) mobile_gateway: Mutex<Option<mobile::MobileGatewayControl>>,
     pub(crate) fungwire: Mutex<Option<fungwire_server::FungwireServerControl>>,
@@ -913,7 +913,8 @@ fn app_health(state: State<'_, AppState>) -> AppResult<Health> {
         .local_api
         .lock()
         .expect("local api mutex poisoned")
-        .clone();
+        .as_ref()
+        .map(|control| control.bind.clone());
 
     Ok(Health {
         app: "FUNG".to_string(),
@@ -2676,70 +2677,12 @@ pub(crate) fn run_diarization(
         .map_err(|err| format!("failed to parse diarization output: {err}"))
 }
 
+/// Starts (or reports) the loopback API and returns its connect URL. Idempotent
+/// so the Settings panel can re-read the URL without rotating the token; the
+/// routes and the token policy live in `local_api`.
 #[tauri::command]
-fn start_local_api(state: State<'_, AppState>) -> AppResult<String> {
-    let mut current = state.local_api.lock().expect("local api mutex poisoned");
-    if let Some(bind) = current.clone() {
-        return Ok(bind);
-    }
-
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let bind = listener.local_addr()?.to_string();
-    let storage = state.genesis.clone();
-    let genesis_path = state.genesis_path.clone();
-
-    thread::spawn(move || {
-        for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => handle_api_stream(stream, &storage, &genesis_path),
-                Err(_) => break,
-            }
-        }
-    });
-
-    *current = Some(bind.clone());
-    Ok(bind)
-}
-
-fn handle_api_stream(
-    mut stream: TcpStream,
-    storage: &genesis_block_native::Storage,
-    genesis_path: &std::path::Path,
-) {
-    let mut buffer = [0; 1024];
-    let read = stream.read(&mut buffer).unwrap_or(0);
-    let request = String::from_utf8_lossy(&buffer[..read]);
-    let first_line = request.lines().next().unwrap_or_default();
-
-    let (status, body) = if first_line.starts_with("GET /health ") {
-        (
-            "200 OK",
-            serde_json::json!({
-                "app": "FUNG",
-                "version": env!("CARGO_PKG_VERSION"),
-                "databasePath": genesis_path.display().to_string(),
-                "storageAuthority": "GenesisBlockDB signed WAL",
-                "stableFrontier": storage.stable_frontier()
-            })
-            .to_string(),
-        )
-    } else {
-        (
-            "404 Not Found",
-            serde_json::json!({
-                "error": "not found",
-                "available": ["/health"]
-            })
-            .to_string(),
-        )
-    };
-
-    let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    let _ = stream.write_all(response.as_bytes());
+fn start_local_api(state: State<'_, AppState>) -> AppResult<local_api::LocalApiInfo> {
+    Ok(local_api::start(&state)?)
 }
 
 /// Temporary diagnostic used by `bin/dbcheck.rs` only — remove together with

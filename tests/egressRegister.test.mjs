@@ -54,16 +54,57 @@ test("every module that can reach the network is named in the register", () => {
   );
 });
 
+/**
+ * The one frontend file allowed to call `fetch`: the web dashboard's client
+ * for the desktop's loopback API (register §1.9, §2). It may only ever talk
+ * to this machine, and the assertions below hold it to that — a fetch there
+ * that is not behind the loopback guard, or a non-loopback host literal,
+ * fails the suite the same way a fetch anywhere else does.
+ */
+const LOOPBACK_CLIENT = "src/web/localApiClient.ts";
+
 test("the webview cannot reach a remote host", () => {
   // The register's claim that all egress is Rust-side rests on two things:
-  // no client-side HTTP anywhere, and a CSP that would stop one if it appeared.
-  const frontend = readdirSync("src", { recursive: true })
-    .filter((name) => /\.tsx?$/.test(String(name)))
-    .map((name) => readFileSync(`src/${name}`, "utf8"))
+  // no client-side HTTP anywhere (bar the loopback client, checked below),
+  // and a CSP that would stop one if it appeared.
+  const sources = readdirSync("src", { recursive: true })
+    .map((name) => `src/${String(name).replace(/\\/g, "/")}`)
+    .filter((path) => /\.tsx?$/.test(path))
+    .map((path) => ({ path, source: readFileSync(path, "utf8") }));
+  const frontend = sources.map(({ source }) => source).join("\n");
+  const outsideLoopbackClient = sources
+    .filter(({ path }) => path !== LOOPBACK_CLIENT)
+    .map(({ source }) => source)
     .join("\n");
-  assert.doesNotMatch(frontend, /\bfetch\(/, "the frontend must not make its own network calls");
+  assert.doesNotMatch(
+    outsideLoopbackClient,
+    /\bfetch\(/,
+    `the frontend must not make its own network calls — only ${LOOPBACK_CLIENT} may, and only to loopback`,
+  );
   assert.doesNotMatch(frontend, /new WebSocket\(/);
   assert.doesNotMatch(frontend, /XMLHttpRequest/);
+
+  const loopbackClient = sources.find(({ path }) => path === LOOPBACK_CLIENT)?.source;
+  assert.ok(loopbackClient, `${LOOPBACK_CLIENT} moved — move this allowance with it`);
+  assert.match(loopbackClient, /\bfetch\(/, "the allowance exists for a fetch; if it is gone, remove the allowance");
+  assert.match(
+    loopbackClient,
+    /hostname === "127\.0\.0\.1"/,
+    "the loopback guard must compare the parsed hostname, not match a prefix",
+  );
+  for (const match of loopbackClient.matchAll(/\bfetch\(/g)) {
+    const preceding = loopbackClient.slice(Math.max(0, match.index - 400), match.index);
+    assert.match(
+      preceding,
+      /if \(!isLoopbackBaseUrl\(/,
+      "a fetch in the loopback client is not refused-unless-loopback first",
+    );
+  }
+  assert.doesNotMatch(
+    loopbackClient,
+    /https?:\/\/(?!127\.0\.0\.1|localhost)/,
+    "the loopback client names a host other than loopback",
+  );
 
   const csp = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")).app.security.csp;
   const connect = csp

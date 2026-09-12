@@ -107,6 +107,61 @@
   cursor: default;
 }
 
+.settings-local-api {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(32, 35, 40, 0.08);
+}
+
+.settings-local-api h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-local-api-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.75;
+}
+
+.settings-local-api-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-local-api-url {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(32, 35, 40, 0.12);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.settings-local-api-error {
+  margin: 0;
+  font-size: 12px;
+  color: #b3453e;
+}
+
+.theme-dark .settings-local-api {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+.theme-dark .settings-local-api-url {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .settings-account-login {
   display: grid;
   gap: 16px;

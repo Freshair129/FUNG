@@ -224,6 +224,127 @@
   color: #b3453e;
 }
 
+/* Recordings tile (live, reads the desktop's loopback API) */
+.dashboard-tile-recordings {
+  grid-column: 1 / -1;
+  opacity: 1;
+  cursor: default;
+}
+
+.dashboard-connect p {
+  margin: 0 0 8px;
+}
+
+.dashboard-connect-hint {
+  color: #7a7d84;
+}
+
+.dashboard-connect-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dashboard-connect-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(32, 35, 40, 0.12);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: #191a1d;
+  background: #fffdf8;
+}
+
+.dashboard-connect-input:focus {
+  outline: none;
+  border-color: #3d4f82;
+}
+
+.dashboard-connect-btn {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: #3d4f82;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.dashboard-connect-btn:hover {
+  background: #2e3d66;
+}
+
+.dashboard-connect-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.dashboard-link-btn {
+  font-family: inherit;
+  font-size: 12px;
+  color: #5f6268;
+  background: none;
+  border: none;
+  padding: 5px 8px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.dashboard-recording-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(32, 35, 40, 0.08);
+}
+
+.dashboard-recording-item:last-child {
+  border-bottom: none;
+}
+
+.dashboard-channel-row {
+  display: flex;
+  gap: 6px;
+}
+
+.dashboard-channel-btn {
+  font-family: inherit;
+  font-size: 11px;
+  color: #5f6268;
+  background: none;
+  border: 1px solid rgba(32, 35, 40, 0.12);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.dashboard-channel-btn.is-active {
+  color: #fff;
+  background: #6f897e;
+  border-color: #6f897e;
+}
+
+.dashboard-audio {
+  width: 100%;
+  height: 36px;
+}
+
+.dashboard-connect-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: #7a7d84;
+  word-break: break-all;
+}
+
 /* Dark theme */
 .theme-dark .dashboard {
   background: #171918;

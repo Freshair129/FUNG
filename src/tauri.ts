@@ -112,9 +112,18 @@ export async function getHealth(): Promise<Health> {
   return invoke<Health>("app_health");
 }
 
-export async function startLocalApi(): Promise<string> {
-  if (!canInvoke()) return "browser-preview";
-  return invoke<string>("start_local_api");
+/** What `start_local_api` returns: where the desktop's loopback API listens
+ * and the per-launch connect URL (`http://127.0.0.1:PORT/#TOKEN`) a user
+ * pastes into the web dashboard on this same machine. */
+export type LocalApiInfo = {
+  bind: string;
+  token: string;
+  connectUrl: string;
+};
+
+export async function startLocalApi(): Promise<LocalApiInfo> {
+  if (!canInvoke()) return { bind: "browser-preview", token: "", connectUrl: "" };
+  return invoke<LocalApiInfo>("start_local_api");
 }
 
 export async function listProjects(): Promise<Project[]> {

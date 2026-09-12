@@ -3,6 +3,7 @@ import { ArrowLeft, CheckCircle2, Link2, Monitor, User, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { BackupPanel } from "../components/BackupPanel";
 import type { InvokeFn } from "../lib/backupFlow";
+import { formatRelativeThai, usePairedDevices } from "./usePairedDevices";
 import "./AccountSettings.css";
 
 type AccountSettingsProps = {
@@ -33,6 +34,13 @@ export function AccountSettings({ onClose }: AccountSettingsProps) {
   const [connections, setConnections] = useState<OAuthConnection[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const {
+    devices,
+    state: devicesState,
+    actionError,
+    reload: reloadDevices,
+    revoke,
+  } = usePairedDevices();
 
   useEffect(() => {
     const load = async () => {
@@ -215,13 +223,44 @@ export function AccountSettings({ onClose }: AccountSettingsProps) {
           <BackupPanel invoke={nativeInvoke} />
         </div>
 
-        {/* Paired devices placeholder */}
         <div className="account-settings-section">
           <h3 className="account-settings-section-title">
             <Monitor size={16} /> อุปกรณ์ที่จับคู่
           </h3>
           <div className="account-settings-card">
-            <p className="account-settings-placeholder">ยังไม่พร้อมใช้งาน</p>
+            {devicesState === "loading" && (
+              <p className="account-settings-placeholder">กำลังโหลดรายการอุปกรณ์…</p>
+            )}
+            {devicesState === "error" && (
+              <p className="account-settings-message error">
+                โหลดรายการอุปกรณ์ไม่สำเร็จ — ไม่ใช่ว่าไม่มีอุปกรณ์{" "}
+                <button type="button" className="account-settings-device-revoke" onClick={() => void reloadDevices()}>
+                  ลองใหม่
+                </button>
+              </p>
+            )}
+            {devicesState === "ready" && devices.length === 0 && (
+              <p className="account-settings-placeholder">ยังไม่มีอุปกรณ์ที่จับคู่</p>
+            )}
+            {devicesState === "ready" &&
+              devices.map((d) => (
+                <div key={d.id} className="account-settings-device">
+                  <div className="account-settings-device-info">
+                    <strong>{d.device_label}</strong>
+                    <small>
+                      {d.platform} · {formatRelativeThai(d.last_seen_at)}
+                    </small>
+                  </div>
+                  <button
+                    type="button"
+                    className="account-settings-device-revoke"
+                    onClick={() => void revoke(d.id, "account_settings")}
+                  >
+                    ยกเลิก
+                  </button>
+                </div>
+              ))}
+            {actionError && <p className="account-settings-message error">{actionError}</p>}
           </div>
         </div>
       </section>

@@ -149,6 +149,54 @@
   padding: 12px 0;
 }
 
+.account-settings-device {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.account-settings-device:last-of-type {
+  border-bottom: none;
+}
+
+.account-settings-device-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.account-settings-device-info strong {
+  font-family: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
+  font-size: 13.5px;
+  color: #1f2430;
+}
+
+.account-settings-device-info small {
+  font-family: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
+  font-size: 12px;
+  color: #5f6268;
+}
+
+.account-settings-device-revoke {
+  flex: 0 0 auto;
+  font-family: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(176, 85, 63, 0.4);
+  background: transparent;
+  color: #b0553f;
+  cursor: pointer;
+}
+
+.account-settings-device-revoke:hover {
+  background: rgba(176, 85, 63, 0.08);
+}
+
 .account-settings-message {
   font-family: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
   font-size: 13px;
@@ -300,4 +348,16 @@
 
 .theme-dark .account-settings-backup-phrase-words {
   background: rgba(255, 255, 255, 0.06);
+}
+
+.theme-dark .account-settings-device {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.theme-dark .account-settings-device-info strong {
+  color: #ece8df;
+}
+
+.theme-dark .account-settings-device-info small {
+  color: #9b9386;
 }

@@ -182,6 +182,43 @@ puts the two actions in a grid so "อัดไฟล์ใหม่" sits above
 expand into the player in place. `tests/audioViz.test.mjs` (wired into CI)
 covers the level history, peak reduction/fitting/normalisation, segment
 lookup and clock; Rust 438/438 with the manifest test.
+
+**Mobile sign-in had never been possible on a phone.** With Google enabled
+on the live project the owner tried it and got `auth_config_invalid`. The
+native broker reads `FUNG_SUPABASE_URL` / `_ANON_KEY` from the process
+environment, which the desktop fills from the repo's `.env` at startup — a
+phone has neither. `native_auth::baked_value` now embeds the two public
+values at compile time (`option_env!`, the same publishable pair the web
+bundle already ships) as the fallback behind the environment, and
+`scripts/mobile_android.ps1` loads `.env` into the build environment so the
+Android core actually receives them. `resolve_configured` is unit-tested
+(environment wins, blanks count as unset, nothing → the public error).
+Two more walls stood behind that one, each found by reading `logcat` after
+the owner's next tap: (1) the native PKCE exchange sent a form-encoded
+`code=` body, which GoTrue answers with `400 bad_json` — it wants JSON
+`{auth_code, code_verifier}` (probed against live: the JSON shape with a
+bogus code returns `404 flow_state_not_found`, i.e. parsed and looked up) —
+fixed and unit-tested; the PKCE verifier moved from sessionStorage to
+localStorage because Android killed the app (`Render process kill (OOM)`)
+while Chrome was up and the deep link relaunched it from scratch; (2) the
+mobile webview's CSP was the desktop one, so `supabase.auth.setSession` →
+`/auth/v1/user` was refused ("Failed to fetch") — `tauri.android.conf.json`
+now adds exactly the project origin to `connect-src`, documented in the
+egress register and pinned by the egress suite. (3) With all three fixed the browser
+finished the sign-in and the app came back to the login card: Android had
+killed the app while Chrome was up, the deep link cold-started it, and the
+listener only subscribed to `onOpenUrl` (URLs arriving while alive) — the
+launch URL sits in `getCurrent()`, which `listenForAuthCallback` now replays
+once on startup. The unconsumed `fung.auth.pkce_verifier` still sitting in
+the webview's localStorage was the tell. (4) Signed in at last, device registration
+failed with "Failed to send a request to the Edge Function": the functions'
+CORS default sent no `Access-Control-Allow-Origin`, which is right for the
+desktop's native caller but wrong for the mobile webview, a browser caller
+whose origin is `http://tauri.localhost`. `_shared/cors.ts` now allows that
+origin by default (no ordinary web page can present it) and still requires
+`ALLOWED_ORIGIN` for anything else; all three functions redeployed. The
+Devices screen also gained the account card (name, e-mail, avatar) and a
+sign-out button the owner asked for.
 Verified by Rust and Node tests below; the real-browser pass on the production
 web (which needs this change deployed) and Chrome's one-time "local network"
 permission prompt are still to be observed on the owner's machine.

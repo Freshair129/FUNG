@@ -207,6 +207,15 @@ be — [§3.1](#31-the-transcription-worker-was-offline-by-habit-not-by-constrai
   `media-src` adds `blob:` so playback can play bytes the native side already
   read). The frontend cannot reach a remote host even if someone later writes
   the code to try.
+  **Android is the one exception, by design:** the mobile webview holds the
+  Supabase session itself (supabase-js `setSession` after the native PKCE
+  exchange, then device rows, pairing RPCs and the `device-enrollment`
+  function), so `tauri.android.conf.json` overrides `connect-src` to add
+  exactly `https://nqnrvqnijzovkrhxslfp.supabase.co` — the configured project
+  origin and nothing broader; every other directive is identical to the
+  desktop CSP, and `tests/egressRegister.test.mjs` pins both facts. Until
+  2026-09-13 this override did not exist, so no mobile sign-in had ever got
+  past `setSession` ("Failed to fetch" on `/auth/v1/user`).
 
 ### 1.10 Supabase native session broker — authentication and authorization
 

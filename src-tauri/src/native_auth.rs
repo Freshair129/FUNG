@@ -122,12 +122,44 @@ struct AuthorizationResponse {
 
 fn public_error(code: &str) -> String { code.to_owned() }
 
+/// The public Supabase project values baked in at compile time from the
+/// build environment (`FUNG_SUPABASE_*`, falling back to the `VITE_*` names
+/// the frontend already embeds). This is how the Android app gets them: a
+/// phone has no `.env` on disk and no process environment to read, so
+/// without this every native auth call failed with `auth_config_invalid`
+/// before it could even open the browser. Both values are publishable —
+/// they ship in the web bundle today — so embedding them is not a secret.
+fn baked_value(native_name: &str) -> Option<&'static str> {
+    match native_name {
+        "FUNG_SUPABASE_URL" => option_env!("FUNG_SUPABASE_URL").or(option_env!("VITE_SUPABASE_URL")),
+        "FUNG_SUPABASE_ANON_KEY" => {
+            option_env!("FUNG_SUPABASE_ANON_KEY").or(option_env!("VITE_SUPABASE_ANON_KEY"))
+        }
+        _ => None,
+    }
+}
+
+/// Resolution order: the process environment (a real deployment value, or
+/// the desktop's `.env` loaded at startup) wins; the compile-time value is
+/// the fallback; blank strings count as unset at every step.
+fn resolve_configured(
+    native: Option<String>,
+    frontend: Option<String>,
+    baked: Option<&str>,
+) -> Result<String, String> {
+    let present = |value: Option<String>| value.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    present(native)
+        .or_else(|| present(frontend))
+        .or_else(|| present(baked.map(str::to_owned)))
+        .ok_or_else(|| public_error("auth_config_invalid"))
+}
+
 pub(crate) fn configured_value(native_name: &str, frontend_name: &str) -> Result<String, String> {
-    env::var(native_name)
-        .or_else(|_| env::var(frontend_name))
-        .map(|value| value.trim().to_owned())
-        .map_err(|_| public_error("auth_config_invalid"))
-        .and_then(|value| if value.is_empty() { Err(public_error("auth_config_invalid")) } else { Ok(value) })
+    resolve_configured(
+        env::var(native_name).ok(),
+        env::var(frontend_name).ok(),
+        baked_value(native_name),
+    )
 }
 
 pub(crate) fn configured_supabase_origin() -> Result<Url, String> {
@@ -279,6 +311,16 @@ pub(crate) struct MobileSession {
 /// Exchanges a PKCE authorization code for a session on the mobile login
 /// path. All network egress stays Rust-side (the webview never fetches), and
 /// the URL authority is fixed to the configured Supabase project.
+/// Body of the GoTrue PKCE grant (`POST /auth/v1/token?grant_type=pkce`).
+/// GoTrue reads the body as JSON and the code field is `auth_code` — a
+/// form-encoded `code=` body is answered with `400 bad_json`, which is what
+/// every mobile sign-in used to hit right after Google succeeded.
+#[derive(Serialize)]
+struct PkceExchangeBody<'a> {
+    auth_code: &'a str,
+    code_verifier: &'a str,
+}
+
 pub(crate) async fn exchange_google_code(code: &str, verifier: &str) -> AppResult<MobileSession> {
     let code = code.trim();
     let verifier = verifier.trim();
@@ -295,7 +337,10 @@ pub(crate) async fn exchange_google_code(code: &str, verifier: &str) -> AppResul
         .map_err(|_| AppError::InvalidInput("auth_exchange_failed".to_owned()))?
         .post(url)
         .header("apikey", anon)
-        .form(&[("code", code), ("code_verifier", verifier)])
+        .json(&PkceExchangeBody {
+            auth_code: code,
+            code_verifier: verifier,
+        })
         .send()
         .await
         .map_err(|_| AppError::InvalidInput("auth_exchange_failed".to_owned()))?;
@@ -359,4 +404,49 @@ mod tests {
     fn enrollment_canonical_bytes_bind_native_identity_and_network_integers() { let user = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap(); let bytes = canonical_enrollment_bytes(&user, &[1; 32], &[2; 32], "FUNG Desktop", 10, 300010, &[3; 32]).unwrap(); assert!(bytes.starts_with(ENROLLMENT_DOMAIN)); assert!(bytes.ends_with(&[3; 32])); }
     #[test]
     fn authorization_context_is_not_a_public_serializable_type() { fn accepts(_: AuthorizedDriveContext) {} let _ = accepts; }
+}
+
+#[cfg(test)]
+mod configured_value_tests {
+    use super::resolve_configured;
+
+    #[test]
+    fn environment_wins_over_the_baked_value_and_blanks_count_as_unset() {
+        assert_eq!(
+            resolve_configured(Some("https://env.example".into()), None, Some("https://baked.example")),
+            Ok("https://env.example".to_owned())
+        );
+        assert_eq!(
+            resolve_configured(None, Some(" https://front.example ".into()), Some("https://baked.example")),
+            Ok("https://front.example".to_owned())
+        );
+        assert_eq!(
+            resolve_configured(Some("   ".into()), Some(String::new()), Some("https://baked.example")),
+            Ok("https://baked.example".to_owned()),
+            "blank environment values must not shadow the compile-time value"
+        );
+    }
+
+    #[test]
+    fn nothing_configured_is_the_public_auth_config_error() {
+        assert_eq!(resolve_configured(None, None, None), Err("auth_config_invalid".to_owned()));
+        assert_eq!(resolve_configured(None, None, Some("")), Err("auth_config_invalid".to_owned()));
+    }
+}
+
+#[cfg(test)]
+mod pkce_exchange_tests {
+    use super::PkceExchangeBody;
+
+    #[test]
+    fn exchange_body_is_the_gotrue_json_shape() {
+        let body = serde_json::to_value(PkceExchangeBody {
+            auth_code: "code-1",
+            code_verifier: "verifier-1",
+        })
+        .unwrap();
+        assert_eq!(body["auth_code"], "code-1");
+        assert_eq!(body["code_verifier"], "verifier-1");
+        assert!(body.get("code").is_none(), "GoTrue rejects the form-style `code` field");
+    }
 }

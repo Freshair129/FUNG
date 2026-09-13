@@ -14,6 +14,7 @@ import {
   Link2,
   LockKeyhole,
   LogIn,
+  LogOut,
   Mic,
   Monitor,
   Moon,
@@ -876,6 +877,29 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
     return () => { cancelled = true; };
   }, [pairing]);
 
+  const accountName = (session?.user.user_metadata?.full_name as string | undefined)
+    ?? (session?.user.user_metadata?.name as string | undefined)
+    ?? session?.user.email
+    ?? "ผู้ใช้";
+  const accountInitial = accountName.trim().charAt(0).toUpperCase() || "U";
+  const avatarUrl = (session?.user.user_metadata?.avatar_url as string | undefined) ?? null;
+
+  // supabase-js clears its stored session; the auth-state subscription above
+  // then drops the cached device id (R4-13) and returns this screen to the
+  // login card. The device row itself stays server-side until revoked.
+  const handleSignOut = async () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) setAuthError(`ออกจากระบบไม่สำเร็จ: ${error.message}`);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
   const handleLogin = async () => {
     setAuthBusy(true);
     setAuthError(null);
@@ -1023,6 +1047,14 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
   return (
     <main className="m-screen m-devices-screen">
       <header className="m-page-header"><div><span>เครือข่ายภายใน</span><h1>อุปกรณ์</h1></div><button className="m-icon-action" aria-label="จับคู่กับ Desktop" onClick={openPairing}><Plus /></button></header>
+      <section className="m-account-card" aria-label="บัญชีที่เข้าสู่ระบบ">
+        {avatarUrl ? <img src={avatarUrl} alt="" referrerPolicy="no-referrer" /> : <span className="m-account-initial">{accountInitial}</span>}
+        <div>
+          <strong>{accountName}</strong>
+          <span>{session.user.email ?? "ไม่มีอีเมล"}</span>
+        </div>
+        <button type="button" onClick={() => void handleSignOut()} disabled={authBusy}><LogOut size={17} />ออกจากระบบ</button>
+      </section>
       <section className="m-device-summary">
         <Smartphone size={30} />
         <div>

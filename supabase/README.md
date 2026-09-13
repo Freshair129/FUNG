@@ -79,7 +79,9 @@ Every migration in `supabase/migrations/` (the seven through
 production project `nqnrvqnijzovkrhxslfp`, and all three Edge functions
 (`device-enrollment`, `google-drive-authorize`, `google-drive-metadata`) are
 deployed there with `verify_jwt` on and no custom secrets (`ALLOWED_ORIGIN` is
-deliberately unset, so browsers get no CORS grant; the callers are native).
+unset; `_shared/cors.ts` grants CORS only to the mobile app's own webview
+origin `http://tauri.localhost` by default — the desktop caller is native and
+needs none, and any other browser origin must be opted in).
 They were applied through the Supabase management API rather than the CLI, so
 the recorded migration versions are the apply timestamps
 (`20260913005747`…`20260913010251`), not the file names — `supabase db push`
@@ -89,6 +91,16 @@ new. Post-apply, the first read-only block of
 reported no critical findings (the two `authenticated`-callable
 `SECURITY DEFINER` pairing RPCs are intentional; they enforce ownership
 themselves). Bootstrap approval and provider testing remain owner ceremonies.
+
+Auth → URL Configuration → Redirect URLs must list every callback the
+clients use, or GoTrue falls back to the Site URL (which on this shared
+project is another app's `http://localhost:3000`): the web
+`https://fung-seven.vercel.app/auth/callback`, the mobile deep link
+`fung://auth/callback`, and the desktop's loopback listener on an
+OS-assigned port, `http://127.0.0.1:*/auth/callback` (`*` matches the port;
+`auth_session.rs` `CALLBACK_PATH`). The last one was missing until
+2026-09-13, which is why desktop sign-in surfaced as
+`bad_oauth_state` on the other app's page.
 
 ## W1 server authority boundary
 

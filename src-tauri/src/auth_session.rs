@@ -2268,14 +2268,23 @@ fn parse_callback(raw: &str, pending: &PendingLogin) -> Result<Zeroizing<String>
             _ => {}
         }
     }
-    if count == 0 || state.as_ref().map(|value| value.as_str()) != Some(pending.state.as_str()) {
-        return Err(public_error("auth_state_mismatch"));
+    if count == 0 {
+        return Err(public_error("auth_callback_invalid"));
+    }
+    // GoTrue does not echo a client state to `redirect_to` (see
+    // `broker_session_login_begin`), so a state is optional; one that is
+    // present must still be ours.
+    if let Some(value) = state.as_ref() {
+        if value.as_str() != pending.state.as_str() {
+            return Err(public_error("auth_state_mismatch"));
+        }
     }
     if code.is_some() == error || (error_description && !error) {
         return Err(public_error("auth_callback_invalid"));
     }
     if let Some(code) = code {
-        if count != 2 {
+        let expected = if state.is_some() { 2 } else { 1 };
+        if count != expected {
             return Err(public_error("auth_callback_invalid"));
         }
         return Ok(code);
@@ -2492,8 +2501,11 @@ pub(crate) async fn broker_session_login_begin(app: AppHandle) -> Result<LoginSt
     url.push_str(base.trim_end_matches('/'));
     url.push_str("/auth/v1/authorize?provider=google&redirect_to=");
     url.push_str(&redirect_to.replace(':', "%3A").replace('/', "%2F"));
-    url.push_str("&state=");
-    url.push_str(state_value.as_str());
+    // No `state=` here: GoTrue owns the OAuth state. A client-supplied value
+    // is forwarded to Google verbatim and GoTrue then cannot find its own
+    // flow state on the way back ("bad_oauth_state", verified against the
+    // live project); the loopback callback carries only `code`, which the
+    // PKCE verifier below binds to this pending login.
     url.push_str("&code_challenge=");
     url.push_str(&challenge);
     let pkce_method = ("code_challenge_method", "S256");
@@ -3093,6 +3105,20 @@ mod tests {
             &pending
         )
         .is_ok());
+        // What GoTrue actually sends to redirect_to: the PKCE code alone.
+        assert!(parse_callback("http://127.0.0.1:43123/auth/callback?code=c", &pending).is_ok());
+        assert_eq!(
+            parse_callback(
+                "http://127.0.0.1:43123/auth/callback?code=c&state=other",
+                &pending
+            ),
+            Err("auth_state_mismatch".to_owned())
+        );
+        assert!(parse_callback(
+            "http://127.0.0.1:43123/auth/callback?code=c&error=x",
+            &pending
+        )
+        .is_err());
     }
 
     #[derive(Clone, Copy)]

@@ -219,6 +219,23 @@ origin by default (no ordinary web page can present it) and still requires
 `ALLOWED_ORIGIN` for anything else; all three functions redeployed. The
 Devices screen also gained the account card (name, e-mail, avatar) and a
 sign-out button the owner asked for.
+
+Desktop sign-in then failed in its own way: the loopback callback
+`http://127.0.0.1:<port>/auth/callback` was never on the project's Redirect
+URLs, so GoTrue fell back to the other app's Site URL with
+`bad_oauth_state` (config: add `http://127.0.0.1:*/auth/callback`, now
+recorded in `supabase/README.md`); the retry inside `LOGIN_TTL` (120 s) was
+refused with `auth_request_in_progress`, which `AccountLoginPanel` rendered
+as a generic `auth_start_failed` because the broker rejects `invoke` with a
+plain string, not an Error — the panel now shows the broker's code verbatim. With the Redirect URL in place the same `bad_oauth_state` came back, and
+probing `/auth/v1/authorize` explained it: GoTrue forwards a client-supplied
+`state=` to Google verbatim (the `state` Google receives was our UUID, not
+GoTrue's own), so on the way back GoTrue cannot find its flow state. The
+desktop authorize URL no longer sends `state`; the loopback callback carries
+only the PKCE `code`, which the pending login's verifier binds, and
+`parse_callback` accepts that shape (a state, if ever present, must still
+match). Unit-tested; the native flow had never been exercised against a real
+provider before today.
 Verified by Rust and Node tests below; the real-browser pass on the production
 web (which needs this change deployed) and Chrome's one-time "local network"
 permission prompt are still to be observed on the owner's machine.

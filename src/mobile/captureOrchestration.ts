@@ -64,3 +64,17 @@ export async function acquireCaptureBackend<TMedia, TNative extends NativeResult
     throw new CaptureStartError("web-permission", error);
   }
 }
+
+/**
+ * Whether a native recorder status means "stopped and every sealed segment
+ * is final". The Android plugin's terminal state is the literal `"stopped"`
+ * (RecorderPlugin.kt `stop()`), and it keeps reporting it — with the sealed
+ * segment list — for as long as the session id is asked about. The mobile
+ * shell used to wait for `"completed"`, which the plugin never emits, so
+ * every stop timed out, `finishCapture` never ran, and the recording sat in
+ * the ledger as "กำลังบันทึก" forever. `tests/captureOrchestration.test.mjs`
+ * reads the Kotlin source so the two can no longer drift apart silently.
+ */
+export function nativeRecorderSettled(state: string): boolean {
+  return state === "stopped" || state === "completed";
+}

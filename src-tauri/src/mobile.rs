@@ -699,6 +699,69 @@ pub(crate) fn mobile_capture_playback_segment(
     })
 }
 
+/// One entry of [`PlaybackManifest`]: enough for a player to lay out a
+/// timeline and seek without loading any audio bytes.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PlaybackManifestSegment {
+    sequence: i64,
+    duration_ms: i64,
+    byte_size: i64,
+}
+
+/// The sealed segments of a recording in playback order, with the total
+/// duration, read from the `audio_chunks` ledger rows only.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PlaybackManifest {
+    recording_id: String,
+    duration_ms: i64,
+    segments: Vec<PlaybackManifestSegment>,
+}
+
+pub(crate) fn playback_manifest(
+    storage: &genesis_block_native::Storage,
+    recording_id: &str,
+) -> AppResult<PlaybackManifest> {
+    let rows = crate::genesis_adapter::query_all(
+        storage,
+        "audio_chunks",
+        &["sequence_no", "start_ms", "end_ms", "byte_size"],
+        vec![crate::genesis_adapter::eq(
+            "audio_chunks",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+    )
+    .map_err(AppError::Genesis)?;
+    let mut segments = rows
+        .iter()
+        .map(|row| {
+            Ok(PlaybackManifestSegment {
+                sequence: int_value(row, "audio_chunks.sequence_no")?,
+                duration_ms: int_value(row, "audio_chunks.end_ms")?
+                    - int_value(row, "audio_chunks.start_ms")?,
+                byte_size: int_value(row, "audio_chunks.byte_size")?,
+            })
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+    segments.sort_by_key(|segment| segment.sequence);
+    let duration_ms = segments.iter().map(|segment| segment.duration_ms).sum();
+    Ok(PlaybackManifest {
+        recording_id: recording_id.to_string(),
+        duration_ms,
+        segments,
+    })
+}
+
+#[tauri::command]
+pub(crate) fn mobile_capture_playback_manifest(
+    recording_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<PlaybackManifest> {
+    playback_manifest(&state.genesis, &recording_id)
+}
+
 #[tauri::command]
 pub(crate) fn mobile_note_upsert(
     note: MobileNoteInput,
@@ -3184,6 +3247,35 @@ mod tests {
         assert!(!CLIENT_WRITABLE_EPISTEMIC_STATUS.contains(&"ai_proposed"));
         assert!(CLIENT_WRITABLE_EPISTEMIC_STATUS.contains(&"confirmed"));
         assert!(CLIENT_WRITABLE_EPISTEMIC_STATUS.contains(&"disputed"));
+    }
+
+    #[test]
+    fn playback_manifest_lists_segments_in_order_with_total_duration() {
+        let (path, storage) = open_genesis();
+        let mut mutations =
+            crate::genesis_adapter::ensure_project_mutations("p", "projects/p", "t");
+        mutations.extend([
+            crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r","project_id":"p","source":"microphone","input_path":null,"canonical_audio_path":"r/manifest.json","status":"completed","duration_ms":9000,"created_at":"t","updated_at":"t"})),
+            // Inserted out of order on purpose: playback order is by sequence.
+            crate::genesis_adapter::upsert("audio_chunks", serde_json::json!({"id":"c2","recording_id":"r","sequence_no":2,"file_path":"r/segment-000002.m4a","start_ms":5000,"end_ms":9000,"byte_size":40,"checksum":"b","created_at":"t"})),
+            crate::genesis_adapter::upsert("audio_chunks", serde_json::json!({"id":"c1","recording_id":"r","sequence_no":1,"file_path":"r/segment-000001.m4a","start_ms":0,"end_ms":5000,"byte_size":50,"checksum":"a","created_at":"t"})),
+        ]);
+        crate::genesis_adapter::commit_rows(&storage, mutations).expect("seed");
+
+        let manifest = playback_manifest(&storage, "r").expect("manifest");
+        assert_eq!(manifest.recording_id, "r");
+        assert_eq!(manifest.duration_ms, 9000);
+        let sequences: Vec<i64> = manifest.segments.iter().map(|s| s.sequence).collect();
+        assert_eq!(sequences, vec![1, 2]);
+        assert_eq!(manifest.segments[0].duration_ms, 5000);
+        assert_eq!(manifest.segments[1].duration_ms, 4000);
+        assert_eq!(manifest.segments[1].byte_size, 40);
+
+        let empty = playback_manifest(&storage, "missing").expect("no rows is not an error");
+        assert_eq!(empty.duration_ms, 0);
+        assert!(empty.segments.is_empty());
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
     }
 
     #[test]

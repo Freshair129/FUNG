@@ -202,8 +202,11 @@ be — [§3.1](#31-the-transcription-worker-was-offline-by-habit-not-by-constrai
   and `tests/egressRegister.test.mjs` fails on any other `fetch` in `src/`, on
   an unguarded one in that file, or on a non-loopback host literal in it. The
   desktop CSP pins the webview shut regardless:
-  `connect-src ipc: http://127.0.0.1:*` (`tauri.conf.json`). The frontend cannot
-  reach a remote host even if someone later writes the code to try.
+  `connect-src ipc: http://ipc.localhost http://127.0.0.1:*` (`tauri.conf.json`;
+  `ipc.localhost` is Tauri's in-app IPC transport on Android, not a host, and
+  `media-src` adds `blob:` so playback can play bytes the native side already
+  read). The frontend cannot reach a remote host even if someone later writes
+  the code to try.
 
 ### 1.10 Supabase native session broker — authentication and authorization
 

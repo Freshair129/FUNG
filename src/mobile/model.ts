@@ -1,4 +1,4 @@
-export type MobileTab = "home" | "notes" | "voice" | "timeline" | "graph" | "devices";
+export type MobileTab = "home" | "notes" | "voice" | "files" | "timeline" | "graph" | "devices";
 
 export type ThemePreference = "system" | "light" | "dark";
 
@@ -231,7 +231,7 @@ export type CaptureState = {
   levelPercent: number | null;
   backend: "web" | "android-native" | null;
   error: {
-    stage: "session" | "native-start" | "web-permission" | "native-sync";
+    stage: "session" | "native-start" | "web-permission" | "native-sync" | "native-stop";
     detail: string;
   } | null;
 };

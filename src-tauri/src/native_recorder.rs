@@ -108,6 +108,44 @@ pub(crate) fn mobile_native_recorder_status(
     run(&recorder, "status", &recording_id)
 }
 
+/// The amplitude-only reply of the plugin's `level` command. Kept separate
+/// from [`NativeRecorderStatus`] so the recording waveform can poll ~12x/s
+/// without serialising the sealed-segment list every time.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativeRecorderLevel {
+    pub(crate) recording_id: Option<String>,
+    #[serde(default)]
+    pub(crate) level_percent: i64,
+}
+
+#[cfg(target_os = "android")]
+fn run_level(recorder: &NativeRecorder<Wry>, recording_id: &str) -> AppResult<NativeRecorderLevel> {
+    recorder
+        .handle
+        .run_mobile_plugin("level", RecordingRequest { recording_id })
+        .map_err(|error| AppError::InvalidInput(format!("native recorder: {error}")))
+}
+
+#[cfg(not(target_os = "android"))]
+fn run_level(
+    _recorder: &NativeRecorder<Wry>,
+    _recording_id: &str,
+) -> AppResult<NativeRecorderLevel> {
+    Ok(NativeRecorderLevel {
+        recording_id: None,
+        level_percent: 0,
+    })
+}
+
+#[tauri::command]
+pub(crate) fn mobile_native_recorder_level(
+    recording_id: String,
+    recorder: State<'_, NativeRecorder<Wry>>,
+) -> AppResult<NativeRecorderLevel> {
+    run_level(&recorder, &recording_id)
+}
+
 #[tauri::command]
 pub(crate) fn mobile_native_recorder_control(
     recording_id: String,

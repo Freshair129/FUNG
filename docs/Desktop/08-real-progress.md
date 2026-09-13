@@ -92,6 +92,31 @@ as the storage"):
   host literal; `docs/appendices/E-egress-register.md` §1.9/§2 record the
   boundary.
 
+Later still, on the owner's instruction, the live project was brought up to
+the repo: all seven migrations plus a new
+`20260913000000_backfill_profiles_for_existing_users.sql` (profiles and Google
+`oauth_connections` for the two users who had signed in before the trigger
+existed) were applied in order through the management API, and the three Edge
+functions were deployed with `verify_jwt` on and no custom secrets. Verified on
+live: 11 tables with RLS, 14 functions, the read-only block of
+`supabase/tests/w1_authority_schema.sql` passes, the linter shows no critical
+findings, and each function answers 401 unauthenticated and grants no CORS to
+an unknown origin. Recorded migration versions are apply timestamps, so a CLI
+`db push` must reconcile history first.
+
+Applying W1 exposed that three client writes had only ever worked against the
+pre-W1 grants: web and mobile revoked with `devices.delete()`, mobile
+registered with `.insert()`/`.update()`, and the desktop published its
+FUNGWIRE LAN endpoint with a direct `PATCH /rest/v1/devices` — all refused
+once `authenticated` is SELECT-only. Fixed in the same change: a new
+`src/lib/deviceAuthority.ts` is the one client path (`device-enrollment`
+function, `action: "revoke"` / `"pairing_only"`), the mobile liveness check
+reads `revoked_at` instead of inferring revocation from a missing row (W1
+revocation is soft), and a new owner-scoped `publish_device_endpoint` RPC
+(`20260913000001_…`, applied to live) replaces the PATCH in
+`auth_session::broker_device_endpoint_publish`. `tests/deviceAuthority.test.mjs`
+pins all of it from the client side.
+
 Scope is honestly *same-machine*: a browser on another device cannot reach
 `http://<LAN-IP>` from an HTTPS page (mixed content), so cross-device playback
 needs a relay or on-device TLS later. The stitched WAV is built in memory
@@ -442,6 +467,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | Python worker syntax | `py_compile scripts/transcribe.py` passed. |
 | Current Whisper runtime availability | `py -3` reports no `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the pinned `small` model, and passes the standalone GPU smoke with the staged CUDA 12/cuDNN 9 bundle. Live Meeting real-capture, device, visual, and connector UAT remain open. |
 | Loopback recordings API (0.2.20b) | Rust **434/434** on 2026-09-13 (419 prior + 15 in `local_api::tests`: request/range/origin/token parsing, open `/health` vs 401 elsewhere, 204 preflight, 405, newest-first list with channels from chunk names, in-order stitching independent of row order, whole-file import passthrough with MIME, not-found/traversal rows never followed, missing slices skipped and counted, 200/206/416 `Range`, nested-id rejection, and two real-socket tests for exact `Content-Length` and CORS grant only for allow-listed origins). `cargo clippy --all-targets -D warnings` clean. `npm run build` passed; Node `test:local-api-client` 4/4 (loopback-only parse/build), `test:egress` 8/8 with the single-file `fetch` allowance, `test:ci-coverage` 2/2, `test:diarization` 8/8. Real-browser playback against the production web is not yet observed (needs deploy). |
+| Live Supabase bring-up (0.2.20b) | 8 migrations applied to `nqnrvqnijzovkrhxslfp` on 2026-09-13 (`list_migrations` shows all eight); 11 public tables all `relrowsecurity = true`; 14 functions present; `w1_authority_schema.sql` read-only posture block passed; security linter: 0 errors (INFO on server-only tables without policies, WARN on the two intentional `authenticated` SECURITY DEFINER pairing RPCs); 3 Edge functions ACTIVE v1 with `verify_jwt`, each returning 401 without a JWT and no `Access-Control-Allow-Origin` for an unlisted origin. The two write-and-rollback adversarial blocks of the SQL test were not run (read-only session). |
 
 Screenshot artifacts from the latest UI validation:
 

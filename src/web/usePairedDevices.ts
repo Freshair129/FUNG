@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { DeviceAuthorityError, revokeCloudDevice } from "../lib/deviceAuthority";
 
 export type PairedDevice = {
   id: string;
@@ -61,10 +62,17 @@ export function usePairedDevices() {
         data: { user },
       } = await supabase.auth.getUser();
 
-      const { error } = await supabase.from("devices").delete().eq("id", id);
-      if (error) {
-        console.error("Failed to revoke device:", error);
-        setActionError("ยกเลิกอุปกรณ์ไม่สำเร็จ ลองใหม่อีกครั้ง");
+      // Server-owned soft revoke (W1): the row keeps its identity with
+      // `revoked_at` set, which is why `reload` filters on that column.
+      try {
+        await revokeCloudDevice(id);
+      } catch (failure) {
+        console.error("Failed to revoke device:", failure);
+        setActionError(
+          failure instanceof DeviceAuthorityError && failure.code === "unauthenticated"
+            ? "เซสชันหมดอายุ — เข้าสู่ระบบใหม่แล้วลองอีกครั้ง"
+            : "ยกเลิกอุปกรณ์ไม่สำเร็จ ลองใหม่อีกครั้ง",
+        );
         return;
       }
 

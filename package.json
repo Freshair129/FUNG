@@ -26,6 +26,7 @@
     "test:diarization": "node --test tests/diarizationPackaging.test.mjs",
     "test:egress": "node --test tests/egressRegister.test.mjs",
     "test:local-api-client": "node --test --experimental-strip-types tests/localApiClient.test.mjs",
+    "test:device-authority": "node --test tests/deviceAuthority.test.mjs",
     "test:google-drive": "node --test tests/googleDriveContract.test.mjs",
     "test:transcribe-concat": "python tests/transcribeConcatOnly.test.py",
     "build": "tsc && vite build",

@@ -39,6 +39,7 @@ import { acquireCaptureBackend, CaptureStartError, resumeCaptureClock } from "./
 import type { CaptureState, DeviceState, EpistemicStatus, MobileNote, MobileSnapshot, MobileTab, RecordingListItem, ThemePreference } from "./model";
 import { TimelineScreen } from "./TimelineScreen";
 import { supabase } from "../lib/supabase";
+import { registerPairingDevice, revokeCloudDevice } from "../lib/deviceAuthority";
 import { beginGoogleLogin, listenForAuthCallback } from "../lib/authFlow";
 import {
   deviceCacheActionForSession,
@@ -649,29 +650,34 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
             if (error) throw error;
             return data ? { id: data.id as string } : null;
           },
-          insertDevice: async (userId, fingerprint) => {
-            const { data, error } = await supabase
-              .from("devices")
-              .insert({
-                user_id: userId,
-                device_label: "FUNG Mobile",
-                platform: "android",
-                public_key_fingerprint: fingerprint,
-              })
-              .select("id")
-              .single();
-            if (error) throw error;
-            return { id: data.id as string };
+          insertDevice: async (_userId, fingerprint) => {
+            // W1: the row is written server-side by the device-enrollment
+            // function (`register_pairing_device`), which takes the user from
+            // the verified session — a client cannot insert into `devices`.
+            if (!publicKey) throw new Error("device public key unavailable");
+            const { deviceId } = await registerPairingDevice({
+              deviceLabel: "FUNG Mobile",
+              platform: "android",
+              publicKey,
+              publicKeyFingerprint: fingerprint,
+            });
+            return { id: deviceId };
           },
-          refreshDevice: async (deviceId, key) => {
-            // public_key is not covered by the INSERT grant (only user_id,
-            // device_label, platform, public_key_fingerprint are) — it is
-            // always set via UPDATE, which the grant does cover.
-            const { error } = await supabase
-              .from("devices")
-              .update({ last_seen_at: new Date().toISOString(), public_key: key })
-              .eq("id", deviceId);
-            if (error) console.error("Failed to refresh device row:", error);
+          refreshDevice: async (_deviceId, key) => {
+            // Same server path: when the fingerprint already exists,
+            // `register_pairing_device` refreshes label, public key and
+            // last_seen_at instead of inserting.
+            if (!key) return;
+            try {
+              await registerPairingDevice({
+                deviceLabel: "FUNG Mobile",
+                platform: "android",
+                publicKey: key,
+                publicKeyFingerprint: identity.fingerprint,
+              });
+            } catch (error) {
+              console.error("Failed to refresh device row:", error);
+            }
           },
           auditRegistered: async (userId, deviceId) => {
             await supabase.from("device_audit_events").insert({
@@ -705,7 +711,9 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
     return () => { cancelled = true; };
   }, [session]);
 
-  // Revocation check on screen focus: paired peers must still exist in the cloud.
+  // Revocation check on screen focus: paired peers must still exist in the
+  // cloud AND be unrevoked — W1 revocation is soft, so a revoked row is still
+  // returned and is told apart by `revoked_at`.
   useEffect(() => {
     if (!session) return;
     const cloudIds = snapshot.devices
@@ -714,10 +722,12 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
     if (cloudIds.length === 0) return;
     let cancelled = false;
     void (async () => {
-      const { data, error } = await supabase.from("devices").select("id").in("id", cloudIds);
+      const { data, error } = await supabase.from("devices").select("id, revoked_at").in("id", cloudIds);
       if (cancelled) return;
       if (error) { console.error("Revocation check failed:", error); return; }
-      const alive = new Set((data ?? []).map((row) => row.id as string));
+      const alive = new Set(
+        (data ?? []).filter((row) => row.revoked_at == null).map((row) => row.id as string),
+      );
       let next = snapshot;
       for (const id of cloudIds) {
         if (!alive.has(id)) next = markDeviceRevoked(next, id);
@@ -867,8 +877,10 @@ function DevicesScreen({ snapshot, setSnapshot, theme, cycleTheme }: ScreenProps
   const handleRemoveDevice = async (device: DeviceState) => {
     setRevokeError(null);
     if (device.cloudDeviceId) {
-      const { error } = await supabase.from("devices").delete().eq("id", device.cloudDeviceId);
-      if (error) {
+      // Server-owned soft revoke through the device-enrollment function (W1).
+      try {
+        await revokeCloudDevice(device.cloudDeviceId);
+      } catch (error) {
         console.error("Cloud device revoke failed:", error);
         setRevokeError("เพิกถอนอุปกรณ์บนคลาวด์ไม่สำเร็จ ลองใหม่อีกครั้ง");
         return;

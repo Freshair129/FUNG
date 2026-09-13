@@ -71,9 +71,29 @@ this function or on Google Drive configuration.
 
 No `anon` grants are provided. Service-role use is server-side only.
 
-## W1 server authority boundary (local implementation only)
+## Live state (2026-09-13)
 
-The W1-A-F4-S1 implementation is project-agnostic and has not been deployed.
+Every migration in `supabase/migrations/` (the seven through
+`20260824000000_w1_enrollment_proof_nonce.sql` plus
+`20260913000000_backfill_profiles_for_existing_users.sql`) is applied to the
+production project `nqnrvqnijzovkrhxslfp`, and all three Edge functions
+(`device-enrollment`, `google-drive-authorize`, `google-drive-metadata`) are
+deployed there with `verify_jwt` on and no custom secrets (`ALLOWED_ORIGIN` is
+deliberately unset, so browsers get no CORS grant; the callers are native).
+They were applied through the Supabase management API rather than the CLI, so
+the recorded migration versions are the apply timestamps
+(`20260913005747`…`20260913010251`), not the file names — `supabase db push`
+from a linked CLI will want to reconcile that history before pushing anything
+new. Post-apply, the first read-only block of
+`supabase/tests/w1_authority_schema.sql` passed and the Database Linter
+reported no critical findings (the two `authenticated`-callable
+`SECURITY DEFINER` pairing RPCs are intentional; they enforce ownership
+themselves). Bootstrap approval and provider testing remain owner ceremonies.
+
+## W1 server authority boundary
+
+The W1-A-F4-S1 implementation is project-agnostic (see "Live state" above for
+where it is applied).
 It adds a server-controlled authority state to `devices`; every pre-existing
 device starts as `legacy` and cannot be promoted automatically. Authenticated
 clients retain owner-scoped read access only. Pending enrollment requests are
@@ -100,6 +120,17 @@ reservation and server decision tables; `oauth_audit_events` and
 The committed `deno.lock` pins the Edge dependency used by the enrollment,
 authorizer, and metadata functions. `supabase/tests/w1_authority_schema.sql`
 contains read-only privilege, RLS, fixed-search-path, and reservation evidence.
-Live migration, RLS/grant verification, bootstrap approval, Edge deployment,
-and provider testing remain external gates and must be performed only after an
-enumerated project-ref manifest and separate deployment approval.
+Live migration, RLS/grant verification, and Edge deployment were performed on
+2026-09-13 on the owner's instruction (see "Live state"). Bootstrap approval
+and provider testing remain owner ceremonies performed out-of-band.
+
+Note for clients: after W1, `authenticated` holds only `SELECT` on
+`public.devices`. A direct `delete()`/`insert()`/`update()` on that table from
+the web or mobile client is refused; revocation and registration go through
+the `device-enrollment` Edge function (`action: "revoke"` / `"pairing_only"`,
+wrapped by `src/lib/deviceAuthority.ts`), and the desktop publishes its
+FUNGWIRE LAN endpoint through the owner-scoped
+`public.publish_device_endpoint(uuid, text)` RPC
+(`20260913000001_publish_device_endpoint.sql`, `authenticated`-callable
+`SECURITY DEFINER` like the pairing RPCs; it refuses revoked rows and never
+changes authority state). `tests/deviceAuthority.test.mjs` pins this.

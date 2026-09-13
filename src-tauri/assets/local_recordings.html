@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<title>FUNG — ไฟล์ที่อัดไว้</title>
+<style>
+  /* Served by the FUNG desktop over the LAN (src-tauri/src/local_api.rs).
+     Self-contained on purpose: no cloud, no fonts, no scripts fetched. */
+  :root { color-scheme: light; --paper: #f5f2eb; --card: #fffdf8; --ink: #191a1d; --muted: #5f6268; --line: rgba(32,35,40,.1); --sage: #6f897e; --indigo: #3d4f82; --rust: #b3453e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Thai", sans-serif; padding: 16px; padding-bottom: 48px; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  header .mark { width: 28px; height: 28px; border-radius: 50%; border: 5px solid var(--ink); }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header small { display: block; color: var(--muted); font-size: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .error { color: var(--rust); font-size: 13px; margin: 8px 0 0; }
+  input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 14px; background: #fff; }
+  button { font: inherit; font-size: 14px; font-weight: 600; border: 0; border-radius: 10px; padding: 10px 16px; background: var(--indigo); color: #fff; }
+  button.ghost { background: none; color: var(--muted); font-weight: 500; text-decoration: underline; padding: 6px 8px; }
+  .row { display: flex; gap: 8px; margin-top: 10px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { padding: 12px 0; border-bottom: 1px solid var(--line); }
+  li:last-child { border-bottom: 0; }
+  li strong { display: block; font-size: 15px; }
+  li small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .chips { display: flex; gap: 6px; margin-bottom: 8px; }
+  .chip { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); background: none; color: var(--muted); font-weight: 500; }
+  .chip.on { background: var(--sage); border-color: var(--sage); color: #fff; }
+  audio { width: 100%; height: 40px; }
+  footer { margin-top: 14px; color: var(--muted); font-size: 12px; word-break: break-all; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="mark" aria-hidden="true"></div>
+  <div><h1>ไฟล์ที่อัดไว้บน FUNG desktop</h1><small>อ่านตรงจากเครื่องในวง Wi-Fi เดียวกัน — ไม่มีอะไรขึ้น cloud</small></div>
+</header>
+
+<section class="card" id="connect" hidden>
+  <p class="muted">สแกน QR จากหน้า Settings › Runtime บน desktop หรือวางลิงก์ที่คัดลอกมา</p>
+  <input id="connect-input" type="text" placeholder="http://192.168.x.x:PORT/#TOKEN" autocomplete="off" spellcheck="false" inputmode="url">
+  <div class="row"><button id="connect-btn" type="button">เชื่อมต่อ</button></div>
+  <p class="error" id="connect-error" hidden></p>
+</section>
+
+<section class="card" id="list" hidden>
+  <p class="muted" id="status">กำลังโหลด…</p>
+  <p class="error" id="list-error" hidden></p>
+  <ul id="items"></ul>
+  <footer><span id="origin"></span> · <button class="ghost" id="disconnect" type="button">ลืมลิงก์นี้</button></footer>
+</section>
+
+<script>
+(() => {
+  "use strict";
+  const KEY = "fung.localApi.token";
+  const CHANNEL_LABELS = { mic: "ไมค์", system: "เสียงระบบ", file: "ไฟล์" };
+  const $ = (id) => document.getElementById(id);
+  const connect = $("connect"), list = $("list"), items = $("items"), status = $("status");
+  const chosenChannel = new Map();
+
+  function tokenFromHash() {
+    const raw = location.hash.replace(/^#/, "").trim();
+    return /^[0-9a-f]{16,128}$/i.test(raw) ? raw : "";
+  }
+  function loadToken() {
+    const fromHash = tokenFromHash();
+    if (fromHash) {
+      try { sessionStorage.setItem(KEY, fromHash); } catch (_) {}
+      // Drop the token from the address bar once it is stored.
+      history.replaceState(null, "", location.pathname);
+      return fromHash;
+    }
+    try { return sessionStorage.getItem(KEY) || ""; } catch (_) { return ""; }
+  }
+  function forget() {
+    try { sessionStorage.removeItem(KEY); } catch (_) {}
+    items.textContent = "";
+    show(false);
+  }
+  function show(connected) {
+    connect.hidden = connected;
+    list.hidden = !connected;
+  }
+  function formatDuration(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+    const mmss = (h > 0 ? String(m).padStart(2, "0") : m) + ":" + String(s).padStart(2, "0");
+    return h > 0 ? h + ":" + mmss : mmss;
+  }
+  function formatDate(iso) {
+    if (!iso) return "ไม่ทราบเวลา";
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" });
+  }
+  function audioUrl(token, id, channel) {
+    const u = new URL("/recordings/" + encodeURIComponent(id) + "/audio", location.origin);
+    u.searchParams.set("channel", channel);
+    // <audio> cannot send headers, so the token rides in the query for this
+    // one same-origin URL.
+    u.searchParams.set("token", token);
+    return u.toString();
+  }
+  function render(token, recordings) {
+    items.textContent = "";
+    if (recordings.length === 0) { status.textContent = "desktop ยังไม่มีไฟล์ที่อัดไว้"; return; }
+    status.textContent = recordings.length + " รายการ · แตะเพื่อเล่น";
+    for (const r of recordings) {
+      const li = document.createElement("li");
+      const name = document.createElement("strong");
+      name.textContent = r.projectName || "(ไม่มีชื่อโปรเจกต์)";
+      const meta = document.createElement("small");
+      meta.textContent = formatDate(r.createdAt) + " · " + formatDuration(r.durationMs || 0) + (r.status && r.status !== "completed" ? " · " + r.status : "");
+      li.append(name, meta);
+      const channels = Array.isArray(r.channels) ? r.channels : [];
+      let channel = chosenChannel.get(r.id) || channels[0] || null;
+      const audio = document.createElement("audio");
+      audio.controls = true; audio.preload = "none";
+      if (channels.length > 1) {
+        const chips = document.createElement("div"); chips.className = "chips";
+        for (const c of channels) {
+          const b = document.createElement("button"); b.type = "button";
+          b.className = "chip" + (c === channel ? " on" : "");
+          b.textContent = CHANNEL_LABELS[c] || c;
+          b.addEventListener("click", () => {
+            chosenChannel.set(r.id, c);
+            for (const other of chips.children) other.classList.toggle("on", other === b);
+            audio.pause(); audio.src = audioUrl(token, r.id, c); audio.load();
+          });
+          chips.append(b);
+        }
+        li.append(chips);
+      }
+      if (channel) { audio.src = audioUrl(token, r.id, channel); li.append(audio); }
+      else { const p = document.createElement("p"); p.className = "error"; p.textContent = "ไม่มีไฟล์เสียงในเครื่องสำหรับรายการนี้"; li.append(p); }
+      items.append(li);
+    }
+  }
+  async function load(token) {
+    show(true);
+    $("origin").textContent = location.origin;
+    $("list-error").hidden = true;
+    status.textContent = "กำลังโหลด…";
+    let res;
+    try {
+      res = await fetch("/recordings", { headers: { Authorization: "Bearer " + token }, cache: "no-store" });
+    } catch (_) {
+      status.textContent = ""; $("list-error").textContent = "ติดต่อ desktop ไม่ได้ — ต้องอยู่ใน Wi-Fi เดียวกัน และแอป desktop ยังเปิดแชร์ LAN อยู่"; $("list-error").hidden = false; return;
+    }
+    if (res.status === 401) {
+      forget();
+      $("connect-error").textContent = "ลิงก์นี้ใช้ไม่ได้แล้ว (desktop ถูกเปิดใหม่) — สแกน QR ใหม่จาก desktop"; $("connect-error").hidden = false; return;
+    }
+    if (!res.ok) { status.textContent = ""; $("list-error").textContent = "desktop ตอบกลับผิดพลาด (HTTP " + res.status + ")"; $("list-error").hidden = false; return; }
+    const body = await res.json().catch(() => ({}));
+    render(token, Array.isArray(body.recordings) ? body.recordings : []);
+  }
+  $("connect-btn").addEventListener("click", () => {
+    const raw = $("connect-input").value.trim();
+    let token = "";
+    try { token = new URL(raw).hash.replace(/^#/, "").trim(); } catch (_) { token = raw; }
+    if (!/^[0-9a-f]{16,128}$/i.test(token)) { $("connect-error").textContent = "ลิงก์ไม่ถูกต้อง"; $("connect-error").hidden = false; return; }
+    try { sessionStorage.setItem(KEY, token); } catch (_) {}
+    $("connect-error").hidden = true;
+    load(token);
+  });
+  $("connect-input").addEventListener("keydown", (e) => { if (e.key === "Enter") $("connect-btn").click(); });
+  $("disconnect").addEventListener("click", forget);
+  window.addEventListener("hashchange", () => { const t = loadToken(); if (t) load(t); });
+
+  const token = loadToken();
+  if (token) load(token); else show(false);
+})();
+</script>
+</body>
+</html>

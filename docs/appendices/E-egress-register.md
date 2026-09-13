@@ -229,7 +229,8 @@ side, so they belong in the same register.
 |---|---|---|---|
 | `fungwire_server` (`:152`) | `0.0.0.0:0` | Noise + pairing | Job protocol |
 | Mobile gateway (`mobile.rs:2630`) | `0.0.0.0:0` **or** `127.0.0.1:0` | Per-session token | MCP tool surface |
-| `start_local_api` (`local_api.rs`) | `127.0.0.1:0` | Per-launch bearer token (`/health` open) | `/recordings` list, `/recordings/{id}/audio` |
+| `start_local_api` (`local_api.rs`) | `127.0.0.1:0` | Per-launch bearer token (`/` page and `/health` open) | `/recordings` list, `/recordings/{id}/audio`, the phone page at `/` |
+| `set_local_api_lan` (`local_api.rs`) | `0.0.0.0:0` **opt-in**, stoppable | Same token | Same routes, for a phone browser on the LAN |
 | `auth_loopback_listen` (`auth_session.rs:2464`) | `127.0.0.1:0` | One-shot | OAuth callback |
 
 Both LAN binds are opt-in and unbound by default. The mobile gateway's LAN
@@ -250,8 +251,19 @@ the same browser gets no readable response even with the token. Chunk paths
 from the ledger are resolved through `audio_custody::resolve_chunk_path`,
 which refuses a recorded path that climbs out of the project directory.
 
+`set_local_api_lan` is the cross-device answer that keeps audio off the
+cloud: a browser on a phone cannot fetch `http://<LAN-IP>` from an HTTPS page
+(mixed content), so instead the desktop serves the recordings page itself
+(`src-tauri/assets/local_recordings.html`, embedded, token-less, fetching
+only its own origin) and the user scans a QR of `http://<LAN-IP>:<port>/#TOKEN`
+from Settings › Runtime. Off by default, a separate listener from the
+loopback one so it can be stopped without ending a same-machine session, and
+gone when the app exits. While it is on, `/health` (see below) is readable on
+the LAN too.
+
 `/health` predates the token and stays unauthenticated; its response includes
-the absolute database path — a small disclosure to any process on the machine.
+the absolute database path — a small disclosure to any process on the machine
+(and, while LAN sharing is on, to the LAN).
 
 ---
 

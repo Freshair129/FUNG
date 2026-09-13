@@ -153,6 +153,22 @@
   color: #b3453e;
 }
 
+.settings-local-api-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.settings-local-api-qr img {
+  width: 240px;
+  height: 240px;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px;
+  box-sizing: border-box;
+}
+
 .theme-dark .settings-local-api {
   border-top-color: rgba(255, 255, 255, 0.08);
 }

@@ -30,6 +30,8 @@ export type Health = {
   localApi: {
     running: boolean;
     bind: string | null;
+    /** Set only while opt-in LAN sharing is on. */
+    lanBind: string | null;
   };
   /** Jobs waiting or retrying in the engine's queue. */
   pendingJobs: number;
@@ -96,6 +98,7 @@ const fallbackHealth: Health = {
   localApi: {
     running: false,
     bind: null,
+    lanBind: null,
   },
 };
 
@@ -119,11 +122,31 @@ export type LocalApiInfo = {
   bind: string;
   token: string;
   connectUrl: string;
+  /** Opt-in LAN sharing (`set_local_api_lan`): a phone on the same Wi-Fi
+   * opens `lanUrl` (QR) to get the desktop-served recordings page. */
+  lanEnabled: boolean;
+  lanBind: string | null;
+  /** Null while LAN sharing is off, or when no LAN IPv4 could be found. */
+  lanUrl: string | null;
+};
+
+const previewLocalApi: LocalApiInfo = {
+  bind: "browser-preview",
+  token: "",
+  connectUrl: "",
+  lanEnabled: false,
+  lanBind: null,
+  lanUrl: null,
 };
 
 export async function startLocalApi(): Promise<LocalApiInfo> {
-  if (!canInvoke()) return { bind: "browser-preview", token: "", connectUrl: "" };
+  if (!canInvoke()) return previewLocalApi;
   return invoke<LocalApiInfo>("start_local_api");
+}
+
+export async function setLocalApiLan(enabled: boolean): Promise<LocalApiInfo> {
+  if (!canInvoke()) return previewLocalApi;
+  return invoke<LocalApiInfo>("set_local_api_lan", { enabled });
 }
 
 export async function listProjects(): Promise<Project[]> {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { acquireCaptureBackend, CaptureStartError, resumeCaptureClock } from "../src/mobile/captureOrchestration.ts";
+import { readFileSync } from "node:fs";
+import { acquireCaptureBackend, CaptureStartError, nativeRecorderSettled, resumeCaptureClock } from "../src/mobile/captureOrchestration.ts";
 
 test("native recorder starts before WebView media and skips WebView when available", async () => {
   const calls = [];
@@ -52,4 +53,25 @@ test("resume clock excludes time spent paused", () => {
 
   assert.equal(adjustedStart, 18_000);
   assert.equal(resumedAt - adjustedStart, 15_000);
+});
+
+test("a stop is settled on the plugin's real terminal state, and the two sources agree", () => {
+  // Regression: the shell waited for "completed", which the Android plugin
+  // never emits (its terminal state is "stopped"), so every native stop
+  // timed out, finishCapture never ran, and recordings stayed "กำลังบันทึก".
+  assert.equal(nativeRecorderSettled("stopped"), true);
+  assert.equal(nativeRecorderSettled("completed"), true);
+  for (const live of ["recording", "paused", "idle", "unavailable", ""]) {
+    assert.equal(nativeRecorderSettled(live), false, live);
+  }
+
+  const kotlin = readFileSync("src-tauri/mobile/android/dev/fung/local/recorder/RecorderPlugin.kt", "utf8");
+  const stopBody = kotlin.slice(kotlin.indexOf("fun stop(invoke: Invoke)"));
+  const terminal = /state = "([a-z_]+)"/.exec(stopBody)?.[1];
+  assert.ok(terminal, "RecorderPlugin.stop() must set a terminal state");
+  assert.equal(nativeRecorderSettled(terminal), true, `plugin stop() ends in "${terminal}" but the shell would keep waiting`);
+
+  const shell = readFileSync("src/mobile/MobileApp.tsx", "utf8");
+  assert.match(shell, /nativeRecorderSettled\(settled\.state\)/, "the shell must judge a stop with the shared predicate");
+  assert.doesNotMatch(shell, /settled\.state !== "completed"/, "no literal state string may bypass the predicate");
 });

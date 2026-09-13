@@ -96,6 +96,27 @@ export async function controlNativeRecorder(recordingId: string, action: "pause"
   return invoke<NativeRecorderStatus>("mobile_native_recorder_control", { recordingId, action });
 }
 
+/** Amplitude-only read (0-100) for the live recording waveform; cheap enough
+ * to poll ~12x/s. 0 off-Tauri, where the web path measures its own level. */
+export async function nativeRecorderLevel(recordingId: string): Promise<number> {
+  if (!isTauri()) return 0;
+  const reply = await invoke<{ recordingId: string | null; levelPercent: number }>("mobile_native_recorder_level", { recordingId });
+  return typeof reply?.levelPercent === "number" ? reply.levelPercent : 0;
+}
+
+export type PlaybackManifest = {
+  recordingId: string;
+  durationMs: number;
+  segments: { sequence: number; durationMs: number; byteSize: number }[];
+};
+
+/** Segment layout of a recording — enough for a timeline, playhead, and
+ * seeking — without loading any audio bytes. */
+export async function playbackManifest(recordingId: string): Promise<PlaybackManifest | null> {
+  if (!isTauri()) return null;
+  return invoke<PlaybackManifest>("mobile_capture_playback_manifest", { recordingId });
+}
+
 export async function persistNote(note: MobileNote): Promise<void> {
   if (!isTauri()) return;
   await invoke("mobile_note_upsert", { note });

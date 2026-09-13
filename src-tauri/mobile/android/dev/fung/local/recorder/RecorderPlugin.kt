@@ -98,6 +98,22 @@ class RecorderPlugin(private val activity: Activity) : Plugin(activity) {
         synchronized(lock) { invoke.resolve(snapshot(args.recordingId)) }
     }
 
+    /**
+     * Live input level only — no segment listing — so the recording waveform
+     * can poll it ~12x/s. getMaxAmplitude is "peak since the previous call",
+     * which is exactly the sample a scrolling waveform wants at that cadence.
+     */
+    @Command
+    fun level(invoke: Invoke) {
+        val args = invoke.parseArgs(RecordingArgs::class.java)
+        synchronized(lock) {
+            val result = JSObject()
+            result.put("recordingId", args.recordingId)
+            result.put("levelPercent", if (recordingId == args.recordingId) currentLevelPercent() else 0L)
+            invoke.resolve(result)
+        }
+    }
+
     @Command
     fun pause(invoke: Invoke) {
         val args = invoke.parseArgs(RecordingArgs::class.java)

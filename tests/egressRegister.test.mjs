@@ -113,9 +113,29 @@ test("the webview cannot reach a remote host", () => {
     .find((directive) => directive.startsWith("connect-src"));
   assert.ok(connect, "connect-src must be set explicitly, not left to default-src");
   for (const source of connect.split(/\s+/).slice(1)) {
+    // `http://ipc.localhost` is Tauri's own IPC transport on Android (the
+    // `ipc:` scheme is the desktop one); without it the webview falls back
+    // to postMessage, which is slower for large payloads such as playback
+    // bytes. It resolves inside the app, never to a network host.
     assert.ok(
-      source === "ipc:" || source === "'self'" || /^https?:\/\/127\.0\.0\.1(:\*)?$/.test(source),
+      source === "ipc:" ||
+        source === "http://ipc.localhost" ||
+        source === "'self'" ||
+        /^https?:\/\/127\.0\.0\.1(:\*)?$/.test(source),
       `connect-src allows ${source}, which is not loopback or IPC`,
+    );
+  }
+  const media = csp
+    .split(";")
+    .map((directive) => directive.trim())
+    .find((directive) => directive.startsWith("media-src"));
+  assert.ok(media, "media-src must be set explicitly");
+  for (const source of media.split(/\s+/).slice(1)) {
+    // Playback builds `blob:` URLs from bytes the native side already read;
+    // `asset:` is the desktop's own protocol. Neither reaches a host.
+    assert.ok(
+      source === "'self'" || source === "asset:" || source === "blob:",
+      `media-src allows ${source}, which could load media from a host`,
     );
   }
 });

@@ -8,6 +8,7 @@ import {
   CircleStop,
   Cloud,
   FileText,
+  FolderOpen,
   HardDrive,
   Home,
   Link2,
@@ -34,8 +35,11 @@ import {
   X,
 } from "lucide-react";
 import { addNote, loadSnapshot, markDeviceRevoked, removeDevice, saveSnapshot, setDeviceReachability, upsertPairedDevice } from "./mobileStore";
-import { appendCaptureSegment, controlNativeRecorder, desktopCloudEnabled, desktopEndpoint, desktopReachable, deviceIdentityEnsure, devicePublicKey, finishCapture, loadPlaybackSegment, nativeRecorderStatus, pairingComplete, persistNote, queryGraph, queryRecordings, reconcileNativeCapture, setMcpEnabled, startCapture, startNativeRecorder } from "./bridge";
-import { acquireCaptureBackend, CaptureStartError, resumeCaptureClock } from "./captureOrchestration";
+import { appendCaptureSegment, controlNativeRecorder, desktopCloudEnabled, desktopEndpoint, desktopReachable, deviceIdentityEnsure, devicePublicKey, finishCapture, nativeRecorderLevel, nativeRecorderStatus, pairingComplete, persistNote, queryGraph, queryRecordings, reconcileNativeCapture, setMcpEnabled, startCapture, startNativeRecorder } from "./bridge";
+import { acquireCaptureBackend, CaptureStartError, nativeRecorderSettled, resumeCaptureClock } from "./captureOrchestration";
+import { pushLevel, shapeLevel } from "./audioViz";
+import { LiveWaveform } from "./LiveWaveform";
+import { RecordingPlayer } from "./RecordingPlayer";
 import type { CaptureState, DeviceState, EpistemicStatus, MobileNote, MobileSnapshot, MobileTab, RecordingListItem, ThemePreference } from "./model";
 import { TimelineScreen } from "./TimelineScreen";
 import { supabase } from "../lib/supabase";
@@ -102,10 +106,13 @@ function StatusMark({ children }: { children: React.ReactNode }) {
 
 function BottomNavigation({ tab, onChange }: { tab: MobileTab; onChange: (tab: MobileTab) => void }) {
   const items = [
+    // Two destinations either side of the record button so the bar is
+    // symmetric; the graph lives behind the Notes header (it is built from
+    // notes) rather than taking a sixth slot.
     { id: "home" as const, label: "หน้าหลัก", icon: Home },
-    { id: "notes" as const, label: "โน้ต", icon: FileText },
+    { id: "files" as const, label: "ไฟล์", icon: FolderOpen },
     { id: "voice" as const, label: "พูด", icon: Mic, primary: true },
-    { id: "graph" as const, label: "กราฟ", icon: Network },
+    { id: "notes" as const, label: "โน้ต", icon: FileText },
     { id: "devices" as const, label: "อุปกรณ์", icon: Server },
   ];
   return (
@@ -180,9 +187,9 @@ function HomeScreen({ snapshot, capture, go }: ScreenProps) {
         <button type="button" onClick={() => go("notes")}><FileText size={29} /><span>สร้างโน้ต</span></button>
       </section>
       <section className="m-recent">
-        <div className="m-section-title"><h2>งานล่าสุด</h2><button onClick={() => go("notes")}>ดูทั้งหมด <ChevronRight size={18} /></button></div>
+        <div className="m-section-title"><h2>งานล่าสุด</h2><button onClick={() => go("files")}>ดูทั้งหมด <ChevronRight size={18} /></button></div>
         {recordings.slice(0, 5).map((recording) => (
-          <button key={recording.id} className="m-recent-row" type="button" onClick={() => go("voice")}>
+          <button key={recording.id} className="m-recent-row" type="button" onClick={() => go("files")}>
             <span className="m-recent-icon"><Mic size={25} /></span>
             <span>
               <strong>การบันทึกเสียง {formatClock(recording.durationMs)}</strong>
@@ -207,40 +214,82 @@ function HomeScreen({ snapshot, capture, go }: ScreenProps) {
   );
 }
 
+function RecordingsScreen({ snapshot, capture, go }: ScreenProps) {
+  const [recordings, setRecordings] = useState<RecordingListItem[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // One expanded player at a time; opening another row closes the previous.
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  // Re-read whenever a capture finishes so the file just recorded is here
+  // without a manual refresh.
+  useEffect(() => {
+    let cancelled = false;
+    queryRecordings(snapshot.projectId)
+      .then((rows) => {
+        if (cancelled) return;
+        setRecordings(rows);
+        setLoadError(null);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setRecordings([]);
+        setLoadError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [snapshot.projectId, capture.state]);
+
+  return (
+    <main className="m-screen m-files-screen">
+      <header className="m-titlebar"><button onClick={() => go("home")} aria-label="กลับ"><ArrowLeft /></button><h1>ไฟล์ที่บันทึกไว้</h1><span /></header>
+      <p className="m-files-note">ทุกไฟล์อยู่บนเครื่องนี้ · {recordings ? `${recordings.length} รายการ` : "กำลังโหลด…"}</p>
+      {loadError && <div className="m-inline-alert" role="alert"><strong>โหลดรายการไม่สำเร็จ</strong><span>{loadError}</span></div>}
+      {recordings && recordings.length === 0 && !loadError && (
+        <div className="m-empty-device"><Mic size={31} /><strong>ยังไม่มีไฟล์ที่บันทึกไว้</strong><p>กด "เริ่มบันทึก" แล้วกด "หยุดและบันทึก" — ไฟล์จะอยู่ในเครื่องนี้ทันที</p><button onClick={() => go("voice")}>เริ่มบันทึก</button></div>
+      )}
+      <section className="m-files-list" aria-label="รายการไฟล์">
+        {(recordings ?? []).map((recording) => {
+          const open = openId === recording.id;
+          const playable = recording.status === "completed";
+          return (
+            <div key={recording.id}>
+              <button
+                type="button"
+                className={`m-recent-row m-files-row ${open ? "is-open" : ""}`}
+                onClick={() => setOpenId(open ? null : recording.id)}
+                disabled={!playable}
+                aria-expanded={open}
+                title={playable ? undefined : "ยังบันทึกไม่เสร็จ"}
+              >
+                <span className="m-recent-icon"><Mic size={25} /></span>
+                <span>
+                  <strong>การบันทึกเสียง {formatClock(recording.durationMs)}</strong>
+                  <small>
+                    {RECORDING_STATUS_LABELS[recording.status] ?? recording.status} · {new Date(recording.createdAt).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                    {recording.source && recording.source !== "microphone" ? ` · ${recording.source}` : ""}
+                  </small>
+                </span>
+                <ChevronRight size={21} className="m-files-chevron" />
+              </button>
+              {open && <div className="m-files-player"><RecordingPlayer recordingId={recording.id} autoPlay /></div>}
+            </div>
+          );
+        })}
+      </section>
+    </main>
+  );
+}
+
 function CaptureScreen({ snapshot, capture, setCapture, go }: ScreenProps) {
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
   const chunkStartedAt = useRef(0);
   const pendingWrites = useRef<Promise<void>[]>([]);
-  const playback = useRef<HTMLAudioElement | null>(null);
-  const playbackUrl = useRef<string | null>(null);
-  const [playing, setPlaying] = useState(false);
-
-  useEffect(() => () => {
-    playback.current?.pause();
-    if (playbackUrl.current) URL.revokeObjectURL(playbackUrl.current);
-  }, []);
-
-  const playSequence = async (sequence: number): Promise<void> => {
-    if (!capture.recordingId) return;
-    const segment = await loadPlaybackSegment(capture.recordingId, sequence);
-    if (!segment) throw new Error("playback is available in the installed app");
-    if (playbackUrl.current) URL.revokeObjectURL(playbackUrl.current);
-    const url = URL.createObjectURL(new Blob([Uint8Array.from(segment.bytes)], { type: segment.mimeType }));
-    playbackUrl.current = url;
-    const audio = new Audio(url);
-    playback.current = audio;
-    audio.onended = () => { if (segment.hasNext) void playSequence(sequence + 1); else setPlaying(false); };
-    audio.onerror = () => setPlaying(false);
-    await audio.play();
-    setPlaying(true);
-  };
-
-  const togglePlayback = () => {
-    if (playing) { playback.current?.pause(); setPlaying(false); return; }
-    if (playback.current?.paused && playback.current.currentTime > 0 && !playback.current.ended) { void playback.current.play().then(() => setPlaying(true)); return; }
-    void playSequence(1).catch(() => setPlaying(false));
-  };
+  // Rolling input-level history behind the live waveform (newest last). Both
+  // capture paths feed it with measured amplitude, never a synthetic curve.
+  const [levels, setLevels] = useState<number[]>([]);
+  const pushLevelSample = (percent: number) => setLevels((history) => pushLevel(history, shapeLevel(percent), 160));
 
   const syncNative = async (recordingId: string) => {
     const status = await nativeRecorderStatus(recordingId);
@@ -273,8 +322,9 @@ function CaptureScreen({ snapshot, capture, setCapture, go }: ScreenProps) {
         let peak = 0;
         for (const sample of samples) peak = Math.max(peak, Math.abs(sample - 128));
         const level = Math.round((peak / 128) * 100);
+        pushLevelSample(level);
         setCapture((current) => (current.state === "recording" ? { ...current, levelPercent: level } : current));
-      }, 120);
+      }, 80);
     } catch {
       // No meter is better than a fabricated one; capture itself continues.
     }
@@ -311,7 +361,26 @@ function CaptureScreen({ snapshot, capture, setCapture, go }: ScreenProps) {
     return () => window.clearInterval(timer);
   }, [capture.backend, capture.recordingId, capture.state]);
 
+  // Live waveform on the native path: ~12 real amplitude samples a second,
+  // through the plugin's amplitude-only `level` command so it stays cheap.
+  useEffect(() => {
+    if (capture.backend !== "android-native" || !capture.recordingId || capture.state !== "recording") return;
+    const recordingId = capture.recordingId;
+    let inFlight = false;
+    const timer = window.setInterval(() => {
+      if (inFlight) return;
+      inFlight = true;
+      nativeRecorderLevel(recordingId)
+        .then((level) => pushLevelSample(level))
+        .catch(() => undefined)
+        .finally(() => { inFlight = false; });
+    }, 80);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pushLevelSample is a stable state updater wrapper
+  }, [capture.backend, capture.recordingId, capture.state]);
+
   const begin = async () => {
+    setLevels([]);
     setCapture((current) => ({ ...current, state: "preparing", error: null }));
     try {
       const acquired = await acquireCaptureBackend({
@@ -360,27 +429,41 @@ function CaptureScreen({ snapshot, capture, setCapture, go }: ScreenProps) {
   const stop = async () => {
     const id = capture.recordingId;
     setCapture((current) => ({ ...current, state: "finalizing" }));
-    if (id && capture.backend === "android-native") {
-      let settled = await controlNativeRecorder(id, "stop");
-      for (let attempt = 0; attempt < 10 && settled.state !== "completed"; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 100));
-        settled = await nativeRecorderStatus(id);
+    try {
+      if (id && capture.backend === "android-native") {
+        // The plugin stops synchronously and answers with its terminal
+        // `"stopped"` snapshot; the poll only covers a slow seal of the last
+        // file. A stop that never settles is surfaced, not thrown away.
+        let settled = await controlNativeRecorder(id, "stop");
+        for (let attempt = 0; attempt < 50 && !nativeRecorderSettled(settled.state); attempt += 1) {
+          await new Promise((resolve) => window.setTimeout(resolve, 100));
+          settled = await nativeRecorderStatus(id);
+        }
+        if (!nativeRecorderSettled(settled.state)) {
+          throw new Error(`native recorder state is "${settled.state}" after stop`);
+        }
+        await reconcileNativeCapture(id, settled.segments);
+      } else if (mediaRecorder.current) {
+        const recorder = mediaRecorder.current;
+        const stopped = new Promise<void>((resolve) => recorder.addEventListener("stop", () => resolve(), { once: true }));
+        recorder.requestData();
+        recorder.stop();
+        await stopped;
+        await Promise.all(pendingWrites.current);
+        pendingWrites.current = [];
+        stream.current?.getTracks().forEach((track) => track.stop());
+        stopLevelMeter();
       }
-      if (settled.state !== "completed") throw new Error("native recorder did not finalize safely");
-      await reconcileNativeCapture(id, settled.segments);
-    } else if (mediaRecorder.current) {
-      const recorder = mediaRecorder.current;
-      const stopped = new Promise<void>((resolve) => recorder.addEventListener("stop", () => resolve(), { once: true }));
-      recorder.requestData();
-      recorder.stop();
-      await stopped;
-      await Promise.all(pendingWrites.current);
-      pendingWrites.current = [];
-      stream.current?.getTracks().forEach((track) => track.stop());
-      stopLevelMeter();
+      if (id) await finishCapture(id);
+      window.setTimeout(() => setCapture((current) => ({ ...current, state: "completed", safeOffsetMs: current.elapsedMs })), 350);
+    } catch (error) {
+      console.error("Stop failed:", error);
+      setCapture((current) => ({
+        ...current,
+        state: "recovery_required",
+        error: { stage: "native-stop", detail: error instanceof Error ? error.message : String(error) },
+      }));
     }
-    if (id) await finishCapture(id);
-    window.setTimeout(() => setCapture((current) => ({ ...current, state: "completed", safeOffsetMs: current.elapsedMs })), 350);
   };
 
   const pause = async () => {
@@ -427,21 +510,36 @@ function CaptureScreen({ snapshot, capture, setCapture, go }: ScreenProps) {
   return (
     <main className="m-screen m-capture-screen">
       <header className="m-titlebar"><button onClick={() => go("home")} aria-label="กลับ"><ArrowLeft /></button><h1>บันทึกเสียง</h1><span /></header>
-      <section className="m-capture-stage">
+      <section className={`m-capture-stage ${capture.state === "completed" ? "is-done" : ""}`}>
         <span className={`m-capture-state ${active ? "is-live" : ""}`}><i />{capture.state === "paused" ? "หยุดชั่วคราว" : active ? "กำลังบันทึกบนอุปกรณ์" : "พร้อมบันทึกบนอุปกรณ์"}</span>
         <strong className="m-timer">{formatClock(capture.elapsedMs)}</strong>
-        <Waveform active={capture.state === "recording"} level={capture.levelPercent} />
+        {capture.state !== "completed" && <LiveWaveform history={levels} active={capture.state === "recording"} />}
         <p>{active ? `บันทึกปลอดภัยถึง ${formatClock(capture.safeOffsetMs)}` : "เสียงจะถูกเก็บไว้ในอุปกรณ์นี้ก่อนเสมอ"}</p>
       </section>
-      {capture.state === "completed" && <><button className="m-context-action" type="button" onClick={togglePlayback}>{playing ? <Pause size={20} /> : <Play size={20} />}{playing ? "หยุดเล่นเสียง" : "เล่นเสียงต้นฉบับ"}</button><button className="m-context-action" type="button" onClick={() => go("timeline")}><AudioLines size={20} />เปิดไทม์ไลน์ของเสียงนี้</button></>}
+      {capture.state === "completed" && (
+        <>
+          <div className="m-saved-banner" role="status">
+            <Check size={20} />
+            <div><strong>บันทึกลงเครื่องแล้ว · {formatClock(capture.elapsedMs)}</strong><span>ไฟล์อยู่ในอุปกรณ์นี้ เปิดดูได้ที่แท็บ "ไฟล์"</span></div>
+          </div>
+          {capture.recordingId && <RecordingPlayer recordingId={capture.recordingId} />}
+          <div className="m-context-grid">
+            <button className="m-context-action" type="button" onClick={() => go("files")}><FolderOpen size={20} />ดูไฟล์ทั้งหมด</button>
+            <button className="m-context-action" type="button" onClick={() => go("timeline")}><AudioLines size={20} />ไทม์ไลน์</button>
+          </div>
+        </>
+      )}
       <section className="m-capture-controls">
         {!active && capture.state !== "finalizing" ? (
-          <button className="m-record-button" type="button" onClick={begin}><Mic size={34} /><span>เริ่มบันทึก</span></button>
+          <button className="m-record-button" type="button" onClick={begin}><Mic size={34} /><span>{capture.state === "completed" ? "อัดไฟล์ใหม่" : "เริ่มบันทึก"}</span></button>
         ) : (
           <>
-            <button className="m-round-control" onClick={pause}>{capture.state === "paused" ? <Play /> : <Pause />}</button>
-            <button className="m-stop-button" onClick={stop} disabled={capture.state === "finalizing"}><CircleStop size={35} /></button>
-            <button className="m-round-control" onClick={() => go("notes")}><FileText /></button>
+            <button className="m-round-control" onClick={pause} aria-label={capture.state === "paused" ? "เล่นต่อ" : "หยุดชั่วคราว"}>{capture.state === "paused" ? <Play /> : <Pause />}</button>
+            <span className="m-stop-wrap">
+              <button className="m-stop-button" onClick={stop} disabled={capture.state === "finalizing"} aria-label="หยุดและบันทึกลงเครื่อง"><CircleStop size={35} /></button>
+              <small>{capture.state === "finalizing" ? "กำลังบันทึก…" : "หยุดและบันทึก"}</small>
+            </span>
+            <button className="m-round-control" onClick={() => go("notes")} aria-label="โน้ต"><FileText /></button>
           </>
         )}
       </section>
@@ -450,7 +548,7 @@ function CaptureScreen({ snapshot, capture, setCapture, go }: ScreenProps) {
         <div><strong>{capture.segmentCount || "—"} ส่วนเสียงที่ยืนยันแล้ว</strong><span>ทุก checkpoint ตรวจสอบได้และกู้คืนแยกส่วนได้</span></div>
         <Check size={20} />
       </section>
-      {capture.state === "recovery_required" && <div className="m-inline-alert" role="alert"><strong>ยังไม่เริ่มบันทึกเสียง</strong><span>{capture.error?.stage === "native-start" && capture.error.detail.toLowerCase().includes("permission") ? "Android กำลังขอสิทธิ์ไมโครโฟน โปรดอนุญาตแล้วแตะเริ่มบันทึกอีกครั้ง" : capture.error?.stage === "native-sync" ? "การยืนยัน checkpoint จาก native recorder ขัดข้อง เสียงที่ยืนยันแล้วจะยังคงอยู่" : "ไม่สามารถเปิดตัวบันทึกเสียงได้ กรุณาลองใหม่หรือตรวจสิทธิ์ไมโครโฟน"}</span><small>ขั้นตอน: {capture.error?.stage ?? "unknown"}</small></div>}
+      {capture.state === "recovery_required" && <div className="m-inline-alert" role="alert"><strong>{capture.error?.stage === "native-stop" ? "หยุดการบันทึกไม่สมบูรณ์" : "ยังไม่เริ่มบันทึกเสียง"}</strong><span>{capture.error?.stage === "native-stop" ? "ส่วนเสียงที่ยืนยันแล้วยังอยู่ในเครื่อง — แตะ \"เริ่มบันทึก\" เพื่อกลับเข้าเซสชันเดิมแล้วกดหยุดอีกครั้ง" : capture.error?.stage === "native-start" && capture.error.detail.toLowerCase().includes("permission") ? "Android กำลังขอสิทธิ์ไมโครโฟน โปรดอนุญาตแล้วแตะเริ่มบันทึกอีกครั้ง" : capture.error?.stage === "native-sync" ? "การยืนยัน checkpoint จาก native recorder ขัดข้อง เสียงที่ยืนยันแล้วจะยังคงอยู่" : "ไม่สามารถเปิดตัวบันทึกเสียงได้ กรุณาลองใหม่หรือตรวจสิทธิ์ไมโครโฟน"}</span><small>ขั้นตอน: {capture.error?.stage ?? "unknown"}{capture.error?.detail ? ` · ${capture.error.detail}` : ""}</small></div>}
     </main>
   );
 }
@@ -477,7 +575,7 @@ function NotesScreen({ snapshot, setSnapshot, go }: ScreenProps) {
 
   return (
     <main className="m-screen m-notes-screen">
-      <header className="m-page-header"><div><span>พื้นที่ส่วนตัว</span><h1>โน้ต</h1></div><button className="m-icon-action" aria-label="สร้างโน้ตใหม่" onClick={() => setEditorOpen(true)}><Plus /></button></header>
+      <header className="m-page-header"><div><span>พื้นที่ส่วนตัว</span><h1>โน้ต</h1></div><div className="m-header-actions"><button className="m-icon-action" aria-label="เปิดกราฟความสัมพันธ์" onClick={() => go("graph")}><Network /></button><button className="m-icon-action" aria-label="สร้างโน้ตใหม่" onClick={() => setEditorOpen(true)}><Plus /></button></div></header>
       <label className="m-search"><Search size={19} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ค้นหาโน้ตและหลักฐาน" /></label>
       <div className="m-filter-line"><button className="is-active">ล่าสุด</button><button>ยืนยันแล้ว</button><button>ข้อเสนอ</button></div>
       <section className="m-note-list">
@@ -524,12 +622,12 @@ const edgeClass = (status: EpistemicStatus) =>
   : status === "ai_proposed" ? "is-ai-proposed"
   : "is-confirmed";
 
-function GraphScreen({ snapshot }: ScreenProps) {
+function GraphScreen({ snapshot, go }: ScreenProps) {
   const [selectedId, setSelectedId] = useState(snapshot.nodes[0]?.id ?? "");
   const selected = snapshot.nodes.find((node) => node.id === selectedId);
   return (
     <main className="m-screen m-graph-screen">
-      <header className="m-page-header"><div><span>GenesisBlockDB</span><h1>ความสัมพันธ์</h1></div><button className="m-icon-action" aria-label="ค้นหาในกราฟ"><Search /></button></header>
+      <header className="m-page-header"><div><span>GenesisBlockDB</span><h1>ความสัมพันธ์</h1></div><div className="m-header-actions"><button className="m-icon-action" aria-label="กลับไปโน้ต" onClick={() => go("notes")}><ArrowLeft /></button><button className="m-icon-action" aria-label="ค้นหาในกราฟ"><Search /></button></div></header>
       <section className="m-graph-canvas" aria-label="กราฟความสัมพันธ์ของโน้ต">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           {snapshot.edges.map((edge) => {
@@ -1074,7 +1172,7 @@ export function MobileApp() {
 
   const cycleTheme = () => setTheme((current) => current === "system" ? "light" : current === "light" ? "dark" : "system");
   const props = useMemo<ScreenProps>(() => ({ snapshot, setSnapshot, capture, setCapture, go: setTab, theme, cycleTheme }), [snapshot, capture, theme]);
-  const screen = tab === "home" ? <HomeScreen {...props} /> : tab === "notes" ? <NotesScreen {...props} /> : tab === "timeline" ? <TimelineScreen projectId={snapshot.projectId} pairedDesktop={snapshot.devices.find((device) => device.trustState === "paired") ?? null} onRecord={() => setTab("voice")} /> : tab === "graph" ? <GraphScreen {...props} /> : tab === "devices" ? <DevicesScreen {...props} /> : <CaptureScreen {...props} />;
+  const screen = tab === "home" ? <HomeScreen {...props} /> : tab === "notes" ? <NotesScreen {...props} /> : tab === "files" ? <RecordingsScreen {...props} /> : tab === "timeline" ? <TimelineScreen projectId={snapshot.projectId} pairedDesktop={snapshot.devices.find((device) => device.trustState === "paired") ?? null} onRecord={() => setTab("voice")} /> : tab === "graph" ? <GraphScreen {...props} /> : tab === "devices" ? <DevicesScreen {...props} /> : <CaptureScreen {...props} />;
 
   return (
     <div className={`m-app ${dark ? "m-theme-dark" : ""}`}>

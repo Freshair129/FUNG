@@ -135,6 +135,53 @@ stopped listener releases its port); frontend build and Node suites green;
 observe on real hardware: the Windows Firewall prompt on first LAN bind and a
 phone actually scanning and playing. The stitched WAV is built in memory
 (~345 MB per hour of 48 kHz mono) — fine for one or two clients, not a server.
+
+**Mobile capture was never finishing (found on the Galaxy A07, fixed the same
+day).** The owner reported "no save button, cannot see the file". Driving the
+installed app over `adb` reproduced it and `logcat` named it:
+`Uncaught (in promise) Error: native recorder did not finalize safely`. The
+shell's `stop()` polled for state `"completed"`, which `RecorderPlugin.kt`
+never emits — its terminal state is `"stopped"` — so every native stop timed
+out after 1 s, `finishCapture` never ran, the ledger row stayed
+`status = "recording"` (that is the "กำลังบันทึก" row from 3 Sep the owner could
+not open), and the next "start" resumed that same row instead of creating a
+new one. Three fixes, all verified on the device: (1) `nativeRecorderSettled`
+accepts the plugin's real terminal state and the poll runs 5 s, a failed stop
+now lands in `recovery_required` with the reason instead of leaving the UI on
+"กำลังบันทึก…" forever, and `tests/captureOrchestration.test.mjs` reads the
+Kotlin `stop()` source so the two strings cannot drift again; (2) playback
+was blocked by the webview CSP (`media-src` lacked `blob:`; the segment player
+builds blob URLs) — `blob:` added, `http://ipc.localhost` added to
+`connect-src` so Android IPC stops falling back to postMessage, and the egress
+suite now checks `media-src` too; (3) the UX gap that hid all of this: the
+stop control was an unlabelled icon, "งานล่าสุด" rows opened the capture
+screen, and there was no place to see or play files. Now the stop reads
+"หยุดและบันทึก", a "บันทึกลงเครื่องแล้ว · mm:ss" banner follows, and a new
+"ไฟล์" tab lists every recording with in-place playback (shared
+`useSegmentPlayback`). Observed on the A07 after the third install: stop →
+banner; Files tab → the formerly stuck row now "เสร็จแล้ว" with play enabled;
+play → Chromium requested audio focus for `dev.fung.local` and AudioFlinger
+showed the active track, no console errors.
+
+The owner then asked for the rest of a real recorder: no overlapping
+controls, a player with transport and a playhead, and a recording waveform
+that moves with the actual input like a phone voice-memo app. Delivered and
+observed on the A07: (1) the plugin gained an amplitude-only `level` command
+(Kotlin → `mobile_native_recorder_level` → `nativeRecorderLevel`), polled
+every 80 ms while recording — 84 calls in a 7 s take — into a rolling history
+drawn by `LiveWaveform` (canvas, newest-right; the web path feeds the same
+history from its AnalyserNode); (2) `RecordingPlayer` reads a new
+`mobile_capture_playback_manifest` (segment durations, no bytes), keeps one
+`<audio>` across the sealed segments on a single global timeline, decodes
+peaks per segment with WebAudio once, normalises them to the recording's own
+maximum (`audioViz.normalizePeaks`, so a quiet room take still shows its
+shape), and offers tap/drag seek, ±10 s, play/pause and elapsed/total — the
+playhead was seen advancing 0:03 → 0:04 → 0:05 with the played part tinted;
+(3) the completed capture screen shrinks its stage, embeds the player, and
+puts the two actions in a grid so "อัดไฟล์ใหม่" sits above the nav; Files rows
+expand into the player in place. `tests/audioViz.test.mjs` (wired into CI)
+covers the level history, peak reduction/fitting/normalisation, segment
+lookup and clock; Rust 438/438 with the manifest test.
 Verified by Rust and Node tests below; the real-browser pass on the production
 web (which needs this change deployed) and Chrome's one-time "local network"
 permission prompt are still to be observed on the owner's machine.

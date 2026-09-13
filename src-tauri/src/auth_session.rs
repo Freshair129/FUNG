@@ -2736,12 +2736,16 @@ pub(crate) async fn broker_device_list() -> Result<Vec<DeviceRow>, String> {
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct EndpointUpdate<'a> {
-    lan_endpoint: &'a str,
-    lan_endpoint_updated_at: &'a str,
+struct PublishEndpointRpc<'a> {
+    p_device_id: &'a str,
+    p_lan_endpoint: &'a str,
 }
 
+/// Publishes this desktop's FUNGWIRE LAN endpoint through the owner-scoped
+/// `publish_device_endpoint` RPC. W1 leaves signed-in clients SELECT-only on
+/// `devices`, so the direct PATCH this used to do is refused; the RPC is the
+/// one server-owned write for the endpoint columns and returns the stored
+/// `lan_endpoint_updated_at`, or null when the row is not ours or is revoked.
 #[tauri::command]
 pub(crate) async fn broker_device_endpoint_publish(
     app: AppHandle,
@@ -2768,20 +2772,17 @@ pub(crate) async fn broker_device_endpoint_publish(
     let operation = account_begin_operation()?;
     let access = ensure_access_token().await?;
     let mut url = native_auth::configured_supabase_origin()?;
-    url.set_path("/rest/v1/devices");
-    url.set_query(Some(&format!("id=eq.{}", device.id)));
-    let updated_at = chrono::Utc::now().to_rfc3339();
+    url.set_path("/rest/v1/rpc/publish_device_endpoint");
     let response = Client::builder()
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(|_| public_error("authorization_unavailable"))?
-        .patch(url)
+        .post(url)
         .bearer_auth(access.as_str())
         .header("apikey", native_auth::configured_supabase_anon_key()?)
-        .header("Prefer", "return=representation")
-        .json(&EndpointUpdate {
-            lan_endpoint: &endpoint,
-            lan_endpoint_updated_at: &updated_at,
+        .json(&PublishEndpointRpc {
+            p_device_id: &device.id,
+            p_lan_endpoint: &endpoint,
         })
         .send()
         .await
@@ -2790,14 +2791,14 @@ pub(crate) async fn broker_device_endpoint_publish(
         operation.check()?;
         return Err(public_error("authorization_denied"));
     }
-    let updated: Vec<DeviceWire> = response
+    let updated_at: Option<String> = response
         .json()
         .await
         .map_err(|_| public_error("authorization_unavailable"))?;
-    if updated.len() != 1 {
+    let Some(updated_at) = updated_at else {
         operation.check()?;
         return Err(public_error("authorization_denied"));
-    }
+    };
     operation.check()?;
     Ok(EndpointStatus {
         status: "published",

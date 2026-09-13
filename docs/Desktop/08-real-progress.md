@@ -117,10 +117,24 @@ revocation is soft), and a new owner-scoped `publish_device_endpoint` RPC
 `auth_session::broker_device_endpoint_publish`. `tests/deviceAuthority.test.mjs`
 pins all of it from the client side.
 
-Scope is honestly *same-machine*: a browser on another device cannot reach
-`http://<LAN-IP>` from an HTTPS page (mixed content), so cross-device playback
-needs a relay or on-device TLS later. The stitched WAV is built in memory
-(~345 MB per hour of 48 kHz mono) — fine for one desktop tab, not a server.
+The cross-device case followed on the owner's instruction without giving up
+local-first: a browser on a phone cannot fetch `http://<LAN-IP>` from the
+HTTPS web (mixed content), so the desktop now **serves the phone page
+itself**. `set_local_api_lan` (new command, Settings › Runtime → "แชร์ให้มือถือ
+(LAN)") starts a second, opt-in listener on `0.0.0.0:0` — separate from the
+loopback one so it can be stopped without ending a same-machine session, and
+gone when the app exits — serving the same token-gated routes plus an
+embedded, self-contained page at `/` (`src-tauri/assets/local_recordings.html`:
+list, channel toggle, `<audio>`; CSP pins it to its own origin; the token is
+never in the page, only in the fragment the phone scans). The desktop shows a
+QR of `http://<LAN-IP>:<port>/#TOKEN` (`qrcode` npm, audit clean) and the
+plain URL. Rust 437/437 (three new: the page carries no token and nothing
+off-origin, `lan_url` needs a LAN listener and refuses the wildcard bind, a
+stopped listener releases its port); frontend build and Node suites green;
+`docs/appendices/E-egress-register.md` §2 records the opt-in bind. Still to
+observe on real hardware: the Windows Firewall prompt on first LAN bind and a
+phone actually scanning and playing. The stitched WAV is built in memory
+(~345 MB per hour of 48 kHz mono) — fine for one or two clients, not a server.
 Verified by Rust and Node tests below; the real-browser pass on the production
 web (which needs this change deployed) and Chrome's one-time "local network"
 permission prompt are still to be observed on the owner's machine.

@@ -355,6 +355,8 @@ struct Health {
 struct LocalApiHealth {
     running: bool,
     bind: Option<String>,
+    /// Set only while the opt-in LAN listener is on (`set_local_api_lan`).
+    lan_bind: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -909,12 +911,15 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
 
 #[tauri::command]
 fn app_health(state: State<'_, AppState>) -> AppResult<Health> {
-    let bind = state
-        .local_api
-        .lock()
-        .expect("local api mutex poisoned")
-        .as_ref()
-        .map(|control| control.bind.clone());
+    let (bind, lan_bind) = {
+        let guard = state.local_api.lock().expect("local api mutex poisoned");
+        (
+            guard.as_ref().map(|control| control.bind.clone()),
+            guard
+                .as_ref()
+                .and_then(|control| control.lan.as_ref().map(|lan| lan.bind.clone())),
+        )
+    };
 
     Ok(Health {
         app: "FUNG".to_string(),
@@ -927,6 +932,7 @@ fn app_health(state: State<'_, AppState>) -> AppResult<Health> {
         local_api: LocalApiHealth {
             running: bind.is_some(),
             bind,
+            lan_bind,
         },
         pending_jobs: state.jobs.queue_depth(),
     })
@@ -2685,6 +2691,17 @@ fn start_local_api(state: State<'_, AppState>) -> AppResult<local_api::LocalApiI
     Ok(local_api::start(&state)?)
 }
 
+/// Opt-in LAN sharing of the local API so a phone's browser on the same
+/// Wi-Fi can open the desktop-served recordings page (QR in Settings ›
+/// Runtime). Off by default, stopped on demand; see `local_api::set_lan`.
+#[tauri::command]
+fn set_local_api_lan(
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> AppResult<local_api::LocalApiInfo> {
+    Ok(local_api::set_lan(&state, enabled)?)
+}
+
 /// Temporary diagnostic used by `bin/dbcheck.rs` only — remove together with
 /// that binary once the v8 migration issue is resolved.
 #[doc(hidden)]
@@ -3231,6 +3248,7 @@ pub fn run() {
             recovery_scan,
             recovery_recover,
             start_local_api,
+            set_local_api_lan,
             open_external_account_portal,
             auth_open_google_authorize,
             auth_exchange_google_code,

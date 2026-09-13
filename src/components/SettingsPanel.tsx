@@ -1,7 +1,8 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Activity, Cloud, Link2, SlidersHorizontal, UserCircle, Volume2, X } from "lucide-react";
+import * as QRCode from "qrcode";
 import type { InvokeFn } from "../lib/backupFlow";
-import { startLocalApi, type Job, type LocalApiInfo } from "../tauri";
+import { setLocalApiLan, startLocalApi, type Job, type LocalApiInfo } from "../tauri";
 import { supabaseConfigured } from "../lib/bootstrap";
 import "./SettingsPanel.css";
 // Eagerly imported (not lazy) because the "Supabase not configured" fallback
@@ -88,6 +89,43 @@ export function SettingsPanel({
     }
   };
 
+  const [lanBusy, setLanBusy] = useState(false);
+  const [lanQr, setLanQr] = useState<string | null>(null);
+
+  // Opt-in LAN sharing: the desktop serves the phone page itself, so the
+  // phone never needs the cloud web or a certificate — it scans this and
+  // talks to the desktop directly on the same Wi-Fi.
+  const toggleLan = async () => {
+    setLanBusy(true);
+    setLocalApiError(null);
+    try {
+      setLocalApi(await setLocalApiLan(!(localApi?.lanEnabled ?? false)));
+    } catch (error) {
+      setLocalApiError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLanBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    const url = localApi?.lanUrl ?? null;
+    if (!url) {
+      setLanQr(null);
+      return;
+    }
+    let cancelled = false;
+    QRCode.toDataURL(url, { margin: 1, width: 240, errorCorrectionLevel: "M" })
+      .then((dataUrl) => {
+        if (!cancelled) setLanQr(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setLanQr(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [localApi?.lanUrl]);
+
   return (
     <div className="settings-overlay" role="presentation" onClick={onClose}>
       <div className="settings-stack" onClick={(event) => event.stopPropagation()}>
@@ -169,6 +207,40 @@ export function SettingsPanel({
                     </button>
                   )}
                   {localApiError && <p className="settings-local-api-error">{localApiError}</p>}
+                </section>
+                <section className="settings-local-api" aria-label="เปิดจากมือถือในวง Wi-Fi เดียวกัน">
+                  <h4>เปิดจากมือถือในวง Wi-Fi เดียวกัน</h4>
+                  <p className="settings-local-api-note">
+                    เมื่อเปิด desktop จะเสิร์ฟหน้าเล่นไฟล์บนเครือข่ายภายใน ให้มือถือสแกน QR แล้วเปิดใน browser
+                    ได้เลย — ไม่ผ่าน cloud ปิดเมื่อไรก็ได้ และปิดเองเมื่อปิดแอป (Windows Firewall อาจถามครั้งแรก
+                    → Allow)
+                  </p>
+                  <button
+                    type="button"
+                    className="settings-runtime-start"
+                    onClick={() => void toggleLan()}
+                    disabled={lanBusy}
+                  >
+                    {localApi?.lanEnabled ? "ปิดแชร์ในวง LAN" : "แชร์ให้มือถือ (LAN)"}
+                  </button>
+                  {localApi?.lanEnabled && localApi.lanUrl && (
+                    <div className="settings-local-api-qr">
+                      {lanQr ? <img src={lanQr} alt="QR สำหรับเปิดบนมือถือ" width={240} height={240} /> : null}
+                      <input
+                        className="settings-local-api-url"
+                        type="text"
+                        readOnly
+                        value={localApi.lanUrl}
+                        onFocus={(event) => event.currentTarget.select()}
+                        aria-label="ลิงก์สำหรับมือถือ"
+                      />
+                    </div>
+                  )}
+                  {localApi?.lanEnabled && !localApi.lanUrl && (
+                    <p className="settings-local-api-error">
+                      เปิดแล้วที่ {localApi.lanBind} แต่หา IP ในวง LAN ของเครื่องนี้ไม่เจอ — เช็คว่าเชื่อม Wi-Fi/LAN อยู่
+                    </p>
+                  )}
                 </section>
               </div>
             )}

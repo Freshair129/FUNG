@@ -9,12 +9,15 @@
 //! surface is three GET routes and a CORS preflight.
 //!
 //! Boundary (see `docs/appendices/E-egress-register.md` §2):
-//! - Binds loopback only. Never `0.0.0.0`.
-//! - Every route except `/health` needs the per-launch bearer token. The
-//!   desktop hands it to the user as a *connect URL* (`http://127.0.0.1:PORT/#TOKEN`)
-//!   to paste into the web dashboard once; the browser then sends it as
-//!   `Authorization: Bearer` for JSON and as `?token=` for `<audio src>`,
-//!   which cannot carry headers.
+//! - Binds loopback by default. A second, opt-in listener on `0.0.0.0`
+//!   (`set_lan`) serves the same routes plus the embedded phone page at `/`
+//!   so a browser on the same Wi-Fi can play recordings without the cloud
+//!   web or a certificate; it is stoppable and gone when the app exits.
+//! - Every route except `/`, `/index.html` and `/health` needs the per-launch
+//!   bearer token. The desktop hands it to the user as a *connect URL*
+//!   (`http://127.0.0.1:PORT/#TOKEN`, or the LAN address in a QR) to paste
+//!   or scan once; the browser then sends it as `Authorization: Bearer` for
+//!   JSON and as `?token=` for `<audio src>`, which cannot carry headers.
 //! - CORS reflects only allow-listed origins (the production web origin and
 //!   local dev servers), so a random page open in the same browser cannot
 //!   read the response even if it somehow learned the token.
@@ -27,7 +30,7 @@ use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -48,13 +51,31 @@ const REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(5);
 /// misbehaving page cannot pile them up; a rejected request simply retries.
 const MAX_IN_FLIGHT: usize = 8;
 
+/// The page a phone's browser gets at `/` when LAN sharing is on: a
+/// self-contained recordings list + player that talks to this same origin,
+/// so there is no cross-origin, no mixed content, and nothing fetched from
+/// the internet. Served token-less; every API call it makes carries the
+/// token the user scanned.
+const PHONE_PAGE: &str = include_str!("../assets/local_recordings.html");
+
+/// The opt-in LAN half of the listener. Separate from the loopback one so it
+/// can be turned off without disturbing a same-machine web session, and so
+/// its exposure is a deliberate act rather than a side effect of starting
+/// the API.
+#[derive(Debug, Clone)]
+pub(crate) struct LanShare {
+    pub(crate) bind: String,
+    stop: Arc<AtomicBool>,
+}
+
 /// Server-side state for a running listener. `token` is generated per launch
-/// and never persisted: restarting the desktop invalidates every pasted
-/// connect URL, which is the intended lifetime.
+/// and never persisted: restarting the desktop invalidates every pasted or
+/// scanned connect URL, which is the intended lifetime.
 #[derive(Debug, Clone)]
 pub(crate) struct LocalApiControl {
     pub(crate) bind: String,
     pub(crate) token: String,
+    pub(crate) lan: Option<LanShare>,
 }
 
 impl LocalApiControl {
@@ -63,15 +84,29 @@ impl LocalApiControl {
     pub(crate) fn connect_url(&self) -> String {
         format!("http://{}/#{}", self.bind, self.token)
     }
+
+    /// What the phone scans: this machine's LAN address plus the LAN
+    /// listener's port. `None` until LAN sharing is on or when no non-loopback
+    /// IPv4 can be determined (the UI then says so instead of guessing).
+    pub(crate) fn lan_url(&self) -> Option<String> {
+        let lan = self.lan.as_ref()?;
+        let (_, port) = lan.bind.rsplit_once(':')?;
+        let ip = crate::primary_lan_ipv4()?;
+        Some(format!("http://{ip}:{port}/#{}", self.token))
+    }
 }
 
-/// What the `start_local_api` command returns to the desktop UI.
+/// What the `start_local_api` / `set_local_api_lan` commands return to the
+/// desktop UI.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LocalApiInfo {
     pub(crate) bind: String,
     pub(crate) token: String,
     pub(crate) connect_url: String,
+    pub(crate) lan_enabled: bool,
+    pub(crate) lan_bind: Option<String>,
+    pub(crate) lan_url: Option<String>,
 }
 
 fn info(control: &LocalApiControl) -> LocalApiInfo {
@@ -79,6 +114,9 @@ fn info(control: &LocalApiControl) -> LocalApiInfo {
         bind: control.bind.clone(),
         token: control.token.clone(),
         connect_url: control.connect_url(),
+        lan_enabled: control.lan.is_some(),
+        lan_bind: control.lan.as_ref().map(|lan| lan.bind.clone()),
+        lan_url: control.lan_url(),
     }
 }
 
@@ -107,37 +145,109 @@ pub(crate) fn start(state: &AppState) -> std::io::Result<LocalApiInfo> {
     let bind = listener.local_addr()?.to_string();
     // Two v4 UUIDs give 256 bits of randomness as 64 hex characters.
     let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-    let control = LocalApiControl { bind, token };
+    let control = LocalApiControl {
+        bind,
+        token,
+        lan: None,
+    };
 
-    let storage = state.genesis.clone();
-    let genesis_path = state.genesis_path.clone();
-    let shared = Arc::new(control.clone());
-    let in_flight = Arc::new(AtomicUsize::new(0));
-
-    thread::spawn(move || {
-        for stream in listener.incoming() {
-            let stream = match stream {
-                Ok(stream) => stream,
-                Err(_) => break,
-            };
-            if in_flight.load(Ordering::SeqCst) >= MAX_IN_FLIGHT {
-                drop(stream);
-                continue;
-            }
-            in_flight.fetch_add(1, Ordering::SeqCst);
-            let storage = storage.clone();
-            let genesis_path = genesis_path.clone();
-            let control = shared.clone();
-            let slots = in_flight.clone();
-            thread::spawn(move || {
-                let _slot = SlotGuard(slots);
-                handle_stream(stream, &storage, &genesis_path, &control);
-            });
-        }
-    });
+    // The loopback listener lives as long as the app; its stop flag is
+    // never set, it exists so both listeners share one accept loop.
+    spawn_listener(
+        listener,
+        state.genesis.clone(),
+        state.genesis_path.clone(),
+        Arc::new(control.clone()),
+        Arc::new(AtomicBool::new(false)),
+    )?;
 
     *current = Some(control.clone());
     Ok(info(&control))
+}
+
+/// Turns the opt-in LAN listener on or off. Binds `0.0.0.0:0` only while
+/// enabled — the default is loopback-only — and serves the same routes with
+/// the same per-launch token, so a phone that scanned the QR and the web
+/// tab that pasted the loopback URL are the same trust decision. Starts the
+/// loopback listener first if it is not running yet (the token lives there).
+pub(crate) fn set_lan(state: &AppState, enabled: bool) -> std::io::Result<LocalApiInfo> {
+    if state
+        .local_api
+        .lock()
+        .expect("local api mutex poisoned")
+        .is_none()
+    {
+        start(state)?;
+    }
+    let mut current = state.local_api.lock().expect("local api mutex poisoned");
+    let control = current.as_mut().expect("started above");
+
+    match (enabled, control.lan.as_ref()) {
+        (true, Some(_)) | (false, None) => {}
+        (false, Some(lan)) => {
+            lan.stop.store(true, Ordering::SeqCst);
+            control.lan = None;
+        }
+        (true, None) => {
+            let listener = TcpListener::bind("0.0.0.0:0")?;
+            let bind = listener.local_addr()?.to_string();
+            let stop = Arc::new(AtomicBool::new(false));
+            spawn_listener(
+                listener,
+                state.genesis.clone(),
+                state.genesis_path.clone(),
+                Arc::new(control.clone()),
+                stop.clone(),
+            )?;
+            control.lan = Some(LanShare { bind, stop });
+        }
+    }
+    Ok(info(control))
+}
+
+/// One accept loop for either bind. Non-blocking accept polled every 40 ms
+/// (the `fungwire_server` / mobile gateway shape) so `stop` is honoured
+/// promptly and the listener socket is released when the loop exits.
+fn spawn_listener(
+    listener: TcpListener,
+    storage: Arc<genesis_block_native::Storage>,
+    genesis_path: std::path::PathBuf,
+    control: Arc<LocalApiControl>,
+    stop: Arc<AtomicBool>,
+) -> std::io::Result<()> {
+    listener.set_nonblocking(true)?;
+    let in_flight = Arc::new(AtomicUsize::new(0));
+    thread::spawn(move || {
+        while !stop.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    // The accepted socket must block: the handler reads with
+                    // a timeout and writes a whole response.
+                    if stream.set_nonblocking(false).is_err() {
+                        continue;
+                    }
+                    if in_flight.load(Ordering::SeqCst) >= MAX_IN_FLIGHT {
+                        drop(stream);
+                        continue;
+                    }
+                    in_flight.fetch_add(1, Ordering::SeqCst);
+                    let storage = storage.clone();
+                    let genesis_path = genesis_path.clone();
+                    let control = control.clone();
+                    let slots = in_flight.clone();
+                    thread::spawn(move || {
+                        let _slot = SlotGuard(slots);
+                        handle_stream(stream, &storage, &genesis_path, &control);
+                    });
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(40));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -391,6 +501,19 @@ pub(crate) fn route(
             "405 Method Not Allowed",
             json!({"error": "METHOD_NOT_ALLOWED"}),
         );
+    }
+    // The phone page is token-less by design: it contains no secret, and
+    // every request it makes is gated like any other client's.
+    if request.path == "/" || request.path == "/index.html" {
+        return Response {
+            status: "200 OK",
+            content_type: "text/html; charset=utf-8",
+            body: PHONE_PAGE.as_bytes().to_vec(),
+            extra_headers: vec![
+                ("X-Content-Type-Options".to_string(), "nosniff".to_string()),
+                ("Referrer-Policy".to_string(), "no-referrer".to_string()),
+            ],
+        };
     }
     // `/health` predates the token and stays open: it is how an operator
     // checks the process is alive before they have a connect URL.
@@ -960,6 +1083,7 @@ mod tests {
         LocalApiControl {
             bind: "127.0.0.1:1".to_string(),
             token: "secret-token".to_string(),
+            lan: None,
         }
     }
 
@@ -1292,6 +1416,7 @@ mod tests {
         let control = LocalApiControl {
             bind: "127.0.0.1:4321".to_string(),
             token: "abc".to_string(),
+            lan: None,
         };
         assert_eq!(control.connect_url(), "http://127.0.0.1:4321/#abc");
     }
@@ -1373,5 +1498,105 @@ mod tests {
             !response.contains("Access-Control-Allow-Origin"),
             "a disallowed origin must get no CORS grant: {response}"
         );
+    }
+
+    #[test]
+    fn root_serves_the_phone_page_without_the_token_in_it() {
+        let (dir, storage) = open_genesis();
+        let control = control();
+        for path in ["/", "/index.html"] {
+            let response = route(&get(path, &[]), &storage, &dir, &control);
+            assert_eq!(response.status, "200 OK", "{path}");
+            assert!(response.content_type.starts_with("text/html"));
+            let body = String::from_utf8(response.body).unwrap();
+            assert!(
+                body.contains("ไฟล์ที่อัดไว้"),
+                "the page is the recordings player"
+            );
+            assert!(
+                body.contains("/recordings"),
+                "the page talks to this origin's API"
+            );
+            assert!(
+                !body.contains("secret-token"),
+                "the page must never embed the token"
+            );
+            // The only URL-looking text is the paste placeholder; no script,
+            // style, image, or fetch target may point off this origin.
+            for needle in [
+                "src=\"http",
+                "href=\"http",
+                "fetch(\"http",
+                "@import",
+                "url(",
+            ] {
+                assert!(
+                    !body.contains(needle),
+                    "the page must fetch nothing off-origin: {needle}"
+                );
+            }
+            assert!(
+                body.contains("connect-src 'self'"),
+                "the page pins itself to its own origin with a CSP"
+            );
+            assert!(response
+                .extra_headers
+                .contains(&("X-Content-Type-Options".to_string(), "nosniff".to_string())));
+        }
+    }
+
+    #[test]
+    fn lan_url_needs_a_lan_listener_and_carries_its_port() {
+        let mut control = control();
+        assert_eq!(control.lan_url(), None, "off by default");
+        control.lan = Some(LanShare {
+            bind: "0.0.0.0:45678".to_string(),
+            stop: Arc::new(AtomicBool::new(false)),
+        });
+        match control.lan_url() {
+            // Runners without a default route have no LAN address; the UI
+            // handles `None` explicitly, so both outcomes are legitimate.
+            None => assert!(crate::primary_lan_ipv4().is_none()),
+            Some(url) => {
+                assert!(url.starts_with("http://"), "{url}");
+                assert!(url.ends_with(":45678/#secret-token"), "{url}");
+                assert!(
+                    !url.contains("0.0.0.0"),
+                    "the wildcard bind is not an address to dial"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_stopped_listener_releases_its_port() {
+        let (dir, storage) = open_genesis();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let bind = listener.local_addr().unwrap().to_string();
+        let stop = Arc::new(AtomicBool::new(false));
+        spawn_listener(
+            listener,
+            Arc::new(storage),
+            dir,
+            Arc::new(control()),
+            stop.clone(),
+        )
+        .unwrap();
+
+        let response = raw_request(&bind, "GET /health HTTP/1.1\r\nHost: x\r\n\r\n");
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
+
+        stop.store(true, Ordering::SeqCst);
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            if TcpStream::connect(&bind).is_err() {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "listener still accepting 3s after stop"
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
     }
 }

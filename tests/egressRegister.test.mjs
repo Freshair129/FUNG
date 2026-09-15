@@ -125,6 +125,32 @@ test("the webview cannot reach a remote host", () => {
       `connect-src allows ${source}, which is not loopback or IPC`,
     );
   }
+  // Android is the one surface whose webview holds the Supabase session
+  // itself (supabase-js: setSession, device rows, pairing RPCs, the
+  // device-enrollment function), so its CSP may add exactly the configured
+  // project origin — nothing broader, and nothing on desktop.
+  const android = JSON.parse(readFileSync("src-tauri/tauri.android.conf.json", "utf8"));
+  const androidCsp = android.app?.security?.csp;
+  assert.ok(androidCsp, "tauri.android.conf.json must override the CSP for the mobile webview");
+  const androidConnect = androidCsp
+    .split(";")
+    .map((directive) => directive.trim())
+    .find((directive) => directive.startsWith("connect-src"));
+  assert.ok(androidConnect, "Android connect-src must be set explicitly");
+  const androidExtra = androidConnect.split(/\s+/).slice(1).filter((source) =>
+    !(source === "ipc:" || source === "http://ipc.localhost" || source === "'self'" || /^https?:\/\/127\.0\.0\.1(:\*)?$/.test(source))
+  );
+  assert.deepEqual(
+    androidExtra,
+    ["https://nqnrvqnijzovkrhxslfp.supabase.co"],
+    `Android connect-src may add only the configured Supabase project origin, got ${androidExtra.join(" ")}`,
+  );
+  assert.equal(
+    androidCsp.replace(/connect-src[^;]*/, ""),
+    csp.replace(/connect-src[^;]*/, ""),
+    "every other Android CSP directive must match the desktop CSP",
+  );
+
   const media = csp
     .split(";")
     .map((directive) => directive.trim())

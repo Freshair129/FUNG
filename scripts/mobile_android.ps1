@@ -14,6 +14,20 @@ $env:ANDROID_HOME = Join-Path $toolchains 'android-sdk'
 $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 $env:NDK_HOME = Join-Path $env:ANDROID_HOME 'ndk/29.0.14206865'
 $env:CARGO_TARGET_DIR = Join-Path $workspace '.target-mobile'
+
+# The native core bakes the public Supabase values in at compile time
+# (native_auth::baked_value via option_env!): a phone has no .env to read at
+# runtime. Load the repo's .env into this process (never overriding a value
+# already set) so `cargo` sees the same project the Vite bundle embeds.
+$dotenv = Join-Path $workspace '.env'
+if (Test-Path -LiteralPath $dotenv) {
+  foreach ($line in Get-Content -LiteralPath $dotenv) {
+    if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$' -and -not $line.TrimStart().StartsWith('#')) {
+      $name = $Matches[1]; $value = $Matches[2].Trim('"').Trim("'")
+      if (-not [Environment]::GetEnvironmentVariable($name)) { Set-Item -Path "env:$name" -Value $value }
+    }
+  }
+}
 $apk = Join-Path $workspace 'src-tauri/gen/android/app/build/outputs/apk/arm64/debug/app-arm64-debug.apk'
 
 # The generated Android project is gitignored, but the Rust core hard-requires

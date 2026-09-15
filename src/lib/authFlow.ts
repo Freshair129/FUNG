@@ -67,10 +67,16 @@ async function createPkcePair(): Promise<{ verifier: string; challenge: string }
   return { verifier, challenge: base64Url(new Uint8Array(digest)) };
 }
 
+// The verifier must outlive the process: on a low-memory phone Android can
+// kill the app while the system browser is up (seen on a Galaxy A07 —
+// "Render process kill (OOM)"), and the deep link then relaunches it from
+// scratch. sessionStorage dies with the WebView; localStorage survives, and
+// the value is single-use (taken and cleared on the callback) and useless
+// without the browser-issued code.
 function rememberVerifier(verifier: string): void {
   pendingVerifier = verifier;
   try {
-    sessionStorage.setItem(VERIFIER_STORAGE_KEY, verifier);
+    localStorage.setItem(VERIFIER_STORAGE_KEY, verifier);
   } catch {
     // In-memory copy still covers the common same-process round trip.
   }
@@ -79,14 +85,14 @@ function rememberVerifier(verifier: string): void {
 function takeVerifier(): string | null {
   const verifier = pendingVerifier ?? (() => {
     try {
-      return sessionStorage.getItem(VERIFIER_STORAGE_KEY);
+      return localStorage.getItem(VERIFIER_STORAGE_KEY);
     } catch {
       return null;
     }
   })();
   pendingVerifier = null;
   try {
-    sessionStorage.removeItem(VERIFIER_STORAGE_KEY);
+    localStorage.removeItem(VERIFIER_STORAGE_KEY);
   } catch {
     // Ignore.
   }
@@ -128,13 +134,21 @@ async function exchangeCode(code: string): Promise<string | null> {
   }
 }
 
-/** Wires the deep-link callback channel. Returns cleanup. */
+/** Wires the deep-link callback channel. Returns cleanup.
+ *
+ * Two delivery paths, both real on Android: `onOpenUrl` fires when the
+ * callback arrives while the app is alive, and `getCurrent` holds the URL
+ * the app was *launched* with — which is what happens when Android killed
+ * the app while the system browser was up (seen on a Galaxy A07:
+ * "Process dev.fung.local has died" the moment Chrome opened) and the deep
+ * link then cold-starts it. Handling only the first path meant that whole
+ * sign-in completed in the browser and the app came back to the login card. */
 export async function listenForAuthCallback(
   onDone: (err: string | null) => void,
 ): Promise<() => void> {
-  const { onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
+  const { getCurrent, onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
   let terminal = false;
-  const unlisten = await onOpenUrl((urls) => {
+  const handle = (urls: string[]) => {
     if (terminal) return;
     const url = urls.find((candidate) => candidate.startsWith("fung://auth/callback"));
     if (!url) return;
@@ -145,7 +159,14 @@ export async function listenForAuthCallback(
       return;
     }
     void exchangeCode(code).then(onDone);
-  });
+  };
+  const unlisten = await onOpenUrl(handle);
+  try {
+    const launched = await getCurrent();
+    if (launched && launched.length > 0) handle(launched);
+  } catch {
+    // Desktop/dev builds without a launch URL: nothing to replay.
+  }
   return () => {
     terminal = true;
     unlisten();

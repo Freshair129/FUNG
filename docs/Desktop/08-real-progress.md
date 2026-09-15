@@ -182,6 +182,97 @@ puts the two actions in a grid so "อัดไฟล์ใหม่" sits above
 expand into the player in place. `tests/audioViz.test.mjs` (wired into CI)
 covers the level history, peak reduction/fitting/normalisation, segment
 lookup and clock; Rust 438/438 with the manifest test.
+
+**Mobile sign-in had never been possible on a phone.** With Google enabled
+on the live project the owner tried it and got `auth_config_invalid`. The
+native broker reads `FUNG_SUPABASE_URL` / `_ANON_KEY` from the process
+environment, which the desktop fills from the repo's `.env` at startup — a
+phone has neither. `native_auth::baked_value` now embeds the two public
+values at compile time (`option_env!`, the same publishable pair the web
+bundle already ships) as the fallback behind the environment, and
+`scripts/mobile_android.ps1` loads `.env` into the build environment so the
+Android core actually receives them. `resolve_configured` is unit-tested
+(environment wins, blanks count as unset, nothing → the public error).
+Two more walls stood behind that one, each found by reading `logcat` after
+the owner's next tap: (1) the native PKCE exchange sent a form-encoded
+`code=` body, which GoTrue answers with `400 bad_json` — it wants JSON
+`{auth_code, code_verifier}` (probed against live: the JSON shape with a
+bogus code returns `404 flow_state_not_found`, i.e. parsed and looked up) —
+fixed and unit-tested; the PKCE verifier moved from sessionStorage to
+localStorage because Android killed the app (`Render process kill (OOM)`)
+while Chrome was up and the deep link relaunched it from scratch; (2) the
+mobile webview's CSP was the desktop one, so `supabase.auth.setSession` →
+`/auth/v1/user` was refused ("Failed to fetch") — `tauri.android.conf.json`
+now adds exactly the project origin to `connect-src`, documented in the
+egress register and pinned by the egress suite. (3) With all three fixed the browser
+finished the sign-in and the app came back to the login card: Android had
+killed the app while Chrome was up, the deep link cold-started it, and the
+listener only subscribed to `onOpenUrl` (URLs arriving while alive) — the
+launch URL sits in `getCurrent()`, which `listenForAuthCallback` now replays
+once on startup. The unconsumed `fung.auth.pkce_verifier` still sitting in
+the webview's localStorage was the tell. (4) Signed in at last, device registration
+failed with "Failed to send a request to the Edge Function": the functions'
+CORS default sent no `Access-Control-Allow-Origin`, which is right for the
+desktop's native caller but wrong for the mobile webview, a browser caller
+whose origin is `http://tauri.localhost`. `_shared/cors.ts` now allows that
+origin by default (no ordinary web page can present it) and still requires
+`ALLOWED_ORIGIN` for anything else; all three functions redeployed. The
+Devices screen also gained the account card (name, e-mail, avatar) and a
+sign-out button the owner asked for.
+
+Desktop sign-in then failed in its own way: the loopback callback
+`http://127.0.0.1:<port>/auth/callback` was never on the project's Redirect
+URLs, so GoTrue fell back to the other app's Site URL with
+`bad_oauth_state` (config: add `http://127.0.0.1:*/auth/callback`, now
+recorded in `supabase/README.md`); the retry inside `LOGIN_TTL` (120 s) was
+refused with `auth_request_in_progress`, which `AccountLoginPanel` rendered
+as a generic `auth_start_failed` because the broker rejects `invoke` with a
+plain string, not an Error — the panel now shows the broker's code verbatim. With the Redirect URL in place the same `bad_oauth_state` came back, and
+probing `/auth/v1/authorize` explained it: GoTrue forwards a client-supplied
+`state=` to Google verbatim (the `state` Google receives was our UUID, not
+GoTrue's own), so on the way back GoTrue cannot find its flow state. The
+desktop authorize URL no longer sends `state`; the loopback callback carries
+only the PKCE `code`, which the pending login's verifier binds, and
+`parse_callback` accepts that shape (a state, if ever present, must still
+match). Unit-tested; the native flow had never been exercised against a real
+provider before today.
+
+**Speech recognition is live on this machine again (2026-09-14).** The
+staged `.venv-whisper` under `D:\FUNG\` was gone and the repo copy was an
+empty directory, so nothing could transcribe. `scripts/stage_whisper_runtime.ps1`
+re-staged the pinned set (embedded Python 3.11.9, hash-locked wheels,
+`Systran/faster-whisper-small` @ `536b0662…`) with a uv-managed CPython 3.11
+as the build interpreter — and exposed a real bug in the script: under
+Windows PowerShell 5.1 the model download raised a `NativeCommandError` on
+huggingface_hub's stderr progress output and the run died after the wheels
+installed; the download step now merges streams and judges by exit code. CPU
+`int8` results with `scripts/transcribe.py`: a synthetic English sentence
+transcribed verbatim in 2.9 s; the owner's own 50 s desktop recording from
+2026-09-13 (7 live-meeting `mic-*.wav` chunks) transcribed in 9 s as Thai
+(`languageProbability` 1.0) into 4 timed segments with confidences 0.97 /
+0.92 / 0.60 / 0.43. **The GPU profile is staged too (2026-09-16):** the
+11 CUDA 12 / cuDNN 9 DLLs came from NVIDIA's own pip wheels
+(`nvidia-cublas-cu12` 12.9.2.10, `nvidia-cudnn-cu12` 9.26.0.51,
+`nvidia-cuda-runtime-cu12` 12.9.79, downloaded with the host pip, unzipped,
+and handed to `scripts/stage_gpu_runtime.ps1 -CudaSource`), so no G-Music /
+Torch install is needed any more; `runtime/manifest.json` records their
+SHA-256s. On the RTX 5060 Ti the same 50 s Thai recording transcribes in
+1.7–1.8 s end to end (`--profile gpu`, float16, ~29× realtime; CPU int8 is
+7.0 s on the same run) with segment text identical to the CPU pass. The very
+first GPU process took 15 s — one-time kernel/cuDNN warm-up, not repeated.
+With language auto-detection the GPU pass once guessed `en` at 0.44 and
+rendered the last two short segments in English; the worker is normally
+given `--language th`, which pins it. The desktop app reads
+`FUNG_TRANSCRIPTION_PROFILE` from the repo `.env` (loaded generically at
+startup), so `FUNG_TRANSCRIPTION_PROFILE=gpu` there switches the dev build
+to the GPU worker; the key is now documented in `.env.example`. The app's
+own Rust path was exercised too: `bin/live_smoke` (headless Live Meeting,
+14 s real capture, ONIKUMA mic + Scarlett loopback) spawned
+`transcribe_live.py --profile gpu`, the worker showed up in `nvidia-smi` as a
+compute process, and the English sample played through the speakers came
+back as two verbatim `[system]` segments. The smoke's Ollama summary step
+returned `400 Bad Request` — a separate, pre-existing LLM configuration
+issue, not part of transcription.
 Verified by Rust and Node tests below; the real-browser pass on the production
 web (which needs this change deployed) and Chrome's one-time "local network"
 permission prompt are still to be observed on the owner's machine.

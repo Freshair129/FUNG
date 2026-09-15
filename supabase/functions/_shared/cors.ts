@@ -23,10 +23,20 @@
 // credentials-bearing responses), matching the standard
 // allowlist-and-reflect CORS pattern. `ALLOWED_ORIGIN=*` remains available
 // as an explicit opt-out for local/dev use.
-const configuredOrigins = (Deno.env.get("ALLOWED_ORIGIN") ?? "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter((origin) => origin.length > 0);
+// The FUNG mobile app is itself a browser caller: its Tauri webview holds
+// the Supabase session (supabase-js) and calls device-enrollment with
+// `functions.invoke`, so its own origin — `http://tauri.localhost`, which no
+// ordinary web page can present — is allowed by default. Anything else still
+// has to be opted in through ALLOWED_ORIGIN.
+const APP_WEBVIEW_ORIGIN = "http://tauri.localhost";
+
+const configuredOrigins = [
+  APP_WEBVIEW_ORIGIN,
+  ...(Deno.env.get("ALLOWED_ORIGIN") ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0),
+];
 
 /**
  * Builds the CORS response headers for a request. `Access-Control-Allow-Headers`
@@ -43,10 +53,6 @@ export function buildCorsHeaders(
       "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
   };
-
-  if (configuredOrigins.length === 0) {
-    return headers;
-  }
 
   if (configuredOrigins.includes("*")) {
     headers["Access-Control-Allow-Origin"] = "*";

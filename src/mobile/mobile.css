@@ -491,3 +491,13 @@
 .m-player-skip small { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -38%); font-size: 8px; font-weight: 700; }
 .m-player-error { margin: 8px 0 0; font-size: 12px; color: var(--m-danger); }
 .m-header-actions { display: flex; align-items: center; gap: 8px; }
+
+/* Devices: who is signed in, and the way out. */
+.m-account-card { margin-bottom: 14px; padding: 14px 16px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; border-radius: 19px; border: 1px solid var(--m-line); background: rgba(255, 255, 255, 0.06); }
+.m-account-card img, .m-account-initial { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }
+.m-account-initial { display: grid; place-items: center; font-weight: 700; color: white; background: var(--m-indigo); }
+.m-account-card strong, .m-account-card span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-account-card strong { font-size: 15px; }
+.m-account-card span { margin-top: 2px; font-size: 12px; color: var(--m-muted); }
+.m-account-card > button { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border-radius: 12px; font-size: 12px; font-weight: 650; white-space: nowrap; color: var(--m-danger); background: color-mix(in srgb, var(--m-danger) 10%, transparent); }
+.m-account-card > button:disabled { opacity: 0.5; }

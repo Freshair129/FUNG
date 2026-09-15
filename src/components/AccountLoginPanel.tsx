@@ -19,9 +19,15 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
   const [deviceLabel, setDeviceLabel] = useState("FUNG Desktop");
   const [enrollmentStatus, setEnrollmentStatus] = useState<EnrollmentStatus>("idle");
 
+  // The native broker rejects `invoke` with its public error code as a plain
+  // string (e.g. "auth_transition_in_progress"), not an Error — surface it
+  // verbatim so the owner sees the real reason instead of a generic label.
+  const describe = (e: unknown, fallback: string) =>
+    typeof e === "string" && e.trim() ? e : e instanceof Error ? e.message : fallback;
+
   const refresh = useCallback(async () => {
     try { setStatus(await brokerSessionStatus()); }
-    catch (e) { setError(e instanceof Error ? e.message : "auth_unavailable"); }
+    catch (e) { setError(describe(e, "auth_unavailable")); }
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
@@ -35,14 +41,14 @@ export function AccountLoginPanel({ onClose }: AccountLoginPanelProps) {
   const handleLogin = useCallback(async () => {
     setBusy(true); setError(null);
     try { await brokerSessionLoginBegin(); await refresh(); }
-    catch (e) { setError(e instanceof Error ? e.message : "auth_start_failed"); }
+    catch (e) { setError(describe(e, "auth_start_failed")); }
     finally { setBusy(false); }
   }, [refresh]);
 
   const handleLogout = useCallback(async () => {
     setBusy(true); setError(null);
     try { await brokerSessionLogout(); setEnrollmentStatus("idle"); await refresh(); }
-    catch (e) { setError(e instanceof Error ? e.message : "auth_logout_incomplete"); }
+    catch (e) { setError(describe(e, "auth_logout_incomplete")); }
     finally { setBusy(false); }
   }, [refresh]);
 

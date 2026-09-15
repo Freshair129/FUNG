@@ -1,5 +1,10 @@
 {
   "bundle": {
     "resources": {}
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: asset:; font-src 'self' data: asset:; style-src 'self' 'unsafe-inline'; media-src 'self' asset: blob:; connect-src ipc: http://ipc.localhost http://127.0.0.1:* https://nqnrvqnijzovkrhxslfp.supabase.co"
+    }
   }
 }

@@ -82,9 +82,18 @@ $downloadCode = @"
 from huggingface_hub import snapshot_download
 snapshot_download(repo_id='$modelRepo', revision='$modelRevision', local_dir=r'$modelDir')
 "@
-& $embeddedPython -c $downloadCode
-if ($LASTEXITCODE -ne 0) {
-    throw "Pinned Whisper model download failed with exit code $LASTEXITCODE"
+# huggingface_hub reports download progress on stderr; under Windows
+# PowerShell 5.1 with $ErrorActionPreference = 'Stop' a native command's
+# stderr line is raised as a NativeCommandError even when the command
+# succeeds (seen 2026-09-14: the wheels installed, the model never landed).
+# Merge the streams and judge the download by its exit code only.
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& $embeddedPython -c $downloadCode 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -notmatch '%\|' } | Out-Host
+$downloadExit = $LASTEXITCODE
+$ErrorActionPreference = $previousPreference
+if ($downloadExit -ne 0) {
+    throw "Pinned Whisper model download failed with exit code $downloadExit"
 }
 
 $licenseSources = [ordered]@{

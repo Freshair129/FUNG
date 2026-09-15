@@ -1,3 +1,17 @@
+# Stages the CUDA 12 / cuDNN 9 DLLs the GPU transcription profile needs into
+# runtime\cuda12in and writes runtime\manifest.json (SHA-256 per file).
+#
+# -CudaSource must be a single directory holding all 11 DLLs. The easiest
+# source that needs no CUDA Toolkit or Torch install is NVIDIA's own pip
+# wheels (verified 2026-09-16, ~1.3 GB download):
+#
+#   pip download nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12 `
+#       --no-deps --only-binary=:all: --platform win_amd64 --python-version 3.11 -d wheels
+#   # unzip each wheel's nvidia\*in\*.dll into one folder, then:
+#   .\scripts\stage_gpu_runtime.ps1 -CudaSource <that folder>
+#
+# The default -CudaSource is a historical Torch install and will usually not
+# exist; pass the directory explicitly.
 [CmdletBinding()]
 param(
     [string]$CudaSource = 'D:\G-Music\backend\.venv\Lib\site-packages\torch\lib',

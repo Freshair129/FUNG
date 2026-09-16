@@ -254,9 +254,19 @@ pub(crate) fn llm_provider_config(
 
 /// The configured model name is a preference, not a guarantee — users install
 /// whatever they like into Ollama. If the endpoint is reachable and does NOT
-/// have the configured model, fall back to the first installed model instead
-/// of letting every downstream call 404. Unreachable endpoint: keep the
+/// have the configured model, fall back to an installed model instead of
+/// letting every downstream call 404. Unreachable endpoint: keep the
 /// configured name and let the caller surface the connection error.
+///
+/// The fallback must skip embedding-only models (e.g. `bge-m3`, commonly
+/// installed for RAG alongside chat models): `/api/chat` answers those with
+/// a 400 `"<model>" does not support chat`, not a helpful "try another
+/// model" — so a naive "take the first tag" fallback can pick a model that
+/// can never serve a summary. `/api/tags` reports each model's
+/// `capabilities` (Ollama >= 0.9); an entry advertising `"completion"` is
+/// chat-capable. A model with no `capabilities` field at all (older Ollama)
+/// is assumed usable rather than skipped, so this stays a no-op against
+/// those servers.
 fn resolve_available_model(endpoint: &str, configured: String) -> String {
     let Ok(client) = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(3))
@@ -270,21 +280,33 @@ fn resolve_available_model(endpoint: &str, configured: String) -> String {
     let Ok(tags) = response.json::<serde_json::Value>() else {
         return configured;
     };
-    let names: Vec<String> = tags
-        .get("models")
-        .and_then(serde_json::Value::as_array)
-        .map(|models| {
-            models
-                .iter()
-                .filter_map(|model| model.get("name").and_then(serde_json::Value::as_str))
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    if names.is_empty() || names.iter().any(|name| name == &configured) {
+    let Some(models) = tags.get("models").and_then(serde_json::Value::as_array) else {
+        return configured;
+    };
+    fn name_of(model: &serde_json::Value) -> Option<&str> {
+        model.get("name").and_then(serde_json::Value::as_str)
+    }
+    let is_chat_capable = |model: &serde_json::Value| {
+        model
+            .get("capabilities")
+            .and_then(serde_json::Value::as_array)
+            .map(|caps| caps.iter().any(|cap| cap.as_str() == Some("completion")))
+            .unwrap_or(true)
+    };
+    if models.is_empty()
+        || models
+            .iter()
+            .filter_map(name_of)
+            .any(|name| name == configured)
+    {
         return configured;
     }
-    names.into_iter().next().expect("non-empty checked above")
+    models
+        .iter()
+        .find(|model| is_chat_capable(model))
+        .and_then(name_of)
+        .map(str::to_string)
+        .unwrap_or(configured)
 }
 
 pub(crate) fn call_llm(endpoint: &str, model: &str, prompt: &str) -> Result<String, String> {
@@ -1013,5 +1035,87 @@ mod tests {
             crate::cloud_executor::is_connection_error(&unreachable),
             "a genuinely unreachable Ollama must still be recognised: {unreachable}",
         );
+    }
+
+    /// Spawns a one-shot HTTP server that answers any request with `body` as
+    /// a 200 JSON response, and returns its `http://host:port` endpoint.
+    /// Enough for `resolve_available_model`, which only ever calls
+    /// `GET /api/tags` once.
+    fn serve_json_once(body: &'static str) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = std::io::Read::read(&mut stream, &mut buf);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    /// The bug this pins: an Ollama install commonly carries an
+    /// embedding-only model (`bge-m3`, installed for RAG) listed before any
+    /// chat model in `/api/tags`. Before this fix, falling back from a
+    /// missing configured model picked whatever tag came first — that
+    /// embedding model — and every summary call then failed with
+    /// `/api/chat`'s 400 `"bge-m3:latest" does not support chat` (seen on
+    /// the owner's machine via `live_smoke`, 2026-09-16). The fallback must
+    /// skip it and land on the chat-capable model instead.
+    #[test]
+    fn resolve_available_model_skips_embedding_only_models() {
+        let endpoint = serve_json_once(
+            r#"{"models":[
+                {"name":"bge-m3:latest","capabilities":["embedding"]},
+                {"name":"qwen3.5:9b","capabilities":["completion","tools"]}
+            ]}"#,
+        );
+        let resolved = resolve_available_model(&endpoint, "llama3.1:8b".to_string());
+        assert_eq!(
+            resolved, "qwen3.5:9b",
+            "must skip the embedding-only tag and pick the chat-capable one",
+        );
+    }
+
+    /// A model with no `capabilities` field at all (Ollama servers older
+    /// than the field) must not be treated as unusable — the check is
+    /// skip-if-known-embedding-only, not require-completion.
+    #[test]
+    fn resolve_available_model_treats_missing_capabilities_as_usable() {
+        let endpoint = serve_json_once(r#"{"models":[{"name":"llama2:7b"}]}"#);
+        let resolved = resolve_available_model(&endpoint, "llama3.1:8b".to_string());
+        assert_eq!(resolved, "llama2:7b");
+    }
+
+    /// If every installed model is embedding-only there is nothing safe to
+    /// fall back to; keep the configured name so the caller's error names
+    /// the model the user actually asked for instead of one it never chose.
+    #[test]
+    fn resolve_available_model_keeps_configured_when_nothing_can_chat() {
+        let endpoint = serve_json_once(
+            r#"{"models":[{"name":"bge-m3:latest","capabilities":["embedding"]}]}"#,
+        );
+        let resolved = resolve_available_model(&endpoint, "llama3.1:8b".to_string());
+        assert_eq!(resolved, "llama3.1:8b");
+    }
+
+    /// The configured model being installed is still the fast path, even
+    /// when it is not first in the list and earlier entries are
+    /// embedding-only.
+    #[test]
+    fn resolve_available_model_keeps_configured_when_present() {
+        let endpoint = serve_json_once(
+            r#"{"models":[
+                {"name":"bge-m3:latest","capabilities":["embedding"]},
+                {"name":"llama3.1:8b","capabilities":["completion"]}
+            ]}"#,
+        );
+        let resolved = resolve_available_model(&endpoint, "llama3.1:8b".to_string());
+        assert_eq!(resolved, "llama3.1:8b");
     }
 }

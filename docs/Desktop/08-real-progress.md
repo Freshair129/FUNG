@@ -308,6 +308,24 @@ path to the SPA, and the dashboard stacks to one column at phone width.
 source-level guarantees. Deploying it is the owner's step: the Vercel CLI on
 this machine is logged out and the Git integration evidently did not pick up
 the last two weeks of merges.
+
+**Browser recording → desktop transcript (2026-09-16).** The hand-off that
+closes the web loop: the loopback API gained `POST /recordings/import`
+(reads a `Content-Length` body up to 512 MB, writes it under
+`<data root>/imports/web/<recording id>.<ext>`, creates a project named after
+the upload and a running `transcript.transcribe` job, and runs the desktop's
+own `run_import_pipeline` with a caller-chosen recording id), `GET /jobs/{id}`
+(the job row, for polling) and `GET /recordings/{id}/transcript` (the
+project-scoped `transcript_view`, resolved through the recording's own
+project). CORS now admits `POST` with `Content-Type` and `X-Fung-Filename`.
+On the web, each browser recording gets "ถอดเสียงที่ desktop" once the desktop
+is connected; the dashboard remembers the desktop job on the recording in
+IndexedDB, polls every 2 s, and renders the segments inline when the job
+completes (and refreshes the desktop-recordings tile, where the import now
+also appears). Rust tests cover body framing over a real socket, the 413,
+auth/path gating, custody + job creation + polling to a settled state, and
+the transcript route; Node tests pin the client's wire shape. Deployed to
+production the same day as the recorder.
 Verified by Rust and Node tests below; the real-browser pass on the production
 web (which needs this change deployed) and Chrome's one-time "local network"
 permission prompt are still to be observed on the owner's machine.

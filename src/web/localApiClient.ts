@@ -34,6 +34,34 @@ export type LocalRecording = {
   chunkCount: number;
 };
 
+/** A job row as the desktop's `/jobs/{id}` returns it (camelCase serde). */
+export type LocalJob = {
+  id: string;
+  projectId: string;
+  type: string;
+  status: string;
+  progress: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+};
+
+/** One transcript segment as `/recordings/{id}/transcript` returns it. */
+export type LocalTranscriptSegment = {
+  id: string;
+  startMs: number;
+  endMs: number;
+  text: string;
+  speakerName: string | null;
+  confidence: number | null;
+};
+
+/** The `202` from `POST /recordings/import`: which desktop job and recording now own the upload. */
+export type LocalImportReceipt = {
+  jobId: string;
+  projectId: string;
+  recordingId: string;
+};
+
 export type LocalApiErrorKind = "unreachable" | "unauthorized" | "http";
 
 export class LocalApiError extends Error {
@@ -144,4 +172,88 @@ export async function fetchRecordings(connection: LocalApiConnection): Promise<L
   const body: unknown = await response.json();
   const recordings = (body as { recordings?: unknown })?.recordings;
   return Array.isArray(recordings) ? (recordings as LocalRecording[]) : [];
+}
+
+/**
+ * Shared request path for the JSON routes. The loopback check sits right in
+ * front of the `fetch` because `tests/egressRegister.test.mjs` requires every
+ * fetch in this file to be refused-unless-loopback, textually.
+ */
+async function loopbackJson<T>(
+  connection: LocalApiConnection,
+  path: string,
+  init: RequestInit & { expected?: number },
+): Promise<T> {
+  if (!isLoopbackBaseUrl(connection.baseUrl)) {
+    throw new LocalApiError("http", "local API base URL must be loopback");
+  }
+  let response: Response;
+  try {
+    response = await fetch(new URL(path, connection.baseUrl).toString(), {
+      ...init,
+      headers: { ...(init.headers ?? {}), Authorization: `Bearer ${connection.token}` },
+    });
+  } catch (error) {
+    throw new LocalApiError("unreachable", error instanceof Error ? error.message : String(error));
+  }
+  if (response.status === 401) {
+    throw new LocalApiError("unauthorized", "the desktop rejected this token");
+  }
+  if (response.status !== (init.expected ?? 200)) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const body = (await response.json()) as { error?: string; detail?: string };
+      if (body?.error) detail = body.detail ? `${body.error}: ${body.detail}` : body.error;
+    } catch {
+      // Not JSON; the status is the message.
+    }
+    throw new LocalApiError("http", detail);
+  }
+  return (await response.json()) as T;
+}
+
+/**
+ * Uploads a browser recording to the desktop on this machine, which takes
+ * custody of the bytes and starts its normal import → transcribe job. Nothing
+ * leaves the PC: the target is loopback by construction.
+ */
+export async function importRecording(
+  connection: LocalApiConnection,
+  blob: Blob,
+  fileName: string,
+): Promise<LocalImportReceipt> {
+  const receipt = await loopbackJson<LocalImportReceipt>(connection, "/recordings/import", {
+    method: "POST",
+    headers: {
+      "Content-Type": blob.type || "application/octet-stream",
+      "X-Fung-Filename": fileName,
+    },
+    body: blob,
+    expected: 202,
+  });
+  if (!receipt?.jobId || !receipt?.recordingId || !receipt?.projectId) {
+    throw new LocalApiError("http", "the desktop accepted the upload but returned no job");
+  }
+  return receipt;
+}
+
+export async function fetchJob(connection: LocalApiConnection, jobId: string): Promise<LocalJob> {
+  const body = await loopbackJson<{ job?: LocalJob }>(connection, `/jobs/${encodeURIComponent(jobId)}`, {
+    method: "GET",
+  });
+  if (!body?.job) throw new LocalApiError("http", "job missing from the desktop's reply");
+  return body.job;
+}
+
+export async function fetchTranscript(
+  connection: LocalApiConnection,
+  recordingId: string,
+): Promise<LocalTranscriptSegment[]> {
+  const body = await loopbackJson<{ transcript?: { segments?: LocalTranscriptSegment[] } }>(
+    connection,
+    `/recordings/${encodeURIComponent(recordingId)}/transcript`,
+    { method: "GET" },
+  );
+  const segments = body?.transcript?.segments;
+  return Array.isArray(segments) ? segments : [];
 }

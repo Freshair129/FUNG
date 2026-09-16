@@ -6,7 +6,14 @@
 //!
 //! Hand-rolled HTTP/1.1 over `TcpListener`, like the mobile gateway
 //! (`mobile::handle_gateway_stream`), rather than a server crate: the whole
-//! surface is three GET routes and a CORS preflight.
+//! surface is a handful of GET routes, one upload, and a CORS preflight.
+//!
+//! The upload (`POST /recordings/import`) is how a recording made *in the
+//! browser* — which has no Whisper and no GenesisBlockDB — gets transcribed:
+//! the page sends the bytes to the desktop on the same machine, the desktop
+//! takes custody of the file and runs the normal import pipeline, and the
+//! page polls `/jobs/{id}` then reads `/recordings/{id}/transcript`. Still
+//! nothing leaves the PC.
 //!
 //! Boundary (see `docs/appendices/E-egress-register.md` §2):
 //! - Binds loopback by default. A second, opt-in listener on `0.0.0.0`
@@ -22,14 +29,14 @@
 //!   local dev servers), so a random page open in the same browser cannot
 //!   read the response even if it somehow learned the token.
 
-use crate::{audio_custody, genesis_adapter, AppState};
+use crate::{audio_custody, genesis_adapter, AppState, WhisperRuntime};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -45,6 +52,20 @@ const WEB_ORIGINS: &[&str] = &["https://fung-seven.vercel.app"];
 /// A request head larger than this is not a browser asking for a recording.
 const MAX_REQUEST_HEAD: usize = 16 * 1024;
 const REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Largest upload accepted on `POST /recordings/import`. WebM/Opus at the
+/// dashboard's 128 kbit/s is ~58 MB per hour; this leaves room for a long
+/// meeting or a WAV without letting a page exhaust memory.
+const MAX_UPLOAD_BYTES: usize = 512 * 1024 * 1024;
+
+/// What the upload route needs beyond the ledger: where to keep the file
+/// and the worker that transcribes it. `None` on a listener that has no
+/// runtime (tests), in which case the route answers `503`.
+pub(crate) struct ImportHost {
+    pub(crate) genesis: Arc<genesis_block_native::Storage>,
+    pub(crate) data_root: PathBuf,
+    pub(crate) runtime: WhisperRuntime,
+}
 
 /// Stitching an hour of audio into one WAV takes real time and memory, and
 /// each request runs on its own thread. Cap in-flight connections so a
@@ -158,6 +179,7 @@ pub(crate) fn start(state: &AppState) -> std::io::Result<LocalApiInfo> {
         state.genesis.clone(),
         state.genesis_path.clone(),
         Arc::new(control.clone()),
+        Some(import_host(state)),
         Arc::new(AtomicBool::new(false)),
     )?;
 
@@ -197,12 +219,21 @@ pub(crate) fn set_lan(state: &AppState, enabled: bool) -> std::io::Result<LocalA
                 state.genesis.clone(),
                 state.genesis_path.clone(),
                 Arc::new(control.clone()),
+                Some(import_host(state)),
                 stop.clone(),
             )?;
             control.lan = Some(LanShare { bind, stop });
         }
     }
     Ok(info(control))
+}
+
+fn import_host(state: &AppState) -> Arc<ImportHost> {
+    Arc::new(ImportHost {
+        genesis: state.genesis.clone(),
+        data_root: state.data_root.clone(),
+        runtime: state.whisper_runtime_clone(),
+    })
 }
 
 /// One accept loop for either bind. Non-blocking accept polled every 40 ms
@@ -213,6 +244,7 @@ fn spawn_listener(
     storage: Arc<genesis_block_native::Storage>,
     genesis_path: std::path::PathBuf,
     control: Arc<LocalApiControl>,
+    host: Option<Arc<ImportHost>>,
     stop: Arc<AtomicBool>,
 ) -> std::io::Result<()> {
     listener.set_nonblocking(true)?;
@@ -234,10 +266,11 @@ fn spawn_listener(
                     let storage = storage.clone();
                     let genesis_path = genesis_path.clone();
                     let control = control.clone();
+                    let host = host.clone();
                     let slots = in_flight.clone();
                     thread::spawn(move || {
                         let _slot = SlotGuard(slots);
-                        handle_stream(stream, &storage, &genesis_path, &control);
+                        handle_stream(stream, &storage, &genesis_path, &control, host.as_deref());
                     });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -261,6 +294,8 @@ pub(crate) struct Request {
     pub(crate) query: BTreeMap<String, String>,
     /// Header names lower-cased; values trimmed.
     pub(crate) headers: BTreeMap<String, String>,
+    /// Raw body; empty for every method but `POST`.
+    pub(crate) body: Vec<u8>,
 }
 
 impl Request {
@@ -301,10 +336,13 @@ fn head_end(buffer: &[u8]) -> Option<usize> {
     buffer.windows(4).position(|window| window == b"\r\n\r\n")
 }
 
-/// Reads until the end of the request head. GET requests carry no body, and
-/// a body on any other method is ignored: the router rejects the method
-/// before it could matter.
-fn read_request(stream: &mut TcpStream) -> Option<Request> {
+/// Reads the request head, then — for `POST` only — exactly `Content-Length`
+/// bytes of body, capped at [`MAX_UPLOAD_BYTES`]. A body on any other
+/// method is left unread; the router rejects those methods anyway. `Err`
+/// carries the response to send instead (`400` for a malformed head,
+/// `413` for an oversized upload).
+fn read_request(stream: &mut TcpStream) -> Result<Request, Response> {
+    let bad = || Response::json("400 Bad Request", json!({"error": "BAD_REQUEST"}));
     stream.set_read_timeout(Some(REQUEST_READ_TIMEOUT)).ok();
     let mut buffer = Vec::with_capacity(4096);
     let mut chunk = [0_u8; 4096];
@@ -313,16 +351,43 @@ fn read_request(stream: &mut TcpStream) -> Option<Request> {
             break;
         }
         if buffer.len() > MAX_REQUEST_HEAD {
-            return None;
+            return Err(bad());
         }
-        let read = stream.read(&mut chunk).ok()?;
+        let read = stream.read(&mut chunk).map_err(|_| bad())?;
         if read == 0 {
             break;
         }
         buffer.extend_from_slice(&chunk[..read]);
     }
-    let end = head_end(&buffer)?;
-    parse_request(&String::from_utf8_lossy(&buffer[..end]))
+    let end = head_end(&buffer).ok_or_else(bad)?;
+    let mut request = parse_request(&String::from_utf8_lossy(&buffer[..end])).ok_or_else(bad)?;
+    if request.method != "POST" {
+        return Ok(request);
+    }
+    let length: usize = request
+        .header("content-length")
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| {
+            Response::json("411 Length Required", json!({"error": "LENGTH_REQUIRED"}))
+        })?;
+    if length > MAX_UPLOAD_BYTES {
+        return Err(Response::json(
+            "413 Payload Too Large",
+            json!({"error": "PAYLOAD_TOO_LARGE", "maxBytes": MAX_UPLOAD_BYTES}),
+        ));
+    }
+    let mut body = buffer[end + 4..].to_vec();
+    body.reserve(length.saturating_sub(body.len()));
+    while body.len() < length {
+        let read = stream.read(&mut chunk).map_err(|_| bad())?;
+        if read == 0 {
+            return Err(bad());
+        }
+        body.extend_from_slice(&chunk[..read]);
+    }
+    body.truncate(length);
+    request.body = body;
+    Ok(request)
 }
 
 pub(crate) fn parse_request(head: &str) -> Option<Request> {
@@ -343,6 +408,7 @@ pub(crate) fn parse_request(head: &str) -> Option<Request> {
         path: path.to_string(),
         query,
         headers,
+        body: Vec::new(),
     })
 }
 
@@ -395,8 +461,10 @@ fn write_response(stream: &mut TcpStream, response: Response, cors_origin: Optio
     if let Some(origin) = cors_origin {
         head.push_str(&format!("Access-Control-Allow-Origin: {origin}\r\n"));
         head.push_str("Vary: Origin\r\n");
-        head.push_str("Access-Control-Allow-Methods: GET, OPTIONS\r\n");
-        head.push_str("Access-Control-Allow-Headers: Authorization, Range\r\n");
+        head.push_str("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n");
+        head.push_str(
+            "Access-Control-Allow-Headers: Authorization, Range, Content-Type, X-Fung-Filename\r\n",
+        );
         head.push_str(
             "Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges, X-Fung-Missing-Chunks\r\n",
         );
@@ -418,18 +486,18 @@ fn handle_stream(
     storage: &genesis_block_native::Storage,
     genesis_path: &Path,
     control: &LocalApiControl,
+    host: Option<&ImportHost>,
 ) {
-    let Some(request) = read_request(&mut stream) else {
-        write_response(
-            &mut stream,
-            Response::json("400 Bad Request", json!({"error": "BAD_REQUEST"})),
-            None,
-        );
-        return;
+    let request = match read_request(&mut stream) {
+        Ok(request) => request,
+        Err(response) => {
+            write_response(&mut stream, response, None);
+            return;
+        }
     };
     let origin = request.header("origin").map(str::to_string);
     let cors = origin.as_deref().filter(|origin| origin_allowed(origin));
-    let response = route(&request, storage, genesis_path, control);
+    let response = route(&request, storage, genesis_path, control, host);
     write_response(&mut stream, response, cors);
 }
 
@@ -492,9 +560,19 @@ pub(crate) fn route(
     storage: &genesis_block_native::Storage,
     genesis_path: &Path,
     control: &LocalApiControl,
+    host: Option<&ImportHost>,
 ) -> Response {
     if request.method == "OPTIONS" {
         return Response::empty("204 No Content");
+    }
+    if request.method == "POST" {
+        if request.path != "/recordings/import" {
+            return Response::json("404 Not Found", json!({"error": "NOT_FOUND"}));
+        }
+        if !authorized(request, &control.token) {
+            return Response::json("401 Unauthorized", json!({"error": "AUTH_REQUIRED"}));
+        }
+        return import_recording(request, storage, host);
     }
     if request.method != "GET" {
         return Response::json(
@@ -541,6 +619,31 @@ pub(crate) fn route(
             ),
         };
     }
+    if let Some(job_id) = request
+        .path
+        .strip_prefix("/jobs/")
+        .filter(|id| !id.is_empty() && !id.contains('/'))
+    {
+        return match crate::job_by_id(storage, job_id) {
+            Ok(job) => Response::json("200 OK", json!({"job": job})),
+            Err(crate::AppError::InvalidInput(detail)) => Response::json(
+                "404 Not Found",
+                json!({"error": "NOT_FOUND", "detail": detail}),
+            ),
+            Err(error) => Response::json(
+                "500 Internal Server Error",
+                json!({"error": "LEDGER_READ_FAILED", "detail": error.to_string()}),
+            ),
+        };
+    }
+    if let Some(recording_id) = request
+        .path
+        .strip_prefix("/recordings/")
+        .and_then(|rest| rest.strip_suffix("/transcript"))
+        .filter(|id| !id.is_empty() && !id.contains('/'))
+    {
+        return transcript(storage, recording_id);
+    }
     if let Some(recording_id) = request
         .path
         .strip_prefix("/recordings/")
@@ -568,9 +671,177 @@ pub(crate) fn route(
         "404 Not Found",
         json!({
             "error": "NOT_FOUND",
-            "available": ["/health", "/recordings", "/recordings/{id}/audio?channel=mic|system|file"]
+            "available": [
+                "/health",
+                "/recordings",
+                "/recordings/{id}/audio?channel=mic|system|file",
+                "/recordings/{id}/transcript",
+                "/jobs/{id}",
+                "POST /recordings/import"
+            ]
         }),
     )
+}
+
+// ---------------------------------------------------------------------------
+// Upload → import → transcript
+// ---------------------------------------------------------------------------
+
+/// File extension for an uploaded body, from its `Content-Type`. The worker
+/// decodes by content, not by name, so an unknown type still transcribes;
+/// the extension only keeps the stored file recognisable.
+pub(crate) fn upload_extension(content_type: Option<&str>) -> &'static str {
+    let container = content_type
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    match container.as_str() {
+        "audio/webm" | "video/webm" => "webm",
+        "audio/mp4" | "audio/x-m4a" | "audio/aac" => "m4a",
+        "audio/ogg" | "audio/opus" => "ogg",
+        "audio/wav" | "audio/x-wav" | "audio/wave" => "wav",
+        "audio/mpeg" | "audio/mp3" => "mp3",
+        "audio/flac" => "flac",
+        _ => "bin",
+    }
+}
+
+/// A display name for the project the upload lands in, from the optional
+/// `X-Fung-Filename` header: the stem, restricted to characters that are
+/// harmless in a project name and a log line. Empty → a dated default.
+pub(crate) fn upload_project_name(filename: Option<&str>) -> String {
+    let stem = filename
+        .map(|name| name.rsplit(['/', '\\']).next().unwrap_or(name))
+        .map(|name| name.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(name))
+        .map(|stem| {
+            stem.chars()
+                .filter(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.'))
+                .take(80)
+                .collect::<String>()
+        })
+        .map(|stem| stem.trim().to_string())
+        .filter(|stem| !stem.is_empty());
+    stem.unwrap_or_else(|| format!("Web recording {}", crate::now()))
+}
+
+fn import_recording(
+    request: &Request,
+    storage: &genesis_block_native::Storage,
+    host: Option<&ImportHost>,
+) -> Response {
+    let Some(host) = host else {
+        return Response::json(
+            "503 Service Unavailable",
+            json!({"error": "IMPORT_UNAVAILABLE", "detail": "this listener has no transcription runtime"}),
+        );
+    };
+    if request.body.is_empty() {
+        return Response::json("400 Bad Request", json!({"error": "EMPTY_BODY"}));
+    }
+    let recording_id = Uuid::new_v4().to_string();
+    let extension = upload_extension(request.header("content-type"));
+    let name = upload_project_name(request.header("x-fung-filename"));
+    let directory = host.data_root.join("imports").join("web");
+    let path = directory.join(format!("{recording_id}.{extension}"));
+    if let Err(error) = fs::create_dir_all(&directory).and_then(|_| fs::write(&path, &request.body))
+    {
+        return Response::json(
+            "500 Internal Server Error",
+            json!({"error": "WRITE_FAILED", "detail": error.to_string()}),
+        );
+    }
+    let path_string = path.display().to_string();
+    let project_id = match crate::create_project_named(storage, &host.data_root, &name) {
+        Ok(id) => id,
+        Err(error) => {
+            return Response::json(
+                "500 Internal Server Error",
+                json!({"error": "LEDGER_WRITE_FAILED", "detail": error.to_string()}),
+            )
+        }
+    };
+    let job = match crate::create_import_job(&host.genesis, &project_id, &path_string) {
+        Ok(job) => job,
+        Err(error) => {
+            return Response::json(
+                "500 Internal Server Error",
+                json!({"error": "LEDGER_WRITE_FAILED", "detail": error.to_string()}),
+            )
+        }
+    };
+
+    let genesis = host.genesis.clone();
+    let runtime = host.runtime.clone();
+    let job_id = job.id.clone();
+    let worker_project = project_id.clone();
+    let worker_recording = recording_id.clone();
+    thread::spawn(move || {
+        crate::run_import_pipeline_as(
+            &genesis,
+            &runtime,
+            &worker_project,
+            &job_id,
+            "web-import",
+            &path_string,
+            Path::new(&path_string),
+            crate::ImportProgress::whole_job(),
+            &worker_recording,
+        );
+    });
+
+    Response::json(
+        "202 Accepted",
+        json!({
+            "jobId": job.id,
+            "projectId": project_id,
+            "recordingId": recording_id,
+            "bytes": request.body.len(),
+            "extension": extension,
+        }),
+    )
+}
+
+/// The recording's transcript segments, resolved through its own project
+/// so the project-scoped read (`transcript_view`) applies unchanged.
+fn transcript(storage: &genesis_block_native::Storage, recording_id: &str) -> Response {
+    let project_id = match genesis_adapter::query(
+        storage,
+        "recordings",
+        &["project_id"],
+        vec![genesis_adapter::eq("recordings", "id", json!(recording_id))],
+        1,
+    ) {
+        Ok(rows) => rows
+            .into_iter()
+            .next()
+            .and_then(|row| str_col(&row, "recordings", "project_id")),
+        Err(error) => {
+            return Response::json(
+                "500 Internal Server Error",
+                json!({"error": "LEDGER_READ_FAILED", "detail": error}),
+            )
+        }
+    };
+    let Some(project_id) = project_id else {
+        return Response::json("404 Not Found", json!({"error": "NOT_FOUND"}));
+    };
+    match crate::transcript_view(storage, &project_id, recording_id) {
+        Ok(view) => Response::json(
+            "200 OK",
+            json!({"projectId": project_id, "recordingId": recording_id, "transcript": view}),
+        ),
+        Err(crate::AppError::InvalidInput(detail)) => Response::json(
+            "404 Not Found",
+            json!({"error": "NOT_FOUND", "detail": detail}),
+        ),
+        Err(error) => Response::json(
+            "500 Internal Server Error",
+            json!({"error": "LEDGER_READ_FAILED", "detail": error.to_string()}),
+        ),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1181,10 +1452,10 @@ mod tests {
     fn health_is_open_but_everything_else_needs_the_token() {
         let (dir, storage) = open_genesis();
         let control = control();
-        let health = route(&get("/health", &[]), &storage, &dir, &control);
+        let health = route(&get("/health", &[]), &storage, &dir, &control, None);
         assert_eq!(health.status, "200 OK");
 
-        let denied = route(&get("/recordings", &[]), &storage, &dir, &control);
+        let denied = route(&get("/recordings", &[]), &storage, &dir, &control, None);
         assert_eq!(denied.status, "401 Unauthorized");
 
         let denied = route(
@@ -1192,6 +1463,7 @@ mod tests {
             &storage,
             &dir,
             &control,
+            None,
         );
         assert_eq!(denied.status, "401 Unauthorized");
 
@@ -1203,6 +1475,7 @@ mod tests {
             &storage,
             &dir,
             &control,
+            None,
         );
         assert_eq!(
             preflight.status, "204 No Content",
@@ -1215,8 +1488,21 @@ mod tests {
             &storage,
             &dir,
             &control,
+            None,
         );
-        assert_eq!(post.status, "405 Method Not Allowed");
+        assert_eq!(
+            post.status, "404 Not Found",
+            "POST exists for /recordings/import only"
+        );
+        let put = route(
+            &parse_request("PUT /recordings HTTP/1.1\r\nAuthorization: Bearer secret-token\r\n")
+                .unwrap(),
+            &storage,
+            &dir,
+            &control,
+            None,
+        );
+        assert_eq!(put.status, "405 Method Not Allowed");
     }
 
     #[test]
@@ -1335,6 +1621,7 @@ mod tests {
             &storage,
             &dir,
             &control(),
+            None,
         );
         assert_eq!(response.status, "200 OK");
         assert!(response
@@ -1354,6 +1641,7 @@ mod tests {
             &storage,
             &dir,
             &control,
+            None,
         );
         assert_eq!(full.status, "200 OK");
         assert_eq!(full.content_type, "audio/mp4");
@@ -1370,6 +1658,7 @@ mod tests {
             &storage,
             &dir,
             &control,
+            None,
         );
         assert_eq!(partial.status, "206 Partial Content");
         assert_eq!(partial.body, b"really");
@@ -1385,6 +1674,7 @@ mod tests {
             &storage,
             &dir,
             &control,
+            None,
         );
         assert_eq!(bad.status, "416 Range Not Satisfiable");
         assert!(bad
@@ -1406,6 +1696,7 @@ mod tests {
                 &storage,
                 &dir,
                 &control,
+                None,
             );
             assert_eq!(response.status, "404 Not Found", "{path}");
         }
@@ -1429,7 +1720,7 @@ mod tests {
         let bind = listener.local_addr().unwrap().to_string();
         thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            handle_stream(stream, &storage, &dir, &control);
+            handle_stream(stream, &storage, &dir, &control, None);
         });
         bind
     }
@@ -1480,7 +1771,10 @@ mod tests {
             "{response}"
         );
         assert!(response.contains("Access-Control-Allow-Origin: https://fung-seven.vercel.app\r\n"));
-        assert!(response.contains("Access-Control-Allow-Headers: Authorization, Range\r\n"));
+        assert!(response.contains(
+            "Access-Control-Allow-Headers: Authorization, Range, Content-Type, X-Fung-Filename\r\n"
+        ));
+        assert!(response.contains("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"));
         assert!(response.contains("Access-Control-Allow-Private-Network: true\r\n"));
         assert!(response.contains("Content-Length: 0\r\n"));
 
@@ -1505,7 +1799,7 @@ mod tests {
         let (dir, storage) = open_genesis();
         let control = control();
         for path in ["/", "/index.html"] {
-            let response = route(&get(path, &[]), &storage, &dir, &control);
+            let response = route(&get(path, &[]), &storage, &dir, &control, None);
             assert_eq!(response.status, "200 OK", "{path}");
             assert!(response.content_type.starts_with("text/html"));
             let body = String::from_utf8(response.body).unwrap();
@@ -1579,6 +1873,7 @@ mod tests {
             Arc::new(storage),
             dir,
             Arc::new(control()),
+            None,
             stop.clone(),
         )
         .unwrap();
@@ -1598,5 +1893,396 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(50));
         }
+    }
+
+    fn post(path: &str, headers: &[(&str, &str)], body: &[u8]) -> Request {
+        let mut head = format!("POST {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n");
+        for (name, value) in headers {
+            head.push_str(&format!("{name}: {value}\r\n"));
+        }
+        let mut request = parse_request(&head).unwrap();
+        request.body = body.to_vec();
+        request
+    }
+
+    fn import_host(storage: Arc<Storage>, data_root: PathBuf) -> ImportHost {
+        ImportHost {
+            genesis: storage,
+            data_root,
+            runtime: WhisperRuntime {
+                python: PathBuf::from("python-that-does-not-exist"),
+                script: PathBuf::from("transcribe.py"),
+                cuda_bin: PathBuf::from("cuda"),
+            },
+        }
+    }
+
+    #[test]
+    fn upload_metadata_is_derived_defensively() {
+        assert_eq!(upload_extension(Some("audio/webm;codecs=opus")), "webm");
+        assert_eq!(upload_extension(Some("audio/mp4")), "m4a");
+        assert_eq!(upload_extension(Some("AUDIO/WAV")), "wav");
+        assert_eq!(upload_extension(None), "bin");
+        assert_eq!(upload_extension(Some("text/html")), "bin");
+
+        assert_eq!(
+            upload_project_name(Some("fung-web-2026-09-16-1203.webm")),
+            "fung-web-2026-09-16-1203"
+        );
+        assert_eq!(
+            upload_project_name(Some("..\\..\\evil<script>.webm")),
+            "evilscript"
+        );
+        assert!(upload_project_name(None).starts_with("Web recording "));
+        assert!(upload_project_name(Some("   ")).starts_with("Web recording "));
+    }
+
+    #[test]
+    fn upload_needs_the_token_the_right_path_and_a_runtime() {
+        let (dir, storage) = open_genesis();
+        let control = control();
+        let denied = route(
+            &post("/recordings/import", &[], b"abc"),
+            &storage,
+            &dir,
+            &control,
+            None,
+        );
+        assert_eq!(denied.status, "401 Unauthorized");
+
+        let elsewhere = route(
+            &post(
+                "/recordings",
+                &[("Authorization", "Bearer secret-token")],
+                b"abc",
+            ),
+            &storage,
+            &dir,
+            &control,
+            None,
+        );
+        assert_eq!(
+            elsewhere.status, "404 Not Found",
+            "only /recordings/import takes a POST"
+        );
+
+        let no_runtime = route(
+            &post(
+                "/recordings/import",
+                &[("Authorization", "Bearer secret-token")],
+                b"abc",
+            ),
+            &storage,
+            &dir,
+            &control,
+            None,
+        );
+        assert_eq!(no_runtime.status, "503 Service Unavailable");
+    }
+
+    /// The whole browser → desktop hand-off short of the Whisper worker
+    /// itself: the bytes land under the data root, a project and a running
+    /// job exist in the ledger, the `202` names the recording the worker
+    /// will write, and `/jobs/{id}` can be polled for it. The worker is
+    /// pointed at a python that does not exist, so the job settles as
+    /// `failed` rather than hanging the test on a real transcription.
+    #[test]
+    fn upload_takes_custody_creates_a_job_and_is_pollable() {
+        let (dir, storage) = open_genesis();
+        let storage = Arc::new(storage);
+        let data_root = dir.join("data");
+        let host = import_host(storage.clone(), data_root.clone());
+        let control = control();
+
+        let accepted = route(
+            &post(
+                "/recordings/import",
+                &[
+                    ("Authorization", "Bearer secret-token"),
+                    ("Content-Type", "audio/webm;codecs=opus"),
+                    ("X-Fung-Filename", "fung-web-2026-09-16-1203.webm"),
+                ],
+                b"\x1aE\xdf\xa3 not really webm",
+            ),
+            &storage,
+            &dir,
+            &control,
+            Some(&host),
+        );
+        assert_eq!(
+            accepted.status,
+            "202 Accepted",
+            "{}",
+            String::from_utf8_lossy(&accepted.body)
+        );
+        let body: Value = serde_json::from_slice(&accepted.body).unwrap();
+        let job_id = body["jobId"].as_str().unwrap().to_string();
+        let project_id = body["projectId"].as_str().unwrap().to_string();
+        let recording_id = body["recordingId"].as_str().unwrap().to_string();
+        assert_eq!(body["extension"], "webm");
+
+        let stored = data_root
+            .join("imports")
+            .join("web")
+            .join(format!("{recording_id}.webm"));
+        assert!(
+            stored.is_file(),
+            "upload must be written under the data root"
+        );
+        assert_eq!(fs::read(&stored).unwrap(), b"\x1aE\xdf\xa3 not really webm");
+
+        let projects = genesis_adapter::query(
+            &storage,
+            "projects",
+            &["name"],
+            vec![genesis_adapter::eq("projects", "id", json!(project_id))],
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            str_col(&projects[0], "projects", "name").as_deref(),
+            Some("fung-web-2026-09-16-1203")
+        );
+
+        // Poll until the worker (with no python) settles the job.
+        let mut last = String::new();
+        for _ in 0..100 {
+            let polled = route(
+                &get(&format!("/jobs/{job_id}?token=secret-token"), &[]),
+                &storage,
+                &dir,
+                &control,
+                Some(&host),
+            );
+            assert_eq!(polled.status, "200 OK");
+            let job: Value = serde_json::from_slice(&polled.body).unwrap();
+            last = job["job"]["status"].as_str().unwrap_or("").to_string();
+            if last == "failed" || last == "completed" {
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(
+            last, "failed",
+            "no python on this host, so the job must fail — not hang"
+        );
+
+        let missing = route(
+            &get("/jobs/nope?token=secret-token", &[]),
+            &storage,
+            &dir,
+            &control,
+            Some(&host),
+        );
+        assert_eq!(missing.status, "404 Not Found");
+    }
+
+    #[test]
+    fn transcript_route_resolves_the_project_and_404s_the_unknown() {
+        let (dir, storage) = open_genesis();
+        let project_dir = dir.join("project");
+        seed(&storage, &project_dir);
+        let control = control();
+
+        let ok = route(
+            &get("/recordings/rec-live/transcript?token=secret-token", &[]),
+            &storage,
+            &dir,
+            &control,
+            None,
+        );
+        assert_eq!(ok.status, "200 OK", "{}", String::from_utf8_lossy(&ok.body));
+        let body: Value = serde_json::from_slice(&ok.body).unwrap();
+        assert_eq!(body["projectId"], "p1");
+        assert_eq!(body["recordingId"], "rec-live");
+        assert!(body["transcript"]["segments"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+
+        let missing = route(
+            &get("/recordings/nope/transcript?token=secret-token", &[]),
+            &storage,
+            &dir,
+            &control,
+            None,
+        );
+        assert_eq!(missing.status, "404 Not Found");
+    }
+
+    /// Body framing over a real socket: the head and the first body bytes
+    /// arrive in one read, the rest in later ones, and `Content-Length`
+    /// decides where the body ends. Without a runtime the route answers
+    /// `503`, which is enough to prove the body was read and parsed.
+    #[test]
+    fn upload_body_is_read_to_content_length_over_a_real_socket() {
+        let (dir, storage) = open_genesis();
+        let bind = spawn_once(Arc::new(storage), dir, control());
+        let body = vec![b'x'; 10_000];
+        let mut stream = TcpStream::connect(&bind).unwrap();
+        let head = format!(
+            "POST /recordings/import HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer secret-token\r\nContent-Type: audio/webm\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(head.as_bytes()).unwrap();
+        stream.write_all(&body[..100]).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        stream.write_all(&body[100..]).unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
+        let response = String::from_utf8_lossy(&response);
+        assert!(
+            response.starts_with("HTTP/1.1 503 Service Unavailable\r\n"),
+            "{response}"
+        );
+
+        let (dir, storage) = open_genesis();
+        let bind = spawn_once(Arc::new(storage), dir, control());
+        let oversized = raw_request(
+            &bind,
+            &format!(
+                "POST /recordings/import HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer secret-token\r\nContent-Length: {}\r\n\r\n",
+                MAX_UPLOAD_BYTES + 1
+            ),
+        );
+        assert!(
+            oversized.starts_with("HTTP/1.1 413 Payload Too Large\r\n"),
+            "{oversized}"
+        );
+    }
+
+    /// The real thing, end to end below the browser: the repo's staged
+    /// `.venv-whisper` runtime transcribes an uploaded WAV through the same
+    /// route → pipeline → transcript path the web dashboard uses. Needs the
+    /// runtime staged on this machine (`scripts/stage_whisper_runtime.ps1`)
+    /// and a speech fixture in `FUNG_UPLOAD_FIXTURE`, so it is opt-in:
+    /// `cargo test --lib upload_transcribes_with_the_real_runtime -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn upload_transcribes_with_the_real_runtime() {
+        let fixture = std::env::var("FUNG_UPLOAD_FIXTURE")
+            .expect("FUNG_UPLOAD_FIXTURE=<path to a speech wav>");
+        let root = crate::source_root();
+        let runtime = WhisperRuntime {
+            python: root
+                .join(".venv-whisper")
+                .join("Scripts")
+                .join("python.exe"),
+            script: root.join("scripts").join("transcribe.py"),
+            cuda_bin: root.join("runtime").join("cuda12").join("bin"),
+        };
+        assert!(
+            runtime.python.is_file(),
+            "stage the whisper runtime first: {}",
+            runtime.python.display()
+        );
+
+        let (dir, storage) = open_genesis();
+        let storage = Arc::new(storage);
+        let data_root = dir.join("data");
+        let host = ImportHost {
+            genesis: storage.clone(),
+            data_root: data_root.clone(),
+            runtime,
+        };
+        let control = control();
+        let bytes = fs::read(&fixture).expect("read fixture");
+        let content_type = if fixture.to_ascii_lowercase().ends_with(".wav") {
+            "audio/wav"
+        } else {
+            "audio/webm"
+        };
+
+        let accepted = route(
+            &post(
+                "/recordings/import",
+                &[
+                    ("Authorization", "Bearer secret-token"),
+                    ("Content-Type", content_type),
+                    ("X-Fung-Filename", "real-runtime-check.wav"),
+                ],
+                &bytes,
+            ),
+            &storage,
+            &dir,
+            &control,
+            Some(&host),
+        );
+        assert_eq!(
+            accepted.status,
+            "202 Accepted",
+            "{}",
+            String::from_utf8_lossy(&accepted.body)
+        );
+        let receipt: Value = serde_json::from_slice(&accepted.body).unwrap();
+        let job_id = receipt["jobId"].as_str().unwrap().to_string();
+        let recording_id = receipt["recordingId"].as_str().unwrap().to_string();
+
+        let started = std::time::Instant::now();
+        let mut status = String::new();
+        let mut job = Value::Null;
+        while started.elapsed() < Duration::from_secs(300) {
+            let polled = route(
+                &get(&format!("/jobs/{job_id}?token=secret-token"), &[]),
+                &storage,
+                &dir,
+                &control,
+                Some(&host),
+            );
+            job = serde_json::from_slice(&polled.body).unwrap();
+            status = job["job"]["status"].as_str().unwrap_or("").to_string();
+            if status == "completed" || status == "failed" {
+                break;
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+        assert_eq!(status, "completed", "job did not complete: {job}");
+
+        let transcript = route(
+            &get(
+                &format!("/recordings/{recording_id}/transcript?token=secret-token"),
+                &[],
+            ),
+            &storage,
+            &dir,
+            &control,
+            Some(&host),
+        );
+        assert_eq!(
+            transcript.status,
+            "200 OK",
+            "{}",
+            String::from_utf8_lossy(&transcript.body)
+        );
+        let body: Value = serde_json::from_slice(&transcript.body).unwrap();
+        let segments = body["transcript"]["segments"].as_array().unwrap();
+        assert!(
+            !segments.is_empty(),
+            "the fixture has speech; expected at least one segment"
+        );
+        let text: Vec<String> = segments
+            .iter()
+            .filter_map(|segment| segment["text"].as_str().map(str::to_string))
+            .collect();
+        eprintln!(
+            "real-runtime upload transcribed in {:.1}s: {}",
+            started.elapsed().as_secs_f64(),
+            text.join(" | ")
+        );
+
+        // The import is now a first-class desktop recording too.
+        let listed = route(
+            &get("/recordings?token=secret-token", &[]),
+            &storage,
+            &dir,
+            &control,
+            Some(&host),
+        );
+        let listed: Value = serde_json::from_slice(&listed.body).unwrap();
+        assert!(listed["recordings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|recording| recording["id"] == recording_id));
     }
 }

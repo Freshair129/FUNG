@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, Cloud, Download, LogOut, Mic, Settings, Square, Trash2 } from "lucide-react";
+import { ChevronDown, Cloud, Download, FileText, LogOut, Mic, Settings, Square, Trash2 } from "lucide-react";
 import { FungLogo } from "../components/FungLogo";
 import { supabase } from "../lib/supabase";
 import { AccountSettings } from "./AccountSettings";
 import { formatRelativeThai, usePairedDevices } from "./usePairedDevices";
 import { useLocalRecordings } from "./useLocalRecordings";
+import { useDesktopTranscription } from "./useDesktopTranscription";
 import { useWebRecorder } from "./useWebRecorder";
 import {
   deleteWebRecording,
@@ -12,6 +13,7 @@ import {
   formatDurationMs,
   listWebRecordings,
   webRecordingFileName,
+  type DesktopTranscription,
   type StoredWebRecording,
 } from "./webRecordings";
 import "./Dashboard.css";
@@ -50,6 +52,19 @@ export function Dashboard() {
     setWebRecordings((current) => [recording, ...(current ?? [])]);
   }, []);
   const recorder = useWebRecorder(onRecordingSaved);
+
+  // Hand-off to the desktop on this machine: remembered on the recording so
+  // a reload finds the transcript again instead of uploading twice.
+  const onDesktopLinked = useCallback((id: string, desktop: DesktopTranscription) => {
+    setWebRecordings((current) =>
+      (current ?? []).map((recording) => (recording.id === id ? { ...recording, desktop } : recording)),
+    );
+  }, []);
+  const localReload = local.reload;
+  const onDesktopCompleted = useCallback(() => {
+    void localReload();
+  }, [localReload]);
+  const desktop = useDesktopTranscription(local.connection, webRecordings, onDesktopLinked, onDesktopCompleted);
 
   useEffect(() => {
     if (!recorder.supported) {
@@ -285,6 +300,22 @@ export function Dashboard() {
                         </small>
                       </div>
                       <div className="dashboard-rec-actions">
+                        {!recording.desktop && (
+                          <button
+                            type="button"
+                            className="dashboard-rec-action is-primary"
+                            disabled={local.state !== "ready" || desktop.statuses[recording.id]?.phase === "uploading"}
+                            title={
+                              local.state === "ready"
+                                ? "ส่งไฟล์ไป FUNG desktop บนเครื่องนี้เพื่อถอดเสียง (ไม่ผ่าน cloud)"
+                                : "เชื่อมต่อ FUNG desktop ในช่อง “ไฟล์ล่าสุด” ด้านล่างก่อน"
+                            }
+                            onClick={() => void desktop.send(recording)}
+                          >
+                            <FileText size={13} />
+                            {desktop.statuses[recording.id]?.phase === "uploading" ? "กำลังส่ง…" : "ถอดเสียงที่ desktop"}
+                          </button>
+                        )}
                         <a
                           className="dashboard-rec-action"
                           href={webUrls[recording.id]}
@@ -304,6 +335,60 @@ export function Dashboard() {
                     {webUrls[recording.id] && (
                       <audio className="dashboard-audio" controls preload="metadata" src={webUrls[recording.id]} />
                     )}
+                    {(() => {
+                      const status = desktop.statuses[recording.id];
+                      if (!recording.desktop && !status) return null;
+                      if (status?.phase === "failed") {
+                        return (
+                          <p className="dashboard-device-error">
+                            ถอดเสียงที่ desktop ไม่สำเร็จ — {status.error}
+                            {recording.desktop && (
+                              <button
+                                type="button"
+                                className="dashboard-link-btn"
+                                onClick={() => void desktop.send(recording)}
+                              >
+                                ส่งใหม่
+                              </button>
+                            )}
+                          </p>
+                        );
+                      }
+                      if (status?.phase === "completed" && status.segments) {
+                        return (
+                          <details className="dashboard-transcript" open>
+                            <summary>
+                              ถอดเสียงแล้ว · {status.segments.length} ช่วง · อยู่ในโปรเจกต์ของ desktop แล้ว
+                            </summary>
+                            {status.segments.length === 0 ? (
+                              <p className="dashboard-connect-hint">desktop ไม่พบคำพูดในไฟล์นี้</p>
+                            ) : (
+                              <ol className="dashboard-transcript-list">
+                                {status.segments.map((segment) => (
+                                  <li key={segment.id}>
+                                    <span className="dashboard-transcript-time">{formatDurationMs(segment.startMs)}</span>
+                                    {segment.speakerName && (
+                                      <span className="dashboard-transcript-speaker">{segment.speakerName}</span>
+                                    )}
+                                    <span>{segment.text}</span>
+                                  </li>
+                                ))}
+                              </ol>
+                            )}
+                          </details>
+                        );
+                      }
+                      const progress = status?.progress ?? 0;
+                      return (
+                        <p className="dashboard-connect-hint dashboard-transcript-progress" aria-live="polite">
+                          {status?.phase === "uploading"
+                            ? "กำลังส่งไฟล์ไป desktop…"
+                            : local.state === "ready"
+                              ? `desktop กำลังถอดเสียง… ${progress}%`
+                              : "ส่งไป desktop แล้ว — เชื่อมต่อ desktop อีกครั้งเพื่อดู transcript"}
+                        </p>
+                      );
+                    })()}
                   </li>
                 ))}
               </ul>

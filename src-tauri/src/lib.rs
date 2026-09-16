@@ -1972,15 +1972,22 @@ fn resolve_or_create_project(
     if let Some(id) = project_id {
         return Ok(id);
     }
+    create_project_named(&state.genesis, &state.data_root, default_name)
+}
+
+/// Creates a project whose storage lives under `<data_root>/projects/<id>`
+/// and returns its id. The Tauri-state-free half of
+/// [`resolve_or_create_project`], shared with the loopback API's upload
+/// route (`local_api::import_recording`), which has no `AppState`.
+pub(crate) fn create_project_named(
+    genesis: &genesis_block_native::Storage,
+    data_root: &std::path::Path,
+    name: &str,
+) -> AppResult<String> {
     let id = Uuid::new_v4().to_string();
     let timestamp = now();
-    let storage_path = state
-        .data_root
-        .join("projects")
-        .join(&id)
-        .display()
-        .to_string();
-    genesis_adapter::commit_rows(&state.genesis, vec![genesis_adapter::upsert("projects", serde_json::json!({"id":id,"name":default_name,"storage_path":storage_path,"active_recording_id":null,"created_at":timestamp,"updated_at":timestamp}))]).map_err(AppError::Genesis)?;
+    let storage_path = data_root.join("projects").join(&id).display().to_string();
+    genesis_adapter::commit_rows(genesis, vec![genesis_adapter::upsert("projects", serde_json::json!({"id":id,"name":name,"storage_path":storage_path,"active_recording_id":null,"created_at":timestamp,"updated_at":timestamp}))]).map_err(AppError::Genesis)?;
     Ok(id)
 }
 
@@ -2182,6 +2189,36 @@ fn run_import_pipeline(
     progress: ImportProgress,
 ) {
     let recording_id = Uuid::new_v4().to_string();
+    run_import_pipeline_as(
+        genesis,
+        runtime,
+        project_id,
+        job_id,
+        source,
+        input_path,
+        source_file,
+        progress,
+        &recording_id,
+    );
+}
+
+/// [`run_import_pipeline`] with the recording id chosen by the caller. The
+/// loopback API's upload route hands the id back to the browser in its
+/// `202` before the worker has written anything, so the page can poll
+/// `/recordings/{id}/transcript` for precisely this import.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_import_pipeline_as(
+    genesis: &Arc<genesis_block_native::Storage>,
+    runtime: &WhisperRuntime,
+    project_id: &str,
+    job_id: &str,
+    source: &str,
+    input_path: &str,
+    source_file: &std::path::Path,
+    progress: ImportProgress,
+    recording_id: &str,
+) {
+    let recording_id = recording_id.to_string();
     let timestamp = now();
 
     // Take custody before anything depends on this audio. Until this existed

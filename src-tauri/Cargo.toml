@@ -1,6 +1,6 @@
 [package]
 name = "fung"
-version = "0.1.0"
+version = "0.1.1"
 default-run = "fung"
 description = "FUNG local-first audio intelligence desktop app"
 authors = ["Boss"]

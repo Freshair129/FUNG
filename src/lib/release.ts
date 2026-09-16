@@ -1,4 +1,4 @@
-export const DESKTOP_RELEASE_VERSION = "0.1.0";
+export const DESKTOP_RELEASE_VERSION = "0.1.1";
 
 // Approximate installer size shown in the download CTA copy. Update this
 // alongside DESKTOP_RELEASE_VERSION whenever a new build changes the size

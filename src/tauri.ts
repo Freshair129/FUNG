@@ -88,7 +88,7 @@ export type TranscriptSegment = {
 
 const fallbackHealth: Health = {
   app: "FUNG",
-  version: "0.1.0",
+  version: "0.1.1",
   databasePath: "browser-preview",
   sqliteWal: true,
   genesisPath: "browser-preview",

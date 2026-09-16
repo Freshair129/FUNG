@@ -294,6 +294,20 @@ LAN TCP + Noise KK เฉพาะอุปกรณ์ที่จับคู�
 - ระบุ mapping ของทุกหน้าจอกับ command/API ใน §5 (ชื่อ command เดิม; เพิ่มได้แต่ต้องขอ)
 - ส่งเป็นไฟล์ที่ทีม dev ใช้ต่อได้: token เป็น CSS variables, ไอคอนจาก lucide, โลโก้ SVG `currentColor` ตามกฎ §2
 
+### 9.1 Wireframe ทุกหน้า + Mockup ทุกหน้า (deliverable บังคับ)
+
+ส่ง 2 ชั้นต่อทุกหน้าจอด้านล่าง: **wireframe** (low-fi, โครง/ลำดับข้อมูล/จุดกด, ไม่ต้องสี) และ **mockup** (hi-fi ตาม design system ใหม่, light + dark) ทุกหน้าต้องมีสถานะ **ปกติ / ว่าง (empty) / กำลังโหลด / ผิดพลาด (error)** และ mobile ต้องมีทั้ง portrait และ landscape สำหรับ Home, Capture, Files
+
+| Surface | หน้าจอที่ต้องมี (อ้างอิง §4) |
+| --- | --- |
+| **Desktop** (1280×800 หรือ responsive ถ้าเสนอ) | 1 Home · 2 Meeting workspace (แสดงทั้ง 4 anchor: Capture / Transcript / Summary / Runtime หรือ IA ใหม่ที่เสนอแทน) · 3 Live meeting (idle / listening / degraded / stopped + สรุปหลังประชุม) · 4 Transcript review + rename ผู้พูด · 5 Summary + TTS · 6 Export · 7 Recovery notice · 8 Settings ทุก tab (Sign In & Backup, TTS, Cloud, Fetch from URL, Zoom, Runtime/Local API + QR, External Connections) · 9 Device pairing (รหัส 6 หลัก + FUNGWIRE) · 10 External tools (preview → approve → result) · 11 Sign-in (pending / authenticated / error) · 12 Backup + Google Drive (phrase 24 คำ) |
+| **Mobile** (Android, 360–430dp) | 1 Home · 2 Capture (idle / recording / paused / finalizing / completed / recovery_required) · 3 Files + player inline · 4 Notes (list / create sheet / detail) · 5 Graph + inspector · 6 Timeline (speaker turns + inspector) · 7 Devices (signed-out / signed-in / จับคู่แล้ว / ยกเลิก) · 8 Pairing sheet · 9 Story editor · 10 Processing studio (4 tab + delegate to desktop/cloud) · 11 Sign-in ผ่าน system browser + กลับแอป · 12 Theme/MCP settings |
+| **Web dashboard** | 1 Landing → sign-in → callback (loading / error) · 2 Dashboard (3 ส่วน: อัดในเบราว์เซอร์, ไฟล์จาก desktop, อุปกรณ์) · 3 Recorder (idle / requesting mic / recording / saving / mic denied) · 4 รายการไฟล์ + ถอดที่ desktop (uploading / running % / completed transcript / failed) · 5 เชื่อมต่อ desktop (unconfigured / loading / error / ready) · 6 Account settings modal · 7 Mobile-width (≤ 640px) ของทุกหน้า |
+| **Landing** | Hero, How it works, Architecture, Demo/Download, Closing, Footer — desktop + mobile width |
+| **Phone page** (desktop-served) | Connect card (สแกน/วางลิงก์) · รายการ + player · error (ติดต่อไม่ได้ / ลิงก์หมดอายุ) |
+
+รูปแบบส่งมอบ: Figma (หรือ Penpot) 1 ไฟล์ แยก page ต่อ surface, component/token เป็น library ในไฟล์เดียวกัน; export PNG 2× ทุก mockup ลงโฟลเดอร์ `docs/design/mockups/<surface>/` และ wireframe ลง `docs/design/wireframes/<surface>/` ตั้งชื่อ `NN-screen-state.png`; ทุกหน้าใน mockup ระบุ command/API ที่หน้านั้นเรียก (จาก §5) ไว้ใน note ของ frame
+
 ## เอกสารอ้างอิงเพิ่มเติม (ในรีโป)
 
 อ่านก่อน: `docs/UI_INTERFACE_INVENTORY.md` (draft 2026-08-22), `docs/superpowers/specs/2026-08-29-desktop-sitemap-redesign-design.md` (IA desktop ปัจจุบัน), `docs/Mobile/PRODUCT_UX_SPEC.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` (2026-08-23), `docs/Mobile/DESIGN_SYSTEM.md`, `docs/Desktop/02-tokens.md` + `04-components.md` (เจตนา ก.ค. ก่อน redesign), `docs/app/WEB_LANDING_PAGE_PROPOSAL.md`, `docs/WEB_PRODUCTION_DEPLOYMENT.md` (ตารางว่าเว็บทำอะไรได้), `docs/appendices/E-egress-register.md`, `docs/Desktop/08-real-progress.md` (สถานะจริงล่าสุด) · superseded: `docs/Mobile/CLONY_INSPIRED_MOBILE_TOKEN_PROPOSAL.md`, `docs/Desktop/CALLMD_FUNG_SCORECARD_TH.md`

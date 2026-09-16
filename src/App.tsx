@@ -21,6 +21,7 @@ import {
 import {
   cancelJob,
   closeWindow,
+  correctTranscriptSegment,
   createJob,
   diarizationStatus,
   createProject,
@@ -117,6 +118,8 @@ type ActivityEntry = {
   detail: string;
   speakerId?: string | null;
   speakerName?: string | null;
+  segmentId?: string;
+  transcriptText?: string;
 };
 
 type EventEntry = {
@@ -484,6 +487,102 @@ function SpeakerLabel({
   );
 }
 
+function TranscriptActivityEntry({
+  entry,
+  onRename,
+  onSave,
+}: {
+  entry: ActivityEntry & { segmentId: string; transcriptText: string };
+  onRename: (speakerId: string, displayName: string) => void;
+  onSave: (segmentId: string, correctedText: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(entry.transcriptText);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setValue(entry.transcriptText);
+  }, [entry.transcriptText]);
+
+  const save = async () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (trimmed === entry.transcriptText) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(entry.segmentId, trimmed);
+      setEditing(false);
+    } catch {
+      // The parent owns the truthful failure notice; keep the draft visible.
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <article className="log-item">
+      <span className="log-item__time">{entry.time}</span>
+      <div>
+        {entry.speakerName && entry.speakerId ? (
+          <SpeakerLabel
+            speakerId={entry.speakerId}
+            speakerName={entry.speakerName}
+            onRename={onRename}
+          />
+        ) : null}
+        {editing ? (
+          <>
+            <textarea
+              className="log-item__transcript-input"
+              aria-label="แก้ไขข้อความ transcript"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              disabled={saving}
+              autoFocus
+            />
+            <div className="log-item__transcript-actions">
+              <button
+                type="button"
+                className="quick-action"
+                onClick={() => void save()}
+                disabled={saving || !value.trim()}
+              >
+                {saving ? "กำลังบันทึก…" : "บันทึกการแก้ไข"}
+              </button>
+              <button
+                type="button"
+                className="quick-action"
+                onClick={() => {
+                  setValue(entry.transcriptText);
+                  setEditing(false);
+                }}
+                disabled={saving}
+              >
+                ยกเลิก
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <strong>{entry.title}</strong>
+            <p>{entry.detail}</p>
+            <button
+              type="button"
+              className="quick-action log-item__edit"
+              onClick={() => setEditing(true)}
+            >
+              แก้ไขข้อความ
+            </button>
+          </>
+        )}
+      </div>
+    </article>
+  );
+}
+
 export function App() {
   const scale = useStageScale();
   const [health, setHealth] = useState<Health | null>(null);
@@ -689,12 +788,14 @@ export function App() {
 
   const activityFeed = useMemo<ActivityEntry[]>(() => {
     if (activeAnchor === "P2" && currentTile.id === "transcript-pass" && segments.length > 0) {
-      const lines = segments.slice(0, 16).map((segment) => ({
+      const lines: ActivityEntry[] = segments.slice(0, 16).map((segment) => ({
         time: formatMs(segment.startMs),
         title: segment.text.length > 60 ? `${segment.text.slice(0, 60)}…` : segment.text,
         detail: segment.confidence != null ? `Confidence ${(segment.confidence * 100).toFixed(0)}%` : "faster-whisper",
         speakerId: segment.speakerId,
         speakerName: segment.speakerName,
+        segmentId: segment.id,
+        transcriptText: segment.text,
       }));
       // First, not last: a transcript that stops mid-meeting reads as a
       // meeting that ended there, and the reader has to know before they
@@ -878,6 +979,21 @@ export function App() {
     setTranscriptRefreshToken((current) => current + 1);
   };
 
+  const handleCorrectTranscriptSegment = async (segmentId: string, correctedText: string) => {
+    if (!selectedProjectId || !activeRecordingId) {
+      setActionNotice("แก้ไข transcript ไม่ได้ — ยังไม่ได้เลือกการบันทึก");
+      throw new Error("No active recording selected");
+    }
+    try {
+      await correctTranscriptSegment(selectedProjectId, activeRecordingId, segmentId, correctedText);
+      setTranscriptRefreshToken((current) => current + 1);
+      setActionNotice("แก้ไข transcript แล้ว — เก็บประวัติการแก้ไขไว้ในเครื่อง");
+    } catch {
+      setActionNotice("แก้ไข transcript ไม่สำเร็จ — ลองใหม่อีกครั้ง");
+      throw new Error("Transcript correction failed");
+    }
+  };
+
   const handleTtsPlay = async (text: string) => {
     // If already playing, stop
     if (ttsAudio) {
@@ -1021,13 +1137,13 @@ export function App() {
     // job kinds change what is already on screen; this one writes to disk and
     // has to say where.
     if (plan.jobType === "export.render") {
-      setActionNotice("กำลังส่งออกซับไตเติล…");
+      setActionNotice("กำลังส่งออก transcript และไฟล์เสียง…");
       const finished = await pollJobUntilDone(queued.id);
       if (finished?.status === "failed") {
-        setActionNotice(finished.errorMessage ?? "ส่งออกซับไตเติลไม่สำเร็จ");
+        setActionNotice(finished.errorMessage ?? "ส่งออก transcript และไฟล์เสียงไม่สำเร็จ");
       } else if (finished?.status === "completed") {
         const written = (await listExportArtifacts(selectedProjectId)).filter(
-          (artifact) => artifact.kind === "srt" || artifact.kind === "vtt",
+          (artifact) => ["srt", "vtt", "wav", "mp3"].includes(artifact.kind),
         );
         setActionNotice(
           written.length > 0
@@ -1035,7 +1151,7 @@ export function App() {
                 .slice(0, 2)
                 .map((artifact) => artifact.filePath)
                 .join(" · ")}`
-            : "ส่งออกเสร็จแล้ว แต่ไม่พบไฟล์ที่บันทึกไว้",
+            : "ส่งออกซับไตเติลเสร็จแล้ว แต่ไม่พบไฟล์ที่บันทึกไว้",
         );
       }
     }
@@ -1360,22 +1476,31 @@ export function App() {
               <div className="log-column">
                 <div className="zone-title">Activity</div>
                 <div className="log-list">
-                  {activityFeed.map((entry) => (
-                    <article key={entry.time + entry.title} className="log-item">
-                      <span className="log-item__time">{entry.time}</span>
-                      <div>
-                        {entry.speakerName && entry.speakerId ? (
-                          <SpeakerLabel
-                            speakerId={entry.speakerId}
-                            speakerName={entry.speakerName}
-                            onRename={(speakerId, displayName) => void handleRenameSpeaker(speakerId, displayName)}
-                          />
-                        ) : null}
-                        <strong>{entry.title}</strong>
-                        <p>{entry.detail}</p>
-                      </div>
-                    </article>
-                  ))}
+                  {activityFeed.map((entry) =>
+                    entry.segmentId && entry.transcriptText != null ? (
+                      <TranscriptActivityEntry
+                        key={entry.segmentId}
+                        entry={entry as ActivityEntry & { segmentId: string; transcriptText: string }}
+                        onRename={(speakerId, displayName) => void handleRenameSpeaker(speakerId, displayName)}
+                        onSave={handleCorrectTranscriptSegment}
+                      />
+                    ) : (
+                      <article key={entry.time + entry.title} className="log-item">
+                        <span className="log-item__time">{entry.time}</span>
+                        <div>
+                          {entry.speakerName && entry.speakerId ? (
+                            <SpeakerLabel
+                              speakerId={entry.speakerId}
+                              speakerName={entry.speakerName}
+                              onRename={(speakerId, displayName) => void handleRenameSpeaker(speakerId, displayName)}
+                            />
+                          ) : null}
+                          <strong>{entry.title}</strong>
+                          <p>{entry.detail}</p>
+                        </div>
+                      </article>
+                    ),
+                  )}
                   {failedGraphBuilds.map((job) => (
                     <article key={job.id} className="log-item log-item--retry">
                       <span className="log-item__time">
@@ -1502,7 +1627,7 @@ export function App() {
             }}
             exportTitle={
               jobActionBlockedReason("export.render", Boolean(activeRecordingId)) ??
-              "ส่งออกซับไตเติล .srt และ .vtt ของการบันทึกนี้"
+              "ส่งออก transcript .srt/.vtt และ source audio WAV/MP3 ถ้า format รองรับ"
             }
             onPairDevice={() => setDevicePairingPanelOpen((open) => !open)}
             onOpenSettings={() => setSettingsPanelOpen(true)}

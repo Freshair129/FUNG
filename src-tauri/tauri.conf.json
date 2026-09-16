@@ -60,6 +60,7 @@
       "../.venv-whisper": ".venv-whisper",
       "../scripts/transcribe.py": "scripts/transcribe.py",
       "../scripts/transcribe_live.py": "scripts/transcribe_live.py",
+      "../scripts/transcode_audio.py": "scripts/transcode_audio.py",
       "../scripts/diarize.py": "scripts/diarize.py",
       "../scripts/fetch_media.py": "scripts/fetch_media.py"
     },

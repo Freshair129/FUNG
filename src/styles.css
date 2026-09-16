@@ -1098,6 +1098,32 @@ button {
   width: 100%;
 }
 
+.log-item__transcript-input {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  padding: 7px 9px;
+  border: 1px solid rgba(126, 105, 78, 0.4);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--graphite);
+  font: inherit;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.log-item__transcript-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.log-item__edit {
+  margin-top: 5px;
+  padding: 3px 10px;
+  font-size: 11px;
+}
+
 .log-item--retry {
   border-color: rgba(191, 97, 66, 0.35);
   background: linear-gradient(145deg, rgba(255, 244, 238, 0.95), rgba(240, 210, 198, 0.5));

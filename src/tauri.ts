@@ -322,7 +322,8 @@ export async function fetchAndTranscribe(url: string, projectId?: string): Promi
 
 /**
  * A file the project has exported. `kind` matches the `export_artifacts`
- * enum: `srt`/`vtt` from a subtitle render, `txt` from a meeting summary.
+ * enum: `wav`/`mp3` source-audio exports, `srt`/`vtt` subtitle renders, and
+ * `txt` from a meeting summary.
  */
 export type ExportArtifact = {
   id: string;
@@ -452,6 +453,21 @@ export async function listTranscriptSegments(
 ): Promise<TranscriptView> {
   if (!canInvoke()) return EMPTY_TRANSCRIPT;
   return invoke<TranscriptView>("list_transcript_segments", { projectId, recordingId });
+}
+
+export async function correctTranscriptSegment(
+  projectId: string,
+  recordingId: string,
+  segmentId: string,
+  correctedText: string,
+): Promise<void> {
+  if (!canInvoke()) throw new Error("Transcript correction requires the desktop app");
+  await invoke<void>("correct_transcript_segment", {
+    projectId,
+    recordingId,
+    segmentId,
+    correctedText,
+  });
 }
 
 export async function renameSpeaker(speakerId: string, displayName: string): Promise<void> {

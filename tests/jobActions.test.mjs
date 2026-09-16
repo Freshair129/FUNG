@@ -262,3 +262,86 @@ test("an import rejection is shown as a terminal failure with a next step", () =
   );
   assert.doesNotMatch(importFlow, /finished\.errorMessage/, "the notice must not echo worker error details");
 });
+
+// @req D-MVP-02
+test("manual transcript corrections stay recording-scoped and auditable", () => {
+  const api = readFileSync("src/tauri.ts", "utf8");
+  const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
+  const app = readFileSync("src/App.tsx", "utf8");
+
+  assert.match(
+    api,
+    /export async function correctTranscriptSegment\([\s\S]*projectId: string,[\s\S]*recordingId: string,[\s\S]*segmentId: string,[\s\S]*correctedText: string,/,
+    "the bridge must require project, recording, segment, and corrected text",
+  );
+  assert.match(
+    lib,
+    /fn correct_transcript_segment\([\s\S]*project_id: String,[\s\S]*recording_id: String,[\s\S]*segment_id: String,[\s\S]*corrected_text: String,/,
+    "the native command must receive the selected recording scope",
+  );
+  assert.match(
+    lib,
+    /transcript_refinement_proposals[\s\S]*manual_user_correction[\s\S]*status[\s\S]*accepted/,
+    "a correction must retain its before/after proposal provenance",
+  );
+  assert.match(
+    lib,
+    /transcript\.segment\.corrected/,
+    "a correction must leave a local audit event",
+  );
+  assert.match(
+    app,
+    /แก้ไขข้อความ transcript/,
+    "the review surface must expose an editable transcript control",
+  );
+  assert.match(
+    app,
+    /handleCorrectTranscriptSegment/,
+    "the review surface must call the native correction path",
+  );
+});
+
+// @req D-MVP-05
+test("export queue records source artifacts and transcodes supported imported formats locally", () => {
+  const engine = readFileSync("src-tauri/src/job_engine.rs", "utf8");
+  const audioExport = readFileSync("src-tauri/src/audio_export.rs", "utf8");
+  const transcode = readFileSync("scripts/transcode_audio.py", "utf8");
+  const tauriConfig = readFileSync("src-tauri/tauri.conf.json", "utf8");
+  const app = readFileSync("src/App.tsx", "utf8");
+
+  assert.match(
+    engine,
+    /audio_export::render_source_audio.*ข้าม audio export/s,
+    "the durable export job must report unsupported audio formats truthfully",
+  );
+  assert.match(
+    audioExport,
+    /audio\/wav.*audio\/mpeg.*export_artifacts/s,
+    "source WAV and MP3 exports must be persisted as typed artifacts",
+  );
+  assert.match(
+    audioExport,
+    /transcode_source[\s\S]*transcode_audio\.py/,
+    "unsupported source formats must use the bundled local transcoder",
+  );
+  assert.match(
+    transcode,
+    /codec = "pcm_s16le"/,
+    "the local worker must encode explicit WAV output",
+  );
+  assert.match(
+    transcode,
+    /libmp3lame/,
+    "the local worker must encode explicit MP3 output",
+  );
+  assert.match(
+    tauriConfig,
+    /transcode_audio\.py/,
+    "the transcoder must be included in packaged resources",
+  );
+  assert.match(
+    app,
+    /\["srt", "vtt", "wav", "mp3"\]/,
+    "the export notice must include audio artifacts when available",
+  );
+});

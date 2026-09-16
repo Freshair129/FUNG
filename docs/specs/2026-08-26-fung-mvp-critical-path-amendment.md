@@ -1,7 +1,7 @@
 ---
-version: "0.1.1b"
+version: "0.1.5b"
 created_at: "2026-08-26T00:00:00+07:00,Agent: Luna,Commit: 8a6406e6513943e09447daeb3c6572aa41468b67"
-last_update: "2026-08-26T00:00:00+07:00,Agent: Luna,Commit: 8a6406e6513943e09447daeb3c6572aa41468b67"
+last_update: "2026-09-16T00:00:00+07:00,Agent: Codex,Commit: working-tree"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -15,7 +15,7 @@ attributes:
 
 ## สถานะและเจตนา
 
-เอกสารนี้เป็น **candidate specification** สำหรับการทบทวนโดย Terra และการอนุมัติโดย Boss เท่านั้น ยังไม่มีการแก้ code, test, config, environment หรือ external state
+เอกสารนี้ยังคงเป็น **candidate specification** สำหรับ lifecycle review โดย Terra และ Boss; การทำงานใน working tree ครอบคลุม bounded D-MVP-02 และ bounded D-MVP-05 source-export slices เท่านั้น ไม่ได้ปิด runtime/UAT หรือเปลี่ยนสถานะเป็น production-ready
 
 Amendment นี้จัดลำดับ MVP ใหม่ตามผลลัพธ์ที่ผู้ใช้กำหนด:
 
@@ -29,15 +29,15 @@ Amendment นี้จัดลำดับ MVP ใหม่ตามผลล�
 |---|---|---|
 | Local audio input/capture | Implemented; runtime/UAT-open | `src-tauri/src/live_meeting.rs` เปิดไมค์และ optional WASAPI loopback, ตัด WAV ทุก 8 วินาที, hash และ commit `audio_chunks` ก่อน transcription; real Live Meeting capture และ packaged interaction ยังไม่ผ่าน UAT ปัจจุบัน |
 | Transcription | Implemented; locally prepared, runtime-open | `src-tauri/src/lib.rs` มี `import_and_transcribe`; `audio_custody` คัดลอกไฟล์เข้า project และ hash ก่อนใช้; `scripts/transcribe.py` รองรับ local faster-whisper และ progress; staged runtime/GPU smoke เป็น worker evidence ไม่ใช่ Live Meeting runtime proof |
-| Transcript review | Partial | `list_transcript_segments` แสดง timestamps, confidence, speaker label และ cap warning; `LiveMeetingPanel` แสดง transcript สด; speaker rename มีอยู่ แต่ full transcript editor และ evidence marking ยังไม่ implemented |
+| Transcript review | Partial; D-MVP-02 correction/audit slice implemented locally | `list_transcript_segments` แสดง timestamps, confidence และ speaker label; `correct_transcript_segment` แก้ข้อความแบบ recording-scoped พร้อม accepted refinement proposal และ audit event; full transcript editor/evidence marking และ packaged runtime/UAT ยังไม่ผ่าน |
 | Minute of Note / summary | Implemented in code; runtime/UAT-open | `meeting_intel::summarize_and_export` สร้าง `whole_story`, `timeline`, `decisions_actions`, อ้างอิง transcript segments และเขียน Markdown; local LLM/Ollama execution และ summary/export review หลัง restart ยังเปิด |
-| Local export | Partial/implemented by type | `transcript_export::render_subtitles` เขียน `.srt`/`.vtt` และ `export_artifacts`; summary path เขียน `.md`; audio WAV/MP3 export และ separate export queue ยังไม่ implemented; read ceiling 1000 rows ทำให้ long transcript ถูก refuse ไม่ใช่ truncate |
+| Local export | Partial/implemented by type | `transcript_export::render_subtitles` เขียน `.srt`/`.vtt` และ `export_artifacts`; summary path เขียน `.md`; Genesis offset paging/query-all ปิด source read ceiling เดิมแล้ว; existing durable `export.render` queue export live WAV/imported MP3 โดยตรง และใช้ bundled PyAV worker แปลง source format อื่นเป็น MP3 เมื่อ runtime/codec รองรับ; packaged click-to-file proof ยัง open |
 
-### จุดขัดข้องที่ต้องแก้ก่อน
+### Current gaps after the imported handoff implementation
 
-`run_import_pipeline` สร้าง `recordings` และ `transcript_segments` แต่จาก source ที่ตรวจพบไม่ได้อัปเดต `projects.active_recording_id` ให้ชี้ไปยัง imported recording ขณะที่ `App.tsx` ใช้ค่านี้เป็น target ของ queued summary/export jobs จึงมีความเสี่ยงที่ import → transcript จะจบ แต่ผู้ใช้ไปต่อยัง Minute of Note/export ผ่าน shell ไม่ได้
+ข้อกังวลเดิมเรื่อง imported handoff ถูกปิดใน current source: `finalize_import_success` อัปเดต `projects.active_recording_id`, เติม `audio_chunks.end_ms`/`transcribed_at`, และคง custody path, checksum, byte size และ sequence เดิมไว้ใน transaction เดียวกับผล transcript
 
-นอกจากนี้ source เดียวกันสร้าง `audio_chunks` แบบ one-file โดยตั้ง `end_ms: 0` และใน success mutation ที่อ่านพบไม่ได้เติม `end_ms`/`transcribed_at` กลับลง chunk row ตาม comment ที่ระบุว่าจะเติม duration ภายหลัง เรื่องนี้ต้องยืนยันด้วย regression test ก่อนถือ imported recording ว่า review/retry/export-ready
+สิ่งที่ยังเปิดคือ local runtime/provider readiness, packaged click-through, close/relaunch persistence และ acceptance ของ summary/export หลัง restart; static/unit evidence ไม่ถูกยกเป็น runtime PASS
 
 ## Proposed amendment
 
@@ -102,10 +102,27 @@ No other files, migrations, credentials, release artifacts, external systems, or
 
 | ID | Slice | Depends on | Status |
 |---|---|---|---|
-| D-MVP-02 | Minimal transcript correction/audit affordance; keep speaker labels non-biometric. Recording-scoped transcript retrieval/UI bridge is delivered by D-MVP-01 and explicitly excluded from this slice. | D-MVP-01 | Deferred |
-| D-MVP-03 | Real Desktop capture → live/catch-up transcription UAT, including local runtime readiness and restart/recovery evidence | D-MVP-01 | Deferred; runtime/device evidence open |
-| D-MVP-04 | Pagination/cursor support in GenesisBlockDB for transcripts, summaries and exports beyond the 1000-row ceiling; then enable long-session acceptance | D-MVP-01 | Deferred; upstream dependency |
-| D-MVP-05 | Audio export (WAV/MP3) and a separate export queue, only if local MVP acceptance requires them | D-MVP-01 | Deferred |
+| D-MVP-02 | Minimal transcript correction/audit affordance; keep speaker labels non-biometric. Recording-scoped transcript retrieval/UI bridge is delivered by D-MVP-01 and explicitly excluded from this slice. | D-MVP-01 | Implemented in working tree; local evidence pass, runtime/UAT open |
+| D-MVP-03 | Real Desktop capture → live/catch-up transcription UAT, including local runtime readiness and restart/recovery evidence | D-MVP-01 | Import/runtime route verified locally; live capture, restart, and device UAT remain open |
+| D-MVP-04 | Pagination/cursor support in GenesisBlockDB for transcripts, summaries and exports beyond the 1000-row ceiling; then enable long-session acceptance | D-MVP-01 | Source implementation delivered; long-session/runtime acceptance open |
+| D-MVP-05 | Audio export (WAV/MP3) and a separate export queue, only if local MVP acceptance requires them | D-MVP-01 | Source export and bundled local transcoding implemented; packaged click-through acceptance open |
+
+### D-MVP-02 implementation evidence (2026-09-16)
+
+- `correct_transcript_segment` requires project, recording, segment, and corrected text; the native query refuses a segment outside the selected recording.
+- One Genesis transaction updates the segment, records an accepted `transcript_refinement_proposals` row with `manual_user_correction`, and records `transcript.segment.corrected` with recording/segment/proposal provenance.
+- The Desktop Activity surface exposes an inline correction control and keeps a failed draft visible while reporting a truthful failure notice.
+- Evidence passed on the working tree: targeted Rust correction tests `2/2`; full Rust library regression `452 passed, 0 failed, 1 ignored`; `npm run test:job-actions` `16/16`; `npm run test:summary-scoping` `6/6`; `npm run test:desktop-bootstrap` `10/10`; `npm run build` passed.
+- This is local source/test/build evidence only. Packaged click-through, close/relaunch persistence, real capture/provider readiness, and release gates remain open.
+
+### D-MVP-05 implementation evidence (2026-09-16)
+
+- The existing durable `export.render` job now calls `audio_export::render_source_audio` after subtitle rendering. It stitches live WAV chunks into one deterministic `.wav`, or copies an imported `audio/mpeg` source as `.mp3`, and records a typed `export_artifacts` row.
+- The source format is not guessed: unsupported imports route through `scripts/transcode_audio.py` in the bundled Python runtime, which decodes locally with PyAV and writes explicit WAV/MP3 output; missing runtime or codec support fails without an artifact.
+- The transcoder writes a temporary file and atomically replaces the destination only after a non-empty encode; a failed retry preserves the previous valid artifact.
+- Evidence passed on the working tree: targeted audio-export Rust tests `3/3`; full Rust library regression `455 passed, 0 failed, 1 ignored`; `cargo clippy --all-targets -- -D warnings`; scoped `cargo fmt --check`; `npm run test:job-actions` `17/17`; `npm run test:summary-scoping` `6/6`; `npm run test:desktop-bootstrap` `10/10`; `npm run test:ci-coverage` `2/2`; `npm run test:traceability` `1/1`; `npm run build` passed; the staged runtime smoke produced valid `pcm_s16le` WAV and `mp3float` MP3 output from local fixtures; and a failed-input retry exited `1` while preserving the prior MP3 bytes.
+- `npm run tauri -- build` produced the EXE, MSI, and NSIS bundles; the release executable launched with title `FUNG` and responded. The opt-in local import route test also passed against the staged runtime in `6.74s`; its Alarm01 fixture proves route/runtime completion, not speech accuracy.
+- This is local source/test/build/runtime-worker/package-launch evidence only. Packaged click-to-file, close/relaunch persistence, real capture/provider readiness, and release gates remain open.
 
 ## Explicit blocker assessment
 
@@ -143,6 +160,10 @@ No other files, migrations, credentials, release artifacts, external systems, or
 |---|---|
 | 0.1.0b | Initial candidate amendment: reprioritises the local Desktop MVP critical path and defines D-MVP-01 without code or external-state changes. |
 | 0.1.1b | Candidate patch: assigns recording-scoped transcript retrieval/UI bridge exclusively to D-MVP-01, narrows D-MVP-02 to correction/audit, aligns summary retry with idempotent replacement/provenance, and binds metadata to the current base commit. |
+| 0.1.2b | Records the approved bounded D-MVP-02 implementation: recording-scoped manual transcript correction, accepted refinement provenance, local audit event, inline Desktop affordance, and local verification evidence; runtime/UAT remains open. |
+| 0.1.3b | Records the bounded D-MVP-05 source WAV/MP3 export through the existing durable export queue, typed artifacts, truthful unsupported-format handling, and local verification evidence; transcoding and runtime/UAT remain open. |
+| 0.1.4b | Completes the D-MVP-05 source export path with a bundled PyAV WAV/MP3 transcoder, packaged resource registration, real local codec smoke evidence, and fail-closed runtime handling; packaged click-through and release gates remain open. |
+| 0.1.5b | Records atomic retry-safe transcoder output, release EXE/MSI/NSIS build and launch evidence, and the opt-in local import/runtime route result; click-through, live capture, provider, device, and release acceptance remain open. |
 
 ## CHANGELOG
 
@@ -150,3 +171,7 @@ No other files, migrations, credentials, release artifacts, external systems, or
 |---|---|---|---|---|---|
 | 0.1.0b | 2026-08-26 | candidate | Documentation-only local MVP critical-path amendment; implementation awaits Terra review and Boss approval. | not created | Luna |
 | 0.1.1b | 2026-08-26 | candidate | Candidate documentation fix for Terra findings; implementation still awaits Terra re-review and Boss approval. | 8a6406e6513943e09447daeb3c6572aa41468b67 | Luna |
+| 0.1.2b | 2026-09-16 | candidate | Recorded the approved bounded D-MVP-02 working-tree implementation and local evidence; no runtime, provider, device, or release gate is claimed. | working-tree | Codex |
+| 0.1.3b | 2026-09-16 | candidate | Recorded bounded D-MVP-05 source WAV/MP3 export through the existing durable export queue and local evidence; no transcoding, runtime, provider, device, or release gate is claimed. | working-tree | Codex |
+| 0.1.4b | 2026-09-16 | candidate | Completed the D-MVP-05 bundled local PyAV transcoder and recorded source/test/build/runtime-worker evidence; packaged click-through, provider, device, and release gates remain open. | working-tree | Codex |
+| 0.1.5b | 2026-09-16 | candidate | Recorded atomic retry-safe transcoder output, release bundle/launch evidence, and the opt-in local import/runtime route; no live capture, provider, device, click-through, or release acceptance gate is claimed. | working-tree | Codex |

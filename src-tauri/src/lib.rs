@@ -13,6 +13,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 mod audio_custody;
+mod audio_export;
 mod auth_session;
 mod backup;
 mod backup_archive;
@@ -1630,6 +1631,144 @@ fn list_transcript_segments(
     state: State<'_, AppState>,
 ) -> AppResult<TranscriptView> {
     transcript_view(&state.genesis, &project_id, &recording_id)
+}
+
+#[tauri::command]
+fn correct_transcript_segment(
+    project_id: String,
+    recording_id: String,
+    segment_id: String,
+    corrected_text: String,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    correct_transcript_segment_in_storage(
+        &state.genesis,
+        &project_id,
+        &recording_id,
+        &segment_id,
+        &corrected_text,
+    )
+}
+
+/// Applies a user correction to one recording-scoped transcript segment.
+///
+/// The current segment remains the source used by later review/export paths;
+/// the accepted refinement proposal preserves the before/after text and the
+/// audit event ties that correction to the exact recording and segment. All
+/// three writes share one Genesis transaction so a visible correction cannot
+/// exist without its local audit trail.
+fn correct_transcript_segment_in_storage(
+    genesis: &genesis_block_native::Storage,
+    project_id: &str,
+    recording_id: &str,
+    segment_id: &str,
+    corrected_text: &str,
+) -> AppResult<()> {
+    let corrected_text = corrected_text.trim();
+    if corrected_text.is_empty() {
+        return Err(AppError::InvalidInput(
+            "ข้อความ transcript ต้องไม่ว่าง".to_string(),
+        ));
+    }
+
+    let row = genesis_adapter::query(
+        genesis,
+        "transcript_segments",
+        &[
+            "id",
+            "project_id",
+            "recording_id",
+            "speaker_id",
+            "start_ms",
+            "end_ms",
+            "text",
+            "confidence",
+            "created_at",
+        ],
+        vec![
+            genesis_adapter::eq(
+                "transcript_segments",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            genesis_adapter::eq(
+                "transcript_segments",
+                "recording_id",
+                serde_json::json!(recording_id),
+            ),
+            genesis_adapter::eq("transcript_segments", "id", serde_json::json!(segment_id)),
+        ],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| {
+        AppError::InvalidInput(format!(
+            "ไม่พบ transcript segment {segment_id} ในการบันทึก {recording_id}"
+        ))
+    })?;
+
+    let original_text =
+        genesis_adapter::string(&row, "transcript_segments.text").map_err(AppError::Genesis)?;
+    if original_text == corrected_text {
+        return Ok(());
+    }
+
+    let timestamp = now();
+    let proposal_id = Uuid::new_v4().to_string();
+    let policy = "manual_user_correction";
+    let mutations = vec![
+        genesis_adapter::upsert(
+            "transcript_segments",
+            serde_json::json!({
+                "id": segment_id,
+                "project_id": project_id,
+                "recording_id": recording_id,
+                "speaker_id": row.get("transcript_segments.speaker_id").cloned().unwrap_or(serde_json::Value::Null),
+                "start_ms": genesis_adapter::integer(&row, "transcript_segments.start_ms").map_err(AppError::Genesis)?,
+                "end_ms": genesis_adapter::integer(&row, "transcript_segments.end_ms").map_err(AppError::Genesis)?,
+                "text": corrected_text,
+                "confidence": row.get("transcript_segments.confidence").cloned().unwrap_or(serde_json::Value::Null),
+                "created_at": genesis_adapter::string(&row, "transcript_segments.created_at").map_err(AppError::Genesis)?,
+                "updated_at": timestamp.clone(),
+            }),
+        ),
+        genesis_adapter::upsert(
+            "transcript_refinement_proposals",
+            serde_json::json!({
+                "id": proposal_id.clone(),
+                "project_id": project_id,
+                "transcript_segment_id": segment_id,
+                "original_text": original_text,
+                "proposed_text": corrected_text,
+                "policy": policy,
+                "model_run_id": null,
+                "status": "accepted",
+                "reviewed_at": timestamp.clone(),
+                "created_at": timestamp.clone(),
+                "updated_at": timestamp.clone(),
+            }),
+        ),
+        genesis_adapter::upsert(
+            "audit_events",
+            serde_json::json!({
+                "id": Uuid::new_v4().to_string(),
+                "project_id": project_id,
+                "event_type": "transcript.segment.corrected",
+                "actor": "user",
+                "payload_json": {
+                    "recordingId": recording_id,
+                    "segmentId": segment_id,
+                    "proposalId": proposal_id,
+                    "policy": policy,
+                },
+                "created_at": timestamp,
+            }),
+        ),
+    ];
+
+    genesis_adapter::commit_rows(genesis, mutations).map_err(AppError::Genesis)
 }
 
 /// The body of [`list_transcript_segments`], taking the storage handle rather
@@ -3276,6 +3415,7 @@ pub fn run() {
             list_jobs,
             list_model_providers,
             list_transcript_segments,
+            correct_transcript_segment,
             import_and_transcribe,
             fetch_and_transcribe,
             media_fetch_status,
@@ -3829,6 +3969,183 @@ mod import_handoff_tests {
         assert!(chunk["audio_chunks.transcribed_at"].as_str().is_some());
 
         drop(genesis);
+        let _ = std::fs::remove_dir_all(path);
+    }
+}
+
+#[cfg(test)]
+mod transcript_correction_tests {
+    use super::*;
+
+    fn open_storage() -> (PathBuf, genesis_block_native::Storage) {
+        let path = std::env::temp_dir().join(format!(
+            "fung-transcript-correction-test-{}",
+            Uuid::new_v4()
+        ));
+        let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
+            path: path.display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+            retention: None,
+        })
+        .unwrap();
+        genesis_adapter::install(&storage).unwrap();
+        (path, storage)
+    }
+
+    fn seed_segment(storage: &genesis_block_native::Storage) {
+        genesis_adapter::commit_rows(
+            storage,
+            vec![
+                genesis_adapter::upsert(
+                    "projects",
+                    serde_json::json!({
+                        "id": "p1",
+                        "name": "Meeting",
+                        "storage_path": "C:/fung/projects/p1",
+                        "active_recording_id": "r1",
+                        "created_at": "project-created",
+                        "updated_at": "project-updated",
+                    }),
+                ),
+                genesis_adapter::upsert(
+                    "recordings",
+                    serde_json::json!({
+                        "id": "r1",
+                        "project_id": "p1",
+                        "source": "import",
+                        "input_path": "D:/incoming/meeting.wav",
+                        "canonical_audio_path": "C:/fung/projects/p1/r1/meeting.wav",
+                        "status": "completed",
+                        "duration_ms": 1000,
+                        "created_at": "recording-created",
+                        "updated_at": "recording-updated",
+                    }),
+                ),
+                genesis_adapter::upsert(
+                    "transcript_segments",
+                    serde_json::json!({
+                        "id": "s1",
+                        "project_id": "p1",
+                        "recording_id": "r1",
+                        "speaker_id": null,
+                        "start_ms": 100,
+                        "end_ms": 900,
+                        "text": "ข้อความเดิม",
+                        "confidence": 0.8,
+                        "created_at": "segment-created",
+                        "updated_at": "segment-updated",
+                    }),
+                ),
+            ],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn manual_correction_updates_segment_and_records_provenance() {
+        let (path, storage) = open_storage();
+        seed_segment(&storage);
+
+        correct_transcript_segment_in_storage(&storage, "p1", "r1", "s1", "ข้อความแก้ไข").unwrap();
+
+        let segment = genesis_adapter::query(
+            &storage,
+            "transcript_segments",
+            &["text", "updated_at"],
+            vec![genesis_adapter::eq(
+                "transcript_segments",
+                "id",
+                serde_json::json!("s1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
+        assert_eq!(segment["transcript_segments.text"], "ข้อความแก้ไข");
+        assert_ne!(segment["transcript_segments.updated_at"], "segment-updated");
+
+        let proposal = genesis_adapter::query(
+            &storage,
+            "transcript_refinement_proposals",
+            &[
+                "transcript_segment_id",
+                "original_text",
+                "proposed_text",
+                "policy",
+                "status",
+            ],
+            vec![genesis_adapter::eq(
+                "transcript_refinement_proposals",
+                "transcript_segment_id",
+                serde_json::json!("s1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
+        assert_eq!(
+            proposal["transcript_refinement_proposals.original_text"],
+            "ข้อความเดิม"
+        );
+        assert_eq!(
+            proposal["transcript_refinement_proposals.proposed_text"],
+            "ข้อความแก้ไข"
+        );
+        assert_eq!(
+            proposal["transcript_refinement_proposals.policy"],
+            "manual_user_correction"
+        );
+        assert_eq!(
+            proposal["transcript_refinement_proposals.status"],
+            "accepted"
+        );
+
+        let audit = genesis_adapter::query(
+            &storage,
+            "audit_events",
+            &["event_type", "payload_json"],
+            vec![genesis_adapter::eq(
+                "audit_events",
+                "event_type",
+                serde_json::json!("transcript.segment.corrected"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
+        assert_eq!(
+            audit["audit_events.event_type"],
+            "transcript.segment.corrected"
+        );
+        assert_eq!(audit["audit_events.payload_json"]["recordingId"], "r1");
+        assert_eq!(audit["audit_events.payload_json"]["segmentId"], "s1");
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn manual_correction_rejects_empty_text_and_wrong_recording() {
+        let (path, storage) = open_storage();
+        seed_segment(&storage);
+
+        let empty =
+            correct_transcript_segment_in_storage(&storage, "p1", "r1", "s1", "  ").unwrap_err();
+        assert!(empty.to_string().contains("ต้องไม่ว่าง"));
+
+        let wrong_recording =
+            correct_transcript_segment_in_storage(&storage, "p1", "missing", "s1", "ใหม่")
+                .unwrap_err();
+        assert!(wrong_recording
+            .to_string()
+            .contains("ไม่พบ transcript segment"));
+
+        drop(storage);
         let _ = std::fs::remove_dir_all(path);
     }
 }

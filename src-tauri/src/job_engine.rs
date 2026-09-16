@@ -119,7 +119,8 @@ pub(crate) enum JobKind {
     /// same attribution instead of stacking a second proposal beside the
     /// first or orphaning the evidence refs that cite those segments.
     SpeakerDiarize,
-    /// Renders the recording's transcript as `.srt` and `.vtt` beside it.
+    /// Renders the recording's transcript as `.srt` and `.vtt`, plus a
+    /// locally playable source WAV/MP3 when the source already provides one.
     ///
     /// Idempotent because both filenames derive from the recording id, so a
     /// retry overwrites its own previous output instead of leaving a second
@@ -163,7 +164,7 @@ impl JobKind {
             JobKind::TranscriptRetry => "ถอดเสียงส่วนที่ขาด",
             JobKind::GraphBuild => "สร้างกราฟความรู้",
             JobKind::SpeakerDiarize => "แยกเสียงผู้พูด",
-            JobKind::ExportRender => "ส่งออกซับไตเติล",
+            JobKind::ExportRender => "ส่งออกซับไตเติลและไฟล์เสียง",
         }
     }
 
@@ -951,6 +952,19 @@ fn dispatch(
         JobKind::ExportRender => {
             crate::transcript_export::render_subtitles(storage, &job.project_id, recording_id)
                 .map(|export| {
+                    let runtime = app.state::<crate::AppState>().whisper_runtime_clone();
+                    let audio_detail = match crate::audio_export::render_source_audio(
+                        storage,
+                        &runtime,
+                        &job.project_id,
+                        recording_id,
+                    ) {
+                        Ok(Some(audio)) => {
+                            format!(" และ {} {}", audio.kind, audio.file_path)
+                        }
+                        Ok(None) => " (ข้าม audio export)".to_string(),
+                        Err(error) => format!(" (ข้าม audio export: {error})"),
+                    };
                     // `write_attempt` rewrites `output_refs_json` to `[]` on
                     // every status change, so the paths are recorded where
                     // they survive: `export_artifacts` (written by the
@@ -963,8 +977,11 @@ fn dispatch(
                                 "id": Uuid::new_v4().to_string(), "job_id": job.id,
                                 "status": "running",
                                 "message": format!(
-                                    "เขียนซับไตเติล {} ท่อน: {} และ {}",
-                                    export.cue_count, export.srt_path, export.vtt_path
+                                    "เขียนซับไตเติล {} ท่อน: {} และ {}{}",
+                                    export.cue_count,
+                                    export.srt_path,
+                                    export.vtt_path,
+                                    audio_detail,
                                 ),
                                 "created_at": now(),
                             }),

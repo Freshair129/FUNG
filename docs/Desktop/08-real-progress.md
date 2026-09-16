@@ -272,7 +272,19 @@ own Rust path was exercised too: `bin/live_smoke` (headless Live Meeting,
 compute process, and the English sample played through the speakers came
 back as two verbatim `[system]` segments. The smoke's Ollama summary step
 returned `400 Bad Request` — a separate, pre-existing LLM configuration
-issue, not part of transcription.
+issue, not part of transcription. **Root-caused and fixed the same day:**
+`graph_build::resolve_available_model` falls back from a missing configured
+model (`llama3.1:8b` is not installed here) to *the first tag* Ollama lists,
+which on this machine is the embedding-only `bge-m3:latest`; `/api/chat`
+refuses it with `"bge-m3:latest" does not support chat`. The fallback now
+reads each tag's `capabilities` from `/api/tags` (present since Ollama 0.9;
+absent means "assume usable") and skips anything not advertising
+`completion`, keeping the configured name when nothing installed can chat.
+Four unit tests pin it against a one-shot fake `/api/tags` server. Re-running
+`live_smoke` on the GPU profile then produced a Thai meeting summary and a
+Markdown export (`summary + export: OK`) from the transcribed English sample,
+i.e. the full capture → whisper → Ollama → export chain passes on real
+hardware.
 Verified by Rust and Node tests below; the real-browser pass on the production
 web (which needs this change deployed) and Chrome's one-time "local network"
 permission prompt are still to be observed on the owner's machine.

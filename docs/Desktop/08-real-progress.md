@@ -326,6 +326,23 @@ also appears). Rust tests cover body framing over a real socket, the 413,
 auth/path gating, custody + job creation + polling to a settled state, and
 the transcript route; Node tests pin the client's wire shape. Deployed to
 production the same day as the recorder.
+
+**Desktop ↔ phone over USB, and a silent copy failure (2026-09-16).** The
+"share to phone" flow does not need Wi-Fi: with the phone on USB debugging,
+`adb reverse tcp:PORT tcp:PORT` makes the desktop's loopback listener
+reachable as `127.0.0.1:PORT` *on the phone*, so the phone's Chrome opens the
+same connect URL the web dashboard uses and gets the desktop's own phone page
+— no LAN listener, no QR, no firewall prompt. Verified on the Galaxy A07: the
+page listed the desktop's three live recordings and streamed the 50 s one
+(`0:04 / 0:50`, Chrome's AAudio player active). What did block the test was
+the desktop's "คัดลอก" button: `navigator.clipboard.writeText` was refused
+inside the webview and the handler swallowed it, so the clipboard kept its
+old contents and the button never changed — the owner had to read the URL
+out of the field. The button now falls back to selecting the field and the
+legacy copy command, and says so when both are refused. Note for anyone
+repeating this: the link only appears after "แสดงลิงก์เชื่อมต่อเว็บ", and the
+UI Automation tree of the WebView2 exposes no edit controls, so there is no
+way to read it from outside the app.
 Verified by Rust and Node tests below; the real-browser pass on the production
 web (which needs this change deployed) and Chrome's one-time "local network"
 permission prompt are still to be observed on the owner's machine.

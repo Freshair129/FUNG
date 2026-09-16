@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Activity, Cloud, Link2, SlidersHorizontal, UserCircle, Volume2, X } from "lucide-react";
 import * as QRCode from "qrcode";
 import type { InvokeFn } from "../lib/backupFlow";
@@ -52,6 +52,29 @@ interface SettingsPanelProps {
   initialTab?: SettingsTab;
 }
 
+/**
+ * Copies `text`, preferring the async clipboard API and falling back to
+ * selecting `field` and issuing the legacy copy command, which WebView2
+ * honours under a user gesture even when `navigator.clipboard` is refused.
+ * Returns whether either path reported success.
+ */
+async function copyText(text: string, field: HTMLInputElement | null): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // fall through to the selection path
+  }
+  if (!field) return false;
+  try {
+    field.focus();
+    field.select();
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  }
+}
+
 export function SettingsPanel({
   onClose,
   invoke,
@@ -78,14 +101,20 @@ export function SettingsPanel({
     }
   };
 
+  const connectUrlField = useRef<HTMLInputElement | null>(null);
+
   const copyConnectUrl = async () => {
     if (!localApi?.connectUrl) return;
-    try {
-      await navigator.clipboard.writeText(localApi.connectUrl);
+    setLocalApiError(null);
+    const copied = await copyText(localApi.connectUrl, connectUrlField.current);
+    if (copied) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard denied: the URL is still shown in the field to select by hand.
+    } else {
+      // Say so instead of leaving the button looking unpressed: on the
+      // owner's machine the async clipboard API was refused inside the
+      // webview and the user waited on a copy that never happened.
+      setLocalApiError("คัดลอกอัตโนมัติไม่ได้ — คลิกในช่องลิงก์ (จะเลือกทั้งหมดให้) แล้วกด Ctrl+C");
     }
   };
 
@@ -190,6 +219,7 @@ export function SettingsPanel({
                   {localApi?.connectUrl ? (
                     <div className="settings-local-api-row">
                       <input
+                        ref={connectUrlField}
                         className="settings-local-api-url"
                         type="text"
                         readOnly

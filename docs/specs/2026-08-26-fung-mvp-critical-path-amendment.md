@@ -1,7 +1,7 @@
 ---
-version: "0.1.5b"
+version: "0.1.6b"
 created_at: "2026-08-26T00:00:00+07:00,Agent: Luna,Commit: 8a6406e6513943e09447daeb3c6572aa41468b67"
-last_update: "2026-09-16T00:00:00+07:00,Agent: Codex,Commit: working-tree"
+last_update: "2026-09-16T00:00:00+07:00,Agent: Codex,Commit: 3c6734f22202e1ad8faf31af5a68783fb887090c"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -15,7 +15,7 @@ attributes:
 
 ## สถานะและเจตนา
 
-เอกสารนี้ยังคงเป็น **candidate specification** สำหรับ lifecycle review โดย Terra และ Boss; การทำงานใน working tree ครอบคลุม bounded D-MVP-02 และ bounded D-MVP-05 source-export slices เท่านั้น ไม่ได้ปิด runtime/UAT หรือเปลี่ยนสถานะเป็น production-ready
+เอกสารนี้ยังคงเป็น **candidate specification** สำหรับ lifecycle review โดย Terra และ Boss; commit `3c6734f` ครอบคลุม bounded D-MVP-02 และ bounded D-MVP-05 source-export slices เท่านั้น ไม่ได้ปิด runtime/UAT หรือเปลี่ยนสถานะเป็น production-ready
 
 Amendment นี้จัดลำดับ MVP ใหม่ตามผลลัพธ์ที่ผู้ใช้กำหนด:
 
@@ -164,6 +164,7 @@ No other files, migrations, credentials, release artifacts, external systems, or
 | 0.1.3b | Records the bounded D-MVP-05 source WAV/MP3 export through the existing durable export queue, typed artifacts, truthful unsupported-format handling, and local verification evidence; transcoding and runtime/UAT remain open. |
 | 0.1.4b | Completes the D-MVP-05 source export path with a bundled PyAV WAV/MP3 transcoder, packaged resource registration, real local codec smoke evidence, and fail-closed runtime handling; packaged click-through and release gates remain open. |
 | 0.1.5b | Records atomic retry-safe transcoder output, release EXE/MSI/NSIS build and launch evidence, and the opt-in local import/runtime route result; click-through, live capture, provider, device, and release acceptance remain open. |
+| 0.1.6b | Records the approved D-MVP-02/D-MVP-05 implementation as local commit `3c6734f`; runtime/UAT, click-through, provider, device, and release acceptance remain open. |
 
 ## CHANGELOG
 
@@ -175,3 +176,4 @@ No other files, migrations, credentials, release artifacts, external systems, or
 | 0.1.3b | 2026-09-16 | candidate | Recorded bounded D-MVP-05 source WAV/MP3 export through the existing durable export queue and local evidence; no transcoding, runtime, provider, device, or release gate is claimed. | working-tree | Codex |
 | 0.1.4b | 2026-09-16 | candidate | Completed the D-MVP-05 bundled local PyAV transcoder and recorded source/test/build/runtime-worker evidence; packaged click-through, provider, device, and release gates remain open. | working-tree | Codex |
 | 0.1.5b | 2026-09-16 | candidate | Recorded atomic retry-safe transcoder output, release bundle/launch evidence, and the opt-in local import/runtime route; no live capture, provider, device, click-through, or release acceptance gate is claimed. | working-tree | Codex |
+| 0.1.6b | 2026-09-16 | candidate | Recorded the approved D-MVP-02/D-MVP-05 implementation as a local commit; no live capture, provider, device, click-through, or release acceptance gate is claimed. | 3c6734f22202e1ad8faf31af5a68783fb887090c | Codex |

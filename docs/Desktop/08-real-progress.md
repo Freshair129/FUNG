@@ -1,7 +1,7 @@
 ---
-version: "0.2.25b"
+version: "0.2.29b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-16T00:00:00+07:00,Codex"
+last_update: "2026-09-17T00:00:00+07:00,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -32,11 +32,54 @@ and fail closed when its runtime or codec is unavailable. Current local
 evidence is full Rust `455 passed / 1 ignored`, clippy clean, scoped fmt clean,
 Node `test:job-actions` `17/17`, summary scoping `6/6`, desktop bootstrap
 `10/10`, CI coverage `2/2`, traceability `1/1`, Vite build passed, and real
-local worker smoke output for WAV and MP3. The release EXE/MSI/NSIS bundle
-build passed and the release EXE launched responsively with title `FUNG`; the
-opt-in local import/runtime route also passed against the staged runtime.
+local worker smoke output for WAV and MP3. The release EXE build passed, the
+release EXE stayed responsive outside the sandbox, and a host-level WiX MSI
+build passed. The NSIS attempt did not complete; the opt-in local
+import/runtime route also passed against the staged runtime.
 Packaged click-through, restart persistence, real-capture/provider readiness,
 device, and release gates remain open.
+
+## Local-only closure sync (2026-09-17)
+
+The approved local verification pass was rerun from this worktree after
+installing the locked npm dependencies. `npm run build` passed; the complete
+Rust library regression passed `455/455` with `1` ignored; the FUNGWIRE server
+and client tests passed `17/17`; and all registered Node test suites passed,
+including auth, backup/recovery, desktop bootstrap, release contracts,
+external-tool contracts, job actions, summary scoping, diarization packaging,
+egress, local API, web recordings, device authority, audio visualisation,
+Google Drive contracts, transcription fixture tests, and mobile capture.
+
+The host has no production Whisper bundle. For the FUNGWIRE fake-transcription
+tests only, the bundled workspace Python interpreter was placed in the ignored
+`.venv-whisper` test path; this is test plumbing and is not runtime/provider or
+speech-accuracy evidence. No source change was required by this recheck.
+
+Still open after this local pass: packaged click-through, close/relaunch
+artifact persistence, real microphone capture, real local Whisper/Ollama
+provider execution, visual/keyboard UAT, real connector UAT, physical-device
+UAT, clean-install restore, and release gates.
+
+## Packaged verification follow-up (2026-09-17)
+
+The release EXE build completed at `src-tauri/target/release/fung.exe`, but a
+launch attempt exited immediately with code `101` and exposed no GUI stderr.
+Therefore packaged click-through and restart persistence remain **OPEN**, not
+PASS. The sandbox all-target bundle attempt also failed in WiX `light.exe` while
+producing the MSI; a separate NSIS run reached `makensis` resource compression
+but was stopped after it did not complete. No installer was executed or
+installed. These results are packaging/runtime evidence only and do not change
+the source/test result.
+
+The exit `101` was reproduced in the sandbox with the diagnostic build and
+root-caused to GenesisBlockDB failing to open the existing
+`%APPDATA%\dev.fung.local\genesisdb\genesis.lock` with `Access is denied`.
+The same release EXE stayed responsive for the observation window when run
+outside the sandbox, proving the failure is harness filesystem permission, not
+an application startup defect. GUI click-through and restart persistence were
+not claimed because the current Computer Use surface could not target the
+native FUNG window. The MSI was then built successfully outside the sandbox
+using the isolated `.target-packaging` target; the installer was not executed.
 
 ## Current truth sync (2026-09-13)
 
@@ -711,7 +754,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | Python worker syntax | `py_compile scripts/transcribe.py` passed. |
 | Current Whisper runtime availability | `py -3` reports no `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the pinned `small` model, and passes the standalone GPU smoke with the staged CUDA 12/cuDNN 9 bundle. Live Meeting real-capture, device, visual, and connector UAT remain open. |
 | D-MVP-02 correction/audit slice (2026-09-16) | Native recording-scoped correction and accepted refinement/audit provenance passed targeted Rust `2/2`; full `cargo test --manifest-path src-tauri/Cargo.toml --lib` passed `452`, with `1` ignored; `npm run test:job-actions` `16/16`, `test:summary-scoping` `6/6`, `test:desktop-bootstrap` `10/10`, and `npm run build` passed. This is local source/test/build evidence; packaged, restart, provider, device, and release gates remain open. |
-| D-MVP-05 source-audio export (2026-09-16) | Existing durable `export.render` emits source WAV/MP3 artifacts and uses the bundled PyAV worker for other project-owned formats. Output is temp-file + atomic-replace so failed retries preserve the previous artifact. Targeted Rust audio tests `3/3`; full Rust `455 passed / 1 ignored`; clippy and scoped fmt passed; Node job actions `17/17`, summary scoping `6/6`, desktop bootstrap `10/10`, CI coverage `2/2`, traceability `1/1`, Vite build passed, real local WAV/MP3 codec smoke passed, release EXE/MSI/NSIS build passed, release launch smoke passed, and opt-in import/runtime route passed. This is local source/test/build/runtime-worker/package-launch evidence; packaged click-through, restart, provider, device, and release gates remain open. |
+| D-MVP-05 source-audio export (2026-09-16) | Existing durable `export.render` emits source WAV/MP3 artifacts and uses the bundled PyAV worker for other project-owned formats. Output is temp-file + atomic-replace so failed retries preserve the previous artifact. Targeted Rust audio tests `3/3`; full Rust `455 passed / 1 ignored`; clippy and scoped fmt passed; Node job actions `17/17`, summary scoping `6/6`, desktop bootstrap `10/10`, CI coverage `2/2`, traceability `1/1`, Vite build passed, real local WAV/MP3 codec smoke passed, release EXE build passed, host-level MSI build passed, NSIS build incomplete, release launch smoke passed outside the sandbox, and opt-in import/runtime route passed. This is local source/test/build/runtime-worker/package evidence; packaged click-through, restart, provider, device, and release gates remain open. |
 | Loopback recordings API (0.2.20b) | Rust **434/434** on 2026-09-13 (419 prior + 15 in `local_api::tests`: request/range/origin/token parsing, open `/health` vs 401 elsewhere, 204 preflight, 405, newest-first list with channels from chunk names, in-order stitching independent of row order, whole-file import passthrough with MIME, not-found/traversal rows never followed, missing slices skipped and counted, 200/206/416 `Range`, nested-id rejection, and two real-socket tests for exact `Content-Length` and CORS grant only for allow-listed origins). `cargo clippy --all-targets -D warnings` clean. `npm run build` passed; Node `test:local-api-client` 4/4 (loopback-only parse/build), `test:egress` 8/8 with the single-file `fetch` allowance, `test:ci-coverage` 2/2, `test:diarization` 8/8. Real-browser playback against the production web is not yet observed (needs deploy). |
 | Live Supabase bring-up (0.2.20b) | 8 migrations applied to `nqnrvqnijzovkrhxslfp` on 2026-09-13 (`list_migrations` shows all eight); 11 public tables all `relrowsecurity = true`; 14 functions present; `w1_authority_schema.sql` read-only posture block passed; security linter: 0 errors (INFO on server-only tables without policies, WARN on the two intentional `authenticated` SECURITY DEFINER pairing RPCs); 3 Edge functions ACTIVE v1 with `verify_jwt`, each returning 401 without a JWT and no `Access-Control-Allow-Origin` for an unlisted origin. The two write-and-rollback adversarial blocks of the SQL test were not run (read-only session). |
 
@@ -784,6 +827,10 @@ Screenshot artifacts from the latest UI validation:
 | 0.2.23b | 2026-09-16 | beta | Completed the bundled local PyAV WAV/MP3 transcoder for D-MVP-05 and recorded source/test/build/runtime-worker evidence; packaged click-through, restart, provider, device, and release gates remain open. | working-tree | Codex |
 | 0.2.24b | 2026-09-16 | beta | Recorded atomic retry-safe transcoder output, release bundle/launch evidence, and the opt-in local import/runtime route; live capture, packaged click-through, restart, provider, device, and release gates remain open. | working-tree | Codex |
 | 0.2.25b | 2026-09-16 | beta | Recorded the approved D-MVP-02/D-MVP-05 implementation as local commit `3c6734f`; live capture, packaged click-through, restart, provider, device, and release gates remain open. | 3c6734f22202e1ad8faf31af5a68783fb887090c | Codex |
+| 0.2.26b | 2026-09-17 | beta | Re-ran the approved local verification pass: build, full Rust, FUNGWIRE, and registered Node suites passed; test-only Python plumbing is explicitly separated from production runtime evidence. | working-tree | Codex |
+| 0.2.27b | 2026-09-17 | beta | Built the release EXE, recorded launch exit `101`, and recorded WiX MSI/NSIS packaging boundaries without claiming packaged click-through or installer success. | working-tree | Codex |
+| 0.2.28b | 2026-09-17 | beta | Root-caused sandbox-only Genesis lock denial; release EXE stayed responsive outside the sandbox. Native GUI click-through and installer packaging remain open. | working-tree | Codex |
+| 0.2.29b | 2026-09-17 | beta | Confirmed host-level WiX MSI packaging succeeds with an isolated target; NSIS remains incomplete, and the MSI was not installed or executed. | working-tree | Codex |
 | 0.2.20b | 2026-09-13 | beta | Web Google login works (Redirect-URL fix on the ZURI-shared project); live `public` schema found empty and Storage bucket-less; added the same-machine loopback recordings API and the web recordings tile with a loopback-only, egress-pinned client. Rust 434/434, clippy clean, build + Node suites green. | working-tree | Claude |
 | 0.2.19b | 2026-09-13 | beta | Supabase online; login gated on disabled Google provider. Recorded PR #44 (web paired devices) and PR #43 (brand kit); corrected the native-first and issue-#41 characterizations from 0.2.18b. | `f161a1d` | Claude |
 | 0.2.18b | 2026-09-04 | beta | Truth-synced PR #39 audit merge, PR #40 Android restoration with first physical A07 render, mobile login rewrite (working tree), machine move + full local toolchain, issue #41, and the Supabase pause gate. | `7b37a6e` | Claude |

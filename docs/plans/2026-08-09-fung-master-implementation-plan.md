@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.4.0b |
+| Version | 1.4.1b |
 | Date | 2026-08-23 |
 | Status | need review — Phase 3 controller acceptance, Phase 4 clean-install/cloud/device proof, and Phase 5 release gates remain open |
 | Author | Claude (Fable 5) + Boss |
@@ -20,6 +20,39 @@
 The current mainline is `origin/main` at `d4e6ddc`. PR #31 (`codex/backlog-truth-sync`) is open with frontend and Rust CI passing and carries this truth-sync update. PR #16 is merged at `26da784`; PR #30 is merged at `d4e6ddc`. Phase 0–2 remain complete. Phase 3 implementation is merged, but acceptance still requires a real desktop controller run with the approved OpenAI and Anthropic credentials; credentials are not available in this run. Phase 4 automated backup/restore and device-reconciliation tests are present, but the approved roots contain only test fixtures and no clean-install restore or Google Drive production OAuth/transport proof has been completed. Phase 5 remains not started.
 
 The local transcription runtime is prepared at worker level: the staged `faster-whisper` 1.2.1 environment contains the pinned `Systran/faster-whisper-small` revision, the staged CUDA 12/cuDNN 9 manifest records 11 DLLs, and `scripts/smoke_gpu_standalone.ps1` passed with the GPU profile. The current `npm audit --audit-level=moderate` result is also clean (`0` vulnerabilities). These checks close local worker/dependency preparation only; they do not close Live Meeting real-capture, Android, visual, connector, or release acceptance.
+
+## 0.1 Local verification sync (2026-09-17)
+
+Before the documentation update, the source worktree was clean and two commits
+ahead of `origin/main` (`3c6734f` and `64ceb22`); neither was pushed by this
+task. The approved local-only
+recheck passed `npm run build`, the complete Rust library suite (`455 passed,
+1 ignored`), the FUNGWIRE server/client suite (`17/17`), and all registered
+Node suites. This closes local source/build/contract evidence only. The
+worktree does not contain the production Whisper bundle, so the temporary
+ignored test interpreter used for fake-transcription plumbing must not be
+described as live transcription readiness.
+
+Remaining external or runtime gates are unchanged: packaged click-through and
+restart persistence, real capture/provider execution, physical Android/iOS
+UAT, authenticated pairing/FUNGWIRE delegation, real connectors, clean-install
+restore, integrity acceptance, signing, and release publication.
+
+The follow-up packaged check built `src-tauri/target/release/fung.exe` but the
+EXE exited with code `101` when launched. WiX MSI bundling failed in
+`light.exe`, and the separate NSIS bundling attempt did not complete. No
+installer was run or installed; packaged acceptance remains open.
+
+The exit `101` was root-caused to the sandbox denying write access to the
+existing GenesisBlockDB ownership lock. The same release EXE stayed responsive
+when launched outside the sandbox. This removes the startup-defect hypothesis,
+but native GUI click-through and restart persistence remain unobserved because
+the available Computer Use surface could not target the FUNG window.
+
+Host-level rerun with an isolated Cargo target then completed the WiX MSI build
+and produced `FUNG_0.1.1_x64_en-US.msi`; the installer was not executed or
+installed. The NSIS attempt remains incomplete, so installer/release acceptance
+is still open.
 
 ---
 

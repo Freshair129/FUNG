@@ -1,10 +1,19 @@
-import { useEffect, useState } from "react";
-import { ChevronDown, Cloud, LogOut, Settings } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { ChevronDown, Cloud, Download, LogOut, Mic, Settings, Square, Trash2 } from "lucide-react";
 import { FungLogo } from "../components/FungLogo";
 import { supabase } from "../lib/supabase";
 import { AccountSettings } from "./AccountSettings";
 import { formatRelativeThai, usePairedDevices } from "./usePairedDevices";
 import { useLocalRecordings } from "./useLocalRecordings";
+import { useWebRecorder } from "./useWebRecorder";
+import {
+  deleteWebRecording,
+  formatBytes,
+  formatDurationMs,
+  listWebRecordings,
+  webRecordingFileName,
+  type StoredWebRecording,
+} from "./webRecordings";
 import "./Dashboard.css";
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -12,15 +21,6 @@ const CHANNEL_LABELS: Record<string, string> = {
   system: "เสียงระบบ",
   file: "ไฟล์",
 };
-
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const mmss = `${hours > 0 ? String(minutes).padStart(2, "0") : minutes}:${String(seconds).padStart(2, "0")}`;
-  return hours > 0 ? `${hours}:${mmss}` : mmss;
-}
 
 function formatRecordedAt(iso: string | null): string {
   if (!iso) return "ไม่ทราบเวลา";
@@ -40,6 +40,62 @@ export function Dashboard() {
   const [connectError, setConnectError] = useState<string | null>(null);
   // Which channel each recording is playing; defaults to its first one.
   const [channelById, setChannelById] = useState<Record<string, string>>({});
+
+  // Recordings made in this browser (IndexedDB), newest first, each with an
+  // object URL for playback/download that is revoked when it leaves the list.
+  const [webRecordings, setWebRecordings] = useState<StoredWebRecording[] | null>(null);
+  const [webUrls, setWebUrls] = useState<Record<string, string>>({});
+  const [webListError, setWebListError] = useState<string | null>(null);
+  const onRecordingSaved = useCallback((recording: StoredWebRecording) => {
+    setWebRecordings((current) => [recording, ...(current ?? [])]);
+  }, []);
+  const recorder = useWebRecorder(onRecordingSaved);
+
+  useEffect(() => {
+    if (!recorder.supported) {
+      setWebRecordings([]);
+      return;
+    }
+    listWebRecordings()
+      .then((rows) => setWebRecordings(rows))
+      .catch((cause: unknown) => {
+        setWebRecordings([]);
+        setWebListError(cause instanceof Error ? cause.message : String(cause));
+      });
+  }, [recorder.supported]);
+
+  useEffect(() => {
+    if (!webRecordings) return;
+    setWebUrls((current) => {
+      const next: Record<string, string> = {};
+      for (const recording of webRecordings) {
+        next[recording.id] = current[recording.id] ?? URL.createObjectURL(recording.blob);
+      }
+      for (const [id, url] of Object.entries(current)) {
+        if (!(id in next)) URL.revokeObjectURL(url);
+      }
+      return next;
+    });
+  }, [webRecordings]);
+
+  useEffect(
+    () => () => {
+      setWebUrls((current) => {
+        Object.values(current).forEach((url) => URL.revokeObjectURL(url));
+        return {};
+      });
+    },
+    [],
+  );
+
+  const handleDeleteWebRecording = async (id: string) => {
+    try {
+      await deleteWebRecording(id);
+      setWebRecordings((current) => (current ?? []).filter((recording) => recording.id !== id));
+    } catch (cause) {
+      setWebListError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
 
   const handleConnect = () => {
     if (local.connect(connectInput)) {
@@ -166,10 +222,95 @@ export function Dashboard() {
         </div>
 
         <div className="dashboard-tiles">
-          <div className="dashboard-tile">
+          <div className="dashboard-tile dashboard-tile-recorder">
             <div className="dashboard-tile-icon">🎙️</div>
             <h3>เริ่มบันทึก</h3>
-            <p>เร็วๆ นี้</p>
+            <p>
+              อัดเสียงจากไมค์ในเบราว์เซอร์นี้ ไฟล์เก็บไว้ <strong>ในเบราว์เซอร์นี้เท่านั้น</strong> ไม่ขึ้น cloud —
+              ดาวน์โหลดแล้วนำเข้า FUNG desktop เพื่อถอดเสียงได้
+            </p>
+            {!recorder.supported && (
+              <p className="dashboard-device-error">เบราว์เซอร์นี้อัดเสียงไม่ได้ (ต้องมี MediaRecorder และ IndexedDB)</p>
+            )}
+            {recorder.supported && (
+              <div className="dashboard-rec-controls">
+                {recorder.state === "recording" ? (
+                  <>
+                    <div className="dashboard-rec-live" aria-live="polite">
+                      <span className="dashboard-rec-dot" aria-hidden="true" />
+                      <span className="dashboard-rec-timer">{formatDurationMs(recorder.elapsedMs)}</span>
+                      <div
+                        className="dashboard-level"
+                        role="meter"
+                        aria-label="ระดับเสียง"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(recorder.level * 100)}
+                      >
+                        <div className="dashboard-level-fill" style={{ width: `${Math.round(recorder.level * 100)}%` }} />
+                      </div>
+                    </div>
+                    <button type="button" className="dashboard-rec-btn is-stop" onClick={() => void recorder.stop()}>
+                      <Square size={14} /> หยุดและบันทึก
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="dashboard-rec-btn"
+                    onClick={() => void recorder.start()}
+                    disabled={recorder.state !== "idle"}
+                  >
+                    <Mic size={14} />
+                    {recorder.state === "requesting"
+                      ? "กำลังขอใช้ไมค์…"
+                      : recorder.state === "saving"
+                        ? "กำลังบันทึก…"
+                        : "เริ่มอัด"}
+                  </button>
+                )}
+              </div>
+            )}
+            {recorder.error && <p className="dashboard-device-error">{recorder.error}</p>}
+            {webListError && <p className="dashboard-device-error">{webListError}</p>}
+            {webRecordings && webRecordings.length > 0 && (
+              <ul className="dashboard-device-list dashboard-web-list">
+                {webRecordings.map((recording) => (
+                  <li key={recording.id} className="dashboard-recording-item">
+                    <div className="dashboard-rec-row">
+                      <div className="dashboard-device-info">
+                        <strong>{formatRecordedAt(recording.createdAt)}</strong>
+                        <small>
+                          {formatDurationMs(recording.durationMs)} · {formatBytes(recording.bytes)}
+                        </small>
+                      </div>
+                      <div className="dashboard-rec-actions">
+                        <a
+                          className="dashboard-rec-action"
+                          href={webUrls[recording.id]}
+                          download={webRecordingFileName(recording)}
+                        >
+                          <Download size={13} /> ดาวน์โหลด
+                        </a>
+                        <button
+                          type="button"
+                          className="dashboard-rec-action is-danger"
+                          onClick={() => void handleDeleteWebRecording(recording.id)}
+                        >
+                          <Trash2 size={13} /> ลบ
+                        </button>
+                      </div>
+                    </div>
+                    {webUrls[recording.id] && (
+                      <audio className="dashboard-audio" controls preload="metadata" src={webUrls[recording.id]} />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {webRecordings && webRecordings.length === 0 && recorder.supported && recorder.state === "idle" && (
+              <p className="dashboard-connect-hint">ยังไม่มีไฟล์ที่อัดในเบราว์เซอร์นี้</p>
+            )}
           </div>
           <div className="dashboard-tile dashboard-tile-recordings">
             <div className="dashboard-tile-icon">📁</div>
@@ -227,7 +368,7 @@ export function Dashboard() {
                       <div className="dashboard-device-info">
                         <strong>{recording.projectName ?? "(ไม่มีชื่อโปรเจกต์)"}</strong>
                         <small>
-                          {formatRecordedAt(recording.createdAt)} · {formatDuration(recording.durationMs)}
+                          {formatRecordedAt(recording.createdAt)} · {formatDurationMs(recording.durationMs)}
                           {recording.status && recording.status !== "completed" ? ` · ${recording.status}` : ""}
                         </small>
                       </div>

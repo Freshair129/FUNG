@@ -18,13 +18,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::Instant;
 use tauri_plugin_dialog::DialogExt;
 use thiserror::Error;
+#[cfg(test)]
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
 const RESTORE_TARGET_PREFIX: &str = "restore-";
+#[cfg(test)]
 const RESTORE_INTENT_TTL: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -88,9 +92,11 @@ impl Drop for JobGuard {
 pub(crate) struct BackupJobState {
     restore_parent: Arc<Mutex<Option<PathBuf>>>,
     job_running: Arc<AtomicBool>,
+    #[cfg(test)]
     restore_intent: Arc<Mutex<Option<RestoreIntent>>>,
 }
 
+#[cfg(test)]
 struct RestoreIntent {
     id: String,
     archive_id: String,
@@ -106,11 +112,10 @@ impl BackupJobState {
             .ok()
             .and_then(|parent| parent.clone())
     }
+}
 
-    pub(crate) fn acquire_job(&self) -> Result<JobGuard, BackupJobError> {
-        JobGuard::acquire(&self.job_running)
-    }
-
+#[cfg(test)]
+impl BackupJobState {
     pub(crate) fn issue_restore_intent(&self, archive_id: &str) -> Result<String, String> {
         let target = self
             .restore_parent()
@@ -131,9 +136,7 @@ impl BackupJobState {
         Ok(id)
     }
 
-    /// Consume the native archive/target-bound intent before any provider or
-    /// keyring access. A failed restore therefore requires a new explicit
-    /// native intent instead of allowing a replay of the old one.
+    /// Consume the native archive/target-bound intent once in the test contract.
     pub(crate) fn consume_restore_intent(
         &self,
         intent_id: &str,
@@ -685,6 +688,7 @@ pub(crate) async fn backup_restore_select_target(
         Some(parent) => {
             let target_id = sha256_hex(parent.to_string_lossy().as_bytes());
             *current = Some(parent);
+            #[cfg(test)]
             if let Ok(mut intent) = job_state.restore_intent.lock() {
                 *intent = None;
             }

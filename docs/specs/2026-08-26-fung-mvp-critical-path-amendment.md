@@ -1,7 +1,7 @@
 ---
-version: "0.1.8b"
+version: "0.1.11b"
 created_at: "2026-08-26T00:00:00+07:00,Agent: Luna,Commit: 8a6406e6513943e09447daeb3c6572aa41468b67"
-last_update: "2026-09-17T00:00:00+07:00,Agent: Codex,Commit: 64ceb222d0f5cb98a0f2e9c7bc283f6a6e8f5c51"
+last_update: "2026-09-17T00:00:00+07:00,Agent: Codex,Commit: working-tree"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -152,8 +152,8 @@ No other files, migrations, credentials, release artifacts, external systems, or
 - The source format is not guessed: unsupported imports route through `scripts/transcode_audio.py` in the bundled Python runtime, which decodes locally with PyAV and writes explicit WAV/MP3 output; missing runtime or codec support fails without an artifact.
 - The transcoder writes a temporary file and atomically replaces the destination only after a non-empty encode; a failed retry preserves the previous valid artifact.
 - Evidence passed on the working tree: targeted audio-export Rust tests `3/3`; full Rust library regression `455 passed, 0 failed, 1 ignored`; `cargo clippy --all-targets -- -D warnings`; scoped `cargo fmt --check`; `npm run test:job-actions` `17/17`; `npm run test:summary-scoping` `6/6`; `npm run test:desktop-bootstrap` `10/10`; `npm run test:ci-coverage` `2/2`; `npm run test:traceability` `1/1`; `npm run build` passed; the staged runtime smoke produced valid `pcm_s16le` WAV and `mp3float` MP3 output from local fixtures; and a failed-input retry exited `1` while preserving the prior MP3 bytes.
-- `npm run tauri -- build` produced the EXE, MSI, and NSIS bundles; the release executable launched with title `FUNG` and responded. The opt-in local import route test also passed against the staged runtime in `6.74s`; its Alarm01 fixture proves route/runtime completion, not speech accuracy.
-- This is local source/test/build/runtime-worker/package-launch evidence only. Packaged click-to-file, close/relaunch persistence, real capture/provider readiness, and release gates remain open.
+- The release EXE build passed and stayed responsive when run outside the sandbox; a host-level WiX MSI build passed with an isolated target. The NSIS attempt did not complete, and the MSI was not installed or executed. The opt-in local import route test also passed against the staged runtime in `6.74s`; its Alarm01 fixture proves route/runtime completion, not speech accuracy.
+- This is local source/test/build/runtime-worker/package evidence only. Packaged click-to-file, close/relaunch persistence, real capture/provider readiness, and release gates remain open.
 
 ## Explicit blocker assessment
 
@@ -198,6 +198,9 @@ No other files, migrations, credentials, release artifacts, external systems, or
 | 0.1.6b | Records the approved D-MVP-02/D-MVP-05 implementation as local commit `3c6734f`; runtime/UAT, click-through, provider, device, and release acceptance remain open. |
 | 0.1.7b | Proposes bounded D-MVP-04-L1 export-artifact inventory paging; no runtime/provider/device/release gate is changed. |
 | 0.1.8b | Records the implemented D-MVP-04-L1 export-artifact inventory paging and local verification evidence; runtime/provider/device/release gates remain open. |
+| 0.1.9b | Records the 2026-09-17 local recheck: build, full Rust, FUNGWIRE, and registered Node suites passed; ignored test-only Python plumbing is not production runtime evidence. |
+| 0.1.10b | Records the sandbox-only Genesis lock denial and host-level responsive EXE observation; packaged click-through remains open. |
+| 0.1.11b | Confirms host-level WiX MSI packaging with an isolated target; NSIS and packaged acceptance remain open. |
 
 ## CHANGELOG
 
@@ -212,3 +215,6 @@ No other files, migrations, credentials, release artifacts, external systems, or
 | 0.1.6b | 2026-09-16 | candidate | Recorded the approved D-MVP-02/D-MVP-05 implementation as a local commit; no live capture, provider, device, click-through, or release acceptance gate is claimed. | 3c6734f22202e1ad8faf31af5a68783fb887090c | Codex |
 | 0.1.7b | 2026-09-17 | candidate | Proposed D-MVP-04-L1 to page the export-artifact inventory past the Genesis single-read bound; implementation and verification follow the exact local-only scope. | 64ceb222d0f5cb98a0f2e9c7bc283f6a6e8f5c51 | Codex |
 | 0.1.8b | 2026-09-17 | candidate | Recorded the implemented D-MVP-04-L1 export-artifact inventory paging and local verification evidence; no runtime, provider, device, packaged click-through, or release gate is claimed. | working-tree | Codex |
+| 0.1.9b | 2026-09-17 | candidate | Re-ran the local verification pass with build, full Rust, FUNGWIRE, and registered Node suites passing; packaged, provider, device, and release gates remain open. | working-tree | Codex |
+| 0.1.10b | 2026-09-17 | candidate | Root-caused the sandbox-only Genesis lock denial; release EXE stayed responsive outside the sandbox, while native GUI click-through remains unobserved. | working-tree | Codex |
+| 0.1.11b | 2026-09-17 | candidate | Confirmed host-level WiX MSI packaging succeeds with an isolated target; NSIS remains incomplete and the installer was not executed, so packaged acceptance remains open. | working-tree | Codex |

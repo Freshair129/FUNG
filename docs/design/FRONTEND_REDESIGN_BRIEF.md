@@ -124,7 +124,7 @@ Overlay: `RecoveryNotice`, `SettingsPanel` (7 tab: External Connections, Sign In
 
 **LiveMeetingPanel** (หน้าจอสำคัญสุด): phase `พร้อมเริ่มประชุม / กำลังเริ่ม... / กำลังฟังอยู่ / อัดต่อเนื่อง (ถอดสดมีปัญหา) / กำลังปิดเซสชัน... / จบการประชุมแล้ว / เกิดข้อผิดพลาด`; ปุ่ม `● เริ่มประชุม` / `■ จบประชุม`; option ก่อนเริ่ม: checkbox จับเสียงระบบ, เลือกภาษา (auto/ไทย/อังกฤษ), consent line; feed `Transcript สด` (cap 200 segment, หน่วง ~10-20 s); การ์ด topic; การ์ดถาม FUNG (คำตอบ + แหล่งอ้างอิง [n]); สรุปหลังประชุม 3 ส่วน + `ลองสรุปใหม่`; ExternalMeetingToolsPanel (flag)
 
-**Panel อื่นที่มี copy/สถานะเฉพาะ**: BackupPanel (phrase 24 คำแสดงครั้งเดียว), GoogleDrivePanel, CloudProvidersPanel (5 slot คงที่, daily cap), TtsProviderPanel (3 runtime type), MediaFetchPanel (3 สถานะแยกด้วย `blockerCode`), ZoomPanel, ExternalAccountPanel (**อังกฤษล้วน**, ปุ่ม disabled ถาวร), DevicePairingPanel (รหัส 6 หลัก + นับถอยหลัง, FUNGWIRE switch), AccountLoginPanel (ชื่ออุปกรณ์, สถานะรออนุมัติ)
+**Panel อื่นที่มี copy/สถานะเฉพาะ**: BackupPanel (phrase 24 คำแสดงครั้งเดียว), CloudProvidersPanel (5 slot คงที่, daily cap), TtsProviderPanel (3 runtime type), MediaFetchPanel (3 สถานะแยกด้วย `blockerCode`), ZoomPanel, ExternalAccountPanel (**อังกฤษล้วน**, ปุ่ม disabled ถาวร), DevicePairingPanel (รหัส 6 หลัก + นับถอยหลัง, FUNGWIRE switch), AccountLoginPanel (ชื่ออุปกรณ์, สถานะรออนุมัติ)
 
 รายละเอียด copy ทุกปุ่ม/สถานะดู `docs/UI_INTERFACE_INVENTORY.md` และไฟล์ component โดยตรง
 

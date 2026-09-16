@@ -30,6 +30,39 @@ by clean-install/device proof. Phase 5 remains not started.
 
 The local transcription runtime is prepared at worker level: the staged `faster-whisper` 1.2.1 environment contains the pinned `Systran/faster-whisper-small` revision, the staged CUDA 12/cuDNN 9 manifest records 11 DLLs, and `scripts/smoke_gpu_standalone.ps1` passed with the GPU profile. The current `npm audit --audit-level=moderate` result is also clean (`0` vulnerabilities). These checks close local worker/dependency preparation only; they do not close Live Meeting real-capture, Android, visual, connector, or release acceptance.
 
+## 0.1 Local verification sync (2026-09-17)
+
+Before the documentation update, the source worktree was clean and two commits
+ahead of `origin/main` (`3c6734f` and `64ceb22`); neither was pushed by this
+task. The approved local-only
+recheck passed `npm run build`, the complete Rust library suite (`455 passed,
+1 ignored`), the FUNGWIRE server/client suite (`17/17`), and all registered
+Node suites. This closes local source/build/contract evidence only. The
+worktree does not contain the production Whisper bundle, so the temporary
+ignored test interpreter used for fake-transcription plumbing must not be
+described as live transcription readiness.
+
+Remaining external or runtime gates are unchanged: packaged click-through and
+restart persistence, real capture/provider execution, physical Android/iOS
+UAT, authenticated pairing/FUNGWIRE delegation, real connectors, clean-install
+restore, integrity acceptance, signing, and release publication.
+
+The follow-up packaged check built `src-tauri/target/release/fung.exe` but the
+EXE exited with code `101` when launched. WiX MSI bundling failed in
+`light.exe`, and the separate NSIS bundling attempt did not complete. No
+installer was run or installed; packaged acceptance remains open.
+
+The exit `101` was root-caused to the sandbox denying write access to the
+existing GenesisBlockDB ownership lock. The same release EXE stayed responsive
+when launched outside the sandbox. This removes the startup-defect hypothesis,
+but native GUI click-through and restart persistence remain unobserved because
+the available Computer Use surface could not target the FUNG window.
+
+Host-level rerun with an isolated Cargo target then completed the WiX MSI build
+and produced `FUNG_0.1.1_x64_en-US.msi`; the installer was not executed or
+installed. The NSIS attempt remains incomplete, so installer/release acceptance
+is still open.
+
 ---
 
 ## 0. Historical Delivery Overlay (2026-08-13; superseded)

@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="3968" height="1016" viewBox="0 0 3968 1016" role="img" aria-labelledby="title desc">
+<title id="title">FUNG desktop dark · candidate 0.1.0b · three 1280x800 frames</title>
+<desc id="desc">Static design document. P1-B PROPOSED, P1-A fallback shown. All transcript and recording samples are DESIGN FIXTURE, not runtime evidence.</desc>
+<metadata>Created 2026-09-17T01:58:55+07:00; base c378af9fac3c00db063948f49f9ee857ebad9126. FUNG mark path copied from docs/brand-kit/logo/fung-mark.svg. No Call.md asset reused.</metadata>
+<style>text{font-family:"IBM Plex Sans Thai","DM Sans","Leelawadee UI",Tahoma,sans-serif}</style>
+<rect x="0" y="0" width="3968" height="1016" rx="0" fill="#171918" stroke="#171918" /><text x="32" y="34" font-size="21" fill="#FAF8F3" font-weight="600" >FUNG / DARK / 01 HOME · 02 LIVE · 03 REVIEW</text><text x="32" y="60" font-size="14" fill="#B9C3BD" font-weight="400" >CANDIDATE 0.1.0b · P1-B recommended / not selected · 1280 × 800 per frame · A fallback in each footer</text>
+<g id="frame-0" transform="translate(32 80)">
+<rect x="0" y="0" width="1280" height="800" rx="16" fill="#171918" stroke="#414B46" />
+<rect x="0" y="0" width="216" height="800" rx="16" fill="#222624" stroke="#414B46" />
+<!-- Exact path from docs/brand-kit/logo/fung-mark.svg; no upstream asset copied. --><g transform="translate(24 24) scale(.4)" color="#FAF8F3"><path fill="currentColor" fill-rule="evenodd" d="M32 8H68A24 24 0 0 1 92 32V68A24 24 0 0 1 68 92H32A24 24 0 0 1 8 68V32A24 24 0 0 1 32 8ZM47 22H53A14 14 0 0 1 67 36V64A14 14 0 0 1 53 78H47A14 14 0 0 1 33 64V36A14 14 0 0 1 47 22Z"/></g>
+<text x="80" y="52" font-size="22" fill="#FAF8F3" font-weight="500" letter-spacing="7" font-family="DM Sans, Segoe UI, sans-serif">FUNG</text>
+<text x="28" y="100" font-size="10" fill="#B9C3BD" font-weight="500" letter-spacing="2">QUIET ARCHIVE</text>
+<rect x="16" y="124" width="184" height="44" rx="8" fill="#2C322F" stroke="#414B46" />
+<text x="34" y="152" font-size="15" fill="#BCCAF3" font-weight="600" >หน้าหลัก</text>
+<rect x="16" y="176" width="184" height="44" rx="8" fill="#222624" stroke="#222624" />
+<text x="34" y="204" font-size="15" fill="#B9C3BD" font-weight="400" >ประชุมสด</text>
+<rect x="16" y="228" width="184" height="44" rx="8" fill="#222624" stroke="#222624" />
+<text x="34" y="256" font-size="15" fill="#B9C3BD" font-weight="400" >บันทึกย้อนหลัง</text>
+<rect x="16" y="280" width="184" height="44" rx="8" fill="#222624" stroke="#222624" />
+<text x="34" y="308" font-size="15" fill="#B9C3BD" font-weight="400" >โครงการและงาน</text>
+<text x="32" y="430" font-size="14" fill="#BCCAF3" font-weight="500" >พื้นที่ทำงานเดิม</text>
+<text x="32" y="469" font-size="14" fill="#B9C3BD" font-weight="400" >นำเข้า / กู้คืน</text>
+<text x="32" y="508" font-size="14" fill="#B9C3BD" font-weight="400" >ส่งออกของโครงการ</text>
+<text x="32" y="623" font-size="14" fill="#B9C3BD" font-weight="400" >จับคู่อุปกรณ์</text>
+<text x="32" y="665" font-size="14" fill="#B9C3BD" font-weight="400" >ตั้งค่า / บัญชี / สำรอง</text>
+<text x="32" y="710" font-size="14" fill="#B9C3BD" font-weight="400" >รูปแบบ: มืด</text>
+<text x="28" y="768" font-size="12" fill="#B9C3BD" font-weight="400" >Local · ไม่ต้องมีบัญชี</text>
+<text x="248" y="39" font-size="20" fill="#FAF8F3" font-weight="600" >หน้าหลัก</text>
+<rect x="916" y="16" width="140" height="28" rx="14" fill="#2C322F" stroke="#414B46" /><text x="928" y="35" font-size="12" fill="#AAC3B7" font-weight="500" >ทำงานในเครื่อง</text>
+<rect x="1068" y="16" width="180" height="28" rx="14" fill="#2C322F" stroke="#414B46" /><text x="1080" y="35" font-size="12" fill="#DEC69D" font-weight="500" >B · PROPOSED</text>
+<text x="248" y="68" font-size="12" fill="#DEC69D" font-weight="400" >แบบร่าง v0.1.0b · DESIGN FIXTURE — ข้อมูลตัวอย่าง ไม่ใช่ผลจากระบบ</text>
+<path d="M216 80H1280" stroke="#414B46"/>
+<text x="248" y="119" font-size="26" fill="#FAF8F3" font-weight="600" >พื้นที่ส่วนตัวสำหรับการฟังและทบทวน</text>
+<text x="248" y="151" font-size="14" fill="#B9C3BD" font-weight="400" >โครงการตัวอย่าง / งานออกแบบ · DESIGN FIXTURE</text>
+<rect x="248" y="177" width="1000" height="164" rx="16" fill="#222624" stroke="#414B46" />
+<text x="276" y="218" font-size="24" fill="#FAF8F3" font-weight="600" >เริ่มจากเสียง แล้วกลับมาทบทวนได้</text>
+<text x="276" y="250" font-size="15" fill="#B9C3BD" font-weight="400" >เสียงทั้งหมดถูกบันทึกและประมวลผลในเครื่องนี้เท่านั้น</text>
+<text x="276" y="278" font-size="15" fill="#B9C3BD" font-weight="400" >โปรดแจ้งผู้ร่วมประชุมก่อนเริ่มอัด · ไม่มีเสียงขึ้น cloud</text>
+<rect x="1040" y="206" width="176" height="40" rx="8" fill="#4A5B8B" stroke="#4A5B8B" /><text x="1078" y="233" font-size="16" fill="#FAF8F3" style="fill:#FAF8F3;font-family:'Leelawadee UI',Tahoma,sans-serif" font-weight="600">เริ่มประชุม</text>
+<rect x="1040" y="258" width="176" height="40" rx="8" fill="#222624" stroke="#414B46" /><text x="1128" y="284" font-size="14" fill="#BCCAF3" font-weight="500" text-anchor="middle">นำเข้าไฟล์</text>
+<rect x="248" y="365" width="484" height="207" rx="12" fill="#222624" stroke="#414B46" /><text x="268" y="398" font-size="18" fill="#FAF8F3" font-weight="600" >บันทึกที่เปิดค้าง</text><text x="268" y="423" font-size="12" fill="#B9C3BD" font-weight="400" >DESIGN FIXTURE · ประวัติหลายบันทึก: PROPOSED</text>
+<text x="268" y="453" font-size="21" fill="#FAF8F3" font-weight="500" >ทบทวนงานออกแบบ</text>
+<text x="268" y="485" font-size="14" fill="#B9C3BD" font-weight="400" >เปิดเพื่ออ่านต่อ · ไม่เริ่มอัดซ้ำ</text>
+<rect x="268" y="508" width="194" height="40" rx="8" fill="#4A5B8B" stroke="#4A5B8B" /><text x="365" y="534" font-size="14" fill="#FAF8F3" font-weight="500" text-anchor="middle">เปิดบันทึกนี้</text>
+<rect x="756" y="365" width="492" height="207" rx="12" fill="#222624" stroke="#414B46" /><text x="776" y="398" font-size="18" fill="#FAF8F3" font-weight="600" >เครื่องมือพร้อมเมื่อคุณเลือก</text><text x="776" y="423" font-size="12" fill="#B9C3BD" font-weight="400" >เข้าถึงแบบ lazy · ไม่บังคับเข้าสู่ระบบ</text>
+<text x="776" y="453" font-size="15" fill="#B9C3BD" font-weight="400" >งานและโครงการ → ดูสถานะงานจริง</text><text x="776" y="477" font-size="15" fill="#B9C3BD" font-weight="400" >ตั้งค่า → โมเดลในเครื่อง / เชื่อมต่อ / สำรอง</text><text x="776" y="501" font-size="15" fill="#B9C3BD" font-weight="400" >จับคู่อุปกรณ์ → จัดการอุปกรณ์ที่เชื่อถือ</text>
+<rect x="248" y="596" width="1000" height="100" rx="12" fill="#2C322F" stroke="#414B46" />
+<text x="272" y="627" font-size="17" fill="#FAF8F3" font-weight="600" >รักษาสิ่งที่มีอยู่</text>
+<text x="272" y="655" font-size="14" fill="#B9C3BD" font-weight="400" >พื้นที่ทำงานเดิมยังเข้าถึงได้ รวมถอดเสียง สรุป กราฟ ส่งออก และการกู้คืน</text><text x="272" y="678" font-size="14" fill="#B9C3BD" font-weight="400" >เครื่องมือภายนอกปิดไว้ · เปิดและอนุมัติแยกตามขอบเขตเดิม</text>
+<rect x="232" y="728" width="1032" height="56" rx="8" fill="#2C322F" stroke="#414B46" />
+<text x="248" y="750" font-size="12" fill="#BCCAF3" font-weight="600" >ทางเลือก A</text>
+<text x="344" y="750" font-size="12" fill="#B9C3BD" font-weight="400" >แสดงโครงการและบันทึกปัจจุบันเท่านั้น; ไม่มีรายการบันทึกย้อนหลังสมมติ</text><text x="344" y="771" font-size="12" fill="#B9C3BD" font-weight="400" >ปุ่มเปิดบันทึกใช้ activeRecordingId เดิม / Play อธิบายว่าไม่พร้อม</text>
+</g>
+<g id="frame-1" transform="translate(1344 80)">
+<rect x="0" y="0" width="1280" height="800" rx="16" fill="#171918" stroke="#414B46" />
+<rect x="0" y="0" width="216" height="800" rx="16" fill="#222624" stroke="#414B46" />
+<!-- Exact path from docs/brand-kit/logo/fung-mark.svg; no upstream asset copied. --><g transform="translate(24 24) scale(.4)" color="#FAF8F3"><path fill="currentColor" fill-rule="evenodd" d="M32 8H68A24 24 0 0 1 92 32V68A24 24 0 0 1 68 92H32A24 24 0 0 1 8 68V32A24 24 0 0 1 32 8ZM47 22H53A14 14 0 0 1 67 36V64A14 14 0 0 1 53 78H47A14 14 0 0 1 33 64V36A14 14 0 0 1 47 22Z"/></g>
+<text x="80" y="52" font-size="22" fill="#FAF8F3" font-weight="500" letter-spacing="7" font-family="DM Sans, Segoe UI, sans-serif">FUNG</text>
+<text x="28" y="100" font-size="10" fill="#B9C3BD" font-weight="500" letter-spacing="2">QUIET ARCHIVE</text>
+<rect x="16" y="124" width="184" height="44" rx="8" fill="#222624" stroke="#222624" />
+<text x="34" y="152" font-size="15" fill="#B9C3BD" font-weight="400" >หน้าหลัก</text>
+<rect x="16" y="176" width="184" height="44" rx="8" fill="#2C322F" stroke="#414B46" />
+<text x="34" y="204" font-size="15" fill="#BCCAF3" font-weight="600" >ประชุมสด</text>
+<rect x="16" y="228" width="184" height="44" rx="8" fill="#222624" stroke="#222624" />
+<text x="34" y="256" font-size="15" fill="#B9C3BD" font-weight="400" >บันทึกย้อนหลัง</text>
+<rect x="16" y="280" width="184" height="44" rx="8" fill="#222624" stroke="#222624" />
+<text x="34" y="308" font-size="15" fill="#B9C3BD" font-weight="400" >โครงการและงาน</text>
+<text x="32" y="430" font-size="14" fill="#BCCAF3" font-weight="500" >พื้นที่ทำงานเดิม</text>
+<text x="32" y="469" font-size="14" fill="#B9C3BD" font-weight="400" >นำเข้า / กู้คืน</text>
+<text x="32" y="508" font-size="14" fill="#B9C3BD" font-weight="400" >ส่งออกของโครงการ</text>
+<text x="32" y="623" font-size="14" fill="#B9C3BD" font-weight="400" >จับคู่อุปกรณ์</text>
+<text x="32" y="665" font-size="14" fill="#B9C3BD" font-weight="400" >ตั้งค่า / บัญชี / สำรอง</text>
+<text x="32" y="710" font-size="14" fill="#B9C3BD" font-weight="400" >รูปแบบ: มืด</text>
+<text x="28" y="768" font-size="12" fill="#B9C3BD" font-weight="400" >Local · ไม่ต้องมีบัญชี</text>
+<text x="248" y="39" font-size="20" fill="#FAF8F3" font-weight="600" >ประชุมสด</text>
+<rect x="916" y="16" width="140" height="28" rx="14" fill="#2C322F" stroke="#414B46" /><text x="928" y="35" font-size="12" fill="#AAC3B7" font-weight="500" >ทำงานในเครื่อง</text>
+<rect x="1068" y="16" width="180" height="28" rx="14" fill="#2C322F" stroke="#414B46" /><text x="1080" y="35" font-size="12" fill="#DEC69D" font-weight="500" >B · PROPOSED</text>
+<text x="248" y="68" font-size="12" fill="#DEC69D" font-weight="400" >แบบร่าง v0.1.0b · DESIGN FIXTURE — ข้อมูลตัวอย่าง ไม่ใช่ผลจากระบบ</text>
+<path d="M216 80H1280" stroke="#414B46"/>
+<rect x="248" y="96" width="1000" height="60" rx="12" fill="#222624" stroke="#414B46" />
+<circle cx="272" cy="126" r="5" fill="#E4A08E"/>
+<text x="288" y="122" font-size="16" fill="#E4A08E" font-weight="600" >กำลังอัด · สถานะตัวอย่าง</text>
+<text x="288" y="142" font-size="11" fill="#B9C3BD" font-weight="400" >โครงการตัวอย่าง / บันทึกตัวอย่าง · DESIGN FIXTURE</text>
+<rect x="1040" y="106" width="184" height="40" rx="8" fill="#222624" stroke="#414B46" /><text x="1132" y="132" font-size="14" fill="#BCCAF3" font-weight="500" text-anchor="middle">หยุดการบันทึก</text>
+<rect x="248" y="176" width="612" height="402" rx="12" fill="#222624" stroke="#414B46" /><text x="268" y="209" font-size="18" fill="#FAF8F3" font-weight="600" >บทถอดเสียง</text><text x="268" y="234" font-size="12" fill="#B9C3BD" font-weight="400" >DESIGN FIXTURE · ช่องเสียงไม่ใช่บุคคลที่ยืนยันแล้ว</text>
+<rect x="268" y="252" width="572" height="76" rx="8" fill="#222624" stroke="#414B46" />
+<text x="284" y="276" font-size="12" fill="#BCCAF3" font-weight="500" >00:12 · ไมโครโฟน</text>
+<text x="284" y="304" font-size="15" fill="#FAF8F3" font-weight="400" >วันนี้ขอทบทวนหน้าประชุมและการอ่านบันทึก</text>
+<rect x="268" y="342" width="572" height="76" rx="8" fill="#2C322F" stroke="#414B46" />
+<text x="284" y="366" font-size="12" fill="#BCCAF3" font-weight="500" >00:27 · เสียงระบบ</text>
+<text x="284" y="394" font-size="15" fill="#FAF8F3" font-weight="400" >อยากเปิดดูบันทึกเก่าได้ โดยยังเก็บเสียงไว้ในเครื่อง</text>
+<rect x="268" y="432" width="572" height="76" rx="8" fill="#222624" stroke="#414B46" />
+<text x="284" y="456" font-size="12" fill="#BCCAF3" font-weight="500" >00:40 · ไมโครโฟน</text>
+<text x="284" y="484" font-size="15" fill="#FAF8F3" font-weight="400" >เราจะตรวจขอบเขตคำตอบก่อนเริ่มออกแบบต่อ</text>
+<text x="268" y="557" font-size="12" fill="#B9C3BD" font-weight="400" >แก้ข้อความที่ยืนยันแล้วได้ · ต้นฉบับเสียงยังคงเดิม</text>
+<rect x="884" y="176" width="364" height="218" rx="12" fill="#222624" stroke="#414B46" /><text x="904" y="209" font-size="18" fill="#FAF8F3" font-weight="600" >ประเด็นระหว่างประชุม</text><text x="904" y="234" font-size="12" fill="#B9C3BD" font-weight="400" >ข้อเสนอจากระบบ · DESIGN FIXTURE</text>
+<text x="904" y="263" font-size="15" fill="#FAF8F3" font-weight="400" >อยากทบทวนบันทึกเดิมได้</text><text x="904" y="287" font-size="15" fill="#FAF8F3" font-weight="400" >ควรยืนยันขอบเขตคำตอบก่อนใช้</text>
+<text x="904" y="324" font-size="12" fill="#B9C3BD" font-weight="400" >ประเด็นชั่วคราว ไม่ใช่ข้อเท็จจริงที่ยืนยัน</text>
+<text x="904" y="347" font-size="12" fill="#B9C3BD" font-weight="400" >ไม่มีวาระ / คะแนน / คำแนะนำเชิงรุก P2</text>
+<rect x="884" y="414" width="364" height="164" rx="12" fill="#222624" stroke="#414B46" /><text x="904" y="447" font-size="18" fill="#FAF8F3" font-weight="600" >สรุปของบันทึกนี้</text><text x="904" y="472" font-size="12" fill="#B9C3BD" font-weight="400" >ผูก projectId + recordingId</text>
+<text x="904" y="496" font-size="14" fill="#B9C3BD" font-weight="400" >เรียกสรุปด้วยการกระทำของผู้ใช้</text><text x="904" y="519" font-size="14" fill="#B9C3BD" font-weight="400" >แสดงที่มาและความไม่ครบก่อนเนื้อหา</text>
+<text x="904" y="552" font-size="13" fill="#B9C3BD" font-weight="400" >เครื่องมือภายนอก: ปิด</text>
+<rect x="248" y="600" width="1000" height="104" rx="12" fill="#222624" stroke="#414B46" />
+<text x="268" y="628" font-size="16" fill="#FAF8F3" font-weight="600" >ถามเฉพาะบันทึกนี้ · PROPOSED</text>
+<text x="268" y="652" font-size="13" fill="#B9C3BD" font-weight="400" >B ไม่ใช้ graph / live-tail · เปลี่ยนบันทึกแล้วล้างคำตอบเดิม</text>
+<rect x="268" y="665" width="776" height="28" rx="6" fill="#171918" stroke="#414B46" />
+<text x="280" y="684" font-size="12" fill="#B9C3BD" font-weight="400" >พิมพ์คำถาม… (ตัวอย่างช่องกรอก)</text>
+<rect x="1064" y="642" width="160" height="40" rx="8" fill="#4A5B8B" stroke="#4A5B8B" /><text x="1144" y="668" font-size="14" fill="#FAF8F3" font-weight="500" text-anchor="middle">ส่งคำถาม</text>
+<rect x="232" y="728" width="1032" height="56" rx="8" fill="#2C322F" stroke="#414B46" />
+<text x="248" y="750" font-size="12" fill="#BCCAF3" font-weight="600" >ทางเลือก A</text>
+<text x="344" y="750" font-size="12" fill="#B9C3BD" font-weight="400" >A: “ค้นความรู้ในเครื่อง” · โครงการกรองเฉพาะ transcript</text><text x="344" y="771" font-size="12" fill="#B9C3BD" font-weight="400" >graph / live-tail อาจมาจากที่อื่น · ออกจากหน้าระหว่างอัดต้องยืนยัน</text>
+</g>
+<g id="frame-2" transform="translate(2656 80)">
+<rect x="0" y="0" width="1280" height="800" rx="16" fill="#171918" stroke="#414B46" />
+<rect x="0" y="0" width="216" height="800" rx="16" fill="#222624" stroke="#414B46" />
+<!-- Exact path from docs/brand-kit/logo/fung-mark.svg; no upstream asset copied. --><g transform="translate(24 24) scale(.4)" color="#FAF8F3"><path fill="currentColor" fill-rule="evenodd" d="M32 8H68A24 24 0 0 1 92 32V68A24 24 0 0 1 68 92H32A24 24 0 0 1 8 68V32A24 24 0 0 1 32 8ZM47 22H53A14 14 0 0 1 67 36V64A14 14 0 0 1 53 78H47A14 14 0 0 1 33 64V36A14 14 0 0 1 47 22Z"/></g>
+<text x="80" y="52" font-size="22" fill="#FAF8F3" font-weight="500" letter-spacing="7" font-family="DM Sans, Segoe UI, sans-serif">FUNG</text>
+<text x="28" y="100" font-size="10" fill="#B9C3BD" font-weight="500" letter-spacing="2">QUIET ARCHIVE</text>
+<rect x="16" y="124" width="184" height="44" rx="8" fill="#222624" stroke="#222624" />
+<text x="34" y="152" font-size="15" fill="#B9C3BD" font-weight="400" >หน้าหลัก</text>
+<rect x="16" y="176" width="184" height="44" rx="8" fill="#222624" stroke="#222624" />
+<text x="34" y="204" font-size="15" fill="#B9C3BD" font-weight="400" >ประชุมสด</text>
+<rect x="16" y="228" width="184" height="44" rx="8" fill="#2C322F" stroke="#414B46" />
+<text x="34" y="256" font-size="15" fill="#BCCAF3" font-weight="600" >บันทึกย้อนหลัง</text>
+<rect x="16" y="280" width="184" height="44" rx="8" fill="#222624" stroke="#222624" />
+<text x="34" y="308" font-size="15" fill="#B9C3BD" font-weight="400" >โครงการและงาน</text>
+<text x="32" y="430" font-size="14" fill="#BCCAF3" font-weight="500" >พื้นที่ทำงานเดิม</text>
+<text x="32" y="469" font-size="14" fill="#B9C3BD" font-weight="400" >นำเข้า / กู้คืน</text>
+<text x="32" y="508" font-size="14" fill="#B9C3BD" font-weight="400" >ส่งออกของโครงการ</text>
+<text x="32" y="623" font-size="14" fill="#B9C3BD" font-weight="400" >จับคู่อุปกรณ์</text>
+<text x="32" y="665" font-size="14" fill="#B9C3BD" font-weight="400" >ตั้งค่า / บัญชี / สำรอง</text>
+<text x="32" y="710" font-size="14" fill="#B9C3BD" font-weight="400" >รูปแบบ: มืด</text>
+<text x="28" y="768" font-size="12" fill="#B9C3BD" font-weight="400" >Local · ไม่ต้องมีบัญชี</text>
+<text x="248" y="39" font-size="20" fill="#FAF8F3" font-weight="600" >บันทึกย้อนหลัง / ทบทวน</text>
+<rect x="916" y="16" width="140" height="28" rx="14" fill="#2C322F" stroke="#414B46" /><text x="928" y="35" font-size="12" fill="#AAC3B7" font-weight="500" >ทำงานในเครื่อง</text>
+<rect x="1068" y="16" width="180" height="28" rx="14" fill="#2C322F" stroke="#414B46" /><text x="1080" y="35" font-size="12" fill="#DEC69D" font-weight="500" >B · PROPOSED</text>
+<text x="248" y="68" font-size="12" fill="#DEC69D" font-weight="400" >แบบร่าง v0.1.0b · DESIGN FIXTURE — ข้อมูลตัวอย่าง ไม่ใช่ผลจากระบบ</text>
+<path d="M216 80H1280" stroke="#414B46"/>
+<text x="248" y="118" font-size="22" fill="#FAF8F3" font-weight="600" >โครงการตัวอย่าง / งานออกแบบ</text>
+<text x="248" y="144" font-size="13" fill="#DEC69D" font-weight="400" >B เพิ่มรายการบันทึกจริง + เสียงในเครื่อง + Q&amp;A รายบันทึก · PROPOSED</text>
+<rect x="248" y="164" width="288" height="540" rx="12" fill="#222624" stroke="#414B46" /><text x="268" y="197" font-size="18" fill="#FAF8F3" font-weight="600" >บันทึกในโครงการ</text><text x="268" y="222" font-size="12" fill="#B9C3BD" font-weight="400" >รายการหลายบันทึก: PROPOSED</text>
+<rect x="264" y="239" width="256" height="109" rx="8" fill="#2C322F" stroke="#BCCAF3" />
+<text x="280" y="267" font-size="15" fill="#FAF8F3" font-weight="600" >ทบทวนงานออกแบบ</text>
+<text x="280" y="295" font-size="13" fill="#B9C3BD" font-weight="400" >เลือกอยู่ · พร้อมอ่าน</text>
+<text x="280" y="324" font-size="11" fill="#DEC69D" font-weight="400" >DESIGN FIXTURE</text>
+<rect x="264" y="364" width="256" height="109" rx="8" fill="#222624" stroke="#414B46" />
+<text x="280" y="392" font-size="15" fill="#FAF8F3" font-weight="600" >รับฟังความคิดเห็น</text>
+<text x="280" y="420" font-size="13" fill="#B9C3BD" font-weight="400" >ยังถอดเสียงไม่ครบ</text>
+<text x="280" y="449" font-size="11" fill="#DEC69D" font-weight="400" >DESIGN FIXTURE</text>
+<rect x="264" y="489" width="256" height="109" rx="8" fill="#222624" stroke="#414B46" />
+<text x="280" y="517" font-size="15" fill="#FAF8F3" font-weight="600" >การทบทวนรอบก่อน</text>
+<text x="280" y="545" font-size="13" fill="#B9C3BD" font-weight="400" >รอตรวจการกู้คืน</text>
+<text x="280" y="574" font-size="11" fill="#DEC69D" font-weight="400" >DESIGN FIXTURE</text>
+<text x="268" y="663" font-size="12" fill="#B9C3BD" font-weight="400" >เปลี่ยนรายการไม่เปลี่ยนงานที่กำลังอัด</text>
+<rect x="560" y="164" width="688" height="144" rx="12" fill="#222624" stroke="#414B46" /><text x="580" y="197" font-size="18" fill="#FAF8F3" font-weight="600" >ทบทวนงานออกแบบ</text><text x="580" y="222" font-size="12" fill="#B9C3BD" font-weight="400" >PCM16 WAV · native playback PROPOSED</text>
+<rect x="580" y="245" width="118" height="40" rx="8" fill="#4A5B8B" stroke="#4A5B8B" /><text x="639" y="271" font-size="14" fill="#FAF8F3" font-weight="500" text-anchor="middle">เล่นเสียง</text>
+<rect x="716" y="249" width="142" height="28" rx="14" fill="#2C322F" stroke="#414B46" /><text x="728" y="268" font-size="12" fill="#B9C3BD" font-weight="500" >ช่อง: ไมโครโฟน</text>
+<text x="886" y="275" font-size="13" fill="#B9C3BD" font-weight="400" >—:— / —:—</text>
+<path d="M996 269H1220" stroke="#414B46" stroke-width="4"/>
+<rect x="560" y="324" width="688" height="174" rx="12" fill="#222624" stroke="#414B46" /><text x="580" y="357" font-size="18" fill="#FAF8F3" font-weight="600" >บทถอดเสียง / สรุป</text><text x="580" y="382" font-size="12" fill="#B9C3BD" font-weight="400" >DESIGN FIXTURE · สรุปผูก projectId + recordingId</text>
+<text x="580" y="407" font-size="16" fill="#FAF8F3" font-weight="400" >ทบทวนการเข้าถึงบันทึกเดิมและขอบเขตคำตอบ</text>
+<text x="580" y="435" font-size="13" fill="#B9C3BD" font-weight="400" >ข้อเสนอจากระบบ · ตรวจหลักฐานก่อนใช้</text>
+<text x="580" y="472" font-size="12" fill="#B9C3BD" font-weight="400" >กรณีอ่านได้ไม่ครบ จะแสดงคำเตือนก่อนเนื้อหา</text>
+<rect x="560" y="514" width="688" height="112" rx="12" fill="#222624" stroke="#414B46" />
+<text x="580" y="544" font-size="16" fill="#FAF8F3" font-weight="600" >ถามเฉพาะบันทึกนี้ · PROPOSED</text>
+<text x="580" y="570" font-size="13" fill="#B9C3BD" font-weight="400" >B: หลักฐานเฉพาะบันทึก · ไม่ใช้ graph / live-tail</text>
+<text x="580" y="599" font-size="12" fill="#DEC69D" font-weight="400" >A: ค้นความรู้ในเครื่อง · graph / live-tail อาจมาจากที่อื่น</text>
+<rect x="560" y="646" width="190" height="40" rx="8" fill="#4A5B8B" stroke="#4A5B8B" /><text x="655" y="672" font-size="14" fill="#FAF8F3" font-weight="500" text-anchor="middle">ส่งออกบันทึกนี้</text>
+<rect x="766" y="646" width="246" height="40" rx="8" fill="#222624" stroke="#414B46" /><text x="889" y="672" font-size="14" fill="#BCCAF3" font-weight="500" text-anchor="middle">ไฟล์ส่งออกทั้งโครงการ</text>
+<text x="1028" y="672" font-size="12" fill="#B9C3BD" font-weight="400" >ขอบเขตต่างกัน</text>
+<rect x="232" y="728" width="1032" height="56" rx="8" fill="#2C322F" stroke="#414B46" />
+<text x="248" y="750" font-size="12" fill="#BCCAF3" font-weight="600" >ทางเลือก A</text>
+<text x="344" y="750" font-size="12" fill="#B9C3BD" font-weight="400" >ชื่อหน้า “บันทึกปัจจุบัน”; ไม่มี list ย้อนหลัง · Play ปิดพร้อมเหตุผล</text><text x="344" y="771" font-size="12" fill="#B9C3BD" font-weight="400" >A ค้นความรู้ในเครื่อง: โครงการกรอง transcript; graph/live-tail อาจมาจากที่อื่น</text>
+</g>
+<text x="32" y="916" font-size="14" fill="#B9C3BD">FRAME 01 / Existing: listProjects + listJobs + listModelProviders; activeRecordingId only.</text>
+<text x="32" y="943" font-size="14" fill="#B9C3BD">PROPOSED B: real recording enumeration + native reopen; no new schema/provider.</text>
+<text x="32" y="970" font-size="14" fill="#B9C3BD">A: current recording only. Existing lazy settings/pairing/recovery remain reachable.</text>
+<text x="1344" y="916" font-size="14" fill="#B9C3BD">FRAME 02 / Existing: liveMeetingStart/Stop + live events; summaries(projectId, recordingId).</text>
+<text x="1344" y="943" font-size="14" fill="#B9C3BD">Legacy ask: project filters transcript ONLY; graph/live tail may differ. B: scoped ask PROPOSED.</text>
+<text x="1344" y="970" font-size="14" fill="#B9C3BD">Navigate while recording: confirm keep recording / stop then leave / cancel.</text>
+<text x="2656" y="916" font-size="14" fill="#B9C3BD">FRAME 03 / Existing: transcript + summaries(projectId, recordingId); export job scoped likewise.</text>
+<text x="2656" y="943" font-size="14" fill="#B9C3BD">Existing listExportArtifacts(projectId): PROJECT scope. PROPOSED B: history/native audio/Q&amp;A.</text>
+<text x="2656" y="970" font-size="14" fill="#B9C3BD">A: current-only; playback unavailable; local-knowledge ask with transcript-only project filter.</text>
+<text x="2656" y="995" font-size="13" fill="#B9C3BD">B: PCM16 WAV mono/stereo 8–96 kHz + matching output rate; capture blocks playback; other formats unavailable.</text>
+</svg>

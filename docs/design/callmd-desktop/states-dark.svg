@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2168" height="1530" viewBox="0 0 2168 1530" role="img" aria-labelledby="title desc"><title id="title">FUNG dark state board · 3 surfaces x empty loading error</title><desc id="desc">Nine distinct static UX state panels; no runtime data or success claims. P1-B proposed; A fallback explicit.</desc><metadata>Created 2026-09-17T01:58:55+07:00; version 0.1.0b candidate; base c378af9fac3c00db063948f49f9ee857ebad9126.</metadata><style>text{font-family:"IBM Plex Sans Thai","DM Sans","Leelawadee UI",Tahoma,sans-serif}</style><rect x="0" y="0" width="2168" height="1530" rx="0" fill="#171918" stroke="#171918"/><text x="32" y="36" font-size="22" fill="#FAF8F3" font-weight="600">FUNG / DARK / EMPTY · LOADING · ERROR</text><text x="32" y="69" font-size="15" fill="#B9C3BD" font-weight="400">A: ค้นความรู้ในเครื่อง · โครงการกรอง transcript เท่านั้น; graph/live-tail อาจมาจากที่อื่น · B = PROPOSED · error ≠ empty</text><g id="state-0" transform="translate(32 100)">
+<rect x="0" y="0" width="680" height="438" rx="14" fill="#222624" stroke="#414B46"/>
+<rect x="0" y="0" width="680" height="52" rx="14" fill="#2C322F" stroke="#414B46"/>
+<text x="20" y="33" font-size="17" fill="#FAF8F3" font-weight="600">01 หน้าหลัก</text>
+<text x="460" y="33" font-size="13" fill="#BCCAF3" font-weight="600">EMPTY</text>
+<text x="24" y="94" font-size="22" fill="#FAF8F3" font-weight="600">ยังไม่มีโครงการในเครื่อง</text>
+<text x="24" y="133" font-size="16" fill="#B9C3BD" font-weight="400">โหลดสำเร็จ แต่ยังไม่มีโครงการให้เปิด</text><text x="24" y="159" font-size="16" fill="#B9C3BD" font-weight="400">เริ่มประชุมหรือนำเข้าไฟล์เพื่อสร้างบันทึกแรก</text>
+<rect x="24" y="197" width="230" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="38" y="222" font-size="14" fill="#BCCAF3" font-weight="500">เริ่มประชุม</text>
+<rect x="270" y="197" width="240" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="284" y="222" font-size="14" fill="#BCCAF3" font-weight="500">นำเข้าไฟล์</text>
+<rect x="24" y="258" width="632" height="92" rx="8" fill="#171918" stroke="#414B46"/>
+<text x="40" y="290" font-size="14" fill="#B9C3BD" font-weight="400">ใช้งานแบบ Local ได้โดยไม่ต้องมีบัญชี</text><text x="40" y="316" font-size="14" fill="#B9C3BD" font-weight="400">ยังเปิดตั้งค่า / จับคู่ / พื้นที่ทำงานเดิมได้</text>
+<text x="24" y="381" font-size="13" fill="#B9C3BD" font-weight="400">A / B เหมือนกัน · ไม่แสดงตัวอย่างแทนข้อมูลจริง</text>
+<text x="24" y="413" font-size="11" fill="#DEC69D" font-weight="400">STATIC DESIGN · สถานะสมมติ ไม่ได้รันจริง · P1-B PROPOSED</text>
+</g>
+<g id="state-1" transform="translate(744 100)">
+<rect x="0" y="0" width="680" height="438" rx="14" fill="#222624" stroke="#414B46"/>
+<rect x="0" y="0" width="680" height="52" rx="14" fill="#2C322F" stroke="#414B46"/>
+<text x="20" y="33" font-size="17" fill="#FAF8F3" font-weight="600">01 หน้าหลัก</text>
+<text x="460" y="33" font-size="13" fill="#BCCAF3" font-weight="600">LOADING</text>
+<text x="24" y="94" font-size="22" fill="#FAF8F3" font-weight="600">กำลังอ่านโครงการในเครื่อง</text>
+<text x="24" y="133" font-size="16" fill="#B9C3BD" font-weight="400">รายชื่อโครงการและงานยังอ่านไม่เสร็จ</text><text x="24" y="159" font-size="16" fill="#B9C3BD" font-weight="400">การตั้งค่าและทางกลับยังพร้อมใช้งาน</text>
+<rect x="24" y="197" width="230" height="38" rx="8" fill="#2C322F" stroke="#414B46"/><text x="38" y="222" font-size="14" fill="#B9C3BD" font-weight="500">กำลังอ่านรายการ…</text>
+<rect x="270" y="197" width="240" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="284" y="222" font-size="14" fill="#BCCAF3" font-weight="500">ตั้งค่า</text>
+<rect x="24" y="258" width="632" height="92" rx="8" fill="#171918" stroke="#414B46"/>
+<text x="40" y="290" font-size="14" fill="#B9C3BD" font-weight="400">ประกาศสถานะครั้งเดียวผ่าน polite live region</text><text x="40" y="316" font-size="14" fill="#B9C3BD" font-weight="400">ไม่แสดงจำนวน 0 หรือหน้าว่างระหว่างรอ</text>
+<text x="24" y="381" font-size="13" fill="#B9C3BD" font-weight="400">A / B เหมือนกัน · คง selected project จนอ่านสำเร็จ</text>
+<text x="24" y="413" font-size="11" fill="#DEC69D" font-weight="400">STATIC DESIGN · สถานะสมมติ ไม่ได้รันจริง · P1-B PROPOSED</text>
+</g>
+<g id="state-2" transform="translate(1456 100)">
+<rect x="0" y="0" width="680" height="438" rx="14" fill="#222624" stroke="#414B46"/>
+<rect x="0" y="0" width="680" height="52" rx="14" fill="#2C322F" stroke="#414B46"/>
+<text x="20" y="33" font-size="17" fill="#FAF8F3" font-weight="600">01 หน้าหลัก</text>
+<text x="460" y="33" font-size="13" fill="#DEC69D" font-weight="600">ERROR</text>
+<text x="24" y="94" font-size="22" fill="#FAF8F3" font-weight="600">อ่านโครงการไม่สำเร็จ</text>
+<text x="24" y="133" font-size="16" fill="#B9C3BD" font-weight="400">รายการอาจมีอยู่ แต่ยังตรวจไม่ได้</text><text x="24" y="159" font-size="16" fill="#B9C3BD" font-weight="400">จะไม่แสดงว่า “ยังไม่มีโครงการ” แทนข้อผิดพลาด</text>
+<rect x="24" y="197" width="230" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="38" y="222" font-size="14" fill="#BCCAF3" font-weight="500">ลองอ่านอีกครั้ง</text>
+<rect x="270" y="197" width="240" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="284" y="222" font-size="14" fill="#BCCAF3" font-weight="500">ดูรายละเอียด</text>
+<rect x="24" y="258" width="632" height="92" rx="8" fill="#171918" stroke="#414B46"/>
+<text x="40" y="290" font-size="14" fill="#B9C3BD" font-weight="400">โครงการที่เคยเลือกแสดงว่าข้อมูลยังไม่ยืนยัน</text><text x="40" y="316" font-size="14" fill="#B9C3BD" font-weight="400">อย่าเริ่มงานใหม่ด้วย recordingId ที่ยังตรวจไม่ได้</text>
+<text x="24" y="381" font-size="13" fill="#B9C3BD" font-weight="400">A / B เหมือนกัน · เปิดตั้งค่าและกู้คืนจากเมนูเดิม</text>
+<text x="24" y="413" font-size="11" fill="#DEC69D" font-weight="400">STATIC DESIGN · สถานะสมมติ ไม่ได้รันจริง · P1-B PROPOSED</text>
+</g>
+<g id="state-3" transform="translate(32 566)">
+<rect x="0" y="0" width="680" height="438" rx="14" fill="#222624" stroke="#414B46"/>
+<rect x="0" y="0" width="680" height="52" rx="14" fill="#2C322F" stroke="#414B46"/>
+<text x="20" y="33" font-size="17" fill="#FAF8F3" font-weight="600">02 ประชุมสด</text>
+<text x="460" y="33" font-size="13" fill="#BCCAF3" font-weight="600">EMPTY</text>
+<text x="24" y="94" font-size="22" fill="#FAF8F3" font-weight="600">กำลังอัด — ยังไม่มีข้อความ</text>
+<text x="24" y="133" font-size="16" fill="#B9C3BD" font-weight="400">เสียงกำลังบันทึกตามสถานะที่ยืนยันจากระบบ</text><text x="24" y="159" font-size="16" fill="#B9C3BD" font-weight="400">รอข้อความที่ถอดเสร็จ โดยไม่เติมบทสนทนาสมมติ</text>
+<rect x="24" y="197" width="230" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="38" y="222" font-size="14" fill="#BCCAF3" font-weight="500">หยุดการบันทึก</text>
+<rect x="270" y="197" width="240" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="284" y="222" font-size="14" fill="#BCCAF3" font-weight="500">ตรวจแหล่งเสียง</text>
+<rect x="24" y="258" width="632" height="92" rx="8" fill="#171918" stroke="#414B46"/>
+<text x="40" y="290" font-size="14" fill="#B9C3BD" font-weight="400">ประเด็นระหว่างประชุม: ยังไม่มีข้อเสนอ</text><text x="40" y="316" font-size="14" fill="#B9C3BD" font-weight="400">สรุป: ยังไม่มีสรุปของบันทึกนี้</text>
+<text x="24" y="381" font-size="13" fill="#B9C3BD" font-weight="400">A ค้นความรู้ในเครื่อง · โครงการกรอง transcript เท่านั้น</text>
+<text x="24" y="413" font-size="11" fill="#DEC69D" font-weight="400">STATIC DESIGN · สถานะสมมติ ไม่ได้รันจริง · P1-B PROPOSED</text>
+</g>
+<g id="state-4" transform="translate(744 566)">
+<rect x="0" y="0" width="680" height="438" rx="14" fill="#222624" stroke="#414B46"/>
+<rect x="0" y="0" width="680" height="52" rx="14" fill="#2C322F" stroke="#414B46"/>
+<text x="20" y="33" font-size="17" fill="#FAF8F3" font-weight="600">02 ประชุมสด</text>
+<text x="460" y="33" font-size="13" fill="#BCCAF3" font-weight="600">LOADING</text>
+<text x="24" y="94" font-size="22" fill="#FAF8F3" font-weight="600">กำลังเตรียมการถอดเสียง</text>
+<text x="24" y="133" font-size="16" fill="#B9C3BD" font-weight="400">แสดง “กำลังอัด” เฉพาะเมื่อสถานะอัดยืนยันแล้ว</text><text x="24" y="159" font-size="16" fill="#B9C3BD" font-weight="400">การถอดข้อความอาจยังรอโมเดลหรือท่อนเสียง</text>
+<rect x="24" y="197" width="230" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="38" y="222" font-size="14" fill="#BCCAF3" font-weight="500">ตรวจสถานะเสียง</text>
+<rect x="270" y="197" width="240" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="284" y="222" font-size="14" fill="#BCCAF3" font-weight="500">กลับหน้าหลัก</text>
+<rect x="24" y="258" width="632" height="92" rx="8" fill="#171918" stroke="#414B46"/>
+<text x="40" y="290" font-size="14" fill="#B9C3BD" font-weight="400">แยกสถานะการอัดออกจากสถานะถอดเสียง</text><text x="40" y="316" font-size="14" fill="#B9C3BD" font-weight="400">ไม่อ้างว่าได้ยินเงียบหรือผู้พูดหยุดพูด</text>
+<text x="24" y="381" font-size="13" fill="#B9C3BD" font-weight="400">ออกจากหน้าระหว่างอัดต้องยืนยัน · ห้ามหยุดอัดโดยเงียบ</text>
+<text x="24" y="413" font-size="11" fill="#DEC69D" font-weight="400">STATIC DESIGN · สถานะสมมติ ไม่ได้รันจริง · P1-B PROPOSED</text>
+</g>
+<g id="state-5" transform="translate(1456 566)">
+<rect x="0" y="0" width="680" height="438" rx="14" fill="#222624" stroke="#414B46"/>
+<rect x="0" y="0" width="680" height="52" rx="14" fill="#2C322F" stroke="#414B46"/>
+<text x="20" y="33" font-size="17" fill="#FAF8F3" font-weight="600">02 ประชุมสด</text>
+<text x="460" y="33" font-size="13" fill="#DEC69D" font-weight="600">ERROR</text>
+<text x="24" y="94" font-size="22" fill="#FAF8F3" font-weight="600">การถอดเสียงหยุดชั่วคราว</text>
+<text x="24" y="133" font-size="16" fill="#B9C3BD" font-weight="400">คงข้อความที่ยืนยันแล้ว พร้อมป้ายว่าไม่ครบ</text><text x="24" y="159" font-size="16" fill="#B9C3BD" font-weight="400">ตรวจสถานะอัดจากระบบอีกครั้ง แยกจาก error นี้</text>
+<rect x="24" y="197" width="230" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="38" y="222" font-size="14" fill="#BCCAF3" font-weight="500">ตรวจสถานะ</text>
+<rect x="270" y="197" width="240" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="284" y="222" font-size="14" fill="#BCCAF3" font-weight="500">เปิดงาน / กู้คืน</text>
+<rect x="24" y="258" width="632" height="92" rx="8" fill="#171918" stroke="#414B46"/>
+<text x="40" y="290" font-size="14" fill="#B9C3BD" font-weight="400">ถ้าเสียงยังอัดอยู่ ให้ปุ่มหยุดยังใช้งานได้</text><text x="40" y="316" font-size="14" fill="#B9C3BD" font-weight="400">ถ้าแหล่งเสียงขาด ห้ามอ้างว่าอัดต่อได้</text>
+<text x="24" y="381" font-size="13" fill="#B9C3BD" font-weight="400">ไม่ auto-retry start · ไม่สร้าง recording ใหม่เอง</text>
+<text x="24" y="413" font-size="11" fill="#DEC69D" font-weight="400">STATIC DESIGN · สถานะสมมติ ไม่ได้รันจริง · P1-B PROPOSED</text>
+</g>
+<g id="state-6" transform="translate(32 1032)">
+<rect x="0" y="0" width="680" height="438" rx="14" fill="#222624" stroke="#414B46"/>
+<rect x="0" y="0" width="680" height="52" rx="14" fill="#2C322F" stroke="#414B46"/>
+<text x="20" y="33" font-size="17" fill="#FAF8F3" font-weight="600">03 ทบทวน</text>
+<text x="460" y="33" font-size="13" fill="#BCCAF3" font-weight="600">EMPTY</text>
+<text x="24" y="94" font-size="22" fill="#FAF8F3" font-weight="600">ยังไม่มีบันทึกในโครงการนี้</text>
+<text x="24" y="133" font-size="16" fill="#B9C3BD" font-weight="400">B: การอ่านรายการสำเร็จและคืนรายการว่าง</text><text x="24" y="159" font-size="16" fill="#B9C3BD" font-weight="400">เลือกโครงการอื่นหรือเริ่มบันทึกแรก</text>
+<rect x="24" y="197" width="230" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="38" y="222" font-size="14" fill="#BCCAF3" font-weight="500">เลือกโครงการ</text>
+<rect x="270" y="197" width="240" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="284" y="222" font-size="14" fill="#BCCAF3" font-weight="500">เริ่มประชุม</text>
+<rect x="24" y="258" width="632" height="92" rx="8" fill="#171918" stroke="#414B46"/>
+<text x="40" y="290" font-size="14" fill="#B9C3BD" font-weight="400">ไม่มีบันทึกที่เลือก: Play / สรุป / Q&amp;A ไม่พร้อม</text><text x="40" y="316" font-size="14" fill="#B9C3BD" font-weight="400">A: “ยังไม่มีบันทึกปัจจุบัน” ไม่ใช่ประวัติทั้งหมดว่าง</text>
+<text x="24" y="381" font-size="13" fill="#B9C3BD" font-weight="400">B = PROPOSED · A ไม่เรียก API รายการบันทึกที่ยังไม่มี</text>
+<text x="24" y="413" font-size="11" fill="#DEC69D" font-weight="400">STATIC DESIGN · สถานะสมมติ ไม่ได้รันจริง · P1-B PROPOSED</text>
+</g>
+<g id="state-7" transform="translate(744 1032)">
+<rect x="0" y="0" width="680" height="438" rx="14" fill="#222624" stroke="#414B46"/>
+<rect x="0" y="0" width="680" height="52" rx="14" fill="#2C322F" stroke="#414B46"/>
+<text x="20" y="33" font-size="17" fill="#FAF8F3" font-weight="600">03 ทบทวน</text>
+<text x="460" y="33" font-size="13" fill="#BCCAF3" font-weight="600">LOADING</text>
+<text x="24" y="94" font-size="22" fill="#FAF8F3" font-weight="600">กำลังเปิดบันทึกที่เลือก</text>
+<text x="24" y="133" font-size="16" fill="#B9C3BD" font-weight="400">B: โหลดเสียง บทถอดเสียง และสรุปแยกสถานะ</text><text x="24" y="159" font-size="16" fill="#B9C3BD" font-weight="400">ซ่อนคำตอบเดิมทันทีเมื่อเปลี่ยน recordingId</text>
+<rect x="24" y="197" width="230" height="38" rx="8" fill="#2C322F" stroke="#414B46"/><text x="38" y="222" font-size="14" fill="#B9C3BD" font-weight="500">กำลังเปิดเสียง…</text>
+<rect x="270" y="197" width="240" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="284" y="222" font-size="14" fill="#BCCAF3" font-weight="500">กลับรายการ</text>
+<rect x="24" y="258" width="632" height="92" rx="8" fill="#171918" stroke="#414B46"/>
+<text x="40" y="290" font-size="14" fill="#B9C3BD" font-weight="400">ปิดเสียงเก่าก่อนสลับ; ไม่มี autoplay</text><text x="40" y="316" font-size="14" fill="#B9C3BD" font-weight="400">อ่านข้อความที่โหลดสำเร็จได้แม้เสียงยังรอ</text>
+<text x="24" y="381" font-size="13" fill="#B9C3BD" font-weight="400">A: โหลดเฉพาะบันทึกปัจจุบัน · Play ปิดพร้อมเหตุผล</text>
+<text x="24" y="413" font-size="11" fill="#DEC69D" font-weight="400">STATIC DESIGN · สถานะสมมติ ไม่ได้รันจริง · P1-B PROPOSED</text>
+</g>
+<g id="state-8" transform="translate(1456 1032)">
+<rect x="0" y="0" width="680" height="438" rx="14" fill="#222624" stroke="#414B46"/>
+<rect x="0" y="0" width="680" height="52" rx="14" fill="#2C322F" stroke="#414B46"/>
+<text x="20" y="33" font-size="17" fill="#FAF8F3" font-weight="600">03 ทบทวน</text>
+<text x="460" y="33" font-size="13" fill="#DEC69D" font-weight="600">ERROR</text>
+<text x="24" y="94" font-size="22" fill="#FAF8F3" font-weight="600">เปิดเสียงในเครื่องไม่ได้</text>
+<text x="24" y="133" font-size="16" fill="#B9C3BD" font-weight="400">B: คงบทถอดเสียง / สรุปที่อ่านได้และตรงบันทึก</text><text x="24" y="159" font-size="16" fill="#B9C3BD" font-weight="400">แสดงเหตุผล: ไฟล์หาย / format หรือ output rate ไม่รองรับ</text>
+<rect x="24" y="197" width="230" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="38" y="222" font-size="14" fill="#BCCAF3" font-weight="500">ลองเปิดเสียงอีกครั้ง</text>
+<rect x="270" y="197" width="240" height="38" rx="8" fill="#222624" stroke="#414B46"/><text x="284" y="222" font-size="14" fill="#BCCAF3" font-weight="500">รายละเอียดเสียง</text>
+<rect x="24" y="258" width="632" height="92" rx="8" fill="#171918" stroke="#414B46"/>
+<text x="40" y="290" font-size="14" fill="#B9C3BD" font-weight="400">อัดอยู่ → เล่นไม่ได้; MP3 / float WAV ไม่รองรับ</text><text x="40" y="316" font-size="14" fill="#B9C3BD" font-weight="400">A: “ยังไม่รองรับเล่นเสียงบน Desktop” = unavailable</text>
+<text x="24" y="381" font-size="13" fill="#B9C3BD" font-weight="400">ข้อผิดพลาด ≠ ไม่มีบันทึก · ส่งออกยังระบุ scope โครงการ</text>
+<text x="24" y="413" font-size="11" fill="#DEC69D" font-weight="400">STATIC DESIGN · สถานะสมมติ ไม่ได้รันจริง · P1-B PROPOSED</text>
+</g></svg>

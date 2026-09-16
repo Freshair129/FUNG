@@ -53,7 +53,8 @@ and client tests passed `17/17`; and all registered Node test suites passed,
 including auth, backup/recovery, desktop bootstrap, release contracts,
 external-tool contracts, job actions, summary scoping, diarization packaging,
 egress, local API, web recordings, device authority, audio visualisation,
-Google Drive contracts, transcription fixture tests, and mobile capture.
+transcription fixture tests, and mobile capture. Google Drive is canceled and
+is retained only as historical scope; it is not an active test suite.
 
 The host has no production Whisper bundle. For the FUNGWIRE fake-transcription
 tests only, the bundled workspace Python interpreter was placed in the ignored

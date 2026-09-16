@@ -44,8 +44,9 @@ The same `dist/` serves the public site and the signed-in dashboard; there is no
 | --- | --- |
 | Record from the microphone, keep the file in this browser (IndexedDB), play it back, download it, delete it | Works. Files stay in that browser profile; nothing is uploaded. Move a file to the desktop by downloading it. |
 | List and play recordings from FUNG desktop | Works on the **same machine** only: the desktop's loopback API (`Settings › Runtime → Start local API`, paste the `http://127.0.0.1:PORT/#TOKEN` link). Other machines and phones use the desktop's LAN page instead. |
+| Transcribe a browser recording | Works on the **same machine** once the desktop is connected: "ถอดเสียงที่ desktop" uploads the file over loopback, the desktop runs its normal Whisper import job, and the transcript appears under the recording (and the recording appears in the desktop's own list). |
 | Paired devices (list, revoke), account profile | Works (Supabase, via the `device-enrollment` Edge function). |
-| Transcription, summaries, notes, graph, Live Meeting, Google Drive backup | Desktop only. The dashboard never links into the desktop shell (`/app?surface=desktop` exists for developers and calls Tauri IPC unguarded). |
+| Summaries, notes, graph, Live Meeting, Google Drive backup | Desktop only. The dashboard never links into the desktop shell (`/app?surface=desktop` exists for developers and calls Tauri IPC unguarded). |
 
 Any path other than `/app` and `/auth/callback` is rewritten to the SPA (`vercel.json`), which renders the landing page; a build without `VITE_SUPABASE_*` still renders the landing page, just without sign-in controls.
 

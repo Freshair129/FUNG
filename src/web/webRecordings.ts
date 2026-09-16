@@ -21,7 +21,19 @@ export type WebRecording = {
   bytes: number;
 };
 
-export type StoredWebRecording = WebRecording & { blob: Blob };
+/**
+ * Set once the recording has been handed to the desktop on this machine for
+ * transcription (`useDesktopTranscription`): the desktop's job and the
+ * recording it will write, so the transcript can be found again later.
+ */
+export type DesktopTranscription = {
+  jobId: string;
+  projectId: string;
+  recordingId: string;
+  sentAt: string;
+};
+
+export type StoredWebRecording = WebRecording & { blob: Blob; desktop?: DesktopTranscription };
 
 const DB_NAME = "fung-web";
 const DB_VERSION = 1;
@@ -144,6 +156,23 @@ export async function saveWebRecording(recording: StoredWebRecording): Promise<v
     const transaction = db.transaction(STORE, "readwrite");
     transaction.objectStore(STORE).put(recording);
     await transactionDone(transaction, "write");
+  } finally {
+    db.close();
+  }
+}
+
+/** Merges `patch` into the stored record; a missing id is a no-op. */
+export async function updateWebRecording(
+  id: string,
+  patch: Partial<Omit<StoredWebRecording, "id">>,
+): Promise<void> {
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction(STORE, "readwrite");
+    const store = transaction.objectStore(STORE);
+    const existing = await requestToPromise(store.get(id) as IDBRequest<StoredWebRecording | undefined>);
+    if (existing) store.put({ ...existing, ...patch, id });
+    await transactionDone(transaction, "update");
   } finally {
     db.close();
   }

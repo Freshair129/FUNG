@@ -613,3 +613,78 @@
   background: rgba(224, 122, 114, 0.1);
   border-color: rgba(224, 122, 114, 0.25);
 }
+
+/* Hand-off to the desktop (upload → job → transcript) */
+.dashboard-rec-action.is-primary {
+  color: #fff;
+  background: #3d4f82;
+  border-color: #3d4f82;
+}
+
+.dashboard-rec-action.is-primary:hover {
+  background: #2e3d66;
+}
+
+.dashboard-rec-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.dashboard-transcript {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #191a1d;
+}
+
+.dashboard-transcript summary {
+  cursor: pointer;
+  color: #5f6268;
+  font-weight: 600;
+}
+
+.dashboard-transcript-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dashboard-transcript-list li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  line-height: 1.5;
+}
+
+.dashboard-transcript-time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: #7a7d84;
+  min-width: 36px;
+}
+
+.dashboard-transcript-speaker {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: #6f897e;
+}
+
+.dashboard-transcript-progress {
+  margin: 0;
+}
+
+.theme-dark .dashboard-transcript {
+  color: #f3efe7;
+}
+
+.theme-dark .dashboard-transcript summary {
+  color: #9b9386;
+}
+
+.theme-dark .dashboard-rec-action.is-primary {
+  color: #171918;
+  background: #9fb0e0;
+  border-color: #9fb0e0;
+}

@@ -241,7 +241,7 @@ side, so they belong in the same register.
 |---|---|---|---|
 | `fungwire_server` (`:152`) | `0.0.0.0:0` | Noise + pairing | Job protocol |
 | Mobile gateway (`mobile.rs:2630`) | `0.0.0.0:0` **or** `127.0.0.1:0` | Per-session token | MCP tool surface |
-| `start_local_api` (`local_api.rs`) | `127.0.0.1:0` | Per-launch bearer token (`/` page and `/health` open) | `/recordings` list, `/recordings/{id}/audio`, the phone page at `/` |
+| `start_local_api` (`local_api.rs`) | `127.0.0.1:0` | Per-launch bearer token (`/` page and `/health` open) | `/recordings` list, `/recordings/{id}/audio`, `/recordings/{id}/transcript`, `/jobs/{id}`, `POST /recordings/import` (≤ 512 MB, runs the normal import → transcribe job on the uploaded file), the phone page at `/` |
 | `set_local_api_lan` (`local_api.rs`) | `0.0.0.0:0` **opt-in**, stoppable | Same token | Same routes, for a phone browser on the LAN |
 | `auth_loopback_listen` (`auth_session.rs:2464`) | `127.0.0.1:0` | One-shot | OAuth callback |
 
@@ -250,7 +250,9 @@ exposure is a separate `expose_lan` argument from its enablement, so the
 loopback-only mode is a real choice rather than a comment.
 
 `start_local_api` is how the web dashboard, opened in a browser **on the same
-machine**, lists and plays recordings without any audio leaving the PC: it
+machine**, lists and plays recordings — and, since 2026-09-16, hands a
+recording made in the browser to the desktop for transcription — without any
+audio leaving the PC: it
 reads the GenesisBlockDB ledger and stitches the per-channel chunk files on
 demand. It binds loopback only and is started by the user from Settings ›
 Runtime. Every route except `/health` requires a 256-bit token generated per

@@ -1,8 +1,7 @@
 // Shared CORS header builder for the fung Supabase edge functions.
 //
-// Every real caller of device-enrollment, google-drive-authorize, and
-// google-drive-metadata is the desktop app's native HTTP client
-// (`reqwest`, see `native_post` in src-tauri/src/auth_session.rs). That
+// The real caller of device-enrollment is the desktop app's native HTTP
+// client. That
 // client never sends an `Origin` header and never evaluates
 // `Access-Control-*` response headers at all — CORS is a mechanism browsers
 // enforce on themselves, and a non-browser HTTP client ignores it entirely.

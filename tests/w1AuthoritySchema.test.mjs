@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
 
+// The provider authorization migration is retained as historical database
+// evidence. The active product no longer ships or executes a provider adapter.
 const enrollmentMigration = () =>
   read("supabase/migrations/20260823000000_w1_device_enrollment_authority.sql");
 const policyMigration = () =>
@@ -183,80 +185,6 @@ CREATE TABLE public.pairing_sessions (
 );
 `;
 
-const activeReplayEvidence = String.raw`
-BEGIN;
-DO $$
-DECLARE
-  v_user_id uuid := '00000000-0000-0000-0000-000000000001';
-  v_device_id uuid;
-  v_connection_id uuid;
-  v_public_key text := encode(convert_to('w1-active-key', 'UTF8'), 'base64');
-  v_fingerprint text;
-  v_nonce uuid := '00000000-0000-0000-0000-000000000099';
-  v_first record;
-  v_replay record;
-  v_reservation_count bigint;
-  v_decision_count bigint;
-BEGIN
-  v_fingerprint := encode(
-    pg_catalog.sha256(pg_catalog.decode(v_public_key, 'base64')),
-    'hex'
-  );
-  INSERT INTO public.devices (
-    user_id, device_label, platform, public_key_fingerprint, public_key,
-    authority_state, enrollment_source, enrolled_at, approved_at
-  ) VALUES (
-    v_user_id, 'W1 active device', 'windows', v_fingerprint, v_public_key,
-    'drive_trusted', 'boss_bootstrap', pg_catalog.now(), pg_catalog.now()
-  ) RETURNING id INTO v_device_id;
-  INSERT INTO public.oauth_connections (
-    user_id, provider, approved_scopes, status, connected_at, last_authorized_at
-  ) VALUES (
-    v_user_id, 'google_drive',
-    ARRAY['https://www.googleapis.com/auth/drive.appdata']::text[],
-    'active', pg_catalog.now(), pg_catalog.now()
-  ) RETURNING id INTO v_connection_id;
-  INSERT INTO public.oauth_operation_grants (
-    user_id, connection_id, operation, granted_by, granted_role
-  ) VALUES (
-    v_user_id, v_connection_id, 'backup.write',
-    'w1_executable_evidence', 'database_owner'
-  );
-
-  SELECT * INTO v_first
-  FROM public.authorize_oauth_request(
-    v_user_id, v_device_id, v_public_key, v_fingerprint, 'backup.write',
-    v_nonce, pg_catalog.now() + pg_catalog.make_interval(mins => 1)
-  );
-  IF v_first.authorized IS DISTINCT FROM true
-    OR v_first.denial_code IS NOT NULL THEN
-    RAISE EXCEPTION 'active backup.write was not allowed';
-  END IF;
-  SELECT count(*) INTO v_reservation_count
-  FROM public.oauth_authorization_reservations
-  WHERE nonce = v_nonce;
-  SELECT count(*) INTO v_decision_count
-  FROM public.oauth_authorization_decisions
-  WHERE reservation_id = v_first.reservation_id;
-  IF v_reservation_count <> 1 OR v_decision_count <> 1 THEN
-    RAISE EXCEPTION 'active authorization did not durably reserve and decide';
-  END IF;
-
-  SELECT * INTO v_replay
-  FROM public.authorize_oauth_request(
-    v_user_id, v_device_id, v_public_key, v_fingerprint, 'backup.write',
-    v_nonce, pg_catalog.now() + pg_catalog.make_interval(mins => 1)
-  );
-  IF v_replay.authorized IS DISTINCT FROM false
-    OR v_replay.denial_code IS DISTINCT FROM 'authorization_replayed'
-    OR v_replay.reservation_id IS DISTINCT FROM v_first.reservation_id THEN
-    RAISE EXCEPTION 'repeated nonce was not durably rejected';
-  END IF;
-END;
-$$;
-ROLLBACK;
-`;
-
 const concurrentProofEvidence = (issuedAtMs) => String.raw`
 BEGIN;
 SELECT pg_sleep(0.25);
@@ -329,7 +257,7 @@ test("W1 device authority is legacy-first and database-owner gated", () => {
   assert.doesNotMatch(enrollmentEdge, /from\(["']devices["']\)\s*\.insert/s);
 });
 
-test("W1 operation grants are independent and replay reservation is durable", () => {
+test("Historical W1 operation grants remain internally consistent", () => {
   const sql = policyMigration();
   assert.match(sql, /create\s+table\s+(?:if\s+not\s+exists\s+)?public\.oauth_operation_grants/is);
   assert.match(sql, /backup\.write/);
@@ -369,48 +297,6 @@ test("W1 migrations and authorization decision have one explicit transaction bou
   assert.match(sql, /authorize_oauth_request[\s\S]*insert\s+into\s+public\.oauth_authorization_reservations[\s\S]*on conflict(?:\s+on constraint\s+[a-z_]+|\s*\(nonce\))\s*do nothing[\s\S]*returning/is);
   assert.match(sql, /authorize_oauth_request[\s\S]*insert\s+into\s+public\.oauth_authorization_decisions/is);
   assert.match(sql, /authorize_oauth_request[\s\S]*is_drive_authorized_desktop/is);
-});
-
-test("Drive Edge authority uses the exact device predicate, grants, and RPC lock", () => {
-  const authorize = read("supabase/functions/google-drive-authorize/index.ts");
-  const metadata = read("supabase/functions/google-drive-metadata/index.ts");
-  const lock = read("deno.lock");
-
-  assert.match(authorize, /npm:@supabase\/server@1\.4\.1/);
-  assert.match(authorize, /deviceId/);
-  assert.match(authorize, /public_key/);
-  assert.match(authorize, /backup\.write/);
-  assert.match(authorize, /backup\.restore/);
-  assert.match(authorize, /connectionStatus/);
-  assert.match(authorize, /writeGrant/);
-  assert.match(authorize, /restoreGrant/);
-  assert.doesNotMatch(authorize, /replayedNonces|purgeReplay|priorAudit|new\s+Map/);
-  assert.doesNotMatch(authorize, /from\(["']oauth_audit_events["']\)\s*\n?\s*\.select/s);
-
-  assert.match(authorize, /authorize_oauth_request/);
-  assert.doesNotMatch(authorize, /reserve_oauth_authorization/);
-  assert.doesNotMatch(authorize, /record_oauth_authorization_decision/);
-  assert.doesNotMatch(authorize, /recordDecision/);
-  assert.doesNotMatch(authorize, /from\(["']oauth_connections["']\)\s*\n?\s*\.select/s);
-  assert.doesNotMatch(authorize, /from\(["']oauth_operation_grants["']\)/s);
-  const signatureIndex = authorize.indexOf("const validSignature");
-  const decisionRpcIndex = authorize.indexOf("authorize_oauth_request");
-  assert.ok(signatureIndex >= 0 && decisionRpcIndex > signatureIndex);
-
-  assert.match(metadata, /npm:@supabase\/server@1\.4\.1/);
-  assert.doesNotMatch(metadata, /oauth_operation_grants|reserve_oauth_authorization|approve_bootstrap_enrollment/);
-  assert.match(lock, /npm:@supabase\/server@1\.4\.1/);
-  assert.doesNotMatch(lock, /npm:@supabase\/server@\*/);
-
-  // Authorization-granting edge functions must build CORS headers from the
-  // shared, env-driven module rather than hardcoding a public wildcard.
-  for (const source of [authorize, metadata]) {
-    assert.match(
-      source,
-      /import\s*\{\s*buildCorsHeaders\s*\}\s*from\s*"\.\.\/_shared\/cors\.ts"/,
-    );
-    assert.doesNotMatch(source, /"Access-Control-Allow-Origin":\s*"\*"/);
-  }
 });
 
 test("Committed SQL evidence covers privileges, fixed search paths, and no project authority", () => {
@@ -470,13 +356,6 @@ test(
       );
       assert.equal(migrations.status, 0, `PostgreSQL 17 migration apply failed.\n${resultText(migrations)}`);
 
-      const activeReplay = runPsql(container, activeReplayEvidence);
-      assert.equal(
-        activeReplay.status,
-        0,
-        `PostgreSQL 17 active/replay evidence failed.\n${resultText(activeReplay)}`,
-      );
-
       const concurrentIssuedAtMs = Date.now();
       const concurrent = await Promise.all(
         Array.from({ length: 50 }, () => runPsqlAsync(container, concurrentProofEvidence(concurrentIssuedAtMs))),
@@ -507,17 +386,13 @@ test(
         String.raw`SELECT
           (SELECT count(*) FROM public.device_enrollment_requests)::text || '|' ||
           (SELECT count(*) FROM public.device_enrollment_proof_reservations)::text || '|' ||
-          (SELECT count(*) FROM public.devices)::text || '|' ||
-          (SELECT count(*) FROM public.oauth_connections)::text || '|' ||
-          (SELECT count(*) FROM public.oauth_operation_grants)::text || '|' ||
-          (SELECT count(*) FROM public.oauth_authorization_reservations)::text || '|' ||
-          (SELECT count(*) FROM public.oauth_authorization_decisions)::text;`,
+          (SELECT count(*) FROM public.devices)::text;`,
       );
       assert.equal(concurrentMutation.status, 0, resultText(concurrentMutation));
       assert.equal(
         concurrentMutation.stdout.trim(),
-        "1|1|0|0|0|0|0",
-        `A replay loser mutated enrollment/authorization/grant/reservation outcome state.\n${resultText(concurrentMutation)}`,
+        "1|1|0",
+        `A replay loser mutated enrollment outcome state.\n${resultText(concurrentMutation)}`,
       );
 
       const committedEvidence = runPsql(
@@ -533,14 +408,10 @@ test(
       const rollback = runPsql(
         container,
         String.raw`SELECT
-          (SELECT count(*) FROM public.devices)::text || '|' ||
-          (SELECT count(*) FROM public.oauth_connections)::text || '|' ||
-          (SELECT count(*) FROM public.oauth_operation_grants)::text || '|' ||
-          (SELECT count(*) FROM public.oauth_authorization_reservations)::text || '|' ||
-          (SELECT count(*) FROM public.oauth_authorization_decisions)::text;`,
+          (SELECT count(*) FROM public.devices)::text;`,
       );
       assert.equal(rollback.status, 0, `PostgreSQL 17 rollback probe failed.\n${resultText(rollback)}`);
-      assert.equal(rollback.stdout.trim(), "0|0|0|0|0", resultText(rollback));
+      assert.equal(rollback.stdout.trim(), "0", resultText(rollback));
     } finally {
       docker(["rm", "--force", container]);
     }

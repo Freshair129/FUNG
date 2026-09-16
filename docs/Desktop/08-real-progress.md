@@ -1,7 +1,7 @@
 ---
-version: "0.2.25b"
+version: "0.2.26b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-16T00:00:00+07:00,Codex"
+last_update: "2026-09-17T00:00:00+07:00,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -11,6 +11,11 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+Google Drive is canceled and its active implementation was removed on
+2026-09-17. Phase 4 backup truth below means the local encrypted filesystem
+path only; retained Drive migration/report references are historical
+provenance, not current runtime or deployment evidence.
 
 ## Current Status
 
@@ -447,8 +452,7 @@ instead of painting over the detail dock.
 Working-tree truth beyond the merges (not yet committed as of this sync):
 mobile Google login was dead end-to-end — `authFlow.ts` still invoked
 `auth_begin_google_login`, a native command deliberately removed by the
-native-session-broker redesign (its absence is pinned by
-`tests/nativeSessionCustody.test.mjs`), so every login tap failed with
+native-session-broker redesign), so every login tap failed with
 "command not found". It is rewritten to the phase-1 contract the tests expect:
 supabase-js PKCE via `signInWithOAuth(skipBrowserRedirect)` opened in the
 system browser through the opener plugin, deep-link return on
@@ -489,23 +493,22 @@ gate. GitHub Actions minutes are no longer a constraint (public repo), closing
 the billing-block failure mode that silently skipped CI from 2026-08-30 to
 2026-09-01 and let unformatted code merge.
 
-## Current truth sync (2026-08-23)
+## Historical truth sync (2026-08-23)
 
 PR #16 is merged into `origin/main` at merge commit `26da78466364e479085d0aa5d7f06e24a08bd12c`. Its routing, backup-payload, and connector-timeout changes are therefore part of the current mainline. The physical Android, clean-install restore, real connector, and release gates remain open as recorded below.
 
 The local staged runtime check is split into separate facts: `D:\FUNG\.venv-whisper\Scripts\python.exe` imports `faster-whisper` 1.2.1 and exposes the worker CLI; `D:\FUNG\.venv-whisper\models\small` contains the pinned `Systran/faster-whisper-small` revision `536b0662742c02347bc0e980a01041f333bce120`; `D:\FUNG\runtime\manifest.json` records 11 staged CUDA 12/cuDNN 9 DLLs. `scripts/smoke_gpu_standalone.ps1` passed with `C:\Windows\Media\Alarm01.wav` and `--profile gpu`; this proves the packaged worker path, not Live Meeting real-capture or device UAT.
 
-The approved Phase 4 Google Drive slice is now implemented locally: native
-Authorization Code + PKCE on loopback, exact `drive.appdata` scope, OS-keyring
-refresh-token custody, authenticated redacted metadata/audit function, and a
-separate Desktop connect/upload/restore UI. This is implementation-beta truth,
-not provider or release proof: Google Cloud client configuration, Supabase
-function deployment, real consent/upload/download/revoke, clean-install
-restore, and physical Android/FUNGWIRE delegation remain open.
+The former Phase 4 Google Drive slice was implemented locally at this historical
+snapshot. It is retained only as repository provenance; the adapter, UI, Edge
+functions, provider deployment, and provider/UAT work were canceled and
+removed on 2026-09-17. Local filesystem backup/restore remains the active
+backup target.
 
-The 2026-08-26 truth sync is based on `main` commit
-`888adeded643f448c283c7990aabc421f71a20be`. Focused verification passes
-Backup 17/17, Google Drive contract 6/6, Auth 8/8, Rust Drive 16/16, TypeScript,
+The 2026-08-26 historical sync is based on `main` commit
+`888adeded643f448c283c7990aabc421f71a20be`. At that historical snapshot,
+focused verification passed Backup 17/17, the then-current Drive contract 6/6,
+Auth 8/8, Rust Drive 16/16, TypeScript,
 and the Vite production build. `cargo check` exits 0 with the same 18 retained
 baseline warnings recorded by the final D-GDA6 Terra review. The W1 source
 contract passes 7 checks in the current host, while its executable PostgreSQL
@@ -626,7 +629,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | External retrieval trust foundation | Default-deny grant policy, canonical preview hash, exact field minimization, zeroized OS-keyring lifecycle, connector disconnect/revoke, typed Genesis audit payloads, and hostile-result sanitization are implemented and tested. |
 | External retrieval backend | Allowlisted stdio MCP `2025-11-25` initialize/list/call, bounded process I/O, timeout/cancel/cleanup, durable one-time execution, all eight planned Tauri commands, and document/CRM fixture execution are implemented behind default-off `FUNG_EXTERNAL_MEETING_TOOLS=1`. |
 | External retrieval operator UI | `ExternalMeetingToolsPanel` is embedded in Live Meeting behind default-off `VITE_FUNG_EXTERNAL_MEETING_TOOLS=1` with connector list/register/disconnect, exact field and transcript-evidence selection, preview/deny/approve, running/cancel, meeting-scope revoke, sanitized result, inert source references, policy/evidence/time provenance, and run history. |
-| Phase 4 filesystem/Google Drive backup | The local filesystem path remains a development/test transport with Genesis full export → XChaCha20-Poly1305/Argon2id encryption → atomic bounded-root write, clean-target restore, and deep fixture verification. The separate Google Drive path now has native PKCE/keyring custody, exact `drive.appdata`, redacted metadata/audit, resumable appDataFolder upload, digest-bound download, and clean-target restore controls. No real provider or clean-install restore has been run. |
+| Phase 4 local backup | The local filesystem path remains a development/test transport with Genesis full export → XChaCha20-Poly1305/Argon2id encryption → atomic bounded-root write, clean-target restore, and deep fixture verification. Google Drive is canceled; its prior implementation and provider gates are historical only. |
 | Mobile device reconciliation | The Android `devices` row is always resolved by (current user, fingerprint); the cached `fung.device.id` is only a mirror, replaced when stale and cleared on sign-out/revocation. Supabase RLS ownership policies were rechecked and required no migration. |
 | GPU runtime staging | `stage_gpu_runtime.ps1` stages FUNG-owned CUDA 12/cuDNN DLLs and writes a SHA-256 manifest. |
 | GPU worker launch | The transcription subprocess resolves FUNG resources at runtime, selects an explicit CPU/GPU profile, and prepends FUNG's CUDA directory to its own `PATH`. |
@@ -779,6 +782,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.26b | 2026-09-17 | beta | Removed the canceled Google Drive implementation, active tests, commands, and Edge functions; retained local backup as the active Phase 4 target and marked provider/migration evidence historical. | pending | Codex |
 | 0.2.21b | 2026-09-16 | beta | Added the approved bounded D-MVP-02 recording-scoped transcript correction/audit path and recorded local Rust, Node, formatting, and build evidence; runtime/UAT, device, provider, and release gates remain open. | working-tree | Codex |
 | 0.2.22b | 2026-09-16 | beta | Added bounded D-MVP-05 source WAV/MP3 export through the existing durable export queue and recorded local Rust, clippy, formatting, Node, and build evidence; transcoding, runtime/UAT, device, provider, and release gates remain open. | working-tree | Codex |
 | 0.2.23b | 2026-09-16 | beta | Completed the bundled local PyAV WAV/MP3 transcoder for D-MVP-05 and recorded source/test/build/runtime-worker evidence; packaged click-through, restart, provider, device, and release gates remain open. | working-tree | Codex |

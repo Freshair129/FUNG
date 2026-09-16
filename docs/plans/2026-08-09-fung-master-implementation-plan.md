@@ -6,18 +6,27 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.5.0b |
+| Version | 1.5.1b |
 | Date | 2026-09-17 |
 | Status | need review — Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
 | Author | Claude (Fable 5) + Boss |
 | Supersedes | none (first master plan) |
-| Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.2b, `docs/Desktop/08-real-progress.md` v0.2.6b, `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`, Sub-project B brainstorm decisions (2026-08-09) |
+| Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.2b, `docs/Desktop/08-real-progress.md` v0.2.26b, `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`, Sub-project B brainstorm decisions (2026-08-09) |
 
 ---
 
 ## 0. Current Truth Sync (2026-08-23)
 
-The historical mainline snapshot above is retained for provenance. The current local audit is at `origin/main` `b5d7fa0` with two approved local commits ahead of it. On 2026-09-17 Boss canceled the Google Drive workstream: its provider, deployment, UAT and release acceptance are no longer active scope. Phase 0–2 remain complete. Phase 3 implementation is merged, but acceptance still requires a real desktop controller run with the approved OpenAI and Anthropic credentials; credentials are not available in this run. Phase 4 local filesystem backup/restore and mobile-account work remain separately gated by clean-install/device proof. Phase 5 remains not started.
+The historical mainline snapshot above is retained for provenance. The current
+remote audit is `origin/main` `91c9055`, which contains the export-inventory
+read-ceiling fix. On 2026-09-17 Boss canceled the Google Drive workstream and
+the follow-up removal deleted its active adapter, UI, commands, Edge functions,
+and contract tests; applied migration/schema history remains historical only.
+Phase 0–2 remain complete. Phase 3 implementation is merged, but acceptance
+still requires a real desktop controller run with the approved OpenAI and
+Anthropic credentials; credentials are not available in this run. Phase 4
+local filesystem backup/restore and mobile-account work remain separately gated
+by clean-install/device proof. Phase 5 remains not started.
 
 The local transcription runtime is prepared at worker level: the staged `faster-whisper` 1.2.1 environment contains the pinned `Systran/faster-whisper-small` revision, the staged CUDA 12/cuDNN 9 manifest records 11 DLLs, and `scripts/smoke_gpu_standalone.ps1` passed with the GPU profile. The current `npm audit --audit-level=moderate` result is also clean (`0` vulnerabilities). These checks close local worker/dependency preparation only; they do not close Live Meeting real-capture, Android, visual, connector, or release acceptance.
 
@@ -483,7 +492,7 @@ Per phase:
 - Cross-meeting search (explicitly out per Zoom spec)
 - Agent Voice legal/retention policy (product decision gate)
 - `OAUTH2_JWT_AUTHORIZATION_SPEC.md` implementation (superseded in practice by Supabase auth — needs formal disposition in P5)
-- Google Drive backup/provider/deployment/UAT work (canceled by `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`; historical source retained pending a separate removal decision)
+- Google Drive backup/provider/deployment/UAT work (canceled by `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`; active implementation removed, applied migration/schema history retained)
 
 ---
 

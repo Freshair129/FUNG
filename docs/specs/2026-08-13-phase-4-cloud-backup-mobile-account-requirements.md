@@ -10,7 +10,7 @@ attributes:
   scope: "FUNG Phase 4"
 ---
 
-# Phase 4 — Cloud Backup and Mobile Account Requirements
+# Phase 4 — Local Backup and Mobile Account Requirements
 
 ## Status and Boundary
 
@@ -28,14 +28,15 @@ integrity, and cross-device account identity.
 Google Drive is no longer a FUNG product requirement. The Google Drive-specific
 provider, OAuth, deployment and UAT portions of this requirements document are
 superseded by `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`.
-Local filesystem backup/restore and mobile-account requirements remain
-historical reference only until separately reapproved; no new Google Drive
-implementation or external-state operation is authorized.
+Local filesystem backup/restore and mobile-account requirements remain active
+within the Phase 4 scope; no new Google Drive implementation or external-state
+operation is authorized.
 
 ## Current Integration Facts
 
 - The desktop Account Settings surface can read/update a Supabase profile and
-  display active `oauth_connections`, but Cloud Storage is a placeholder.
+  display historical `oauth_connections` metadata; no active cloud-storage
+  provider is exposed.
 - Phase 1 already established Supabase PKCE login and a shared `devices` model
   for desktop and mobile. Phase 4 must extend that model, not add a second
   mobile identity or login flow.
@@ -56,8 +57,8 @@ implementation or external-state operation is authorized.
 
 ## User Stories
 
-1. As an authenticated FUNG user, I want to connect one storage destination so
-   that I can keep an encrypted backup under my own account or endpoint.
+1. As an authenticated FUNG user, I want to select a local backup root so that
+   I can keep an encrypted development/test archive under my control.
 2. As a user, I want a backup operation to state exactly what was included and
    whether upload completed, so that I do not mistake a partial upload for a
    recoverable backup.
@@ -72,14 +73,14 @@ implementation or external-state operation is authorized.
 
 ### Backup and Restore
 
-- R4-01: WHEN an authenticated user opens Cloud Storage settings, THE SYSTEM
+- R4-01: WHEN an authenticated user opens local Backup settings, THE SYSTEM
   SHALL show the configured destination status without exposing access tokens,
   secrets, or archive contents.
 - R4-02: WHEN a user starts a backup, THE SYSTEM SHALL create the archive only
   through the approved GenesisBlockDB backup/export contract and SHALL record a
   local, auditable manifest with archive identifier, creation time, byte count,
   content version, and integrity digest.
-- R4-03: THE SYSTEM SHALL encrypt archive content before it leaves the device;
+- R4-03: THE SYSTEM SHALL encrypt archive content before final local write;
   provider credentials and archive-encryption secrets SHALL never be serialized
   into GenesisBlockDB, Supabase tables, logs, or browser local storage.
 - R4-04: WHEN archive creation, encryption, destination write, or verification fails, THE
@@ -90,31 +91,22 @@ implementation or external-state operation is authorized.
   approved GenesisBlockDB restore contract, and prove notes and graph identity
   against the source manifest before reporting success.
 - R4-06: IF the required GenesisBlockDB backup/restore API is unavailable, THE
-  SYSTEM SHALL block provider upload and display that U9 is not yet satisfied.
+  SYSTEM SHALL block archive creation and display that U9 is not yet satisfied.
 
 ### Storage Destinations and Credentials
 
-- R4-07: THE SYSTEM SHALL support a provider-neutral destination model. Google
-  Drive remains the selected production target but is TODO pending owner
-  approval of its OAuth configuration. A filesystem destination is permitted
+- R4-07: THE SYSTEM SHALL support the approved local filesystem destination
   only in a development/test build and only within a root selected through the
   native folder picker; it shall not be presented as cloud backup or production
-  recovery.
+  recovery. Any future provider-neutral destination model requires a new
+  product decision.
 - R4-07a: WHEN development/test filesystem storage is enabled, THE SYSTEM
   SHALL write only encrypted archives and non-secret manifests beneath the
   user-selected root, reject paths outside that root, and require an explicit
   local test label in the UI and evidence.
-- R4-08: WHEN a destination uses OAuth, THE SYSTEM SHALL use the provider's
-  approved authorization flow and store refresh/access material only in the
-  platform secure credential store. Existing `oauth_connections` may expose
-  connection status only unless an approved token-storage design says otherwise.
-- R4-09: WHEN a destination is Supabase Storage, THE SYSTEM SHALL use a private
-  bucket and ownership-scoped RLS policies; it SHALL use the Storage API rather
-  than direct writes to the `storage` schema.
-- R4-10: IF a destination is disconnected or its authorization is revoked, THE
-  SYSTEM SHALL stop future uploads, preserve local data, and make existing
-  remote artifacts available only according to the provider's authorization
-  model.
+- R4-08–R4-10: Provider OAuth, Supabase Storage, and remote-artifact lifecycle
+  requirements are historical/non-active; reintroducing any of them requires
+  a new product decision and documentation approval.
 
 ### Account and Device Unification
 
@@ -166,7 +158,7 @@ implementation or external-state operation is authorized.
 
 | Version | Change |
 | --- | --- |
-| 0.2.5b | Records the 2026-09-17 cancellation of Google Drive provider/OAuth/deployment/UAT work; local filesystem and mobile-account requirements remain historical until separately reapproved. |
+| 0.2.6b | Records the 2026-09-17 cancellation and makes local filesystem/mobile-account requirements the active Phase 4 scope; provider requirements are historical. |
 | 0.2.4b | Recorded the native fail-closed backup-status boundary: no archive, root path, recovery secret, data key, or provider token is serialized before the envelope/transport tasks. |
 | 0.2.3b | Added observed FUNG contract-fixture evidence for Genesis U9; full encrypted transport and restore acceptance remain open. |
 | 0.2.2b | Selected dedicated local development/test roots and recorded the reviewed Genesis U9 candidate revision; production and release gates remain open. |
@@ -179,6 +171,7 @@ implementation or external-state operation is authorized.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.2.6b | 2026-09-17 | beta | Promoted local filesystem/mobile-account requirements as active Phase 4 scope after removing Google Drive provider requirements from the active contract. | pending | Codex |
 | 0.2.5b | 2026-09-17 | beta | Google Drive production/provider work canceled by product decision; no external-state action is authorized. | working-tree | Codex |
 | 0.2.4b | 2026-08-14 | beta | Task 2 status DTO returns unavailable with no archive and has a static prohibited-response-field guard. | working-tree | ATHER |
 | 0.2.3b | 2026-08-14 | beta | FUNG notes, graph, and audio metadata fixture verified opaque Genesis export and clean-target restore. | working-tree | ATHER |

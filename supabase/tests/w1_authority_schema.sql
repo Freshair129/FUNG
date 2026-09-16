@@ -1,4 +1,6 @@
 -- W1-A-F4-S1 staging evidence only.
+-- The provider authorization assertions below are historical migration
+-- evidence; the active FUNG product no longer uses Google Drive.
 -- This file is intentionally read-only: it must be run after a reviewed,
 -- transactional migration in the explicitly approved staging project.
 -- It never applies migrations, grants, policies, or bootstrap approvals.

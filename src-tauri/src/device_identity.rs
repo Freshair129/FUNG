@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use base64::Engine;
-use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use serde::Serialize;
 use sha2::{Digest, Sha256, Sha512};
 
@@ -218,11 +218,6 @@ pub(crate) fn authorization_identity_in_dir(dir: &Path) -> AppResult<(String, St
         base64::engine::general_purpose::STANDARD.encode(public_key.as_bytes()),
         fingerprint_of(&key),
     ))
-}
-
-pub(crate) fn sign_authorization_in_dir(dir: &Path, message: &[u8]) -> AppResult<String> {
-    let key = secure_signing_key_in_dir(dir)?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(key.sign(message).to_bytes()))
 }
 
 /// Legacy file-backed identity helper used by FUNGWIRE fixture tests and for

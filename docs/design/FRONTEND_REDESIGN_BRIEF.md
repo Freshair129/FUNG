@@ -1,5 +1,5 @@
 ---
-version: "1.0.0"
+version: "1.0.1"
 created_at: "2026-09-16T18:30:00+07:00,Claude"
 status: "brief"
 attributes:
@@ -10,6 +10,10 @@ attributes:
 ---
 
 # FUNG — Frontend Redesign Brief
+
+Scope correction (2026-09-17): Google Drive is canceled. The redesign covers
+local encrypted backup/restore and must not add Drive controls, Drive OAuth
+copy, Drive commands, or Drive deployment assumptions.
 
 เอกสารชุดเดียวสำหรับทีมออกแบบ UI ใหม่: ผลิตภัณฑ์คืออะไร, ฟีเจอร์ที่มีจริง (และที่ยังไม่มี), หน้าจอ/สถานะที่ต้องรองรับ, โลโก้และ token ที่ใช้อยู่, API ที่ frontend ใหม่ต้องเรียก, และข้อจำกัดที่ทดสอบบังคับไว้ ทุกข้อชี้ไฟล์ต้นทางในโค้ด (`file:line`) ณ `main` วันที่ 16 ก.ย. 2026 (เวอร์ชันแอป 0.1.1)
 
@@ -93,7 +97,6 @@ Type: Fraunces (display), **IBM Plex Sans Thai** (UI ไทย นำ), DM Sans 
 | | TTS อ่านสรุป (BYOM provider) | Desktop P3 + Settings › TTS | 🟡 ต้องตั้ง provider | `tts_*` |
 | External tools | MCP stdio connector: preview → อนุมัติ → รัน, grant ≤ 15 นาที | Desktop Live panel | 🟡 flag `VITE_FUNG_EXTERNAL_MEETING_TOOLS=1` | `external_connector_*`, `meeting_tool_*` |
 | Backup | สำรอง/กู้คืนไฟล์ในเครื่อง เข้ารหัส + รหัสกู้คืน 24 คำ | Desktop Settings | ✅ | `backup_*`, `filesystem_backup_select_root` |
-| | Google Drive `drive.appdata` | Desktop | 🟡 ต้อง `VITE_GOOGLE_DRIVE_CLIENT_ID` | `broker_drive_*` |
 | Pairing | จับคู่ desktop↔mobile ด้วยรหัส 6 หลัก (TTL 5 นาที, ผิดได้ 5 ครั้ง) | Desktop `DevicePairingPanel`, Mobile Devices | ✅ | `broker_pairing_*`, RPC `confirm_pairing` |
 | | FUNGWIRE server บน LAN | Desktop toggle | ✅ | `broker_fungwire_status/set_enabled` |
 | Local API | เว็บ/มือถืออ่าน-เล่นไฟล์ของ desktop (loopback, LAN opt-in, หรือ USB `adb reverse`) | Desktop Settings › Runtime, Web, Phone page | ✅ | `start_local_api`, `set_local_api_lan` |
@@ -170,7 +173,7 @@ Header (nav Product/How it works/Demo/Privacy, chip APK "เร็ว ๆ นี
 | Core | `app_health`, `create_project(name)`, `list_projects`, `create_job(jobType, projectId?, recordingId?)`, `cancel_job(jobId)`, `runnable_job_types`, `list_jobs`, `list_model_providers`, `list_transcript_segments(projectId, recordingId)`, `import_and_transcribe(filePath, projectId?)`, `fetch_and_transcribe(url, projectId?)`, `media_fetch_status`, `media_fetch_consent_set(enabled)`, `audio_integrity_check(projectId)`, `recovery_scan`, `recovery_recover(recordingId)`, `start_local_api`, `set_local_api_lan(enabled)`, `list_export_artifacts(projectId)`, `diarization_status` |
 | Live/Intel | `live_meeting_start(projectId?, captureSystem?, language?)`, `live_meeting_stop`, `live_meeting_status`, `meeting_ask(question, projectId?)`, `meeting_summaries(projectId, recordingId)`, `generate_meeting_summary(projectId, recordingId)`, `graph_build_start(projectId, recordingId)` |
 | Session broker (`src/lib/desktopSessionBroker.ts`) | `broker_session_login_begin/cancel/status/logout`, `broker_enrollment_request/status`, `broker_device_list/revoke/audit_list/endpoint_publish`, `broker_pairing_create/poll/reconcile`, `broker_fungwire_status/set_enabled` |
-| Drive/Backup | `broker_drive_*` (9), `backup_status/list_archives/generate_recovery_phrase/run/restore/restore_select_target`, `filesystem_backup_select_root` |
+| Local Backup | `backup_status/list_archives/generate_recovery_phrase/run/restore/restore_select_target`, `filesystem_backup_select_root` |
 | Cloud/Zoom/TTS | `cloud_config_set/clear/status`, `tier_policy_get/set`, `cloud_call_counts_today`, `zoom_connect/connection_status/disconnect/list_recordings/import_recording`, `tts_provider_register/update/toggle/test`, `tts_synthesize_text` |
 | External MCP | `external_connectors_list`, `external_connector_register/disconnect`, `meeting_tool_suggest/execute/cancel/revoke/runs_list` |
 | FUNGWIRE | `fungwire_desktop_reachable`, `fungwire_desktop_status_probe`, `fungwire_delegate_transcription`, `fungwire_job_poll`, `device_identity_ensure`, `device_public_key` |
@@ -241,7 +244,7 @@ type LocalImportReceipt = { jobId; projectId; recordingId };
 
 ### 5.4 Supabase (auth + metadata เท่านั้น)
 
-ตารางที่ frontend แตะ: `profiles` (อ่าน/แก้ `display_name`), `devices` (**อ่านอย่างเดียว** — เขียนผ่าน edge function `device-enrollment` actions `pending|pairing_only|revoke` ใน `src/lib/deviceAuthority.ts` เท่านั้น), `device_audit_events` (insert), `oauth_connections` (อ่าน), `pairing_sessions` (อ่าน) · RPC: `confirm_pairing(session, code, device)` → `confirmed|already_confirmed|wrong_code|locked|expired|not_found`, `publish_device_endpoint` · Edge functions: `device-enrollment`, `google-drive-authorize`, `google-drive-metadata`
+ตารางที่ frontend แตะ: `profiles` (อ่าน/แก้ `display_name`), `devices` (**อ่านอย่างเดียว** — เขียนผ่าน edge function `device-enrollment` actions `pending|pairing_only|revoke` ใน `src/lib/deviceAuthority.ts` เท่านั้น), `device_audit_events` (insert), `oauth_connections` (อ่าน historical metadata เท่านั้น), `pairing_sessions` (อ่าน) · RPC: `confirm_pairing(session, code, device)` → `confirmed|already_confirmed|wrong_code|locked|expired|not_found`, `publish_device_endpoint` · Edge function: `device-enrollment`
 
 ### 5.5 Auth flow ต่อ surface (ต่างกันจริง ออกแบบหน้า login ต้องรู้)
 
@@ -272,7 +275,7 @@ LAN TCP + Noise KK เฉพาะอุปกรณ์ที่จับคู�
 - **ห้ามสร้างข้อมูลปลอม**: "ตรวจไม่ได้" ≠ "ไม่มี" (error กับ empty แยกกันเสมอ); ไม่มีค่าจริง → แสดงว่า inactive ไม่ใช่ศูนย์ (VU meter, `levelPercent: null`); ปุ่มที่ยังทำไม่ได้ → disabled พร้อมเหตุผล ไม่ใช่ no-op เงียบ
 - ต้องเปิดเผยความไม่ครบ: `TranscriptView.capped` แสดง **ก่อน** เนื้อหา (`transcript ไม่ครบ — อ่านได้สูงสุด {cap} ท่อน…`), `AskAnswer.searchedRowsCapped`, `MeetingSummaries.otherRecordings/unattributable`
 - ข้อมูลที่เป็น inference ต้องมีป้าย (`ai_proposed` ไม่ปนกับ `confirmed`; `ป้ายผู้พูดเป็นการจัดกลุ่มเสียง ไม่ใช่การยืนยันตัวบุคคล`)
-- ประโยค privacy ที่ต้องอยู่ต่อ: `เสียงทั้งหมดถูกบันทึกและประมวลผลในเครื่องนี้เท่านั้น — โปรดแจ้งผู้ร่วมประชุมก่อนเริ่มอัด`, `ไม่มีเสียงขึ้น cloud`, `ใช้งานแบบ Local ได้โดยไม่ต้องมีบัญชี`, `ใช้เฉพาะ drive.appdata …`, `ต้นฉบับเสียงยังคงเดิม`
+- ประโยค privacy ที่ต้องอยู่ต่อ: `เสียงทั้งหมดถูกบันทึกและประมวลผลในเครื่องนี้เท่านั้น — โปรดแจ้งผู้ร่วมประชุมก่อนเริ่มอัด`, `ไม่มีเสียงขึ้น cloud`, `ใช้งานแบบ Local ได้โดยไม่ต้องมีบัญชี`, `ต้นฉบับเสียงยังคงเดิม`
 - สีแดงสงวนไว้สำหรับ "กำลังอัด" และ destructive เท่านั้น; touch target ≥ 44dp (mobile)
 
 ## 8. UX debt ที่ควรใช้ redesign แก้ (เรียงตามผลกระทบ)
@@ -300,7 +303,7 @@ LAN TCP + Noise KK เฉพาะอุปกรณ์ที่จับคู�
 
 | Surface | หน้าจอที่ต้องมี (อ้างอิง §4) |
 | --- | --- |
-| **Desktop** (1280×800 หรือ responsive ถ้าเสนอ) | 1 Home · 2 Meeting workspace (แสดงทั้ง 4 anchor: Capture / Transcript / Summary / Runtime หรือ IA ใหม่ที่เสนอแทน) · 3 Live meeting (idle / listening / degraded / stopped + สรุปหลังประชุม) · 4 Transcript review + rename ผู้พูด · 5 Summary + TTS · 6 Export · 7 Recovery notice · 8 Settings ทุก tab (Sign In & Backup, TTS, Cloud, Fetch from URL, Zoom, Runtime/Local API + QR, External Connections) · 9 Device pairing (รหัส 6 หลัก + FUNGWIRE) · 10 External tools (preview → approve → result) · 11 Sign-in (pending / authenticated / error) · 12 Backup + Google Drive (phrase 24 คำ) |
+| **Desktop** (1280×800 หรือ responsive ถ้าเสนอ) | 1 Home · 2 Meeting workspace (แสดงทั้ง 4 anchor: Capture / Transcript / Summary / Runtime หรือ IA ใหม่ที่เสนอแทน) · 3 Live meeting (idle / listening / degraded / stopped + สรุปหลังประชุม) · 4 Transcript review + rename ผู้พูด · 5 Summary + TTS · 6 Export · 7 Recovery notice · 8 Settings ทุก tab (Sign In & Backup, TTS, Cloud, Fetch from URL, Zoom, Runtime/Local API + QR, External Connections) · 9 Device pairing (รหัส 6 หลัก + FUNGWIRE) · 10 External tools (preview → approve → result) · 11 Sign-in (pending / authenticated / error) · 12 Local Backup (phrase 24 คำ) |
 | **Mobile** (Android, 360–430dp) | 1 Home · 2 Capture (idle / recording / paused / finalizing / completed / recovery_required) · 3 Files + player inline · 4 Notes (list / create sheet / detail) · 5 Graph + inspector · 6 Timeline (speaker turns + inspector) · 7 Devices (signed-out / signed-in / จับคู่แล้ว / ยกเลิก) · 8 Pairing sheet · 9 Story editor · 10 Processing studio (4 tab + delegate to desktop/cloud) · 11 Sign-in ผ่าน system browser + กลับแอป · 12 Theme/MCP settings |
 | **Web dashboard** | 1 Landing → sign-in → callback (loading / error) · 2 Dashboard (3 ส่วน: อัดในเบราว์เซอร์, ไฟล์จาก desktop, อุปกรณ์) · 3 Recorder (idle / requesting mic / recording / saving / mic denied) · 4 รายการไฟล์ + ถอดที่ desktop (uploading / running % / completed transcript / failed) · 5 เชื่อมต่อ desktop (unconfigured / loading / error / ready) · 6 Account settings modal · 7 Mobile-width (≤ 640px) ของทุกหน้า |
 | **Landing** | Hero, How it works, Architecture, Demo/Download, Closing, Footer — desktop + mobile width |

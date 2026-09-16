@@ -81,7 +81,7 @@ evidence is still open.**
 | --- | --- | --- | --- |
 | Genesis full-export + clean-target restore | FUNG pins `origin/agent/u9-backup-restore` commit `27cbb285aea635e31311ef2053d21f16e915f1fb`. The FUNG fixture commits two notes, one graph relation, and one `audio_chunks` metadata row; it exports through `Storage::export_backup`, restores through `Storage::restore_backup` into a non-existing target, and verifies source frontier, nodes, relation, and metadata. | Proven in focused automated fixture | Keep U9/release closure open pending encrypted FUNG transport and clean-install evidence. |
 | Filesystem test transport | Dedicated empty roots now exist at `D:\FUNG-Phase4-TestStorage\FUNG-DEV-TEST` and `D:\FUNG-Phase4-TestRestore`. | Approved development/test proof locations | Keep all final archives encrypted and create each `restore-<archive-id>` only when restoring to a clean target. |
-| Google Drive OAuth | `docs/specs/2026-08-23-phase-4-google-drive-oauth-iam-handshake-spec.md`, native PKCE/keyring adapter, metadata Edge Function, and separate Desktop UI are retained as historical source evidence. | Canceled by product decision; no provider/UAT/release acceptance remains active | Do not configure, deploy, consent, upload, download, revoke, or schedule clean-install/device proof for Google Drive. |
+| Google Drive OAuth | Historical design/report references plus applied migration/schema history remain for provenance; the native adapter, metadata Edge Function, and separate Desktop UI were removed. | Canceled by product decision; no provider/UAT/release acceptance remains active | Do not configure, deploy, consent, upload, download, revoke, or schedule clean-install/device proof for Google Drive. |
 
 The approved plan prohibits a mock archive, direct Genesis projection access, or
 generic OAuth/token-exchange implementation while these gates are absent.
@@ -219,13 +219,14 @@ generic OAuth/token-exchange implementation while these gates are absent.
 - Desktop, mobile, and Dashboard agree on the signed-in user's device rows.
 - Real provider/device/release evidence is labeled separately from automated
   tests; U9 closes only after the clean-install proof.
-- Google Drive production readiness is not claimed: local adapter code exists,
-  but the product decision now cancels provider, deployment, clean-install, and
-  device work for this path.
+- Google Drive production readiness is not claimed: its active adapter was
+  removed; provider, deployment, clean-install, and device work for this path
+  are canceled.
 
 ## Historical Google Drive Adapter — Canceled
 
-The local adapter and its tests remain in this historical plan for provenance.
+The former adapter and its tests are described in this historical plan for
+provenance; their active source files were removed.
 All provider, deployment, consent, upload/download, revoke, clean-install and
 device actions below are canceled and must not be scheduled without a new
 product decision.
@@ -245,7 +246,7 @@ product decision.
 
 | Version | Change |
 | --- | --- |
-| 0.3.0b | Superseded the Google Drive plan after the 2026-09-17 product decision; historical source and focused evidence are retained, but no provider/UAT/release work remains active. |
+| 0.3.0b | Superseded the Google Drive plan after the 2026-09-17 product decision; historical design/reports and migration/schema evidence remain, while active source and focused provider tests were removed. |
 | 0.2.9b | Approved and implemented the separate Google Drive native PKCE/keyring adapter, authenticated metadata/audit function, and Desktop UI. Local tests/build pass; real provider, deployment, clean-install, and device gates remain open. |
 | 0.2.8b | Completed Tasks 5–9: backup job (export → encrypt → atomic write, failure-preserving), clean-target restore with post-restore digest identity and deep fixture verification, bounded desktop test UI with one-time recovery-phrase display and restore confirmation, ownership-verified mobile device reconciliation with sign-out cache clearing, and closure runs (Rust 217/217, tsc clean, focused Node suites green). Clean-install restore UAT and physical Android identity check remain open gates. |
 | 0.2.7b | Fixed the full-suite verification procedure: the exact plan command now passes all 212 Rust library tests in 27.19s; the prior serial override exceeded the shell timeout and caused a broken-pipe artifact. |
@@ -263,7 +264,7 @@ product decision.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
-| 0.3.0b | 2026-09-17 | superseded | Google Drive implementation/provider/deployment/UAT work canceled by product decision; historical source retained pending a separate removal decision. | working-tree | Codex |
+| 0.3.0b | 2026-09-17 | superseded | Google Drive implementation/provider/deployment/UAT work canceled; active source removed and migration/schema/report history retained. | pending | Codex |
 | 0.2.9b | 2026-08-23 | beta | Approved and implemented local Google Drive PKCE/keyring, metadata audit, separate Desktop UI, resumable appDataFolder transport, and digest-bound restore; external provider/deployment/device gates remain open. | working-tree | ATHER |
 | 0.2.8b | 2026-08-19 | beta | Tasks 5–9 implemented and verified with 217/217 Rust plus green focused Node suites; U9/release stay open pending clean-install restore and physical-device evidence. | working-tree | ATHER |
 | 0.2.7b | 2026-08-14 | beta | Full exact-plan Rust library suite passed 212/212; serial override timeout RCA recorded and verification command corrected. | working-tree | ATHER |

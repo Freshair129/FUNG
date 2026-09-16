@@ -32,7 +32,6 @@ const CALLBACK_PATH: &str = "/auth/callback";
 const LOGIN_TTL: Duration = Duration::from_secs(120);
 const ACCESS_SKEW_MS: u64 = 30_000;
 const ACCOUNT_INDEX: &str = "desktop-session-slot-index";
-const DRIVE_DOMAINS_INDEX: &str = "drive-credential-domains";
 
 const ACCOUNT_DOMAIN: &str = "desktop-session";
 const ACCOUNT_MARKER: &str = "desktop-session-commit-marker";
@@ -91,7 +90,7 @@ pub(crate) struct LifecycleMaterial {
     pub(crate) access_expires_at_ms: Option<u64>,
 }
 pub(crate) trait ProviderHttpPort:
-    DriveHttpPort + ArchiveJobPort + CommitObservationPort + Send + Sync + Clone + 'static
+    ArchiveJobPort + CommitObservationPort + Send + Sync + Clone + 'static
 {
     fn exchange(
         &mut self,
@@ -99,20 +98,7 @@ pub(crate) trait ProviderHttpPort:
         verifier: Zeroizing<String>,
     ) -> Result<LifecycleMaterial, String>;
     fn refresh(&mut self, refresh: Zeroizing<String>) -> Result<LifecycleMaterial, String>;
-    fn drive_exchange(
-        &self,
-        client_id: String,
-        redirect_uri: Zeroizing<String>,
-        code: Zeroizing<String>,
-        verifier: Zeroizing<String>,
-    ) -> Result<DriveTokenMaterial, String>;
-    fn drive_refresh(
-        &self,
-        client_id: String,
-        refresh: Zeroizing<String>,
-    ) -> Result<DriveTokenMaterial, String>;
 }
-pub(crate) trait DriveHttpPort {}
 pub(crate) trait ArchiveJobPort {}
 pub(crate) trait CommitObservationPort {
     fn observe(&mut self, _event: &'static str) {}
@@ -124,36 +110,9 @@ pub(crate) struct LifecycleOutcome {
     pub(crate) code: Option<&'static str>,
 }
 
-pub(crate) struct DriveTokenMaterial {
-    pub(crate) access: Zeroizing<String>,
-    pub(crate) refresh: Option<Zeroizing<String>>,
-    pub(crate) scope: Option<Zeroizing<String>>,
-}
-
 pub(crate) trait RegisteredBrokerPort: Send + Sync {
     fn check_account_operation(&self, ticket: LifecycleTicket) -> Result<(), String>;
     fn finish_account_operation(&self, ticket: LifecycleTicket);
-    fn check_drive_operation(&self, ticket: LifecycleTicket) -> Result<(), String>;
-    fn finish_drive_operation(&self, ticket: LifecycleTicket);
-    fn commit_drive(
-        &self,
-        ticket: LifecycleTicket,
-        token: &Zeroizing<String>,
-    ) -> Result<(), String>;
-    fn drive_provider_exchange(
-        &self,
-        ticket: LifecycleTicket,
-        client_id: String,
-        redirect_uri: Zeroizing<String>,
-        code: Zeroizing<String>,
-        verifier: Zeroizing<String>,
-    ) -> Result<DriveTokenMaterial, String>;
-    fn drive_provider_refresh(
-        &self,
-        ticket: LifecycleTicket,
-        client_id: String,
-        refresh: Zeroizing<String>,
-    ) -> Result<DriveTokenMaterial, String>;
 }
 
 pub(crate) enum RefreshAdmission<P> {
@@ -178,14 +137,6 @@ struct AccountSession {
     refresh_flight: Option<Arc<(Mutex<bool>, Condvar)>>,
     pending_operations: HashSet<u64>,
     pending_login_operation: Option<u64>,
-}
-
-struct DriveCredential {
-    drive_generation: u64,
-    connected: bool,
-    quiescing: bool,
-    slot_base: Option<String>,
-    pending_operations: HashSet<u64>,
 }
 
 #[derive(Default)]
@@ -227,7 +178,6 @@ pub(crate) struct LifecycleTicket {
     pub(crate) operation_id: u64,
     pub(crate) account_epoch: u64,
     pub(crate) account_generation: u64,
-    pub(crate) drive_generation: u64,
 }
 
 pub(crate) struct AccountOperationGuard {
@@ -256,7 +206,6 @@ struct CommitFence {
 
 pub(crate) struct SessionLifecycle<K, C, L, P> {
     account: AccountSession,
-    drive: DriveCredential,
     account_epoch: u64,
     next_operation_id: u64,
     quiescing: bool,
@@ -266,13 +215,6 @@ pub(crate) struct SessionLifecycle<K, C, L, P> {
     listener: L,
     provider: P,
     account_drain: Arc<OperationDrain>,
-    drive_drain: Arc<OperationDrain>,
-}
-
-pub(crate) struct DriveOperationLease {
-    pub(crate) ticket: LifecycleTicket,
-    pub(crate) drain: Arc<OperationDrain>,
-    pub(crate) broker: Arc<dyn RegisteredBrokerPort>,
 }
 
 impl<K, C, L, P> SessionLifecycle<K, C, L, P>
@@ -297,13 +239,6 @@ where
                 pending_operations: HashSet::new(),
                 pending_login_operation: None,
             },
-            drive: DriveCredential {
-                drive_generation: 1,
-                connected: false,
-                quiescing: false,
-                slot_base: None,
-                pending_operations: HashSet::new(),
-            },
             account_epoch: 1,
             next_operation_id: 1,
             quiescing: false,
@@ -313,7 +248,6 @@ where
             listener,
             provider,
             account_drain: Arc::new(OperationDrain::default()),
-            drive_drain: Arc::new(OperationDrain::default()),
         }
     }
 
@@ -333,8 +267,6 @@ where
         self.clear_memory();
         self.account.state = SessionLifecycleState::CleanupFailed;
         self.quiescing = true;
-        self.drive.quiescing = true;
-        self.drive.connected = false;
     }
     fn next_operation(&mut self) -> u64 {
         let id = self.next_operation_id;
@@ -417,7 +349,6 @@ where
                 operation_id,
                 account_epoch: self.account_epoch,
                 account_generation: self.account.generation,
-                drive_generation: self.drive.drive_generation,
             },
             self.provider.clone(),
         ))
@@ -465,7 +396,6 @@ where
                 operation_id,
                 account_epoch: self.account_epoch,
                 account_generation: self.account.generation,
-                drive_generation: self.drive.drive_generation,
             },
             self.account_drain.clone(),
         ))
@@ -601,7 +531,6 @@ where
             operation_id,
             account_epoch: self.account_epoch,
             account_generation: self.account.generation,
-            drive_generation: self.drive.drive_generation,
         };
         self.account.pending_operations.insert(operation_id);
         self.account_drain.admit();
@@ -664,18 +593,15 @@ where
         };
         (outcome, notify)
     }
-    fn begin_terminal_transition(&mut self) -> (Arc<OperationDrain>, Arc<OperationDrain>) {
+    fn begin_terminal_transition(&mut self) -> Arc<OperationDrain> {
         self.quiescing = true;
         self.account.state = SessionLifecycleState::LogoutPending;
         self.account_epoch = self.account_epoch.wrapping_add(1);
         self.account.generation = self.account.generation.wrapping_add(1);
         self.account.pending_operations.clear();
         self.account.refresh_flight = None;
-        self.drive.drive_generation = self.drive.drive_generation.wrapping_add(1);
-        self.drive.quiescing = true;
-        self.drive.pending_operations.clear();
         self.clear_memory();
-        (self.account_drain.clone(), self.drive_drain.clone())
+        self.account_drain.clone()
     }
 
     fn finish_terminal_transition(&mut self, shutdown: bool) -> Result<LifecycleOutcome, String> {
@@ -684,25 +610,11 @@ where
             ACCOUNT_DOMAIN,
             ACCOUNT_MARKER,
             &mut self.commit_fence,
-        )
-        .and_then(|_| {
-            if let Some(base) = self.drive.slot_base.clone() {
-                clear_credential(
-                    &mut self.keyring,
-                    &base,
-                    &format!("{base}-marker"),
-                    &mut self.commit_fence,
-                )
-            } else {
-                Ok(())
-            }
-        });
+        );
         if let Err(error) = cleanup {
             self.account.state = SessionLifecycleState::CleanupFailed;
             return Err(error);
         }
-        self.drive.connected = false;
-        self.drive.quiescing = false;
         self.account.state = if shutdown {
             SessionLifecycleState::Shutdown
         } else {
@@ -714,86 +626,6 @@ where
         Ok(self.outcome(if shutdown { "shutdown" } else { "signed_out" }, None))
     }
 
-    pub(crate) fn begin_drive_operation(
-        &mut self,
-        slot_base: String,
-    ) -> Result<LifecycleTicket, String> {
-        if self.quiescing || self.drive.quiescing {
-            return Err(public_error("auth_transition_in_progress"));
-        }
-        let operation_id = self.next_operation();
-        register_drive_domain(&mut self.keyring, &slot_base)?;
-        self.drive_drain.admit();
-        self.drive.slot_base = Some(slot_base);
-        self.drive.pending_operations.insert(operation_id);
-        Ok(LifecycleTicket {
-            operation_id,
-            account_epoch: self.account_epoch,
-            account_generation: self.account.generation,
-            drive_generation: self.drive.drive_generation,
-        })
-    }
-    pub(crate) fn drive_commit(
-        &mut self,
-        ticket: LifecycleTicket,
-        token: &Zeroizing<String>,
-    ) -> Result<(), String> {
-        self.ensure_drive_ticket(ticket)?;
-        let base = self
-            .drive
-            .slot_base
-            .clone()
-            .ok_or_else(|| public_error("drive_token_storage_failed"))?;
-        if let Err(error) = commit_credential(
-            &mut self.keyring,
-            &base,
-            &format!("{base}-marker"),
-            token,
-            "drive_token_storage_failed",
-            &mut self.commit_fence,
-        ) {
-            if error == "cleanup_failed" {
-                self.mark_credential_cleanup_failed();
-            }
-            return Err(error);
-        }
-        self.provider.observe("drive-marker-verified");
-        self.drive.connected = true;
-        Ok(())
-    }
-    pub(crate) fn ensure_drive_ticket(&self, ticket: LifecycleTicket) -> Result<(), String> {
-        if self.quiescing
-            || self.account_epoch != ticket.account_epoch
-            || self.account.generation != ticket.account_generation
-            || self.drive.drive_generation != ticket.drive_generation
-            || !self.drive.pending_operations.contains(&ticket.operation_id)
-        {
-            return Err(public_error("drive_transition_in_progress"));
-        }
-        Ok(())
-    }
-    pub(crate) fn finish_drive_operation(&mut self, ticket: LifecycleTicket) {
-        self.drive.pending_operations.remove(&ticket.operation_id);
-    }
-    pub(crate) fn begin_drive_disconnect(&mut self) -> Arc<OperationDrain> {
-        self.drive.quiescing = true;
-        self.drive.drive_generation = self.drive.drive_generation.wrapping_add(1);
-        self.drive.pending_operations.clear();
-        self.drive.connected = false;
-        self.drive_drain.clone()
-    }
-    pub(crate) fn finish_drive_disconnect(&mut self) -> Result<(), String> {
-        if let Some(base) = self.drive.slot_base.clone() {
-            clear_credential(
-                &mut self.keyring,
-                &base,
-                &format!("{base}-marker"),
-                &mut self.commit_fence,
-            )?;
-        }
-        self.drive.quiescing = false;
-        Ok(())
-    }
     pub(crate) fn listener_callback_target(
         &self,
         request: &[u8],
@@ -805,39 +637,17 @@ where
     pub(crate) fn recover_startup(&mut self) -> Result<(), String> {
         let result = (|| {
             load_committed(&mut self.keyring, ACCOUNT_DOMAIN, ACCOUNT_MARKER)?;
-            if let Some(domains) = self.keyring.read(DRIVE_DOMAINS_INDEX)? {
-                let registry = serde_json::from_str::<DomainRegistry>(domains.as_str())
-                    .map_err(|_| public_error("keyring_unavailable"))?;
-                if registry.format_version != KEYRING_FORMAT_VERSION
-                    || registry.integrity != registry_digest(&registry.domains)
-                {
-                    return Err(public_error("keyring_unavailable"));
-                }
-                for domain in registry.domains {
-                    if domain.is_empty() || domain.chars().any(char::is_control) {
-                        return Err(public_error("keyring_unavailable"));
-                    }
-                    load_committed(&mut self.keyring, &domain, &format!("{domain}-marker"))?;
-                }
-            }
             self.account.startup_checked = true;
             Ok(())
         })();
         if let Err(error) = result {
             self.account.state = SessionLifecycleState::CleanupFailed;
             self.quiescing = true;
-            self.drive.quiescing = true;
-            self.drive.connected = false;
             self.clear_memory();
             Err(error)
         } else {
             Ok(())
         }
-    }
-
-    pub(crate) fn drive_status(&mut self, base: String) -> Result<bool, String> {
-        self.drive.slot_base = Some(base.clone());
-        Ok(load_committed(&mut self.keyring, &base, &format!("{base}-marker"))?.is_some())
     }
 }
 
@@ -930,84 +740,15 @@ where
         self.with(|lifecycle| Ok(lifecycle.finish_refresh(ticket, result)))
     }
 
-    pub(crate) fn begin_drive_work(
-        self: &Arc<Self>,
-        slot_base: String,
-    ) -> Result<DriveOperationLease, String> {
-        let ticket = self.with(|lifecycle| lifecycle.begin_drive_operation(slot_base))?;
-        let drain = self
-            .lifecycle
-            .lock()
-            .map_err(|_| public_error("auth_unavailable"))?
-            .drive_drain
-            .clone();
-        let broker: Arc<dyn RegisteredBrokerPort> = self.clone();
-        Ok(DriveOperationLease {
-            ticket,
-            drain,
-            broker,
-        })
-    }
-
-    pub(crate) fn drive_status(&self, slot_base: String) -> Result<bool, String> {
-        self.with(|lifecycle| lifecycle.drive_status(slot_base))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn check_drive(&self, ticket: LifecycleTicket) -> Result<(), String> {
-        self.with(|lifecycle| lifecycle.ensure_drive_ticket(ticket))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn commit_drive(
-        &self,
-        ticket: LifecycleTicket,
-        token: &Zeroizing<String>,
-    ) -> Result<(), String> {
-        self.with(|lifecycle| lifecycle.drive_commit(ticket, token))
-    }
-
-    pub(crate) fn drive_load(
-        &self,
-        slot_base: String,
-    ) -> Result<Option<Zeroizing<String>>, String> {
-        self.with(|lifecycle| {
-            lifecycle.drive.slot_base = Some(slot_base.clone());
-            load_committed(
-                &mut lifecycle.keyring,
-                &slot_base,
-                &format!("{slot_base}-marker"),
-            )
-        })
-    }
-
-    pub(crate) fn begin_drive_disconnect(&self) -> Result<Arc<OperationDrain>, String> {
-        self.with(|lifecycle| Ok(lifecycle.begin_drive_disconnect()))
-    }
-
-    pub(crate) fn finish_drive_disconnect(&self) -> Result<(), String> {
-        self.with(|lifecycle| lifecycle.finish_drive_disconnect())
-    }
-
-    pub(crate) fn disconnect_drive(&self) -> Result<(), String> {
-        let drain = self.begin_drive_disconnect()?;
-        drain.wait_empty();
-        self.finish_drive_disconnect()
-    }
-
     pub(crate) fn logout(&self) -> Result<LifecycleOutcome, String> {
-        let (account_drain, drive_drain) =
-            self.with(|lifecycle| Ok(lifecycle.begin_terminal_transition()))?;
+        let account_drain = self.with(|lifecycle| Ok(lifecycle.begin_terminal_transition()))?;
         account_drain.wait_empty();
-        drive_drain.wait_empty();
         self.with(|lifecycle| lifecycle.finish_terminal_transition(false))
     }
 
     pub(crate) fn shutdown(&self) -> Result<LifecycleOutcome, String> {
-        let (account_drain, drive_drain) =
-            self.with(|lifecycle| Ok(lifecycle.begin_terminal_transition()))?;
+        let account_drain = self.with(|lifecycle| Ok(lifecycle.begin_terminal_transition()))?;
         account_drain.wait_empty();
-        drive_drain.wait_empty();
         self.with(|lifecycle| lifecycle.finish_terminal_transition(true))
     }
 
@@ -1124,14 +865,6 @@ where
             .map(|lifecycle| lifecycle.account.access_token.is_some())
             .unwrap_or(true)
     }
-
-    #[cfg(test)]
-    pub(crate) fn drive_connected(&self) -> bool {
-        self.lifecycle
-            .lock()
-            .map(|lifecycle| lifecycle.drive.connected)
-            .unwrap_or(true)
-    }
 }
 
 impl<K, C, L, P> RegisteredBrokerPort for RegisteredBrokerEntrypoints<K, C, L, P>
@@ -1149,63 +882,6 @@ where
         if let Ok(mut lifecycle) = self.lifecycle.lock() {
             lifecycle.finish_account_operation(ticket);
         }
-    }
-
-    fn check_drive_operation(&self, ticket: LifecycleTicket) -> Result<(), String> {
-        self.with(|lifecycle| lifecycle.ensure_drive_ticket(ticket))
-    }
-
-    fn finish_drive_operation(&self, ticket: LifecycleTicket) {
-        if let Ok(mut lifecycle) = self.lifecycle.lock() {
-            lifecycle.finish_drive_operation(ticket);
-        }
-    }
-
-    fn commit_drive(
-        &self,
-        ticket: LifecycleTicket,
-        token: &Zeroizing<String>,
-    ) -> Result<(), String> {
-        self.with(|lifecycle| lifecycle.drive_commit(ticket, token))
-    }
-
-    fn drive_provider_exchange(
-        &self,
-        ticket: LifecycleTicket,
-        client_id: String,
-        redirect_uri: Zeroizing<String>,
-        code: Zeroizing<String>,
-        verifier: Zeroizing<String>,
-    ) -> Result<DriveTokenMaterial, String> {
-        let provider = self.with(|lifecycle| {
-            lifecycle.ensure_drive_ticket(ticket)?;
-            Ok(lifecycle.provider.clone())
-        })?;
-        let material = provider.drive_exchange(client_id, redirect_uri, code, verifier)?;
-        self.with(|lifecycle| {
-            lifecycle.ensure_drive_ticket(ticket)?;
-            Ok(material)
-        })
-    }
-
-    fn drive_provider_refresh(
-        &self,
-        ticket: LifecycleTicket,
-        client_id: String,
-        refresh: Zeroizing<String>,
-    ) -> Result<DriveTokenMaterial, String> {
-        let provider = self.with(|lifecycle| {
-            lifecycle.ensure_drive_ticket(ticket)?;
-            Ok(lifecycle.provider.clone())
-        })?;
-        let material = provider.drive_refresh(client_id, refresh)?;
-        self.with(|lifecycle| {
-            lifecycle.ensure_drive_ticket(ticket)?;
-            if let Some(refresh) = material.refresh.as_ref() {
-                lifecycle.drive_commit(ticket, refresh)?;
-            }
-            Ok(material)
-        })
     }
 }
 
@@ -1286,13 +962,6 @@ struct SlotIndex {
     integrity: String,
 }
 
-#[derive(Serialize, Deserialize)]
-struct DomainRegistry {
-    format_version: u8,
-    domains: Vec<String>,
-    integrity: String,
-}
-
 fn content_sha256(value: &str) -> String {
     format!("{:x}", Sha256::digest(value.as_bytes()))
 }
@@ -1311,13 +980,6 @@ fn index_digest(domain: &str, versions: &[u64]) -> String {
             .map(u64::to_string)
             .collect::<Vec<_>>()
             .join(",")
-    ))
-}
-
-fn registry_digest(domains: &[String]) -> String {
-    content_sha256(&format!(
-        "{KEYRING_FORMAT_VERSION}|{}",
-        domains.join("\u{1f}")
     ))
 }
 
@@ -1378,54 +1040,6 @@ fn parse_index(value: &Zeroizing<String>, domain: &str) -> Result<Vec<u64>, Stri
         return Err(public_error("keyring_unavailable"));
     }
     Ok(versions)
-}
-
-fn register_drive_domain<K: KeyringPort>(keyring: &mut K, domain: &str) -> Result<(), String> {
-    let current = keyring.read(DRIVE_DOMAINS_INDEX)?;
-    let mut domains = match current {
-        Some(value) => {
-            let registry = serde_json::from_str::<DomainRegistry>(value.as_str())
-                .map_err(|_| public_error("keyring_unavailable"))?;
-            if registry.format_version != KEYRING_FORMAT_VERSION
-                || registry.integrity != registry_digest(&registry.domains)
-            {
-                return Err(public_error("keyring_unavailable"));
-            }
-            registry.domains
-        }
-        None => Vec::new(),
-    };
-    if domains.iter().any(|entry| entry == domain) {
-        return Ok(());
-    }
-    domains.push(domain.to_owned());
-    let encoded = Zeroizing::new(
-        serde_json::to_string(&DomainRegistry {
-            format_version: KEYRING_FORMAT_VERSION,
-            integrity: registry_digest(&domains),
-            domains,
-        })
-        .map_err(|_| public_error("keyring_unavailable"))?,
-    );
-    keyring
-        .write(DRIVE_DOMAINS_INDEX, &encoded)
-        .map_err(|_| public_error("keyring_unavailable"))?;
-    if !keyring
-        .read(DRIVE_DOMAINS_INDEX)?
-        .as_ref()
-        .is_some_and(|value| {
-            value.as_str() == encoded.as_str()
-                && serde_json::from_str::<DomainRegistry>(value.as_str())
-                    .ok()
-                    .is_some_and(|registry| {
-                        registry.format_version == KEYRING_FORMAT_VERSION
-                            && registry.integrity == registry_digest(&registry.domains)
-                    })
-        })
-    {
-        return Err(public_error("keyring_unavailable"));
-    }
-    Ok(())
 }
 
 fn restore_index<K: KeyringPort>(
@@ -1935,80 +1549,7 @@ impl ProviderHttpPort for NativeProvider {
             access_expires_at_ms: Some(now_ms() + token.expires_in.unwrap_or(3600) * 1000),
         })
     }
-    fn drive_exchange(
-        &self,
-        client_id: String,
-        redirect_uri: Zeroizing<String>,
-        code: Zeroizing<String>,
-        verifier: Zeroizing<String>,
-    ) -> Result<DriveTokenMaterial, String> {
-        let response = BlockingClient::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .map_err(|_| public_error("drive_oauth_token_exchange_failed"))?
-            .post("https://oauth2.googleapis.com/token")
-            .form(&[
-                ("client_id", client_id.as_str()),
-                ("code", code.as_str()),
-                ("code_verifier", verifier.as_str()),
-                ("grant_type", "authorization_code"),
-                ("redirect_uri", redirect_uri.as_str()),
-            ])
-            .send()
-            .map_err(|_| public_error("drive_oauth_token_exchange_failed"))?;
-        if !response.status().is_success() {
-            return Err(public_error("drive_oauth_token_exchange_failed"));
-        }
-        let token = response
-            .json::<DriveTokenResponse>()
-            .map_err(|_| public_error("drive_oauth_token_exchange_failed"))?;
-        if token.error.is_some() || token.access.is_none() {
-            return Err(public_error("drive_oauth_token_exchange_failed"));
-        }
-        Ok(DriveTokenMaterial {
-            access: token
-                .access
-                .ok_or_else(|| public_error("drive_oauth_token_exchange_failed"))?,
-            refresh: token.refresh,
-            scope: token.scope,
-        })
-    }
-    fn drive_refresh(
-        &self,
-        client_id: String,
-        refresh: Zeroizing<String>,
-    ) -> Result<DriveTokenMaterial, String> {
-        let response = BlockingClient::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .map_err(|_| public_error("drive_token_refresh_failed"))?
-            .post("https://oauth2.googleapis.com/token")
-            .form(&[
-                ("client_id", client_id.as_str()),
-                ("grant_type", "refresh_token"),
-                ("refresh_token", refresh.as_str()),
-            ])
-            .send()
-            .map_err(|_| public_error("drive_token_refresh_failed"))?;
-        if !response.status().is_success() {
-            return Err(public_error("drive_token_refresh_failed"));
-        }
-        let token = response
-            .json::<DriveTokenResponse>()
-            .map_err(|_| public_error("drive_token_refresh_failed"))?;
-        if token.error.is_some() || token.access.is_none() {
-            return Err(public_error("drive_token_refresh_failed"));
-        }
-        Ok(DriveTokenMaterial {
-            access: token
-                .access
-                .ok_or_else(|| public_error("drive_token_refresh_failed"))?,
-            refresh: token.refresh,
-            scope: token.scope,
-        })
-    }
 }
-impl DriveHttpPort for NativeProvider {}
 impl ArchiveJobPort for NativeProvider {}
 impl CommitObservationPort for NativeProvider {}
 
@@ -2029,20 +1570,8 @@ fn production_lifecycle() -> &'static Arc<NativeRegisteredBroker> {
 fn registered_listener_callback(request: &[u8], port: u16) -> Option<Zeroizing<String>> {
     production_lifecycle().listener_callback_target(request, port)
 }
-pub(crate) fn drive_begin(slot_base: String) -> Result<DriveOperationLease, String> {
-    production_lifecycle().begin_drive_work(slot_base)
-}
 pub(crate) fn account_begin_operation() -> Result<AccountOperationGuard, String> {
     production_lifecycle().begin_account_operation()
-}
-pub(crate) fn drive_status(slot_base: String) -> Result<bool, String> {
-    production_lifecycle().drive_status(slot_base)
-}
-pub(crate) fn drive_load(slot_base: String) -> Result<Option<Zeroizing<String>>, String> {
-    production_lifecycle().drive_load(slot_base)
-}
-pub(crate) fn drive_disconnect() -> Result<(), String> {
-    production_lifecycle().disconnect_drive()
 }
 pub(crate) fn startup_recover() -> Result<(), String> {
     production_lifecycle().startup_recover()
@@ -2167,25 +1696,6 @@ struct AuthTokenResponse {
     )]
     refresh: Option<Zeroizing<String>>,
     expires_in: Option<u64>,
-    #[serde(default, deserialize_with = "deserialize_optional_zeroizing")]
-    error: Option<Zeroizing<String>>,
-}
-#[derive(Deserialize)]
-struct DriveTokenResponse {
-    #[serde(
-        rename = "access_token",
-        default,
-        deserialize_with = "deserialize_optional_zeroizing"
-    )]
-    access: Option<Zeroizing<String>>,
-    #[serde(
-        rename = "refresh_token",
-        default,
-        deserialize_with = "deserialize_optional_zeroizing"
-    )]
-    refresh: Option<Zeroizing<String>>,
-    #[serde(default, deserialize_with = "deserialize_optional_zeroizing")]
-    scope: Option<Zeroizing<String>>,
     #[serde(default, deserialize_with = "deserialize_optional_zeroizing")]
     error: Option<Zeroizing<String>>,
 }
@@ -3359,35 +2869,7 @@ mod tests {
                 })
             }
         }
-        fn drive_exchange(
-            &self,
-            _client_id: String,
-            _redirect_uri: Zeroizing<String>,
-            _code: Zeroizing<String>,
-            _verifier: Zeroizing<String>,
-        ) -> Result<DriveTokenMaterial, String> {
-            Ok(DriveTokenMaterial {
-                access: Zeroizing::new("drive-access".to_owned()),
-                refresh: Some(Zeroizing::new("drive-refresh".to_owned())),
-                scope: Some(Zeroizing::new(
-                    "https://www.googleapis.com/auth/drive.appdata".to_owned(),
-                )),
-            })
-        }
-        fn drive_refresh(
-            &self,
-            _client_id: String,
-            _refresh: Zeroizing<String>,
-        ) -> Result<DriveTokenMaterial, String> {
-            self.drive_exchange(
-                String::new(),
-                Zeroizing::new(String::new()),
-                Zeroizing::new(String::new()),
-                Zeroizing::new(String::new()),
-            )
-        }
     }
-    impl DriveHttpPort for FakeProvider {}
     impl ArchiveJobPort for FakeProvider {}
     impl CommitObservationPort for FakeProvider {}
     type TestBroker =
@@ -3477,14 +2959,6 @@ mod tests {
         )
     }
 
-    fn connect_drive(broker: &Arc<TestBroker>, domain: &str, token: &str) -> Result<(), String> {
-        let lease = broker.begin_drive_work(domain.to_owned())?;
-        let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
-        let result = broker.commit_drive(guard.ticket(), &Zeroizing::new(token.to_owned()));
-        drop(guard);
-        result
-    }
-
     fn write_port_slot(keyring: &FakeKeyring, slot: &str, value: &str) {
         keyring.write_slot(slot, value).unwrap();
     }
@@ -3501,8 +2975,6 @@ mod tests {
     fn seed_recovery_keyring() -> FakeKeyring {
         let fixture = make_fixture();
         login_with_registered_ticket(&fixture.broker).unwrap();
-        connect_drive(&fixture.broker, "drive-alpha", "drive-alpha-token").unwrap();
-        connect_drive(&fixture.broker, "drive-beta", "drive-beta-token").unwrap();
         fixture.keyring
     }
 
@@ -3836,7 +3308,7 @@ mod tests {
         }
     }
 
-    const RECOVERY_TARGETS: [&str; 3] = [ACCOUNT_DOMAIN, "drive-alpha", "drive-beta"];
+    const RECOVERY_TARGETS: [&str; 1] = [ACCOUNT_DOMAIN];
 
     fn target_marker(domain: &str) -> String {
         if domain == ACCOUNT_DOMAIN {
@@ -3912,8 +3384,7 @@ mod tests {
     fn expected_slot_hash(domain: &str, slot: SlotReadback) -> Option<String> {
         match slot {
             SlotReadback::Absent => None,
-            SlotReadback::Original if domain == ACCOUNT_DOMAIN => Some(content_sha256("refresh")),
-            SlotReadback::Original => Some(content_sha256(&format!("{domain}-token"))),
+            SlotReadback::Original => Some(content_sha256("refresh")),
             SlotReadback::Orphan => Some(content_sha256("orphan-token")),
             SlotReadback::Tampered => Some(content_sha256("tampered-token")),
         }
@@ -4074,7 +3545,6 @@ mod tests {
             expected_result.is_ok()
         );
         assert!(!broker.account_access_present());
-        assert!(!broker.drive_connected());
         assert_eq!(terminal_cleanup_failed, !expected_result.is_ok());
         let cleanup_proof = assert_recovery_readback(keyring, row, expected_readback);
         let result_class = result.as_ref().err().map(String::as_str).unwrap_or("ok");
@@ -4309,213 +3779,6 @@ mod tests {
             .unwrap_err(),
             "auth_transition_in_progress"
         );
-    }
-
-    #[test]
-    fn native_behavioral_drive_disconnect_wins_against_stale_commit() {
-        let broker = make_broker();
-        let lease = broker.begin_drive_work("drive-test".to_owned()).unwrap();
-        let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
-        let ticket = guard.ticket();
-        let drain = broker.begin_drive_disconnect().unwrap();
-        assert!(matches!(
-            broker.begin_drive_work("drive-test-2".to_owned()),
-            Err(error) if error == "auth_transition_in_progress"
-        ));
-        assert_eq!(guard.check().unwrap_err(), "drive_transition_in_progress");
-        drop(guard);
-        drain.wait_empty();
-        broker.finish_drive_disconnect().unwrap();
-        assert_eq!(
-            broker.check_drive(ticket).unwrap_err(),
-            "drive_transition_in_progress"
-        );
-    }
-
-    struct BarrierAuthorization;
-
-    impl crate::drive_oauth::DriveAuthorizationPort for BarrierAuthorization {
-        fn ensure_valid(&self) -> Result<(), String> {
-            Ok(())
-        }
-    }
-
-    struct BarrierResumableProvider {
-        entered: std::sync::mpsc::SyncSender<()>,
-        release: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
-        calls: Arc<std::sync::Mutex<usize>>,
-    }
-
-    impl BarrierResumableProvider {
-        fn count(&self) {
-            *self.calls.lock().unwrap() += 1;
-        }
-    }
-
-    impl crate::drive_oauth::ResumableProviderPort for BarrierResumableProvider {
-        fn start(
-            &self,
-            _access_token: &str,
-            _payload: &crate::drive_oauth::ResumableMetadata,
-            _total_size: u64,
-        ) -> Result<String, String> {
-            self.count();
-            Ok("deterministic://upload".to_owned())
-        }
-
-        fn send_chunk(
-            &self,
-            _location: &str,
-            _access_token: &str,
-            _content_range: &str,
-            _bytes: Vec<u8>,
-        ) -> Result<crate::drive_oauth::ResumableSendResult, String> {
-            self.count();
-            self.entered
-                .send(())
-                .map_err(|_| "barrier_unavailable".to_owned())?;
-            self.release
-                .lock()
-                .unwrap()
-                .take()
-                .ok_or_else(|| "barrier_unavailable".to_owned())?
-                .recv()
-                .map_err(|_| "barrier_unavailable".to_owned())?;
-            Ok(crate::drive_oauth::ResumableSendResult::Complete(
-                crate::drive_oauth::DriveFile {
-                    id: "archive-id".to_owned(),
-                    name: Some("archive.zip".to_owned()),
-                    size: Some("1".to_owned()),
-                    modified_time: None,
-                    app_properties: None,
-                },
-            ))
-        }
-    }
-
-    fn run_drive_provider_race(transition: &'static str) {
-        let broker = make_broker();
-        let lease = broker.begin_drive_work("drive-race".to_owned()).unwrap();
-        let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
-        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(0);
-        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
-        let calls = Arc::new(std::sync::Mutex::new(0));
-        let provider = BarrierResumableProvider {
-            entered: entered_tx,
-            release: std::sync::Mutex::new(Some(release_rx)),
-            calls: calls.clone(),
-        };
-        let archive_path =
-            std::env::temp_dir().join(format!("fung-d-gda6-{}-{}.bin", transition, Uuid::new_v4()));
-        std::fs::write(&archive_path, b"x").unwrap();
-        let worker_path = archive_path.clone();
-        let worker = std::thread::spawn(move || {
-            crate::drive_oauth::upload_resumable_file(
-                &guard,
-                &BarrierAuthorization,
-                &provider,
-                "access-token",
-                &serde_json::json!({}),
-                &worker_path,
-                1,
-            )
-        });
-        entered_rx
-            .recv_timeout(Duration::from_secs(1))
-            .expect("provider send boundary was not reached");
-        assert_eq!(*calls.lock().unwrap(), 2);
-
-        let transition_broker = broker.clone();
-        let (transition_started_tx, transition_started_rx) = std::sync::mpsc::sync_channel(0);
-        let transition_thread = std::thread::spawn(move || match transition {
-            "disconnect" => {
-                transition_started_tx.send(()).unwrap();
-                transition_broker.disconnect_drive().map(|_| ())
-            }
-            "logout" => {
-                transition_started_tx.send(()).unwrap();
-                transition_broker.logout().map(|_| ())
-            }
-            "shutdown" => {
-                transition_started_tx.send(()).unwrap();
-                transition_broker.shutdown().map(|_| ())
-            }
-            _ => Err("unknown_transition".to_owned()),
-        });
-        transition_started_rx
-            .recv_timeout(Duration::from_secs(1))
-            .expect("transition did not start");
-        release_tx.send(()).unwrap();
-        let result = worker.join().unwrap();
-        assert_eq!(result.unwrap_err(), "drive_transition_in_progress");
-        transition_thread.join().unwrap().unwrap();
-        let _ = std::fs::remove_file(&archive_path);
-        assert!(!broker.drive_status("drive-race".to_owned()).unwrap());
-        if transition == "logout" {
-            assert_eq!(broker.state_name(), "signed_out");
-        } else if transition == "shutdown" {
-            assert_eq!(broker.state_name(), "shutdown");
-        }
-    }
-
-    #[test]
-    fn native_behavioral_drive_transition_drains_at_real_send_boundary() {
-        run_drive_provider_race("disconnect");
-        run_drive_provider_race("logout");
-        run_drive_provider_race("shutdown");
-    }
-
-    #[test]
-    fn native_behavioral_drive_denies_before_resumable_provider_send() {
-        let broker = make_broker();
-        let lease = broker
-            .begin_drive_work("drive-pre-send".to_owned())
-            .unwrap();
-        let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
-        let drain = broker.begin_drive_disconnect().unwrap();
-        let (entered_tx, _entered_rx) = std::sync::mpsc::sync_channel(0);
-        let (_release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
-        let calls = Arc::new(std::sync::Mutex::new(0));
-        let provider = BarrierResumableProvider {
-            entered: entered_tx,
-            release: std::sync::Mutex::new(Some(release_rx)),
-            calls: calls.clone(),
-        };
-        let result = crate::drive_oauth::upload_resumable_file(
-            &guard,
-            &BarrierAuthorization,
-            &provider,
-            "access-token",
-            &serde_json::json!({}),
-            std::path::Path::new("unused-pre-send.bin"),
-            1,
-        );
-        assert_eq!(result.unwrap_err(), "drive_transition_in_progress");
-        assert_eq!(*calls.lock().unwrap(), 0);
-        drop(guard);
-        drain.wait_empty();
-        broker.finish_drive_disconnect().unwrap();
-    }
-
-    #[test]
-    fn native_behavioral_drive_marker_failure_compensates_before_publish() {
-        let fixture = make_fixture();
-        let lease = fixture
-            .broker
-            .begin_drive_work("drive-fault".to_owned())
-            .unwrap();
-        let guard = crate::drive_oauth::DriveOperationGuard::from_lease(lease);
-        fixture.keyring.inject_failure_at(7);
-        assert_eq!(
-            fixture
-                .broker
-                .commit_drive(guard.ticket(), &Zeroizing::new("drive-refresh".to_owned()))
-                .unwrap_err(),
-            "drive_token_storage_failed"
-        );
-        drop(guard);
-        fixture.keyring.clear_faults();
-        assert!(!port_slot_present(&fixture.keyring, "drive-fault-marker"));
     }
 
     #[test]

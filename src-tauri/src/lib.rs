@@ -23,7 +23,6 @@ mod cloud_config;
 mod cloud_executor;
 mod device_identity;
 mod diarization;
-mod drive_oauth;
 mod external_mcp;
 mod external_mcp_commands;
 mod external_mcp_transport;
@@ -3384,7 +3383,6 @@ pub fn run() {
             app.manage(state);
             app.manage(filesystem_backup::FilesystemBackupState::default());
             app.manage(backup::BackupJobState::default());
-            app.manage(drive_oauth::DriveOAuthState::default());
             if let Err(error) = auth_session::startup_recover() {
                 eprintln!("[auth-session] deterministic startup recovery failed: {error}");
             }
@@ -3524,15 +3522,6 @@ pub fn run() {
             backup::backup_restore,
             backup::backup_restore_select_target,
             filesystem_backup::filesystem_backup_select_root,
-            drive_oauth::broker_drive_connect_begin,
-            drive_oauth::broker_drive_connect_complete,
-            drive_oauth::broker_drive_connect_cancel,
-            drive_oauth::broker_drive_status,
-            drive_oauth::broker_drive_disconnect,
-            drive_oauth::broker_drive_list_archives,
-            drive_oauth::broker_drive_upload_archive,
-            drive_oauth::broker_drive_restore_intent,
-            drive_oauth::broker_drive_restore,
             tts_provider_register,
             tts_provider_update,
             tts_provider_toggle,

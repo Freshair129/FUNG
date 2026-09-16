@@ -1,18 +1,22 @@
 ---
-version: "0.2.0b"
+version: "0.2.1b"
 created_at: "2026-08-11T10:37:54+07:00,Agent: ATHER"
-last_update: "2026-08-26T23:51:37+07:00,Agent: ATHER,888aded"
+last_update: "2026-09-17T00:00:00+07:00,Agent: Codex"
 status: "candidate"
 superseded_by: null
 attributes:
   domain: "documentation-governance"
-  scope: "Live Meeting, controlled external retrieval, and Phase 4 Google Drive"
+  scope: "Live Meeting, controlled external retrieval, and historical Phase 4 provider evidence"
   doc_type: "traceability-matrix"
 ---
 
 # Appendix D — FUNG Runtime Traceability
 
 *Refreshed by RWANG doc-graph on 2026-08-26. `Implemented locally` means current-main code and focused local evidence exist; it does not mean real external/provider/runtime verification passed.*
+
+Google Drive was canceled on 2026-09-17. Drive source, commands, Edge
+functions, and active contract tests are removed; the rows below remain only
+to preserve traceability to historical decisions and evidence reports.
 
 ## Historical Documentation Conflict — Resolved in This Reflight
 
@@ -39,7 +43,7 @@ node records the 1/1 assertion that the eleven target files carry canonical IDs
 required by the contract. Annotation coverage remains source/test intent only
 and does not replace retained manual, code-inspection, or test-run mappings.
 
-## Phase 4 Google Drive and Native Session Broker
+## Historical Phase 4 Google Drive and Native Session Broker
 
 This supplemental matrix records the approved local implementation chain added
 after the original Live Meeting traceability scope. Code remains the source of
@@ -48,11 +52,11 @@ provider, staging, device, release, or production status.
 
 | Decision scope | Authoritative documents | Implemented by | Verified by | Current status |
 |---|---|---|---|---|
-| D-GDA-01 through D-GDA-07 | `2026-08-23-google-drive-native-authorization-amendment.md` | `GoogleDrivePanel.tsx`, `googleDriveFlow.ts`, `drive_oauth.rs`, `native_auth.rs` | `googleDriveContract.test.mjs`, Rust Drive tests | Approved and implemented locally; provider/deployment gates open |
-| D-GDA2-01 through D-GDA2-10 | `2026-08-23-google-drive-authority-schema-amendment.md` | W1 authority migrations and `google-drive-authorize` Edge function | `w1AuthoritySchema.test.mjs`, committed pgTAP evidence | Local/source evidence retained; staging RLS/grant/UAT open |
+| D-GDA-01 through D-GDA-07 | `2026-08-23-google-drive-native-authorization-amendment.md` | Historical source removed from the active tree | Historical contract/Rust reports | CANCELED; no provider/deployment/UAT gate remains |
+| D-GDA2-01 through D-GDA2-10 | `2026-08-23-google-drive-authority-schema-amendment.md` | Historical W1 migrations and schema evidence | `w1AuthoritySchema.test.mjs`, committed SQL evidence | Historical only; no active Edge/provider path |
 | D-GDA3-01 through D-GDA3-03 | `2026-08-24-enrollment-proof-nonce-amendment.md` | proof-nonce migration, native enrollment proof, device-enrollment Edge path | `authFlow.test.mjs`, `w1AuthoritySchema.test.mjs` | Approved and implemented locally; current host skips executable PostgreSQL check without Docker |
-| D-GDA6-01 through D-GDA6-06 | `2026-08-25-native-session-broker-registered-entrypoint-evidence-amendment.md` | `auth_session.rs`, `drive_oauth.rs`, registered Tauri broker entrypoints | final Terra cycle-3 report; current Rust Drive 16/16 | PASS locally; fix budget exhausted; any source/test change needs a new amendment |
-| AC-GDA6-11 external boundary | final D-GDA6 Terra cycle-3 report and Phase 4 plan | Not established by local code | Clean Windows keyring, Supabase/Edge/RLS, Google provider, clean-install, device, signing/release evidence | OPEN externally |
+| D-GDA6-01 through D-GDA6-06 | `2026-08-25-native-session-broker-registered-entrypoint-evidence-amendment.md` | `auth_session.rs` account broker path; historical Drive source removed | Final Terra cycle-3 report | Historical only; Drive slice canceled |
+| AC-GDA6-11 external boundary | Final D-GDA6 Terra cycle-3 report and Phase 4 plan | Not established by current code | Provider/Drive evidence | CANCELED with the Google Drive scope |
 
 The Recording2 catalog task document deliberately points to local-only
 `.tmp-transcript/` provenance as plain paths. Those artifacts are not graph
@@ -168,6 +172,7 @@ historical evidence and left H3 plus all release/UAT gates open.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.1b | 2026-09-17 | beta | Marked the canceled Google Drive rows historical and removed active source/test ownership from the traceability matrix. | a9f9b80 | Codex |
 | 0.2.0b | 2026-08-26 | candidate | Expanded traceability with the Phase 4 Google Drive/D-GDA6 local-versus-external evidence boundary and local-only Recording2 provenance | `888aded` | ATHER |
 | 0.1.11b | 2026-08-12 | candidate | Corrected implementation-versus-test annotation counts and retained 26/26 union coverage. | pending | ATHER |
 | 0.1.10b | 2026-08-12 | candidate | Recorded full Rust closure and bounded relaunch evidence while retaining UAT blockers. | pending | ATHER |

@@ -153,7 +153,7 @@ Slide-over panel following the existing `TtsProviderPanel` / `ExternalAccountPan
 
 **Placeholder sections (disabled, showing "ยังไม่พร้อมใช้งาน"):**
 
-3. **Cloud Storage** — Sub-project C will add Google Drive / OneDrive / S3 configuration.
+3. **Cloud Storage** — no provider configuration is active; Phase 4 uses local encrypted backup and any future cloud target requires a new product decision.
 4. **อุปกรณ์ที่จับคู่** — Sub-project B will add device pairing + FUNGWIRE tunnel.
 
 ### CSS pattern

@@ -46,7 +46,7 @@ The same `dist/` serves the public site and the signed-in dashboard; there is no
 | List and play recordings from FUNG desktop | Works on the **same machine** only: the desktop's loopback API (`Settings › Runtime → Start local API`, paste the `http://127.0.0.1:PORT/#TOKEN` link). Other machines and phones use the desktop's LAN page instead. |
 | Transcribe a browser recording | Works on the **same machine** once the desktop is connected: "ถอดเสียงที่ desktop" uploads the file over loopback, the desktop runs its normal Whisper import job, and the transcript appears under the recording (and the recording appears in the desktop's own list). |
 | Paired devices (list, revoke), account profile | Works (Supabase, via the `device-enrollment` Edge function). |
-| Summaries, notes, graph, Live Meeting, Google Drive backup | Desktop only. The dashboard never links into the desktop shell (`/app?surface=desktop` exists for developers and calls Tauri IPC unguarded). |
+| Summaries, notes, graph, Live Meeting, local backup | Desktop only. The dashboard never links into the desktop shell (`/app?surface=desktop` exists for developers and calls Tauri IPC unguarded). Google Drive is canceled and is not a web capability. |
 
 Any path other than `/app` and `/auth/callback` is rewritten to the SPA (`vercel.json`), which renders the landing page; a build without `VITE_SUPABASE_*` still renders the landing page, just without sign-in controls.
 

@@ -206,11 +206,7 @@ export function AccountSettings({ onClose }: AccountSettingsProps) {
                 .map((c) => (
                   <div key={c.id} className="account-settings-connected">
                     <CheckCircle2 size={16} />
-                    {c.provider === "google_drive"
-                      ? "Google Drive"
-                      : c.provider === "google"
-                        ? "Google"
-                        : c.provider} — เชื่อมต่อแล้ว
+                    {c.provider === "google" ? "Google" : c.provider} — เชื่อมต่อแล้ว
                   </div>
                 ))
             ) : (

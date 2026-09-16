@@ -1,5 +1,8 @@
 # Appendix E — Network egress register
 
+Google Drive egress was removed from the active product on 2026-09-17. Any
+older Drive destination in historical reports is not a current runtime path.
+
 **Audited:** 2026-08-19 against `217e0b9`.
 **Amended:** 2026-08-20 — §1.6 added with the URL-ingest path
 (`feature/media-fetch-url-ingest`), declared at the time it was written rather
@@ -221,7 +224,7 @@ be — [§3.1](#31-the-transcription-worker-was-offline-by-habit-not-by-constrai
 
 | Path | Payload | Destination | Consent gate |
 |---|---|---|---|
-| `auth_session.rs` | PKCE code/verifier, refresh credential, session metadata, device/pairing requests, and audit RPC bodies | The configured Supabase HTTPS origin, plus `oauth2.googleapis.com` for Google Drive token exchange | User-initiated login/Drive/pairing operation; access and refresh credentials remain native and are read from the OS keyring |
+| `auth_session.rs` | PKCE code/verifier, refresh credential, session metadata, device/pairing requests, and audit RPC bodies | The configured Supabase HTTPS origin | User-initiated login/pairing operation; access and refresh credentials remain native and are read from the OS keyring |
 
 The native broker owns these requests. It does not expose access or refresh
 credentials to the webview or persist them in GenesisBlockDB/Supabase. Request

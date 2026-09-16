@@ -12,13 +12,18 @@ attributes:
 
 # 08 - Real Progress
 
+Google Drive is canceled and its active implementation was removed on
+2026-09-17. Phase 4 backup truth below means the local encrypted filesystem
+path only; retained Drive migration/report references are historical
+provenance, not current runtime or deployment evidence.
+
 ## Current Status
 
 FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The host `py -3` interpreter cannot import `faster_whisper`, but FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the pinned `small` model, and uses the staged CUDA 12/cuDNN 9 bundle. The standalone GPU worker smoke passed; Live Meeting real-capture, device, connector, and visual UAT remain open. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
 
 This document separates implemented truth from planned capability.
 
-## Current truth sync (2026-09-16)
+## Current truth sync (2026-09-17)
 
 The approved committed slice (`3c6734f`) for D-MVP-02 provides minimal manual
 transcript correction in the Desktop activity surface. The native path is
@@ -80,6 +85,16 @@ an application startup defect. GUI click-through and restart persistence were
 not claimed because the current Computer Use surface could not target the
 native FUNG window. The MSI was then built successfully outside the sandbox
 using the isolated `.target-packaging` target; the installer was not executed.
+The bounded D-MVP-04-L1 residual is now implemented: `list_export_artifacts`
+uses `query_all` so the project-scoped inventory is not silently truncated at
+the 1,000-row read ceiling; the command shape, artifact serialization, and
+export writers/transcoder are unchanged. The focused Rust
+`transcript_export` regression passed `16/16`, including a `ROW_CAP + 5`
+artifact fixture with cross-project isolation. The current full Rust library
+run reached `450 passed, 6 failed, 1 ignored`; all six failures are FUNGWIRE
+transcription tests blocked by the absent actual
+`.venv-whisper\\Scripts\\python.exe`. This environment-bound result does not
+upgrade runtime, provider, packaged click-through, device, or release status.
 
 ## Current truth sync (2026-09-13)
 
@@ -490,8 +505,7 @@ instead of painting over the detail dock.
 Working-tree truth beyond the merges (not yet committed as of this sync):
 mobile Google login was dead end-to-end — `authFlow.ts` still invoked
 `auth_begin_google_login`, a native command deliberately removed by the
-native-session-broker redesign (its absence is pinned by
-`tests/nativeSessionCustody.test.mjs`), so every login tap failed with
+native-session-broker redesign), so every login tap failed with
 "command not found". It is rewritten to the phase-1 contract the tests expect:
 supabase-js PKCE via `signInWithOAuth(skipBrowserRedirect)` opened in the
 system browser through the opener plugin, deep-link return on
@@ -532,23 +546,22 @@ gate. GitHub Actions minutes are no longer a constraint (public repo), closing
 the billing-block failure mode that silently skipped CI from 2026-08-30 to
 2026-09-01 and let unformatted code merge.
 
-## Current truth sync (2026-08-23)
+## Historical truth sync (2026-08-23)
 
 PR #16 is merged into `origin/main` at merge commit `26da78466364e479085d0aa5d7f06e24a08bd12c`. Its routing, backup-payload, and connector-timeout changes are therefore part of the current mainline. The physical Android, clean-install restore, real connector, and release gates remain open as recorded below.
 
 The local staged runtime check is split into separate facts: `D:\FUNG\.venv-whisper\Scripts\python.exe` imports `faster-whisper` 1.2.1 and exposes the worker CLI; `D:\FUNG\.venv-whisper\models\small` contains the pinned `Systran/faster-whisper-small` revision `536b0662742c02347bc0e980a01041f333bce120`; `D:\FUNG\runtime\manifest.json` records 11 staged CUDA 12/cuDNN 9 DLLs. `scripts/smoke_gpu_standalone.ps1` passed with `C:\Windows\Media\Alarm01.wav` and `--profile gpu`; this proves the packaged worker path, not Live Meeting real-capture or device UAT.
 
-The approved Phase 4 Google Drive slice is now implemented locally: native
-Authorization Code + PKCE on loopback, exact `drive.appdata` scope, OS-keyring
-refresh-token custody, authenticated redacted metadata/audit function, and a
-separate Desktop connect/upload/restore UI. This is implementation-beta truth,
-not provider or release proof: Google Cloud client configuration, Supabase
-function deployment, real consent/upload/download/revoke, clean-install
-restore, and physical Android/FUNGWIRE delegation remain open.
+The former Phase 4 Google Drive slice was implemented locally at this historical
+snapshot. It is retained only as repository provenance; the adapter, UI, Edge
+functions, provider deployment, and provider/UAT work were canceled and
+removed on 2026-09-17. Local filesystem backup/restore remains the active
+backup target.
 
-The 2026-08-26 truth sync is based on `main` commit
-`888adeded643f448c283c7990aabc421f71a20be`. Focused verification passes
-Backup 17/17, Google Drive contract 6/6, Auth 8/8, Rust Drive 16/16, TypeScript,
+The 2026-08-26 historical sync is based on `main` commit
+`888adeded643f448c283c7990aabc421f71a20be`. At that historical snapshot,
+focused verification passed Backup 17/17, the then-current Drive contract 6/6,
+Auth 8/8, Rust Drive 16/16, TypeScript,
 and the Vite production build. `cargo check` exits 0 with the same 18 retained
 baseline warnings recorded by the final D-GDA6 Terra review. The W1 source
 contract passes 7 checks in the current host, while its executable PostgreSQL
@@ -669,7 +682,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | External retrieval trust foundation | Default-deny grant policy, canonical preview hash, exact field minimization, zeroized OS-keyring lifecycle, connector disconnect/revoke, typed Genesis audit payloads, and hostile-result sanitization are implemented and tested. |
 | External retrieval backend | Allowlisted stdio MCP `2025-11-25` initialize/list/call, bounded process I/O, timeout/cancel/cleanup, durable one-time execution, all eight planned Tauri commands, and document/CRM fixture execution are implemented behind default-off `FUNG_EXTERNAL_MEETING_TOOLS=1`. |
 | External retrieval operator UI | `ExternalMeetingToolsPanel` is embedded in Live Meeting behind default-off `VITE_FUNG_EXTERNAL_MEETING_TOOLS=1` with connector list/register/disconnect, exact field and transcript-evidence selection, preview/deny/approve, running/cancel, meeting-scope revoke, sanitized result, inert source references, policy/evidence/time provenance, and run history. |
-| Phase 4 filesystem/Google Drive backup | The local filesystem path remains a development/test transport with Genesis full export → XChaCha20-Poly1305/Argon2id encryption → atomic bounded-root write, clean-target restore, and deep fixture verification. The separate Google Drive path now has native PKCE/keyring custody, exact `drive.appdata`, redacted metadata/audit, resumable appDataFolder upload, digest-bound download, and clean-target restore controls. No real provider or clean-install restore has been run. |
+| Phase 4 local backup | The local filesystem path remains a development/test transport with Genesis full export → XChaCha20-Poly1305/Argon2id encryption → atomic bounded-root write, clean-target restore, and deep fixture verification. Google Drive is canceled; its prior implementation and provider gates are historical only. |
 | Mobile device reconciliation | The Android `devices` row is always resolved by (current user, fingerprint); the cached `fung.device.id` is only a mirror, replaced when stale and cleared on sign-out/revocation. Supabase RLS ownership policies were rechecked and required no migration. |
 | GPU runtime staging | `stage_gpu_runtime.ps1` stages FUNG-owned CUDA 12/cuDNN DLLs and writes a SHA-256 manifest. |
 | GPU worker launch | The transcription subprocess resolves FUNG resources at runtime, selects an explicit CPU/GPU profile, and prepends FUNG's CUDA directory to its own `PATH`. |
@@ -755,6 +768,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | Current Whisper runtime availability | `py -3` reports no `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the pinned `small` model, and passes the standalone GPU smoke with the staged CUDA 12/cuDNN 9 bundle. Live Meeting real-capture, device, visual, and connector UAT remain open. |
 | D-MVP-02 correction/audit slice (2026-09-16) | Native recording-scoped correction and accepted refinement/audit provenance passed targeted Rust `2/2`; full `cargo test --manifest-path src-tauri/Cargo.toml --lib` passed `452`, with `1` ignored; `npm run test:job-actions` `16/16`, `test:summary-scoping` `6/6`, `test:desktop-bootstrap` `10/10`, and `npm run build` passed. This is local source/test/build evidence; packaged, restart, provider, device, and release gates remain open. |
 | D-MVP-05 source-audio export (2026-09-16) | Existing durable `export.render` emits source WAV/MP3 artifacts and uses the bundled PyAV worker for other project-owned formats. Output is temp-file + atomic-replace so failed retries preserve the previous artifact. Targeted Rust audio tests `3/3`; full Rust `455 passed / 1 ignored`; clippy and scoped fmt passed; Node job actions `17/17`, summary scoping `6/6`, desktop bootstrap `10/10`, CI coverage `2/2`, traceability `1/1`, Vite build passed, real local WAV/MP3 codec smoke passed, release EXE build passed, host-level MSI build passed, NSIS build incomplete, release launch smoke passed outside the sandbox, and opt-in import/runtime route passed. This is local source/test/build/runtime-worker/package evidence; packaged click-through, restart, provider, device, and release gates remain open. |
+| D-MVP-04-L1 export-artifact inventory (2026-09-17) | `list_export_artifacts` now reads through Genesis `query_all`, preserving project scope, newest-first ordering, command signature, and JSON shape. Focused Rust `transcript_export` tests passed `16/16`; `ROW_CAP + 5` regression and cross-project isolation passed. Full Rust is environment-partial at `450 passed / 6 failed / 1 ignored` because the actual `.venv-whisper\\Scripts\\python.exe` is absent for six FUNGWIRE transcription tests. `npm run build` and relevant Node suites passed. Runtime/provider/device/release gates remain open. |
 | Loopback recordings API (0.2.20b) | Rust **434/434** on 2026-09-13 (419 prior + 15 in `local_api::tests`: request/range/origin/token parsing, open `/health` vs 401 elsewhere, 204 preflight, 405, newest-first list with channels from chunk names, in-order stitching independent of row order, whole-file import passthrough with MIME, not-found/traversal rows never followed, missing slices skipped and counted, 200/206/416 `Range`, nested-id rejection, and two real-socket tests for exact `Content-Length` and CORS grant only for allow-listed origins). `cargo clippy --all-targets -D warnings` clean. `npm run build` passed; Node `test:local-api-client` 4/4 (loopback-only parse/build), `test:egress` 8/8 with the single-file `fetch` allowance, `test:ci-coverage` 2/2, `test:diarization` 8/8. Real-browser playback against the production web is not yet observed (needs deploy). |
 | Live Supabase bring-up (0.2.20b) | 8 migrations applied to `nqnrvqnijzovkrhxslfp` on 2026-09-13 (`list_migrations` shows all eight); 11 public tables all `relrowsecurity = true`; 14 functions present; `w1_authority_schema.sql` read-only posture block passed; security linter: 0 errors (INFO on server-only tables without policies, WARN on the two intentional `authenticated` SECURITY DEFINER pairing RPCs); 3 Edge functions ACTIVE v1 with `verify_jwt`, each returning 401 without a JWT and no `Access-Control-Allow-Origin` for an unlisted origin. The two write-and-rollback adversarial blocks of the SQL test were not run (read-only session). |
 
@@ -794,6 +808,7 @@ Screenshot artifacts from the latest UI validation:
 | 0.2.22b | Recorded bounded D-MVP-05 source WAV/MP3 export through the existing durable export queue, typed audio artifacts, truthful unsupported-format handling, and current local verification evidence; transcoding, runtime/UAT, and release gates remain open. |
 | 0.2.23b | Recorded the completed D-MVP-05 bundled PyAV WAV/MP3 transcoder, packaged resource registration, real local codec smoke, and fail-closed runtime boundary; packaged click-through, restart, provider, device, and release gates remain open. |
 | 0.2.24b | Recorded atomic retry-safe transcoder output, release EXE/MSI/NSIS build and launch evidence, and the opt-in local import/runtime route; live capture, packaged click-through, restart, provider, device, and release acceptance remain open. |
+| 0.2.26b | Recorded the bounded D-MVP-04-L1 export-artifact inventory paging implementation, `query_all` read-path regression, and current environment-limited full-suite evidence; runtime/provider/device/release gates remain open. |
 | 0.2.20b | Google login works end to end after the shared-project Redirect-URL fix (callback had landed on ZURI's `localhost:3000`). Recorded that the live `public` schema is empty (migrations never applied) and Storage has no buckets. Added the same-machine loopback recordings API (`local_api.rs`: token-gated `/recordings` + stitched/ranged `/recordings/{id}/audio`, allow-listed CORS, custody-resolved paths) and the web "ไฟล์ล่าสุด" tile with a loopback-only client pinned by the egress suite. Rust 434/434, clippy clean, build and Node suites green; real-browser pass on production pending deploy. |
 | 0.2.19b | Supabase back online but login gated on the disabled Google provider (dashboard config, not code); recorded PR #44 (web paired-device list, REQ-B-08) and PR #43 (tracked brand kit); corrected two 0.2.18b follow-ups — mobile capture is native-first in the one `begin()` path (no resume-picks-web bug), and issue #41 is fail-closed on an incompatible pre-September genesisdb, not an install-idempotency bug (`install` is reboot-idempotent, test-proven). |
 | 0.2.18b | Truth-synced the audit sweep (PR #39: honest desktop UI, CORS allowlist, BYOM model override, landing fixes, ~4,600 lines of dead code out, `.py` suite in CI, repo public + secret scanning/push protection/Dependabot), the Android build restoration (PR #40: cfg-gated `pick_folder`, minSdk 26, reimplemented tracked `RecorderPlugin`/`AiProfilePlugin`, rectangular shell) with first physical Galaxy A07 render, the working-tree mobile login rewrite to supabase-js PKCE + deep link with opener capability, the `D:\FUNG` → `C:\Users\pc\workspace\fung` machine move with full local toolchain, issue #41's second-boot schema conflict, and the Supabase free-tier pause/NXDOMAIN gate blocking login/pairing UAT. |
@@ -822,14 +837,14 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.27b | 2026-09-17 | beta | Integrated the bounded D-MVP-04-L1 export-artifact inventory fix after the Google Drive cancellation cleanup; local verification remains bounded by the documented Whisper runtime gap. | 086fcfa | Codex |
+| 0.2.26b | 2026-09-17 | beta | Removed the canceled Google Drive implementation, active tests, commands, and Edge functions; retained local backup as the active Phase 4 target and marked provider/migration evidence historical. | a9f9b80 | Codex |
 | 0.2.21b | 2026-09-16 | beta | Added the approved bounded D-MVP-02 recording-scoped transcript correction/audit path and recorded local Rust, Node, formatting, and build evidence; runtime/UAT, device, provider, and release gates remain open. | working-tree | Codex |
 | 0.2.22b | 2026-09-16 | beta | Added bounded D-MVP-05 source WAV/MP3 export through the existing durable export queue and recorded local Rust, clippy, formatting, Node, and build evidence; transcoding, runtime/UAT, device, provider, and release gates remain open. | working-tree | Codex |
 | 0.2.23b | 2026-09-16 | beta | Completed the bundled local PyAV WAV/MP3 transcoder for D-MVP-05 and recorded source/test/build/runtime-worker evidence; packaged click-through, restart, provider, device, and release gates remain open. | working-tree | Codex |
 | 0.2.24b | 2026-09-16 | beta | Recorded atomic retry-safe transcoder output, release bundle/launch evidence, and the opt-in local import/runtime route; live capture, packaged click-through, restart, provider, device, and release gates remain open. | working-tree | Codex |
 | 0.2.25b | 2026-09-16 | beta | Recorded the approved D-MVP-02/D-MVP-05 implementation as local commit `3c6734f`; live capture, packaged click-through, restart, provider, device, and release gates remain open. | 3c6734f22202e1ad8faf31af5a68783fb887090c | Codex |
-| 0.2.26b | 2026-09-17 | beta | Re-ran the approved local verification pass: build, full Rust, FUNGWIRE, and registered Node suites passed; test-only Python plumbing is explicitly separated from production runtime evidence. | working-tree | Codex |
-| 0.2.27b | 2026-09-17 | beta | Built the release EXE, recorded launch exit `101`, and recorded WiX MSI/NSIS packaging boundaries without claiming packaged click-through or installer success. | working-tree | Codex |
-| 0.2.28b | 2026-09-17 | beta | Root-caused sandbox-only Genesis lock denial; release EXE stayed responsive outside the sandbox. Native GUI click-through and installer packaging remain open. | working-tree | Codex |
+| 0.2.28b | 2026-09-17 | beta | Re-ran the approved local verification, recorded the sandbox-only Genesis lock denial and responsive host-level EXE, and kept packaged click-through/runtime gates open. | working-tree | Codex |
 | 0.2.29b | 2026-09-17 | beta | Confirmed host-level WiX MSI packaging succeeds with an isolated target; NSIS remains incomplete, and the MSI was not installed or executed. | working-tree | Codex |
 | 0.2.20b | 2026-09-13 | beta | Web Google login works (Redirect-URL fix on the ZURI-shared project); live `public` schema found empty and Storage bucket-less; added the same-machine loopback recordings API and the web recordings tile with a loopback-only, egress-pinned client. Rust 434/434, clippy clean, build + Node suites green. | working-tree | Claude |
 | 0.2.19b | 2026-09-13 | beta | Supabase online; login gated on disabled Google provider. Recorded PR #44 (web paired devices) and PR #43 (brand kit); corrected the native-first and issue-#41 characterizations from 0.2.18b. | `f161a1d` | Claude |

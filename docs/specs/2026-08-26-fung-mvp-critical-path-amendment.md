@@ -1,5 +1,5 @@
 ---
-version: "0.1.10b"
+version: "0.1.11b"
 created_at: "2026-08-26T00:00:00+07:00,Agent: Luna,Commit: 8a6406e6513943e09447daeb3c6572aa41468b67"
 last_update: "2026-09-17T00:00:00+07:00,Agent: Codex,Commit: working-tree"
 status: "candidate"
@@ -15,7 +15,7 @@ attributes:
 
 ## สถานะและเจตนา
 
-เอกสารนี้ยังคงเป็น **candidate specification** สำหรับ lifecycle review โดย Terra และ Boss; commit `3c6734f` ครอบคลุม bounded D-MVP-02 และ bounded D-MVP-05 source-export slices เท่านั้น ไม่ได้ปิด runtime/UAT หรือเปลี่ยนสถานะเป็น production-ready
+เอกสารนี้ยังคงเป็น **candidate specification** สำหรับ lifecycle review โดย Terra และ Boss; commit `3c6734f` ครอบคลุม bounded D-MVP-02 และ bounded D-MVP-05 source-export slices เท่านั้น ไม่ได้ปิด runtime/UAT หรือเปลี่ยนสถานะเป็น production-ready การแก้รอบนี้ส่งมอบ residual local-only slice ของ D-MVP-04 โดยไม่ขยายไปยัง audio export implementation เดิม
 
 Amendment นี้จัดลำดับ MVP ใหม่ตามผลลัพธ์ที่ผู้ใช้กำหนด:
 
@@ -104,8 +104,39 @@ No other files, migrations, credentials, release artifacts, external systems, or
 |---|---|---|---|
 | D-MVP-02 | Minimal transcript correction/audit affordance; keep speaker labels non-biometric. Recording-scoped transcript retrieval/UI bridge is delivered by D-MVP-01 and explicitly excluded from this slice. | D-MVP-01 | Implemented in working tree; local evidence pass, runtime/UAT open |
 | D-MVP-03 | Real Desktop capture → live/catch-up transcription UAT, including local runtime readiness and restart/recovery evidence | D-MVP-01 | Import/runtime route verified locally; live capture, restart, and device UAT remain open |
-| D-MVP-04 | Pagination/cursor support in GenesisBlockDB for transcripts, summaries and exports beyond the 1000-row ceiling; then enable long-session acceptance | D-MVP-01 | Source implementation delivered; long-session/runtime acceptance open |
+| D-MVP-04 | Pagination/cursor support in GenesisBlockDB for transcripts, summaries and exports beyond the 1000-row ceiling; then enable long-session acceptance | D-MVP-01 | Source implementation delivered; D-MVP-04-L1 closes the remaining export-artifact inventory read gap; long-session/runtime acceptance open |
 | D-MVP-05 | Audio export (WAV/MP3) and a separate export queue, only if local MVP acceptance requires them | D-MVP-01 | Source export and bundled local transcoding implemented; packaged click-through acceptance open |
+
+### D-MVP-04-L1 — Complete export-artifact inventory paging
+
+**Goal:** ทำให้ Desktop อ่านรายการ `export_artifacts` ของ project ได้ครบเมื่อมีมากกว่า 1,000 แถว โดยคง command และ JSON shape เดิม และไม่แตะการสร้าง WAV/MP3/SRT/VTT
+
+**Confirmed local gap:** `src-tauri/src/transcript_export.rs` ยังใช้ single-page `genesis_adapter::query(..., ROW_CAP)` ใน `list_export_artifacts` ขณะที่ `genesis_adapter::query_all` เป็น contract ที่ใช้ปิด read ceiling ให้กับรายการที่อาจโตตามอายุการใช้งานแล้ว การอ่านเกินแถวที่ 1,000 จึงยังถูกตัดโดยเงียบใน inventory ที่ UI ใช้แสดงไฟล์ส่งออก
+
+**Smallest implementation slice:** เปลี่ยนเฉพาะ read helper ของ `list_export_artifacts` ให้ใช้ `query_all`, คงการกรอง project, การ sort ล่าสุดก่อน และ `ExportArtifact` serialization เดิม เพิ่ม executable Rust regression ที่ seed artifact มากกว่า `ROW_CAP` แล้วตรวจจำนวนและ tail row
+
+**Acceptance Criteria:**
+
+- [x] `list_export_artifacts` คืน artifact ทุกแถวของ project ที่ตรง filter แม้จำนวนมากกว่า `ROW_CAP`
+- [x] Artifact ของ project อื่นไม่ปะปน และลำดับยัง newest-first ตาม `created_at`
+- [x] Tauri command signature, `ExportArtifact` JSON shape และ export writer/audio transcoder ไม่เปลี่ยน
+- [x] Regression ใช้ Genesis temp fixture/local filesystem เท่านั้น ไม่เรียก provider, credential, device, network หรือ external system
+- [x] Missing `.venv-whisper`/provider/runtime ไม่ถูกเปลี่ยนเป็น PASS ของ packaged/runtime/UAT gate
+
+**Success Criteria:** export inventory ไม่ซ่อน artifact หลังแถวที่ 1,000 และยังให้ UI เปิดไฟล์ตาม contract เดิมได้ โดยไม่มีการเปลี่ยน semantics ของการสร้างหรือ retry export
+
+**Exit Criteria:** focused Rust test ผ่าน, relevant Rust regression ผ่านเท่าที่ environment อนุญาต, `npm run build`/`git diff --check` ถูกตรวจและบันทึกผล, และเอกสารแยก local source/test evidence ออกจาก runtime/provider/device/release gates
+
+**Risk:** LOW — read-path-only change ไม่มี schema migration, persisted-data rewrite, public API change หรือ provider invocation
+
+**Exact write scope:** `src-tauri/src/transcript_export.rs` และ focused `#[cfg(test)]` coverage ในไฟล์เดียวกัน; เอกสาร amendment นี้สำหรับ status/evidence เท่านั้น ไม่มี changes ใน `src/`, migrations, config, package, credentials หรือ external systems
+
+### D-MVP-04-L1 implementation evidence (2026-09-17)
+
+- `list_export_artifacts` now delegates to a storage helper backed by `genesis_adapter::query_all`; project filtering, newest-first ordering, command signature, JSON shape, and export writers/transcoder are unchanged.
+- The focused Rust regression seeds `ROW_CAP + 5` artifacts for one project plus an artifact for another project and passed `16/16`, including the complete-count, tail-order, and project-isolation assertions.
+- `npm run build` passed; `npm run test:job-actions` passed `17/17`; `npm run test:summary-scoping` passed `6/6`; `npm run test:desktop-bootstrap` passed `10/10`; `npm run test:ci-coverage` passed `2/2`; and `npm run test:traceability` passed `1/1`.
+- The full Rust library run reached `450 passed, 6 failed, 1 ignored`; all six failures are FUNGWIRE transcription tests blocked by the absent actual `.venv-whisper\\Scripts\\python.exe`, not by this read-path slice. No runtime, provider, packaged click-through, device, or release gate is claimed.
 
 ### D-MVP-02 implementation evidence (2026-09-16)
 
@@ -165,7 +196,11 @@ No other files, migrations, credentials, release artifacts, external systems, or
 | 0.1.4b | Completes the D-MVP-05 source export path with a bundled PyAV WAV/MP3 transcoder, packaged resource registration, real local codec smoke evidence, and fail-closed runtime handling; packaged click-through and release gates remain open. |
 | 0.1.5b | Records atomic retry-safe transcoder output, release EXE/MSI/NSIS build and launch evidence, and the opt-in local import/runtime route result; click-through, live capture, provider, device, and release acceptance remain open. |
 | 0.1.6b | Records the approved D-MVP-02/D-MVP-05 implementation as local commit `3c6734f`; runtime/UAT, click-through, provider, device, and release acceptance remain open. |
-| 0.1.7b | Records the 2026-09-17 local recheck: build, full Rust, FUNGWIRE, and registered Node suites passed; ignored test-only Python plumbing is not production runtime evidence. |
+| 0.1.7b | Proposes bounded D-MVP-04-L1 export-artifact inventory paging; no runtime/provider/device/release gate is changed. |
+| 0.1.8b | Records the implemented D-MVP-04-L1 export-artifact inventory paging and local verification evidence; runtime/provider/device/release gates remain open. |
+| 0.1.9b | Records the 2026-09-17 local recheck: build, full Rust, FUNGWIRE, and registered Node suites passed; ignored test-only Python plumbing is not production runtime evidence. |
+| 0.1.10b | Records the sandbox-only Genesis lock denial and host-level responsive EXE observation; packaged click-through remains open. |
+| 0.1.11b | Confirms host-level WiX MSI packaging with an isolated target; NSIS and packaged acceptance remain open. |
 
 ## CHANGELOG
 
@@ -178,7 +213,8 @@ No other files, migrations, credentials, release artifacts, external systems, or
 | 0.1.4b | 2026-09-16 | candidate | Completed the D-MVP-05 bundled local PyAV transcoder and recorded source/test/build/runtime-worker evidence; packaged click-through, provider, device, and release gates remain open. | working-tree | Codex |
 | 0.1.5b | 2026-09-16 | candidate | Recorded atomic retry-safe transcoder output, release bundle/launch evidence, and the opt-in local import/runtime route; no live capture, provider, device, click-through, or release acceptance gate is claimed. | working-tree | Codex |
 | 0.1.6b | 2026-09-16 | candidate | Recorded the approved D-MVP-02/D-MVP-05 implementation as a local commit; no live capture, provider, device, click-through, or release acceptance gate is claimed. | 3c6734f22202e1ad8faf31af5a68783fb887090c | Codex |
-| 0.1.7b | 2026-09-17 | candidate | Re-ran the local verification pass with build, full Rust, FUNGWIRE, and registered Node suites passing; packaged, provider, device, and release gates remain open. | working-tree | Codex |
-| 0.1.8b | 2026-09-17 | candidate | Built the release EXE but observed launch exit `101`; WiX MSI failed and NSIS did not complete, so packaged click-through remains open. | working-tree | Codex |
-| 0.1.9b | 2026-09-17 | candidate | Root-caused exit `101` as sandbox-only Genesis lock denial; release EXE stayed responsive outside the sandbox, while native GUI click-through remains unobserved. | working-tree | Codex |
-| 0.1.10b | 2026-09-17 | candidate | Confirmed host-level WiX MSI packaging succeeds with an isolated target; NSIS remains incomplete and the installer was not executed, so packaged acceptance remains open. | working-tree | Codex |
+| 0.1.7b | 2026-09-17 | candidate | Proposed D-MVP-04-L1 to page the export-artifact inventory past the Genesis single-read bound; implementation and verification follow the exact local-only scope. | 64ceb222d0f5cb98a0f2e9c7bc283f6a6e8f5c51 | Codex |
+| 0.1.8b | 2026-09-17 | candidate | Recorded the implemented D-MVP-04-L1 export-artifact inventory paging and local verification evidence; no runtime, provider, device, packaged click-through, or release gate is claimed. | working-tree | Codex |
+| 0.1.9b | 2026-09-17 | candidate | Re-ran the local verification pass with build, full Rust, FUNGWIRE, and registered Node suites passing; packaged, provider, device, and release gates remain open. | working-tree | Codex |
+| 0.1.10b | 2026-09-17 | candidate | Root-caused the sandbox-only Genesis lock denial; release EXE stayed responsive outside the sandbox, while native GUI click-through remains unobserved. | working-tree | Codex |
+| 0.1.11b | 2026-09-17 | candidate | Confirmed host-level WiX MSI packaging succeeds with an isolated target; NSIS remains incomplete and the installer was not executed, so packaged acceptance remains open. | working-tree | Codex |

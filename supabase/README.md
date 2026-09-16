@@ -6,7 +6,7 @@ This directory contains the Supabase-owned cloud control plane. It is separate f
 
 - Supabase Auth identity references and a small user profile
 - registered-device metadata and a public-key fingerprint
-- redacted OAuth connection state and authorization audit metadata
+- historical OAuth connection and authorization-audit schema retained for migration provenance
 
 ## What is never stored
 
@@ -25,43 +25,24 @@ supabase link --project-ref <approved-project-ref>
 supabase db push
 ```
 
-Do not run the migration from a browser SQL editor without first reviewing it. Before production, run the Supabase Database Linter/Advisors and verify all four tables have RLS enabled.
+Do not run the migration from a browser SQL editor without first reviewing it.
+The applied Google Drive migration is historical schema provenance, not a
+request to activate a provider. Before any new deployment, review migration
+history, run the Supabase Database Linter/Advisors, and verify all four tables
+have RLS enabled.
 
-## Google Drive metadata Edge Function
+## Current provider scope
 
-The approved Google Drive slice includes
-`supabase/functions/google-drive-metadata/index.ts`. It is an authenticated,
-metadata-only writer for the native Desktop/Mobile clients. It accepts the
-allowlisted event types and the exact `drive.appdata` scope, derives the user
-from the verified Supabase JWT, generates the audit correlation ID on the
-server, and writes only `oauth_connections` / `oauth_audit_events` metadata.
-It does not exchange Google tokens and it never accepts a token, authorization
-code, user ID, or provider response from the client.
+FUNG no longer uses Google Drive. The provider adapter, Drive-specific Edge
+Functions, deployment instructions, and provider/UAT gates were removed from
+the active product on 2026-09-17. The cancellation record is
+`docs/decisions/2026-09-17-google-drive-scope-cancellation.md`.
 
-Deploy only after reviewing the linked migration and project environment:
-
-```powershell
-supabase functions deploy google-drive-metadata
-```
-
-The native installed-app PKCE flow does not require a Google client secret. If
-a future provider-specific server exchange is approved, its secrets must be
-set only with `supabase secrets set` or the Supabase dashboard:
-
-```text
-OAUTH_PROVIDER_ISSUER
-OAUTH_PROVIDER_CLIENT_ID
-OAUTH_PROVIDER_CLIENT_SECRET
-OAUTH_PROVIDER_TOKEN_ENDPOINT
-OAUTH_PROVIDER_REVOCATION_ENDPOINT
-OAUTH_PROVIDER_ALLOWED_REDIRECT_URI
-```
-
-Never put these secrets in a `VITE_*` variable, Desktop bundle, repository file, browser client, or chat. The function must validate its caller session, use a provider allowlist and exact redirect URI, redact all logs, and write only redacted metadata to `oauth_connections` and `oauth_audit_events`.
-
-Real Google consent, upload/download/revoke, clean-install restore, and
-function deployment remain external gates. Local FUNG mode does not depend on
-this function or on Google Drive configuration.
+The remaining active cloud function is `device-enrollment`. Local encrypted
+filesystem backup/restore remains the Phase 4 backup target. The historical
+Drive migration and schema evidence remain in the repository only so an
+already-applied database history is not rewritten; they are not a deployment
+or runtime activation instruction.
 
 ## RLS model
 
@@ -73,15 +54,13 @@ No `anon` grants are provided. Service-role use is server-side only.
 
 ## Live state (2026-09-13)
 
-Every migration in `supabase/migrations/` (the seven through
-`20260824000000_w1_enrollment_proof_nonce.sql` plus
-`20260913000000_backfill_profiles_for_existing_users.sql`) is applied to the
-production project `nqnrvqnijzovkrhxslfp`, and all three Edge functions
-(`device-enrollment`, `google-drive-authorize`, `google-drive-metadata`) are
-deployed there with `verify_jwt` on and no custom secrets (`ALLOWED_ORIGIN` is
-unset; `_shared/cors.ts` grants CORS only to the mobile app's own webview
-origin `http://tauri.localhost` by default — the desktop caller is native and
-needs none, and any other browser origin must be opted in).
+The historical W1 migrations and the later profile backfill were previously
+applied to the production project `nqnrvqnijzovkrhxslfp`. Current source
+scope is limited to the `device-enrollment` Edge Function; the former
+Google Drive functions are no longer part of this repository's active
+deployment surface. `verify_jwt` and CORS settings must be re-verified before
+any future function deployment; this document does not claim a remote
+provider deletion or revocation.
 They were applied through the Supabase management API rather than the CLI, so
 the recorded migration versions are the apply timestamps
 (`20260913005747`…`20260913010251`), not the file names — `supabase db push`
@@ -120,21 +99,18 @@ execute privilege is revoked from `PUBLIC`, `anon`, `authenticated`, and
 consuming it. Rebind soft-revokes the selected old trusted row before creating
 a new identity. Only the resulting Windows row with `drive_trusted`,
 `boss_bootstrap` or `approved_rebind`, an unrevoked identity, and a matching
-public-key fingerprint satisfies the exact Drive predicate.
+public-key fingerprint satisfies the historical provider predicate. The
+provider-specific authority states and operation-grant tables are retained for
+database provenance; no active FUNG client issues provider backup grants after
+the Google Drive cancellation. Signed request and device-enrollment evidence
+remains separate from any future cloud-provider decision.
 
-An active `google_drive` connection is not an operation grant. The operator
-issues `backup.write` and `backup.restore` independently, and revocation of the
-connection revokes both without resurrecting them on reconnection. Archive
-read follows the restore grant. Signed requests use the unique durable nonce
-reservation and server decision tables; `oauth_audit_events` and
-`device_audit_events` remain informational and are never replay locks.
-
-The committed `deno.lock` pins the Edge dependency used by the enrollment,
-authorizer, and metadata functions. `supabase/tests/w1_authority_schema.sql`
-contains read-only privilege, RLS, fixed-search-path, and reservation evidence.
-Live migration, RLS/grant verification, and Edge deployment were performed on
-2026-09-13 on the owner's instruction (see "Live state"). Bootstrap approval
-and provider testing remain owner ceremonies performed out-of-band.
+The committed `deno.lock` pins the Edge dependency used by the enrollment
+function. `supabase/tests/w1_authority_schema.sql` contains read-only
+privilege, RLS, fixed-search-path, and historical reservation evidence. Live
+migration and grant verification were performed on 2026-09-13; no current
+Google Drive deployment or provider test is claimed. Bootstrap approval
+remains an owner ceremony performed out-of-band.
 
 Note for clients: after W1, `authenticated` holds only `SELECT` on
 `public.devices`. A direct `delete()`/`insert()`/`update()` on that table from

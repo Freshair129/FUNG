@@ -7,8 +7,7 @@
 // the app. The Desktop shell does NOT use this module — it logs in through
 // the native broker (desktopSessionBroker.ts); the legacy native
 // `auth_begin_google_login` command this file once invoked was deliberately
-// removed as a secret-bearing alias and must not return
-// (tests/nativeSessionCustody.test.mjs pins its absence).
+// removed as a secret-bearing alias and must not return.
 import { supabase } from "./supabase.ts";
 import { hashPairingCode } from "./authHash.ts";
 

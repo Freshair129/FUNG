@@ -1,32 +1,36 @@
 ---
-version: "0.2.2b"
+version: "0.2.3b"
 created_at: "2026-08-13T00:00:00+07:00,ATHER"
-last_update: "2026-08-14T02:00:00+07:00,ATHER"
-status: "beta"
-superseded_by: null
+last_update: "2026-09-17T00:00:00+07:00,Codex"
+status: "superseded"
+superseded_by: "docs/decisions/2026-09-17-google-drive-scope-cancellation.md"
 attributes:
   domain: "cloud-backup-and-account"
   doc_type: "technical-design"
   scope: "FUNG Phase 4"
 ---
 
-# Phase 4 — Filesystem Test Backup and Mobile Account Design
+# Phase 4 — Filesystem Test Backup and Mobile Account Design (Superseded)
+
+Google Drive was canceled on 2026-09-17. This document remains as historical
+design provenance; the active Phase 4 target is local encrypted filesystem
+backup/restore plus mobile account/device work. No Drive implementation,
+provider deployment, or Drive UAT may be started from this document.
 
 ## Decision Record
 
 | Decision | Approved v1 choice |
 | --- | --- |
-| Production storage target | Google Drive `appDataFolder` only — **TODO**, no OAuth implementation in this slice |
+| Production storage target | No active cloud target; Google Drive was canceled |
 | Development/test storage target | User-selected local filesystem root only; encrypted archives and non-secret manifests only |
-| Drive permission | `https://www.googleapis.com/auth/drive.appdata` only when the deferred production adapter is approved |
+| Drive permission | Not applicable to the active product |
 | Archive scope | Full Genesis export plus Genesis-managed audio/blob artifacts |
 | Recovery | User-held 24-word recovery secret; never device-only |
 | Backup authority | Desktop only; mobile account work is identity/device reconciliation, not a second backup writer |
 
-Google Drive remains a deferred production target. The initial filesystem
-adapter exists solely to exercise the same encrypted archive and clean-target
-restore path without provider OAuth. It must use a root chosen through the
-native folder picker, write only below that root, and be labelled
+The initial filesystem adapter exists solely to exercise an encrypted archive
+and clean-target restore path without provider OAuth. It must use a root chosen
+through the native folder picker, write only below that root, and be labelled
 "Development/Test local storage". It is not cloud storage, sync, or a
 production recovery claim.
 
@@ -41,7 +45,6 @@ flowchart LR
     KEY["24-word recovery secret"] --> WRAP["Argon2id key wrap"]
     WRAP --> ENC
     ENC --> FS["Selected filesystem test root"]
-    ENC -. "production TODO" .-> DRIVE["Google Drive appDataFolder"]
     MOBILE["Mobile PKCE session"] --> DEVICES["Supabase devices row"]
     DESKTOP["Desktop PKCE session"] --> DEVICES
 ```
@@ -118,20 +121,13 @@ vectors before code begins. The design intentionally does not invent crypto.
 - A missing, moved, or unreadable root reports an unavailable destination; it
   never infers deletion of Genesis data.
 
-## Google Drive Production Transport — TODO
+## Historical Google Drive Production Transport — CANCELED
 
-- Do not create a Google OAuth client or implement Google authorization in this
-  slice. It remains a separately approved production follow-up.
-- Use system-browser Authorization Code + PKCE with the native callback path;
-  this is separate from the existing Supabase session and does not reuse a
-  Supabase/Google sign-in token as a Drive API credential.
-- Request only `drive.appdata`, a non-sensitive Google scope for app data.
-- Store access/refresh credentials in the OS keyring. Supabase
-  `oauth_connections` may display a non-secret connected/disconnected state
-  only; it does not hold Drive credentials.
-- When the deferred adapter is approved, use Drive resumable upload from the
-  already-built encrypted archive; never rebuild from changing source data
-  mid-upload. Automatic remote pruning remains outside v1.
+The former Drive transport was never an active product target after the
+2026-09-17 cancellation. Do not create OAuth clients, request Drive scopes,
+store Drive credentials, deploy Drive functions, or run provider UAT from this
+document. Any previously written provider details are historical provenance
+only; local encrypted filesystem backup is the active transport.
 
 ## Account and Device Reconciliation
 
@@ -141,8 +137,8 @@ both surfaces. On mobile startup, a valid session reuses the existing
 user; otherwise it registers one Android row and refreshes the local cache.
 Missing, expired, or revoked sessions show signed-out/degraded state and do not
 create a device row or remote backup work. Sign-out/revocation clears only the
-local auth/device cache allowed by the existing contract; it never deletes a
-Drive backup.
+local auth/device cache allowed by the existing contract and does not infer
+deletion of any external historical data.
 
 ## Failure and Security Model
 
@@ -163,7 +159,7 @@ Drive backup.
   uniqueness, and no secret serialization scan.
 - Filesystem adapter tests: root canonicalization, traversal/symlink rejection,
   atomic-write interruption, digest mismatch, and missing-root truth state.
-- UI tests: connection status, backup progress, failed backup truth, explicit
+- UI tests: local backup progress, failed backup truth, explicit
   recovery-secret acknowledgement, and restore confirmation.
 - Account tests: desktop/mobile session restoration, duplicate-device prevention,
   stale cached ID recovery, and revoked session behavior.
@@ -178,7 +174,7 @@ Drive backup.
    contract; until then, Phase 4 implementation may only expose an unavailable
    state, not a mock archive.
 3. Boss confirms a non-production filesystem test root and a separate clean
-   restore target. Google OAuth is TODO and is not a gate for this test-only
+   restore target. No cloud-provider setup is required for this test-only
    destination.
 4. The implementation runs as an isolated, documented Phase 4 branch/worktree;
    no code is mixed into the still-open Phase 3 controller acceptance work.
@@ -190,13 +186,14 @@ Drive backup.
 | R4-01, R4-07, R4-07a, R4-10 | Filesystem test transport; Failure model |
 | R4-02, R4-04, R4-06 | Architecture; Archive; Failure model |
 | R4-03, R4-05 | Archive and Cryptography; Restore sequence |
-| R4-07, R4-08, R4-09 | Decision Record; Google authorization |
+| R4-07, R4-08, R4-09 | Historical provider decision; canceled and not active |
 | R4-11, R4-12, R4-13 | Account and Device Reconciliation |
 
 ## Version Diff
 
 | Version | Change |
 | --- | --- |
+| 0.2.3b | Google Drive scope canceled; this design is superseded and local filesystem backup is the active Phase 4 target. |
 | 0.2.2b | Selected named development/test storage and clean-restore locations with an encrypted-only file layout. |
 | 0.2.1b | Boss approved the bounded filesystem development/test transport; Google Drive production transport remains TODO and Genesis contract remains mandatory. |
 | 0.2.0b | Proposed filesystem transport for development/test only; Google Drive production transport is TODO. Genesis contract remains mandatory. |
@@ -207,6 +204,7 @@ Drive backup.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.2.3b | 2026-09-17 | superseded | Canceled Google Drive scope and retained this design as historical provenance; no provider implementation or UAT may start from it. | a9f9b80 | Codex |
 | 0.2.2b | 2026-08-14 | beta | Added approved external dev/test roots and exact encrypted archive naming; no production provider work. | N/A | ATHER |
 | 0.2.1b | 2026-08-13 | beta | Filesystem test transport approved; no implementation authority before Genesis U9 contract. | N/A | ATHER |
 | 0.2.0b | 2026-08-13 | candidate | Proposed bounded filesystem test transport and deferred Google Drive production adapter. No implementation authority. | N/A | ATHER |

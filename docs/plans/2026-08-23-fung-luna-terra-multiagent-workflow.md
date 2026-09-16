@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-08-23T15:34:22+07:00,ATHER"
-last_update: "2026-08-23T15:34:22+07:00,ATHER"
+last_update: "2026-09-17T00:00:00+07:00,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -19,6 +19,9 @@ attributes:
   device, and release tasks may be classified **HIGH** in their task briefs.
 - This document authorizes workflow setup and bounded dispatch. It does not
   waive feature-specific documentation, external approval, or release gates.
+- The former Google Drive waves were canceled on 2026-09-17; no worker may
+  dispatch Drive implementation, deployment, or provider-UAT work from this
+  plan.
 
 ## 2. Operating model
 
@@ -115,8 +118,8 @@ controller does not patch the failure directly.
 | Wave | Scope | Exit gate |
 |---|---|---|
 | W0 | Inventory and partition the current dirty worktree | Terra approves ownership, dependencies, and preservation boundaries |
-| W1 | Google Drive implementation package | Local code/tests/docs pass Terra and controller gates |
-| W2 | OAuth deployment, clean-install restore, Android/FUNGWIRE UAT | Real provider/device evidence or explicit external blocker |
+| W1 | Historical Google Drive package closure; local encrypted backup remains active | Source/tests/docs reflect cancellation; no provider path remains |
+| W2 | Clean-install local restore, Android/FUNGWIRE UAT | Real device evidence or explicit external blocker |
 | W3 | Desktop Live Meeting, transcription provenance/export, diarization proof | Runtime and data-integrity gates pass |
 | W4 | Security, packaging, signing, and release | Release evidence passes; Boss approves merge/release |
 
@@ -141,4 +144,5 @@ approved task explicitly creates that dependency.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.1.1b | 2026-09-17 | beta | Canceled Google Drive implementation/deployment/UAT waves and retained local backup/device work as the active execution scope. | a9f9b80 | Codex |
 | 0.1.0b | 2026-08-23 | beta | Approved Luna–Terra multi-agent workflow; no implementation code changed | working-tree | ATHER |

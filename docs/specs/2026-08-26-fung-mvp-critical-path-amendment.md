@@ -1,7 +1,7 @@
 ---
 version: "0.1.11b"
 created_at: "2026-08-26T00:00:00+07:00,Agent: Luna,Commit: 8a6406e6513943e09447daeb3c6572aa41468b67"
-last_update: "2026-09-17T00:00:00+07:00,Agent: Codex,Commit: working-tree"
+last_update: "2026-09-17T00:00:00+07:00,Agent: Codex,Commit: 1b1a763"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -215,6 +215,6 @@ No other files, migrations, credentials, release artifacts, external systems, or
 | 0.1.6b | 2026-09-16 | candidate | Recorded the approved D-MVP-02/D-MVP-05 implementation as a local commit; no live capture, provider, device, click-through, or release acceptance gate is claimed. | 3c6734f22202e1ad8faf31af5a68783fb887090c | Codex |
 | 0.1.7b | 2026-09-17 | candidate | Proposed D-MVP-04-L1 to page the export-artifact inventory past the Genesis single-read bound; implementation and verification follow the exact local-only scope. | 64ceb222d0f5cb98a0f2e9c7bc283f6a6e8f5c51 | Codex |
 | 0.1.8b | 2026-09-17 | candidate | Recorded the implemented D-MVP-04-L1 export-artifact inventory paging and local verification evidence; no runtime, provider, device, packaged click-through, or release gate is claimed. | working-tree | Codex |
-| 0.1.9b | 2026-09-17 | candidate | Re-ran the local verification pass with build, full Rust, FUNGWIRE, and registered Node suites passing; packaged, provider, device, and release gates remain open. | working-tree | Codex |
-| 0.1.10b | 2026-09-17 | candidate | Root-caused the sandbox-only Genesis lock denial; release EXE stayed responsive outside the sandbox, while native GUI click-through remains unobserved. | working-tree | Codex |
-| 0.1.11b | 2026-09-17 | candidate | Confirmed host-level WiX MSI packaging succeeds with an isolated target; NSIS remains incomplete and the installer was not executed, so packaged acceptance remains open. | working-tree | Codex |
+| 0.1.9b | 2026-09-17 | candidate | Re-ran the local verification pass with build, full Rust, FUNGWIRE, and registered Node suites passing; packaged, provider, device, and release gates remain open. | 1b1a763 | Codex |
+| 0.1.10b | 2026-09-17 | candidate | Root-caused the sandbox-only Genesis lock denial; release EXE stayed responsive outside the sandbox, while native GUI click-through remains unobserved. | 1b1a763 | Codex |
+| 0.1.11b | 2026-09-17 | candidate | Confirmed host-level WiX MSI packaging succeeds with an isolated target; NSIS remains incomplete and the installer was not executed, so packaged acceptance remains open. | 1b1a763 | Codex |

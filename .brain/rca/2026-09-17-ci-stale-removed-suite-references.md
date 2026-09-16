@@ -1,7 +1,7 @@
 ---
 version: "0.1.1b"
-created_at: "2026-09-17T00:00:00+07:00,Agent: Codex,Commit: working-tree"
-last_update: "2026-09-17T00:00:00+07:00,Agent: Codex,Commit: working-tree"
+created_at: "2026-09-17T00:00:00+07:00,Agent: Codex,Commit: d10bbf8"
+last_update: "2026-09-17T00:00:00+07:00,Agent: Codex,Commit: 0e6e213"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -79,5 +79,5 @@ introduced by the combined history.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.1.0b | 2026-09-17 | candidate | Documented and repaired stale CI references to removed test suites. | working-tree | Codex |
-| 0.1.1b | 2026-09-17 | candidate | Added the orphaned Rust helper/clippy RCA and recorded the narrow cfg(test) cleanup. | working-tree | Codex |
+| 0.1.0b | 2026-09-17 | candidate | Documented and repaired stale CI references to removed test suites. | d10bbf8 | Codex |
+| 0.1.1b | 2026-09-17 | candidate | Added the orphaned Rust helper/clippy RCA and recorded the narrow cfg(test) cleanup. | 0e6e213 | Codex |

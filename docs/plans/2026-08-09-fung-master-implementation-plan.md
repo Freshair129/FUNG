@@ -11,15 +11,16 @@
 | Status | need review — Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
 | Author | Claude (Fable 5) + Boss |
 | Supersedes | none (first master plan) |
-| Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.2b, `docs/Desktop/08-real-progress.md` v0.2.26b, `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`, Sub-project B brainstorm decisions (2026-08-09) |
+| Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.2b, `docs/Desktop/08-real-progress.md` v0.2.29b, `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`, Sub-project B brainstorm decisions (2026-08-09) |
 
 ---
 
 ## 0. Current Truth Sync (2026-08-23)
 
-The historical mainline snapshot above is retained for provenance. The current
-remote audit is `origin/main` `91c9055`, which contains the export-inventory
-read-ceiling fix. On 2026-09-17 Boss canceled the Google Drive workstream and
+The historical mainline snapshot above is retained for provenance. The e682
+local-only verification and packaging closure is integrated at `0e6e213`, with
+hosted CI run `35140276450` passing frontend and Rust checks. On 2026-09-17
+Boss canceled the Google Drive workstream and
 the follow-up removal deleted its active adapter, UI, commands, Edge functions,
 and contract tests; applied migration/schema history remains historical only.
 Phase 0–2 remain complete. Phase 3 implementation is merged, but acceptance
@@ -32,9 +33,9 @@ The local transcription runtime is prepared at worker level: the staged `faster-
 
 ## 0.1 Local verification sync (2026-09-17)
 
-Before the documentation update, the source worktree was clean and two commits
-ahead of `origin/main` (`3c6734f` and `64ceb22`); neither was pushed by this
-task. The approved local-only
+The pre-merge audit recorded a clean source worktree two commits ahead of the
+then-tracked `origin/main` (`3c6734f` and `64ceb22`). That history was later
+reconciled with the remote and the approved local-only
 recheck passed `npm run build`, the complete Rust library suite (`455 passed,
 1 ignored`), the FUNGWIRE server/client suite (`17/17`), and all registered
 Node suites. This closes local source/build/contract evidence only. The

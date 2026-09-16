@@ -36,7 +36,7 @@ use crate::genesis_adapter;
 
 /// The engine's single-read page size. Segment reads go through
 /// `genesis_adapter::query_all`, which pages past it; this remains the bound
-/// for reads that genuinely want at most one page (speakers, artifact list).
+/// for reads that genuinely want at most one page (speaker names).
 const SEGMENT_READ_CAP: u32 = crate::genesis_adapter::ROW_CAP;
 
 /// Shortest cue this will write. A zero-length cue is not displayed by any
@@ -302,18 +302,17 @@ pub(crate) struct ExportArtifact {
     pub(crate) created_at: String,
 }
 
-/// Lists a project's exports, newest first.
+/// Lists a project's exports from the durable artifact inventory, newest first.
 ///
-/// Without this the feature is only half-delivered: the job completes, the
-/// files exist, and nothing in the app can say where. `export_artifacts` was
-/// already the table for it — it just had no reader.
-#[tauri::command]
-pub(crate) fn list_export_artifacts(
-    project_id: String,
-    state: tauri::State<'_, crate::AppState>,
-) -> crate::AppResult<Vec<ExportArtifact>> {
-    let mut artifacts: Vec<ExportArtifact> = genesis_adapter::query(
-        &state.genesis,
+/// The inventory can grow across repeated exports and retries, so this read
+/// must page just like the transcript readers. `export_artifacts` was already
+/// the table for it — it just had no whole-read helper.
+fn list_export_artifacts_from_storage(
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+) -> Result<Vec<ExportArtifact>, String> {
+    let mut artifacts: Vec<ExportArtifact> = genesis_adapter::query_all(
+        storage,
         "export_artifacts",
         &["id", "kind", "file_path", "created_at"],
         vec![genesis_adapter::eq(
@@ -321,9 +320,7 @@ pub(crate) fn list_export_artifacts(
             "project_id",
             serde_json::json!(project_id),
         )],
-        SEGMENT_READ_CAP,
-    )
-    .map_err(crate::AppError::Genesis)?
+    )?
     .into_iter()
     .filter_map(|row| {
         Some(ExportArtifact {
@@ -341,6 +338,20 @@ pub(crate) fn list_export_artifacts(
     // a user wants after an export is the one that just ran.
     artifacts.sort_by(|left, right| right.created_at.cmp(&left.created_at));
     Ok(artifacts)
+}
+
+/// Lists a project's exports, newest first.
+///
+/// Without this the feature is only half-delivered: the job completes, the
+/// files exist, and nothing in the app can say where. `export_artifacts` was
+/// already the table for it — it just had no reader.
+#[tauri::command]
+pub(crate) fn list_export_artifacts(
+    project_id: String,
+    state: tauri::State<'_, crate::AppState>,
+) -> crate::AppResult<Vec<ExportArtifact>> {
+    list_export_artifacts_from_storage(&state.genesis, &project_id)
+        .map_err(crate::AppError::Genesis)
 }
 
 /// The project's own storage root. Duplicated from `lib.rs` rather than
@@ -655,6 +666,83 @@ mod tests {
 
         let error = render_subtitles(&storage, "p1", "r1").unwrap_err();
         assert!(error.contains("ถอดเสียงก่อน"), "{error}");
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn listing_artifacts_pages_past_the_read_ceiling_and_keeps_project_scope() {
+        let (path, storage) = open_storage();
+        let project_dir = path.join("project");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        seed(&storage, &project_dir, 0);
+        genesis_adapter::commit_rows(
+            &storage,
+            vec![genesis_adapter::upsert(
+                "projects",
+                serde_json::json!({
+                    "id": "other-project",
+                    "name": "Other",
+                    "storage_path": path.join("other").display().to_string(),
+                    "active_recording_id": null,
+                    "created_at": "t",
+                    "updated_at": "t",
+                }),
+            )],
+        )
+        .unwrap();
+
+        let total = SEGMENT_READ_CAP as usize + 5;
+        let mut batch = Vec::new();
+        for index in 0..total {
+            batch.push(genesis_adapter::upsert(
+                "export_artifacts",
+                serde_json::json!({
+                    "id": format!("artifact-{index:04}"),
+                    "project_id": "p1",
+                    "kind": "srt",
+                    "file_path": format!("project/exports/{index}.srt"),
+                    "source_layer_id": null,
+                    "created_at": format!("2026-01-01T00:{index:04}Z"),
+                }),
+            ));
+            if batch.len() == 500 {
+                genesis_adapter::commit_rows(&storage, std::mem::take(&mut batch)).unwrap();
+            }
+        }
+        if !batch.is_empty() {
+            genesis_adapter::commit_rows(&storage, batch).unwrap();
+        }
+        genesis_adapter::commit_rows(
+            &storage,
+            vec![genesis_adapter::upsert(
+                "export_artifacts",
+                serde_json::json!({
+                    "id": "other-artifact",
+                    "project_id": "other-project",
+                    "kind": "vtt",
+                    "file_path": "other/exports/one.vtt",
+                    "source_layer_id": null,
+                    "created_at": "2026-01-02T00:0000Z",
+                }),
+            )],
+        )
+        .unwrap();
+
+        let artifacts = list_export_artifacts_from_storage(&storage, "p1").unwrap();
+        assert_eq!(artifacts.len(), total);
+        assert_eq!(
+            artifacts.first().map(|artifact| artifact.id.as_str()),
+            Some("artifact-1004")
+        );
+        assert_eq!(
+            artifacts.last().map(|artifact| artifact.id.as_str()),
+            Some("artifact-0000")
+        );
+        assert!(artifacts
+            .iter()
+            .all(|artifact| !artifact.id.as_str().contains("other")));
 
         drop(storage);
         let _ = std::fs::remove_dir_all(path);

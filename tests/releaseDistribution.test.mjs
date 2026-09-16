@@ -11,7 +11,7 @@ import {
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 
 test("desktop release metadata points to the stable latest Windows asset", () => {
-  assert.equal(DESKTOP_RELEASE_VERSION, "0.1.0");
+  assert.equal(DESKTOP_RELEASE_VERSION, "0.1.1");
   assert.equal(
     DESKTOP_RELEASE_DOWNLOAD_URL,
     "https://github.com/Freshair129/FUNG-Releases/releases/latest/download/FUNG-windows-x64-setup.exe",
@@ -35,7 +35,7 @@ test("package and Tauri versions agree with the public release", async () => {
 
   assert.equal(packageJson.version, DESKTOP_RELEASE_VERSION);
   assert.equal(tauriConfig.version, DESKTOP_RELEASE_VERSION);
-  assert.match(cargoToml, /^version = "0\.1\.0"$/m);
+  assert.match(cargoToml, /^version = "0\.1\.1"$/m);
 });
 
 test("release.ts version matches src-tauri/tauri.conf.json (no drift between the two sources of truth)", async () => {

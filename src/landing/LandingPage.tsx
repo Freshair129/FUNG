@@ -16,6 +16,7 @@ import {
   Settings,
 } from "lucide-react";
 import ribbonAsset from "./assets/porcelain-memory-ribbon.png";
+import { supabaseConfigured } from "../lib/bootstrap";
 import { supabase } from "../lib/supabase";
 import {
   DESKTOP_RELEASE_DOWNLOAD_URL,
@@ -187,11 +188,11 @@ export function LandingPage() {
                 </div>
               )}
             </div>
-          ) : (
+          ) : supabaseConfigured ? (
             <button className="landing-login-btn" type="button" onClick={handleLogin}>
               <LogIn size={15} /> เข้าสู่ระบบ
             </button>
-          )}
+          ) : null}
           <a className="landing-header-cta" href="/app">
             เปิด FUNG <ArrowIcon />
           </a>
@@ -214,7 +215,7 @@ export function LandingPage() {
               <a className="landing-button landing-button-primary" href="/app">
                 เปิด FUNG <ArrowIcon />
               </a>
-              {!user && (
+              {!user && supabaseConfigured && (
                 <button className="hero-login-btn" type="button" onClick={handleLogin}>
                   <svg className="google-icon" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
@@ -420,7 +421,7 @@ export function LandingPage() {
           <p>เริ่มจากเสียงหนึ่งประโยค แล้วปล่อยให้ FUNG ช่วยรักษาบริบทที่เหลือ</p>
           <div className="closing-actions">
             <a className="landing-button landing-button-indigo" href="/app">เปิด FUNG <ArrowIcon /></a>
-            {!user && (
+            {!user && supabaseConfigured && (
               <button
                 className="landing-text-link"
                 type="button"
@@ -430,7 +431,7 @@ export function LandingPage() {
                 เข้าสู่ระบบ <ArrowIcon />
               </button>
             )}
-            <a className="landing-text-link" href="/app?surface=desktop">ดู Desktop surface <ArrowIcon /></a>
+            <a className="landing-text-link" href={DESKTOP_RELEASE_DOWNLOAD_URL}>ดาวน์โหลดสำหรับ Windows <ArrowIcon /></a>
           </div>
           <div className="privacy-note"><LockKeyhole size={17} /> ใช้งานแบบ Local ได้โดยไม่ต้องมีบัญชี</div>
         </div>

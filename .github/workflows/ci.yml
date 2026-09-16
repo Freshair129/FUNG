@@ -50,6 +50,7 @@ jobs:
       - run: npm run test:diarization
       - run: npm run test:egress
       - run: npm run test:local-api-client
+      - run: npm run test:web-recordings
       - run: npm run test:device-authority
       - run: npm run test:audio-viz
       - run: npm run test:transcribe-concat

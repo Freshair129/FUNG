@@ -285,6 +285,29 @@ Four unit tests pin it against a one-shot fake `/api/tags` server. Re-running
 Markdown export (`summary + export: OK`) from the transcribed English sample,
 i.e. the full capture → whisper → Ollama → export chain passes on real
 hardware.
+
+**Web UI made usable on its own (2026-09-16).** Two findings first: the
+production Vercel deploy (`fung-seven.vercel.app`) was still the build from
+before PR #37 — its "04 / Demo-ready" section renders as mojibake, which that
+PR fixed on 2 Sep — so nothing merged in the two weeks since (the
+desktop-recordings tile, the auth fixes) had ever reached the public site;
+and `/app` bounces every unauthenticated visitor back to the landing page,
+where the only thing a signed-in browser could then do was play desktop
+recordings from the same machine — the "เริ่มบันทึก" tile was a literal
+"เร็วๆ นี้". The dashboard now records from the microphone in the browser
+(`MediaRecorder`, WebM/Opus with an MP4 fallback for Safari), keeps the file
+in that browser's IndexedDB with an honest "this browser only, nothing
+uploaded" note, and lists/plays/downloads/deletes it — the download is the
+hand-off to the desktop for transcription. Alongside: the landing page no
+longer white-screens on a build without `VITE_SUPABASE_*` (the client is
+built against a reserved `.invalid` host and the sign-in controls hide), the
+public "ดู Desktop surface" link into the Tauri shell — which crashes in a
+browser on unguarded IPC — is gone, `vercel.json` rewrites every non-asset
+path to the SPA, and the dashboard stacks to one column at phone width.
+`tests/webRecordings.test.mjs` pins the codec choice, file naming, and these
+source-level guarantees. Deploying it is the owner's step: the Vercel CLI on
+this machine is logged out and the Git integration evidently did not pick up
+the last two weeks of merges.
 Verified by Rust and Node tests below; the real-browser pass on the production
 web (which needs this change deployed) and Chrome's one-time "local network"
 permission prompt are still to be observed on the owner's machine.

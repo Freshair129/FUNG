@@ -3381,7 +3381,7 @@ mod tests {
         }
     }
 
-    fn expected_slot_hash(domain: &str, slot: SlotReadback) -> Option<String> {
+    fn expected_slot_hash(_domain: &str, slot: SlotReadback) -> Option<String> {
         match slot {
             SlotReadback::Absent => None,
             SlotReadback::Original => Some(content_sha256("refresh")),

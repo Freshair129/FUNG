@@ -1,7 +1,7 @@
 ---
-version: "0.2.4b"
+version: "0.2.5b"
 created_at: "2026-08-13T00:00:00+07:00,ATHER"
-last_update: "2026-08-14T02:42:00+07:00,ATHER"
+last_update: "2026-09-17T00:00:00+07:00,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -23,6 +23,15 @@ Complexity: C-3 — Architecture-Driven Implementation.
 Change risk: HIGH — encrypted user archives, external credentials, restore
 integrity, and cross-device account identity.
 
+### Google Drive scope cancellation (2026-09-17)
+
+Google Drive is no longer a FUNG product requirement. The Google Drive-specific
+provider, OAuth, deployment and UAT portions of this requirements document are
+superseded by `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`.
+Local filesystem backup/restore and mobile-account requirements remain
+historical reference only until separately reapproved; no new Google Drive
+implementation or external-state operation is authorized.
+
 ## Current Integration Facts
 
 - The desktop Account Settings surface can read/update a Supabase profile and
@@ -39,10 +48,11 @@ integrity, and cross-device account identity.
   `27cbb285aea635e31311ef2053d21f16e915f1fb` on
   `origin/agent/u9-backup-restore`. It is available for the bounded FUNG slice;
   it does not close U9 or any release gate by itself.
-- Google Drive remains the intended production destination, but its OAuth and
-  production configuration are deferred as TODO. A user-selected filesystem
+- Google Drive was previously considered as a production destination, but it
+  is canceled by the 2026-09-17 product decision. A user-selected filesystem
   destination is permitted only for development/test proof; it is not a
-  production cloud-backup substitute.
+  production cloud-backup substitute. Any future cloud destination requires a
+  new product decision.
 
 ## User Stories
 
@@ -120,16 +130,16 @@ integrity, and cross-device account identity.
 
 ## Required Owner Decisions Before Design Approval
 
-1. Select the first production destination: Google Drive, OneDrive,
-   S3-compatible storage, or a custom endpoint.
+1. No production cloud destination is selected in the current scope. Google
+   Drive is canceled; a future OneDrive, S3-compatible, or custom endpoint
+   requires a new product decision.
 2. Select the encryption and recovery model for clean-install restore:
    user-held recovery secret, user password-derived key, or another approved
    portable key mechanism. Device-only keys cannot satisfy clean-install restore.
 3. Confirm the initial archive scope: all Genesis data plus managed audio/blob
    artifacts, or metadata-only. Metadata-only does not satisfy a full U9 backup.
-4. Google Drive OAuth/client configuration, redirect URIs, and least-privilege
-   scopes are TODO before any Google Drive production authorization is
-   implemented.
+4. Google Drive OAuth/client configuration, redirect URIs, and scopes are
+   canceled and must not be implemented under this requirements version.
 
 ## Acceptance Evidence
 
@@ -156,6 +166,7 @@ integrity, and cross-device account identity.
 
 | Version | Change |
 | --- | --- |
+| 0.2.5b | Records the 2026-09-17 cancellation of Google Drive provider/OAuth/deployment/UAT work; local filesystem and mobile-account requirements remain historical until separately reapproved. |
 | 0.2.4b | Recorded the native fail-closed backup-status boundary: no archive, root path, recovery secret, data key, or provider token is serialized before the envelope/transport tasks. |
 | 0.2.3b | Added observed FUNG contract-fixture evidence for Genesis U9; full encrypted transport and restore acceptance remain open. |
 | 0.2.2b | Selected dedicated local development/test roots and recorded the reviewed Genesis U9 candidate revision; production and release gates remain open. |
@@ -168,6 +179,7 @@ integrity, and cross-device account identity.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.2.5b | 2026-09-17 | beta | Google Drive production/provider work canceled by product decision; no external-state action is authorized. | working-tree | Codex |
 | 0.2.4b | 2026-08-14 | beta | Task 2 status DTO returns unavailable with no archive and has a static prohibited-response-field guard. | working-tree | ATHER |
 | 0.2.3b | 2026-08-14 | beta | FUNG notes, graph, and audio metadata fixture verified opaque Genesis export and clean-target restore. | working-tree | ATHER |
 | 0.2.2b | 2026-08-14 | beta | Selected `D:\FUNG-Phase4-TestStorage` and `D:\FUNG-Phase4-TestRestore`; Genesis U9 candidate is available for bounded integration only. | N/A | ATHER |

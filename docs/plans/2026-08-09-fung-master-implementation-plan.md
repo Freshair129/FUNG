@@ -6,18 +6,18 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.4.0b |
-| Date | 2026-08-23 |
-| Status | need review — Phase 3 controller acceptance, Phase 4 clean-install/cloud/device proof, and Phase 5 release gates remain open |
+| Version | 1.5.0b |
+| Date | 2026-09-17 |
+| Status | need review — Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
 | Author | Claude (Fable 5) + Boss |
 | Supersedes | none (first master plan) |
-| Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.2b, `docs/Desktop/08-real-progress.md` v0.2.6b, Sub-project B brainstorm decisions (2026-08-09) |
+| Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.2b, `docs/Desktop/08-real-progress.md` v0.2.6b, `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`, Sub-project B brainstorm decisions (2026-08-09) |
 
 ---
 
 ## 0. Current Truth Sync (2026-08-23)
 
-The current mainline is `origin/main` at `d4e6ddc`. PR #31 (`codex/backlog-truth-sync`) is open with frontend and Rust CI passing and carries this truth-sync update. PR #16 is merged at `26da784`; PR #30 is merged at `d4e6ddc`. Phase 0–2 remain complete. Phase 3 implementation is merged, but acceptance still requires a real desktop controller run with the approved OpenAI and Anthropic credentials; credentials are not available in this run. Phase 4 automated backup/restore and device-reconciliation tests are present, but the approved roots contain only test fixtures and no clean-install restore or Google Drive production OAuth/transport proof has been completed. Phase 5 remains not started.
+The historical mainline snapshot above is retained for provenance. The current local audit is at `origin/main` `b5d7fa0` with two approved local commits ahead of it. On 2026-09-17 Boss canceled the Google Drive workstream: its provider, deployment, UAT and release acceptance are no longer active scope. Phase 0–2 remain complete. Phase 3 implementation is merged, but acceptance still requires a real desktop controller run with the approved OpenAI and Anthropic credentials; credentials are not available in this run. Phase 4 local filesystem backup/restore and mobile-account work remain separately gated by clean-install/device proof. Phase 5 remains not started.
 
 The local transcription runtime is prepared at worker level: the staged `faster-whisper` 1.2.1 environment contains the pinned `Systran/faster-whisper-small` revision, the staged CUDA 12/cuDNN 9 manifest records 11 DLLs, and `scripts/smoke_gpu_standalone.ps1` passed with the GPU profile. The current `npm audit --audit-level=moderate` result is also clean (`0` vulnerabilities). These checks close local worker/dependency preparation only; they do not close Live Meeting real-capture, Android, visual, connector, or release acceptance.
 
@@ -131,11 +131,11 @@ Decisions locked in brainstorm 2026-08-09: scope = pairing only (D pulled in) ·
 | REQ-F-03 | Cloud executor for STT/LLM tasks honoring policy + spend guardrails (per-day cap) | new |
 | REQ-F-04 | Mobile settings surface for tier policy (privacy default = local only) | privacy-first |
 
-### Phase 4 — Sub-projects C + E: Cloud Storage Config + Mobile Login
+### Phase 4 — Sub-projects C + E: Local Backup + Mobile Login
 
 | ID | Requirement | Source |
 |---|---|---|
-| REQ-C-01 | Account Settings: connect Google Drive / OneDrive / S3-compatible / custom endpoint for backup target | original decision (3) |
+| REQ-C-01 | Account Settings: local development/test backup target; any cloud endpoint requires a new product decision (Google Drive canceled) | `docs/decisions/2026-09-17-google-drive-scope-cancellation.md` |
 | REQ-C-02 | Export/backup job writes encrypted archive to configured target (aligns with U9 backup gap) | IMPLEMENTATION_STATUS U9 |
 | REQ-E-01 | ~~Mobile app Google login~~ — **moved into Phase 1** (2026-08-09: cloud-brokered pairing requires mobile session under RLS; Boss approved). Phase 4 E scope shrinks to account-settings unification on mobile | sub-project E |
 | REQ-E-02 | Mobile session ↔ device registration unified with Phase 1 model | REQ-B-02 |
@@ -319,10 +319,10 @@ Key tasks (42 SP): key registration UI (desktop settings + mobile settings) · k
 
 ### Phase 4 — Sub-projects C + E: Cloud Storage + Mobile Login 🟢 (S7b–S8, 1.5 weeks, parallel-capable after P1)
 
-Key tasks (42 SP): storage target config UI (Drive/OneDrive/S3/custom) in AccountSettings · OAuth for Drive/OneDrive reusing `oauth_connections` · encrypted archive export job → upload · restore-verify test (backup is only real if restore works, aligns U9) · mobile Google login (PKCE webview-less flow) · mobile device registration merge with P1 model.
+Key tasks (42 SP): local filesystem encrypted archive export → upload/write · restore-verify test on a clean target (backup is only real if restore works, aligns U9) · mobile Google login (PKCE webview-less flow) · mobile device registration merge with P1 model. Cloud-provider targets, including Google Drive, require a new product decision and are not active work.
 
 **Acceptance criteria:**
-- [ ] Backup archive uploaded to user-chosen target; **restore on clean install reproduces notes/graph** (U9 evidence)
+- [ ] Local development/test backup archive written to the approved target; **restore on clean install reproduces notes/graph** (U9 evidence)
 - [ ] Mobile login → same `devices` row model as desktop; Dashboard shows both devices
 
 ### Phase 5 — Hardening & Release 🟡 (S9–S10, 2 weeks)
@@ -470,7 +470,7 @@ Per phase:
 - [x] **Phase 1** — Sub-project B: Desktop Login + Device Pairing (exit: real pairing E2E + revoke) — **DONE**, PR #5 merged (`5219b90`).
 - [x] **Phase 2** — FUNGWIRE v1: LAN Tunnel + Job Worker (exit: delegated transcription E2E + resume) — **DONE 2026-08-09**, PR #6: frontend ✅ / rust ✅ CI green; 2-device LAN acceptance test passed (Boss-confirmed: delegate+progress, kill-mid-job resume, revoke rejection).
 - [ ] **Phase 3** — Sub-project F: BYOM Keys + 3-Tier Policy (exit: policy matrix proven, zero key leakage) — **IMPLEMENTATION COMPLETE / ACCEPTANCE PENDING**. PR #7 merged (`bdd5c6e`); post-merge worker hardening merged in PR #10 (`cea2d93`); CI run `31610747738` passed on `main`. Remaining controller gate: real desktop with an OpenAI key + recording, and an Anthropic key with Ollama stopped to prove cloud fallback.
-- [ ] **Phase 4** — Sub-projects C + E: Cloud Storage + Mobile Login (exit: backup→restore proven, mobile signed in) — **AUTOMATED BACKUP/RESTORE ADAPTER TESTED / CLEAN-INSTALL, CLOUD, DEVICE AND U9 PROOF OPEN**. Requirements: `docs/specs/2026-08-13-phase-4-cloud-backup-mobile-account-requirements.md`; design: `docs/specs/2026-08-13-phase-4-cloud-backup-mobile-account-design.md`; plan/audit: `docs/plans/2026-08-13-phase-4-google-drive-backup-mobile-account.md`; crypto decision: `docs/decisions/2026-08-14-phase-4-archive-envelope-crypto-decision.md`. Current desktop evidence records export→encrypt→write→clean-target restore tests, audio-bearing payloads, and device reconciliation tests. The approved `D:\FUNG-Phase4-TestStorage` and `D:\FUNG-Phase4-TestRestore` roots contain fixtures/README only; no real clean-install restore has been run. Google Drive production OAuth/transport, mobile-account proof, U9 closure, and release claim remain open.
+- [ ] **Phase 4** — Sub-projects C + E: Local Backup + Mobile Login (exit: backup→restore proven, mobile signed in) — **AUTOMATED BACKUP/RESTORE ADAPTER TESTED / CLEAN-INSTALL, DEVICE AND U9 PROOF OPEN; GOOGLE DRIVE CANCELED**. Requirements: `docs/specs/2026-08-13-phase-4-cloud-backup-mobile-account-requirements.md`; design: `docs/specs/2026-08-13-phase-4-cloud-backup-mobile-account-design.md`; historical plan: `docs/plans/2026-08-13-phase-4-google-drive-backup-mobile-account.md`; cancellation decision: `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`; crypto decision: `docs/decisions/2026-08-14-phase-4-archive-envelope-crypto-decision.md`. Current desktop evidence records export→encrypt→write→clean-target restore tests, audio-bearing payloads, and device reconciliation tests. The approved `D:\FUNG-Phase4-TestStorage` and `D:\FUNG-Phase4-TestRestore` roots contain fixtures/README only; no real clean-install restore has been run. Mobile-account proof, U9 closure, and release claim remain open.
 - [ ] **Phase 5** — Hardening & Release (exit: signed APK + UAT evidence + gates dispositioned)
 
 ---
@@ -483,6 +483,7 @@ Per phase:
 - Cross-meeting search (explicitly out per Zoom spec)
 - Agent Voice legal/retention policy (product decision gate)
 - `OAUTH2_JWT_AUTHORIZATION_SPEC.md` implementation (superseded in practice by Supabase auth — needs formal disposition in P5)
+- Google Drive backup/provider/deployment/UAT work (canceled by `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`; historical source retained pending a separate removal decision)
 
 ---
 

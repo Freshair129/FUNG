@@ -171,7 +171,7 @@ operation is authorized.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
-| 0.2.6b | 2026-09-17 | beta | Promoted local filesystem/mobile-account requirements as active Phase 4 scope after removing Google Drive provider requirements from the active contract. | pending | Codex |
+| 0.2.6b | 2026-09-17 | beta | Promoted local filesystem/mobile-account requirements as active Phase 4 scope after removing Google Drive provider requirements from the active contract. | a9f9b80 | Codex |
 | 0.2.5b | 2026-09-17 | beta | Google Drive production/provider work canceled by product decision; no external-state action is authorized. | working-tree | Codex |
 | 0.2.4b | 2026-08-14 | beta | Task 2 status DTO returns unavailable with no archive and has a static prohibited-response-field guard. | working-tree | ATHER |
 | 0.2.3b | 2026-08-14 | beta | FUNG notes, graph, and audio metadata fixture verified opaque Genesis export and clean-target restore. | working-tree | ATHER |

@@ -63,5 +63,5 @@ schema history และรายงาน verification จะยังคงอ
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.2.0b | 2026-09-17 | beta | Removed active Google Drive adapter, UI, commands, Edge functions, and contract tests after the product cancellation; retained migration/schema/report history and did not change external state. | pending | Codex |
+| 0.2.0b | 2026-09-17 | beta | Removed active Google Drive adapter, UI, commands, Edge functions, and contract tests after the product cancellation; retained migration/schema/report history and did not change external state. | a9f9b80 | Codex |
 | 0.1.0b | 2026-09-17 | beta | Boss-directed cancellation of Google Drive implementation, provider, deployment and UAT work; active source was retained before the follow-up removal instruction. | working-tree | Codex |

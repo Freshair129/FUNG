@@ -204,7 +204,7 @@ deletion of any external historical data.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
-| 0.2.3b | 2026-09-17 | superseded | Canceled Google Drive scope and retained this design as historical provenance; no provider implementation or UAT may start from it. | pending | Codex |
+| 0.2.3b | 2026-09-17 | superseded | Canceled Google Drive scope and retained this design as historical provenance; no provider implementation or UAT may start from it. | a9f9b80 | Codex |
 | 0.2.2b | 2026-08-14 | beta | Added approved external dev/test roots and exact encrypted archive naming; no production provider work. | N/A | ATHER |
 | 0.2.1b | 2026-08-13 | beta | Filesystem test transport approved; no implementation authority before Genesis U9 contract. | N/A | ATHER |
 | 0.2.0b | 2026-08-13 | candidate | Proposed bounded filesystem test transport and deferred Google Drive production adapter. No implementation authority. | N/A | ATHER |

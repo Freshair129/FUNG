@@ -1,5 +1,5 @@
 ---
-version: "0.2.26b"
+version: "0.2.27b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-09-17T00:00:00+07:00,Codex"
 status: "beta"
@@ -795,13 +795,13 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
-| 0.2.26b | 2026-09-17 | beta | Removed the canceled Google Drive implementation, active tests, commands, and Edge functions; retained local backup as the active Phase 4 target and marked provider/migration evidence historical. | pending | Codex |
+| 0.2.27b | 2026-09-17 | beta | Integrated the bounded D-MVP-04-L1 export-artifact inventory fix after the Google Drive cancellation cleanup; local verification remains bounded by the documented Whisper runtime gap. | 086fcfa | Codex |
+| 0.2.26b | 2026-09-17 | beta | Removed the canceled Google Drive implementation, active tests, commands, and Edge functions; retained local backup as the active Phase 4 target and marked provider/migration evidence historical. | a9f9b80 | Codex |
 | 0.2.21b | 2026-09-16 | beta | Added the approved bounded D-MVP-02 recording-scoped transcript correction/audit path and recorded local Rust, Node, formatting, and build evidence; runtime/UAT, device, provider, and release gates remain open. | working-tree | Codex |
 | 0.2.22b | 2026-09-16 | beta | Added bounded D-MVP-05 source WAV/MP3 export through the existing durable export queue and recorded local Rust, clippy, formatting, Node, and build evidence; transcoding, runtime/UAT, device, provider, and release gates remain open. | working-tree | Codex |
 | 0.2.23b | 2026-09-16 | beta | Completed the bundled local PyAV WAV/MP3 transcoder for D-MVP-05 and recorded source/test/build/runtime-worker evidence; packaged click-through, restart, provider, device, and release gates remain open. | working-tree | Codex |
 | 0.2.24b | 2026-09-16 | beta | Recorded atomic retry-safe transcoder output, release bundle/launch evidence, and the opt-in local import/runtime route; live capture, packaged click-through, restart, provider, device, and release gates remain open. | working-tree | Codex |
 | 0.2.25b | 2026-09-16 | beta | Recorded the approved D-MVP-02/D-MVP-05 implementation as local commit `3c6734f`; live capture, packaged click-through, restart, provider, device, and release gates remain open. | 3c6734f22202e1ad8faf31af5a68783fb887090c | Codex |
-| 0.2.26b | 2026-09-17 | beta | Recorded the bounded D-MVP-04-L1 export-artifact inventory paging implementation and local verification; the current full Rust run is limited by the missing actual Whisper runtime, and no runtime/provider/device/release gate is claimed. | working-tree | Codex |
 | 0.2.20b | 2026-09-13 | beta | Web Google login works (Redirect-URL fix on the ZURI-shared project); live `public` schema found empty and Storage bucket-less; added the same-machine loopback recordings API and the web recordings tile with a loopback-only, egress-pinned client. Rust 434/434, clippy clean, build + Node suites green. | working-tree | Claude |
 | 0.2.19b | 2026-09-13 | beta | Supabase online; login gated on disabled Google provider. Recorded PR #44 (web paired devices) and PR #43 (brand kit); corrected the native-first and issue-#41 characterizations from 0.2.18b. | `f161a1d` | Claude |
 | 0.2.18b | 2026-09-04 | beta | Truth-synced PR #39 audit merge, PR #40 Android restoration with first physical A07 render, mobile login rewrite (working tree), machine move + full local toolchain, issue #41, and the Supabase pause gate. | `7b37a6e` | Claude |

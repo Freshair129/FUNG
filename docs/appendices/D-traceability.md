@@ -172,7 +172,7 @@ historical evidence and left H3 plus all release/UAT gates open.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.2.1b | 2026-09-17 | beta | Marked the canceled Google Drive rows historical and removed active source/test ownership from the traceability matrix. | pending | Codex |
+| 0.2.1b | 2026-09-17 | beta | Marked the canceled Google Drive rows historical and removed active source/test ownership from the traceability matrix. | a9f9b80 | Codex |
 | 0.2.0b | 2026-08-26 | candidate | Expanded traceability with the Phase 4 Google Drive/D-GDA6 local-versus-external evidence boundary and local-only Recording2 provenance | `888aded` | ATHER |
 | 0.1.11b | 2026-08-12 | candidate | Corrected implementation-versus-test annotation counts and retained 26/26 union coverage. | pending | ATHER |
 | 0.1.10b | 2026-08-12 | candidate | Recorded full Rust closure and bounded relaunch evidence while retaining UAT blockers. | pending | ATHER |

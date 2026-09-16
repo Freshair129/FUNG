@@ -264,7 +264,7 @@ product decision.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
-| 0.3.0b | 2026-09-17 | superseded | Google Drive implementation/provider/deployment/UAT work canceled; active source removed and migration/schema/report history retained. | pending | Codex |
+| 0.3.0b | 2026-09-17 | superseded | Google Drive implementation/provider/deployment/UAT work canceled; active source removed and migration/schema/report history retained. | a9f9b80 | Codex |
 | 0.2.9b | 2026-08-23 | beta | Approved and implemented local Google Drive PKCE/keyring, metadata audit, separate Desktop UI, resumable appDataFolder transport, and digest-bound restore; external provider/deployment/device gates remain open. | working-tree | ATHER |
 | 0.2.8b | 2026-08-19 | beta | Tasks 5–9 implemented and verified with 217/217 Rust plus green focused Node suites; U9/release stay open pending clean-install restore and physical-device evidence. | working-tree | ATHER |
 | 0.2.7b | 2026-08-14 | beta | Full exact-plan Rust library suite passed 212/212; serial override timeout RCA recorded and verification command corrected. | working-tree | ATHER |

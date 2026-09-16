@@ -144,5 +144,5 @@ approved task explicitly creates that dependency.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.1.1b | 2026-09-17 | beta | Canceled Google Drive implementation/deployment/UAT waves and retained local backup/device work as the active execution scope. | pending | Codex |
+| 0.1.1b | 2026-09-17 | beta | Canceled Google Drive implementation/deployment/UAT waves and retained local backup/device work as the active execution scope. | a9f9b80 | Codex |
 | 0.1.0b | 2026-08-23 | beta | Approved Luna–Terra multi-agent workflow; no implementation code changed | working-tree | ATHER |

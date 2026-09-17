@@ -76,6 +76,16 @@ jobs:
       # Formatting first: it needs no build, so a formatting-only failure
       # reports in seconds instead of after a full compile.
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
+      # The native custody matrix runs on the Windows Rust job after formatting
+      # and needs the same empty bundle-resource roots before its cargo-backed checks.
+      - run: New-Item -ItemType Directory -Force .venv-whisper, runtime
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # This suite invokes the Rust behavioral matrix. Keep it on the Rust
+      # runner so it uses the platform/toolchain that owns that matrix rather
+      # than requiring GTK/GLib development packages on the frontend runner.
+      - run: npm run test:native-session-custody
       # tauri-build copies bundle.resources at build-script time (unconditionally,
       # regardless of the custom-protocol feature). .venv-whisper/ and runtime/ are
       # gitignored, so create them empty — empty dirs are skipped by ResourcePaths.
@@ -85,10 +95,3 @@ jobs:
       # carries that reason inline.
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib --all-targets -- -D warnings
       - run: cargo test --manifest-path src-tauri/Cargo.toml
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      # This suite invokes the Rust behavioral matrix. Keep it on the Rust
-      # runner so it uses the platform/toolchain that owns that matrix rather
-      # than requiring GTK/GLib development packages on the frontend runner.
-      - run: npm run test:native-session-custody

@@ -1,10 +1,10 @@
 ---
-version: "0.1.1b"
+version: "0.1.3b"
 created_at: "2026-09-17T02:03:10+07:00"
-last_update: "2026-09-17T02:18:40+07:00"
+last_update: "2026-09-17T04:57:00+07:00,Codex orchestrator"
 status: "candidate"
 superseded_by: null
-base_sha: "c378af9fac3c00db063948f49f9ee857ebad9126"
+base_sha: "376ef30db13670e4dea816ceff440f44ce73fffd"
 branch: "codex/callmd-ui-dag"
 attributes:
   doc_type: "architecture-interface-specification"
@@ -13,30 +13,40 @@ attributes:
   documentation_risk: "MEDIUM"
   proposed_backend_security_risk: "HIGH"
   author: "Codex contract worker"
-  authority: "workflow and documentation preparation approved; feature selection and code unapproved"
+  authority: "feature cover v0.2.0b approved; this coherence amendment is under independent review and downstream code remains dependency/review gated"
 ---
 
 # Call.md-inspired FUNG desktop: candidate contracts
 
 ## 1. Decision and authority
 
-Recommend P1-B: a local desktop workspace with real recording history, bounded native
-PCM playback, and recording-scoped Q&A. All NEW interfaces below are PROPOSED.
-Boss's “ap[prove” authorizes workflow v0.1.0b and preparing this documentation wave;
-it does not select B, approve code/CI repair, or authorize commit/push/deployment.
-P1-A remains an explicit user-selectable fallback; neither option is selected here.
+The current execution authority is recorded in the [current approval
+record](../verification/implementation-reports/2026-09-17-callmd-approval.md).
+Boss's `approve` authorizes feature cover v0.2.0b: full P1-B, the scoped SVG/PNG
+format, the exact four-file baseline preservation repair, and the interface-first
+backend/UI fork-join. It does not authorize a security waiver, Drive restoration,
+cloud/schema/CSP expansion, commit, push, merge, release, or deployment.
+
+P1-B is the selected feature: a local desktop workspace with real recording history,
+bounded native PCM playback, and recording-scoped Q&A. The NEW interfaces below are
+the frozen candidate contracts for the downstream interface review and implementation
+leases; their acceptance does not claim runtime or native evidence. P1-A remains the
+historical fallback description, not the current selection. Earlier pending wording
+in this document is retained as provenance only and is superseded by the current
+approval record.
 
 | Choice | Included | Explicit boundary |
 |---|---|---|
 | P1-A | Shell/live resurface, known current-recording review, existing summaries/export and legacy Q&A | No history enumeration or native playback; Q&A labeled local knowledge search with project transcript filter, not recording-isolated. |
-| P1-B recommended | A's surfaces plus all recordings within a selected project, native PCM playback, new recording-scoped Q&A | Supported PCM formats below only; no new codecs, provider, cloud, schema, durable session entity, or annotation persistence. |
+| P1-B selected | A's surfaces plus all recordings within a selected project, native PCM playback, new recording-scoped Q&A | Supported PCM formats below only; no new codecs, provider, cloud, schema, durable session entity, or annotation persistence. |
 
 P2 bookmarks, agenda/checklists, conversation metrics, and proactive assistance are deferred.
 Google Drive remains canceled. The screenshot is a visual reference, not mounted source truth.
 Preserve Quiet Archive branding, Thai-first copy, Tauri/React/Rust/Genesis, optional login,
 lazy local access, default-off external tools, approval previews and no renderer fetch.
-This spec supersedes no implemented contract. Names/limits below become binding only
-after feature-document selection/review; no critical transport choice is left implicit.
+This spec supersedes no implemented contract. Names/limits below remain binding
+candidate interface scope for the accepted feature and must be consumed only after
+the approved review/dependency gates; no critical transport choice is left implicit.
 
 ## 2. Evidence and corrected baseline
 
@@ -58,7 +68,7 @@ The prior scan is docs/verification/implementation-reports/2026-09-17-callmd-fun
 | E11 | src/lib/jobActions.ts:16-118; src/components/InstrumentRail.tsx:28-43,97-105 | Five runnable jobs; marker disabled, VU inactive, desktop playback disabled. |
 | E12 | src-tauri/Cargo.toml:24-25,31,38-43; src-tauri/src/live_meeting.rs:272-280 | cpal/hound/rand already dependencies; live WAV is mono integer PCM16. |
 | E13 | src-tauri/tauri.conf.json:30-49; src-tauri/capabilities/default.json:1-14 | Main window and existing CSP/capabilities; no new media URL needed for proposed native output. |
-| E14 | docs/plans/2026-09-17-callmd-ui-task-dag.json (DOC_CONTRACT/BACKEND_RECORDING/SHARED_CONTRACT nodes) | Backend choice precedes bridge/UI; manifest write leases require explicit extensions. |
+| E14 | docs/plans/2026-09-17-callmd-ui-task-dag.json (CONTRACT_TEST_REVIEW/BACKEND_INTERFACE_REVIEW/BACKEND_RECORDING/SHARED_CONTRACT/BACKEND_REVIEW/UI_TASK_REVIEW/INTEGRATE nodes) | The approved cover amendment places BACKEND_INTERFACE_REVIEW after CONTRACT_TEST_REVIEW; BACKEND_RECORDING and SHARED_CONTRACT both wait for that accepted interface review, and INTEGRATE joins BACKEND_REVIEW with UI_TASK_REVIEW. Exact write leases remain disjoint. |
 
 E4/E6 refine the prior scan: an event's recordingId on summary reload is useful but
 does not prove all live events are isolated. “Project-wide Q&A” describes the exposed
@@ -70,22 +80,40 @@ reproduced runtime RCA or permission to repair other callers.
 ```mermaid
 flowchart TD
   D[Contract + UX + acceptance drafts] --> R[Independent document review]
-  R --> A{Boss selects A or B}
-  A -->|A| X[Approved backend exclusions]
-  A -->|B + named scope| B[Recording queries + native PCM player + scoped ask]
-  B --> BR[Backend security and behavior review]
-  X --> C[Shared bridge and props contract]
-  BR --> C
-  C --> S[Shell lane]
-  C --> L[Live lane]
-  C --> H[Review lane]
-  S --> I[Integration owner]
-  L --> I
-  H --> I
+  R --> A[Current approval: P1-B selected]
+  A --> CT[CONTRACT_TESTS]
+  CT --> CTR[CONTRACT_TEST_REVIEW]
+  CTR --> IR[BACKEND_INTERFACE_REVIEW]
+  IR --> B[BACKEND_RECORDING]
+  B --> BR[BACKEND_REVIEW]
+  IR --> C[SHARED_CONTRACT]
+  C --> CR[SHARED_REVIEW]
+  CR --> S[Shell lane]
+  CR --> L[Live lane]
+  CR --> H[Review lane]
+  S --> UR[UI_TASK_REVIEW]
+  L --> UR
+  H --> UR
+  BR --> I[INTEGRATE]
+  UR --> I
   I --> V[Integrated verification and review]
   B --> G[Read existing Genesis rows]
   B --> P[Bounded Rust PCM producer → cpal output]
 ```
+
+The approved scheduling amendment is interface-first: after accepted
+`CONTRACT_TEST_REVIEW`, `BACKEND_INTERFACE_REVIEW` freezes the command/DTO/error/
+ownership contract and its test oracles. Only that accepted interface review may
+start `BACKEND_RECORDING` or `SHARED_CONTRACT`. The backend branch then runs
+`BACKEND_RECORDING → BACKEND_REVIEW` while the shared branch runs
+`SHARED_CONTRACT → SHARED_REVIEW → UI_SHELL/UI_LIVE/UI_HISTORY → UI_TASK_REVIEW`.
+`BACKEND_REVIEW` is a retained native/security review, not an eliminated gate;
+`INTEGRATE` requires both `BACKEND_REVIEW` and `UI_TASK_REVIEW`. The cap is three
+active Luna workers total, with isolated worktrees and disjoint write leases.
+
+The earlier serial backend-before-shared/UI order remains historical provenance in
+the readiness report; the current approval record supersedes its pending state for
+this scheduling amendment without changing the feature or security boundaries.
 
 No new HTTP listener, custom media scheme, asset URL, renderer audio buffer, or
 tokenized renderer fetch is proposed. Tauri IPC carries control/metadata only.
@@ -154,8 +182,9 @@ CamelCase is the IPC wire casing, including Rust serde serialization.
 The EXISTING rows preserve current truth and limits: jobs are newest-30 only,
 transcript cap fields are compatibility-only, export artifacts are project-scoped,
 and legacy meetingAsk accepts an optional project filter without recording isolation.
-Every NEW B name, limit, error and lifecycle rule remains PROPOSED until selected and
-approved; it must not be inferred from an existing command's shape.
+Every NEW B name, limit, error and lifecycle rule is part of the selected approved
+candidate interface, but remains subject to the accepted interface/native review and
+exact lease transfer; it must not be inferred from an existing command's shape.
 
 Existing correction/rename/import/diarization-readiness/cancel/external-tool commands
 remain reachable with their existing approvals and argument scopes (E3/E11).
@@ -324,17 +353,26 @@ These are proposed behavior requirements beyond E4, not claims the current UI pa
 ## 10. Shared UI props/actions and exclusive partitions
 
 PROPOSED shared contracts live in src/components/desktop/contracts.ts NEW.
-DesktopShell props: scopeChoice A|B, project ReadState, selection: RecordingKey|null,
-liveStatus ReadState, theme, main content slot, settings/pairing/recovery slots.
-Actions: selectProject, selectRecording, showLive, showReview, openSettings,
-openPairing, importMedia, setTheme. None implies network calls or capture start.
+DesktopShell props: scopeChoice A|B, project ReadState<Project[]>,
+selectedProjectId:string|null independent of selection:RecordingKey|null,
+activeSurface:home|live|review, liveStatus ReadState, theme, main content slot,
+settings/pairing/recovery slots. Actions: selectProject, selectRecording,
+showHome, showLive, showReview, stopAndLeave, openSettings, openPairing,
+importMedia, setTheme. Navigation itself never starts capture or network calls.
 LiveWorkspace props: RecordingKey|null, phase, elapsedMs, devices, segment feed,
 topic ReadState, summaries ReadState, ask ReadState, capabilities, operation errors.
-Actions: start(options), stop, ask(question), generateSummary, closeView.
+Actions: start(options,closeReviewPlayer), stop, stopAndLeave,
+ask(selection:RecordingKey,question,requestId):Promise<RecordingAnswer>,
+generateSummary, closeView. Ask state is ReadState<RecordingAnswer> for selected B.
+Start awaits a successful player close acknowledgement; stopAndLeave resolves
+only on active:false AND stopping:false, not on the stop-request acknowledgement.
 RecordingReview props: selection, recording/list/transcript/summaries/export ReadStates,
 playback ReadState, ask ReadState, scopeChoice. Actions: refresh/listNext/select,
 correctSegment, renameSpeaker, queueExistingJob, ask, playbackOpen/control/close.
 Every async action captures its key/epoch; capabilities carry available plus reasonCode.
+Shared normalizeReviewError preserves a runtime-valid ReviewError; an unknown
+legacy failure becomes fixed safe LEGACY_COMMAND_FAILED without parsing or
+echoing raw errors, paths, tokens or stderr. Legacy bridge behavior is unchanged.
 Shell is presentational; LiveMeetingPanel owns live state, RecordingReview owns review
 requests/player disposal, App owns selection/theme/routes. No duplicate native stores.
 
@@ -353,23 +391,29 @@ preserve existing settings and rail styling while rewiring the existing control.
 LiveMeetingPanel.css also styles external tools: Live owner must retain those selectors.
 jobActions.ts, meetingSummaries.ts, job_engine.rs, local_api.rs, genesis_adapter.rs,
 schemas, Cargo/lockfiles and CSP/capabilities are excluded from proposed edits.
-SEC-1 names the candidate scope for desktop_playback.rs NEW/local main command
-authority/resource bounds; it is not feature or code approval.
-SEC-2 names the candidate scope for the live_meeting.rs admission guard and lib.rs
-AppState lifetime wiring; it is not feature or code approval.
-UI-1 names the candidate scope extension for existing LiveMeetingPanel.css and
-InstrumentRail.tsx; it is not feature or code approval.
+SEC-1 names the approved bounded scope for desktop_playback.rs NEW/local main
+command authority/resource bounds; native implementation remains review-gated.
+SEC-2 names the approved bounded scope for the live_meeting.rs admission guard and
+lib.rs AppState lifetime wiring; native admission remains review-gated.
+UI-1 names the approved bounded scope extension for existing
+LiveMeetingPanel.css and InstrumentRail.tsx; UI implementation remains
+dependency/review-gated.
 No CSP/capability expansion is proposed; if native registration proves to need one,
 return a named exact-path amendment for review, never enable remote/window-wide access.
 Package/CI test registration is a separately approved integration lease; this spec
 grants no CI repair and no weakening of existing egress or bootstrap tests.
-The manifest records SEC-1/SEC-2/UI-1 and the integration-test path as CANDIDATE
-lease amendments only. They remain non-authorizing until feature approval and an
-exact lease transfer; no code dispatch follows from this spec alone.
+The manifest records SEC-1/SEC-2/UI-1 and the integration-test path as the exact
+bounded lease set. The current approval accepts these boundaries; code still
+requires an exact lease transfer and accepted dependencies, so no code dispatch
+follows from this spec alone. Under the current approved fork,
+`BACKEND_INTERFACE_REVIEW` is required after
+`CONTRACT_TEST_REVIEW` before either the backend or shared-contract worker starts;
+native implementation review remains `BACKEND_REVIEW`, and integration waits for
+both `BACKEND_REVIEW` and `UI_TASK_REVIEW`.
 
 ## 11. AC, SC, exit criteria and Boss choices
 
-AC-1: A/B selection, PCM format boundary, ask scope, and SEC-1/SEC-2/UI-1 are recorded.
+AC-1: Selected P1-B scope, PCM format boundary, ask scope, and SEC-1/SEC-2/UI-1 are recorded.
 AC-2: List pages are scoped, deterministic, replayable; expiry/errors cannot look empty.
 AC-3: Wrong pair/foreign handle/path escape/stale epoch fail before data/audio access.
 AC-4: Playback stays within stated buffers/handles; seek, gaps, device loss, capture
@@ -381,35 +425,49 @@ AC-7: One listener owner, late cleanup, close/reopen, explicit recovery and defa
 external tools remain correct; Thai/light/dark/focus and lazy local boot stay usable.
 SC: all selected AC have passing reproducible evidence at one integrated revision;
 zero cross-recording leaks; measured bounded playback buffers; zero new renderer fetch.
-Documentation exit: this candidate plus worker report delivered and references checked.
+Documentation exit: this coherence amendment plus worker report is delivered for
+independent Terra review and references are checked; it is not self-accepted.
 Implementation exit: reviewed selected contracts, tests/build and native evidence pass;
 provider/device/CI exclusions remain explicit; release requires separate authority.
 
-Boss checklist (choices pending; drafting is already authorized):
-- [ ] Select B recommended, including native compatible PCM playback and new scoped ask.
-- [ ] Or select A fallback with unavailable history/playback and honest legacy Q&A scope.
-- [ ] For B, accept unsupported-format states; all-format decoding remains excluded.
-- [ ] For B, approve SEC-1 and SEC-2 exact file/security scope; for either, approve UI-1.
-- [ ] Approve coherent UX/acceptance versions and revised leases before product code.
+Current approval disposition (see the [current approval
+record](../verification/implementation-reports/2026-09-17-callmd-approval.md)):
+
+- [x] P1-B selected: history, compatible native PCM16 WAV playback, and recording-scoped Q&A.
+- [x] Unsupported-format/device states, SEC-1/SEC-2, and UI-1 remain exact bounded scope.
+- [x] Scoped SVG/PNG delivery, exact baseline preservation repair, and the interface-first fork/join are approved.
+- [ ] Independent amendment coherence review and downstream implementation/review gates remain open.
 
 UNKNOWN: output-device format availability, native timing/performance, capture-stop
 admission under the active:true/stopping:true interval, packaged command authorization
 behavior, and old-ledger path compatibility; these need implementation verification.
-The cpal/hound declarations and current PCM16 source shape support the proposed
+The cpal/hound declarations and current PCM16 source shape support the selected
 boundary but do not prove device acceptance, callback behavior, or race safety. No
 schema extension is needed for selected B semantics. If per-recording artifact
 provenance or persisted live history is required, that is a separate decision.
-NOT_RUN: product tests/build/runtime/provider/network/CI, independent review, feature
-selection and implementation approval. Static documentation checks are in the report.
+NOT_RUN: product tests/build/runtime/provider/network/CI and native/device evidence.
+Independent amendment review and downstream implementation/review gates remain
+pending. Feature selection/approval is recorded in the current approval record;
+static documentation checks are in the worker report.
 
 ## Version diff and changelog
+
+0.1.2b → 0.1.3b: reconcile section 10 shorthand with accepted P1-B intent,
+FIX1 consumer types and the shared-contract RCA. This is documentation fidelity,
+not a new feature or native interface change; native command/DTO/security/test
+inputs remain unchanged. Shared review verifies this bounded reconciliation.
 
 new → 0.1.0b: concrete A/B contracts, bounded native PCM design, graph/live-tail guard,
 cursor/recovery rules, shared props, exclusive partitions and named approval items.
 0.1.0b → 0.1.1b: final coherence corrections for legacy no-match semantics,
 stop-request versus inactive capture, current API limits, candidate lease wording,
 and explicit native-feasibility unknowns.
+0.1.1b → 0.1.2b: align current approval authority and the approved
+`CONTRACT_TEST_REVIEW → BACKEND_INTERFACE_REVIEW` fork; preserve native review,
+three-worker/disjoint-lease limits, and all existing command/resource/security scope.
 | Version | Date | Status | Summary | Commit | Agent |
 |---|---|---|---|---|---|
-| 0.1.1b | 2026-09-17 | candidate | Final bounded coherence corrections; A/B and code remain unapproved | UNCOMMITTED; base c378af9 | Codex contract worker |
+| 0.1.3b | 2026-09-17 | candidate | Align section 10 shorthand with reviewed FIX1 consumer types and approved lifecycle/error requirements; native interface/security unchanged | UNCOMMITTED; base 376ef30 | Codex orchestrator |
+| 0.1.2b | 2026-09-17 | candidate | Approved-scope interface-first scheduling/test-boundary amendment; independent Terra review pending | UNCOMMITTED; base 376ef30 | Luna max worker |
+| 0.1.1b | 2026-09-17 | candidate | Final bounded coherence corrections; prior A/B and code-approval wording retained as historical provenance | UNCOMMITTED; base c378af9 | Codex contract worker |
 | 0.1.0b | 2026-09-17 | candidate | Initial architecture/interface proposal | UNCOMMITTED; base c378af9 | Codex contract worker |

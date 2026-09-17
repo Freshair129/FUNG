@@ -5,6 +5,8 @@ import "./InstrumentRail.css";
 interface InstrumentRailProps {
   recording: boolean;
   onRecord: () => void;
+  onStop: () => void;
+  onOpenReview: () => void;
   onImport: () => void;
   importDisabled: boolean;
   onExport: () => void;
@@ -46,6 +48,8 @@ function VuBar({ id }: { id: string }) {
 export function InstrumentRail({
   recording,
   onRecord,
+  onStop,
+  onOpenReview,
   onImport,
   importDisabled,
   onExport,
@@ -79,8 +83,9 @@ export function InstrumentRail({
           <button
             type="button"
             className={`instrument-rail__button ${recording ? "is-active" : ""}`}
-            aria-label={recording ? "Pause recording" : "Start recording"}
-            onClick={onRecord}
+            aria-label={recording ? "Stop recording" : "Start recording"}
+            title={recording ? "Stop the active recording" : "Start a new recording"}
+            onClick={recording ? onStop : onRecord}
           >
             <Circle size={18} fill={recording ? "currentColor" : "none"} />
           </button>
@@ -97,9 +102,9 @@ export function InstrumentRail({
           <button
             type="button"
             className="instrument-rail__button"
-            aria-label="Playback unavailable"
-            title="No local playback in this desktop build"
-            disabled
+            aria-label="Open recording review"
+            title="Open recording review and native playback"
+            onClick={onOpenReview}
           >
             <Play size={18} />
           </button>

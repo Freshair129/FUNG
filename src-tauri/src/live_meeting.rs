@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -63,6 +63,7 @@ pub(crate) const CHANNEL_SYSTEM: &str = "system";
 /// Rolling in-memory window of the newest live segments. Shared with the
 /// topic tracker and `meeting_ask` so they never need a mid-session DB read.
 pub(crate) type SharedRecent = Arc<Mutex<std::collections::VecDeque<RecentSegment>>>;
+pub(crate) type LiveState = Arc<Mutex<Option<LiveSessionControl>>>;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -84,6 +85,32 @@ pub(crate) struct LiveSessionControl {
     pub(crate) job_id: String,
     pub(crate) recent: SharedRecent,
     pub(crate) started_at: Instant,
+    pub(crate) coordinator: Option<JoinHandle<()>>,
+}
+
+/// Keeps native capture ownership until the coordinator has finished closing
+/// the source streams, ledger capture and catch-up work.  A failed coordinator
+/// path also clears the visible live slot, so a failed start cannot strand the
+/// admission guard in an active state.
+struct CaptureRuntimeLease {
+    app: tauri::AppHandle,
+    guard: Arc<crate::recording_review::NativeCaptureGuard>,
+    recording_id: String,
+}
+
+impl Drop for CaptureRuntimeLease {
+    fn drop(&mut self) {
+        self.guard.release_capture();
+        if let Some(state) = self.app.try_state::<AppState>() {
+            let mut live = state.live.lock().expect("live session mutex poisoned");
+            if live
+                .as_ref()
+                .is_some_and(|session| session.recording_id == self.recording_id)
+            {
+                *live = None;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -860,8 +887,14 @@ fn spawn_coordinator(
     job_id: String,
     session_dir: PathBuf,
     stop: Arc<AtomicBool>,
-) {
+    native_capture: Arc<crate::recording_review::NativeCaptureGuard>,
+) -> JoinHandle<()> {
     thread::spawn(move || {
+        let capture_lease = CaptureRuntimeLease {
+            app: app.clone(),
+            guard: native_capture,
+            recording_id: recording_id.clone(),
+        };
         let mut capture_record = match genesis_adapter::capture(&storage, &recording_id) {
             Ok(record) => record,
             Err(error) => {
@@ -1012,6 +1045,7 @@ fn spawn_coordinator(
                         );
                         // Closes the capture threads; every chunk already cut
                         // stays on disk and in the ledger.
+                        capture_lease.guard.mark_capture_stopping();
                         stop.store(true, Ordering::SeqCst);
                     } else if free < LOW_DISK_WARN_BYTES && !low_disk_warned {
                         low_disk_warned = true;
@@ -1071,6 +1105,7 @@ fn spawn_coordinator(
             active_worker.shutdown();
         }
 
+        capture_lease.guard.mark_capture_stopping();
         let finished_at = now();
         capture_record.duration_ms = capture_record.duration_ms.max(max_end_ms);
         if let Err(error) = genesis_adapter::finish_capture(&storage, &capture_record, &finished_at)
@@ -1138,7 +1173,7 @@ fn spawn_coordinator(
             let mut live = state.live.lock().expect("live session mutex poisoned");
             *live = None;
         }
-    });
+    })
 }
 
 /// Maps a chunk filename back to the capture channel that wrote it.
@@ -1614,6 +1649,22 @@ pub(crate) fn live_meeting_start(
 ) -> AppResult<LiveStartOutput> {
     let capture_system = capture_system.unwrap_or(true);
 
+    let capture_reservation = match crate::recording_review::NativeCaptureGuard::reserve_capture(
+        Arc::clone(&state.native_capture),
+    ) {
+        Ok(reservation) => reservation,
+        Err(crate::recording_review::AdmissionError::PlaybackBusy) => {
+            return Err(AppError::InvalidInput(
+                "ปิดการเล่นเสียงก่อนเริ่มบันทึกประชุม".to_string(),
+            ));
+        }
+        Err(crate::recording_review::AdmissionError::CaptureActive) => {
+            return Err(AppError::InvalidInput(
+                "มีเซสชันประชุมสดทำงานอยู่แล้ว — หยุดเซสชันเดิมก่อน".to_string(),
+            ));
+        }
+    };
+
     {
         let live = state.live.lock().expect("live session mutex poisoned");
         if live.is_some() {
@@ -1754,7 +1805,21 @@ pub(crate) fn live_meeting_start(
     };
     drop(chunk_tx); // coordinator's Disconnected now depends only on channel threads
 
-    spawn_coordinator(
+    capture_reservation.commit_active();
+    {
+        let mut live = state.live.lock().expect("live session mutex poisoned");
+        *live = Some(LiveSessionControl {
+            stop: stop.clone(),
+            project_id: project_id.clone(),
+            recording_id: recording_id.clone(),
+            job_id: job_id.clone(),
+            recent: recent.clone(),
+            started_at: Instant::now(),
+            coordinator: None,
+        });
+    }
+
+    let coordinator = spawn_coordinator(
         app.clone(),
         state.genesis.clone(),
         state.whisper_runtime_clone(),
@@ -1766,7 +1831,32 @@ pub(crate) fn live_meeting_start(
         job_id.clone(),
         session_dir.clone(),
         stop.clone(),
+        Arc::clone(&state.native_capture),
     );
+    let mut cleanup_coordinator = None;
+    {
+        let mut live = state.live.lock().expect("live session mutex poisoned");
+        if let Some(session) = live
+            .as_mut()
+            .filter(|session| session.recording_id == recording_id)
+        {
+            if session.stop.load(Ordering::Acquire) {
+                cleanup_coordinator = Some(coordinator);
+            } else {
+                session.coordinator = Some(coordinator);
+            }
+        } else {
+            cleanup_coordinator = Some(coordinator);
+        }
+    }
+    if let Some(coordinator) = cleanup_coordinator {
+        stop.store(true, Ordering::SeqCst);
+        let _ = spawn_capture_cleanup(
+            Arc::clone(&state.live),
+            Arc::clone(&state.native_capture),
+            coordinator,
+        );
+    }
 
     meeting_intel::spawn_topic_tracker(
         app.clone(),
@@ -1775,18 +1865,6 @@ pub(crate) fn live_meeting_start(
         stop.clone(),
         recording_id.clone(),
     );
-
-    {
-        let mut live = state.live.lock().expect("live session mutex poisoned");
-        *live = Some(LiveSessionControl {
-            stop,
-            project_id: project_id.clone(),
-            recording_id: recording_id.clone(),
-            job_id: job_id.clone(),
-            recent,
-            started_at: Instant::now(),
-        });
-    }
 
     emit_status(
         &app,
@@ -1807,12 +1885,77 @@ pub(crate) fn live_meeting_start(
     })
 }
 
+fn spawn_capture_cleanup(
+    live_state: LiveState,
+    native_capture: Arc<crate::recording_review::NativeCaptureGuard>,
+    coordinator: JoinHandle<()>,
+) -> Option<JoinHandle<()>> {
+    match thread::Builder::new()
+        .name("fung-live-shutdown-cleanup".to_string())
+        .spawn(move || {
+            let _ = coordinator.join();
+            native_capture.release_capture();
+            *live_state.lock().expect("live session mutex poisoned") = None;
+        }) {
+        Ok(cleanup) => Some(cleanup),
+        Err(error) => {
+            eprintln!("live capture cleanup could not be scheduled: {error}");
+            // The coordinator was not joined, so the admission lease remains
+            // closed. Releasing it here would permit a late stream to overlap
+            // a new capture.
+            None
+        }
+    }
+}
+
+/// Requests capture shutdown and transfers coordinator ownership to an
+/// off-dispatch cleanup thread. The native admission lease is released only
+/// after that coordinator has quiesced.
+fn shutdown_capture(
+    live_state: &LiveState,
+    native_capture: &Arc<crate::recording_review::NativeCaptureGuard>,
+) -> Option<JoinHandle<()>> {
+    let (coordinator, had_session) = {
+        let mut live = live_state.lock().expect("live session mutex poisoned");
+        match live.as_mut() {
+            Some(session) => {
+                session.stop.store(true, Ordering::SeqCst);
+                native_capture.mark_capture_stopping();
+                (session.coordinator.take(), true)
+            }
+            None => (None, false),
+        }
+    };
+
+    if let Some(coordinator) = coordinator {
+        spawn_capture_cleanup(
+            Arc::clone(live_state),
+            Arc::clone(native_capture),
+            coordinator,
+        )
+    } else if !had_session {
+        native_capture.release_capture();
+        None
+    } else {
+        // No handle means ownership could not be proven quiescent.  Keep the
+        // admission lease closed rather than allowing a late coordinator to
+        // overlap a new native session.
+        eprintln!("live capture coordinator handle was unavailable during shutdown");
+        None
+    }
+}
+
+pub(crate) fn shutdown(state: &AppState) {
+    let _ = shutdown_capture(&state.live, &state.native_capture);
+}
+
 #[tauri::command]
 pub(crate) fn live_meeting_stop(state: State<'_, AppState>) -> AppResult<String> {
     let live = state.live.lock().expect("live session mutex poisoned");
     match live.as_ref() {
         Some(session) => {
             session.stop.store(true, Ordering::SeqCst);
+            state.native_capture.mark_capture_stopping();
             Ok(session.recording_id.clone())
         }
         None => Err(AppError::InvalidInput(
@@ -1873,6 +2016,54 @@ mod tests {
         assert_eq!(channel_for_file_name("other-00001.wav"), None);
         assert_eq!(channel_for_file_name("mic.wav"), None);
         assert_eq!(channel_for_file_name("notes.txt"), None);
+    }
+
+    #[test]
+    fn shutdown_keeps_capture_admission_until_coordinator_quiesces() {
+        let guard = Arc::new(crate::recording_review::NativeCaptureGuard::default());
+        guard.try_start_capture().unwrap();
+        guard.mark_capture_active();
+        let stop = Arc::new(AtomicBool::new(false));
+        let coordinator_stop = Arc::clone(&stop);
+        let (allow_tx, allow_rx) = mpsc::channel();
+        let coordinator = thread::spawn(move || {
+            while !coordinator_stop.load(Ordering::Acquire) {
+                thread::yield_now();
+            }
+            allow_rx.recv().unwrap();
+        });
+        let live = Arc::new(Mutex::new(Some(LiveSessionControl {
+            stop,
+            project_id: "p1".to_string(),
+            recording_id: "r1".to_string(),
+            job_id: "j1".to_string(),
+            recent: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            started_at: Instant::now(),
+            coordinator: Some(coordinator),
+        })));
+        let cleanup = shutdown_capture(&live, &guard).unwrap();
+
+        let deadline = Instant::now() + Duration::from_millis(100);
+        while guard.capture_phase() != crate::recording_review::CapturePhase::Stopping
+            && Instant::now() < deadline
+        {
+            thread::yield_now();
+        }
+        assert_eq!(
+            guard.capture_phase(),
+            crate::recording_review::CapturePhase::Stopping
+        );
+        assert_ne!(
+            guard.capture_phase(),
+            crate::recording_review::CapturePhase::Inactive
+        );
+        allow_tx.send(()).unwrap();
+        cleanup.join().unwrap();
+        assert_eq!(
+            guard.capture_phase(),
+            crate::recording_review::CapturePhase::Inactive
+        );
+        assert!(live.lock().unwrap().is_none());
     }
 
     /// Builds a recording with two chunks — one per channel, same time range —

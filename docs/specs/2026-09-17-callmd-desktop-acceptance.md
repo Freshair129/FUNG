@@ -1,55 +1,66 @@
 ---
-version: "0.1.1b"
+version: "0.1.3b"
 created_at: "2026-09-17T01:59:54.000+07:00,Codex DOC_ACCEPTANCE,c378af9fac3c00db063948f49f9ee857ebad9126"
-last_update: "2026-09-17T02:21:36+07:00,Codex DOC_ACCEPTANCE (fresh finalization)"
+last_update: "2026-09-17T03:35:50+07:00,Luna max worker"
 status: "candidate"
 superseded_by: null
-base_sha: "c378af9fac3c00db063948f49f9ee857ebad9126"
+base_sha: "376ef30db13670e4dea816ceff440f44ce73fffd"
 branch: "codex/callmd-ui-dag"
 attributes:
   domain: "desktop-acceptance"
   doc_type: "feature-specification"
-  scope: "P1-A versus P1-B acceptance and proposed baseline RCA; documentation only"
+  scope: "Approved P1-B acceptance, interface-first scheduling and proposed baseline RCA; documentation only"
   complexity: "C-3"
   risk: "MEDIUM documentation; HIGH proposed backend/security"
-  implementation_authority: "absent"
+  implementation_authority: "approved by cover v0.2.0b; downstream dependency/review gates remain required"
 ---
 
 # Call.md-inspired FUNG desktop acceptance plan
 
 ## 1. Authority, recommendation, and explicit choices
 
-Boss's “ap[prove” authorizes workflow v0.1.0b and this documentation wave.
-It selects neither P1-A nor P1-B and authorizes no executable tests, product code,
-CI repair, provider operation, commit, push, or deployment.
-The manifest records WORKFLOW accepted, with product_implementation_authorized=false.
-Its candidate metadata and earlier scan snapshots do not supersede the actual user instruction.
-The prior drafting checkpoint recorded 24 nodes/27 dependencies; the current manifest is authoritative at 25 nodes/28 edges. The gate scan's initial 22-node observation is historical.
-Evidence: docs/plans/2026-09-17-callmd-ui-task-dag.json:13,254-365;
-docs/verification/implementation-reports/2026-09-17-callmd-ui-orchestration.md:90-105.
+The current execution authority is the [current approval
+record](../verification/implementation-reports/2026-09-17-callmd-approval.md).
+Boss's `approve` authorizes feature cover v0.2.0b: full P1-B, scoped three-surface
+SVG/PNG delivery, the exact four-file baseline preservation repair, and the
+interface-first backend/UI fork-join. It does not authorize a security waiver,
+Drive restoration, cloud/schema/CSP expansion, commit, push, merge, release, or
+deployment. Product implementation remains gated by accepted dependencies and
+reviews; this document does not claim any product test, runtime, or native pass.
 
-Recommended choice: **P1-B**, a useful local review workspace with actual recording history,
-native desktop playback, and recording-scoped Q&A, contingent on the reviewed backend contract.
-Fallback choice: **P1-A**, resurface existing current-recording functions with honest unavailable
-history/playback and legacy local-knowledge Q&A with a scope caveat. Boss may select A without implying B exists.
+P1-B is selected: a useful local review workspace with actual recording history,
+native desktop playback, and recording-scoped Q&A. P1-A remains a historical
+fallback description, not the current selection. Earlier pending/unselected wording
+and the prior manifest counts below are retained as provenance only and are
+superseded by the current approval/manifest overlay.
+
+The current manifest overlay is authoritative at **26 nodes / 30 dependency edges**.
+Evidence: `docs/plans/2026-09-17-callmd-ui-task-dag.json` and
+`docs/plans/2026-09-17-callmd-ui-luna-max-dag-workflow.md`; the earlier 24/27,
+25/28 and 22-node observations remain historical review provenance.
 No new cloud/provider/schema; bookmarks, agenda, derived metrics, and proactive assistance stay P2.
 Retain Tauri/React/Rust/Genesis, FUNG identity, Thai-first copy, local access, existing auth custody,
 default-off external tools, approval boundaries, and canceled Drive.
-Every proposed behavior below is a candidate acceptance requirement, not an existing API.
+Every behavior below is an acceptance requirement for selected P1-B, not a claim
+that the corresponding API or runtime already exists.
 
 | Boss choice at feature approval | Recommended disposition | Effect on acceptance |
 |---|---|---|
-| A or B | B; A remains selectable | B-only ACs become N/A only with recorded explicit A selection |
-| Playback transport | PROPOSED native PCM16 player; Tauri controls/metadata only | DOC_REVIEW synchronizes SEC-1/SEC-2, authorization, frame seeks, gaps and cleanup |
+| A or B | B selected; A remains historical fallback | B-only ACs apply; A-only exclusions are not current scope |
+| Playback transport | Selected bounded native PCM16 player; Tauri controls/metadata only | Interface/backend review synchronizes SEC-1/SEC-2, authorization, frame seeks, gaps and cleanup |
 | Reopen semantics | Read persisted recording; never implicitly restart capture | Same isolation rules after close/reopen/restart |
 | Q&A scope | B: selected recording; A: local knowledge, project filter applies only to transcripts | B excludes graph/live tail; strict project isolation under A requires separately approved repair |
-| Baseline remediation | Separate bounded approval | Documentation may proceed; green baseline/code dispatch waits |
-| Artifact format and scope | Review scoped three-surface SVG/PNG boards for this wave | Boss explicitly accepts this candidate format/scope or requests the full brief package; no hidden waiver |
+| Baseline remediation | Separate exact bounded approval | Baseline remains its own lease/review; no scope expansion or gate weakening |
+| Artifact format and scope | Scoped three-surface SVG/PNG boards accepted for this P1 wave | This is an explicit format exception, not full Figma/Penpot or full-brief completion |
 
-The contract's native PCM transport is a concrete PROPOSED design awaiting Boss selection.
-DOC_REVIEW must resolve mechanism, DTO/error mapping, resource lifetime, and exact test mapping
-across the contracts, UX, and acceptance documents before APPROVAL can authorize affected code.
-A transport needing CSP/capability/schema expansion requires an explicit revised scope decision.
+The contract's native PCM transport is the selected bounded P1-B design, still subject
+to the accepted interface and backend/native review gates. The approved scheduling
+amendment places `BACKEND_INTERFACE_REVIEW` after `CONTRACT_TEST_REVIEW`; only after
+that accepted interface review may `BACKEND_RECORDING` and `SHARED_CONTRACT` start.
+The backend branch proceeds through `BACKEND_REVIEW` while the shared branch proceeds
+through `SHARED_REVIEW` and the UI lanes; `INTEGRATE` joins `BACKEND_REVIEW` and
+`UI_TASK_REVIEW`. Native behavior/security review is retained. A transport needing
+CSP/capability/schema expansion still requires an explicit revised scope decision.
 
 ## 2. Evidence and current capability boundary
 
@@ -190,27 +201,70 @@ Do not execute the absent test:google-drive or test:native-session-custody as if
 All 21 actual package test commands are inventoried; they cover existing contracts, not all proposed B behavior.
 Existing Node source assertions and mocked tests cannot establish native capture/audio/keyboard behavior.
 
-## 7. Future tests and ownership (all NEW; no files authored)
+## 7. Approved scheduling, test disposition, and ownership
+
+### 7.1 Interface-first fork/join
+
+The accepted order is `CONTRACT_TEST_REVIEW → BACKEND_INTERFACE_REVIEW`. The
+interface review freezes the exact command, DTO, error, ownership, security and
+resource contracts plus their test oracles. Only after that review is accepted may
+`BACKEND_RECORDING` and `SHARED_CONTRACT` start. The backend branch is
+`BACKEND_RECORDING → BACKEND_REVIEW`; the shared branch is
+`SHARED_CONTRACT → SHARED_REVIEW → UI_SHELL/UI_LIVE/UI_HISTORY → UI_TASK_REVIEW`.
+`INTEGRATE` requires both `BACKEND_REVIEW` and `UI_TASK_REVIEW`. Native behavior
+and security review is not removed by the interface review.
+
+At most three Luna workers are active in total, not three per branch. Parallel
+workers use isolated worktrees and disjoint write leases; UI work is queued when
+the cap or a dependency requires it. The baseline/CI/custody lease remains
+separate and this document does not alter workflow, manifest, ledger, product-test,
+CI or UX files.
+
+### 7.2 Test acceptance before and after native implementation
+
+Interface, pure DTO, and adapter tests may pass after the accepted interface review
+even when the Rust commands, native registration, or runtime are not yet present.
+Such a pass proves only the frozen wire/validation/adapter contract and preserves
+the exact existing command, DTO, security and resource scope; it is not native or
+runtime evidence.
+
+Integration and native-presence assertions are tracked separately. When an
+assertion executes and fails specifically because the selected implementation or
+native registration is not yet present, record `EXPECTED_RED_MISSING_IMPLEMENTATION`.
+That status is explicit and never green. A runner/import/setup failure is not an
+expected-red result: classify it as `BLOCKED_ENV` or `FAIL` with the actual error,
+and do not count it as a passing or meaningful implementation failure.
+
+Runtime/native gates remain with `BACKEND_RECORDING`/`BACKEND_REVIEW` and the
+integrated verification path. Mocked interface, pure DTO/adapter, or expected-red
+integration evidence never claims green Rust commands, native audio behavior,
+capture/playback admission, packaged runtime, device, or production readiness.
+
+### 7.3 Future tests and ownership (all NEW; no files authored)
 
 | Proposed NEW path | Future owner | Trace and meaningful assertion |
 |---|---|---|
-| tests/callmdDesktopContracts.test.mjs | CONTRACT_TESTS | AC-03–11,13; invalid pairs, selected-scope contract, stale completion and explicit unavailable/error distinctions |
+| tests/callmdDesktopContracts.test.mjs | CONTRACT_TESTS | AC-03–11,13; invalid pairs, selected-scope contract, stale completion and explicit unavailable/error distinctions; pure DTO/adapter PASS may precede Rust/native presence |
 | tests/callmdDesktopShell.test.mjs | UI_SHELL | AC-01,12,13; local bootstrap/actions, route/lazy preservation and accessible navigation |
 | tests/callmdLiveWorkspace.test.mjs | UI_LIVE | AC-02–05,09–11; lifecycle races, cleanup, provenance and summary exclusions |
 | tests/callmdRecordingReview.test.mjs | UI_HISTORY | AC-03–12; A restrictions or B history/player/Q&A state transitions and project export label |
 | src-tauri/src/recording_review.rs (NEW module, colocated tests) | BACKEND_RECORDING | AC-07–10,13; actual native pair/path/range/channel authorization and durable reads |
-| src-tauri/src/desktop_playback.rs (NEW module, colocated tests) | BACKEND_RECORDING; proposed SEC-1 lease addition | AC-08,10,11,13; PCM formats/gaps/frame seek/owner/epoch/resource behavior |
-| tests/callmdDesktopIntegration.test.mjs | INTEGRATE; proposed lease addition | AC-01–13 as selected; mounted ownership, action binding, lazy paths and player/capture exclusion |
+| src-tauri/src/desktop_playback.rs (NEW module, colocated tests) | BACKEND_RECORDING; approved SEC-1 bounded lease | AC-08,10,11,13; PCM formats/gaps/frame seek/owner/epoch/resource behavior |
+| tests/callmdDesktopIntegration.test.mjs | INTEGRATE; approved bounded lease | AC-01–13 as selected; mounted ownership, action binding, lazy paths and player/capture exclusion; native-presence gaps are explicit expected-red until integrated |
 
-Existing src-tauri/src/meeting_intel.rs may receive scoped retrieval tests only in an approved backend lease.
-The original manifest proposes the first five paths; E10 adds the player/integration-test paths.
+Existing src-tauri/src/meeting_intel.rs may receive scoped retrieval tests only in the approved backend lease.
+The current manifest retains the first five paths; E10 adds the player/integration-test paths.
 E10 also assigns src-tauri/src/live_meeting.rs admission to BACKEND_RECORDING (SEC-2),
 src/components/LiveMeetingPanel.css to UI_LIVE and src/components/InstrumentRail.tsx to INTEGRATE (UI-1).
-These exact additions match the manifest's candidate SEC-1/SEC-2/UI-1 leases and require orchestrator lease/DAG revision and named approval before dispatch.
+These exact additions match the current approved SEC-1/SEC-2/UI-1 bounded leases;
+dispatch still requires the accepted interface/dependency gates and exact lease
+transfer. This amendment does not change their file or security scope.
 NEW means planned, actual yet UNWRITTEN—not existing/passing; no directory wildcard grants these added paths.
 Do not add invented npm script names now. INTEGRATE owns package/CI wiring after test files exist.
 Behavioral tests must fail for wrong-pair context/audio and stale results, not merely search for labels.
-Mocked DTO/bridge tests precede backend/UI work; Rust authorization and real native runs complete proof.
+Mocked DTO/bridge tests may precede backend/UI work after interface review; Rust
+authorization, native-presence checks and real native runs complete proof. A pure
+or expected-red result never promotes runtime/native status.
 The current manifest test-runtime contract is Node's existing runner; browser-only TSX interaction tests
 may need an explicitly reviewed harness; until available, the test harness and native interaction remain NOT_RUN.
 No dependency installation or assertion weakening is authorized to make a candidate appear green.
@@ -267,8 +321,10 @@ first identify the actual native authorization assertions/command under the acce
 Replace the stale invocation with an existing verified equivalent, or approve retirement with explicit
 coverage evidence; if no equivalent exists, return a new bounded custody-test proposal for approval.
 No silent deletion of a security gate and no dummy package script to hide failure.
-**Separate approval/exit:** Boss approves exact baseline diff/RCA scope; BASELINE alone owns
-.github/workflows/ci.yml, tests/ciCoverage.test.mjs and the future
+**Separate approval/exit:** Boss has approved the exact baseline diff/RCA scope; BASELINE alone owns
+.github/workflows/ci.yml, tests/ciCoverage.test.mjs,
+tests/nativeSessionCustody.test.mjs, and only the relevant custody test script in
+package.json, plus the future
 .brain/rca/2026-09-17-callmd-baseline-gates.md plus its report. This wave creates none of them.
 Exit requires closure in both directions, negative regression tests, preserved custody proof,
 required baseline suites, BASELINE_REVIEW, and a lease release before INTEGRATE touches CI.
@@ -284,9 +340,10 @@ Bundled sharp was reported available for UX rendering; this worker has not rende
 Check each generated PNG against its source SVG, declared dimensions, clipping and Thai glyphs;
 record renderer/version, output digest and actual scale. Do not label an unverified image “2x”.
 These boards are reviewable candidates, not the full brief §9.1 Figma/Penpot + 2x/all-screens delivery.
-Approval must explicitly select “accept scoped SVG/PNG for this documentation wave” or
-“require the full design-source/export package”; retain outstanding full-brief deliverables either way.
-No format choice grants implementation authority or changes mobile/web product scope.
+The current approval record explicitly accepts scoped SVG/PNG for this P1
+documentation wave; the full design-source/export package remains outside this
+scope and is not complete. This format acceptance grants no new implementation
+authority and does not change mobile/web product scope.
 DOC_UX artifacts must map each selected screen/control to AC IDs and E1–E5/current or PROPOSED contract.
 For each selected desktop screen, inspect low-fi hierarchy plus light/dark high-fi variants across
 normal/empty/loading/error; include live idle/listening/degraded/stopped and A/B capability labels.
@@ -301,28 +358,48 @@ Missing interaction tooling is an explicit limitation, not permission to claim k
 Preserved settings/pairing/recovery/export surfaces need reachability evidence; broader redesign-brief
 mobile/landing deliverables remain outside this selected desktop slice and require their own review.
 DOC_REVIEW checks cross-document transport/scope/AC alignment, fixture/test ownership and exact file
-leases; return mismatches to the responsible worker. Boss then selects A/B and approves exact digests.
+leases; return mismatches to the responsible worker. The current approval record
+binds the selected B scope and exact approved boundaries; this amendment still
+requires independent review before downstream dispatch.
 Any semantic input change invalidates dependent tests/reviews; fresh bounded fixers get at most
 three unsuccessful cycles before escalation. The orchestrator does not repair implementation.
 
 ## 11. Current outcome, unknowns, version diff and changelog
 
-Draft AC: both choices, every feature row, baseline RCA, environment/lease gates and artifact limits exist.
-Draft SC: source command inventory is checked; no product execution or approval is represented as PASS.
-Draft exit: deliver this candidate and its report for DOC_REVIEW; no self-acceptance or code dispatch.
-Open choices: A/B, synchronized native transport details, custody-remediation disposition,
-SEC-1/SEC-2/UI-1 and lease additions, and scoped three-surface SVG/PNG versus full-brief delivery.
-Unknown: current toolchain/hardware/profile isolation and compatible interaction harness; no probes run.
-NOT_RUN: scope selection, test harness execution, all product tests/builds, native/audio/device/browser/hosted CI, Terra DOC_REVIEW and feature approval.
+Current AC: selected P1-B behavior rows, baseline RCA boundary, environment/lease
+gates, artifact limits, interface-first fork/join, and explicit test-status rules
+are recorded. Current SC: static documentation coherence is checked; no product
+execution, runtime/native, or production readiness is represented as PASS.
+Current exit: deliver this amendment and its report for independent Terra review;
+there is no self-acceptance or automatic code dispatch.
+Open implementation gates: accepted interface review, backend/native review, shared/UI
+reviews, integration verification, and all required runtime/device/CI evidence.
+Unknown: current toolchain/hardware/profile isolation and compatible interaction harness;
+no product probes run in this documentation amendment.
+NOT_RUN: product tests/builds, native/audio/device/browser/hosted CI, independent
+amendment review, and downstream implementation/review gates. Feature selection,
+scoped SVG/PNG acceptance, and the exact baseline scope are recorded in the current
+approval record.
 ## Version Diff
 
 0.1.0b → 0.1.1b: metadata clarification records the 24-node drafting checkpoint versus the authoritative 25-node/28-edge manifest, with CONTRACT_TEST_REVIEW and review-readiness clarification; product version unchanged.
 Draft synchronization: native PCM/seek/gap/ownership tests and legacy Q&A caveat match E10;
-review waveform is explicitly unavailable; scoped SVG/PNG format remains a Boss choice.
+review waveform is explicitly unavailable; scoped SVG/PNG format is accepted for
+this P1 documentation wave, while full-brief design-source delivery remains out of scope.
+0.1.1b → 0.1.2b: align current approval authority, accepted scoped SVG/PNG
+exception, and the approved `CONTRACT_TEST_REVIEW → BACKEND_INTERFACE_REVIEW`
+fork/join; preserve native review, the three-worker/disjoint-lease limit, and all
+existing command/DTO/security/resource acceptance boundaries.
+0.1.2b → 0.1.3b: FIX1 completes the exact four baseline source paths by adding
+tests/nativeSessionCustody.test.mjs and only the relevant custody test script in
+package.json; existing CI, coverage, RCA/report, and all approved boundaries remain
+unchanged. No semantic scope, waiver, or Drive change.
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.1.3b | 2026-09-17 | candidate | FIX1 corrected the exact four baseline source-path inventory; existing CI, coverage, RCA/report, and approved boundaries preserved; no semantic change | UNCOMMITTED; base 376ef30 | Luna max worker |
+| 0.1.2b | 2026-09-17 | candidate | Approved-scope interface-first scheduling and explicit pure/expected-red/native test disposition; independent Terra review pending | UNCOMMITTED; base 376ef30 | Luna max worker |
 | 0.1.1b | 2026-09-17 | candidate | Metadata clarification: historical 24-node drafting checkpoint versus authoritative 25-node/28-edge manifest; CONTRACT_TEST_REVIEW/review-readiness clarification; actual NOT_RUN boundaries retained | UNCOMMITTED; base c378af9fac3c00db063948f49f9ee857ebad9126 | Codex DOC_ACCEPTANCE |
 | 0.1.0b | 2026-09-17 | candidate | P1-A/B AC/SC/exit, isolation/audio/UX matrix, commands/environments, proposed baseline RCA | UNCOMMITTED; base c378af9fac3c00db063948f49f9ee857ebad9126 | Codex DOC_ACCEPTANCE |

@@ -1,10 +1,10 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-09-17T02:07:29+07:00"
-last_update: "2026-09-17T02:07:29+07:00"
+last_update: "2026-09-17T03:18:33+07:00,Luna max worker"
 status: candidate
 superseded_by: null
-base_sha: c378af9fac3c00db063948f49f9ee857ebad9126
+base_sha: 376ef30db13670e4dea816ceff440f44ce73fffd
 branch: codex/callmd-ui-dag
 attributes:
   doc_type: desktop-ux-spec
@@ -18,22 +18,37 @@ attributes:
 
 ## 1. Authority and review decision
 
-Boss's “ap[prove” approves workflow v0.1.0b and this documentation wave.
-Feature selection and product implementation remain unapproved.
-All B interfaces, navigation behavior changes, and visual changes below are PROPOSED.
-This package proposes a reviewable outcome, not proof that B exists.
+The current execution authority is the [current approval
+record](../verification/implementation-reports/2026-09-17-callmd-approval.md).
+Boss's `approve` authorizes feature cover v0.2.0b: full P1-B, this scoped
+three-surface SVG/PNG package, the exact four-file baseline preservation repair,
+and the interface-first backend/UI fork-join. It does not authorize a security
+waiver, Drive restoration, cloud/schema/CSP expansion, commit, push, merge,
+release, or deployment.
+
+P1-B is selected. The visual package remains a design specification, not runtime
+proof; product implementation and native/runtime evidence remain gated by the
+accepted interface, backend, shared/UI, integration and verification reviews.
+All B interfaces and navigation behavior below are the selected candidate contract
+surface for those gates. Earlier unapproved wording is retained only as review
+provenance and is superseded by the current approval record.
 No cloud/provider/schema addition, Drive work, P2 bookmarks/agenda/metrics,
 proactive assists, sentiment scoring, or copied Call.md branding is included.
 
 | Boss choice | Result | Tradeoff |
 |---|---|---|
-| P1-B — recommended | Existing local UI plus real multi-recording history, native compatible PCM playback, recording-scoped Q&A | Requires reviewed HIGH-risk backend/admission contracts before UI implementation. |
-| P1-A — selectable fallback | Existing local/current-recording resurface; playback unavailable; legacy knowledge search accurately labeled | Smaller backend scope; cannot promise historical recording selection or isolated Q&A. |
+| P1-B — selected | Existing local UI plus real multi-recording history, native compatible PCM playback, recording-scoped Q&A | `BACKEND_INTERFACE_REVIEW` must be accepted before both `BACKEND_RECORDING` and `SHARED_CONTRACT`; backend implementation/review and shared bridge/review/UI then proceed in parallel under disjoint leases. |
+| P1-A — historical fallback | Existing local/current-recording resurface; playback unavailable; legacy knowledge search accurately labeled | Not the current selection; cannot promise historical recording selection or isolated Q&A. |
 
-B is recommended because choosing a past meeting, listening, and asking about
-that exact recording form one coherent review journey. A remains a valid explicit
-choice; workflow approval selects neither. Reopen means reading a durable recording,
-never restarting capture or reconstructing an unverified live-session epoch.
+B is selected because choosing a past meeting, listening, and asking about that
+exact recording form one coherent review journey. The approved order is
+`CONTRACT_TEST_REVIEW → BACKEND_INTERFACE_REVIEW`, then
+`BACKEND_RECORDING → BACKEND_REVIEW` in parallel with
+`SHARED_CONTRACT → SHARED_REVIEW → UI_SHELL/UI_LIVE/UI_HISTORY → UI_TASK_REVIEW`.
+`INTEGRATE` joins `BACKEND_REVIEW` and `UI_TASK_REVIEW`; native review is retained.
+At most three Luna workers run at once in isolated worktrees with disjoint leases.
+Reopen means reading a durable recording, never restarting capture or reconstructing
+an unverified live-session epoch.
 
 ## 2. Evidence and precedence
 
@@ -66,12 +81,13 @@ Board annotations outside frames identify existing/proposed command scopes.
 | [states-light.svg](callmd-desktop/states-light.svg) | Nine labeled panels: each surface × empty/loading/error | [2× PNG](callmd-desktop/states-light.rendered-mockup.png) |
 | [states-dark.svg](callmd-desktop/states-dark.svg) | Same nine distinct states in dark | [2× PNG](callmd-desktop/states-dark.rendered-mockup.png) |
 
-FORMAT EXCEPTION FOR THIS WAVE: static editable SVG + combined 2× PNG boards,
-under the allocated callmd-desktop directory, replace neither the brief's
+FORMAT EXCEPTION ACCEPTED FOR THIS P1 WAVE: static editable SVG + combined 2× PNG
+boards, under the allocated callmd-desktop directory, replace neither the brief's
 Figma/Penpot component library nor its per-screen NN-screen-state folder exports.
 The state panels are compact state specifications, not nine additional 1280×800 screens.
-No Figma/Penpot handoff was created. Boss's feature-package review must acknowledge
-this limited format/coverage explicitly; it is not a waiver or completion of §9.1.
+No Figma/Penpot handoff was created. The current approval record accepts this
+limited format/coverage explicitly for this P1 wave; it is not a waiver or
+completion of §9.1.
 Fixture rows/transcripts/statuses are visibly marked DESIGN FIXTURE.
 The PNG suffix rendered-mockup identifies design rendering, never application evidence.
 
@@ -224,8 +240,10 @@ AC-UX5: exact editable/raster outputs and hashes reported; source review/render 
 separated from product tests, native behavior, CI, and full design-brief completion.
 SC: 5/5 SVGs parse; 5/5 PNGs render at 2×; visible dark Start label; zero copied Call.md
 assets/code, fabricated metrics, qualified-scope contradictions, or product file edits.
-Exit: hand off candidate documents and actual QA; retain Boss A/B and format decisions,
-independent DOC_REVIEW and all product checks as pending. No code authority follows.
+Exit: hand off this approved-scope design text and actual static QA; P1-B and the
+scoped SVG/PNG exception are recorded in the current approval record. Independent
+amendment review and all product/runtime/native checks remain pending. No runtime
+or production PASS follows from these boards.
 
 ## 12. Verification, unknowns and version diff
 
@@ -233,13 +251,17 @@ Local SVG/PNG results and SHA-256 hashes: [UX report](../verification/implementa
 Exact IBM Plex/DM Sans rendering, interactive accessibility, native PCM device compatibility,
 live capture/navigation behavior, integration tests, builds and hosted CI: UNKNOWN / NOT_RUN.
 The five boards do not verify runtime data or complete the global design brief.
-Boss choices pending: B versus A; B's native/security contract scope; this wave's format exception.
+P1-B, SEC-1/SEC-2/UI-1 boundaries, and the scoped SVG/PNG exception are approved;
+native interface/backend/UI/integration reviews and runtime evidence remain NOT_RUN.
 new → 0.1.0b: five static boards, corrected legacy knowledge-search scope, scoped B review,
 native format/admission constraints, preservation map, and review acceptance criteria.
+0.1.0b → 0.1.1b: align current approval authority and selected B order with the
+interface-first fork/join; record the accepted scoped format exception while
+preserving all visual semantics and the runtime NOT_RUN boundary.
 
 ## CHANGELOG
 
 | Version | Timestamp (+07:00) | Status | Change | Commit |
 |---|---|---|---|---|
+| 0.1.1b | 2026-09-17T03:18:33+07:00 | candidate | Approved-scope authority/order and scoped SVG/PNG acceptance alignment; visual assets and semantics unchanged; runtime remains NOT_RUN | UNCOMMITTED; base 376ef30 |
 | 0.1.0b | 2026-09-17T02:07:29+07:00 | candidate | Initial bounded desktop UX package; no product implementation | UNCOMMITTED; base c378af9 |
-

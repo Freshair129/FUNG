@@ -1,7 +1,7 @@
 ---
-version: "0.1.1b"
+version: "0.2.0b"
 created_at: "2026-09-17T02:06:26+07:00,Codex,c378af9fac3c00db063948f49f9ee857ebad9126"
-last_update: "2026-09-17T02:33:00+07:00,Codex"
+last_update: "2026-09-17T02:50:41.9616339+07:00,Codex"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -14,12 +14,23 @@ attributes:
 
 # ชุดอนุมัติ Call.md → FUNG Desktop P1
 
+## Execution approval — ปัจจุบัน
+
+Boss ตอบ `approve` อนุมัติชุด v0.2.0b นี้แล้ว: B ครบ, รูปแบบ SVG/PNG,
+baseline แบบคง native custody และแผน backend/UI ขนานหลังตรวจ interface
+ข้อเลือก/คำว่า proposal ด้านล่างเป็นประวัติชุดที่อนุมัติ ไม่ใช่คำถามที่ต้องถามซ้ำ
+กำลังทำ baseline ใน isolated worktree และปรับ coherence เอกสารก่อน review
+งานถัดไปต้องผ่าน dependency/review แต่ไม่ต้องขออนุมัติขอบเขตเดิมอีก
+ดู [บันทึกอนุมัติ](../verification/implementation-reports/2026-09-17-callmd-approval.md)
+ยังไม่อนุมัติ commit/push/release, schema/cloud/CSP expansion หรือยกเว้น security tests
+
 ## สถานะและสิ่งที่อนุมัติแล้ว
 
 Boss อนุมัติ **workflow** ด้วยข้อความ `ap[prove` แล้ว จึงเปิด Luna `max`
 สามสายทำสัญญา แบบ UI และเกณฑ์ทดสอบขนานกันได้
 ต่อมา Boss ระบุ `B: UI ใหม่ พร้อมประวัติบันทึก` จึงบันทึกการเลือก UI + history
-แล้ว แต่ยังไม่อนุมานการอนุมัติ player, recording Q&A หรือแก้ CI จากข้อความนี้
+แล้ว ต่อมา Boss ตอบ `ทำคู่กันแบบบขนาน` ยืนยันรวม player WAV และ recording Q&A
+ตามข้อเสนอ B แล้ว ไม่ต้องถามเลือกฟีเจอร์ซ้ำ แต่การแก้ CI เดิมยังเป็นขอบเขตแยก
 เอกสารนี้รวบรวมการตัดสินใจที่เหลือ ไม่สร้างสิทธิ์เพิ่มเอง
 
 ฐานงาน: `c378af9fac3c00db063948f49f9ee857ebad9126`
@@ -65,7 +76,7 @@ schema/migration หรือ Google Drive ที่ยกเลิกไปแ�
 ## รายการขอบเขตที่ต้องเลือกและอนุมัติ
 
 - **SCOPE:** Boss เลือก B โดยยืนยัน UI ใหม่ + ประวัติบันทึกแล้ว
-  รอยืนยันว่าจะรวม player/Q&A ด้วยหรือทำ UI + history ก่อน
+  และยืนยันรวม player WAV + recording Q&A ด้วยคำตอบ `ทำคู่กันแบบบขนาน`
 - **SEC-1 (B):** อนุมัติคำสั่ง local native/player และ ownership/limits ตาม
   contract รวม `recording_review.rs`, `desktop_playback.rs` และ `lib.rs`
   ไม่มี HTTP listener, media URL หรือ renderer fetch ใหม่
@@ -92,25 +103,56 @@ Independent Terra documentation review ให้ **PASS** ทั้งสาม�
 SHA-256 ของ frozen author artifacts ครบ 16 ไฟล์ตรงกัน อ่านผลพร้อม digests
 ใน [รายงานตรวจอิสระ](../verification/implementation-reports/2026-09-17-callmd-doc-review.md)
 ผลนี้รับรองความพร้อมของข้อเสนอ A/B สำหรับตัดสินใจ ไม่ใช่ผลทดสอบผลิตภัณฑ์
-หากเลือก UI + history โดยไม่รวม player/Q&A จะต้องปรับ candidate contract
-และ AC ให้ตรงขอบเขตนั้นก่อนส่ง worker เขียนโค้ด
+Boss ยืนยัน B ครบแล้วตาม [บันทึกการเลือก](../verification/implementation-reports/2026-09-17-callmd-approval.md)
+ก่อน dispatch โค้ดเหลือการยอมรับรูปแบบ SVG/PNG, อำนาจแก้ baseline แยก
+และการปรับ dependency ด้านล่างเพื่อให้ backend/UI ทำคู่กันได้จริง
 
 | Gate | สถานะ |
 |---|---|
 | Luna documentation wave | COMPLETED; fresh explicit Luna max dispatches; leases released |
 | Orchestrator structural / visual review | PASS (static); 25 nodes / 28 edges; 5 SVG + 5 PNG 2× |
 | Independent Terra DOC_REVIEW | PASS; actual Terra/high request recorded; reviewer closed |
-| Boss feature selection / code approval | UI + history selected; advanced scope and remaining approval items pending |
+| Boss feature selection / code approval | Full B confirmed; scoped format and separate baseline approval pending |
 | Product tests / build / native audio / hosted CI | NOT_RUN |
 
 ## ขั้นหลังอนุมัติ
 
-Baseline ที่อนุมัติ → contract tests → backend ตามตัวเลือก → review → shared
-bridge → Luna ขนาน Shell / Live / Review → Integration Luna → verification
-และ independent review โดย orchestrator ไม่แก้ implementation code เอง
+แผนเดิมรอ backend เสร็จก่อน shared bridge และ UI จึงยังไม่ทำ backend/UI
+คู่กันจริง ผลตรวจอยู่ใน [parallel readiness](../verification/implementation-reports/2026-09-17-callmd-parallel-readiness.md)
+เพื่อทำตามคำสั่งล่าสุด เสนอปรับโดยไม่ตัด review gate ดังนี้:
+
+1. Baseline ที่อนุมัติ → contract tests/review → เพิ่ม read-only
+   `BACKEND_INTERFACE_REVIEW` ตรึง command/DTO/error/ownership จากสเปกที่ตรวจแล้ว
+2. เปิดคู่กัน: `BACKEND_RECORDING → BACKEND_REVIEW` กับ
+   `SHARED_CONTRACT → SHARED_REVIEW → UI_SHELL || UI_LIVE || UI_HISTORY`
+   จำกัด Luna รวมไม่เกิน 3 ตัว จึงรอคิว UI บางตัวหาก backend ยังทำอยู่
+3. `INTEGRATE` ต้องรอทั้ง `BACKEND_REVIEW` และ `UI_TASK_REVIEW` จากนั้น
+   verification + independent integration review ตามเดิม
+
+การแก้ edge ที่เสนอ: เพิ่ม interface review หลัง contract-test review;
+ย้าย dependency ของ SHARED_CONTRACT จาก BACKEND_REVIEW ไป interface review;
+เพิ่ม BACKEND_REVIEW เป็น dependency ของ INTEGRATE โดยไม่ลบ node รีวิวเดิม
+ต้องปรับ contract/test acceptance ให้แยกการตรวจ interface ล่วงหน้าออกจาก
+ผล native implementation; mock/expected-red ไม่ใช่หลักฐาน runtime ผ่าน
+นี่เป็น **ข้อเสนอ** ยังไม่เปลี่ยน executable DAG 25 nodes/28 edges
+ใช้ isolated worktree และ exact file leases เหมือนเดิม; orchestrator ไม่แก้โค้ด
+
+ขอบเขต baseline ที่เสนอให้อนุมัติแยก:
+`.github/workflows/ci.yml`, `tests/ciCoverage.test.mjs`,
+`tests/nativeSessionCustody.test.mjs`, `package.json` เฉพาะ script/gate ที่เกี่ยวข้อง
+นำแนวแก้ stale CI ที่มีใน main `d10bbf8` มาใช้เฉพาะส่วนที่ตรวจแล้ว ไม่รวม main ทั้งก้อน
+คง/คืนการตรวจ native custody แบบไม่มี Drive และเพิ่มการตรวจ CI → script ย้อนกลับ
+ตาม [RCA](../../.brain/rca/2026-09-17-callmd-baseline-gates.md)
+ห้ามอ้างว่า coverage เดิมทดแทนครบเมื่อยังไม่มีหลักฐาน ไม่ลด security assertions
+
 การ commit/push/merge/release ต้องมีอำนาจแยก ไม่อนุมานจาก approval ชุดนี้
 
 ## Version Diff
+
+- `0.1.2b → 0.2.0b`: เสนอ interface-first fork/join สำหรับ backend/UI ขนานจริง
+  และ exact baseline repair scope; รออนุมัติก่อนใช้ dependency/lease ที่เปลี่ยน
+- `0.1.1b → 0.1.2b`: บันทึก B ครบทั้ง UI/history และ WAV/Q&A พร้อมคำสั่งทำขนาน
+  ไม่ถามเลือกฟีเจอร์ซ้ำ; baseline และรูปแบบส่งมอบยังแยกชัดเจน
 
 - `0.1.0b → 0.1.1b`: บันทึกผล independent review และการเลือก UI + history
   ของ Boss โดยไม่อนุมาน player/Q&A/CI authority
@@ -122,5 +164,7 @@ bridge → Luna ขนาน Shell / Live / Review → Integration Luna → veri
 
 | Version | Date | Status | Summary | Commit | Agent |
 |---|---|---|---|---|---|
+| 0.2.0b | 2026-09-17 | candidate | Propose safe backend/UI fork-join and exact baseline-only scope | UNCOMMITTED; base 376ef30 | Codex orchestrator |
+| 0.1.2b | 2026-09-17 | candidate | Record full B selection and parallel execution direction; preserve independent gates | UNCOMMITTED; base 376ef30 | Codex orchestrator |
 | 0.1.1b | 2026-09-17 | candidate | Record documentation PASS and Boss UI/history selection; remaining scope pending | UNCOMMITTED; base c378af9 | Codex orchestrator |
 | 0.1.0b | 2026-09-17 | candidate | Assemble feature approval packet; product code still unapproved | UNCOMMITTED; base c378af9 | Codex orchestrator |

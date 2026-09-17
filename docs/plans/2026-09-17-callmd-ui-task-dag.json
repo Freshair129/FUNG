@@ -1,16 +1,16 @@
 {
   "schema_version": "1.0",
-  "document_version": "0.1.3b",
+  "document_version": "0.2.2b",
   "status": "beta",
   "scope": "Call.md-inspired FUNG desktop P1; documentation-first",
   "base_sha": "c378af9fac3c00db063948f49f9ee857ebad9126",
   "branch": "codex/callmd-ui-dag",
-  "snapshot_at": "2026-09-17T02:33:00+07:00",
+  "snapshot_at": "2026-09-17T12:39:00+07:00",
   "max_parallel_workers": 3,
   "worker_model": "gpt-5.6-luna",
   "worker_reasoning_effort": "max",
   "orchestrator_code_writes": false,
-  "product_implementation_authorized": false,
+  "product_implementation_authorized": true,
   "policy": {
     "future_paths": "Candidate partitions. Freeze exact interfaces and write paths in DOC_CONTRACT and obtain APPROVAL before any code dispatch.",
     "runtime_binding": "Every dispatch binds base SHA, accepted dependency SHAs, approval digest, input hashes, isolated worktree and exclusive write lease. PLANNED nodes are not started agents.",
@@ -32,12 +32,13 @@
       "src/mobile/**"
     ],
     "no_automatic_commit_push_or_release": true,
-    "readiness": "All dependencies accepted, approval present for code, exact paths resolved, nonoverlapping leases, no unmet upstream gate, capacity available.",
+    "readiness": "All dependencies accepted, approval present for code, exact paths resolved, nonoverlapping leases, no unmet upstream gate, capacity available. Approved scheduling amendment coherence review must pass before new contract/native/shared dispatch; BASELINE uses separately approved RCA.",
     "code_selection": "APPROVAL must explicitly select or exclude missing desktop history/playback/recording-Q&A capabilities. Backend non-applicability is reviewable evidence, not a default skip or completed feature.",
     "shared_lease_transfers": [
       ".github/workflows/ci.yml: BASELINE -> INTEGRATE only after accepted review and lease release.",
       "src/tauri.ts: SHARED_CONTRACT -> INTEGRATE only after shared and UI reviews and lease release.",
-      "src-tauri/src/lib.rs and src-tauri/src/meeting_intel.rs: BACKEND_RECORDING only if explicitly approved; remain forbidden otherwise."
+      "src-tauri/src/lib.rs and src-tauri/src/meeting_intel.rs: BACKEND_RECORDING only if explicitly approved; remain forbidden otherwise.",
+      "package.json: BASELINE -> INTEGRATE only after accepted baseline review and released lease; baseline only adds custody test script."
     ],
     "control_plane_revision": "After proposal snapshot, record reason/time/changed fields/old-new digests and invalidated descendants for any orchestrator manifest revision. Editing approval metadata never grants approval.",
     "candidate_lease_amendments": {
@@ -56,7 +57,8 @@
         "tests/callmdDesktopIntegration.test.mjs"
       ]
     },
-    "review_readiness": "Read-only review nodes consume complete hash-pinned REVIEW handoffs with released write leases, or already ACCEPTED dependencies. They do not require their own future verdict first. Accepted review promotes corresponding worker inputs. Downstream write nodes still require ACCEPTED gates and explicit feature approval."
+    "review_readiness": "Read-only review nodes consume complete hash-pinned REVIEW handoffs with released write leases, or already ACCEPTED dependencies. They do not require their own future verdict first. Accepted review promotes corresponding worker inputs. Downstream write nodes still require ACCEPTED gates and explicit feature approval. VERIFY is also a read-only verification gate: frozen INTEGRATE REVIEW handoff with released source lease is sufficient for its predeclared report/generated-output lease; results remain REVIEW for independent integration review, never self-accepted.",
+    "uncommitted_worker_handoff": "No commit is authorized. Bind base SHA plus full exact accepted diff/artifact hashes. Integration/source transfer is performed by an authorized Luna owner and rechecked against reviewed bytes; controller does not author implementation edits."
   },
   "parallel_groups": [
     {
@@ -277,22 +279,43 @@
         }
       ],
       "evidence": {
-        "scope": "Frozen complete documentation delivery after fresh explicit requested Luna/max finalization; independent review pending; no runtime attestation inferred.",
         "artifacts": [
           {
             "path": "docs/specs/2026-09-17-callmd-desktop-contracts.md",
-            "sha256": "de58ed7ae872bd455b03f11be08fe9322a14177291246cc78861bd025eec44bb"
-          },
-          {
-            "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-contract.md",
-            "sha256": "eed5147f213d4fd82701ac31ddf91e1deb94df56e037ba35a54f5ba4014e1843"
+            "sha256": "e34b3727184ee99da3e689573163efd19f79f6bf81655ffd7b84175dc840ae7c"
           }
         ],
         "review": {
-          "node": "DOC_REVIEW",
+          "path": "docs/verification/implementation-reports/2026-09-17-callmd-parallel-amendment-review.md",
+          "sha256": "9281d93a695fc17a716a2619ce247e491b4be65554c753bfccc17eb37d8971d4",
           "verdict": "PASS",
-          "scope": "Documentation approval-readiness only; not feature approval or runtime verification."
+          "scope": "Document coherence only; current revision accepted, no native/runtime proof."
         }
+      },
+      "prior_evidence": [
+        {
+          "scope": "Frozen complete documentation delivery after fresh explicit requested Luna/max finalization; independent review pending; no runtime attestation inferred.",
+          "artifacts": [
+            {
+              "path": "docs/specs/2026-09-17-callmd-desktop-contracts.md",
+              "sha256": "de58ed7ae872bd455b03f11be08fe9322a14177291246cc78861bd025eec44bb"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-contract.md",
+              "sha256": "eed5147f213d4fd82701ac31ddf91e1deb94df56e037ba35a54f5ba4014e1843"
+            }
+          ],
+          "review": {
+            "node": "DOC_REVIEW",
+            "verdict": "PASS",
+            "scope": "Documentation approval-readiness only; not feature approval or runtime verification."
+          }
+        }
+      ],
+      "current_evidence": {
+        "path": "docs/specs/2026-09-17-callmd-desktop-contracts.md",
+        "sha256": "6f2b55293430048bfff08cc7b5914c06d85823c37a737d442fdb346f0ea55921",
+        "reason": "Section10 consumer shorthand fidelity only; Meitner read-only PASS."
       }
     },
     {
@@ -359,63 +382,79 @@
         }
       ],
       "evidence": {
-        "scope": "Frozen complete documentation delivery after fresh explicit requested Luna/max finalization; independent review pending; no runtime attestation inferred.",
         "artifacts": [
           {
             "path": "docs/design/2026-09-17-callmd-desktop-ui.md",
-            "sha256": "7ca72858ac69ed2427e9f5dc5d3c920e3f16b95e99dfbcb900a3a580b9e8aa96"
-          },
-          {
-            "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-ux.md",
-            "sha256": "e23932f4252dba529a869bd0dfc3ff0a2fd2b2d3d548a19f15f8115dd340662b"
-          },
-          {
-            "path": "docs/design/callmd-desktop/desktop-dark.rendered-mockup.png",
-            "sha256": "e3f9d456cf1f6041f48c8c049aa263ba8ecf4926c6efeef7186326a6ff1917fb"
-          },
-          {
-            "path": "docs/design/callmd-desktop/desktop-dark.svg",
-            "sha256": "018bf8c67f6946b81d714d540544efeab6a8d1ae8d125760c1b261c6bbf9dc36"
-          },
-          {
-            "path": "docs/design/callmd-desktop/desktop-light.rendered-mockup.png",
-            "sha256": "7bf0aca085b24de38f51e64e1add9e29b82e5d3cea1ab39e41eff34383589d82"
-          },
-          {
-            "path": "docs/design/callmd-desktop/desktop-light.svg",
-            "sha256": "556c7a85700cb5d30c3be4e2ebf7fdc338f9114aa4109103cab897ffc0ae5e11"
-          },
-          {
-            "path": "docs/design/callmd-desktop/states-dark.rendered-mockup.png",
-            "sha256": "afc22091b45d782e584953a4f62e3448475e4b9c6e29a89b6019a368cdbb9856"
-          },
-          {
-            "path": "docs/design/callmd-desktop/states-dark.svg",
-            "sha256": "584b4f8fc81fe6809f955656031d7a13200bdc23e5f5e88c8a62208d46fb08b2"
-          },
-          {
-            "path": "docs/design/callmd-desktop/states-light.rendered-mockup.png",
-            "sha256": "e79931d662afed7c5da9b6aaa22d06d3d0d933434725b72ba76c6dc8ad183f0a"
-          },
-          {
-            "path": "docs/design/callmd-desktop/states-light.svg",
-            "sha256": "be0bd749760f90ab0522d466a0d2be61c78307cbbba257a747d0c3ab6d13fb8e"
-          },
-          {
-            "path": "docs/design/callmd-desktop/wireframes.rendered-mockup.png",
-            "sha256": "17f19219c4a543ac34c2f4936b3ac00797f59f44db3196badd9ee15ea60517dc"
-          },
-          {
-            "path": "docs/design/callmd-desktop/wireframes.svg",
-            "sha256": "6f9725e4863a12712715926add2a682b97f6fc2a08d0201995695312ab6b7745"
+            "sha256": "191421d8b83275a441dbf8cd6de36476e9e7ec9e4e1a12e531f3fb074cd5c533"
           }
         ],
         "review": {
-          "node": "DOC_REVIEW",
+          "path": "docs/verification/implementation-reports/2026-09-17-callmd-parallel-amendment-review.md",
+          "sha256": "9281d93a695fc17a716a2619ce247e491b4be65554c753bfccc17eb37d8971d4",
           "verdict": "PASS",
-          "scope": "Documentation approval-readiness only; not feature approval or runtime verification."
+          "scope": "Document coherence only; current revision accepted, no native/runtime proof."
         }
-      }
+      },
+      "prior_evidence": [
+        {
+          "scope": "Frozen complete documentation delivery after fresh explicit requested Luna/max finalization; independent review pending; no runtime attestation inferred.",
+          "artifacts": [
+            {
+              "path": "docs/design/2026-09-17-callmd-desktop-ui.md",
+              "sha256": "7ca72858ac69ed2427e9f5dc5d3c920e3f16b95e99dfbcb900a3a580b9e8aa96"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-ux.md",
+              "sha256": "e23932f4252dba529a869bd0dfc3ff0a2fd2b2d3d548a19f15f8115dd340662b"
+            },
+            {
+              "path": "docs/design/callmd-desktop/desktop-dark.rendered-mockup.png",
+              "sha256": "e3f9d456cf1f6041f48c8c049aa263ba8ecf4926c6efeef7186326a6ff1917fb"
+            },
+            {
+              "path": "docs/design/callmd-desktop/desktop-dark.svg",
+              "sha256": "018bf8c67f6946b81d714d540544efeab6a8d1ae8d125760c1b261c6bbf9dc36"
+            },
+            {
+              "path": "docs/design/callmd-desktop/desktop-light.rendered-mockup.png",
+              "sha256": "7bf0aca085b24de38f51e64e1add9e29b82e5d3cea1ab39e41eff34383589d82"
+            },
+            {
+              "path": "docs/design/callmd-desktop/desktop-light.svg",
+              "sha256": "556c7a85700cb5d30c3be4e2ebf7fdc338f9114aa4109103cab897ffc0ae5e11"
+            },
+            {
+              "path": "docs/design/callmd-desktop/states-dark.rendered-mockup.png",
+              "sha256": "afc22091b45d782e584953a4f62e3448475e4b9c6e29a89b6019a368cdbb9856"
+            },
+            {
+              "path": "docs/design/callmd-desktop/states-dark.svg",
+              "sha256": "584b4f8fc81fe6809f955656031d7a13200bdc23e5f5e88c8a62208d46fb08b2"
+            },
+            {
+              "path": "docs/design/callmd-desktop/states-light.rendered-mockup.png",
+              "sha256": "e79931d662afed7c5da9b6aaa22d06d3d0d933434725b72ba76c6dc8ad183f0a"
+            },
+            {
+              "path": "docs/design/callmd-desktop/states-light.svg",
+              "sha256": "be0bd749760f90ab0522d466a0d2be61c78307cbbba257a747d0c3ab6d13fb8e"
+            },
+            {
+              "path": "docs/design/callmd-desktop/wireframes.rendered-mockup.png",
+              "sha256": "17f19219c4a543ac34c2f4936b3ac00797f59f44db3196badd9ee15ea60517dc"
+            },
+            {
+              "path": "docs/design/callmd-desktop/wireframes.svg",
+              "sha256": "6f9725e4863a12712715926add2a682b97f6fc2a08d0201995695312ab6b7745"
+            }
+          ],
+          "review": {
+            "node": "DOC_REVIEW",
+            "verdict": "PASS",
+            "scope": "Documentation approval-readiness only; not feature approval or runtime verification."
+          }
+        }
+      ]
     },
     {
       "id": "DOC_ACCEPTANCE",
@@ -480,23 +519,39 @@
         }
       ],
       "evidence": {
-        "scope": "Frozen complete documentation delivery after fresh explicit requested Luna/max finalization; independent review pending; no runtime attestation inferred.",
         "artifacts": [
           {
             "path": "docs/specs/2026-09-17-callmd-desktop-acceptance.md",
-            "sha256": "199521eea5b7793f9c9b29d354585888881aa4e988d44bf7fb0743d5d9a54206"
-          },
-          {
-            "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-acceptance.md",
-            "sha256": "81cf5c1edcbb855b2642559679ee2dba0fa6ee62dc7dba423120e3a9fc5ecd63"
+            "sha256": "8686bf25f8aa9accf170e4d41409dab777246178e942178dfee7ee656a0e613c"
           }
         ],
         "review": {
-          "node": "DOC_REVIEW",
+          "path": "docs/verification/implementation-reports/2026-09-17-callmd-parallel-amendment-review.md",
+          "sha256": "9281d93a695fc17a716a2619ce247e491b4be65554c753bfccc17eb37d8971d4",
           "verdict": "PASS",
-          "scope": "Documentation approval-readiness only; not feature approval or runtime verification."
+          "scope": "Document coherence only; current revision accepted, no native/runtime proof."
         }
-      }
+      },
+      "prior_evidence": [
+        {
+          "scope": "Frozen complete documentation delivery after fresh explicit requested Luna/max finalization; independent review pending; no runtime attestation inferred.",
+          "artifacts": [
+            {
+              "path": "docs/specs/2026-09-17-callmd-desktop-acceptance.md",
+              "sha256": "199521eea5b7793f9c9b29d354585888881aa4e988d44bf7fb0743d5d9a54206"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-acceptance.md",
+              "sha256": "81cf5c1edcbb855b2642559679ee2dba0fa6ee62dc7dba423120e3a9fc5ecd63"
+            }
+          ],
+          "review": {
+            "node": "DOC_REVIEW",
+            "verdict": "PASS",
+            "scope": "Documentation approval-readiness only; not feature approval or runtime verification."
+          }
+        }
+      ]
     },
     {
       "id": "DOC_REVIEW",
@@ -533,82 +588,90 @@
         "lease_state": "READ_ONLY_COMPLETED_CLOSED"
       },
       "evidence": {
-        "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-review.md",
-        "sha256": "635059dc8e65e18d699abd21cd374e5512e8614d1031c807abeba6dd46a9aeda",
+        "path": "docs/verification/implementation-reports/2026-09-17-callmd-parallel-amendment-review.md",
+        "sha256": "9281d93a695fc17a716a2619ce247e491b4be65554c753bfccc17eb37d8971d4",
         "verdict": "PASS",
-        "artifacts": [
-          {
-            "path": "docs/specs/2026-09-17-callmd-desktop-contracts.md",
-            "sha256": "de58ed7ae872bd455b03f11be08fe9322a14177291246cc78861bd025eec44bb"
-          },
-          {
-            "path": "docs/design/2026-09-17-callmd-desktop-ui.md",
-            "sha256": "7ca72858ac69ed2427e9f5dc5d3c920e3f16b95e99dfbcb900a3a580b9e8aa96"
-          },
-          {
-            "path": "docs/specs/2026-09-17-callmd-desktop-acceptance.md",
-            "sha256": "199521eea5b7793f9c9b29d354585888881aa4e988d44bf7fb0743d5d9a54206"
-          },
-          {
-            "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-contract.md",
-            "sha256": "eed5147f213d4fd82701ac31ddf91e1deb94df56e037ba35a54f5ba4014e1843"
-          },
-          {
-            "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-ux.md",
-            "sha256": "e23932f4252dba529a869bd0dfc3ff0a2fd2b2d3d548a19f15f8115dd340662b"
-          },
-          {
-            "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-acceptance.md",
-            "sha256": "81cf5c1edcbb855b2642559679ee2dba0fa6ee62dc7dba423120e3a9fc5ecd63"
-          },
-          {
-            "path": "docs/design/callmd-desktop/desktop-dark.rendered-mockup.png",
-            "sha256": "e3f9d456cf1f6041f48c8c049aa263ba8ecf4926c6efeef7186326a6ff1917fb"
-          },
-          {
-            "path": "docs/design/callmd-desktop/desktop-dark.svg",
-            "sha256": "018bf8c67f6946b81d714d540544efeab6a8d1ae8d125760c1b261c6bbf9dc36"
-          },
-          {
-            "path": "docs/design/callmd-desktop/desktop-light.rendered-mockup.png",
-            "sha256": "7bf0aca085b24de38f51e64e1add9e29b82e5d3cea1ab39e41eff34383589d82"
-          },
-          {
-            "path": "docs/design/callmd-desktop/desktop-light.svg",
-            "sha256": "556c7a85700cb5d30c3be4e2ebf7fdc338f9114aa4109103cab897ffc0ae5e11"
-          },
-          {
-            "path": "docs/design/callmd-desktop/states-dark.rendered-mockup.png",
-            "sha256": "afc22091b45d782e584953a4f62e3448475e4b9c6e29a89b6019a368cdbb9856"
-          },
-          {
-            "path": "docs/design/callmd-desktop/states-dark.svg",
-            "sha256": "584b4f8fc81fe6809f955656031d7a13200bdc23e5f5e88c8a62208d46fb08b2"
-          },
-          {
-            "path": "docs/design/callmd-desktop/states-light.rendered-mockup.png",
-            "sha256": "e79931d662afed7c5da9b6aaa22d06d3d0d933434725b72ba76c6dc8ad183f0a"
-          },
-          {
-            "path": "docs/design/callmd-desktop/states-light.svg",
-            "sha256": "be0bd749760f90ab0522d466a0d2be61c78307cbbba257a747d0c3ab6d13fb8e"
-          },
-          {
-            "path": "docs/design/callmd-desktop/wireframes.rendered-mockup.png",
-            "sha256": "17f19219c4a543ac34c2f4936b3ac00797f59f44db3196badd9ee15ea60517dc"
-          },
-          {
-            "path": "docs/design/callmd-desktop/wireframes.svg",
-            "sha256": "6f9725e4863a12712715926add2a682b97f6fc2a08d0201995695312ab6b7745"
+        "scope": "Document coherence only; current revision accepted, no native/runtime proof."
+      },
+      "prior_evidence": [
+        {
+          "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-review.md",
+          "sha256": "635059dc8e65e18d699abd21cd374e5512e8614d1031c807abeba6dd46a9aeda",
+          "verdict": "PASS",
+          "artifacts": [
+            {
+              "path": "docs/specs/2026-09-17-callmd-desktop-contracts.md",
+              "sha256": "de58ed7ae872bd455b03f11be08fe9322a14177291246cc78861bd025eec44bb"
+            },
+            {
+              "path": "docs/design/2026-09-17-callmd-desktop-ui.md",
+              "sha256": "7ca72858ac69ed2427e9f5dc5d3c920e3f16b95e99dfbcb900a3a580b9e8aa96"
+            },
+            {
+              "path": "docs/specs/2026-09-17-callmd-desktop-acceptance.md",
+              "sha256": "199521eea5b7793f9c9b29d354585888881aa4e988d44bf7fb0743d5d9a54206"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-contract.md",
+              "sha256": "eed5147f213d4fd82701ac31ddf91e1deb94df56e037ba35a54f5ba4014e1843"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-ux.md",
+              "sha256": "e23932f4252dba529a869bd0dfc3ff0a2fd2b2d3d548a19f15f8115dd340662b"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-doc-acceptance.md",
+              "sha256": "81cf5c1edcbb855b2642559679ee2dba0fa6ee62dc7dba423120e3a9fc5ecd63"
+            },
+            {
+              "path": "docs/design/callmd-desktop/desktop-dark.rendered-mockup.png",
+              "sha256": "e3f9d456cf1f6041f48c8c049aa263ba8ecf4926c6efeef7186326a6ff1917fb"
+            },
+            {
+              "path": "docs/design/callmd-desktop/desktop-dark.svg",
+              "sha256": "018bf8c67f6946b81d714d540544efeab6a8d1ae8d125760c1b261c6bbf9dc36"
+            },
+            {
+              "path": "docs/design/callmd-desktop/desktop-light.rendered-mockup.png",
+              "sha256": "7bf0aca085b24de38f51e64e1add9e29b82e5d3cea1ab39e41eff34383589d82"
+            },
+            {
+              "path": "docs/design/callmd-desktop/desktop-light.svg",
+              "sha256": "556c7a85700cb5d30c3be4e2ebf7fdc338f9114aa4109103cab897ffc0ae5e11"
+            },
+            {
+              "path": "docs/design/callmd-desktop/states-dark.rendered-mockup.png",
+              "sha256": "afc22091b45d782e584953a4f62e3448475e4b9c6e29a89b6019a368cdbb9856"
+            },
+            {
+              "path": "docs/design/callmd-desktop/states-dark.svg",
+              "sha256": "584b4f8fc81fe6809f955656031d7a13200bdc23e5f5e88c8a62208d46fb08b2"
+            },
+            {
+              "path": "docs/design/callmd-desktop/states-light.rendered-mockup.png",
+              "sha256": "e79931d662afed7c5da9b6aaa22d06d3d0d933434725b72ba76c6dc8ad183f0a"
+            },
+            {
+              "path": "docs/design/callmd-desktop/states-light.svg",
+              "sha256": "be0bd749760f90ab0522d466a0d2be61c78307cbbba257a747d0c3ab6d13fb8e"
+            },
+            {
+              "path": "docs/design/callmd-desktop/wireframes.rendered-mockup.png",
+              "sha256": "17f19219c4a543ac34c2f4936b3ac00797f59f44db3196badd9ee15ea60517dc"
+            },
+            {
+              "path": "docs/design/callmd-desktop/wireframes.svg",
+              "sha256": "6f9725e4863a12712715926add2a682b97f6fc2a08d0201995695312ab6b7745"
+            }
+          ],
+          "scope": "Independent documentation approval-readiness. NOT product acceptance.",
+          "finding": {
+            "id": "DOC-RVW-01",
+            "severity": "WARN",
+            "disposition": "Controller records requested Terra/high; frozen author files unchanged."
           }
-        ],
-        "scope": "Independent documentation approval-readiness. NOT product acceptance.",
-        "finding": {
-          "id": "DOC-RVW-01",
-          "severity": "WARN",
-          "disposition": "Controller records requested Terra/high; frozen author files unchanged."
         }
-      }
+      ]
     },
     {
       "id": "APPROVAL",
@@ -616,7 +679,7 @@
       "role": "boss",
       "model": null,
       "reasoning_effort": null,
-      "state": "WAITING_APPROVAL",
+      "state": "ACCEPTED",
       "depends_on": [
         "DOC_REVIEW"
       ],
@@ -634,7 +697,10 @@
         "Record actual user approval; never infer it from agent output."
       ],
       "code_writes": false,
-      "risk": "MEDIUM"
+      "risk": "MEDIUM",
+      "evidence": {
+        "scope": "Actual user approve of cover v0.2.0b and named baseline/design/parallel additions; downstream dependencies remain mandatory."
+      }
     },
     {
       "id": "BASELINE",
@@ -642,15 +708,16 @@
       "role": "worker",
       "model": "gpt-5.6-luna",
       "reasoning_effort": "max",
-      "state": "PLANNED",
+      "state": "ACCEPTED",
       "depends_on": [
         "APPROVAL"
       ],
       "writes": [
         ".github/workflows/ci.yml",
         "tests/ciCoverage.test.mjs",
-        ".brain/rca/2026-09-17-callmd-baseline-gates.md",
-        "docs/verification/implementation-reports/2026-09-17-callmd-baseline.md"
+        "docs/verification/implementation-reports/2026-09-17-callmd-baseline.md",
+        "package.json",
+        "tests/nativeSessionCustody.test.mjs"
       ],
       "report": "docs/verification/implementation-reports/2026-09-17-callmd-baseline.md",
       "acceptance_criteria": [
@@ -667,15 +734,56 @@
       ],
       "code_writes": true,
       "risk": "HIGH",
-      "approval_gate": "APPROVAL"
+      "approval_gate": "APPROVAL",
+      "agent_id": "01a0abdc-2f27-7ac1-9bc3-3cfde906d533",
+      "dispatch": {
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30",
+        "base_sha": "376ef30db13670e4dea816ceff440f44ce73fffd",
+        "requested_model": "gpt-5.6-luna",
+        "requested_reasoning_effort": "max",
+        "lease_state": "RELEASED_COMPLETED_CLOSED",
+        "approval": "feature_approval cover0.2.0b preservation branch; no security waiver"
+      },
+      "evidence": {
+        "artifacts": [
+          {
+            "path": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30/.github/workflows/ci.yml",
+            "sha256": "33bc2dfa62fe55b8a62f5fa116cbae48cb04b3dc419e15ed86de2cf2d0a58db0"
+          },
+          {
+            "path": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30/package.json",
+            "sha256": "02c9cd48c56b230852938f7c62063191b8c0b135feb58585b37925aa80006654"
+          },
+          {
+            "path": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30/tests/ciCoverage.test.mjs",
+            "sha256": "2839a68b71308e164562a8f133abed45948636b353c4ea69f91cec2b68f11197"
+          },
+          {
+            "path": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30/tests/nativeSessionCustody.test.mjs",
+            "sha256": "fe8af82184b1729abf48bae7c8883708def93817e98026701a66407db6a4d8c4"
+          },
+          {
+            "path": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30/docs/verification/implementation-reports/2026-09-17-callmd-baseline.md",
+            "sha256": "c4ac4fd88e935bc7a261bc67de7bfcb2b69cdecf225f9297156edf506bff7289"
+          }
+        ],
+        "scope": "Worker reports focused CI/custody preservation PASS; independent Terra acceptance pending.",
+        "counts": {
+          "ci_coverage": 4,
+          "custody": 11,
+          "rust_native_behavioral": 22,
+          "auth": 8
+        },
+        "model_provenance": "Actual agent01a0abdc-2f27-7ac1-9bc3-3cfde906d533; worker could not see ID, controller records it without editing frozen report."
+      }
     },
     {
       "id": "BASELINE_REVIEW",
       "goal": "Independently accept baseline evidence or keep implementation gated.",
       "role": "reviewer",
       "model": "gpt-5.6-terra",
-      "reasoning_effort": null,
-      "state": "PLANNED",
+      "reasoning_effort": "high",
+      "state": "ACCEPTED",
       "depends_on": [
         "BASELINE"
       ],
@@ -691,7 +799,20 @@
         "Read-only review of exact candidate revision and commands."
       ],
       "code_writes": false,
-      "risk": "MEDIUM"
+      "risk": "MEDIUM",
+      "agent_id": "01a0abea-b7b1-7130-83f4-447ae122aa41",
+      "dispatch": {
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30",
+        "requested_model": "gpt-5.6-terra",
+        "requested_reasoning_effort": "high",
+        "writes": []
+      },
+      "evidence": {
+        "path": "docs/verification/implementation-reports/2026-09-17-callmd-baseline-review.md",
+        "sha256": "43f92ddc50ce6950c85fbb8ef9c2b33c708572d10b6a8263efb50b48013df6ae",
+        "verdict": "PASS",
+        "scope": "Baseline preservation gate only; all5candidate hashes and relevant tests reproduced by Terra."
+      }
     },
     {
       "id": "CONTRACT_TESTS",
@@ -699,7 +820,7 @@
       "role": "worker",
       "model": "gpt-5.6-luna",
       "reasoning_effort": "max",
-      "state": "PLANNED",
+      "state": "ACCEPTED",
       "depends_on": [
         "BASELINE_REVIEW"
       ],
@@ -719,15 +840,85 @@
       ],
       "code_writes": true,
       "risk": "MEDIUM",
-      "approval_gate": "APPROVAL"
+      "approval_gate": "APPROVAL",
+      "agent_id": "01a0abf6-36b0-7002-86d4-558f5615c707",
+      "nickname": "Bohr",
+      "dispatch": {
+        "requested_model": "gpt-5.6-luna",
+        "requested_reasoning_effort": "max",
+        "base_sha": "376ef30db13670e4dea816ceff440f44ce73fffd",
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30",
+        "lease_state": "RELEASED_COMPLETED_CLOSED",
+        "input_artifacts": [
+          {
+            "path": "docs/specs/2026-09-17-callmd-desktop-contracts.md",
+            "sha256": "e34b3727184ee99da3e689573163efd19f79f6bf81655ffd7b84175dc840ae7c"
+          },
+          {
+            "path": "docs/specs/2026-09-17-callmd-desktop-acceptance.md",
+            "sha256": "8686bf25f8aa9accf170e4d41409dab777246178e942178dfee7ee656a0e613c"
+          },
+          {
+            "path": "docs/design/2026-09-17-callmd-desktop-ui.md",
+            "sha256": "191421d8b83275a441dbf8cd6de36476e9e7ec9e4e1a12e531f3fb074cd5c533"
+          }
+        ],
+        "approval_cover_sha256": "7e06b36e0942781ecd0d7a7c0717c07ab837b7a826ce9952c5d25808a20f0de1",
+        "dependencies": "Accepted baseline exact five hashes and amendment coherence review; isolated HEAD docs are stale and not current contract authority."
+      },
+      "evidence": {
+        "artifacts": [
+          {
+            "path": "output/callmd-worktrees/baseline-376ef30/tests/callmdDesktopContracts.test.mjs",
+            "sha256": "d6d53a7531e24492ce2ceddf76e58def018602a0cdca33754c1f8bf3e2369ee6"
+          },
+          {
+            "path": "output/callmd-worktrees/baseline-376ef30/docs/verification/implementation-reports/2026-09-17-callmd-contract-tests.md",
+            "sha256": "e067b84d2b38540efd22d17898c671450306ffa1f305b7c2053a6e819ee84efd"
+          }
+        ],
+        "worker_result": "13 executed;3pass10assertionexpectedred;0harnessfailures; notnativeproof",
+        "review": {
+          "path": "docs/verification/implementation-reports/2026-09-17-callmd-contract-test-review.md",
+          "sha256": "92f2e596d7212fa57384fadb5744a9dac62c384dd847d6fa10ad639800cd3718",
+          "verdict": "PASS",
+          "scope": "Preimplementation fidelity;10assertionreds remain, notgreenproduct."
+        }
+      },
+      "fix": {
+        "cycle": 1,
+        "agent_id": "01a0ac06-1a11-7592-a3d0-962a37766ebf",
+        "nickname": "Plato",
+        "requested_model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "lease_state": "RELEASED_COMPLETED_CLOSED",
+        "scope": "Same two test/report files; full-identity stale success/rejection target + scoped ask/playback wrong-pair assertions.",
+        "rca": ".brain/rca/2026-09-17-callmd-contract-test-coverage.md"
+      },
+      "prior_evidence": [
+        {
+          "artifacts": [
+            {
+              "path": "output/callmd-worktrees/baseline-376ef30/tests/callmdDesktopContracts.test.mjs",
+              "sha256": "a336637c02099fe5bb59a5146d9ece56252867537616da97ebebd8ce892f8805"
+            },
+            {
+              "path": "output/callmd-worktrees/baseline-376ef30/docs/verification/implementation-reports/2026-09-17-callmd-contract-tests.md",
+              "sha256": "3f9d99d93878dcb3f3b0bad42cc91f57d10380592632293b9b9b2e949980a5ac"
+            }
+          ],
+          "worker_result": "10 executed;3existingadapterPASS/7assertionEXPECTED_RED_MISSING_IMPLEMENTATION; no harnessfailure. Preimplementation evidence only.",
+          "timestamp_caveat": "Worker report05:05ICT is not controller-attested; handoff observedabout03:58ICT."
+        }
+      ]
     },
     {
       "id": "CONTRACT_TEST_REVIEW",
       "goal": "Independently accept executable contract-test fidelity and meaningful expected-red evidence before backend implementation.",
       "role": "reviewer",
       "model": "gpt-5.6-terra",
-      "reasoning_effort": null,
-      "state": "PLANNED",
+      "reasoning_effort": "high",
+      "state": "ACCEPTED",
       "depends_on": [
         "CONTRACT_TESTS"
       ],
@@ -743,7 +934,71 @@
         "Read-only test/source and captured red-test evidence review."
       ],
       "code_writes": false,
-      "risk": "MEDIUM"
+      "risk": "MEDIUM",
+      "agent_id": "01a0ac0e-6900-7382-bf26-f3854b91df69",
+      "nickname": "Galileo",
+      "review_history": [
+        {
+          "agent_id": "01a0ac03-20b3-79b2-8c9b-4dc15ac22aae",
+          "verdict": "FAIL",
+          "finding": "Required NEW-B stale identity helper and ask/playback wrong-pair cases missing.",
+          "runner": "10tests3pass7expectedred; no harnessfailure",
+          "state": "COMPLETED_CLOSED"
+        },
+        {
+          "agent_id": "01a0ac0e-6900-7382-bf26-f3854b91df69",
+          "verdict": "PASS",
+          "cycle": 2,
+          "runner": "13tests3pass10expectedred0harnessfailures",
+          "scope": "Fidelityonly"
+        }
+      ],
+      "review_cycle": 2,
+      "evidence": {
+        "path": "docs/verification/implementation-reports/2026-09-17-callmd-contract-test-review.md",
+        "sha256": "92f2e596d7212fa57384fadb5744a9dac62c384dd847d6fa10ad639800cd3718",
+        "verdict": "PASS",
+        "scope": "Preimplementation fidelity;10assertionreds remain, notgreenproduct."
+      }
+    },
+    {
+      "id": "BACKEND_INTERFACE_REVIEW",
+      "goal": "Independently accept frozen B command/DTO/error/ownership interface and contract-test fidelity before native and bridge forks.",
+      "role": "reviewer",
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "high",
+      "state": "ACCEPTED",
+      "depends_on": [
+        "CONTRACT_TEST_REVIEW"
+      ],
+      "writes": [],
+      "report": "docs/verification/implementation-reports/2026-09-17-callmd-backend-interface-review.md",
+      "acceptance_criteria": [
+        "Approved amendment document coherence is independently accepted.",
+        "Exact command/DTO/security/ownership contracts and test oracles are unambiguous; mock/pure tests never constitute native implementation proof.",
+        "Native behavior/security remains independently reviewed at BACKEND_REVIEW; INTEGRATE joins both accepted branches."
+      ],
+      "success_criteria": "Frozen interface digest provided identically to backend/shared workers.",
+      "exit_criteria": "Independent PASS or accepted WARN without weakening hard gates.",
+      "verification": [
+        "Read-only source-contract and executable-test inspection"
+      ],
+      "code_writes": false,
+      "risk": "HIGH",
+      "agent_id": "01a0ac0e-6900-7382-bf26-f3854b91df69",
+      "nickname": "Galileo",
+      "dispatch": {
+        "mode": "New sequential read-only lease in same explicit Terra/high session; prior test-review accepted first.",
+        "writes": [],
+        "contract_test_review_sha256": "92f2e596d7212fa57384fadb5744a9dac62c384dd847d6fa10ad639800cd3718"
+      },
+      "evidence": {
+        "path": "docs/verification/implementation-reports/2026-09-17-callmd-backend-interface-review.md",
+        "sha256": "f909515530ac31d5bd69cea01e76d8d49dbc6d05fa2ff2446f49030ae78e5cef",
+        "verdict": "PASS",
+        "agent_state": "COMPLETED_CLOSED",
+        "scope": "Frozen interfaceonly; nativeimplementationreview retained."
+      }
     },
     {
       "id": "BACKEND_RECORDING",
@@ -751,9 +1006,9 @@
       "role": "worker",
       "model": "gpt-5.6-luna",
       "reasoning_effort": "max",
-      "state": "PLANNED",
+      "state": "ACCEPTED",
       "depends_on": [
-        "CONTRACT_TEST_REVIEW"
+        "BACKEND_INTERFACE_REVIEW"
       ],
       "writes": [
         "src-tauri/src/recording_review.rs",
@@ -782,15 +1037,139 @@
       "approval_gate": "APPROVAL",
       "risk": "HIGH",
       "selection_gate": "Feature APPROVAL resolves A/B, PCM/device limitations, SEC-1/SEC-2, Q&A scope and reopen; workflow approval does not authorize these leases.",
-      "on_not_selected": "No code. Backend reviewer accepts only an explicit Boss-approved exclusion record. Unresolved choice is BLOCKED, never an automatic skip."
+      "on_not_selected": "No code. Backend reviewer accepts only an explicit Boss-approved exclusion record. Unresolved choice is BLOCKED, never an automatic skip.",
+      "agent_id": "01a0ac15-2788-7450-a3bd-2eaaf25262b4",
+      "nickname": "Turing",
+      "dispatch": {
+        "mode": "Fresh explicit model/effort after accepted interfacegate",
+        "requested_model": "gpt-5.6-luna",
+        "requested_reasoning_effort": "max",
+        "base_sha": "376ef30db13670e4dea816ceff440f44ce73fffd",
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30",
+        "lease_state": "RELEASED_COMPLETED_CLOSED",
+        "interface_review_sha256": "f909515530ac31d5bd69cea01e76d8d49dbc6d05fa2ff2446f49030ae78e5cef",
+        "contract_test_sha256": "d6d53a7531e24492ce2ceddf76e58def018602a0cdca33754c1f8bf3e2369ee6",
+        "contract_report_sha256": "e067b84d2b38540efd22d17898c671450306ffa1f305b7c2053a6e819ee84efd",
+        "native_app_launch": "NOT_AUTHORIZED_UNTIL_DATA_AND_CREDENTIAL_ISOLATION",
+        "forbidden": "Other source paths, reference/main checkout, config/auth/schema/CSP/Cargo/lock/dependencies, commits/push/release"
+      },
+      "evidence": {
+        "artifacts": [
+          {
+            "path": "src-tauri/src/recording_review.rs",
+            "sha256": "460e68324427ac358627ac3c6c18e468ad27d668385ef2e3317b49622df3e43e"
+          },
+          {
+            "path": "src-tauri/src/desktop_playback.rs",
+            "sha256": "b1de7c78b94c5711af57c7f9f9e7c0ad54c088dce1f50fb1abdcb3067a583fae"
+          },
+          {
+            "path": "src-tauri/src/lib.rs",
+            "sha256": "2ebb0abcfef27cc5c600ca73b38af6051727c74613a91f974eacf562dc8de7b5"
+          },
+          {
+            "path": "src-tauri/src/meeting_intel.rs",
+            "sha256": "cc87422b81a29fdb32b3af18b58e37799b26d7a22617c6f765cae3481a388477"
+          },
+          {
+            "path": "src-tauri/src/live_meeting.rs",
+            "sha256": "66e85d914ca468a140f8cfd56d30072ccbc8cbd808b0b3560aa359075f5677c5"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-backend-recording.md",
+            "sha256": "d7b5495d205ec0437ed21564f49a850981b8c8cdfa59d05015c171cddd97d078"
+          }
+        ],
+        "worker_results": "review6/playback20/intel18/live16/native22PASS;fmt/checkPASS;full465PASS6WhisperFAIL1ignored472;untouched strictCIClippyFAIL;nativeNOT_RUN"
+      },
+      "fix": {
+        "cycle": 3,
+        "agent_id": "01a0acb7-f9a1-71e0-9cf2-ecdd373c1894",
+        "nickname": "Averroes",
+        "state": "COMPLETED_CLOSED",
+        "requested_model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "rca": ".brain/rca/2026-09-17-callmd-backend-review-fix3.md",
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30",
+        "lease_state": "RELEASED",
+        "writes": [
+          "src-tauri/src/desktop_playback.rs",
+          "src-tauri/src/meeting_intel.rs",
+          "docs/verification/implementation-reports/2026-09-17-callmd-backend-recording.md"
+        ],
+        "reason": "Production-path regression evidence only; final allowed unsuccessful fix cycle; no new functional defect demonstrated"
+      },
+      "fix_history": [
+        {
+          "cycle": 1,
+          "state": "COMPLETED_CLOSED",
+          "rca": ".brain/rca/2026-09-17-callmd-backend-review-fix1.md",
+          "writes": [
+            "src-tauri/src/recording_review.rs",
+            "src-tauri/src/lib.rs",
+            "src-tauri/src/meeting_intel.rs",
+            "src-tauri/src/desktop_playback.rs",
+            "src-tauri/src/live_meeting.rs",
+            "docs/verification/implementation-reports/2026-09-17-callmd-backend-recording.md"
+          ],
+          "reason": "Independent native review FAIL; internal fixes only, interface unchanged; next available Luna slot",
+          "agent_id": "01a0ac61-246e-7b12-b931-9566a663fd2d",
+          "nickname": "Bacon",
+          "requested_model": "gpt-5.6-luna",
+          "reasoning_effort": "max",
+          "lease_state": "RELEASED",
+          "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30"
+        },
+        {
+          "agent_id": "01a0ac8f-b050-75a2-932e-2bedc84049bb",
+          "nickname": "Lagrange",
+          "state": "COMPLETED_CLOSED",
+          "requested_model": "gpt-5.6-luna",
+          "reasoning_effort": "max",
+          "cycle": 2,
+          "rca": ".brain/rca/2026-09-17-callmd-backend-review-fix2.md",
+          "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30",
+          "lease_state": "RELEASED",
+          "prior_evidence": {
+            "artifacts": [
+              {
+                "path": "src-tauri/src/recording_review.rs",
+                "sha256": "460e68324427ac358627ac3c6c18e468ad27d668385ef2e3317b49622df3e43e"
+              },
+              {
+                "path": "src-tauri/src/desktop_playback.rs",
+                "sha256": "76bcb044ec12d29176f5f8ef5d7932f45067ea8fd8337e944aea74c68c2e29f6"
+              },
+              {
+                "path": "src-tauri/src/lib.rs",
+                "sha256": "7f15d1eb8022702929badbd3e106b4f1e7e09ae02e0995c676ed650838718d2f"
+              },
+              {
+                "path": "src-tauri/src/meeting_intel.rs",
+                "sha256": "2faed6aeb93b231ae04bf3ad337e6c7a7a0d5a94911793e9cd3a9f90227098aa"
+              },
+              {
+                "path": "src-tauri/src/live_meeting.rs",
+                "sha256": "6ad9980bc8310606815b8e53c7477f2cd12f2ad87ed14daadb7df430800b0784"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-backend-recording.md",
+                "sha256": "23475f6d7f93a60858b86700e3cae30060b3950013fe252c467f00a7b32c6362"
+              }
+            ],
+            "worker_results": "review6/playback14/intel16/live16/native22PASS;full457PASS6WhisperFAIL1ignored464;strictCIclippyoutsidefilesFAIL;nativeNOT_RUN"
+          }
+        }
+      ],
+      "acceptance_scope": "FrozenFIX3source+localdeterministicregressionsONLY; CI/native/provider gatesretained"
     },
     {
       "id": "BACKEND_REVIEW",
       "goal": "Independently review selected backend contracts or explicitly approved exclusion before shared bridge work.",
       "role": "reviewer",
       "model": "gpt-5.6-terra",
-      "reasoning_effort": null,
-      "state": "PLANNED",
+      "reasoning_effort": "high",
+      "state": "ACCEPTED",
       "depends_on": [
         "BACKEND_RECORDING"
       ],
@@ -806,7 +1185,104 @@
         "Read-only contract, security, scope and evidence review."
       ],
       "code_writes": false,
-      "risk": "HIGH"
+      "risk": "HIGH",
+      "reviewers": [
+        {
+          "agent_id": "01a0ac4c-e761-7713-a4de-a07b1c19a65e",
+          "nickname": "Mencius",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "scope": "Recording/Q&A/command authority plus exclusive Rust verification",
+          "writes": []
+        },
+        {
+          "agent_id": "01a0ac4c-e81e-71b3-a462-76001b72b2cf",
+          "nickname": "Laplace",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "scope": "Playback/capture static safety review",
+          "writes": []
+        }
+      ],
+      "evidence": {
+        "path": "docs/verification/implementation-reports/2026-09-17-callmd-backend-review.md",
+        "sha256": "dd70ffd80550f27afac60feaee5543f5cb58bd7a1d3faba850d39e1338a47052",
+        "verdict": "PASS_SCOPED_SOURCE",
+        "cycle": 4,
+        "reviewers_state": "COMPLETED_CLOSED",
+        "test_evidence": "Erdos independentfmt/check,review6/intel18/playback20/live16/native22PASS;full465PASS6WhisperFAIL1ignored472;strictCIClippyuntouchedFAIL;McClintockstaticonly",
+        "retained_gates": "FullRust/strictCIclippy/nativeapp/device/audio/provider/hostedCI/productionNOTaccepted"
+      },
+      "review_cycle": 4,
+      "current_reviewers": [
+        {
+          "agent_id": "01a0accb-93e9-7f33-ac79-b70f4dd349eb",
+          "nickname": "Erdos",
+          "facet": "recordingQA_AND_SOLE_CARGO",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "state": "COMPLETED_CLOSED",
+          "writes": [],
+          "verdict": "PASS_SCOPED_SOURCE"
+        },
+        {
+          "agent_id": "01a0accb-948c-7311-87ab-5f5431c68aa0",
+          "nickname": "McClintock",
+          "facet": "playbackcapture_STATIC_ONLY",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "state": "COMPLETED_CLOSED",
+          "writes": [],
+          "verdict": "PASS_SCOPED_SOURCE"
+        }
+      ],
+      "review2_findings": "Synchronousopen; disposedpendingopen canlateinstall; unboundedclose/shutdownjoins ondispatch; QAcapturetestnotactualoutboundpipeline",
+      "prior_reviewers2": [
+        {
+          "agent_id": "01a0ac89-7d38-7252-a22a-d68d36cc5ffa",
+          "nickname": "Pasteur",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "state": "COMPLETED_CLOSED",
+          "facet": "recordingQA_AND_SOLE_CARGO",
+          "writes": [],
+          "verdict": "FAIL"
+        },
+        {
+          "agent_id": "01a0ac89-7ddd-7a41-979a-7dee03a61761",
+          "nickname": "Halley",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "state": "COMPLETED_CLOSED",
+          "facet": "playbackcapture_STATIC_ONLY",
+          "writes": [],
+          "verdict": "FAIL"
+        }
+      ],
+      "review3_findings": "Static functional corrections conform. Required no-evidence zero-provider-call checked-pipeline test missing; playback tests bypass actual open_playback_owned and async production dispatch/close. No new functional fault demonstrated.",
+      "review3_test_evidence": "Mill soleCargo:review6/intel17/playback16/live16/native22PASS,full460PASS6absentWhisperFAIL1ignored467,fmt/diffPASS,untouchedstrictClippyFAIL. Arendtstaticonly.",
+      "prior_reviewers3": [
+        {
+          "agent_id": "01a0acb1-9490-7ce1-8cd8-3ecc1b00b887",
+          "nickname": "Mill",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "state": "COMPLETED_CLOSED",
+          "facet": "recordingQA_AND_SOLE_CARGO",
+          "writes": [],
+          "verdict": "FAIL"
+        },
+        {
+          "agent_id": "01a0acb1-955c-7762-a7b7-1bcf5b991252",
+          "nickname": "Arendt",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "state": "COMPLETED_CLOSED",
+          "facet": "playbackcapture_STATIC_ONLY",
+          "writes": [],
+          "verdict": "FAIL"
+        }
+      ]
     },
     {
       "id": "SHARED_CONTRACT",
@@ -814,9 +1290,9 @@
       "role": "worker",
       "model": "gpt-5.6-luna",
       "reasoning_effort": "max",
-      "state": "PLANNED",
+      "state": "ACCEPTED",
       "depends_on": [
-        "BACKEND_REVIEW"
+        "BACKEND_INTERFACE_REVIEW"
       ],
       "writes": [
         "src/components/desktop/contracts.ts",
@@ -826,7 +1302,7 @@
       "report": "docs/verification/implementation-reports/2026-09-17-callmd-shared-contract.md",
       "acceptance_criteria": [
         "Approved shared contracts pass; existing command names/callers and project-recording scope remain compatible.",
-        "New wrappers exist only for reviewed selected backend commands; otherwise preserve current-recording-only review, unavailable playback and visibly project-scoped Q&A.",
+        "New wrappers implement only the accepted frozen B interface; native implementation presence remains separately tracked and BACKEND_REVIEW gates INTEGRATE.",
         "No new storage migration or cloud API; newly discovered gaps return to documentation approval."
       ],
       "success_criteria": "All acceptance criteria have current, reproducible evidence; known gaps are explicit.",
@@ -839,15 +1315,80 @@
       ],
       "code_writes": true,
       "risk": "MEDIUM",
-      "approval_gate": "APPROVAL"
+      "approval_gate": "APPROVAL",
+      "agent_id": "01a0ac15-2836-7dc0-ac6e-7803665a49fb",
+      "nickname": "Ohm",
+      "dispatch": {
+        "mode": "Fresh explicit model/effort after accepted interfacegate",
+        "requested_model": "gpt-5.6-luna",
+        "requested_reasoning_effort": "max",
+        "base_sha": "376ef30db13670e4dea816ceff440f44ce73fffd",
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/shared-376ef30",
+        "lease_state": "RELEASED_COMPLETED_CLOSED",
+        "interface_review_sha256": "f909515530ac31d5bd69cea01e76d8d49dbc6d05fa2ff2446f49030ae78e5cef",
+        "contract_test_sha256": "d6d53a7531e24492ce2ceddf76e58def018602a0cdca33754c1f8bf3e2369ee6",
+        "contract_report_sha256": "e067b84d2b38540efd22d17898c671450306ffa1f305b7c2053a6e819ee84efd",
+        "native_app_launch": "NOT_AUTHORIZED_UNTIL_DATA_AND_CREDENTIAL_ISOLATION",
+        "forbidden": "Other source paths, reference/main checkout, config/auth/schema/CSP/Cargo/lock/dependencies, commits/push/release",
+        "dependency_materialization": {
+          "phase": 0,
+          "paths": [
+            "tests/callmdDesktopContracts.test.mjs",
+            "docs/verification/implementation-reports/2026-09-17-callmd-contract-tests.md"
+          ],
+          "mode": "Luna exact-byte accepted dependency copy then read-only release; not test authoring."
+        }
+      },
+      "evidence": {
+        "artifacts": [
+          {
+            "path": "output/callmd-worktrees/shared-376ef30/src/tauri.ts",
+            "sha256": "816b9e1142b410f73ef780ed8a5328088c3f2d09cd8c05b93e28d20fa1c4e7fe"
+          },
+          {
+            "path": "output/callmd-worktrees/shared-376ef30/src/components/desktop/contracts.ts",
+            "sha256": "a52b8ddb50204d7e39c1d09208af1786fe494ee9c925c3631dc687b4fe993aae"
+          },
+          {
+            "path": "output/callmd-worktrees/shared-376ef30/docs/verification/implementation-reports/2026-09-17-callmd-shared-contract.md",
+            "sha256": "92a7b1b569b0fbbb1f50b387131edba46786429caec52d00dff899cbaefe414b"
+          }
+        ],
+        "worker_results": "12contractPASS/1nativepresenceEXPECTED_RED; summary6/6 jobs17/17 egress8/8 buildPASS; browserunavailableprobe2/2; notnativeproof"
+      },
+      "fix": {
+        "cycle": 1,
+        "agent_id": "01a0ac2d-6ce4-7093-bb24-de092e7f64e2",
+        "nickname": "Locke",
+        "requested_model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "lease_state": "RELEASED_COMPLETED_CLOSED",
+        "writes": [
+          "src/components/desktop/contracts.ts",
+          "docs/verification/implementation-reports/2026-09-17-callmd-shared-contract.md"
+        ],
+        "rca": ".brain/rca/2026-09-17-callmd-shared-contract.md",
+        "scope": "Correct already-approved UIconsumer fidelity only; bridge/native/frozencontracttestbytes unchanged.",
+        "evidence": {
+          "contracts_sha256": "7f2bd4191f804fca5788684a5891471fda70d713110c5e75b3b5f67870cbae81",
+          "report_sha256": "f8cb9c003d931868229d3ac5d07fbfb9234c403563337b35aa6458744cdbf229",
+          "bridge_unchanged": true
+        }
+      },
+      "type_correction_lease": {
+        "owner": "01a0ad04-e4de-7b93-9ec3-42a81f2a54d7",
+        "path": "src/components/desktop/contracts.ts",
+        "state": "ACTIVE",
+        "boundary": "OnlyoptionalDesktopShellProps.livePhase existingLivePhase; nativeDTO/bridgefrozenunchanged; re-reviewrequired"
+      }
     },
     {
       "id": "SHARED_REVIEW",
       "goal": "Freeze reviewed shared interface revision for all UI lanes.",
       "role": "reviewer",
       "model": "gpt-5.6-terra",
-      "reasoning_effort": null,
-      "state": "PLANNED",
+      "reasoning_effort": "high",
+      "state": "ACCEPTED",
       "depends_on": [
         "SHARED_CONTRACT"
       ],
@@ -863,7 +1404,32 @@
         "Read-only interface and behavioral evidence review."
       ],
       "code_writes": false,
-      "risk": "MEDIUM"
+      "risk": "MEDIUM",
+      "agent_id": "01a0ac36-01f5-7fa1-8415-cf94aeb5539e",
+      "nickname": "Meitner",
+      "review_history": [
+        {
+          "agent_id": "01a0ac26-3911-70d1-84aa-c383a59b7114",
+          "verdict": "FAIL",
+          "state": "COMPLETED_CLOSED",
+          "findings": [
+            "B Live ask typedlegacy rather than recordingscoped",
+            "safe unknownlegacyerror normalizer missing",
+            "Shell selectedproject/activeSurface/Home control missing"
+          ],
+          "verified": "12contractPASS/1approvednativepresenceRED; summary6 jobs17 egress8 buildPASS;8/8 browserunavailable"
+        }
+      ],
+      "review_cycle": 2,
+      "lease_state": "RELEASED_COMPLETED_CLOSED",
+      "evidence": {
+        "path": "docs/verification/implementation-reports/2026-09-17-callmd-shared-review.md",
+        "verdict": "PASS",
+        "reviewer": "Meitner",
+        "contracts_sha256": "7f2bd4191f804fca5788684a5891471fda70d713110c5e75b3b5f67870cbae81",
+        "spec_sha256": "6f2b55293430048bfff08cc7b5914c06d85823c37a737d442fdb346f0ea55921",
+        "note": "Initial documentation WARN resolved and re-reviewed; native inputs unchanged."
+      }
     },
     {
       "id": "UI_SHELL",
@@ -871,7 +1437,7 @@
       "role": "worker",
       "model": "gpt-5.6-luna",
       "reasoning_effort": "max",
-      "state": "PLANNED",
+      "state": "ACCEPTED",
       "depends_on": [
         "SHARED_REVIEW"
       ],
@@ -895,7 +1461,116 @@
       "code_writes": true,
       "risk": "MEDIUM",
       "approval_gate": "APPROVAL",
-      "parallel_group": "ui"
+      "parallel_group": "ui",
+      "agent_id": "01a0ac4b-f857-73a0-81f9-730148553e8c",
+      "nickname": "Gibbs",
+      "dispatch": {
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/shared-376ef30",
+        "lease_state": "RELEASED_COMPLETED_CLOSED",
+        "base_sha": "376ef30db13670e4dea816ceff440f44ce73fffd",
+        "requested_model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "shared_contract_sha256": "7f2bd4191f804fca5788684a5891471fda70d713110c5e75b3b5f67870cbae81",
+        "dependencies": "Ten existing accepted shared/baseline/test inputs verified read-only, no new dependency copy"
+      },
+      "evidence": {
+        "artifacts": [
+          {
+            "path": "src/components/desktop/DesktopShell.tsx",
+            "sha256": "d9f69e2951b88d8eb51572656695d8c5c38be4d47ca3f2bb8d478452e4ff72f0"
+          },
+          {
+            "path": "src/components/desktop/DesktopShell.css",
+            "sha256": "c2de7032b06e92ca8126f1b680c5a26686108cf5c6363587805e9e3f3c911d7e"
+          },
+          {
+            "path": "tests/callmdDesktopShell.test.mjs",
+            "sha256": "d66520ab6fbb4118958bca5bc460e0ba5a46c585b01f3dbed2a8c9b702baf158"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-shell.md",
+            "sha256": "42c95b657c5357f7efb868e3277e4db4555ef3540cd9a0b269316b937bdc3a3c"
+          }
+        ],
+        "worker_results": "6ShellPASS,buildPASS,bootstrap10PASS,egress8PASS; dependencyhashesunchanged; no browser/native",
+        "review": {
+          "agent_id": "01a0ac78-fa3a-7210-a6fa-4f116367c73b",
+          "state": "COMPLETED_CLOSED",
+          "verdict": "PASS",
+          "scope": "IsolatedUI SSR/staticCSS/behavior/build only; browser/nativeNOT_RUN"
+        }
+      },
+      "fix": {
+        "cycle": 2,
+        "agent_id": "01a0ad04-e4de-7b93-9ec3-42a81f2a54d7",
+        "nickname": "Darwin",
+        "state": "COMPLETED_CLOSED",
+        "requested_model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/shared-376ef30",
+        "writes": [
+          "src/components/desktop/contracts.ts",
+          "src/components/desktop/DesktopShell.tsx",
+          "tests/callmdDesktopShell.test.mjs",
+          "docs/verification/implementation-reports/2026-09-17-callmd-ui-shell.md"
+        ],
+        "lease_state": "RELEASED",
+        "coherence_reviewer": "01a0acf8-406b-72e0-a61d-47abf84b2632",
+        "coherence_verdict": "PASS_RCA0.1.1b_READBACK",
+        "reason": "ExistingLivePhasehandofftruthfulguardcorrectiononly; nonativewirechange",
+        "rca": ".brain/rca/2026-09-17-callmd-integrated-live-lifecycle.md",
+        "evidence": {
+          "artifacts": [
+            {
+              "path": "src/components/desktop/contracts.ts",
+              "sha256": "aa6c05c014e62a56d2f2e88f52157c2d1c19ce82b9861018cdb976ce9883ddf2"
+            },
+            {
+              "path": "src/components/desktop/DesktopShell.tsx",
+              "sha256": "e9859d79d8a93c1eae48cbd1b553863203d1892a1ec46a1236f89e8a623f6d76"
+            },
+            {
+              "path": "src/components/desktop/DesktopShell.css",
+              "sha256": "c2de7032b06e92ca8126f1b680c5a26686108cf5c6363587805e9e3f3c911d7e"
+            },
+            {
+              "path": "tests/callmdDesktopShell.test.mjs",
+              "sha256": "1bfe6384bb3ee69d12390c1553af7e10f34a9970cc4a3f06ae10a0f825faec2a"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-shell.md",
+              "sha256": "e58390945779783d4c50c8a92751b54ca2ef2c9717997ec94af722341582d90f"
+            },
+            {
+              "path": "src/tauri.ts",
+              "sha256": "816b9e1142b410f73ef780ed8a5328088c3f2d09cd8c05b93e28d20fa1c4e7fe"
+            }
+          ],
+          "reviewer": "01a0acf8-406b-72e0-a61d-47abf84b2632",
+          "verdict": "PASS_ISOLATED_SOURCE",
+          "checks": "Shell8/build/bootstrap10/egress8PASS; Appforwardingpending"
+        }
+      },
+      "fix_history": [
+        {
+          "cycle": 1,
+          "state": "COMPLETED_CLOSED",
+          "rca": ".brain/rca/2026-09-17-callmd-shell-brand.md",
+          "writes": [
+            "src/components/desktop/DesktopShell.tsx",
+            "src/components/desktop/DesktopShell.css",
+            "tests/callmdDesktopShell.test.mjs",
+            "docs/verification/implementation-reports/2026-09-17-callmd-ui-shell.md"
+          ],
+          "reason": "Required brand/currentColor/systemdark fidelity correction; no APIchange",
+          "agent_id": "01a0ac6b-ec19-7e30-8140-1097632a0d53",
+          "nickname": "Boole",
+          "lease_state": "RELEASED",
+          "requested_model": "gpt-5.6-luna",
+          "reasoning_effort": "max",
+          "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/shared-376ef30"
+        }
+      ]
     },
     {
       "id": "UI_LIVE",
@@ -903,7 +1578,7 @@
       "role": "worker",
       "model": "gpt-5.6-luna",
       "reasoning_effort": "max",
-      "state": "PLANNED",
+      "state": "ACCEPTED",
       "depends_on": [
         "SHARED_REVIEW"
       ],
@@ -931,7 +1606,258 @@
       "code_writes": true,
       "risk": "MEDIUM",
       "approval_gate": "APPROVAL",
-      "parallel_group": "ui"
+      "parallel_group": "ui",
+      "agent_id": "01a0ac3b-5e6c-7b71-a15b-cae47fa804de",
+      "nickname": "Helmholtz",
+      "dispatch": {
+        "requested_model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "base_sha": "376ef30db13670e4dea816ceff440f44ce73fffd",
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/live-376ef30",
+        "lease_state": "RELEASED_COMPLETED_CLOSED",
+        "shared_contract_sha256": "7f2bd4191f804fca5788684a5891471fda70d713110c5e75b3b5f67870cbae81",
+        "spec_sha256": "6f2b55293430048bfff08cc7b5914c06d85823c37a737d442fdb346f0ea55921",
+        "dependency_materialization": {
+          "mode": "Luna exact-byte copy, then immutable, no in-flight product inputs",
+          "artifacts": [
+            {
+              "path": ".github/workflows/ci.yml",
+              "sha256": "33bc2dfa62fe55b8a62f5fa116cbae48cb04b3dc419e15ed86de2cf2d0a58db0"
+            },
+            {
+              "path": "package.json",
+              "sha256": "02c9cd48c56b230852938f7c62063191b8c0b135feb58585b37925aa80006654"
+            },
+            {
+              "path": "tests/ciCoverage.test.mjs",
+              "sha256": "2839a68b71308e164562a8f133abed45948636b353c4ea69f91cec2b68f11197"
+            },
+            {
+              "path": "tests/nativeSessionCustody.test.mjs",
+              "sha256": "fe8af82184b1729abf48bae7c8883708def93817e98026701a66407db6a4d8c4"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-baseline.md",
+              "sha256": "c4ac4fd88e935bc7a261bc67de7bfcb2b69cdecf225f9297156edf506bff7289"
+            },
+            {
+              "path": "tests/callmdDesktopContracts.test.mjs",
+              "sha256": "d6d53a7531e24492ce2ceddf76e58def018602a0cdca33754c1f8bf3e2369ee6"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-contract-tests.md",
+              "sha256": "e067b84d2b38540efd22d17898c671450306ffa1f305b7c2053a6e819ee84efd"
+            },
+            {
+              "path": "src/tauri.ts",
+              "sha256": "816b9e1142b410f73ef780ed8a5328088c3f2d09cd8c05b93e28d20fa1c4e7fe"
+            },
+            {
+              "path": "src/components/desktop/contracts.ts",
+              "sha256": "7f2bd4191f804fca5788684a5891471fda70d713110c5e75b3b5f67870cbae81"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-shared-contract.md",
+              "sha256": "f8cb9c003d931868229d3ac5d07fbfb9234c403563337b35aa6458744cdbf229"
+            }
+          ]
+        }
+      },
+      "evidence": {
+        "artifacts": [
+          {
+            "path": "src/components/LiveMeetingPanel.tsx",
+            "sha256": "a2a72af87552a9dfa2366de21b3b1f2c5e80b8fd257826457aed1aa3d912d7ca"
+          },
+          {
+            "path": "src/components/LiveMeetingPanel.css",
+            "sha256": "5d929f202a2e5bd929e8fb4cc74742ce658e612681046b954b160b95f38249a4"
+          },
+          {
+            "path": "src/components/desktop/LiveWorkspace.tsx",
+            "sha256": "9a46ffa5694ebea88efbf72fcdee27d26e40de960e55143a641489963547c48c"
+          },
+          {
+            "path": "src/components/desktop/LiveWorkspace.css",
+            "sha256": "a629bf1b2bd5c84539adeb3d34d225930826da9c91293d5cc53fefa8dfe813bd"
+          },
+          {
+            "path": "tests/callmdLiveWorkspace.test.mjs",
+            "sha256": "7a2881f7f4afecb275f44a07e3b3f30d796ed203bb682ac4e761eb004abdbca1"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md",
+            "sha256": "4a4f1e92602cd9ba2d4054b830ef80567449468a6eedf3c6f49eb42f46530bd5"
+          }
+        ],
+        "worker_results": "11LivePASS,external5PASS,trace1PASS,summary6PASS,buildPASS;isolatedcontract12/1nativeRED,CI3/1unwiredRED",
+        "review": {
+          "agent_id": "01a0ac8c-8833-7591-b1d9-0d2c45019fc7",
+          "state": "COMPLETED_CLOSED",
+          "verdict": "PASS_SCOPED_SOURCE",
+          "root_authority_verified": true,
+          "scope": "Local source/11behavior/build; integrationnativepresence/registration retained"
+        }
+      },
+      "fix": {
+        "cycle": 2,
+        "agent_id": "01a0acfe-e2d9-7f82-95c5-512c82f19dd3",
+        "nickname": "Einstein",
+        "state": "COMPLETED_CLOSED",
+        "requested_model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/live-376ef30",
+        "writes": [
+          "src/components/LiveMeetingPanel.tsx",
+          "src/components/LiveMeetingPanel.css",
+          "tests/callmdLiveWorkspace.test.mjs",
+          "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md"
+        ],
+        "rca": ".brain/rca/2026-09-17-callmd-integrated-live-lifecycle.md",
+        "lease_state": "RELEASED",
+        "reason": "ActualAppbrowserhiddenCSS+StrictModedeadadapterconfirmed; prioracceptedleafinputinvalidated",
+        "evidence": {
+          "artifacts": [
+            {
+              "path": "src/components/LiveMeetingPanel.tsx",
+              "sha256": "c9b4599d1b74c7f88898013de51373cdd682924de2850a477bf2ef6baa93ac8c"
+            },
+            {
+              "path": "src/components/LiveMeetingPanel.css",
+              "sha256": "6cd16f22820df076773420fca624507fc78daa05145ff4d3711243258bd11c1f"
+            },
+            {
+              "path": "src/components/desktop/LiveWorkspace.tsx",
+              "sha256": "9a46ffa5694ebea88efbf72fcdee27d26e40de960e55143a641489963547c48c"
+            },
+            {
+              "path": "src/components/desktop/LiveWorkspace.css",
+              "sha256": "a629bf1b2bd5c84539adeb3d34d225930826da9c91293d5cc53fefa8dfe813bd"
+            },
+            {
+              "path": "tests/callmdLiveWorkspace.test.mjs",
+              "sha256": "d77d811c1c6b2b9056f40d3ecc77f462c2455e9aa411c843aedc6692ffe9fd49"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md",
+              "sha256": "3acf87b6864eae3e225e5aa14b9ce4a649b24d1a4f351f853dd38c87a0c49e0e"
+            }
+          ],
+          "worker_checks": "Live11/build/external5/summary6/trace1PASS; workerbrowserfixture5PASS",
+          "review": "PauliPASS_ISOLATED_SOURCE_Live11_build_external5_summary6_trace1"
+        }
+      },
+      "fix_history": [
+        {
+          "agent_id": "01a0ac77-9252-7512-bd27-4456438c3f34",
+          "nickname": "Jason",
+          "state": "COMPLETED_CLOSED",
+          "requested_model": "gpt-5.6-luna",
+          "reasoning_effort": "max",
+          "cycle": 1,
+          "rca": ".brain/rca/2026-09-17-callmd-live-review-fix1.md",
+          "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/live-376ef30",
+          "lease_state": "RELEASED",
+          "prior_evidence": {
+            "artifacts": [
+              {
+                "path": "src/components/LiveMeetingPanel.tsx",
+                "sha256": "1d64d42185271ae431db6b4346daae09d0326152d558c622ff1f76bcee904cc4"
+              },
+              {
+                "path": "src/components/LiveMeetingPanel.css",
+                "sha256": "5d929f202a2e5bd929e8fb4cc74742ce658e612681046b954b160b95f38249a4"
+              },
+              {
+                "path": "src/components/desktop/LiveWorkspace.tsx",
+                "sha256": "961fc87b1541f27d29c169257837b75fff05b0b6ca7134c5f8f4235cecbde9a4"
+              },
+              {
+                "path": "src/components/desktop/LiveWorkspace.css",
+                "sha256": "a629bf1b2bd5c84539adeb3d34d225930826da9c91293d5cc53fefa8dfe813bd"
+              },
+              {
+                "path": "tests/callmdLiveWorkspace.test.mjs",
+                "sha256": "ac863df37d05719f9db761f88d0364fea6591b1ec99ec3fda73bdd9f6b310f7c"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md",
+                "sha256": "25786c0d66e00d7f4182fec54226d1a39189e05e36a50e69e49192161fc6329a"
+              }
+            ],
+            "worker_results": "8LivePASS,5externaltoolsPASS,1tracePASS,6summaryPASS,buildPASS; dependency10/10;contract12/1nativepresenceRED;CIinventory3PASS/1pendingregistrationFAIL"
+          }
+        }
+      ],
+      "next_candidate_fix": {
+        "cycle": 3,
+        "state": "COMPLETED_CLOSED",
+        "rca": ".brain/rca/2026-09-17-callmd-live-dark-label-contrast.md",
+        "writes": [
+          "src/components/desktop/LiveWorkspace.css",
+          "tests/callmdLiveWorkspace.test.mjs",
+          "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md"
+        ],
+        "reason": "Approved C-2 LOW three-file correction in frozen isolated root; all other source leases released",
+        "agent_id": "01a0add1-deab-7a21-bfbd-84700392a6e7",
+        "nickname": "Bernoulli",
+        "model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung",
+        "lease_state": "RELEASED",
+        "approval": "Latest explicit Boss Approve for contrast RCA v0.1.1b and fresh scoped browser cycle",
+        "preimage_artifacts": [
+          {
+            "path": "src/components/desktop/LiveWorkspace.css",
+            "sha256": "a629bf1b2bd5c84539adeb3d34d225930826da9c91293d5cc53fefa8dfe813bd"
+          },
+          {
+            "path": "tests/callmdLiveWorkspace.test.mjs",
+            "sha256": "d77d811c1c6b2b9056f40d3ecc77f462c2455e9aa411c843aedc6692ffe9fd49"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md",
+            "sha256": "3acf87b6864eae3e225e5aa14b9ce4a649b24d1a4f351f853dd38c87a0c49e0e"
+          }
+        ],
+        "evidence": {
+          "artifacts": [
+            {
+              "path": "src/components/desktop/LiveWorkspace.css",
+              "sha256": "99cecc78ca46f1670cbfe062b877071973405a55f3a4f8a7b638c94a8703d61e"
+            },
+            {
+              "path": "tests/callmdLiveWorkspace.test.mjs",
+              "sha256": "0552e2cc5375dea5a3d48020e44c0ed6e1959df261ecba8ec4abd095f4d423b2"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md",
+              "sha256": "ee7f7bc9b4d6cc539c132075ddfb6d0dad97869cfee77538f7b0af75402f55a3"
+            }
+          ],
+          "worker_results": "12LivePASS/build1812PASS/diffcheckPASS; workerbrowserNOT_RUN",
+          "independent_review": {
+            "agent_id": "01a0addb-1fa8-7b91-ae0c-ceaec2d75cfd",
+            "nickname": "Zeno",
+            "model": "gpt-5.6-terra",
+            "reasoning_effort": "high",
+            "state": "COMPLETED_CLOSED",
+            "verdict": "PASS_SCOPED",
+            "tests": {
+              "contracts": 13,
+              "shell": 8,
+              "live": 12,
+              "history": 11,
+              "integration": 6,
+              "total": 50
+            },
+            "hashesMatched": true,
+            "visual": "BLOCKED_BROWSER_ATTACH"
+          },
+          "main_browser": "BLOCKED_BROWSER_ATTACH_BEFORE_PAGE; fixturestartupnotresult"
+        }
+      },
+      "acceptance_scope": "FIX3_SCOPED_SOURCE_ONLY_NOT_VISUAL_NATIVE_OR_RELEASE"
     },
     {
       "id": "UI_HISTORY",
@@ -939,7 +1865,7 @@
       "role": "worker",
       "model": "gpt-5.6-luna",
       "reasoning_effort": "max",
-      "state": "PLANNED",
+      "state": "ACCEPTED",
       "depends_on": [
         "SHARED_REVIEW"
       ],
@@ -966,7 +1892,184 @@
       "code_writes": true,
       "risk": "MEDIUM",
       "approval_gate": "APPROVAL",
-      "parallel_group": "ui"
+      "parallel_group": "ui",
+      "agent_id": "01a0ac3b-5f11-7081-ad50-89e125547b8a",
+      "nickname": "Godel",
+      "dispatch": {
+        "requested_model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "base_sha": "376ef30db13670e4dea816ceff440f44ce73fffd",
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/history-376ef30",
+        "lease_state": "RELEASED_COMPLETED_CLOSED",
+        "shared_contract_sha256": "7f2bd4191f804fca5788684a5891471fda70d713110c5e75b3b5f67870cbae81",
+        "spec_sha256": "6f2b55293430048bfff08cc7b5914c06d85823c37a737d442fdb346f0ea55921",
+        "dependency_materialization": {
+          "mode": "Luna exact-byte copy, then immutable, no in-flight product inputs",
+          "artifacts": [
+            {
+              "path": ".github/workflows/ci.yml",
+              "sha256": "33bc2dfa62fe55b8a62f5fa116cbae48cb04b3dc419e15ed86de2cf2d0a58db0"
+            },
+            {
+              "path": "package.json",
+              "sha256": "02c9cd48c56b230852938f7c62063191b8c0b135feb58585b37925aa80006654"
+            },
+            {
+              "path": "tests/ciCoverage.test.mjs",
+              "sha256": "2839a68b71308e164562a8f133abed45948636b353c4ea69f91cec2b68f11197"
+            },
+            {
+              "path": "tests/nativeSessionCustody.test.mjs",
+              "sha256": "fe8af82184b1729abf48bae7c8883708def93817e98026701a66407db6a4d8c4"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-baseline.md",
+              "sha256": "c4ac4fd88e935bc7a261bc67de7bfcb2b69cdecf225f9297156edf506bff7289"
+            },
+            {
+              "path": "tests/callmdDesktopContracts.test.mjs",
+              "sha256": "d6d53a7531e24492ce2ceddf76e58def018602a0cdca33754c1f8bf3e2369ee6"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-contract-tests.md",
+              "sha256": "e067b84d2b38540efd22d17898c671450306ffa1f305b7c2053a6e819ee84efd"
+            },
+            {
+              "path": "src/tauri.ts",
+              "sha256": "816b9e1142b410f73ef780ed8a5328088c3f2d09cd8c05b93e28d20fa1c4e7fe"
+            },
+            {
+              "path": "src/components/desktop/contracts.ts",
+              "sha256": "7f2bd4191f804fca5788684a5891471fda70d713110c5e75b3b5f67870cbae81"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-shared-contract.md",
+              "sha256": "f8cb9c003d931868229d3ac5d07fbfb9234c403563337b35aa6458744cdbf229"
+            }
+          ]
+        },
+        "location_incident": {
+          "state": "CORRECTED_CONTROLLER_VERIFIED",
+          "rca": ".brain/rca/2026-09-17-callmd-history-worktree-binding.md",
+          "wrong_worktree": "C:/Users/pc/.codex/worktrees/9000/fung",
+          "reported_build": "WRONG_LOCATION_NOT_ASSIGNED_CANDIDATE_EVIDENCE",
+          "source_hashes": {
+            "tsx": "72fb91665b87350ef407226fb14d678f08423031fe52ec375937615fd71f5448",
+            "css": "19c92aed68dc112feb142ccf346278684c1ac5f9d95a5e13ad6c85d279caee73"
+          },
+          "corrective_root_paths": [
+            "src/tauri.ts",
+            "src/components/desktop/contracts.ts",
+            "src/components/desktop/RecordingReview.tsx",
+            "src/components/desktop/RecordingReview.css",
+            "tests/callmdDesktopContracts.test.mjs",
+            "docs/verification/implementation-reports/2026-09-17-callmd-contract-tests.md",
+            "docs/verification/implementation-reports/2026-09-17-callmd-shared-contract.md"
+          ],
+          "rule": "Copy/hashes verify in assignedtree first; restore/remove only matching introducedrootcopies, preserve5existingbaseline/allotherchanges. Absoluteapply_patchpaths.",
+          "verification": "AssignedTSX/CSS rawhashes identical; rootsevenpathsgitstatus empty; rootfivebaseline/historytendependencyhashcheck separateevidence."
+        }
+      },
+      "evidence": {
+        "artifacts": [
+          {
+            "path": "src/components/desktop/RecordingReview.tsx",
+            "sha256": "8e391a68235b0be710ed3e152d63380d16dc25a570c55bde8a7e647f4265537d"
+          },
+          {
+            "path": "src/components/desktop/RecordingReview.css",
+            "sha256": "19c92aed68dc112feb142ccf346278684c1ac5f9d95a5e13ad6c85d279caee73"
+          },
+          {
+            "path": "tests/callmdRecordingReview.test.mjs",
+            "sha256": "9c8963cc56febb26786e30f21929ffdb59cf29d8b85cfb99b55129d7ea1483d3"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-history.md",
+            "sha256": "eea3dec8901c95a896eb61d027f7e14721261506da56bbbca8487028452bf229"
+          }
+        ],
+        "worker_results": "11HistoryPASS,summary6PASS,jobs17PASS,buildPASS; contract12/1nativepresenceRED;no native/browser/provider",
+        "review": {
+          "agent_id": "01a0ac9b-9802-7961-a4b0-2b318ba57403",
+          "state": "COMPLETED_CLOSED",
+          "verdict": "PASS_SCOPED_SOURCE_WITH_NONBLOCKING_WARNING",
+          "report_metadata_correction": "controllerdocumentationonly0.1.3b;source3hashesunchanged;Humeverifiedfinalreporthash",
+          "warning_owner": "INTEGRATE_AND_INTEGRATION_REVIEW",
+          "warning": "RealReact mounted registrar unregistration/retainedcallback aftercleanup NOT_RUN; controller tests/staticguards only; no finalwaiver"
+        }
+      },
+      "pending_fix": {
+        "cycle": 1,
+        "state": "DISPATCHED",
+        "rca": ".brain/rca/2026-09-17-callmd-history-review-fix1.md"
+      },
+      "fix": {
+        "agent_id": "01a0ac8d-8a97-7121-88d7-af806471f673",
+        "nickname": "Heisenberg",
+        "state": "COMPLETED_CLOSED",
+        "requested_model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "cycle": 2,
+        "rca": ".brain/rca/2026-09-17-callmd-history-review-fix2.md",
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/history-376ef30",
+        "lease_state": "RELEASED",
+        "prior_evidence": {
+          "artifacts": [
+            {
+              "path": "src/components/desktop/RecordingReview.tsx",
+              "sha256": "96d30a55bc5373d5c29a73d637184cfd6ac152d5348eaa815354842eeaef64c3"
+            },
+            {
+              "path": "src/components/desktop/RecordingReview.css",
+              "sha256": "19c92aed68dc112feb142ccf346278684c1ac5f9d95a5e13ad6c85d279caee73"
+            },
+            {
+              "path": "tests/callmdRecordingReview.test.mjs",
+              "sha256": "02a0b79d3a0865c2f52998c6cb075f14f76c8a3906ce1bceb21027d585dee953"
+            },
+            {
+              "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-history.md",
+              "sha256": "fbe97ad5151e4068065936dc95d4f171fc0aa61fe74550151b9f51ee17ad9e9e"
+            }
+          ],
+          "worker_results": "9HistoryPASS,summary6PASS,jobs17PASS,buildPASS;contract12/1nativepresenceRED; no runtimeproof"
+        }
+      },
+      "fix_history": [
+        {
+          "agent_id": "01a0ac78-9420-7b02-b6a3-9b0e82c176eb",
+          "nickname": "Epicurus",
+          "state": "COMPLETED_CLOSED",
+          "requested_model": "gpt-5.6-luna",
+          "reasoning_effort": "max",
+          "cycle": 1,
+          "rca": ".brain/rca/2026-09-17-callmd-history-review-fix1.md",
+          "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/history-376ef30",
+          "lease_state": "RELEASED",
+          "prior_evidence": {
+            "artifacts": [
+              {
+                "path": "src/components/desktop/RecordingReview.tsx",
+                "sha256": "ac0d228f2249d8cc5f930bfd2e5e9740096fd6663feddc32878e784f84fc8aff"
+              },
+              {
+                "path": "src/components/desktop/RecordingReview.css",
+                "sha256": "19c92aed68dc112feb142ccf346278684c1ac5f9d95a5e13ad6c85d279caee73"
+              },
+              {
+                "path": "tests/callmdRecordingReview.test.mjs",
+                "sha256": "323e3b5de501da689a2506bf4a734c2ddabe5ffc7d73b1d3704f8738c368339a"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-history.md",
+                "sha256": "6e1f570956dab30e3a4c5c50e9667b4155e4454aa494324fb0db1f37a235a28c"
+              }
+            ],
+            "worker_results": "6ownedPASS,summary6PASS,jobs17PASS,buildPASS;contract12PASS/1nativepresenceRED;10dependencyhashesexact; correctassignedcwd finalchecks"
+          }
+        }
+      ]
     },
     {
       "id": "UI_TASK_REVIEW",
@@ -974,7 +2077,7 @@
       "role": "reviewer",
       "model": "gpt-5.6-terra",
       "reasoning_effort": null,
-      "state": "PLANNED",
+      "state": "ACCEPTED",
       "depends_on": [
         "UI_SHELL",
         "UI_LIVE",
@@ -992,7 +2095,135 @@
         "Read-only scope, behavior, accessibility and contract review for each lane."
       ],
       "code_writes": false,
-      "risk": "MEDIUM"
+      "risk": "MEDIUM",
+      "partial_reviews": [
+        {
+          "lane": "UI_SHELL",
+          "state": "COMPLETED_CLOSED",
+          "agent_id": "01a0ac61-2516-79a0-859c-d46c827e20d7",
+          "nickname": "Kierkegaard",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "writes": [],
+          "note": "Bounded frozen-shell facet only; aggregate review waits remaining UI handoffs.",
+          "verdict": "WARN_REQUIRES_FIX",
+          "finding": "Legacyboxedlogo differsapprovedunboxedFUNGmark; systemdarkwordmarkcolor",
+          "verification": "4ShellPASS,buildPASS,bootstrap10/10,egress8/8; frozenhashesmatch, noactualbrowser/nativeproof"
+        },
+        {
+          "lane": "UI_LIVE",
+          "state": "COMPLETED_CLOSED",
+          "agent_id": "01a0ac6b-ecbb-7242-97fb-421afc1dab30",
+          "nickname": "Boyle",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "writes": [],
+          "verdict": "FAIL",
+          "finding": "Missing local owner adapter; transcript epoch/request guards; empty summary disclosures"
+        },
+        {
+          "lane": "UI_HISTORY",
+          "state": "COMPLETED_CLOSED",
+          "agent_id": "01a0ac6e-83b4-7710-b972-405f6cc06e64",
+          "nickname": "Hegel",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "writes": [],
+          "verdict": "FAIL",
+          "finding": "Overlapping status polls; unhandled action rejection; stale failed-close view publication"
+        },
+        {
+          "lane": "UI_SHELL",
+          "cycle": 2,
+          "agent_id": "01a0ac78-fa3a-7210-a6fa-4f116367c73b",
+          "nickname": "Leibniz",
+          "state": "COMPLETED_CLOSED",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "writes": [],
+          "verdict": "PASS",
+          "verification": "6ShellPASS,bootstrap10PASS,egress8PASS,buildPASS,diffcheckPASS,4frozenhashesexact,sharedimmutable"
+        },
+        {
+          "lane": "UI_HISTORY",
+          "cycle": 2,
+          "agent_id": "01a0ac88-5835-7432-a211-a135ddedb935",
+          "nickname": "Confucius",
+          "state": "COMPLETED_CLOSED",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "writes": [],
+          "verdict": "FAIL",
+          "finding": "hung old poll retains globalfence afterhide/reopen; missinglocalrecoveryrefreshseam; StrictMode suspicionNOTconfirmed"
+        },
+        {
+          "lane": "UI_LIVE",
+          "cycle": 2,
+          "agent_id": "01a0ac8c-8833-7591-b1d9-0d2c45019fc7",
+          "nickname": "Harvey",
+          "state": "COMPLETED_CLOSED",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "writes": [],
+          "note": "Corrected after actualabsolute rootdoc read/hash; missingauthorityassertionwithdrawn. Independent11/11/build/regressionsPASS; expectedintegration gatesnotwaived.",
+          "verdict": "PASS_SCOPED_SOURCE"
+        },
+        {
+          "lane": "UI_HISTORY",
+          "cycle": 3,
+          "agent_id": "01a0ac9b-9802-7961-a4b0-2b318ba57403",
+          "nickname": "Hume",
+          "state": "COMPLETED_CLOSED",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "writes": [],
+          "verdict": "PASS_SCOPED_SOURCE_WITH_NONBLOCKING_WARNING"
+        },
+        {
+          "lane": "UI_SHELL_AND_UI_LIVE_FIX2",
+          "agent_id": "01a0acf8-406b-72e0-a61d-47abf84b2632",
+          "state": "COMPLETED_OPEN_REVIEWER",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "writes": [],
+          "verdict": "PASS_ISOLATED_SOURCE",
+          "scope": "new6Shellpins/new6Livepins; independentNode/build/regressions; workerLivefixture notindependentbrowser"
+        },
+        {
+          "lane": "UI_LIVE_FIX3",
+          "agent_id": "01a0addb-1fa8-7b91-ae0c-ceaec2d75cfd",
+          "nickname": "Zeno",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "state": "COMPLETED_CLOSED",
+          "verdict": "PASS_SCOPED",
+          "tests": {
+            "contracts": 13,
+            "shell": 8,
+            "live": 12,
+            "history": 11,
+            "integration": 6,
+            "total": 50
+          },
+          "hashesMatched": true,
+          "visual": "BLOCKED_BROWSER_ATTACH",
+          "writes": []
+        }
+      ],
+      "evidence": {
+        "scope": "Allthreeisolatedsourcefacetsaccepted; implementationjoinonly, not App/browser/native/device/CIproof",
+        "warnings": [
+          {
+            "accepted_by": "Codex controller underapprovedworkflow7",
+            "owner": "INTEGRATE_AND_INTEGRATION_REVIEW",
+            "finding": "RealReact mounted registrar unregistration/retainedcallback aftercleanup NOT_RUN; controller tests/staticguards only; no finalwaiver",
+            "waived": false
+          }
+        ],
+        "current_scope": "FIX3 independently accepted source and50currentNodecases; unchangedShell/Historyacceptedsource; freshbrowserblockedbywebviewattach"
+      },
+      "current_blocker": null,
+      "acceptance_scope": "SCOPED_SOURCE_ONLY_ALL_UI_LANES; freshvisualremainsVERIFYgate"
     },
     {
       "id": "INTEGRATE",
@@ -1000,9 +2231,10 @@
       "role": "worker",
       "model": "gpt-5.6-luna",
       "reasoning_effort": "max",
-      "state": "PLANNED",
+      "state": "REVIEW",
       "depends_on": [
-        "UI_TASK_REVIEW"
+        "UI_TASK_REVIEW",
+        "BACKEND_REVIEW"
       ],
       "writes": [
         "src/App.tsx",
@@ -1034,7 +2266,871 @@
       ],
       "code_writes": true,
       "risk": "MEDIUM",
-      "approval_gate": "APPROVAL"
+      "approval_gate": "APPROVAL",
+      "agent_id": "01a0ac8c-122e-7a22-8fe0-55e41300ce19",
+      "nickname": "Aquinas",
+      "dispatch": {
+        "mode": "Explicit source lease in same still-open Luna/max session after both joins accepted",
+        "requested_model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung",
+        "base_sha": "376ef30db13670e4dea816ceff440f44ce73fffd",
+        "lease_state": "RELEASED_COMPLETED_CLOSED",
+        "exact_byte_transfer_inventory": [
+          {
+            "tree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/shared-376ef30",
+            "files": [
+              {
+                "path": ".github/workflows/ci.yml",
+                "sha256": "33bc2dfa62fe55b8a62f5fa116cbae48cb04b3dc419e15ed86de2cf2d0a58db0"
+              },
+              {
+                "path": "package.json",
+                "sha256": "02c9cd48c56b230852938f7c62063191b8c0b135feb58585b37925aa80006654"
+              },
+              {
+                "path": "tests/ciCoverage.test.mjs",
+                "sha256": "2839a68b71308e164562a8f133abed45948636b353c4ea69f91cec2b68f11197"
+              },
+              {
+                "path": "tests/nativeSessionCustody.test.mjs",
+                "sha256": "fe8af82184b1729abf48bae7c8883708def93817e98026701a66407db6a4d8c4"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-baseline.md",
+                "sha256": "c4ac4fd88e935bc7a261bc67de7bfcb2b69cdecf225f9297156edf506bff7289"
+              },
+              {
+                "path": "tests/callmdDesktopContracts.test.mjs",
+                "sha256": "d6d53a7531e24492ce2ceddf76e58def018602a0cdca33754c1f8bf3e2369ee6"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-contract-tests.md",
+                "sha256": "e067b84d2b38540efd22d17898c671450306ffa1f305b7c2053a6e819ee84efd"
+              },
+              {
+                "path": "src/tauri.ts",
+                "sha256": "816b9e1142b410f73ef780ed8a5328088c3f2d09cd8c05b93e28d20fa1c4e7fe"
+              },
+              {
+                "path": "src/components/desktop/contracts.ts",
+                "sha256": "7f2bd4191f804fca5788684a5891471fda70d713110c5e75b3b5f67870cbae81"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-shared-contract.md",
+                "sha256": "f8cb9c003d931868229d3ac5d07fbfb9234c403563337b35aa6458744cdbf229"
+              }
+            ]
+          },
+          {
+            "tree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/shared-376ef30",
+            "files": [
+              {
+                "path": "src/components/desktop/DesktopShell.tsx",
+                "sha256": "d9f69e2951b88d8eb51572656695d8c5c38be4d47ca3f2bb8d478452e4ff72f0"
+              },
+              {
+                "path": "src/components/desktop/DesktopShell.css",
+                "sha256": "c2de7032b06e92ca8126f1b680c5a26686108cf5c6363587805e9e3f3c911d7e"
+              },
+              {
+                "path": "tests/callmdDesktopShell.test.mjs",
+                "sha256": "d66520ab6fbb4118958bca5bc460e0ba5a46c585b01f3dbed2a8c9b702baf158"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-shell.md",
+                "sha256": "42c95b657c5357f7efb868e3277e4db4555ef3540cd9a0b269316b937bdc3a3c"
+              }
+            ]
+          },
+          {
+            "tree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/live-376ef30",
+            "files": [
+              {
+                "path": "src/components/LiveMeetingPanel.tsx",
+                "sha256": "a2a72af87552a9dfa2366de21b3b1f2c5e80b8fd257826457aed1aa3d912d7ca"
+              },
+              {
+                "path": "src/components/LiveMeetingPanel.css",
+                "sha256": "5d929f202a2e5bd929e8fb4cc74742ce658e612681046b954b160b95f38249a4"
+              },
+              {
+                "path": "src/components/desktop/LiveWorkspace.tsx",
+                "sha256": "9a46ffa5694ebea88efbf72fcdee27d26e40de960e55143a641489963547c48c"
+              },
+              {
+                "path": "src/components/desktop/LiveWorkspace.css",
+                "sha256": "a629bf1b2bd5c84539adeb3d34d225930826da9c91293d5cc53fefa8dfe813bd"
+              },
+              {
+                "path": "tests/callmdLiveWorkspace.test.mjs",
+                "sha256": "7a2881f7f4afecb275f44a07e3b3f30d796ed203bb682ac4e761eb004abdbca1"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md",
+                "sha256": "4a4f1e92602cd9ba2d4054b830ef80567449468a6eedf3c6f49eb42f46530bd5"
+              }
+            ]
+          },
+          {
+            "tree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/history-376ef30",
+            "files": [
+              {
+                "path": "src/components/desktop/RecordingReview.tsx",
+                "sha256": "8e391a68235b0be710ed3e152d63380d16dc25a570c55bde8a7e647f4265537d"
+              },
+              {
+                "path": "src/components/desktop/RecordingReview.css",
+                "sha256": "19c92aed68dc112feb142ccf346278684c1ac5f9d95a5e13ad6c85d279caee73"
+              },
+              {
+                "path": "tests/callmdRecordingReview.test.mjs",
+                "sha256": "9c8963cc56febb26786e30f21929ffdb59cf29d8b85cfb99b55129d7ea1483d3"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-history.md",
+                "sha256": "eea3dec8901c95a896eb61d027f7e14721261506da56bbbca8487028452bf229"
+              }
+            ]
+          },
+          {
+            "tree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30",
+            "files": [
+              {
+                "path": "src-tauri/src/recording_review.rs",
+                "sha256": "460e68324427ac358627ac3c6c18e468ad27d668385ef2e3317b49622df3e43e"
+              },
+              {
+                "path": "src-tauri/src/desktop_playback.rs",
+                "sha256": "b1de7c78b94c5711af57c7f9f9e7c0ad54c088dce1f50fb1abdcb3067a583fae"
+              },
+              {
+                "path": "src-tauri/src/lib.rs",
+                "sha256": "2ebb0abcfef27cc5c600ca73b38af6051727c74613a91f974eacf562dc8de7b5"
+              },
+              {
+                "path": "src-tauri/src/meeting_intel.rs",
+                "sha256": "cc87422b81a29fdb32b3af18b58e37799b26d7a22617c6f765cae3481a388477"
+              },
+              {
+                "path": "src-tauri/src/live_meeting.rs",
+                "sha256": "66e85d914ca468a140f8cfd56d30072ccbc8cbd808b0b3560aa359075f5677c5"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-backend-recording.md",
+                "sha256": "d7b5495d205ec0437ed21564f49a850981b8c8cdfa59d05015c171cddd97d078"
+              }
+            ]
+          }
+        ],
+        "preintegration_root_hashes": [
+          {
+            "path": "src/App.tsx",
+            "sha256": "b80d7c4482d8fe5fe4d1641afb7f9db03bd4e9c985cb7a08c8c714c6cad6a17a"
+          },
+          {
+            "path": "src/styles.css",
+            "sha256": "67a643f6ca81485e29975112304d6db2567f15de46e7bf4ba5f540a9ce29fb89"
+          },
+          {
+            "path": "src/components/InstrumentRail.tsx",
+            "sha256": "e26185614963a43e72ac31fd0be90f3983e01d4a3255dc7afbc73778cff8ac62"
+          },
+          {
+            "path": ".github/workflows/ci.yml",
+            "sha256": "33bc2dfa62fe55b8a62f5fa116cbae48cb04b3dc419e15ed86de2cf2d0a58db0"
+          },
+          {
+            "path": "package.json",
+            "sha256": "02c9cd48c56b230852938f7c62063191b8c0b135feb58585b37925aa80006654"
+          },
+          {
+            "path": "src/tauri.ts",
+            "sha256": "1d1133ee5df680714ac17617af0c45ad5dc318c62e6fe1a4dfd27ed145fa3179"
+          }
+        ],
+        "source_edit_scope": [
+          "src/App.tsx",
+          "src/styles.css",
+          "src/tauri.ts",
+          "package.json",
+          ".github/workflows/ci.yml",
+          "src/components/InstrumentRail.tsx",
+          "tests/callmdDesktopIntegration.test.mjs",
+          "docs/verification/implementation-reports/2026-09-17-callmd-integrate.md"
+        ],
+        "notes": "Baseline5alreadyroot preserved; 30acceptedartifacts verified/transferasneeded; no editoutsideintegrationlease. HistorymountedregistrarWARN now ownedintegration/finalaudit. Nonativeapp/userdata/credentials."
+      },
+      "evidence": {
+        "artifacts": [
+          {
+            "path": ".github/workflows/ci.yml",
+            "sha256": "3755ef4ce6c9e5adb46ee7c9e746dfdf0df4d21b2785c87a6e1d83daa71d861a"
+          },
+          {
+            "path": "package.json",
+            "sha256": "1d00347d00ab805c28bd8887d716d6af2a602255763f257cc92d0be4daf75b2d"
+          },
+          {
+            "path": "tests/ciCoverage.test.mjs",
+            "sha256": "2839a68b71308e164562a8f133abed45948636b353c4ea69f91cec2b68f11197"
+          },
+          {
+            "path": "tests/nativeSessionCustody.test.mjs",
+            "sha256": "fe8af82184b1729abf48bae7c8883708def93817e98026701a66407db6a4d8c4"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-baseline.md",
+            "sha256": "c4ac4fd88e935bc7a261bc67de7bfcb2b69cdecf225f9297156edf506bff7289"
+          },
+          {
+            "path": "tests/callmdDesktopContracts.test.mjs",
+            "sha256": "d6d53a7531e24492ce2ceddf76e58def018602a0cdca33754c1f8bf3e2369ee6"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-contract-tests.md",
+            "sha256": "e067b84d2b38540efd22d17898c671450306ffa1f305b7c2053a6e819ee84efd"
+          },
+          {
+            "path": "src/tauri.ts",
+            "sha256": "816b9e1142b410f73ef780ed8a5328088c3f2d09cd8c05b93e28d20fa1c4e7fe"
+          },
+          {
+            "path": "src/components/desktop/contracts.ts",
+            "sha256": "7f2bd4191f804fca5788684a5891471fda70d713110c5e75b3b5f67870cbae81"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-shared-contract.md",
+            "sha256": "f8cb9c003d931868229d3ac5d07fbfb9234c403563337b35aa6458744cdbf229"
+          },
+          {
+            "path": "src/components/desktop/DesktopShell.tsx",
+            "sha256": "d9f69e2951b88d8eb51572656695d8c5c38be4d47ca3f2bb8d478452e4ff72f0"
+          },
+          {
+            "path": "src/components/desktop/DesktopShell.css",
+            "sha256": "c2de7032b06e92ca8126f1b680c5a26686108cf5c6363587805e9e3f3c911d7e"
+          },
+          {
+            "path": "tests/callmdDesktopShell.test.mjs",
+            "sha256": "d66520ab6fbb4118958bca5bc460e0ba5a46c585b01f3dbed2a8c9b702baf158"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-shell.md",
+            "sha256": "42c95b657c5357f7efb868e3277e4db4555ef3540cd9a0b269316b937bdc3a3c"
+          },
+          {
+            "path": "src/components/LiveMeetingPanel.tsx",
+            "sha256": "a2a72af87552a9dfa2366de21b3b1f2c5e80b8fd257826457aed1aa3d912d7ca"
+          },
+          {
+            "path": "src/components/LiveMeetingPanel.css",
+            "sha256": "5d929f202a2e5bd929e8fb4cc74742ce658e612681046b954b160b95f38249a4"
+          },
+          {
+            "path": "src/components/desktop/LiveWorkspace.tsx",
+            "sha256": "9a46ffa5694ebea88efbf72fcdee27d26e40de960e55143a641489963547c48c"
+          },
+          {
+            "path": "src/components/desktop/LiveWorkspace.css",
+            "sha256": "a629bf1b2bd5c84539adeb3d34d225930826da9c91293d5cc53fefa8dfe813bd"
+          },
+          {
+            "path": "tests/callmdLiveWorkspace.test.mjs",
+            "sha256": "7a2881f7f4afecb275f44a07e3b3f30d796ed203bb682ac4e761eb004abdbca1"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md",
+            "sha256": "4a4f1e92602cd9ba2d4054b830ef80567449468a6eedf3c6f49eb42f46530bd5"
+          },
+          {
+            "path": "src/components/desktop/RecordingReview.tsx",
+            "sha256": "8e391a68235b0be710ed3e152d63380d16dc25a570c55bde8a7e647f4265537d"
+          },
+          {
+            "path": "src/components/desktop/RecordingReview.css",
+            "sha256": "19c92aed68dc112feb142ccf346278684c1ac5f9d95a5e13ad6c85d279caee73"
+          },
+          {
+            "path": "tests/callmdRecordingReview.test.mjs",
+            "sha256": "9c8963cc56febb26786e30f21929ffdb59cf29d8b85cfb99b55129d7ea1483d3"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-history.md",
+            "sha256": "eea3dec8901c95a896eb61d027f7e14721261506da56bbbca8487028452bf229"
+          },
+          {
+            "path": "src-tauri/src/recording_review.rs",
+            "sha256": "460e68324427ac358627ac3c6c18e468ad27d668385ef2e3317b49622df3e43e"
+          },
+          {
+            "path": "src-tauri/src/desktop_playback.rs",
+            "sha256": "b1de7c78b94c5711af57c7f9f9e7c0ad54c088dce1f50fb1abdcb3067a583fae"
+          },
+          {
+            "path": "src-tauri/src/lib.rs",
+            "sha256": "2ebb0abcfef27cc5c600ca73b38af6051727c74613a91f974eacf562dc8de7b5"
+          },
+          {
+            "path": "src-tauri/src/meeting_intel.rs",
+            "sha256": "cc87422b81a29fdb32b3af18b58e37799b26d7a22617c6f765cae3481a388477"
+          },
+          {
+            "path": "src-tauri/src/live_meeting.rs",
+            "sha256": "66e85d914ca468a140f8cfd56d30072ccbc8cbd808b0b3560aa359075f5677c5"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-backend-recording.md",
+            "sha256": "d7b5495d205ec0437ed21564f49a850981b8c8cdfa59d05015c171cddd97d078"
+          },
+          {
+            "path": "src/App.tsx",
+            "sha256": "c23c879088dab4656bbd7c5f639c953839d2a2a3798591d71f610bd7314a7716"
+          },
+          {
+            "path": "src/styles.css",
+            "sha256": "2e54342531d62fb5d1b920d975df9880c27e76e525df219176c96cf4ce4fc14b"
+          },
+          {
+            "path": "src/components/InstrumentRail.tsx",
+            "sha256": "312de9bfc874df16b76442ffcee71f7e98fd97400e358ce80ea25384439e05df"
+          },
+          {
+            "path": "tests/callmdDesktopIntegration.test.mjs",
+            "sha256": "2da26221cbbcba6805377edba8ad2eb4a826a9afab740e70f460b8be32758ddd"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-integrate.md",
+            "sha256": "7e5d9c099c71a1ff2df5e379c765ce5b478b7c893bc74783cc3065d53d9c2ed3"
+          }
+        ],
+        "worker_results": "buildPASS,new46NodePASS,requiredregressionsPASS,workerreportedReactfixture6PASS;notfullnative",
+        "main_browser": "FAIL hiddenLivepainted andStrictModedeadadapter/falsestart; no consoleerrors; stoppedfirstbrokenboundary",
+        "rca": ".brain/rca/2026-09-17-callmd-integrated-live-lifecycle.md"
+      },
+      "fix": {
+        "cycle": 2,
+        "agent_id": "01a0ad38-a0de-7432-8dd1-5b33434f450a",
+        "nickname": "Rawls",
+        "requested_model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "state": "COMPLETED_CLOSED",
+        "lease_state": "RELEASED",
+        "writes": [
+          "src/App.tsx",
+          "tests/callmdDesktopIntegration.test.mjs",
+          "src/styles.css",
+          "docs/verification/implementation-reports/2026-09-17-callmd-integrate.md"
+        ],
+        "rca": ".brain/rca/2026-09-17-callmd-integrated-theme-scope.md",
+        "coherence_reviewer": "01a0acf8-406b-72e0-a61d-47abf84b2632",
+        "coherence_verdict": "PASS_MINIMAL_RESOLVED_ANCESTOR_THEME_SINGLE_BROWSER_MEDIA_SUBSCRIPTION",
+        "note": "stylesoptionalonlyifnecessary; noleafCSS/nativewire/datachanges",
+        "verdict": "PASS_SCOPED_APP_THEME_CORRECTION",
+        "source_artifacts": [
+          {
+            "path": ".github/workflows/ci.yml",
+            "sha256": "3755ef4ce6c9e5adb46ee7c9e746dfdf0df4d21b2785c87a6e1d83daa71d861a"
+          },
+          {
+            "path": "package.json",
+            "sha256": "1d00347d00ab805c28bd8887d716d6af2a602255763f257cc92d0be4daf75b2d"
+          },
+          {
+            "path": "tests/ciCoverage.test.mjs",
+            "sha256": "2839a68b71308e164562a8f133abed45948636b353c4ea69f91cec2b68f11197"
+          },
+          {
+            "path": "tests/nativeSessionCustody.test.mjs",
+            "sha256": "fe8af82184b1729abf48bae7c8883708def93817e98026701a66407db6a4d8c4"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-baseline.md",
+            "sha256": "c4ac4fd88e935bc7a261bc67de7bfcb2b69cdecf225f9297156edf506bff7289"
+          },
+          {
+            "path": "tests/callmdDesktopContracts.test.mjs",
+            "sha256": "d6d53a7531e24492ce2ceddf76e58def018602a0cdca33754c1f8bf3e2369ee6"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-contract-tests.md",
+            "sha256": "e067b84d2b38540efd22d17898c671450306ffa1f305b7c2053a6e819ee84efd"
+          },
+          {
+            "path": "src/tauri.ts",
+            "sha256": "816b9e1142b410f73ef780ed8a5328088c3f2d09cd8c05b93e28d20fa1c4e7fe"
+          },
+          {
+            "path": "src/components/desktop/contracts.ts",
+            "sha256": "aa6c05c014e62a56d2f2e88f52157c2d1c19ce82b9861018cdb976ce9883ddf2"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-shared-contract.md",
+            "sha256": "f8cb9c003d931868229d3ac5d07fbfb9234c403563337b35aa6458744cdbf229"
+          },
+          {
+            "path": "src/components/desktop/DesktopShell.tsx",
+            "sha256": "e9859d79d8a93c1eae48cbd1b553863203d1892a1ec46a1236f89e8a623f6d76"
+          },
+          {
+            "path": "src/components/desktop/DesktopShell.css",
+            "sha256": "c2de7032b06e92ca8126f1b680c5a26686108cf5c6363587805e9e3f3c911d7e"
+          },
+          {
+            "path": "tests/callmdDesktopShell.test.mjs",
+            "sha256": "1bfe6384bb3ee69d12390c1553af7e10f34a9970cc4a3f06ae10a0f825faec2a"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-shell.md",
+            "sha256": "e58390945779783d4c50c8a92751b54ca2ef2c9717997ec94af722341582d90f"
+          },
+          {
+            "path": "src/components/LiveMeetingPanel.tsx",
+            "sha256": "c9b4599d1b74c7f88898013de51373cdd682924de2850a477bf2ef6baa93ac8c"
+          },
+          {
+            "path": "src/components/LiveMeetingPanel.css",
+            "sha256": "6cd16f22820df076773420fca624507fc78daa05145ff4d3711243258bd11c1f"
+          },
+          {
+            "path": "src/components/desktop/LiveWorkspace.tsx",
+            "sha256": "9a46ffa5694ebea88efbf72fcdee27d26e40de960e55143a641489963547c48c"
+          },
+          {
+            "path": "src/components/desktop/LiveWorkspace.css",
+            "sha256": "a629bf1b2bd5c84539adeb3d34d225930826da9c91293d5cc53fefa8dfe813bd"
+          },
+          {
+            "path": "tests/callmdLiveWorkspace.test.mjs",
+            "sha256": "d77d811c1c6b2b9056f40d3ecc77f462c2455e9aa411c843aedc6692ffe9fd49"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md",
+            "sha256": "3acf87b6864eae3e225e5aa14b9ce4a649b24d1a4f351f853dd38c87a0c49e0e"
+          },
+          {
+            "path": "src/components/desktop/RecordingReview.tsx",
+            "sha256": "8e391a68235b0be710ed3e152d63380d16dc25a570c55bde8a7e647f4265537d"
+          },
+          {
+            "path": "src/components/desktop/RecordingReview.css",
+            "sha256": "19c92aed68dc112feb142ccf346278684c1ac5f9d95a5e13ad6c85d279caee73"
+          },
+          {
+            "path": "tests/callmdRecordingReview.test.mjs",
+            "sha256": "9c8963cc56febb26786e30f21929ffdb59cf29d8b85cfb99b55129d7ea1483d3"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-history.md",
+            "sha256": "eea3dec8901c95a896eb61d027f7e14721261506da56bbbca8487028452bf229"
+          },
+          {
+            "path": "src-tauri/src/recording_review.rs",
+            "sha256": "460e68324427ac358627ac3c6c18e468ad27d668385ef2e3317b49622df3e43e"
+          },
+          {
+            "path": "src-tauri/src/desktop_playback.rs",
+            "sha256": "b1de7c78b94c5711af57c7f9f9e7c0ad54c088dce1f50fb1abdcb3067a583fae"
+          },
+          {
+            "path": "src-tauri/src/lib.rs",
+            "sha256": "2ebb0abcfef27cc5c600ca73b38af6051727c74613a91f974eacf562dc8de7b5"
+          },
+          {
+            "path": "src-tauri/src/meeting_intel.rs",
+            "sha256": "cc87422b81a29fdb32b3af18b58e37799b26d7a22617c6f765cae3481a388477"
+          },
+          {
+            "path": "src-tauri/src/live_meeting.rs",
+            "sha256": "66e85d914ca468a140f8cfd56d30072ccbc8cbd808b0b3560aa359075f5677c5"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-backend-recording.md",
+            "sha256": "d7b5495d205ec0437ed21564f49a850981b8c8cdfa59d05015c171cddd97d078"
+          },
+          {
+            "path": "src/App.tsx",
+            "sha256": "d26064747c604dc0d350160e7ccebeb881ecc745557cbd35cfa19d4266334039"
+          },
+          {
+            "path": "src/styles.css",
+            "sha256": "2e54342531d62fb5d1b920d975df9880c27e76e525df219176c96cf4ce4fc14b"
+          },
+          {
+            "path": "src/components/InstrumentRail.tsx",
+            "sha256": "312de9bfc874df16b76442ffcee71f7e98fd97400e358ce80ea25384439e05df"
+          },
+          {
+            "path": "tests/callmdDesktopIntegration.test.mjs",
+            "sha256": "fda7b3d858f26bf4247319161911eda92fb30ebba20409d3bfcb5a5eb7069c35"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-integrate.md",
+            "sha256": "7adb9f1c74b975157d93380ecf688f79897a57060adff4e356f5ce27e3d03d8d"
+          }
+        ],
+        "known_remaining": ".brain/rca/2026-09-17-callmd-live-dark-label-contrast.md"
+      },
+      "fix_history": [
+        {
+          "cycle": 1,
+          "agent_id": "01a0ad27-8e52-7641-b150-7938801febb5",
+          "nickname": "Cicero",
+          "requested_model": "gpt-5.6-luna",
+          "reasoning_effort": "max",
+          "state": "COMPLETED_CLOSED",
+          "lease_state": "RELEASED",
+          "writes": [
+            "src/App.tsx",
+            "tests/callmdDesktopIntegration.test.mjs",
+            "docs/verification/implementation-reports/2026-09-17-callmd-integrate.md"
+          ],
+          "exact_byte_transfers": [
+            {
+              "tree": "output/callmd-worktrees/shared-376ef30",
+              "files": [
+                {
+                  "path": "src/components/desktop/contracts.ts",
+                  "sha256": "aa6c05c014e62a56d2f2e88f52157c2d1c19ce82b9861018cdb976ce9883ddf2"
+                },
+                {
+                  "path": "src/components/desktop/DesktopShell.tsx",
+                  "sha256": "e9859d79d8a93c1eae48cbd1b553863203d1892a1ec46a1236f89e8a623f6d76"
+                },
+                {
+                  "path": "tests/callmdDesktopShell.test.mjs",
+                  "sha256": "1bfe6384bb3ee69d12390c1553af7e10f34a9970cc4a3f06ae10a0f825faec2a"
+                },
+                {
+                  "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-shell.md",
+                  "sha256": "e58390945779783d4c50c8a92751b54ca2ef2c9717997ec94af722341582d90f"
+                }
+              ]
+            },
+            {
+              "tree": "output/callmd-worktrees/live-376ef30",
+              "files": [
+                {
+                  "path": "src/components/LiveMeetingPanel.tsx",
+                  "sha256": "c9b4599d1b74c7f88898013de51373cdd682924de2850a477bf2ef6baa93ac8c"
+                },
+                {
+                  "path": "src/components/LiveMeetingPanel.css",
+                  "sha256": "6cd16f22820df076773420fca624507fc78daa05145ff4d3711243258bd11c1f"
+                },
+                {
+                  "path": "tests/callmdLiveWorkspace.test.mjs",
+                  "sha256": "d77d811c1c6b2b9056f40d3ecc77f462c2455e9aa411c843aedc6692ffe9fd49"
+                },
+                {
+                  "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md",
+                  "sha256": "3acf87b6864eae3e225e5aa14b9ce4a649b24d1a4f351f853dd38c87a0c49e0e"
+                }
+              ]
+            }
+          ],
+          "reason": "BothfixedisolatedlanesTerraPASS, sourceleasesreleased; thinlivePhaseforwardingonly. Nootherproductsourceedits.",
+          "previous_owner": {
+            "agent_id": "01a0ad0d-c0c8-72e2-9f01-4fc37ecea4ff",
+            "nickname": "Socrates",
+            "state": "CLOSED_NOT_FOUND",
+            "result": "PARTIAL_TRANSFER6_NO_FINAL_HANDOFF",
+            "artifacts": [
+              {
+                "path": ".github/workflows/ci.yml",
+                "sha256": "3755ef4ce6c9e5adb46ee7c9e746dfdf0df4d21b2785c87a6e1d83daa71d861a"
+              },
+              {
+                "path": "package.json",
+                "sha256": "1d00347d00ab805c28bd8887d716d6af2a602255763f257cc92d0be4daf75b2d"
+              },
+              {
+                "path": "tests/ciCoverage.test.mjs",
+                "sha256": "2839a68b71308e164562a8f133abed45948636b353c4ea69f91cec2b68f11197"
+              },
+              {
+                "path": "tests/nativeSessionCustody.test.mjs",
+                "sha256": "fe8af82184b1729abf48bae7c8883708def93817e98026701a66407db6a4d8c4"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-baseline.md",
+                "sha256": "c4ac4fd88e935bc7a261bc67de7bfcb2b69cdecf225f9297156edf506bff7289"
+              },
+              {
+                "path": "tests/callmdDesktopContracts.test.mjs",
+                "sha256": "d6d53a7531e24492ce2ceddf76e58def018602a0cdca33754c1f8bf3e2369ee6"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-contract-tests.md",
+                "sha256": "e067b84d2b38540efd22d17898c671450306ffa1f305b7c2053a6e819ee84efd"
+              },
+              {
+                "path": "src/tauri.ts",
+                "sha256": "816b9e1142b410f73ef780ed8a5328088c3f2d09cd8c05b93e28d20fa1c4e7fe"
+              },
+              {
+                "path": "src/components/desktop/contracts.ts",
+                "sha256": "aa6c05c014e62a56d2f2e88f52157c2d1c19ce82b9861018cdb976ce9883ddf2"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-shared-contract.md",
+                "sha256": "f8cb9c003d931868229d3ac5d07fbfb9234c403563337b35aa6458744cdbf229"
+              },
+              {
+                "path": "src/components/desktop/DesktopShell.tsx",
+                "sha256": "e9859d79d8a93c1eae48cbd1b553863203d1892a1ec46a1236f89e8a623f6d76"
+              },
+              {
+                "path": "src/components/desktop/DesktopShell.css",
+                "sha256": "c2de7032b06e92ca8126f1b680c5a26686108cf5c6363587805e9e3f3c911d7e"
+              },
+              {
+                "path": "tests/callmdDesktopShell.test.mjs",
+                "sha256": "1bfe6384bb3ee69d12390c1553af7e10f34a9970cc4a3f06ae10a0f825faec2a"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-shell.md",
+                "sha256": "e58390945779783d4c50c8a92751b54ca2ef2c9717997ec94af722341582d90f"
+              },
+              {
+                "path": "src/components/LiveMeetingPanel.tsx",
+                "sha256": "c9b4599d1b74c7f88898013de51373cdd682924de2850a477bf2ef6baa93ac8c"
+              },
+              {
+                "path": "src/components/LiveMeetingPanel.css",
+                "sha256": "6cd16f22820df076773420fca624507fc78daa05145ff4d3711243258bd11c1f"
+              },
+              {
+                "path": "src/components/desktop/LiveWorkspace.tsx",
+                "sha256": "9a46ffa5694ebea88efbf72fcdee27d26e40de960e55143a641489963547c48c"
+              },
+              {
+                "path": "src/components/desktop/LiveWorkspace.css",
+                "sha256": "a629bf1b2bd5c84539adeb3d34d225930826da9c91293d5cc53fefa8dfe813bd"
+              },
+              {
+                "path": "tests/callmdLiveWorkspace.test.mjs",
+                "sha256": "7a2881f7f4afecb275f44a07e3b3f30d796ed203bb682ac4e761eb004abdbca1"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md",
+                "sha256": "4a4f1e92602cd9ba2d4054b830ef80567449468a6eedf3c6f49eb42f46530bd5"
+              },
+              {
+                "path": "src/components/desktop/RecordingReview.tsx",
+                "sha256": "8e391a68235b0be710ed3e152d63380d16dc25a570c55bde8a7e647f4265537d"
+              },
+              {
+                "path": "src/components/desktop/RecordingReview.css",
+                "sha256": "19c92aed68dc112feb142ccf346278684c1ac5f9d95a5e13ad6c85d279caee73"
+              },
+              {
+                "path": "tests/callmdRecordingReview.test.mjs",
+                "sha256": "9c8963cc56febb26786e30f21929ffdb59cf29d8b85cfb99b55129d7ea1483d3"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-history.md",
+                "sha256": "eea3dec8901c95a896eb61d027f7e14721261506da56bbbca8487028452bf229"
+              },
+              {
+                "path": "src-tauri/src/recording_review.rs",
+                "sha256": "460e68324427ac358627ac3c6c18e468ad27d668385ef2e3317b49622df3e43e"
+              },
+              {
+                "path": "src-tauri/src/desktop_playback.rs",
+                "sha256": "b1de7c78b94c5711af57c7f9f9e7c0ad54c088dce1f50fb1abdcb3067a583fae"
+              },
+              {
+                "path": "src-tauri/src/lib.rs",
+                "sha256": "2ebb0abcfef27cc5c600ca73b38af6051727c74613a91f974eacf562dc8de7b5"
+              },
+              {
+                "path": "src-tauri/src/meeting_intel.rs",
+                "sha256": "cc87422b81a29fdb32b3af18b58e37799b26d7a22617c6f765cae3481a388477"
+              },
+              {
+                "path": "src-tauri/src/live_meeting.rs",
+                "sha256": "66e85d914ca468a140f8cfd56d30072ccbc8cbd808b0b3560aa359075f5677c5"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-backend-recording.md",
+                "sha256": "d7b5495d205ec0437ed21564f49a850981b8c8cdfa59d05015c171cddd97d078"
+              },
+              {
+                "path": "src/App.tsx",
+                "sha256": "c23c879088dab4656bbd7c5f639c953839d2a2a3798591d71f610bd7314a7716"
+              },
+              {
+                "path": "src/styles.css",
+                "sha256": "2e54342531d62fb5d1b920d975df9880c27e76e525df219176c96cf4ce4fc14b"
+              },
+              {
+                "path": "src/components/InstrumentRail.tsx",
+                "sha256": "312de9bfc874df16b76442ffcee71f7e98fd97400e358ce80ea25384439e05df"
+              },
+              {
+                "path": "tests/callmdDesktopIntegration.test.mjs",
+                "sha256": "2da26221cbbcba6805377edba8ad2eb4a826a9afab740e70f460b8be32758ddd"
+              },
+              {
+                "path": "docs/verification/implementation-reports/2026-09-17-callmd-integrate.md",
+                "sha256": "7e5d9c099c71a1ff2df5e379c765ce5b478b7c893bc74783cc3065d53d9c2ed3"
+              }
+            ]
+          },
+          "operational_note": "FreshLunacompletesremaining2exactLiveartifacts and3semanticfiles; sixexistingtransfersmatchacceptedpins; sameFIX1scope.",
+          "source_result": "SOURCE_FROZEN_ALL8PINS_MATCH_App3efb_test9f015_report32ed",
+          "worker_checks": "48NodePASS_build1812_diffcheckPASS",
+          "main_browser": "lifecycle/navPASS; darkHistoryFAILthemeancestor"
+        }
+      ],
+      "current_checkpoint": {
+        "source_artifacts": [
+          {
+            "path": ".github/workflows/ci.yml",
+            "sha256": "3755ef4ce6c9e5adb46ee7c9e746dfdf0df4d21b2785c87a6e1d83daa71d861a"
+          },
+          {
+            "path": "package.json",
+            "sha256": "1d00347d00ab805c28bd8887d716d6af2a602255763f257cc92d0be4daf75b2d"
+          },
+          {
+            "path": "tests/ciCoverage.test.mjs",
+            "sha256": "2839a68b71308e164562a8f133abed45948636b353c4ea69f91cec2b68f11197"
+          },
+          {
+            "path": "tests/nativeSessionCustody.test.mjs",
+            "sha256": "fe8af82184b1729abf48bae7c8883708def93817e98026701a66407db6a4d8c4"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-baseline.md",
+            "sha256": "c4ac4fd88e935bc7a261bc67de7bfcb2b69cdecf225f9297156edf506bff7289"
+          },
+          {
+            "path": "tests/callmdDesktopContracts.test.mjs",
+            "sha256": "d6d53a7531e24492ce2ceddf76e58def018602a0cdca33754c1f8bf3e2369ee6"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-contract-tests.md",
+            "sha256": "e067b84d2b38540efd22d17898c671450306ffa1f305b7c2053a6e819ee84efd"
+          },
+          {
+            "path": "src/tauri.ts",
+            "sha256": "816b9e1142b410f73ef780ed8a5328088c3f2d09cd8c05b93e28d20fa1c4e7fe"
+          },
+          {
+            "path": "src/components/desktop/contracts.ts",
+            "sha256": "aa6c05c014e62a56d2f2e88f52157c2d1c19ce82b9861018cdb976ce9883ddf2"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-shared-contract.md",
+            "sha256": "f8cb9c003d931868229d3ac5d07fbfb9234c403563337b35aa6458744cdbf229"
+          },
+          {
+            "path": "src/components/desktop/DesktopShell.tsx",
+            "sha256": "e9859d79d8a93c1eae48cbd1b553863203d1892a1ec46a1236f89e8a623f6d76"
+          },
+          {
+            "path": "src/components/desktop/DesktopShell.css",
+            "sha256": "c2de7032b06e92ca8126f1b680c5a26686108cf5c6363587805e9e3f3c911d7e"
+          },
+          {
+            "path": "tests/callmdDesktopShell.test.mjs",
+            "sha256": "1bfe6384bb3ee69d12390c1553af7e10f34a9970cc4a3f06ae10a0f825faec2a"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-shell.md",
+            "sha256": "e58390945779783d4c50c8a92751b54ca2ef2c9717997ec94af722341582d90f"
+          },
+          {
+            "path": "src/components/LiveMeetingPanel.tsx",
+            "sha256": "c9b4599d1b74c7f88898013de51373cdd682924de2850a477bf2ef6baa93ac8c"
+          },
+          {
+            "path": "src/components/LiveMeetingPanel.css",
+            "sha256": "6cd16f22820df076773420fca624507fc78daa05145ff4d3711243258bd11c1f"
+          },
+          {
+            "path": "src/components/desktop/LiveWorkspace.tsx",
+            "sha256": "9a46ffa5694ebea88efbf72fcdee27d26e40de960e55143a641489963547c48c"
+          },
+          {
+            "path": "src/components/desktop/LiveWorkspace.css",
+            "sha256": "99cecc78ca46f1670cbfe062b877071973405a55f3a4f8a7b638c94a8703d61e"
+          },
+          {
+            "path": "tests/callmdLiveWorkspace.test.mjs",
+            "sha256": "0552e2cc5375dea5a3d48020e44c0ed6e1959df261ecba8ec4abd095f4d423b2"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md",
+            "sha256": "ee7f7bc9b4d6cc539c132075ddfb6d0dad97869cfee77538f7b0af75402f55a3"
+          },
+          {
+            "path": "src/components/desktop/RecordingReview.tsx",
+            "sha256": "8e391a68235b0be710ed3e152d63380d16dc25a570c55bde8a7e647f4265537d"
+          },
+          {
+            "path": "src/components/desktop/RecordingReview.css",
+            "sha256": "19c92aed68dc112feb142ccf346278684c1ac5f9d95a5e13ad6c85d279caee73"
+          },
+          {
+            "path": "tests/callmdRecordingReview.test.mjs",
+            "sha256": "9c8963cc56febb26786e30f21929ffdb59cf29d8b85cfb99b55129d7ea1483d3"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-history.md",
+            "sha256": "eea3dec8901c95a896eb61d027f7e14721261506da56bbbca8487028452bf229"
+          },
+          {
+            "path": "src-tauri/src/recording_review.rs",
+            "sha256": "460e68324427ac358627ac3c6c18e468ad27d668385ef2e3317b49622df3e43e"
+          },
+          {
+            "path": "src-tauri/src/desktop_playback.rs",
+            "sha256": "b1de7c78b94c5711af57c7f9f9e7c0ad54c088dce1f50fb1abdcb3067a583fae"
+          },
+          {
+            "path": "src-tauri/src/lib.rs",
+            "sha256": "2ebb0abcfef27cc5c600ca73b38af6051727c74613a91f974eacf562dc8de7b5"
+          },
+          {
+            "path": "src-tauri/src/meeting_intel.rs",
+            "sha256": "cc87422b81a29fdb32b3af18b58e37799b26d7a22617c6f765cae3481a388477"
+          },
+          {
+            "path": "src-tauri/src/live_meeting.rs",
+            "sha256": "66e85d914ca468a140f8cfd56d30072ccbc8cbd808b0b3560aa359075f5677c5"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-backend-recording.md",
+            "sha256": "d7b5495d205ec0437ed21564f49a850981b8c8cdfa59d05015c171cddd97d078"
+          },
+          {
+            "path": "src/App.tsx",
+            "sha256": "d26064747c604dc0d350160e7ccebeb881ecc745557cbd35cfa19d4266334039"
+          },
+          {
+            "path": "src/styles.css",
+            "sha256": "2e54342531d62fb5d1b920d975df9880c27e76e525df219176c96cf4ce4fc14b"
+          },
+          {
+            "path": "src/components/InstrumentRail.tsx",
+            "sha256": "312de9bfc874df16b76442ffcee71f7e98fd97400e358ce80ea25384439e05df"
+          },
+          {
+            "path": "tests/callmdDesktopIntegration.test.mjs",
+            "sha256": "fda7b3d858f26bf4247319161911eda92fb30ebba20409d3bfcb5a5eb7069c35"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-integrate.md",
+            "sha256": "233df500181a4128b4af9b293d9e923ca5785e954bf9667c7a9ded4b6a6dd395"
+          }
+        ],
+        "scope": "FinalFIX3 source frozen; integration implementation unchanged, reportmetadataupdated",
+        "visual": "BLOCKED_BROWSER_ATTACH_NOT_APPFAILURE",
+        "source_review": "Zeno PASS_SCOPED;50/50Node"
+      }
     },
     {
       "id": "VERIFY",
@@ -1042,7 +3138,7 @@
       "role": "worker",
       "model": "gpt-5.6-luna",
       "reasoning_effort": "max",
-      "state": "PLANNED",
+      "state": "BLOCKED",
       "depends_on": [
         "INTEGRATE"
       ],
@@ -1071,7 +3167,176 @@
         "isolated worktree src-tauri/target/",
         "task-specific logs",
         "disposable native test profile; never existing user data"
-      ]
+      ],
+      "readiness_exception": "Frozen INTEGRATE REVIEW handoff after source-write release; read-only verification and predeclared generated outputs/report only; no native-profile/sourcefix/release authority.",
+      "agent_id": "01a0acf8-3fbe-7a20-9f96-b5b7b8be3141",
+      "nickname": "Euler",
+      "dispatch": {
+        "requested_model": "gpt-5.6-luna",
+        "reasoning_effort": "max",
+        "worktree": "C:/Users/pc/.codex/worktrees/9000/fung",
+        "lease_state": "RELEASED_COMPLETED_CLOSED",
+        "source_bundle": [
+          {
+            "path": ".github/workflows/ci.yml",
+            "sha256": "3755ef4ce6c9e5adb46ee7c9e746dfdf0df4d21b2785c87a6e1d83daa71d861a"
+          },
+          {
+            "path": "package.json",
+            "sha256": "1d00347d00ab805c28bd8887d716d6af2a602255763f257cc92d0be4daf75b2d"
+          },
+          {
+            "path": "tests/ciCoverage.test.mjs",
+            "sha256": "2839a68b71308e164562a8f133abed45948636b353c4ea69f91cec2b68f11197"
+          },
+          {
+            "path": "tests/nativeSessionCustody.test.mjs",
+            "sha256": "fe8af82184b1729abf48bae7c8883708def93817e98026701a66407db6a4d8c4"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-baseline.md",
+            "sha256": "c4ac4fd88e935bc7a261bc67de7bfcb2b69cdecf225f9297156edf506bff7289"
+          },
+          {
+            "path": "tests/callmdDesktopContracts.test.mjs",
+            "sha256": "d6d53a7531e24492ce2ceddf76e58def018602a0cdca33754c1f8bf3e2369ee6"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-contract-tests.md",
+            "sha256": "e067b84d2b38540efd22d17898c671450306ffa1f305b7c2053a6e819ee84efd"
+          },
+          {
+            "path": "src/tauri.ts",
+            "sha256": "816b9e1142b410f73ef780ed8a5328088c3f2d09cd8c05b93e28d20fa1c4e7fe"
+          },
+          {
+            "path": "src/components/desktop/contracts.ts",
+            "sha256": "7f2bd4191f804fca5788684a5891471fda70d713110c5e75b3b5f67870cbae81"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-shared-contract.md",
+            "sha256": "f8cb9c003d931868229d3ac5d07fbfb9234c403563337b35aa6458744cdbf229"
+          },
+          {
+            "path": "src/components/desktop/DesktopShell.tsx",
+            "sha256": "d9f69e2951b88d8eb51572656695d8c5c38be4d47ca3f2bb8d478452e4ff72f0"
+          },
+          {
+            "path": "src/components/desktop/DesktopShell.css",
+            "sha256": "c2de7032b06e92ca8126f1b680c5a26686108cf5c6363587805e9e3f3c911d7e"
+          },
+          {
+            "path": "tests/callmdDesktopShell.test.mjs",
+            "sha256": "d66520ab6fbb4118958bca5bc460e0ba5a46c585b01f3dbed2a8c9b702baf158"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-shell.md",
+            "sha256": "42c95b657c5357f7efb868e3277e4db4555ef3540cd9a0b269316b937bdc3a3c"
+          },
+          {
+            "path": "src/components/LiveMeetingPanel.tsx",
+            "sha256": "a2a72af87552a9dfa2366de21b3b1f2c5e80b8fd257826457aed1aa3d912d7ca"
+          },
+          {
+            "path": "src/components/LiveMeetingPanel.css",
+            "sha256": "5d929f202a2e5bd929e8fb4cc74742ce658e612681046b954b160b95f38249a4"
+          },
+          {
+            "path": "src/components/desktop/LiveWorkspace.tsx",
+            "sha256": "9a46ffa5694ebea88efbf72fcdee27d26e40de960e55143a641489963547c48c"
+          },
+          {
+            "path": "src/components/desktop/LiveWorkspace.css",
+            "sha256": "a629bf1b2bd5c84539adeb3d34d225930826da9c91293d5cc53fefa8dfe813bd"
+          },
+          {
+            "path": "tests/callmdLiveWorkspace.test.mjs",
+            "sha256": "7a2881f7f4afecb275f44a07e3b3f30d796ed203bb682ac4e761eb004abdbca1"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-live.md",
+            "sha256": "4a4f1e92602cd9ba2d4054b830ef80567449468a6eedf3c6f49eb42f46530bd5"
+          },
+          {
+            "path": "src/components/desktop/RecordingReview.tsx",
+            "sha256": "8e391a68235b0be710ed3e152d63380d16dc25a570c55bde8a7e647f4265537d"
+          },
+          {
+            "path": "src/components/desktop/RecordingReview.css",
+            "sha256": "19c92aed68dc112feb142ccf346278684c1ac5f9d95a5e13ad6c85d279caee73"
+          },
+          {
+            "path": "tests/callmdRecordingReview.test.mjs",
+            "sha256": "9c8963cc56febb26786e30f21929ffdb59cf29d8b85cfb99b55129d7ea1483d3"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-ui-history.md",
+            "sha256": "eea3dec8901c95a896eb61d027f7e14721261506da56bbbca8487028452bf229"
+          },
+          {
+            "path": "src-tauri/src/recording_review.rs",
+            "sha256": "460e68324427ac358627ac3c6c18e468ad27d668385ef2e3317b49622df3e43e"
+          },
+          {
+            "path": "src-tauri/src/desktop_playback.rs",
+            "sha256": "b1de7c78b94c5711af57c7f9f9e7c0ad54c088dce1f50fb1abdcb3067a583fae"
+          },
+          {
+            "path": "src-tauri/src/lib.rs",
+            "sha256": "2ebb0abcfef27cc5c600ca73b38af6051727c74613a91f974eacf562dc8de7b5"
+          },
+          {
+            "path": "src-tauri/src/meeting_intel.rs",
+            "sha256": "cc87422b81a29fdb32b3af18b58e37799b26d7a22617c6f765cae3481a388477"
+          },
+          {
+            "path": "src-tauri/src/live_meeting.rs",
+            "sha256": "66e85d914ca468a140f8cfd56d30072ccbc8cbd808b0b3560aa359075f5677c5"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-backend-recording.md",
+            "sha256": "d7b5495d205ec0437ed21564f49a850981b8c8cdfa59d05015c171cddd97d078"
+          },
+          {
+            "path": "src/App.tsx",
+            "sha256": "c23c879088dab4656bbd7c5f639c953839d2a2a3798591d71f610bd7314a7716"
+          },
+          {
+            "path": "src/styles.css",
+            "sha256": "2e54342531d62fb5d1b920d975df9880c27e76e525df219176c96cf4ce4fc14b"
+          },
+          {
+            "path": "src/components/InstrumentRail.tsx",
+            "sha256": "312de9bfc874df16b76442ffcee71f7e98fd97400e358ce80ea25384439e05df"
+          },
+          {
+            "path": "tests/callmdDesktopIntegration.test.mjs",
+            "sha256": "2da26221cbbcba6805377edba8ad2eb4a826a9afab740e70f460b8be32758ddd"
+          },
+          {
+            "path": "docs/verification/implementation-reports/2026-09-17-callmd-integrate.md",
+            "sha256": "7e5d9c099c71a1ff2df5e379c765ce5b478b7c893bc74783cc3065d53d9c2ed3"
+          }
+        ],
+        "cargo_cache": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30/src-tauri/target",
+        "native_app": "NOT_AUTHORIZED_NO_SAFE_PROFILE",
+        "note": "RootcandidatebrowserFAILretained, no sourcefixes. IsolatedLiveFIX2doesnotchangefrozenroot."
+      },
+      "evidence": {
+        "path": "docs/verification/implementation-reports/2026-09-17-callmd-verify.md",
+        "sha256": "0aae682f6998501f7793f67c7d53d9fea6b2c3bc93cbf1ee26837384dc573265",
+        "result": "DONE_WITH_CONCERNS",
+        "counts": "27registeredtestscripts201cases200PASS1skip;Node195PASS1skip/Python5PASS;build1812;Rust465PASS6WhisperFAIL1skip;strictClippyFAIL;AppbrowserFAIL3",
+        "scope": "Oldfrozen35rootcandidate, notfuturefixacceptance"
+      },
+      "current_checkpoint": {
+        "source": "Final35pins in INTEGRATE.current_checkpoint.source_artifacts",
+        "browser": "FIX3 fixture7rowsNOT_OBSERVED; CUAwebviewattachfailedbeforepage; AppNOT_RUN; ownserver/tempcleaned",
+        "tests": "FreshZeno50/50NodePASS; BernoulliLive12/build1812PASS; diffcheckPASS",
+        "carried_native": "unchangedRustpins; prior465PASS6WhisperFAIL1ignored andstrictClippyFAIL are NOT_RERUN, notwaived",
+        "environment": "No safe data AND credential isolated native environment chosen",
+        "report": "docs/verification/implementation-reports/2026-09-17-callmd-browser-reverify.md"
+      }
     },
     {
       "id": "INTEGRATION_REVIEW",
@@ -1079,7 +3344,7 @@
       "role": "reviewer",
       "model": "gpt-5.6-terra",
       "reasoning_effort": null,
-      "state": "PLANNED",
+      "state": "BLOCKED",
       "depends_on": [
         "VERIFY"
       ],
@@ -1095,7 +3360,37 @@
         "Read-only whole-candidate review and evidence cross-check."
       ],
       "code_writes": false,
-      "risk": "MEDIUM"
+      "risk": "MEDIUM",
+      "agent_id": "01a0acf8-406b-72e0-a61d-47abf84b2632",
+      "evidence": {
+        "agent_state": "COMPLETED_CLOSED",
+        "requested_model": "gpt-5.6-terra",
+        "reasoning_effort": "high",
+        "scoped_verdict": "PASS_APP_THEME_FIX2_49_SOURCE_TESTS",
+        "full_verdict": "BLOCKED_LIVE_DARK_LABEL_CONTRAST_AND_RETAINED_NATIVE_CI_GATES",
+        "rca": ".brain/rca/2026-09-17-callmd-live-dark-label-contrast.md"
+      },
+      "current_checkpoint": {
+        "review": {
+          "agent_id": "01a0addb-1fa8-7b91-ae0c-ceaec2d75cfd",
+          "nickname": "Zeno",
+          "model": "gpt-5.6-terra",
+          "reasoning_effort": "high",
+          "state": "COMPLETED_CLOSED",
+          "verdict": "PASS_SCOPED",
+          "tests": {
+            "contracts": 13,
+            "shell": 8,
+            "live": 12,
+            "history": 11,
+            "integration": 6,
+            "total": 50
+          },
+          "hashesMatched": true,
+          "visual": "BLOCKED_BROWSER_ATTACH"
+        },
+        "full_verdict": "BLOCKED_BROWSER_ATTACH_AND_RETAINED_NATIVE_CI_GATES"
+      }
     },
     {
       "id": "HANDOFF",
@@ -1103,7 +3398,7 @@
       "role": "orchestrator",
       "model": null,
       "reasoning_effort": null,
-      "state": "PLANNED",
+      "state": "BLOCKED",
       "depends_on": [
         "INTEGRATION_REVIEW"
       ],
@@ -1121,7 +3416,8 @@
         "Git scope/diff check and exact evidence references."
       ],
       "code_writes": false,
-      "risk": "MEDIUM"
+      "risk": "MEDIUM",
+      "partial_handoff": "UNCOMMITTED_FIX3_SOURCE_AND_TESTS_REVIEWED; browserverificationrequiresavailablewebview; noDoD/native/releaseclaim; allagentsclosed; noadditionalsourcechangeauthorizedbytoolingfailure"
     }
   ],
   "workflow_approval": {
@@ -1134,19 +3430,489 @@
     "selected_feature_variant": null
   },
   "feature_selection": {
-    "user_message": "B: UI ใหม่ พร้อมประวัติบันทึก",
     "requested_variant": "B",
     "confirmed_scope": [
       "new desktop UI",
-      "project recording history"
+      "project recording history",
+      "native compatible PCM16 WAV playback",
+      "recording-scoped Q&A",
+      "parallel Luna max workers subject to dependencies and disjoint leases"
     ],
-    "pending_choices": [
-      "whether B playback and recording-scoped Q&A are included",
-      "exact applicable native/UI leases after scope confirmation",
-      "scoped SVG/PNG design delivery acceptance",
-      "separate baseline CI/custody remediation approval"
+    "pending_choices": [],
+    "scope_authority": "Boss approve confirms cover v0.2.0b including scoped SVG/PNG, exact baseline preservation repair and interface-first parallelism; no new cloud/schema/CSP/Drive or commit/release authority.",
+    "product_implementation_authorized": true,
+    "user_messages": [
+      "B: UI ใหม่ พร้อมประวัติบันทึก",
+      "ทำคู่กันแบบบขนาน"
     ],
-    "scope_authority": "Records UI/history selection; does not infer approval for unspecified native playback, Q&A, CI changes or release.",
-    "product_implementation_authorized": false
-  }
+    "feature_scope_confirmed": true,
+    "approval_record": "docs/verification/implementation-reports/2026-09-17-callmd-approval.md"
+  },
+  "observed_head_sha": "376ef30db13670e4dea816ceff440f44ce73fffd",
+  "preflight_dispatches": [
+    {
+      "id": "BASELINE_VERIFY_ONLY",
+      "agent_id": "01a0abc4-596f-7f70-9f4e-c2e71b015eba",
+      "nickname": "Kepler",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "REVIEW",
+      "writes": [
+        ".brain/rca/2026-09-17-callmd-baseline-gates.md"
+      ],
+      "code_writes": false,
+      "authority": "Read-only verification and proposed documentation only; no BASELINE repair or downstream code dispatch.",
+      "requested_model_provenance": "Explicit tool parameters; no independent runtime identity attestation.",
+      "result": "DONE_WITH_CONCERNS",
+      "lease_state": "RELEASED_COMPLETED_CLOSED",
+      "evidence": {
+        "path": ".brain/rca/2026-09-17-callmd-baseline-gates.md",
+        "sha256": "6ca87d3367b789a99ff8694528fbaa2f14e66517a0f844d0075cd443c5b3c070",
+        "scope": "Bounded source/scheduling findings; not baseline acceptance or independent Terra review."
+      }
+    },
+    {
+      "id": "PARALLEL_READINESS",
+      "agent_id": "01a0abc4-5a1e-74c2-9514-9a115fb4d1be",
+      "nickname": "Hypatia",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "REVIEW",
+      "writes": [
+        "docs/verification/implementation-reports/2026-09-17-callmd-parallel-readiness.md"
+      ],
+      "code_writes": false,
+      "authority": "Read-only verification and proposed documentation only; no BASELINE repair or downstream code dispatch.",
+      "requested_model_provenance": "Explicit tool parameters; no independent runtime identity attestation.",
+      "result": "DONE_WITH_CONCERNS",
+      "lease_state": "RELEASED_COMPLETED_CLOSED",
+      "evidence": {
+        "path": "docs/verification/implementation-reports/2026-09-17-callmd-parallel-readiness.md",
+        "sha256": "a866fcd86d1ba2b7bd39394c19572f2cd368272662200d464549af4666adaa6c",
+        "scope": "Bounded source/scheduling findings; not baseline acceptance or independent Terra review."
+      }
+    },
+    {
+      "id": "INTEGRATE_PREFLIGHT",
+      "agent_id": "01a0ac8c-122e-7a22-8fe0-55e41300ce19",
+      "nickname": "Aquinas",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "ACCEPTED",
+      "code_writes": false,
+      "writes": [],
+      "authority": "Read-onlypreflightONLY, no sourcelease/transfer. INTEGRATEstillPLANNED pendingrequiredreviewjoins; sameopen sessionmayreceivefutureexactlease.",
+      "started_at": "2026-09-17T06:27:00+07:00",
+      "lease_state": "READ_ONLY_PREFLIGHT_RELEASED_TO_EXPLICIT_INTEGRATION",
+      "note": "Read-onlypreflightcompleted; sameopenLuna sessionretainedforfutureexactlease. Live6hashesverified. No filesedited."
+    },
+    {
+      "id": "INTEGRATION_SOURCE_PREFLIGHT",
+      "agent_id": "01a0acf8-406b-72e0-a61d-47abf84b2632",
+      "nickname": "Pauli",
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "high",
+      "state": "COHERENCE_REVIEW_RUNNING_AFTER_SOURCE_FAIL",
+      "writes": [],
+      "code_writes": false,
+      "source_verdict": "FAIL3confirmedUIdefects,35hashesmatch,0testsran",
+      "coherence_scope": "OptionalexistingLivePhasehandofffixesapprovedtruthfulstartguard; nonativewire/newfeature"
+    },
+    {
+      "id": "INTEGRATE_FIX1_PREFLIGHT",
+      "agent_id": "01a0ad0d-c0c8-72e2-9f01-4fc37ecea4ff",
+      "nickname": "Socrates",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "RUNNING_READ_ONLY",
+      "code_writes": false,
+      "writes": [],
+      "lease_state": "NO_SOURCE_LEASE",
+      "authority": "Read-onlyprepareAppphaseforward+test+exacttransfer afterfixedLive/Shellreview; no sourcecopies now."
+    }
+  ],
+  "proposed_amendment": {
+    "state": "APPROVED_APPLIED_COHERENCE_ACCEPTED",
+    "reference": "docs/plans/2026-09-17-callmd-desktop-feature-approval.md",
+    "purpose": "Allow true backend/UI overlap after frozen interface review without removing native implementation review.",
+    "add_node": {
+      "id": "BACKEND_INTERFACE_REVIEW",
+      "role": "reviewer",
+      "code_writes": false,
+      "writes": [],
+      "depends_on": [
+        "CONTRACT_TEST_REVIEW"
+      ]
+    },
+    "change_dependencies": [
+      {
+        "node": "SHARED_CONTRACT",
+        "from": [
+          "BACKEND_REVIEW"
+        ],
+        "to": [
+          "BACKEND_INTERFACE_REVIEW"
+        ]
+      },
+      {
+        "node": "INTEGRATE",
+        "from": [
+          "UI_TASK_REVIEW"
+        ],
+        "to": [
+          "UI_TASK_REVIEW",
+          "BACKEND_REVIEW"
+        ]
+      }
+    ],
+    "max_parallel_workers": 3,
+    "preconditions": [
+      "Boss approves proposal, scoped design format and exact baseline repair",
+      "contract/test acceptance coherence and independent review before activation"
+    ],
+    "proposed_baseline_write_additions": [
+      "package.json",
+      "tests/nativeSessionCustody.test.mjs"
+    ],
+    "scope": "No schema/cloud/CSP/Drive resurrection, no security assertion waiver. No automatic main merge/cherry-pick or commits."
+  },
+  "feature_approval": {
+    "user_message": "approve",
+    "recorded_at": "2026-09-17T03:18:00+07:00",
+    "scope": "Full P1-B plus scoped SVG/PNG, four-file baseline preservation repair and safe parallel amendment",
+    "cover_version": "0.2.0b",
+    "cover_sha256": "7e06b36e0942781ecd0d7a7c0717c07ab837b7a826ce9952c5d25808a20f0de1",
+    "manifest_proposal_sha256": "7fc889e0c88b5ea2acee1f44525dd177a221519409950ae3a1c9b9ed1fbc41e0",
+    "rca_sha256": "6ca87d3367b789a99ff8694528fbaa2f14e66517a0f844d0075cd443c5b3c070",
+    "record": "docs/verification/implementation-reports/2026-09-17-callmd-approval.md",
+    "no_security_waiver": true,
+    "no_commit_push_release": true
+  },
+  "amendment_coherence": {
+    "state": "ACCEPTED",
+    "agent_id": "01a0abdc-2fe7-76f3-a054-939dc880d5cd",
+    "requested_model": "gpt-5.6-luna",
+    "requested_reasoning_effort": "max",
+    "writes": [
+      "docs/specs/2026-09-17-callmd-desktop-contracts.md",
+      "docs/specs/2026-09-17-callmd-desktop-acceptance.md",
+      "docs/design/2026-09-17-callmd-desktop-ui.md",
+      "docs/verification/implementation-reports/2026-09-17-callmd-parallel-amendment.md"
+    ],
+    "code_writes": false,
+    "lease_state": "RELEASED_COMPLETED_CLOSED",
+    "required_before": [
+      "CONTRACT_TESTS",
+      "BACKEND_INTERFACE_REVIEW",
+      "BACKEND_RECORDING",
+      "SHARED_CONTRACT"
+    ],
+    "review_state": "PASS",
+    "scope": "Apply approved scheduling/authority alignment only; baseline may proceed independently under original approved RCA. UX text authority/order/format-only lease included; SVG/PNG unchanged.",
+    "invalidated_current_inputs": [
+      "DOC_CONTRACT",
+      "DOC_UX",
+      "DOC_ACCEPTANCE",
+      "DOC_REVIEW"
+    ],
+    "invalidation_reason": "Authorized authority/order amendment modifies the current documents. Original acceptance remains historical at its recorded digests; new product dispatch waits for independent coherence review. Baseline alone proceeds under separately approved immutable RCA.",
+    "evidence": [
+      {
+        "path": "docs/specs/2026-09-17-callmd-desktop-contracts.md",
+        "sha256": "e34b3727184ee99da3e689573163efd19f79f6bf81655ffd7b84175dc840ae7c"
+      },
+      {
+        "path": "docs/specs/2026-09-17-callmd-desktop-acceptance.md",
+        "sha256": "8686bf25f8aa9accf170e4d41409dab777246178e942178dfee7ee656a0e613c"
+      },
+      {
+        "path": "docs/design/2026-09-17-callmd-desktop-ui.md",
+        "sha256": "191421d8b83275a441dbf8cd6de36476e9e7ec9e4e1a12e531f3fb074cd5c533"
+      },
+      {
+        "path": "docs/verification/implementation-reports/2026-09-17-callmd-parallel-amendment-review.md",
+        "sha256": "9281d93a695fc17a716a2619ce247e491b4be65554c753bfccc17eb37d8971d4",
+        "verdict": "PASS",
+        "scope": "Document coherence only; current revision accepted, no native/runtime proof."
+      }
+    ],
+    "reviewer": {
+      "agent_id": "01a0abf3-7a7e-79d1-8fd9-54e0460ba7d2",
+      "nickname": "Wegener",
+      "requested_model": "gpt-5.6-terra",
+      "reasoning_effort": "high",
+      "state": "COMPLETED_CLOSED",
+      "writes": []
+    },
+    "review_cycle": 2,
+    "fix": {
+      "agent_id": "01a0abed-41ad-7ff1-8cff-eee86e2bda98",
+      "nickname": "Beauvoir",
+      "state": "COMPLETED_CLOSED",
+      "requested_model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "scope": "Acceptance exact baseline list omitted package.json/nativeSessionCustody.test.mjs; add approved paths only plus version/report.",
+      "report": {
+        "path": "docs/verification/implementation-reports/2026-09-17-callmd-parallel-amendment-fix1.md",
+        "sha256": "8ec1b99801dd20dd437a2f5ff6eea15f2e02f8126999ac4eeca0fe3b093f4378",
+        "metadata_correction": "Controller corrected copied actor ID to actual fixer before review freeze."
+      }
+    },
+    "prior_evidence": [
+      {
+        "path": "C:/Users/pc/.codex/worktrees/9000/fung/docs/specs/2026-09-17-callmd-desktop-contracts.md",
+        "sha256": "e34b3727184ee99da3e689573163efd19f79f6bf81655ffd7b84175dc840ae7c"
+      },
+      {
+        "path": "C:/Users/pc/.codex/worktrees/9000/fung/docs/specs/2026-09-17-callmd-desktop-acceptance.md",
+        "sha256": "ce44c55cab1b1d42d2d2806d8b5920ab71c3dd4d95b64bdb779a6a1e1ca5b06c"
+      },
+      {
+        "path": "C:/Users/pc/.codex/worktrees/9000/fung/docs/design/2026-09-17-callmd-desktop-ui.md",
+        "sha256": "191421d8b83275a441dbf8cd6de36476e9e7ec9e4e1a12e531f3fb074cd5c533"
+      },
+      {
+        "path": "C:/Users/pc/.codex/worktrees/9000/fung/docs/verification/implementation-reports/2026-09-17-callmd-parallel-amendment.md",
+        "sha256": "8f8bef1531bf2aaa27934d705ef6c0bb2e704f55a83fcec8cf8d59b253cf357c"
+      }
+    ],
+    "review_history": [
+      {
+        "agent_id": "01a0abe8-8e70-7ca2-8220-304197db4879",
+        "nickname": "Fermat",
+        "requested_model": "gpt-5.6-terra",
+        "reasoning_effort": "high",
+        "writes": [],
+        "verdict": "WARN",
+        "finding": "Exact baseline inventory omitted two paths; fixed by FIX1."
+      }
+    ]
+  },
+  "baseline_transfer": {
+    "state": "ACCEPTED",
+    "agent_id": "01a0abee-7084-7313-8a51-e65971bc022a",
+    "nickname": "Raman",
+    "requested_model": "gpt-5.6-luna",
+    "reasoning_effort": "max",
+    "from": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/baseline-376ef30",
+    "to": "C:/Users/pc/.codex/worktrees/9000/fung",
+    "scope": "Only five frozen reviewed baseline files plus transfer report, byte identity required; no commit or source feature code.",
+    "lease_state": "RELEASED",
+    "evidence": {
+      "path": "docs/verification/implementation-reports/2026-09-17-callmd-baseline-transfer.md",
+      "sha256": "5b5ac7b41a35d1873b5d1b18b9e2e358c3b158d81ac027dd252f8e9d03016e0c",
+      "verification": "Controller independently confirmed all five accepted raw hashes; worker root CIcoverage4/4 auth8/8."
+    }
+  },
+  "execution_events": [
+    {
+      "at": "2026-09-17T03:44:00+07:00",
+      "event": "Coherence WARN fixed/reviewed PASS; current documentation acceptance restored; CONTRACT_TESTS dispatched with isolated exact lease. No product child lanes start yet.",
+      "changed_nodes": [
+        "DOC_CONTRACT",
+        "DOC_ACCEPTANCE",
+        "DOC_UX",
+        "DOC_REVIEW",
+        "CONTRACT_TESTS"
+      ],
+      "invalidated_descendants": []
+    },
+    {
+      "at": "2026-09-17T04:18:00+07:00",
+      "event": "Interface PASS accepted; native backend and shared bridge dispatched concurrently in separate worktrees at identical frozen inputs.",
+      "active_luna": 2,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T04:43:00+07:00",
+      "event": "Shared consumer contract FAIL; bounded Luna FIX1 admitted. Native/wire/tests unchanged, only shared/UI descendants held; backend continues.",
+      "active_luna": 2,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T05:00:00+07:00",
+      "event": "Shared FIX1 and documentation fidelity PASS accepted. Live and History dispatched concurrently with backend. Shell queued by 3-Luna cap.",
+      "active_luna": 3,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T05:18:00+07:00",
+      "event": "Backend delivered frozen candidate/closed. Two complementary Terra reviews (only one Cargo executor). Shell starts in released shared worktree; three UI Luna nowactive.",
+      "active_luna": 3,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T05:33:00+07:00",
+      "event": "Native review FAIL consolidated with incorrect custodyfinding withdrawn; FIX1 queued by3Lunacap. History wrongcwd confirmed; sameworker bounded recoverable correction authorized, rootbuildnotcandidateevidence.",
+      "active_luna": 3,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T05:40:00+07:00",
+      "event": "Shell frozen in correcttree/workerclosed; independent partialUIreview starts. Freed Luna slot dispatched bounded nativeFIX1; Live+History continue.",
+      "active_luna": 3,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T05:55:00+07:00",
+      "event": "Live and correctedHistory delivered/frozen/closed; independentUI facets running. NativeFIX1 andShellbrandFIX1 remainactive; UI integrationnotadmitted.",
+      "active_luna": 2,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T06:05:00+07:00",
+      "event": "Live and History independent facets FAIL; reviewers closed. Fresh LiveFIX1 admitted alongside BackendFIX1/ShellFIX1; HistoryFIX1 queued under three-Luna cap. Integration blocked.",
+      "active_luna": 3,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T06:06:00+07:00",
+      "event": "ShellFIX1 frozen/closed and independent re-review started; released Luna slot dispatched HistoryFIX1. Backend/Live/History active, cap3.",
+      "active_luna": 3,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T06:23:00+07:00",
+      "event": "HistoryFIX1 frozen/closed; four actual hash readback and Terra re-review. BackendFIX1+LiveFIX1 remain active; Integration held.",
+      "active_luna": 2,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T06:24:00+07:00",
+      "event": "BackendFIX1 frozen/closed, six raw hashes read back; fresh two-facet review dispatched, sole Cargo executor. LiveFIX1 only active Luna; History rereview continues.",
+      "active_luna": 1,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T06:31:00+07:00",
+      "event": "Backendreview2 andHistoryreview2FAIL; fresh boundedLunaFIX2inoriginalleases. LunaAquinasread-onlyintegrationpreflight no sourcelease; threeLuna total. Livebehaviorre-reviewawaitscorrectrootauthorityreadback.",
+      "active_luna": 3,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T06:44:00+07:00",
+      "event": "HistoryFIX2 delivered/frozen/closed; own4rawhashes verified; independentre-reviewHume started. BackendFIX2 active; read-onlypreflightintegrator readybutNOWRITElease.",
+      "active_luna": 1,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T06:56:00+07:00",
+      "event": "AllUI sourcefacetsaccepted. HistorymetadataoverclaimcorrectedandTerrareadbackPASS; nonblockingmountedregistrarproof ownedfinalaudit. Acceptance64digest correctedagainstoriginalreceipt. IntegrationstillblockedBackendFIX2.",
+      "active_luna": 1,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T07:08:00+07:00",
+      "event": "BackendFIX2 frozen/closed, sixcurrenthashesreadback. MillsoleCargo+QAreviewer/Arendtstaticplaybackreview running. AllUIaccepted; integratorreadyNOsourcelease untilbackendjoin.",
+      "active_luna": 0,
+      "cap": 3
+    },
+    {
+      "at": "2026-09-17T07:22:00+07:00",
+      "event": "IndependentnativeFIX2reviewFAIL evidencegaps only; reviewersclosed. FreshLunaAverroes finalboundedFIX3 in2Rustfiles+report. UI sourceaccepted; integrationheld, controllerdocs only.",
+      "active_luna": 1,
+      "cap": 3,
+      "previous_manifest_sha256": "cae86c3dd5978442925884d67e26384e0eeb4c898e0bc074cc18f515248b98c1",
+      "invalidation": "BackendreviewpendingFIX3; INTEGRATEdownstreamnotadmitted. UI acceptedinterfacesunchanged."
+    },
+    {
+      "at": "2026-09-17T07:37:00+07:00",
+      "event": "BackendFIX3 finalboundedhandoff frozen6hashesandclosed. ErdossoleCargoQA/McClintockstaticplayback independentreview4. Integrationstillheld.",
+      "active_luna": 0,
+      "cap": 3,
+      "previous_manifest_sha256": "8a41265a211edeb9547e3738724b8b5dff4c19e25124167229e0716c08c912a1"
+    },
+    {
+      "at": "2026-09-17T07:42:00+07:00",
+      "event": "BackendFIX3twoTerraPASS scopedsource; review6/intel18/playback20/live16/native22 independentlyPASS. UI+native joinaccepted. SameopenLunaAquinas explicitrootINTEGRATE lease8implementationpaths+30acceptedexacttransfers. FinalCI/nativegatesunwaived.",
+      "active_luna": 1,
+      "cap": 3,
+      "previous_manifest_sha256": "2fd6ae95c93e39829b441bc7c72df960343b1e2adef0463eb4bbdd1eaac80260"
+    },
+    {
+      "at": "2026-09-17T08:07:00+07:00",
+      "event": "Read-onlyVERIFY readiness clarified toconsume frozen INTEGRATE REVIEW beforeindependentfinalaudit; no nodes/edges/source/gateschanged, no invalidation.",
+      "previous_manifest_sha256": "8d4c41e000a1de52ea417e82a09d7ba152e3b38d041c9617f75f4cd3c18d194b",
+      "workflow_sha256": "3f04a839d7ad9b2262e64c099f2aaefb3edf11aacb1e18e3b3fa35daa622df01"
+    },
+    {
+      "at": "2026-09-17T08:36:00+07:00",
+      "event": "Integratorclosed35artifactfreeze, reportobservermetadataonlycorrected7e5d...; EulerVERIFYrootreadonly; mainCUAbrowserFAILconfirmedbyPauli3defects. FreshEinsteinLiveFIX2 isolated; Shellphasecoherencepending. Rootunchanged, no sourcefixermain.",
+      "active_luna": 2,
+      "cap": 3,
+      "previous_manifest_sha256": "5ec2359c444cfa18f3c0166315be976549df15cf35b7052d3c20de6ffcf234ac",
+      "invalidation": "UI_LIVE/UI_SHELL/UI_TASK_REVIEW acceptance withdrawn forconfirmedlifecycle/phase; rootINTEGRATE notaccepted. Native/historyunchanged."
+    },
+    {
+      "at": "2026-09-17T08:54:00+07:00",
+      "event": "EulerVERIFYdoneclosed,200PASS1skip27scripts/localbuildgreen,Rustknown6envfail,AppFAIL3; reportmetadataonlynormalized. PhasecoherencePASSPauli->Darwinisolatedfix; EinsteinLivefixparallel. SocratesfreshreadonlyIntegrationFIX1preflight. MainHistoryfixtureindependent6PASScomponentonly; generatedfixtureverifiedremoved.",
+      "active_luna": 3,
+      "cap": 3,
+      "previous_manifest_sha256": "8120494e0bdfdb1baaf81d957842b94ad8f14e0b40942701836133e532dde801"
+    },
+    {
+      "at": "2026-09-17T12:25:00+07:00",
+      "event": "Explicit Boss Approve unlocks contrast FIX3 only; fresh Bernoulli Luna/max exclusive three-file root lease. Controller docs and verification preparation parallel. Prior native/CI gates retained.",
+      "active_luna": 1,
+      "cap": 3,
+      "previous_manifest_sha256": "132b8d2a3759bc8ca6b24954d60476687bfb49633bf08cc3e89f801a7be8d65d",
+      "invalidated_descendants": [
+        "UI_TASK_REVIEW",
+        "INTEGRATE",
+        "VERIFY",
+        "INTEGRATION_REVIEW",
+        "HANDOFF"
+      ]
+    },
+    {
+      "at": "2026-09-17T12:39:00+07:00",
+      "event": "BernoulliFIX3closedexactthreefiles; ZenoTerrahighPASS_SCOPED50/50Nodeclosed; workerbuild1812PASS. MainCUAwebviewattachfailedbeforepage,7fixtureoraclesNOT_OBSERVED; owntemp/servercleaned,viewportreset. Allsourcefrozen,mainonlydocs,fullgatesretained.",
+      "active_luna": 0,
+      "active_reviewers": 0,
+      "previous_manifest_sha256": "3ebc35c610fa7626e8d37d2971bffc5e1ea85a0dd6d9d49fb08e27d855284cb3",
+      "changed_fields": [
+        "snapshot_at",
+        "nodes.UI_LIVE",
+        "nodes.UI_TASK_REVIEW",
+        "nodes.INTEGRATE.current_checkpoint",
+        "nodes.VERIFY.current_checkpoint",
+        "nodes.INTEGRATION_REVIEW.current_checkpoint",
+        "nodes.HANDOFF.partial_handoff",
+        "execution_events",
+        "controller_source_state"
+      ],
+      "invalidated_descendants": [
+        "VERIFY",
+        "INTEGRATION_REVIEW",
+        "HANDOFF"
+      ]
+    }
+  ],
+  "shared_preparation": {
+    "state": "ACCEPTED",
+    "agent_id": "01a0abee-7084-7313-8a51-e65971bc022a",
+    "requested_model": "gpt-5.6-luna",
+    "reasoning_effort": "max",
+    "worktree": "C:/Users/pc/.codex/worktrees/9000/fung/output/callmd-worktrees/shared-376ef30",
+    "scope": "Sequential lease: same five accepted baseline dependency bytes + preparation report only; NOT shared feature implementation.",
+    "lease_state": "RELEASED_COMPLETED_CLOSED",
+    "evidence": {
+      "path": "output/callmd-worktrees/shared-376ef30/docs/verification/implementation-reports/2026-09-17-callmd-shared-preparation.md",
+      "sha256": "ea3cc06637d4f7653638e6d5f57ac981a4662cf00df3514d90c722674489b843",
+      "result": "5 accepted dependency hashes exact; CIcoverage4/4 auth8/8. No feature implementation."
+    }
+  },
+  "controller_source_state": "FROZEN_UNCOMMITTED_FIX3_SOURCE_REVIEW_PASS_ALL_AGENTS_CLOSED_BROWSER_ATTACH_AND_NATIVE_CI_GATES_BLOCKED_NO_CONTROLLER_CODE_EDITS",
+  "provenance_errata": [
+    {
+      "at": "2026-09-17T06:53:26.3965939+07:00",
+      "kind": "ACCEPTANCE_DIGEST_TRANSCRIPTION",
+      "correct_sha256": "8686bf25f8aa9accf170e4d41409dab777246178e942178dfee7ee656a0e613c",
+      "original_receipt": "docs/verification/implementation-reports/2026-09-17-callmd-parallel-amendment-fix1.md:41",
+      "rca": ".brain/rca/2026-09-17-callmd-acceptance-digest.md",
+      "semantic_input_change": false,
+      "invalidated_descendants": [],
+      "historical_reports": "backend-interface-review and parallel-amendment-review preserved as snapshots; malformed65charliteral is not valid content pin"
+    }
+  ]
 }

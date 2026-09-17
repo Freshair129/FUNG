@@ -1,7 +1,7 @@
 ---
-version: "0.1.2b"
+version: "0.2.2b"
 created_at: "2026-09-17T01:32:00+07:00,Codex,c378af9fac3c00db063948f49f9ee857ebad9126"
-last_update: "2026-09-17T02:19:54+07:00,Codex"
+last_update: "2026-09-17T12:25:00+07:00,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -12,7 +12,75 @@ attributes:
 
 # Call.md → FUNG: Luna max task DAG
 
-## 1. Authority and outcome
+## Current execution overlay — approved 2026-09-17
+
+Version diff0.2.1b ->0.2.2b: after explicit Boss approval of the contrast RCA,
+UI_LIVE FIX3 may use the already isolated integrated root candidate for its
+exact three-file lease (LiveWorkspace.css, callmdLiveWorkspace.test.mjs,
+callmd-ui-live.md). All other source leases are released; this avoids stale
+isolated inputs and an unnecessary transfer. This narrow scheduling exception
+does not broaden product scope. Main remains documentation-only; fresh Luna/max
+implements, then fresh Terra/high review and main browser checks run in parallel
+on frozen source. Native/CI gates and no-commit/no-deployment boundaries persist.
+
+Boss's latest `approve` approves cover v0.2.0b, full P1-B, scoped three-surface
+SVG/PNG, the four-file baseline preservation repair and interface-first
+backend/UI parallelism. See the [approval record](../verification/implementation-reports/2026-09-17-callmd-approval.md).
+Earlier pending/unselected wording below is historical proposal context, not
+another approval requirement. Native scope is HIGH risk. No security waiver,
+Drive restoration, schema/cloud/CSP expansion, commit/push/release is authorized.
+
+Current pinned implementation base is `376ef30db13670e4dea816ceff440f44ce73fffd`
+(document-only descendant of the original product base). Main `05ed107a` and
+its `d10bbf8` CI fix are reference candidates only; no wholesale main merge.
+
+Current DAG has **26 nodes / 30 dependency edges**. BASELINE runs from its
+approved RCA while a Luna documentation lane aligns the contract/acceptance
+wording with this approved order. Independent coherence review must pass before
+contract/native/shared code dispatch; this is verification, not another scope ask.
+
+```mermaid
+flowchart TD
+  A[Boss approve: full B + baseline + scoped design + parallelism] --> B[Baseline Luna]
+  B --> BR[Baseline Terra review]
+  BR --> T[Contract tests Luna]
+  T --> TR[Contract-test Terra review]
+  TR --> IR[Backend interface Terra review: frozen contract]
+  IR --> N[Native backend Luna]
+  N --> NR[Backend Terra review]
+  IR --> C[Shared bridge Luna]
+  C --> CR[Shared Terra review]
+  CR --> U1[Shell Luna]
+  CR --> U2[Live Luna]
+  CR --> U3[Recording review Luna]
+  U1 --> UR[UI task Terra review]
+  U2 --> UR
+  U3 --> UR
+  NR --> I[Integration Luna]
+  UR --> I
+  I --> V[Verify and independent integration review]
+```
+
+The total cap is three active Luna workers, not three per branch. Queue UI work
+if native work still occupies a slot. Exact disjoint source leases and isolated
+worktrees remain mandatory. All native/security review gates are retained.
+`BACKEND_RECORDING` as well as `SHARED_CONTRACT` waits for
+`BACKEND_INTERFACE_REVIEW`; this is the explicit prerequisite implied by
+reviewing the interface before the fork.
+
+Baseline exact code/test scope: `.github/workflows/ci.yml`,
+`tests/ciCoverage.test.mjs`, `tests/nativeSessionCustody.test.mjs`, and the
+single relevant custody script in `package.json`. No lockfile change.
+Preserve Drive-free native custody assertions; do not adopt a gate deletion
+as equivalent proof. Package/CI leases transfer serially to Integration later.
+
+No commit is authorized: worker outputs are base-SHA plus exact diff/artifact
+hashes. An authorized Luna integration owner transfers reviewed source bytes
+and verifies hashes; the controller does not implement source changes. Isolated
+worktrees may consume a verified dependency snapshot without inventing a commit.
+Uncommitted reports say UNCOMMITTED; a digest is never labeled a commit SHA.
+
+## 1. Historical proposal authority and outcome
 
 Boss requested parallel multi-agent work with **Luna max as the primary worker**
 and Codex as an orchestrator who does not edit implementation code. This is a
@@ -137,6 +205,14 @@ passed its own review. A PASS/accepted WARN promotes reviewed inputs and the
 review node to ACCEPTED. All downstream implementation nodes still require
 ACCEPTED dependencies and actual feature authority. This distinguishes
 delivery from acceptance without an implicit review-readiness deadlock.
+
+The same read-only readiness rule covers `VERIFY`: it may consume a frozen
+`INTEGRATE` handoff in REVIEW after the integrator releases source writes.
+Its predeclared generated-output/report lease allows test execution, not source
+changes or acceptance. Verification results then enter REVIEW for independent
+`INTEGRATION_REVIEW`; failed or NOT_RUN gates remain visible. This clarifies
+the already approved I -> V -> review sequence; it grants no feature, native
+profile, source-fix or release authority and waives no acceptance criterion.
 
 Only the orchestrator changes scheduling state. Actual task states are
 `PLANNED`, `READY`, `RUNNING`, `REVIEW`, `ACCEPTED`, `WAITING_APPROVAL`,
@@ -331,6 +407,12 @@ master-plan release gates, or canceled Google Drive work.
 
 ## Version Diff
 
+- `0.2.0b → 0.2.1b`: clarify read-only VERIFY readiness on a frozen integration
+  handoff; no changed node, edge, implementation scope or hard gate.
+
+- `0.1.2b → 0.2.0b`: record actual full-B/baseline/design approval; activate
+  interface-first fork/join with 26 nodes/30 edges and independent coherence gate.
+
 - `0.1.1b → 0.1.2b`: clarify delivery-versus-review readiness and make the
   contract-test review gate explicit; no expanded implementation authority.
 - `0.1.0b → 0.1.1b`: record Boss workflow approval and authorize the parallel
@@ -344,6 +426,8 @@ master-plan release gates, or canceled Google Drive work.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.1b | 2026-09-17 | beta | Clarify read-only verification readiness without self-acceptance | UNCOMMITTED; base 376ef30 | Codex orchestrator |
+| 0.2.0b | 2026-09-17 | beta | Approved full-B execution and safe native/UI fork-join; no automatic commit/release | UNCOMMITTED; base 376ef30 | Codex orchestrator |
 | 0.1.2b | 2026-09-17 | beta | Clarify read-only review readiness and explicit contract-test review | UNCOMMITTED; base c378af9 | Codex orchestrator |
 | 0.1.1b | 2026-09-17 | beta | Record workflow approval and documentation-wave authority; no feature/code approval | UNCOMMITTED; base c378af9 | Codex orchestrator |
 | 0.1.0b | 2026-09-17 | candidate | Document Call.md-to-FUNG Luna max workflow; no implementation changes | UNCOMMITTED; base c378af9 | Codex orchestrator |

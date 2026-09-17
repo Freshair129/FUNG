@@ -586,3 +586,53 @@
     transition: none;
   }
 }
+
+/* Quiet Archive live surface: the legacy shell keeps the external-tool
+   selectors above, while the owned workspace uses the porcelain/ink palette. */
+.live-panel {
+  --live-porcelain: #faf8f3;
+  --live-paper: #fffdf8;
+  --live-ink: #171918;
+  --live-graphite: #536259;
+  --live-line-color: rgba(23, 25, 24, 0.14);
+  --live-indigo: #4a5b8b;
+  --live-sage: #6f897e;
+  --live-metal: #9a8260;
+  --live-danger: #b0553f;
+  border-color: rgba(23, 25, 24, 0.18);
+  background: var(--live-porcelain);
+  color: var(--live-ink);
+}
+
+.live-overlay--hidden {
+  pointer-events: none;
+}
+
+.live-overlay[hidden] {
+  display: none !important;
+}
+
+.theme-dark .live-panel {
+  --live-porcelain: #171918;
+  --live-paper: #222624;
+  --live-ink: #f4f1ea;
+  --live-graphite: #b9c3bd;
+  --live-line-color: rgba(244, 241, 234, 0.16);
+  --live-indigo: #bccaf3;
+  --live-sage: #9cb5aa;
+  --live-metal: #d1b68a;
+  --live-danger: #e18a72;
+  border-color: rgba(244, 241, 234, 0.2);
+  background: var(--live-porcelain);
+}
+
+.theme-dark .live-btn {
+  border-color: rgba(244, 241, 234, 0.26);
+  background: var(--live-paper);
+  color: var(--live-ink);
+}
+
+.theme-dark .live-btn:hover:not(:disabled) {
+  background: #2d3330;
+  border-color: rgba(244, 241, 234, 0.42);
+}

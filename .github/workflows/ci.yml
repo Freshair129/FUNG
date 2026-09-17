@@ -29,11 +29,15 @@ jobs:
       # First, so an unwired suite fails before the wired ones spend
       # four minutes reporting on a set that is missing one.
       - run: npm run test:ci-coverage
+      - run: npm run test:callmd-contracts
+      - run: npm run test:callmd-shell
+      - run: npm run test:callmd-live
+      - run: npm run test:callmd-history
+      - run: npm run test:callmd-integration
       - run: npm run test:mobile
       - run: npm run test:design-system
       - run: npm run test:auth
       - run: npm run test:w1-authority-schema
-      - run: npm run test:google-drive
       # Every suite runs, and `test:ci-coverage` is what makes that a fact
       # rather than a claim. This comment previously asserted it after six
       # unwired suites were found, and was wrong when written: test:release

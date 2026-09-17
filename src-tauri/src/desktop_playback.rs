@@ -2091,6 +2091,178 @@ mod tests {
         (directory, path)
     }
 
+    #[cfg(windows)]
+    fn safe_fixture_path(path: Option<&Path>, canonical_root: Option<&Path>) -> String {
+        let Some(path) = path else {
+            return "<unavailable>".to_string();
+        };
+        let canonical_path = std::fs::canonicalize(path).ok();
+        let inside_by_spelling =
+            canonical_root.is_some_and(|root| normalized_path_inside(path, root));
+        let inside_by_canonical = canonical_path
+            .as_deref()
+            .zip(canonical_root)
+            .is_some_and(|(candidate, root)| normalized_path_inside(candidate, root));
+        if inside_by_spelling || inside_by_canonical {
+            path.display().to_string()
+        } else {
+            "<redacted-outside-fixture>".to_string()
+        }
+    }
+
+    #[cfg(windows)]
+    fn fixture_path_inside_case_insensitive(path: &Path, root: &Path) -> bool {
+        fn comparable(path: &Path) -> String {
+            let value = path.to_string_lossy();
+            value
+                .strip_prefix(r"\\?\")
+                .unwrap_or(&value)
+                .replace('/', "\\")
+                .to_ascii_lowercase()
+        }
+
+        let path = comparable(path);
+        let root = comparable(root);
+        path == root || path.starts_with(&(root + "\\"))
+    }
+
+    #[cfg(windows)]
+    fn emit_fixture_path_diagnostic(
+        fixture_root: &Path,
+        descriptor: &ChunkDescriptor,
+        observed_error: Option<&ReviewError>,
+    ) {
+        let canonical_root = std::fs::canonicalize(fixture_root).ok();
+        let observed_code = observed_error
+            .map(|error| error.code.as_str())
+            .unwrap_or("<none>");
+        let mut stage = "not_started".to_string();
+        let mut reject_status: String;
+        let mut open_status = "not_run".to_string();
+        let mut metadata_status = "not_run".to_string();
+        let mut metadata_is_file = None;
+        let mut actual_size = None;
+        let mut final_path_status = "not_run".to_string();
+        let mut resolved_candidate = None;
+        let mut final_handle_path = None;
+
+        if let Err(error) = reject_untrusted_path(&descriptor.path) {
+            reject_status = format!("error:{}", error.code);
+            stage = "reject_untrusted_path".to_string();
+        } else {
+            reject_status = "pass".to_string();
+            match resolve_ledger_path(fixture_root, &descriptor.path) {
+                Ok(candidate) => {
+                    resolved_candidate = Some(candidate);
+                    let candidate = resolved_candidate.as_ref().expect("candidate recorded");
+                    match File::open(candidate) {
+                        Ok(file) => {
+                            open_status = "pass".to_string();
+                            match file.metadata() {
+                                Ok(metadata) => {
+                                    metadata_is_file = Some(metadata.is_file());
+                                    actual_size = Some(metadata.len());
+                                    if !metadata.is_file() || metadata.len() != descriptor.byte_size
+                                    {
+                                        metadata_status = "mismatch".to_string();
+                                        stage = "metadata".to_string();
+                                    } else {
+                                        metadata_status = "pass".to_string();
+                                        match final_path_from_handle(&file, candidate) {
+                                            Ok(path) => {
+                                                final_path_status = "pass".to_string();
+                                                final_handle_path = Some(path);
+                                            }
+                                            Err(error) => {
+                                                final_path_status = format!("error:{}", error.code);
+                                                stage = "finalpath".to_string();
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(_) => {
+                                    metadata_status = "error".to_string();
+                                    stage = "metadata".to_string();
+                                }
+                            }
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                            open_status = "not_found".to_string();
+                            stage = "open".to_string();
+                        }
+                        Err(error) => {
+                            open_status = format!("error:{:?}", error.kind());
+                            stage = "open".to_string();
+                        }
+                    }
+                }
+                Err(error) => {
+                    stage = "resolve".to_string();
+                    reject_status = format!("resolve_error:{}", error.code);
+                }
+            }
+        }
+
+        let canonical_candidate = resolved_candidate
+            .as_deref()
+            .and_then(|candidate| std::fs::canonicalize(candidate).ok());
+        let canonical_final_handle = final_handle_path
+            .as_deref()
+            .and_then(|path| std::fs::canonicalize(path).ok());
+        let final_inside_raw_root = final_handle_path
+            .as_deref()
+            .map(|path| normalized_path_inside(path, fixture_root));
+        let final_inside_canonical_root = final_handle_path
+            .as_deref()
+            .zip(canonical_root.as_deref())
+            .map(|(path, root)| normalized_path_inside(path, root));
+        let canonical_final_inside_canonical_root = canonical_final_handle
+            .as_deref()
+            .zip(canonical_root.as_deref())
+            .map(|(path, root)| normalized_path_inside(path, root));
+        let candidate_inside_raw_root = resolved_candidate
+            .as_deref()
+            .map(|path| normalized_path_inside(path, fixture_root));
+        let canonical_candidate_inside_canonical_root = canonical_candidate
+            .as_deref()
+            .zip(canonical_root.as_deref())
+            .map(|(path, root)| normalized_path_inside(path, root));
+        let final_inside_raw_root_case_insensitive = final_handle_path
+            .as_deref()
+            .map(|path| fixture_path_inside_case_insensitive(path, fixture_root));
+        let final_inside_canonical_root_case_insensitive = final_handle_path
+            .as_deref()
+            .zip(canonical_root.as_deref())
+            .map(|(path, root)| fixture_path_inside_case_insensitive(path, root));
+        if stage == "not_started" && final_inside_raw_root == Some(false) {
+            stage = "containment".to_string();
+        }
+        if stage == "not_started" {
+            stage = "post_custody_or_other".to_string();
+        }
+
+        eprintln!(
+            "desktop_playback test-only Windows fixture path diagnostic: observed_code={observed_code}; stage={stage}; raw_fixture_root={}; resolved_candidate={}; final_handle_path={}; canonical_root={}; reject_untrusted_path={reject_status}; open={open_status}; metadata={metadata_status}; metadata_is_file={metadata_is_file:?}; actual_size={actual_size:?}; expected_size={}; finalpath={final_path_status}; candidate_inside_raw_root={candidate_inside_raw_root:?}; final_inside_raw_root={final_inside_raw_root:?}; final_inside_canonical_root={final_inside_canonical_root:?}; canonical_candidate_inside_canonical_root={canonical_candidate_inside_canonical_root:?}; canonical_final_inside_canonical_root={canonical_final_inside_canonical_root:?}; final_inside_raw_root_case_insensitive={final_inside_raw_root_case_insensitive:?}; final_inside_canonical_root_case_insensitive={final_inside_canonical_root_case_insensitive:?}",
+            fixture_root.display(),
+            safe_fixture_path(resolved_candidate.as_deref(), canonical_root.as_deref()),
+            safe_fixture_path(final_handle_path.as_deref(), canonical_root.as_deref()),
+            safe_fixture_path(canonical_root.as_deref(), canonical_root.as_deref()),
+            descriptor.byte_size,
+        );
+    }
+
+    #[cfg(windows)]
+    fn report_fixture_path_failure_if_needed<T>(
+        fixture_root: &Path,
+        descriptor: &ChunkDescriptor,
+        result: &Result<T, ReviewError>,
+        expected_behavior: bool,
+    ) {
+        if !expected_behavior {
+            emit_fixture_path_diagnostic(fixture_root, descriptor, result.as_ref().err());
+        }
+    }
+
     #[test]
     fn frame_math_aligns_seek_down_without_resampling() {
         assert_eq!(frames_for_ms(999, 48_000), 47_952);
@@ -2122,10 +2294,15 @@ mod tests {
             frame_end: 0,
             available: false,
         };
-        assert_eq!(
-            validate_wave(&project_root, &descriptor).unwrap_err().code,
-            "PLAYBACK_FORMAT_UNSUPPORTED"
+        let result = validate_wave(&project_root, &descriptor);
+        #[cfg(windows)]
+        report_fixture_path_failure_if_needed(
+            directory.path(),
+            &descriptor,
+            &result,
+            matches!(result.as_ref(), Err(error) if error.code == "PLAYBACK_FORMAT_UNSUPPORTED"),
         );
+        assert_eq!(result.unwrap_err().code, "PLAYBACK_FORMAT_UNSUPPORTED");
     }
 
     #[test]
@@ -2150,9 +2327,15 @@ mod tests {
             frame_end: 80,
             available: true,
         };
-        let wave = validate_wave(directory.path(), &descriptor)
-            .unwrap()
-            .unwrap();
+        let result = validate_wave(directory.path(), &descriptor);
+        #[cfg(windows)]
+        report_fixture_path_failure_if_needed(
+            directory.path(),
+            &descriptor,
+            &result,
+            matches!(result.as_ref(), Ok(Some(_))),
+        );
+        let wave = result.unwrap().unwrap();
         assert_eq!(wave.spec.sample_rate, 8_000);
         assert_eq!(wave.spec.channels, 1);
         assert_eq!(wave.frames, 80);
@@ -2186,11 +2369,25 @@ mod tests {
                 frame_end: frames as u64,
                 available: true,
             };
-            let wave = validate_wave(directory.path(), &descriptor)
-                .unwrap()
-                .unwrap();
+            let result = validate_wave(directory.path(), &descriptor);
+            #[cfg(windows)]
+            report_fixture_path_failure_if_needed(
+                directory.path(),
+                &descriptor,
+                &result,
+                matches!(result.as_ref(), Ok(Some(_))),
+            );
+            let wave = result.unwrap().unwrap();
             assert_eq!(wave.frames, frames as u64);
-            let source = open_source(directory.path(), &descriptor).unwrap().unwrap();
+            let source_result = open_source(directory.path(), &descriptor);
+            #[cfg(windows)]
+            report_fixture_path_failure_if_needed(
+                directory.path(),
+                &descriptor,
+                &source_result,
+                matches!(source_result.as_ref(), Ok(Some(_))),
+            );
+            let source = source_result.unwrap().unwrap();
             assert_eq!(source.reader.duration(), frames);
         }
     }
@@ -2604,14 +2801,21 @@ mod tests {
         let mut cursor = 0;
         let mut source_index = None;
         let mut source = None;
-        fill_queue(
+        let result = fill_queue(
             &prepared,
             &runtime,
             &mut cursor,
             &mut source_index,
             &mut source,
-        )
-        .unwrap();
+        );
+        #[cfg(windows)]
+        report_fixture_path_failure_if_needed(
+            directory.path(),
+            &prepared.descriptors[0],
+            &result,
+            result.is_ok(),
+        );
+        result.unwrap();
         assert_eq!(cursor, prepared.duration_frames);
         assert!(source.is_none());
         assert!(source_index.is_none());

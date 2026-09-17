@@ -305,6 +305,8 @@ export type DesktopShellActions = {
   openPairing: () => void;
   importMedia: () => void | Promise<void>;
   setTheme: (theme: ThemeChoice) => void;
+  minimizeWindow: () => void | Promise<void>;
+  closeWindow: () => void | Promise<void>;
 };
 
 export type DesktopShellProps = {

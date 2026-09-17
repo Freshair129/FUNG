@@ -33,11 +33,12 @@ function resolveRuntimeImports(source) {
     .replaceAll('from "react"', `from "${reactModuleUrl}"`);
 }
 
-const [shellSource, contractsSource, brandAssetSource, shellCssSource] = await Promise.all([
+const [shellSource, contractsSource, brandAssetSource, shellCssSource, homeSource] = await Promise.all([
   readFile(path.join(worktreeRoot, "src/components/desktop/DesktopShell.tsx"), "utf8"),
   readFile(path.join(worktreeRoot, "src/components/desktop/contracts.ts"), "utf8"),
   readFile(path.join(worktreeRoot, "docs/brand-kit/logo/fung-mark.svg"), "utf8"),
   readFile(path.join(worktreeRoot, "src/components/desktop/DesktopShell.css"), "utf8"),
+  readFile(path.join(worktreeRoot, "src/components/HomeScreen.tsx"), "utf8"),
 ]);
 
 await writeFile(path.join(runtimeDir, "contracts.mjs"), resolveRuntimeImports(transpile(contractsSource)), "utf8");
@@ -96,6 +97,8 @@ function createProps(overrides = {}) {
     openPairing: () => calls.push(["openPairing"]),
     importMedia: () => calls.push(["importMedia"]),
     setTheme: (theme) => calls.push(["setTheme", theme]),
+    minimizeWindow: () => calls.push(["minimizeWindow"]),
+    closeWindow: () => calls.push(["closeWindow"]),
   };
 
   return {
@@ -219,6 +222,8 @@ test("SSR keeps Home, Live, and History controlled by activeSurface with accessi
   assert.match(homeMarkup, /จะเปิดประชุมสดก่อนเริ่มการบันทึกจริง/);
   assert.match(homeMarkup, /Legacy workspace content/);
   assert.match(homeMarkup, /data-surface="home"/);
+  assert.match(homeMarkup, /aria-label="ย่อหน้าต่าง"/);
+  assert.match(homeMarkup, /aria-label="ปิดหน้าต่าง"/);
 
   const reviewMarkup = renderToStaticMarkup(
     React.createElement(
@@ -251,6 +256,18 @@ test("SSR renders the authoritative unboxed 40px FUNG mark and currentColor word
   assert.match(mark, new RegExp(`d="${escapeRegExp(authoritativeMarkPath)}"`));
   assert.match(markup, /class="desktop-shell__brand-wordmark"[^>]*>FUNG<\/span>/);
   assert.doesNotMatch(markup, /linearGradient|porcelainGrad|fung-logo-container/);
+});
+
+test("native window controls and drag boundaries stay explicit", () => {
+  assert.match(shellSource, /<header className="desktop-shell__header" data-tauri-drag-region>/);
+  assert.match(shellSource, /actions\.minimizeWindow/);
+  assert.match(shellSource, /actions\.closeWindow/);
+  assert.doesNotMatch(shellSource, /className="panel-glass" data-tauri-drag-region/);
+  assert.doesNotMatch(shellSource, /className="fab fab-topbar" data-tauri-drag-region/);
+  assert.doesNotMatch(homeSource, /className="home-screen" data-tauri-drag-region/);
+  assert.match(homeSource, /className="home-screen no-drag"/);
+  assert.match(shellCssSource, /\.desktop-shell__header :where\(a, button, select, input, textarea\)/);
+  assert.match(shellCssSource, /\.desktop-shell__header-button--danger/);
 });
 
 test("brand tint stays CSS-owned for explicit light/dark and system-effective themes", () => {

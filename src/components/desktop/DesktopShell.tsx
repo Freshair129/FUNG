@@ -731,7 +731,7 @@ export function DesktopShell({
         ข้ามไปยังเนื้อหาหลัก
       </a>
 
-      <header className="desktop-shell__header">
+      <header className="desktop-shell__header" data-tauri-drag-region>
         <div className="desktop-shell__brand" role="img" aria-label="FUNG Quiet Archive">
           <div className="desktop-shell__brand-lockup">
             {FUNG_BRAND_MARK}
@@ -757,6 +757,24 @@ export function DesktopShell({
             onClick={(event) => requestPairing(event.currentTarget)}
           >
             จับคู่อุปกรณ์
+          </button>
+          <button
+            className="desktop-shell__header-button"
+            type="button"
+            aria-label="ย่อหน้าต่าง"
+            title="ย่อหน้าต่าง"
+            onClick={() => void runAction(actions.minimizeWindow)}
+          >
+            ย่อ
+          </button>
+          <button
+            className="desktop-shell__header-button desktop-shell__header-button--danger"
+            type="button"
+            aria-label="ปิดหน้าต่าง"
+            title="ปิดหน้าต่าง"
+            onClick={() => void runAction(actions.closeWindow)}
+          >
+            ปิด
           </button>
         </div>
       </header>

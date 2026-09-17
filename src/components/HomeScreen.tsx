@@ -17,7 +17,7 @@ interface HomeScreenProps {
 
 export function HomeScreen({ items, onStartRecording, onImport, onOpenItem }: HomeScreenProps) {
   return (
-    <div className="home-screen" data-tauri-drag-region>
+    <div className="home-screen no-drag">
       <div className="home-screen__brand">FUNG</div>
 
       <div className="home-screen__actions">

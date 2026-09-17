@@ -207,6 +207,12 @@
   color: var(--shell-ink);
 }
 
+.desktop-shell__header :where(a, button, select, input, textarea),
+.desktop-shell__header .desktop-shell__nav,
+.desktop-shell__header .desktop-shell__header-actions {
+  -webkit-app-region: no-drag;
+}
+
 .desktop-shell__nav-link.is-active {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--shell-slate) 14%, transparent);
   font-weight: 650;
@@ -253,6 +259,17 @@
 .desktop-shell__header-button:hover {
   border-color: var(--shell-slate);
   color: var(--shell-ink);
+}
+
+.desktop-shell__header-button--danger {
+  border-color: color-mix(in srgb, var(--shell-danger) 45%, var(--shell-line));
+  color: var(--shell-danger);
+}
+
+.desktop-shell__header-button--danger:hover {
+  border-color: var(--shell-danger);
+  background: var(--shell-danger-soft);
+  color: var(--shell-danger);
 }
 
 .desktop-shell__capture-strip {

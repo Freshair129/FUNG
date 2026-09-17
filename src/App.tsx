@@ -1490,6 +1490,8 @@ export function App() {
           await handleImportAndTranscribe();
         },
         setTheme,
+        minimizeWindow: handleMinimizeWindow,
+        closeWindow: handleCloseWindow,
       }}
       recoverySlot={(
         <Suspense fallback={null}>
@@ -1557,7 +1559,7 @@ export function App() {
           </div>
           <div className="callmd-legacy-workspace">
             <div className={`app-shell theme-${effectiveTheme}`}>
-              <div className="ambient-grid" data-tauri-drag-region aria-hidden="true" />
+              <div className="ambient-grid" aria-hidden="true" />
 
       <svg className="clip-defs" width="0" height="0" aria-hidden="true" focusable="false">
         <defs>
@@ -1570,8 +1572,8 @@ export function App() {
 
       <div className="stage-wrap" style={{ transform: `scale(${scale})` }}>
         <main className="stage" aria-label="FUNG review workspace">
-          <div className="panel-glow" data-tauri-drag-region aria-hidden="true" />
-          <div className="panel-glass" data-tauri-drag-region>
+          <div className="panel-glow" aria-hidden="true" />
+          <div className="panel-glass">
             {showHome ? (
               <HomeScreen
                 items={libraryItems}
@@ -1595,7 +1597,7 @@ export function App() {
               />
             ) : (
               <>
-            <section className="zone score-header" data-tauri-drag-region aria-label="Score header">
+            <section className="zone score-header" aria-label="Score header">
               <div>
                 <div className="eyebrow">Meeting Mode / {activeAnchor}</div>
                 <div className="score-title">{meetingTitle}</div>
@@ -1864,7 +1866,7 @@ export function App() {
             <use href="#subtractPanelPath" className="panel-rim__stroke panel-rim__stroke--inner" />
           </svg>
 
-          <div className="fab fab-topbar" data-tauri-drag-region>
+          <div className="fab fab-topbar">
             <div className="topbar-title">
               <button type="button" className="icon-button no-drag" aria-label="Search">
                 <Search size={16} />

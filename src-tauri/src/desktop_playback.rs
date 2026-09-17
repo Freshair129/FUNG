@@ -2282,7 +2282,8 @@ mod tests {
             },
             &[0; 48],
         );
-        let project_root = directory.path().to_path_buf();
+        let project_root =
+            std::fs::canonicalize(directory.path()).expect("fixture project root canonicalization");
         let descriptor = ChunkDescriptor {
             id: "chunk".to_string(),
             path: path.display().to_string(),
@@ -2297,7 +2298,7 @@ mod tests {
         let result = validate_wave(&project_root, &descriptor);
         #[cfg(windows)]
         report_fixture_path_failure_if_needed(
-            directory.path(),
+            &project_root,
             &descriptor,
             &result,
             matches!(result.as_ref(), Err(error) if error.code == "PLAYBACK_FORMAT_UNSUPPORTED"),
@@ -2316,6 +2317,8 @@ mod tests {
             },
             &[1; 80],
         );
+        let project_root =
+            std::fs::canonicalize(directory.path()).expect("fixture project root canonicalization");
         let descriptor = ChunkDescriptor {
             id: "chunk".to_string(),
             path: path.display().to_string(),
@@ -2327,10 +2330,10 @@ mod tests {
             frame_end: 80,
             available: true,
         };
-        let result = validate_wave(directory.path(), &descriptor);
+        let result = validate_wave(&project_root, &descriptor);
         #[cfg(windows)]
         report_fixture_path_failure_if_needed(
-            directory.path(),
+            &project_root,
             &descriptor,
             &result,
             matches!(result.as_ref(), Ok(Some(_))),
@@ -2358,6 +2361,8 @@ mod tests {
                 },
                 &samples,
             );
+            let project_root = std::fs::canonicalize(directory.path())
+                .expect("fixture project root canonicalization");
             let descriptor = ChunkDescriptor {
                 id: "stereo".to_string(),
                 path: path.display().to_string(),
@@ -2369,20 +2374,20 @@ mod tests {
                 frame_end: frames as u64,
                 available: true,
             };
-            let result = validate_wave(directory.path(), &descriptor);
+            let result = validate_wave(&project_root, &descriptor);
             #[cfg(windows)]
             report_fixture_path_failure_if_needed(
-                directory.path(),
+                &project_root,
                 &descriptor,
                 &result,
                 matches!(result.as_ref(), Ok(Some(_))),
             );
             let wave = result.unwrap().unwrap();
             assert_eq!(wave.frames, frames as u64);
-            let source_result = open_source(directory.path(), &descriptor);
+            let source_result = open_source(&project_root, &descriptor);
             #[cfg(windows)]
             report_fixture_path_failure_if_needed(
-                directory.path(),
+                &project_root,
                 &descriptor,
                 &source_result,
                 matches!(source_result.as_ref(), Ok(Some(_))),
@@ -2774,8 +2779,10 @@ mod tests {
             },
             &[1_i16; 16],
         );
+        let project_root =
+            std::fs::canonicalize(directory.path()).expect("fixture project root canonicalization");
         let prepared = PreparedPlayback {
-            project_root: directory.path().to_path_buf(),
+            project_root: project_root.clone(),
             project_id: "p1".to_string(),
             recording_id: "r1".to_string(),
             channel: "file".to_string(),
@@ -2810,7 +2817,7 @@ mod tests {
         );
         #[cfg(windows)]
         report_fixture_path_failure_if_needed(
-            directory.path(),
+            &project_root,
             &prepared.descriptors[0],
             &result,
             result.is_ok(),

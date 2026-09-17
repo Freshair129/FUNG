@@ -1,23 +1,25 @@
 ---
-version: "0.1.3b"
+version: "0.2.1b"
 created_at: "2026-09-17T13:09:50+07:00,Codex,053d2c5024033d4eed0ec6bd057ce45b0ef112d1"
-last_update: "2026-09-17T16:17:11+07:00,Codex orchestrator"
-status: "under review"
+last_update: "2026-09-17T17:22:20+07:00,Codex orchestrator"
+status: "beta"
 superseded_by: null
 attributes:
   domain: "desktop-playback-custody"
   doc_type: "root-cause-analysis"
   scope: "Hosted Windows desktop_playback failures in PR59 synthetic merge"
   complexity: "C-2"
-  risk: "HIGH: security-sensitive path custody; test-only diagnostics approved, no behavior fix authorized"
+  risk: "HIGH: security-sensitive path custody; four-fixture correction approved, production unchanged"
 ---
 
-# Candidate RCA — hosted Windows playback custody failures
+# RCA — hosted Windows playback custody failures
 
-The initial investigation below was read-only. Boss's latest `approve`
-authorizes only the diagnostic-only scope recorded below, not a playback fix.
-Root cause remains UNKNOWN until observed evidence establishes it. The current
-execution record is `docs/plans/2026-09-17-callmd-playback-diagnostic-orchestration.md`.
+The initial investigation and diagnostic publication are complete. CI143 confirms
+a test-fixture root representation mismatch. Boss's latest `approve` authorizes
+the four-fixture-only correction specified below, with independent Terra review,
+exact commit/push and fresh hosted CI. Production behavior and deployment are
+not authorized by that approval. The active execution record is
+`docs/plans/2026-09-17-callmd-playback-fixture-fix-orchestration.md`.
 
 ## Pinned scope and evidence boundary
 
@@ -125,28 +127,35 @@ alias or case variant) from the normalized handle path, this comparator could
 return false even when both names identify the same Windows directory. That
 inference alone does not prove that the hosted runner used such a spelling.
 
-## Root Cause
+## Root Cause — confirmed by CI143 diagnostics
 
-**UNKNOWN — not proven by the available hosted evidence.**
+The four test fixtures supply a raw temporary-directory root using the Windows
+short spelling `C:\Users\RUNNER~1\...`. The file handle resolves to the long
+spelling `\\?\C:\Users\runneradmin\...`. The production comparator strips the
+extended-path prefix but compares path components without resolving aliases.
+Consequently the handle path is not inside the supplied raw-root spelling,
+even though it is inside the canonical root of that same fixture directory.
 
-The strongest current hypothesis is a Windows path-representation mismatch
-between the test's raw `TempDir` root and the handle's normalized final path.
-Short 8.3 spelling is one possible form of that mismatch; case spelling or
-another Windows path normalization difference are also possible. The local
-probe did not reproduce the hypothesis on the current fixture because no
-alternate alias was available, while the hosted logs supplied for this run
-omit the two path values needed to confirm or reject it for `windows-latest`.
+All four emitted diagnostics establish the same sequence: path rejection check,
+file open, file metadata and final-handle resolution PASS; raw-root containment
+is false; canonical-root containment is true. Case-insensitive raw-root
+comparison remains false, so lowercasing alone would not resolve this mismatch.
+The exact evidence is recorded in the CI143 section below.
 
-The failure is therefore not attributed to the WAV parser, channel-duration
-math, EOF cleanup, or a production storage escape. `PLAYBACK_PATH_DENIED` is an
-earlier custody gate that masks those later assertions.
+This confirms a test-fixture precondition defect: these four unit tests bypass
+production `project_custody_root`, which canonicalizes its root before the
+custody comparison. It does not prove all production environments are safe or
+constitute native/packaged acceptance. No production comparator fix is justified
+by this evidence. The earlier custody denial masks WAV-format, duration and EOF
+assertions; there is no evidence that those later behaviors caused these four
+failures.
 
 ## Fixture/production impact boundary
 
-- **Fixture boundary:** `temp_wave` passes a raw temporary-directory spelling as
-  the root. A hosted-only spelling mismatch could make the four tests fail even
-  if the file is physically under that directory. This remains a possible
-  test-fixture precondition defect, not a confirmed production defect.
+- **Fixture boundary:** `temp_wave` supplies a raw temporary-directory spelling.
+  CI143 confirms that the four callers use this noncanonical root while the
+  final handle uses its long spelling. This is a confirmed fixture precondition
+  defect, not evidence of a production escape.
 - **Production boundary:** production canonicalizes the project root before
   playback, which is stronger than the fixture setup. However, production still
   uses the same final-handle versus `Path::starts_with` comparison, so a real
@@ -168,7 +177,7 @@ earlier custody gate that masks those later assertions.
 4. The workflow/merge investigation and this playback investigation are
    separate gates; the CI workflow repair does not establish a playback RCA.
 
-## Proposed prevention / minimal future approval scope
+## Historical prevention options before CI143
 
 No fix is authorized by this report. If a future approval is requested, keep it
 bounded to the following evidence-first scope:
@@ -216,7 +225,7 @@ preimage SHA remains unchanged; no source/test files were modified.
 
 ## Status
 
-`DIAGNOSTIC_APPROVED / ROOT CAUSE UNKNOWN / NO BEHAVIOR FIX AUTHORIZED`.
+`FIXTURE_CORRECTION_APPROVED / ROOT CAUSE CONFIRMED / VERIFICATION PENDING`.
 
 ## Fresh post-repair hosted evidence and next approval boundary
 
@@ -275,6 +284,90 @@ This playback RCA was excluded from the earlier five-file workflow-repair
 commit. It may accompany the newly approved diagnostic-only publication after
 independent review; it does not imply a source behavior fix or deployment.
 
+## CI143 observed evidence — diagnostic task completed
+
+Diagnostic source was reviewed by independent Terra, committed and pushed as
+`343f6ea30a1404a4d756cc4a02f0a5458e11dca2`. Remote branch equality was verified.
+[Run35205875458](https://github.com/Freshair129/FUNG/actions/runs/35205875458)
+checked out synthetic merge `371d915468810e944c989e39be79e9e7a04d7581` against
+main `05ed107a2233e8785b95d2ba7dc282c47aee35a7`.
+
+The merged playback Git blob `ca122e858e3731c957970d68bc1b7fc9de581dc1` equals
+the published reviewed source; its SHA256 remains
+`22caf03015b390bca32dc25076256f3c17edeacc45a5a8b9a8091d3007e47990`.
+All65854 bytes before the test module remain unchanged. No other implementation
+file changed in this diagnostic commit.
+
+- Frontend job105151400226 PASS, including all five CallMD suites.
+- Windows job105151400363: formatting PASS; custody11/11 PASS; strict Clippy PASS.
+- Full Cargo suite:467 PASS,4 FAIL,1 ignored. All four original failures emitted
+  the approved failure-only diagnostic. Overall CI remains FAILED, as expected
+  for evidence collection without a behavior fix.
+
+The four generated fixture leaf names were `.tmp9z4ZEK` (EOF), `.tmpRlZRO0`
+(stereo), `.tmpjlCBJU` (unsupported WAV), and `.tmpoj0FVz` (valid PCM16).
+For each, the observed roots have the following exact prefixes; `<fixture>`
+below substitutes only the listed generated leaf for readability:
+
+```text
+raw_fixture_root=C:\Users\RUNNER~1\AppData\Local\Temp\<fixture>
+final_handle_path=\\?\C:\Users\runneradmin\AppData\Local\Temp\<fixture>\mic-00001.wav
+canonical_root=\\?\C:\Users\runneradmin\AppData\Local\Temp\<fixture>
+observed_code=PLAYBACK_PATH_DENIED
+stage=containment
+reject_untrusted_path=pass; open=pass; metadata=pass; finalpath=pass
+candidate_inside_raw_root=Some(true)
+final_inside_raw_root=Some(false)
+final_inside_canonical_root=Some(true)
+canonical_candidate_inside_canonical_root=Some(true)
+canonical_final_inside_canonical_root=Some(true)
+final_inside_raw_root_case_insensitive=Some(false)
+final_inside_canonical_root_case_insensitive=Some(true)
+```
+
+All files were regular files with actual sizes equal to descriptor sizes:
+76,76,92,204 bytes respectively. The failure is not caused by file absence,
+byte-size mismatch or format validation. Evidence source is the completed
+[Windows job105151400363](https://github.com/Freshair129/FUNG/actions/runs/35205875458/job/105151400363),
+diagnostic lines at09:39:55 UTC on2026-09-17.
+
+## Approved fixture-only correction
+
+Boss approved this exact scope after the v0.2.0b proposal. No additional approval
+is required to implement these four fixture changes and publish reviewed files.
+This does not authorize a production comparator change, PR merge or deployment.
+
+1. Fresh Luna/max changes only `src-tauri/src/desktop_playback.rs` inside the
+   existing test module, plus its report. Construct a canonical project root for
+   exactly the four affected fixtures before calling `validate_wave`,
+   `open_source`, or assigning `PreparedPlayback.project_root`.
+2. Keep original raw descriptor paths, fixture audio, expected error codes,
+   assertions and tests. Preserve negative path-custody tests and the production
+   prefix hash. Canonicalization failure must fail the fixture, not skip a test.
+3. Keep failure-only diagnostics consistent with the root actually supplied to
+   the operation. No comparator normalization/case-folding change, generic
+   fixture refactor, dependency/workflow change or unrelated cleanup.
+4. Fresh independent Terra review verifies the fixture-precondition correction,
+   preserved production prefix/assertions and focused20-test result. Explicit
+   commit/push of reviewed paths is allowed only after this new scope is approved
+   and reviewed. Require fresh hosted Windows evidence that all four original
+   failures are resolved, plus custody, full Cargo, Clippy and frontend checks.
+5. If the four failures persist or a new root cause appears, stop the fix scope
+   and update the RCA rather than weakening security or changing production.
+
+Risk remains HIGH because this is a security-sensitive custody boundary, even
+though the proposed fix is test-only. It restores the fixture to the existing
+production root contract; it does not redefine which source paths are allowed.
+At this approval checkpoint the fixture correction has not been implemented;
+its execution and verification are tracked in the active record above. No
+deployment or PR merge has occurred; deployment target and native/browser/
+packaged acceptance gates remain unresolved.
+
+Current deployment selection: Boss explicitly selected Desktop on this machine.
+The older diagnostic sections above retain their historical unanswered-target
+snapshot. Local deployment preflight now runs separately; target selection does
+not waive CI/acceptance or authorize unrelated credential/user-data changes.
+
 ## Version diff / CHANGELOG
 
 New -> `0.1.0b`: bounded read-only hosted/local playback investigation; local
@@ -288,9 +381,15 @@ observation; root cause remains unknown and no implementation change was made.
 test-only diagnostics as a separate approval scope, not a playback fix.
 `0.1.2b` -> `0.1.3b`: record Boss approval of test-only diagnostics and scoped
 commit/push after independent review. No behavior fix or deployment authorized.
+`0.1.3b` -> `0.2.0b`: record actual CI143 diagnostic evidence, confirm the fixture
+short/long path mismatch, and propose a separate fixture-only correction.
+`0.2.0b` -> `0.2.1b`: record Boss approval for the exact four-fixture correction,
+independent review and scoped publication; runtime/deployment boundaries retained.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.1b | 2026-09-17 | beta | Four-fixture correction approved after confirmed RCA | UNCOMMITTED; base343f6ea | Codex orchestrator |
+| 0.2.0b | 2026-09-17 | candidate | Diagnostic task complete; confirmed fixture root cause; correction awaits approval | UNCOMMITTED; observed343f6ea/371d915 | Codex orchestrator |
 | 0.1.3b | 2026-09-17 | under review | Diagnostic-only execution approved; RCA remains unknown | UNCOMMITTED; base76b14c5 | Codex orchestrator |
 | 0.1.2b | 2026-09-17 | candidate | CI wiring repaired and verified; playback failure recurs; diagnostic-only proposal awaits approval | UNCOMMITTED; inspected 76b14c5 | Codex orchestrator |
 | 0.1.1b | 2026-09-17 | candidate | Corrected evidence wording and timestamp; hosted path identity remains unknown; no code/test fix authorized | UNCOMMITTED; inspected 053d2c5 | Codex |

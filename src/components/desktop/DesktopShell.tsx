@@ -726,7 +726,7 @@ export function DesktopShell({
   const surfaceCopy = SURFACE_COPY[activeSurface];
 
   return (
-    <div className={`desktop-shell ${themeClass}`} data-theme={theme} data-surface={activeSurface}>
+    <div className={`desktop-shell ${themeClass}`} data-fung-root="true" data-theme={theme} data-surface={activeSurface}>
       <a className="desktop-shell__skip-link" href="#desktop-shell-main">
         ข้ามไปยังเนื้อหาหลัก
       </a>

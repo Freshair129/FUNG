@@ -688,3 +688,142 @@
   background: #9fb0e0;
   border-color: #9fb0e0;
 }
+
+/* Shared Quiet Archive surface tokens. Data fetching, auth and the existing
+ * recording hand-off controls remain owned by Dashboard.tsx. */
+.dashboard {
+  --dashboard-canvas: var(--fung-bg-canvas, #FAF8F3);
+  --dashboard-surface: var(--fung-bg-surface, #FFFEFA);
+  --dashboard-elevated: var(--fung-bg-elevated, #FFFFFF);
+  --dashboard-ink: var(--fung-text-primary, #171918);
+  --dashboard-muted: var(--fung-text-secondary, #505A54);
+  --dashboard-line: var(--fung-border-subtle, #D6D9D1);
+  --dashboard-slate: var(--fung-brand-slate, #4A5B8B);
+  --dashboard-sage: var(--fung-brand-sage, #6F897E);
+  min-height: 100vh;
+  color: var(--dashboard-ink);
+  background: var(--dashboard-canvas);
+  font-family: var(--fung-font-ui, "IBM Plex Sans Thai", system-ui, sans-serif);
+}
+
+.dashboard-topbar {
+  min-height: 56px;
+  padding: 12px 24px;
+  border-bottom-color: var(--dashboard-line);
+  background: color-mix(in srgb, var(--dashboard-surface) 94%, transparent);
+}
+
+.dashboard-topbar-left .web-badge {
+  color: var(--dashboard-sage);
+  background: color-mix(in srgb, var(--dashboard-sage) 12%, transparent);
+}
+
+.dashboard-main {
+  max-width: 1200px;
+  padding: 48px 24px 72px;
+  text-align: left;
+}
+
+.dashboard-welcome h1 {
+  color: var(--dashboard-ink);
+  font-size: clamp(24px, 3vw, 36px);
+  line-height: 1.2;
+}
+
+.dashboard-welcome p,
+.dashboard-tile p {
+  color: var(--dashboard-muted);
+}
+
+.dashboard-tiles {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--fung-space-16, 16px);
+}
+
+.dashboard-tile {
+  min-height: 180px;
+  padding: 20px;
+  border: 1px solid var(--dashboard-line);
+  border-radius: var(--fung-radius-md, 12px);
+  background: var(--dashboard-surface);
+  box-shadow: var(--fung-shadow-surface, 0 1px 2px rgba(23, 25, 24, 0.05));
+  opacity: 1;
+}
+
+.dashboard-tile-recorder,
+.dashboard-tile-recordings,
+.dashboard-tile-devices {
+  grid-column: auto;
+}
+
+.dashboard-tile-icon {
+  color: var(--dashboard-slate);
+}
+
+.dashboard-tile h3,
+.dashboard-device-info strong {
+  color: var(--dashboard-ink);
+}
+
+.dashboard-device-item {
+  border-bottom-color: var(--dashboard-line);
+}
+
+.dashboard-avatar-btn {
+  border-color: var(--dashboard-line);
+  color: var(--dashboard-ink);
+}
+
+.dashboard-avatar-dropdown {
+  border-color: var(--dashboard-line);
+  background: var(--dashboard-elevated);
+  box-shadow: var(--fung-shadow-elevated, 0 8px 28px rgba(23, 25, 24, 0.12));
+}
+
+.dashboard-avatar-dropdown button {
+  color: var(--dashboard-ink);
+}
+
+.dashboard-rec-btn,
+.dashboard-connect-btn,
+.dashboard-rec-action.is-primary {
+  background: var(--fung-action-primary-bg, #4A5B8B);
+  border-color: var(--fung-action-primary-bg, #4A5B8B);
+  color: var(--fung-action-primary-fg, #FAF8F3);
+}
+
+.dashboard-rec-btn:hover,
+.dashboard-connect-btn:hover,
+.dashboard-rec-action.is-primary:hover {
+  background: var(--fung-action-primary-hover, #3F4E77);
+}
+
+.dashboard :where(button, input, select, textarea):focus-visible {
+  outline: var(--fung-focus-width, 2px) solid var(--fung-focus, var(--dashboard-slate));
+  outline-offset: var(--fung-focus-offset, 3px);
+}
+
+.theme-dark .dashboard {
+  --dashboard-canvas: var(--fung-bg-canvas, #171918);
+  --dashboard-surface: var(--fung-bg-surface, #202521);
+  --dashboard-elevated: var(--fung-bg-elevated, #292F2A);
+  --dashboard-ink: var(--fung-text-primary, #FAF8F3);
+  --dashboard-muted: var(--fung-text-secondary, #CAD1C9);
+  --dashboard-line: var(--fung-border-subtle, #384239);
+}
+
+@media (max-width: 760px) {
+  .dashboard-main {
+    padding: 32px 16px 56px;
+  }
+
+  .dashboard-tiles {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-tile-recorder,
+  .dashboard-tile-recordings,
+  .dashboard-tile-devices {
+    grid-column: auto;
+  }
+}

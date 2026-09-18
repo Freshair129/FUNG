@@ -31,8 +31,6 @@ const timeLabel = (milliseconds: number) => {
   return `${Math.floor(total / 60).toString().padStart(2, "0")}:${(total % 60).toString().padStart(2, "0")}`;
 };
 
-const waveBars = Array.from({ length: 34 }, (_, index) => 25 + ((index * 17) % 58));
-
 type Props = { projectId: string; pairedDesktop: DeviceState | null; onRecord: () => void };
 
 export function TimelineScreen({ projectId, pairedDesktop, onRecord }: Props) {
@@ -53,6 +51,7 @@ export function TimelineScreen({ projectId, pairedDesktop, onRecord }: Props) {
   const pointers = useRef(new Map<number, number>());
   const pinch = useRef<{ distance: number; zoom: number } | null>(null);
   const selected = data.turns.find((turn) => turn.id === selectedId) ?? null;
+  const isFixture = data.source === "preview";
   const [studio, setStudio] = useCreativeStudio(data, projectId);
 
   useEffect(() => {
@@ -84,12 +83,12 @@ export function TimelineScreen({ projectId, pairedDesktop, onRecord }: Props) {
     const name = window.prompt("ชื่อผู้พูด", speaker.displayName)?.trim();
     if (!name) return;
     setData((current) => ({ ...current, speakers: current.speakers.map((item) => item.id === speaker.id ? { ...item, displayName: name } : item) }));
-    await renameSpeaker(speaker.id, name);
+    if (!isFixture) await renameSpeaker(speaker.id, name);
   };
 
   const splitSelected = async () => {
     if (!selected || playhead <= selected.startMs || playhead >= selected.endMs) return;
-    const result = await splitSpeakerTurn(selected.id, playhead);
+    const result = isFixture ? null : await splitSpeakerTurn(selected.id, playhead);
     if (result) setData(result);
     else setData((current) => ({ ...current, turns: current.turns.flatMap((turn) => turn.id !== selected.id ? [turn] : [
       { ...turn, endMs: playhead, revision: turn.revision + 1 },
@@ -101,7 +100,7 @@ export function TimelineScreen({ projectId, pairedDesktop, onRecord }: Props) {
     if (!selected || data.speakers.length < 2) return;
     const target = data.speakers.find((speaker) => speaker.id !== selected.speakerId);
     if (!target || !window.confirm(`รวมช่วงของผู้พูดนี้เข้า “${target.displayName}”? การแก้ไขจะถูกบันทึกเป็น revision ใหม่`)) return;
-    const result = await mergeSpeakers(projectId, selected.speakerId, target.id);
+    const result = isFixture ? null : await mergeSpeakers(projectId, selected.speakerId, target.id);
     if (result) setData(result);
     else setData((current) => ({
       ...current,
@@ -114,11 +113,11 @@ export function TimelineScreen({ projectId, pairedDesktop, onRecord }: Props) {
   const confirmSelected = async () => {
     if (!selected) return;
     setData((current) => ({ ...current, turns: current.turns.map((turn) => turn.id === selected.id ? { ...turn, status: "confirmed" } : turn) }));
-    await confirmSpeakerTurn(selected.id);
+    if (!isFixture) await confirmSpeakerTurn(selected.id);
   };
 
   const runDiarization = async () => {
-    if (!data.recordingId) return;
+    if (!data.recordingId || isFixture) return;
     setBusy(true);
     try { await startDiarization(projectId, data.recordingId); }
     finally { setBusy(false); }
@@ -160,7 +159,7 @@ export function TimelineScreen({ projectId, pairedDesktop, onRecord }: Props) {
   }
 
   if (surface === "story") return <StoryEditor timeline={data} state={studio} setState={setStudio} onBack={() => setSurface("timeline")} onEffects={() => setSurface("processing")} />;
-  if (surface === "processing") return <ProcessingStudio state={studio} setState={setStudio} desktopAvailable={desktopAvailable} pairedDesktopId={pairedDesktop?.id ?? null} recordingId={data.recordingId} onBack={() => setSurface("story")} />;
+  if (surface === "processing") return <ProcessingStudio state={studio} setState={setStudio} desktopAvailable={desktopAvailable} pairedDesktopId={pairedDesktop?.id ?? null} recordingId={data.recordingId} isFixture={isFixture} onBack={() => setSurface("story")} />;
 
   return (
     <main className="m-screen m-timeline-screen">
@@ -168,8 +167,8 @@ export function TimelineScreen({ projectId, pairedDesktop, onRecord }: Props) {
         <div><span>เสียงและผู้พูด</span><h1>ไทม์ไลน์ผู้พูด</h1></div>
         <div className="m-timeline-header-actions"><button onClick={() => setSurface("story")}><BookOpenText />เรื่องเล่า</button><button onClick={() => setSurface("processing")}><SlidersHorizontal />ประมวลผล</button></div>
       </header>
-      <div className="m-timeline-truth"><i className={data.source === "desktop" ? "is-connected" : ""} />{data.source === "desktop" ? "ผลจาก FUNG Desktop · ตรวจสอบก่อนยืนยัน" : "โหมด standalone · แก้ป้ายผู้พูดได้บนเครื่อง"}</div>
-      <button className="m-diarize-button m-diarize-inline" onClick={runDiarization} disabled={busy || !desktopAvailable}><Sparkles size={17} />{busy ? "กำลังส่งงาน" : desktopAvailable ? "แยกผู้พูด" : "ใช้ Desktop เพื่อแยก"}</button>
+      <div className={`m-timeline-truth ${isFixture ? "is-preview" : ""}`}><i className={data.source === "desktop" ? "is-connected" : ""} />{isFixture ? "ข้อมูลตัวอย่าง · ยังไม่มีเสียงจริง" : data.source === "desktop" ? "ผลจาก FUNG Desktop · ตรวจสอบก่อนยืนยัน" : "โหมด standalone · แก้ป้ายผู้พูดได้บนเครื่อง"}</div>
+      <button className="m-diarize-button m-diarize-inline" onClick={runDiarization} disabled={busy || !desktopAvailable || isFixture}><Sparkles size={17} />{isFixture ? "ต้องมีเสียงจริงก่อนแยก" : busy ? "กำลังส่งงาน" : desktopAvailable ? "แยกผู้พูด" : "ใช้ Desktop เพื่อแยก"}</button>
       <section className="m-transport" aria-label="ตัวควบคุมการเล่นเสียง">
         <button onClick={() => setPlaying((value) => !value)} aria-label={playing ? "หยุดชั่วคราว" : "เล่น"}>{playing ? <Pause /> : <Play />}</button>
         <strong>{timeLabel(playhead)}</strong><span>/ {timeLabel(data.durationMs)}</span>
@@ -188,7 +187,7 @@ export function TimelineScreen({ projectId, pairedDesktop, onRecord }: Props) {
                 const left = Math.max(0, position(turn.startMs));
                 const right = Math.min(100, position(turn.endMs));
                 return <button key={turn.id} className={`m-speaker-clip ${selectedId === turn.id ? "is-selected" : ""} ${turn.overlap ? "is-overlap" : ""}`} style={{ left: `${left}%`, width: `${Math.max(2, right - left)}%` }} onClick={() => { setSelectedId(turn.id); setPlayhead(turn.startMs); }} aria-label={`${speaker.displayName} ${timeLabel(turn.startMs)} ถึง ${timeLabel(turn.endMs)}`}>
-                  <span aria-hidden="true">{waveBars.map((height, index) => <i key={index} style={{ height: `${height}%` }} />)}</span>{turn.status === "confirmed" && <Check size={13} />}
+                  <span className="m-audio-range" aria-hidden="true" />{turn.status === "confirmed" && <Check size={13} />}
                 </button>;
               })}
             </div>

@@ -77,6 +77,7 @@ function RootRouter() {
 }
 
 document.body.dataset.surface = resolveBodySurface({ path, isTauriRuntime });
+document.body.dataset.fungRoot = "true";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

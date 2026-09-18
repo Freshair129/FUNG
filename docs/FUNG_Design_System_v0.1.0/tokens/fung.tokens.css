@@ -1,0 +1,304 @@
+/* FUNG Quiet Archive | DS-FUNG-001 v0.1.0 | PROPOSED */
+
+/* Generated from fung.tokens.json. Re-run build_tokens.py after editing JSON. */
+
+/* Tokens only: no fonts, network imports, component styles, or native window behavior. */
+
+/* Place data-fung-root and data-theme="light|dark|system" on each surface root. */
+
+[data-fung-root] {
+  --fung-brand-porcelain: #FAF8F3;
+  --fung-brand-ink: #171918;
+  --fung-brand-sage: #6F897E;
+  --fung-brand-slate: #4A5B8B;
+  --fung-brand-metal: #9A8260;
+  --fung-brand-clay: #B0553F;
+  --fung-font-ui: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
+  --fung-font-latin: "DM Sans", "IBM Plex Sans Thai", system-ui, sans-serif;
+  --fung-font-display: "Fraunces", "IBM Plex Sans Thai", serif;
+  --fung-font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --fung-font-weight-regular: 400;
+  --fung-font-weight-medium: 500;
+  --fung-font-weight-semibold: 600;
+  --fung-font-size-caption: 0.75rem;
+  --fung-line-height-caption: 1.125rem;
+  --fung-font-size-label: 0.8125rem;
+  --fung-line-height-label: 1.25rem;
+  --fung-font-size-body: 0.875rem;
+  --fung-line-height-body: 1.5rem;
+  --fung-font-size-body-mobile: 1rem;
+  --fung-line-height-body-mobile: 1.625rem;
+  --fung-font-size-title-sm: 1.25rem;
+  --fung-line-height-title-sm: 1.875rem;
+  --fung-font-size-title: 1.5rem;
+  --fung-line-height-title: 2.125rem;
+  --fung-font-size-display: 3rem;
+  --fung-line-height-display: 1.12;
+  --fung-font-size-timer: 1.75rem;
+  --fung-line-height-timer: 2.25rem;
+  --fung-font-size-timer-mobile: 2.5rem;
+  --fung-line-height-timer-mobile: 3.25rem;
+  --fung-wordmark-tracking: 0.34em;
+  --fung-space-0: 0px;
+  --fung-space-4: 4px;
+  --fung-space-8: 8px;
+  --fung-space-12: 12px;
+  --fung-space-16: 16px;
+  --fung-space-20: 20px;
+  --fung-space-24: 24px;
+  --fung-space-32: 32px;
+  --fung-space-40: 40px;
+  --fung-space-48: 48px;
+  --fung-space-64: 64px;
+  --fung-space-80: 80px;
+  --fung-space-96: 96px;
+  --fung-radius-xs: 4px;
+  --fung-radius-sm: 8px;
+  --fung-radius-md: 12px;
+  --fung-radius-lg: 16px;
+  --fung-radius-pill: 999px;
+  --fung-border-width: 1px;
+  --fung-focus-width: 2px;
+  --fung-focus-offset: 3px;
+  --fung-control-height: 44px;
+  --fung-control-height-compact: 36px;
+  --fung-touch-target: 44px;
+  --fung-control-height-primary-mobile: 52px;
+  --fung-icon-sm: 16px;
+  --fung-icon-md: 20px;
+  --fung-icon-lg: 24px;
+  --fung-icon-stroke: 1.75;
+  --fung-layout-desktop-stage-width: 1304px;
+  --fung-layout-desktop-stage-height: 744px;
+  --fung-layout-desktop-nav-width: 176px;
+  --fung-layout-desktop-context-width: 320px;
+  --fung-layout-topbar-height: 56px;
+  --fung-layout-statusbar-height: 24px;
+  --fung-layout-mobile-landscape-rail: 68px;
+  --fung-layout-content-max-width: 1440px;
+  --fung-layout-reading-max-width: 72ch;
+  --fung-companion-idle-hitbox: 48px;
+  --fung-companion-idle-mark: 32px;
+  --fung-companion-peek-width: 296px;
+  --fung-companion-command-width: 400px;
+  --fung-companion-conversation-width: 440px;
+  --fung-companion-screen-margin: 16px;
+  --fung-motion-press: 80ms;
+  --fung-motion-hover: 120ms;
+  --fung-motion-expand: 180ms;
+  --fung-motion-panel: 240ms;
+  --fung-motion-maximum: 320ms;
+  --fung-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --fung-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --fung-z-base: 0;
+  --fung-z-sticky: 10;
+  --fung-z-dropdown: 40;
+  --fung-z-sheet: 60;
+  --fung-z-dialog: 80;
+  --fung-z-toast: 100;
+  --fung-z-tooltip: 120;
+}
+
+[data-fung-root] {
+  --fung-bg-canvas: #FAF8F3;
+  --fung-bg-inset: #F0EDE6;
+  --fung-bg-surface: #FFFEFA;
+  --fung-bg-elevated: #FFFFFF;
+  --fung-bg-hover: #EAEDE7;
+  --fung-bg-selected: #E3E9E1;
+  --fung-bg-backdrop: rgba(23, 25, 24, 0.46);
+  --fung-text-primary: #171918;
+  --fung-text-secondary: #505A54;
+  --fung-text-tertiary: #59665F;
+  --fung-text-inverse: #FAF8F3;
+  --fung-text-disabled: #7D847D;
+  --fung-border-subtle: #D6D9D1;
+  --fung-border-strong: #768177;
+  --fung-action-primary-bg: #4A5B8B;
+  --fung-action-primary-fg: #FAF8F3;
+  --fung-action-primary-hover: #3F4E77;
+  --fung-action-primary-pressed: #354263;
+  --fung-action-secondary-bg: #ECEEE8;
+  --fung-action-secondary-fg: #171918;
+  --fung-action-danger-bg: #B0553F;
+  --fung-action-danger-fg: #FAF8F3;
+  --fung-link: #4A5B8B;
+  --fung-focus: #4A5B8B;
+  --fung-state-local-fg: #3F6150;
+  --fung-state-local-bg: #E7EEE8;
+  --fung-state-pending-fg: #765925;
+  --fung-state-pending-bg: #F4ECDD;
+  --fung-state-danger-fg: #9A4634;
+  --fung-state-danger-bg: #F7E7E1;
+  --fung-state-recording-fg: #9A4634;
+  --fung-state-recording-bg: #F7E7E1;
+  --fung-state-inactive-fg: #59665F;
+  --fung-state-inactive-bg: #ECEEE8;
+  --fung-state-inferred-fg: #4A5B8B;
+  --fung-state-inferred-bg: #E9EDF7;
+  --fung-logo-mark: #171918;
+  --fung-logo-wordmark: #6F897E;
+  --fung-shadow-surface: 0 1px 2px rgba(23, 25, 24, 0.05);
+  --fung-shadow-elevated: 0 8px 28px rgba(23, 25, 24, 0.12);
+  --fung-shadow-overlay: 0 16px 48px rgba(23, 25, 24, 0.20);
+  --fung-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+
+  [data-fung-root]:not([data-theme]), [data-fung-root][data-theme="system"] {
+    --fung-bg-canvas: #171918;
+    --fung-bg-inset: #111312;
+    --fung-bg-surface: #202521;
+    --fung-bg-elevated: #292F2A;
+    --fung-bg-hover: #303932;
+    --fung-bg-selected: #313D34;
+    --fung-bg-backdrop: rgba(0, 0, 0, 0.58);
+    --fung-text-primary: #FAF8F3;
+    --fung-text-secondary: #CAD1C9;
+    --fung-text-tertiary: #A3AFA4;
+    --fung-text-inverse: #171918;
+    --fung-text-disabled: #717B73;
+    --fung-border-subtle: #384239;
+    --fung-border-strong: #788A7A;
+    --fung-action-primary-bg: #B9C8EE;
+    --fung-action-primary-fg: #171918;
+    --fung-action-primary-hover: #CDD8F2;
+    --fung-action-primary-pressed: #A8BAE2;
+    --fung-action-secondary-bg: #303932;
+    --fung-action-secondary-fg: #FAF8F3;
+    --fung-action-danger-bg: #B0553F;
+    --fung-action-danger-fg: #FAF8F3;
+    --fung-link: #B9C8EE;
+    --fung-focus: #B9C8EE;
+    --fung-state-local-fg: #ACC6B4;
+    --fung-state-local-bg: #23382C;
+    --fung-state-pending-fg: #E3C493;
+    --fung-state-pending-bg: #3C3021;
+    --fung-state-danger-fg: #F1AB97;
+    --fung-state-danger-bg: #3D2722;
+    --fung-state-recording-fg: #F1AB97;
+    --fung-state-recording-bg: #3D2722;
+    --fung-state-inactive-fg: #A3AFA4;
+    --fung-state-inactive-bg: #2A302C;
+    --fung-state-inferred-fg: #B9C8EE;
+    --fung-state-inferred-bg: #293246;
+    --fung-logo-mark: #FAF8F3;
+    --fung-logo-wordmark: #FAF8F3;
+    --fung-shadow-surface: 0 1px 2px rgba(0, 0, 0, 0.18);
+    --fung-shadow-elevated: 0 8px 28px rgba(0, 0, 0, 0.30);
+    --fung-shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.46);
+    --fung-shadow-inset: inset 0 1px 0 rgba(250, 248, 243, 0.06);
+    color-scheme: dark;
+  }
+
+}
+
+[data-fung-root][data-theme="light"] {
+  --fung-bg-canvas: #FAF8F3;
+  --fung-bg-inset: #F0EDE6;
+  --fung-bg-surface: #FFFEFA;
+  --fung-bg-elevated: #FFFFFF;
+  --fung-bg-hover: #EAEDE7;
+  --fung-bg-selected: #E3E9E1;
+  --fung-bg-backdrop: rgba(23, 25, 24, 0.46);
+  --fung-text-primary: #171918;
+  --fung-text-secondary: #505A54;
+  --fung-text-tertiary: #59665F;
+  --fung-text-inverse: #FAF8F3;
+  --fung-text-disabled: #7D847D;
+  --fung-border-subtle: #D6D9D1;
+  --fung-border-strong: #768177;
+  --fung-action-primary-bg: #4A5B8B;
+  --fung-action-primary-fg: #FAF8F3;
+  --fung-action-primary-hover: #3F4E77;
+  --fung-action-primary-pressed: #354263;
+  --fung-action-secondary-bg: #ECEEE8;
+  --fung-action-secondary-fg: #171918;
+  --fung-action-danger-bg: #B0553F;
+  --fung-action-danger-fg: #FAF8F3;
+  --fung-link: #4A5B8B;
+  --fung-focus: #4A5B8B;
+  --fung-state-local-fg: #3F6150;
+  --fung-state-local-bg: #E7EEE8;
+  --fung-state-pending-fg: #765925;
+  --fung-state-pending-bg: #F4ECDD;
+  --fung-state-danger-fg: #9A4634;
+  --fung-state-danger-bg: #F7E7E1;
+  --fung-state-recording-fg: #9A4634;
+  --fung-state-recording-bg: #F7E7E1;
+  --fung-state-inactive-fg: #59665F;
+  --fung-state-inactive-bg: #ECEEE8;
+  --fung-state-inferred-fg: #4A5B8B;
+  --fung-state-inferred-bg: #E9EDF7;
+  --fung-logo-mark: #171918;
+  --fung-logo-wordmark: #6F897E;
+  --fung-shadow-surface: 0 1px 2px rgba(23, 25, 24, 0.05);
+  --fung-shadow-elevated: 0 8px 28px rgba(23, 25, 24, 0.12);
+  --fung-shadow-overlay: 0 16px 48px rgba(23, 25, 24, 0.20);
+  --fung-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  color-scheme: light;
+}
+
+[data-fung-root][data-theme="dark"] {
+  --fung-bg-canvas: #171918;
+  --fung-bg-inset: #111312;
+  --fung-bg-surface: #202521;
+  --fung-bg-elevated: #292F2A;
+  --fung-bg-hover: #303932;
+  --fung-bg-selected: #313D34;
+  --fung-bg-backdrop: rgba(0, 0, 0, 0.58);
+  --fung-text-primary: #FAF8F3;
+  --fung-text-secondary: #CAD1C9;
+  --fung-text-tertiary: #A3AFA4;
+  --fung-text-inverse: #171918;
+  --fung-text-disabled: #717B73;
+  --fung-border-subtle: #384239;
+  --fung-border-strong: #788A7A;
+  --fung-action-primary-bg: #B9C8EE;
+  --fung-action-primary-fg: #171918;
+  --fung-action-primary-hover: #CDD8F2;
+  --fung-action-primary-pressed: #A8BAE2;
+  --fung-action-secondary-bg: #303932;
+  --fung-action-secondary-fg: #FAF8F3;
+  --fung-action-danger-bg: #B0553F;
+  --fung-action-danger-fg: #FAF8F3;
+  --fung-link: #B9C8EE;
+  --fung-focus: #B9C8EE;
+  --fung-state-local-fg: #ACC6B4;
+  --fung-state-local-bg: #23382C;
+  --fung-state-pending-fg: #E3C493;
+  --fung-state-pending-bg: #3C3021;
+  --fung-state-danger-fg: #F1AB97;
+  --fung-state-danger-bg: #3D2722;
+  --fung-state-recording-fg: #F1AB97;
+  --fung-state-recording-bg: #3D2722;
+  --fung-state-inactive-fg: #A3AFA4;
+  --fung-state-inactive-bg: #2A302C;
+  --fung-state-inferred-fg: #B9C8EE;
+  --fung-state-inferred-bg: #293246;
+  --fung-logo-mark: #FAF8F3;
+  --fung-logo-wordmark: #FAF8F3;
+  --fung-shadow-surface: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --fung-shadow-elevated: 0 8px 28px rgba(0, 0, 0, 0.30);
+  --fung-shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.46);
+  --fung-shadow-inset: inset 0 1px 0 rgba(250, 248, 243, 0.06);
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  [data-fung-root] {
+    --fung-motion-press: 0ms;
+    --fung-motion-hover: 0ms;
+    --fung-motion-expand: 0ms;
+    --fung-motion-panel: 0ms;
+    --fung-motion-maximum: 0ms;
+  }
+
+}
+
+/* Media-query widths are literal pixels; CSS variables cannot be used in query conditions. */
+
+/* Breakpoints: 640 / 960 / 1200. Existing 760px bootstrap rules are not changed here. */

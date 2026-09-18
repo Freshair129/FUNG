@@ -783,3 +783,64 @@
     scroll-behavior: auto;
   }
 }
+
+/* Desktop shell mapping to the approved semantic tokens. The legacy stage is
+ * intentionally still nested below the shell and keeps its command contracts. */
+.desktop-shell[data-fung-root] {
+  --shell-bg: var(--fung-bg-canvas, #FAF8F3);
+  --shell-surface: var(--fung-bg-surface, #FFFEFA);
+  --shell-surface-muted: var(--fung-bg-hover, #EAEDE7);
+  --shell-surface-quiet: var(--fung-bg-inset, #F0EDE6);
+  --shell-ink: var(--fung-text-primary, #171918);
+  --shell-brand: var(--fung-logo-mark, #171918);
+  --shell-muted: var(--fung-text-secondary, #505A54);
+  --shell-faint: var(--fung-text-tertiary, #59665F);
+  --shell-line: var(--fung-border-subtle, #D6D9D1);
+  --shell-line-strong: var(--fung-border-strong, #768177);
+  --shell-sage: var(--fung-brand-sage, #6F897E);
+  --shell-slate: var(--fung-brand-slate, #4A5B8B);
+  --shell-slate-soft: var(--fung-state-inferred-bg, #E9EDF7);
+  --shell-danger: var(--fung-action-danger-bg, #B0553F);
+  --shell-danger-soft: var(--fung-state-danger-bg, #F7E7E1);
+  --shell-focus: var(--fung-focus, #4A5B8B);
+  --shell-shadow: var(--fung-shadow-elevated, 0 8px 28px rgba(23, 25, 24, 0.12));
+  font-family: var(--fung-font-ui, "IBM Plex Sans Thai", system-ui, sans-serif);
+  background: var(--shell-bg);
+}
+
+.desktop-shell[data-fung-root].desktop-shell--dark {
+  --shell-bg: var(--fung-bg-canvas, #171918);
+  --shell-surface: var(--fung-bg-surface, #202521);
+  --shell-surface-muted: var(--fung-bg-hover, #303932);
+  --shell-surface-quiet: var(--fung-bg-inset, #111312);
+  --shell-ink: var(--fung-text-primary, #FAF8F3);
+  --shell-brand: var(--fung-logo-mark, #FAF8F3);
+  --shell-muted: var(--fung-text-secondary, #CAD1C9);
+  --shell-faint: var(--fung-text-tertiary, #A3AFA4);
+  --shell-line: var(--fung-border-subtle, #384239);
+  --shell-line-strong: var(--fung-border-strong, #788A7A);
+  --shell-sage: var(--fung-state-local-fg, #ACC6B4);
+  --shell-slate: var(--fung-brand-slate, #B9C8EE);
+  --shell-slate-soft: var(--fung-state-inferred-bg, #293246);
+  --shell-danger: var(--fung-state-danger-fg, #F1AB97);
+  --shell-danger-soft: var(--fung-state-danger-bg, #3D2722);
+  --shell-focus: var(--fung-focus, #B9C8EE);
+  --shell-shadow: var(--fung-shadow-elevated, 0 8px 28px rgba(0, 0, 0, 0.3));
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__header,
+.desktop-shell[data-fung-root] .desktop-shell__sidebar {
+  background: var(--shell-surface);
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__header-button,
+.desktop-shell[data-fung-root] .desktop-shell__button,
+.desktop-shell[data-fung-root] .desktop-shell__home-action {
+  border-radius: var(--fung-radius-sm, 8px);
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__button--primary,
+.desktop-shell[data-fung-root] .desktop-shell__home-action--primary {
+  background: var(--fung-action-primary-bg, #4A5B8B);
+  color: var(--fung-action-primary-fg, #FAF8F3);
+}

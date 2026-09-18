@@ -1304,3 +1304,35 @@ body[data-surface="landing"] #root {
   .hero-copy, .hero-signal, .knowledge-heading, .story-step, .local-device,
   .cloud-stack, .optional-connector, .local-assurance, .closing-copy { opacity: 1; }
 }
+
+/* Landing keeps its editorial scroll narrative, while its surface primitives
+ * now resolve from the same Quiet Archive token set as the applications. */
+.landing-page[data-fung-root] {
+  --landing-porcelain: var(--fung-bg-canvas, #FAF8F3);
+  --landing-ink: var(--fung-text-primary, #171918);
+  --landing-graphite: var(--fung-text-secondary, #505A54);
+  --landing-sage: var(--fung-brand-sage, #6F897E);
+  --landing-indigo: var(--fung-brand-slate, #4A5B8B);
+  --landing-metal: var(--fung-brand-metal, #9A8260);
+  --landing-line: color-mix(in srgb, var(--fung-text-primary, #171918) 14%, transparent);
+  --landing-display: var(--fung-font-display, "Fraunces", serif);
+  --landing-sans: var(--fung-font-ui, "IBM Plex Sans Thai", system-ui, sans-serif);
+  background: var(--landing-porcelain);
+  font-family: var(--landing-sans);
+}
+
+.landing-page[data-fung-root] :where(button, a, input, select, textarea):focus-visible {
+  outline: var(--fung-focus-width, 2px) solid var(--fung-focus, var(--landing-indigo));
+  outline-offset: var(--fung-focus-offset, 3px);
+}
+
+.landing-page[data-fung-root] .landing-header-cta,
+.landing-page[data-fung-root] .hero-actions a {
+  background: var(--fung-action-primary-bg, #4A5B8B);
+  color: var(--fung-action-primary-fg, #FAF8F3);
+}
+
+.landing-page[data-fung-root] .landing-header-cta:hover,
+.landing-page[data-fung-root] .hero-actions a:hover {
+  background: var(--fung-action-primary-hover, #3F4E77);
+}

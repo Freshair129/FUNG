@@ -1,3 +1,11 @@
+@import "../docs/FUNG_Design_System_v0.1.0/tokens/fung.tokens.css";
+@import "@fontsource/ibm-plex-sans-thai/400.css";
+@import "@fontsource/ibm-plex-sans-thai/500.css";
+@import "@fontsource/ibm-plex-sans-thai/600.css";
+@import "@fontsource/dm-sans/400.css";
+@import "@fontsource/dm-sans/500.css";
+@import "@fontsource/dm-sans/600.css";
+
 :root {
   color-scheme: light;
   font-family:
@@ -1573,4 +1581,40 @@ button,
   height: 744px;
   min-height: 744px;
   overflow: hidden;
+}
+
+/* Quiet Archive foundation. Legacy command-deck rules retain their existing
+ * ownership boundary; these aliases let every surface use the approved
+ * design-system vocabulary without changing behavior. */
+[data-fung-root] {
+  font-family: var(--fung-font-ui);
+  color: var(--fung-text-primary);
+  color-scheme: light;
+}
+
+[data-fung-root][data-theme="dark"] {
+  color-scheme: dark;
+}
+
+[data-fung-root] :where(button, input, select, textarea) {
+  font-family: inherit;
+}
+
+[data-fung-root] :where(button, a, input, select, textarea):focus-visible {
+  outline: var(--fung-focus-width) solid var(--fung-focus);
+  outline-offset: var(--fung-focus-offset);
+}
+
+[data-fung-root] ::selection {
+  color: var(--fung-text-inverse);
+  background: color-mix(in srgb, var(--fung-action-primary-bg) 35%, transparent);
+}
+
+body[data-fung-root="true"] {
+  background: var(--fung-bg-canvas);
+  color: var(--fung-text-primary);
+}
+
+body[data-surface="landing"] {
+  background: var(--fung-bg-canvas);
 }

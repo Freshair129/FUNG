@@ -82,19 +82,21 @@ const formatClock = (milliseconds: number) => {
   return [hours, minutes, rest].map((value) => value.toString().padStart(2, "0")).join(":");
 };
 
-// Bar heights are driven by the measured input level (0-100); the static
-// pattern only shapes the meter. With no real reading the bars sit flat at
-// their idle height — the waveform never animates on invented amplitude.
-const WAVEFORM_SHAPE = [12, 24, 38, 18, 31, 17, 45, 29, 20, 42, 23, 34, 16, 27, 39, 19, 31, 14];
-
+// The Home meter only renders bars when a real input level (0-100) exists.
+// Missing level data remains an explicit text state rather than a fake meter.
 function Waveform({ active = false, level = null }: { active?: boolean; level?: number | null }) {
-  const scale = active && level != null ? 0.2 + (Math.min(100, Math.max(0, level)) / 100) * 0.8 : null;
+  // A missing meter reading is an explicit state, not permission to draw a
+  // decorative waveform. Only measured input can produce bars here.
+  if (level == null) {
+    return <div className="m-waveform m-waveform-unavailable" aria-live="polite">{active ? "กำลังรอระดับเสียงจริง" : "พร้อมรับเสียง"}</div>;
+  }
+  const scale = 0.2 + (Math.min(100, Math.max(0, level)) / 100) * 0.8;
   return (
-    <div className={`m-waveform ${active ? "is-active" : ""}`} aria-hidden="true">
-      {WAVEFORM_SHAPE.map((height, index) => (
+    <div className="m-waveform is-measured" aria-label={`ระดับเสียง ${Math.round(level)} เปอร์เซ็นต์`} role="img">
+      {Array.from({ length: 18 }, (_, index) => (
         <i
           key={index}
-          style={{ height: scale != null ? Math.max(4, Math.round(height * scale)) : active ? height : 6, transition: "height 120ms linear" }}
+          style={{ height: `${Math.max(4, Math.round((12 + ((index * 19) % 34)) * scale))}px` }}
         />
       ))}
     </div>
@@ -153,15 +155,24 @@ const RECORDING_STATUS_LABELS: Record<string, string> = {
 function HomeScreen({ snapshot, capture, go }: ScreenProps) {
   const recent = snapshot.notes[0];
   const isRecording = capture.state === "recording";
-  const [recordings, setRecordings] = useState<RecordingListItem[]>([]);
+  const [recordings, setRecordings] = useState<RecordingListItem[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     void queryRecordings(snapshot.projectId)
       .then((rows) => {
-        if (!cancelled) setRecordings(rows);
+        if (!cancelled) {
+          setRecordings(rows);
+          setLoadError(null);
+        }
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        if (!cancelled) {
+          setRecordings([]);
+          setLoadError(error instanceof Error ? error.message : String(error));
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -189,7 +200,9 @@ function HomeScreen({ snapshot, capture, go }: ScreenProps) {
       </section>
       <section className="m-recent">
         <div className="m-section-title"><h2>งานล่าสุด</h2><button onClick={() => go("files")}>ดูทั้งหมด <ChevronRight size={18} /></button></div>
-        {recordings.slice(0, 5).map((recording) => (
+        {recordings === null && <p className="m-state-line is-loading" role="status">กำลังโหลดงานล่าสุด…</p>}
+        {loadError && <div className="m-inline-alert" role="alert"><strong>โหลดงานล่าสุดไม่สำเร็จ</strong><span>{loadError}</span></div>}
+        {recordings?.slice(0, 5).map((recording) => (
           <button key={recording.id} className="m-recent-row" type="button" onClick={() => go("files")}>
             <span className="m-recent-icon"><Mic size={25} /></span>
             <span>
@@ -207,7 +220,7 @@ function HomeScreen({ snapshot, capture, go }: ScreenProps) {
             <ChevronRight size={21} />
           </button>
         )}
-        {recordings.length === 0 && !recent && (
+        {recordings?.length === 0 && !recent && !loadError && (
           <p className="m-recent-empty">ยังไม่มีงานบันทึก — กด "เริ่มบันทึก" หรือกดค้างปุ่มพูดเพื่อสร้างงานแรก</p>
         )}
       </section>
@@ -1207,7 +1220,7 @@ export function MobileApp() {
   const screen = tab === "home" ? <HomeScreen {...props} /> : tab === "notes" ? <NotesScreen {...props} /> : tab === "files" ? <RecordingsScreen {...props} /> : tab === "timeline" ? <TimelineScreen projectId={snapshot.projectId} pairedDesktop={snapshot.devices.find((device) => device.trustState === "paired") ?? null} onRecord={() => setTab("voice")} /> : tab === "graph" ? <GraphScreen {...props} /> : tab === "devices" ? <DevicesScreen {...props} /> : <CaptureScreen {...props} />;
 
   return (
-    <div className={`m-app ${dark ? "m-theme-dark" : ""}`}>
+    <div className={`m-app ${dark ? "m-theme-dark" : ""}`} data-fung-root data-theme={theme} lang="th">
       {screen}
       <BottomNavigation tab={tab} onChange={setTab} />
     </div>

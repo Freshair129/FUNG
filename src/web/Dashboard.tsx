@@ -168,7 +168,7 @@ export function Dashboard() {
   }, [dropdownOpen]);
 
   return (
-    <div className="dashboard">
+    <div className="dashboard" data-fung-root="true">
       <header className="dashboard-topbar">
         <div className="dashboard-topbar-left">
           <FungLogo size={28} />

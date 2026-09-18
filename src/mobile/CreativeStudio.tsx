@@ -46,8 +46,6 @@ const effectLabels: Record<EffectKind, string> = {
 const effectDefaults: Record<EffectKind, Record<string, number>> = {
   pitch_shift: { semitones: 0 }, reverb: { room: 0.7 }, delay: { milliseconds: 120 }, compressor: { threshold: -18 }, low_pass: { hertz: 8000 },
 };
-const waveBars = Array.from({ length: 28 }, (_, index) => 24 + ((index * 19) % 62));
-
 const timeLabel = (milliseconds: number) => {
   const total = Math.max(0, Math.floor(milliseconds / 1000));
   return `${Math.floor(total / 60).toString().padStart(2, "0")}:${(total % 60).toString().padStart(2, "0")}`;
@@ -152,7 +150,9 @@ export function StoryEditor({ timeline, state, setState, onBack, onEffects }: St
         { ...clip, id: crypto.randomUUID(), sourceStartMs: midpoint, timelineStartMs: clip.timelineStartMs + (midpoint - clip.sourceStartMs), revision: clip.revision + 1 },
       ]),
     }));
-    void splitStoryClip(selected.id, midpoint).then((story) => story && setState((current) => ({ ...current, story }))).catch(() => undefined);
+    if (timeline.source !== "preview") {
+      void splitStoryClip(selected.id, midpoint).then((story) => story && setState((current) => ({ ...current, story }))).catch(() => undefined);
+    }
   };
 
   const undo = () => setState((current) => {
@@ -164,8 +164,8 @@ export function StoryEditor({ timeline, state, setState, onBack, onEffects }: St
     return { ...current, story: next, undo: [...current.undo, current.story].slice(-30), redo: current.redo.slice(1), updatedAt: new Date().toISOString() };
   });
 
-  const undoWithNative = () => { undo(); void storyHistory(state.story.id, "undo").then((story) => story && setState((current) => ({ ...current, story }))).catch(() => undefined); };
-  const redoWithNative = () => { redo(); void storyHistory(state.story.id, "redo").then((story) => story && setState((current) => ({ ...current, story }))).catch(() => undefined); };
+  const undoWithNative = () => { undo(); if (timeline.source !== "preview") void storyHistory(state.story.id, "undo").then((story) => story && setState((current) => ({ ...current, story }))).catch(() => undefined); };
+  const redoWithNative = () => { redo(); if (timeline.source !== "preview") void storyHistory(state.story.id, "redo").then((story) => story && setState((current) => ({ ...current, story }))).catch(() => undefined); };
 
   const exportManifest = () => {
     const manifest = JSON.stringify({ format: "fung-story-v1", exportedAt: new Date().toISOString(), story: state.story, sourceImmutable: true }, null, 2);
@@ -175,6 +175,7 @@ export function StoryEditor({ timeline, state, setState, onBack, onEffects }: St
 
   return <main className="m-screen m-story-screen">
     <header className="m-studio-titlebar"><button onClick={onBack} aria-label="กลับ"><ArrowLeft /></button><h1>เรื่องเล่า</h1><button aria-label="ตัวเลือก"><Settings2 /></button></header>
+    {timeline.source === "preview" && <div className="m-fixture-notice" role="status"><Sparkles size={16} /><span><strong>ข้อมูลตัวอย่าง</strong> ไทม์ไลน์นี้ยังไม่ใช่เสียงหรือบทสนทนาจริง</span></div>}
     <div className="m-story-name"><h2>{state.story.title}</h2><span>revision {state.story.revision}</span></div>
     <section className="m-story-transport"><button onClick={() => setPlaying((value) => !value)}>{playing ? <Pause /> : <Play />}</button><strong>{timeLabel(playhead)} / {timeLabel(state.story.durationMs)}</strong><span /><button onClick={undoWithNative} disabled={!state.undo.length}><Undo2 /></button><button onClick={redoWithNative} disabled={!state.redo.length}><Redo2 /></button></section>
     <section className="m-story-timeline" style={{ "--story-playhead": playhead / state.story.durationMs } as React.CSSProperties}>
@@ -184,11 +185,11 @@ export function StoryEditor({ timeline, state, setState, onBack, onEffects }: St
         <div className="m-story-track">{state.story.clips.filter((clip) => clip.speakerId === speaker.id).map((clip) => {
           const width = (clip.sourceEndMs - clip.sourceStartMs) / state.story.durationMs * 100;
           const left = clip.timelineStartMs / state.story.durationMs * 100;
-          return <button key={clip.id} className={`m-story-clip ${selectedId === clip.id ? "is-selected" : ""}`} style={{ left: `${left}%`, width: `${Math.max(5, width)}%` }} onClick={() => { setSelectedId(clip.id); setPlayhead(clip.timelineStartMs); }}><span>{waveBars.map((height, index) => <i key={index} style={{ height: `${height}%` }} />)}</span>{selectedId === clip.id && <><b className="is-left" /><b className="is-right" /></>}</button>;
+          return <button key={clip.id} className={`m-story-clip ${selectedId === clip.id ? "is-selected" : ""}`} style={{ left: `${left}%`, width: `${Math.max(5, width)}%` }} onClick={() => { setSelectedId(clip.id); setPlayhead(clip.timelineStartMs); }} aria-label={`ช่วงเสียง ${timeLabel(clip.sourceStartMs)} ถึง ${timeLabel(clip.sourceEndMs)}`}><span className="m-audio-range" aria-hidden="true" />{selectedId === clip.id && <><b className="is-left" /><b className="is-right" /></>}</button>;
         })}</div>
       </div>)}
     </section>
-    {selected && <section className="m-story-inspector"><div className="m-story-selection"><span className="m-lane-dot" /><strong>{timeline.speakers.find((speaker) => speaker.id === selected.speakerId)?.displayName}</strong><time>{timeLabel(selected.sourceStartMs)}–{timeLabel(selected.sourceEndMs)}</time><button onClick={onEffects}><SlidersHorizontal size={18} /> เอฟเฟกต์ <ChevronRight size={17} /></button></div><p>เราควรยืนยันแผนก่อนส่งให้ทีม</p><div className="m-story-mini-wave">{waveBars.concat(waveBars).map((height, index) => <i key={index} style={{ height: `${height}%` }} />)}</div><div className="m-story-tools"><button onClick={split}><Scissors />แยก</button><button onClick={() => { const nextStart = Math.min(selected.sourceEndMs - 500, selected.sourceStartMs + 500); mutateSelected((clip) => ({ ...clip, sourceStartMs: nextStart, revision: clip.revision + 1 })); void trimStoryClip(selected.id, nextStart, selected.sourceEndMs).then((story) => story && setState((current) => ({ ...current, story }))).catch(() => undefined); }}><Crop />ตัดขอบ</button><button onClick={() => { const nextStart = Math.min(state.story.durationMs - 500, selected.timelineStartMs + 5_000); mutateSelected((clip) => ({ ...clip, timelineStartMs: nextStart, revision: clip.revision + 1 })); void moveStoryClip(selected.id, nextStart).then((story) => story && setState((current) => ({ ...current, story }))).catch(() => undefined); }}><Move />ย้าย</button><button onClick={exportManifest}><Upload />ส่งออก</button></div><aside><ShieldCheck /><span><strong>ต้นฉบับเสียงยังคงเดิม</strong> การตัดและย้ายเปลี่ยนเฉพาะข้อมูลลำดับ ไม่แก้ไฟล์ต้นฉบับ</span></aside></section>}
+    {selected && <section className="m-story-inspector"><div className="m-story-selection"><span className="m-lane-dot" /><strong>{timeline.speakers.find((speaker) => speaker.id === selected.speakerId)?.displayName}</strong><time>{timeLabel(selected.sourceStartMs)}–{timeLabel(selected.sourceEndMs)}</time><button onClick={onEffects}><SlidersHorizontal size={18} /> เอฟเฟกต์ <ChevronRight size={17} /></button></div><p>เราควรยืนยันแผนก่อนส่งให้ทีม</p><div className="m-story-mini-wave" aria-label="ช่วงเสียงต้นฉบับ"><span className="m-audio-range" /></div><div className="m-story-tools"><button onClick={split}><Scissors />แยก</button><button onClick={() => { const nextStart = Math.min(selected.sourceEndMs - 500, selected.sourceStartMs + 500); mutateSelected((clip) => ({ ...clip, sourceStartMs: nextStart, revision: clip.revision + 1 })); if (timeline.source !== "preview") void trimStoryClip(selected.id, nextStart, selected.sourceEndMs).then((story) => story && setState((current) => ({ ...current, story }))).catch(() => undefined); }}><Crop />ตัดขอบ</button><button onClick={() => { const nextStart = Math.min(state.story.durationMs - 500, selected.timelineStartMs + 5_000); mutateSelected((clip) => ({ ...clip, timelineStartMs: nextStart, revision: clip.revision + 1 })); if (timeline.source !== "preview") void moveStoryClip(selected.id, nextStart).then((story) => story && setState((current) => ({ ...current, story }))).catch(() => undefined); }}><Move />ย้าย</button><button onClick={exportManifest}><Upload />ส่งออก</button></div><aside><ShieldCheck /><span><strong>ต้นฉบับเสียงยังคงเดิม</strong> การตัดและย้ายเปลี่ยนเฉพาะข้อมูลลำดับ ไม่แก้ไฟล์ต้นฉบับ</span></aside></section>}
   </main>;
 }
 
@@ -206,10 +207,11 @@ type ProcessingProps = {
   desktopAvailable: boolean;
   pairedDesktopId: string | null;
   recordingId: string | null;
+  isFixture: boolean;
   onBack: () => void;
 };
 
-export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesktopId, recordingId, onBack }: ProcessingProps) {
+export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesktopId, recordingId, isFixture, onBack }: ProcessingProps) {
   const [tab, setTab] = useState<"transcribe" | "refine" | "effects" | "voice">("transcribe");
   const [jobState, setJobState] = useState<"idle" | "submitting" | "queued" | "unavailable" | "failed">("idle");
   const [localAi, setLocalAi] = useState<OnDeviceAiStatus | null>(null);
@@ -331,7 +333,7 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
     }
   };
   const proposal = state.proposals[0];
-  const persistEffects = (effects: EffectNode[]) => void updateEffectChain(state.story.projectId, "project", state.story.projectId, "Story processing", effects).catch(() => undefined);
+  const persistEffects = (effects: EffectNode[]) => { if (!isFixture) void updateEffectChain(state.story.projectId, "project", state.story.projectId, "Story processing", effects).catch(() => undefined); };
   const toggleEffect = (id: string) => setState((current) => { const effects = current.effects.map((effect) => effect.id === id ? { ...effect, bypassed: !effect.bypassed } : effect); persistEffects(effects); return { ...current, effects, updatedAt: new Date().toISOString() }; });
   const removeEffect = (id: string) => setState((current) => { const effects = current.effects.filter((effect) => effect.id !== id); persistEffects(effects); return { ...current, effects, updatedAt: new Date().toISOString() }; });
   const addEffect = () => setState((current) => {
@@ -341,7 +343,7 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
     const node: EffectNode = { id: crypto.randomUUID(), kind, label: effectLabels[kind], bypassed: false, parameters: effectDefaults[kind] };
     const effects = [...current.effects, node]; persistEffects(effects); return { ...current, effects, updatedAt: new Date().toISOString() };
   });
-  const reviewProposal = (status: "accepted" | "rejected") => { setState((current) => ({ ...current, proposals: current.proposals.map((item) => item.id === proposal.id ? { ...item, status } : item), updatedAt: new Date().toISOString() })); void reviewRefinement(proposal.id, status).catch(() => undefined); };
+  const reviewProposal = (status: "accepted" | "rejected") => { setState((current) => ({ ...current, proposals: current.proposals.map((item) => item.id === proposal.id ? { ...item, status } : item), updatedAt: new Date().toISOString() })); if (!isFixture) void reviewRefinement(proposal.id, status).catch(() => undefined); };
   const setGrant = () => {
     if (ttsProviders.length === 0) {
       window.alert("ยังไม่ได้ลงทะเบียน TTS provider — ไปตั้งค่าที่ Settings ก่อน");
@@ -353,10 +355,10 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
     }
     const next = !state.agentVoiceGrant;
     setState((current) => ({ ...current, agentVoiceGrant: next, updatedAt: new Date().toISOString() }));
-    void setAgentVoiceGrant(state.story.projectId, state.voiceProfile.id, next).catch(() => undefined);
+    if (!isFixture) void setAgentVoiceGrant(state.story.projectId, state.voiceProfile.id, next).catch(() => undefined);
   };
   const startTranscription = async () => {
-    if (!desktopAvailable || jobState === "submitting") return;
+    if (isFixture || !desktopAvailable || jobState === "submitting") return;
     setJobState("submitting");
     try {
       const job = await startProcessingJob(state.story.projectId, "transcript.refine", `model:${state.selectedModelId}`);
@@ -366,13 +368,14 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
 
   return <main className="m-screen m-processing-screen">
     <header className="m-studio-titlebar"><button onClick={onBack} aria-label="กลับ"><ArrowLeft /></button><h1>ประมวลผลเสียง</h1><span /></header>
+    {isFixture && <div className="m-fixture-notice" role="status"><Sparkles size={16} /><span><strong>ข้อมูลตัวอย่าง</strong> ยังไม่มีไฟล์จริงให้ส่งประมวลผล</span></div>}
     <nav className="m-processing-tabs" aria-label="ส่วนประมวลผล">{[
       ["transcribe", "ถอดเสียง", AudioLines], ["refine", "ปรับข้อความ", WandSparkles], ["effects", "เอฟเฟกต์", SlidersHorizontal], ["voice", "เสียง Agent", Bot],
     ].map(([id, label, Icon]) => <button key={id as string} className={tab === id ? "is-active" : ""} onClick={() => setTab(id as typeof tab)}><Icon size={19} />{label as string}</button>)}</nav>
     <section className="m-runtime-truth"><Monitor /><span><strong>FUNG Desktop</strong> · ภายในเครือข่าย</span><small className={desktopAvailable ? "is-ready" : ""}>{desktopAvailable ? "พร้อมประมวลผล" : "ใช้งานได้แม้ไร้ Desktop"}</small></section>
     <section className="m-runtime-truth"><Settings2 /><span><strong>AI บนมือถือ</strong> · {localAi ? localAi.tier.replace("ai_", "AI ").replace("core", "Core") : "กำลังตรวจสอบ"}</span><small>{localAi?.reason === "model_package_pending_approval" ? "ยังไม่มี package ที่อนุมัติ" : localAi?.reason === "device_tier_core" ? "อุปกรณ์ยังไม่ถึง AI Lite" : localAi?.reason === "android_profile_unavailable" ? "เปิดใน Android app เพื่อตรวจสอบ" : "ต้องเปิดใน Android app เพื่อตรวจสอบ"}</small></section>
-    <section className={`m-processing-panel ${tab === "transcribe" ? "is-focus" : ""}`}><header><h2>เลือกโมเดล Whisper</h2><button>เกี่ยวกับโมเดล <ChevronRight /></button></header><div className="m-model-list">{modelPackages.map((model) => <button key={model.id} className={state.selectedModelId === model.id ? "is-selected" : ""} onClick={() => model.installed && setState((current) => ({ ...current, selectedModelId: model.id, updatedAt: new Date().toISOString() }))}><i /><span>{model.label}</span><small>{model.installed ? "ติดตั้งแล้ว" : "ยังไม่ติดตั้ง"}</small><em>{model.sizeLabel}</em>{!model.installed && <CloudDownload size={16} />}</button>)}</div><div className="m-model-balance"><Leaf /><span>สมดุลคุณภาพ–ความเร็ว · 99 ภาษา · snapshot จาก Desktop</span><div><i /><i /><i /><i className="is-on" /><i /></div></div><button className="m-process-start" disabled={!desktopAvailable || jobState === "submitting"} onClick={startTranscription}><Play />{jobState === "queued" ? "ส่งงานเข้าคิวแล้ว" : jobState === "submitting" ? "กำลังส่งงาน…" : jobState === "unavailable" ? "เปิดในแอปเพื่อส่งงาน" : jobState === "failed" ? "ส่งงานไม่สำเร็จ · ลองใหม่" : desktopAvailable ? "เริ่มประมวลผล" : "เชื่อม Desktop เพื่อเริ่ม"}</button>
-      {pairedDesktopId && recordingId && (
+    <section className={`m-processing-panel ${tab === "transcribe" ? "is-focus" : ""}`}><header><h2>เลือกโมเดล Whisper</h2><span className="m-panel-meta">snapshot จาก Desktop</span></header><div className="m-model-list">{modelPackages.map((model) => <button key={model.id} className={state.selectedModelId === model.id ? "is-selected" : ""} onClick={() => model.installed && setState((current) => ({ ...current, selectedModelId: model.id, updatedAt: new Date().toISOString() }))}><i /><span>{model.label}</span><small>{model.installed ? "ติดตั้งแล้ว" : "ยังไม่ติดตั้ง"}</small><em>{model.sizeLabel}</em>{!model.installed && <CloudDownload size={16} />}</button>)}</div><div className="m-model-balance"><Leaf /><span>สมดุลคุณภาพ–ความเร็ว · 99 ภาษา · snapshot จาก Desktop</span><div><i /><i /><i /><i className="is-on" /><i /></div></div><button className="m-process-start" disabled={isFixture || !desktopAvailable || jobState === "submitting"} onClick={startTranscription}><Play />{isFixture ? "ต้องมีไฟล์จริงก่อนประมวลผล" : jobState === "queued" ? "ส่งงานเข้าคิวแล้ว" : jobState === "submitting" ? "กำลังส่งงาน…" : jobState === "unavailable" ? "เปิดในแอปเพื่อส่งงาน" : jobState === "failed" ? "ส่งงานไม่สำเร็จ · ลองใหม่" : desktopAvailable ? "เริ่มประมวลผล" : "เชื่อม Desktop เพื่อเริ่ม"}</button>
+      {pairedDesktopId && recordingId && !isFixture && (
         <div className="m-delegate-panel">
           {showDelegateRecommendation && <p className="m-delegate-recommend"><Sparkles size={14} />อุปกรณ์นี้ประมวลผลเองไม่ไหว — ส่งไปที่ FUNG Desktop</p>}
           {showNoDesktopNotice && <p className="m-delegate-error">อุปกรณ์นี้ประมวลผลเองไม่ไหว และไม่พบ FUNG Desktop ที่เชื่อมต่อได้ในขณะนี้</p>}
@@ -407,23 +410,19 @@ export function ProcessingStudio({ state, setState, desktopAvailable, pairedDesk
     <section className={`m-processing-panel ${tab === "refine" ? "is-focus" : ""}`}><header><h2>ปรับแต่งการถอดเสียง</h2><Sparkles /></header><div className="m-refinement-diff"><div><span>ต้นฉบับ</span><p>{proposal.originalText}</p></div><div className="is-proposed"><span>ข้อเสนอ · {proposal.status === "proposed" ? "ยังไม่ยืนยัน" : proposal.status === "accepted" ? "ยืนยันแล้ว" : "ปฏิเสธแล้ว"}</span><p>{proposal.proposedText}</p></div><footer><small><WandSparkles /> {proposal.policy}</small>{proposal.status === "proposed" && <span><button onClick={() => reviewProposal("rejected")}>ปฏิเสธ</button><button onClick={() => reviewProposal("accepted")}>ยืนยันการปรับ</button></span>}</footer></div></section>
     <section className={`m-processing-panel ${tab === "effects" ? "is-focus" : ""}`}><header><h2>เอฟเฟกต์เสียง</h2><SlidersHorizontal /></header><div className="m-effect-chain">{state.effects.map((effect) => <button key={effect.id} className={`${effect.bypassed ? "is-bypassed" : ""} is-${effect.kind}`} onClick={() => toggleEffect(effect.id)}>{effect.label}<AudioLines size={15} /><X size={14} onClick={(event) => { event.stopPropagation(); removeEffect(effect.id); }} /></button>)}</div><div className="m-effect-footer"><button onClick={addEffect}><Plus />เพิ่มเอฟเฟกต์</button><button><Bookmark />พรีเซ็ตของคุณ <ChevronRight /></button></div><p className="m-provider-gate">Preview/render ต้องใช้ DSP provider บน Desktop · ต้นฉบับไม่ถูกแก้ไข</p></section>
     <section className={`m-processing-panel ${tab === "voice" ? "is-focus" : ""}`}><header><h2>เสียง Agent</h2><Bot /></header><div className="m-agent-policy">
-      <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: 12, color: "#999", display: "block", marginBottom: 4 }}>TTS Provider</label>
+      <div className="m-provider-field">
+        <label className="m-provider-label">TTS Provider</label>
         {ttsProviders.length > 0 ? (
           <select
+            className="m-provider-select"
             value={selectedTtsId}
             onChange={(event) => setSelectedTtsId(event.target.value)}
-            style={{
-              width: "100%", padding: "6px 8px", borderRadius: 6,
-              background: "rgba(255,255,255,0.04)", color: "#e0e0e0",
-              border: "1px solid rgba(255,255,255,0.1)", fontSize: 13,
-            }}
           >
             <option value="">— เลือก provider —</option>
             {ttsProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
           </select>
         ) : (
-          <p style={{ fontSize: 12, color: "#999" }}>ยังไม่มี TTS provider — ตั้งค่าที่ Settings</p>
+          <p className="m-provider-empty">ยังไม่มี TTS provider — ตั้งค่าที่ Settings</p>
         )}
       </div>
       <button onClick={setGrant}><span>การอนุญาต MCP</span><strong>{state.agentVoiceGrant ? "เปิด · อนุญาตแล้ว" : "ปิด · default deny"}</strong><ChevronRight /></button><div><span>โปรไฟล์เสียง</span><strong>{state.voiceProfile.displayName}</strong><small>candidate · รอ provider และหลักฐานสิทธิ์ที่อนุมัติ</small></div><div className="m-agent-session"><i /><span><strong>ยังไม่มี session ที่กำลังพูด</strong><small>{state.voiceProfile.providerAvailable ? "provider พร้อม" : "ยังไม่มี voice synthesis provider"}</small></span><button disabled><Square /></button><button disabled><VolumeX /></button></div><footer><ShieldCheck /> บันทึกสิทธิ์และคำสั่งหยุดไว้ในเครื่องเท่านั้น</footer></div></section>

@@ -1,3 +1,11 @@
+@import "../../docs/FUNG_Design_System_v0.1.0/tokens/fung.tokens.css";
+@import "@fontsource/ibm-plex-sans-thai/400.css";
+@import "@fontsource/ibm-plex-sans-thai/500.css";
+@import "@fontsource/ibm-plex-sans-thai/600.css";
+@import "@fontsource/dm-sans/400.css";
+@import "@fontsource/dm-sans/500.css";
+@import "@fontsource/dm-sans/600.css";
+
 .m-app {
   --m-canvas: #ffffff;
   --m-surface: #ffffff;
@@ -501,3 +509,334 @@
 .m-account-card span { margin-top: 2px; font-size: 12px; color: var(--m-muted); }
 .m-account-card > button { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 12px; border-radius: 12px; font-size: 12px; font-weight: 650; white-space: nowrap; color: var(--m-danger); background: color-mix(in srgb, var(--m-danger) 10%, transparent); }
 .m-account-card > button:disabled { opacity: 0.5; }
+
+/* Quiet Archive mobile surface. The existing mobile information architecture
+ * and bridge actions stay intact; only the visual vocabulary is remapped. */
+.m-app {
+  --m-canvas: var(--fung-bg-canvas, #FAF8F3);
+  --m-surface: var(--fung-bg-surface, #FFFEFA);
+  --m-surface-raised: var(--fung-bg-elevated, #FFFFFF);
+  --m-ink: var(--fung-text-primary, #171918);
+  --m-muted: var(--fung-text-secondary, #505A54);
+  --m-line: var(--fung-border-subtle, #D6D9D1);
+  --m-indigo: var(--fung-brand-slate, #4A5B8B);
+  --m-indigo-deep: var(--fung-action-primary-pressed, #354263);
+  --m-sage: var(--fung-brand-sage, #6F897E);
+  --m-metal: var(--fung-brand-metal, #9A8260);
+  --m-record: var(--fung-state-recording-fg, #9A4634);
+  --m-danger: var(--fung-state-danger-fg, #9A4634);
+  --m-shadow: var(--fung-shadow-elevated, 0 8px 28px rgba(23, 25, 24, 0.12));
+  --m-pressed: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  background: var(--m-canvas);
+  font-family: var(--fung-font-ui, "IBM Plex Sans Thai", system-ui, sans-serif);
+}
+
+.m-app.m-theme-dark {
+  --m-canvas: var(--fung-bg-canvas, #171918);
+  --m-surface: var(--fung-bg-surface, #202521);
+  --m-surface-raised: var(--fung-bg-elevated, #292F2A);
+  --m-ink: var(--fung-text-primary, #FAF8F3);
+  --m-muted: var(--fung-text-secondary, #CAD1C9);
+  --m-line: var(--fung-border-subtle, #384239);
+  --m-indigo: var(--fung-action-primary-bg, #B9C8EE);
+  --m-indigo-deep: var(--fung-action-primary-pressed, #A8BAE2);
+  --m-sage: var(--fung-brand-sage, #ACC6B4);
+  --m-metal: var(--fung-brand-metal, #E3C493);
+  --m-record: var(--fung-state-recording-fg, #F1AB97);
+  --m-danger: var(--fung-state-danger-fg, #F1AB97);
+  --m-shadow: var(--fung-shadow-elevated, 0 8px 28px rgba(0, 0, 0, 0.3));
+  background: var(--m-canvas);
+}
+
+.m-app .m-voice-core,
+.m-app .m-quick-actions button,
+.m-app .m-icon-action {
+  background: var(--m-surface);
+  box-shadow: var(--m-shadow);
+}
+
+.m-app .m-quick-actions,
+.m-app .m-recent-row,
+.m-app .m-player,
+.m-app .m-account-card {
+  background: var(--m-surface);
+  box-shadow: var(--fung-shadow-surface, 0 1px 2px rgba(23, 25, 24, 0.05));
+}
+
+.m-app .m-bottom-nav {
+  background: color-mix(in srgb, var(--m-surface) 94%, transparent);
+  box-shadow: var(--m-shadow);
+  backdrop-filter: blur(16px);
+}
+
+.m-app :where(button, input, textarea, select):focus-visible {
+  outline: var(--fung-focus-width, 2px) solid var(--fung-focus, var(--m-indigo));
+  outline-offset: var(--fung-focus-offset, 3px);
+}
+
+.m-app .m-waveform.is-active i {
+  animation: none;
+}
+
+.m-app .m-waveform-unavailable {
+  display: grid;
+  place-items: center;
+  min-height: 54px;
+  opacity: 1;
+  color: var(--m-muted);
+  font-size: 12px;
+}
+
+.m-app .m-audio-range {
+  display: block;
+  width: 100%;
+  height: 4px;
+  border-radius: var(--fung-radius-pill, 999px);
+  background: color-mix(in srgb, currentColor 42%, transparent);
+}
+
+.m-app .m-fixture-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--m-metal) 30%, transparent);
+  border-radius: var(--fung-radius-sm, 8px);
+  color: var(--m-muted);
+  background: color-mix(in srgb, var(--m-metal) 10%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.m-app .m-fixture-notice strong {
+  color: var(--m-metal);
+}
+
+@media (min-width: 761px) {
+  body:has(.m-app) {
+    background: var(--fung-bg-inset, #F0EDE6);
+  }
+}
+
+/* Quiet Archive mobile implementation mapping. The packaged token file is the
+   semantic source; the legacy --m-* names keep the existing canvas and player
+   code on the same theme without changing shared/global CSS. */
+.m-app[data-fung-root] {
+  --m-canvas: var(--fung-bg-canvas);
+  --m-surface: var(--fung-bg-surface);
+  --m-surface-raised: var(--fung-bg-elevated);
+  --m-ink: var(--fung-text-primary);
+  --m-muted: var(--fung-text-secondary);
+  --m-line: var(--fung-border-subtle);
+  --m-indigo: var(--fung-action-primary-bg);
+  --m-indigo-deep: var(--fung-action-primary-pressed);
+  --m-sage: var(--fung-state-local-fg);
+  --m-metal: var(--fung-state-pending-fg);
+  --m-record: var(--fung-action-danger-bg);
+  --m-danger: var(--fung-state-danger-fg);
+  --m-shadow: var(--fung-shadow-elevated);
+  --m-pressed: var(--fung-shadow-inset);
+  min-width: 0;
+  color: var(--fung-text-primary);
+  background: var(--fung-bg-canvas);
+  font-family: var(--fung-font-ui);
+  font-size: var(--fung-font-size-body-mobile);
+  line-height: var(--fung-line-height-body-mobile);
+}
+
+.m-app[data-fung-root][data-theme="light"] { color-scheme: light; }
+.m-app[data-fung-root][data-theme="dark"] { color-scheme: dark; }
+@media (prefers-color-scheme: dark) {
+  .m-app[data-fung-root][data-theme="system"] { color-scheme: dark; }
+}
+
+.m-app[data-fung-root] h1,
+.m-app[data-fung-root] h2,
+.m-app[data-fung-root] h3,
+.m-app[data-fung-root] button,
+.m-app[data-fung-root] input,
+.m-app[data-fung-root] textarea,
+.m-app[data-fung-root] select { font-family: var(--fung-font-ui); }
+.m-app[data-fung-root] button,
+.m-app[data-fung-root] input,
+.m-app[data-fung-root] textarea,
+.m-app[data-fung-root] select { font-size: inherit; }
+.m-app[data-fung-root] button:focus-visible,
+.m-app[data-fung-root] input:focus-visible,
+.m-app[data-fung-root] textarea:focus-visible,
+.m-app[data-fung-root] select:focus-visible,
+.m-app[data-fung-root] [role="slider"]:focus-visible {
+  outline: var(--fung-focus-width) solid var(--fung-focus);
+  outline-offset: var(--fung-focus-offset);
+}
+
+.m-app[data-fung-root] .m-wordmark {
+  font-family: var(--fung-font-latin);
+  font-size: 1.25rem;
+  font-weight: var(--fung-font-weight-semibold);
+  letter-spacing: var(--fung-wordmark-tracking);
+  color: var(--fung-logo-wordmark);
+}
+.m-app[data-fung-root] .m-page-header h1,
+.m-app[data-fung-root] .m-home-intro h1,
+.m-app[data-fung-root] .m-note-detail h1 { font-family: var(--fung-font-ui); }
+.m-app[data-fung-root] .m-page-header h1 { font-size: var(--fung-font-size-title); line-height: var(--fung-line-height-title); }
+.m-app[data-fung-root] .m-timer {
+  font-family: var(--fung-font-mono);
+  font-size: var(--fung-font-size-timer-mobile);
+  line-height: var(--fung-line-height-timer-mobile);
+  font-weight: var(--fung-font-weight-medium);
+  letter-spacing: -0.03em;
+}
+
+/* Flat, readable surfaces replace the old blue/orange skeuomorphic palette. */
+.m-app[data-fung-root] .m-quick-actions,
+.m-app[data-fung-root] .m-recent-row,
+.m-app[data-fung-root] .m-device-summary,
+.m-app[data-fung-root] .m-device-row,
+.m-app[data-fung-root] .m-device-cloud-policy-card,
+.m-app[data-fung-root] .m-mcp-panel,
+.m-app[data-fung-root] .m-appearance-panel,
+.m-app[data-fung-root] .m-graph-inspector,
+.m-app[data-fung-root] .m-player,
+.m-app[data-fung-root] .m-processing-panel,
+.m-app[data-fung-root] .m-runtime-truth,
+.m-app[data-fung-root] .m-transport,
+.m-app[data-fung-root] .m-timeline,
+.m-app[data-fung-root] .m-story-timeline,
+.m-app[data-fung-root] .m-story-inspector {
+  background: var(--fung-bg-surface);
+  box-shadow: var(--fung-shadow-surface);
+}
+.m-app[data-fung-root] .m-quick-actions button,
+.m-app[data-fung-root] .m-voice-core,
+.m-app[data-fung-root] .m-icon-action {
+  color: var(--fung-action-primary-bg);
+  background: var(--fung-bg-elevated);
+  box-shadow: var(--fung-shadow-elevated);
+}
+.m-app[data-fung-root] .m-quick-actions button { color: var(--fung-action-primary-bg); }
+.m-app[data-fung-root] .m-nav-voice {
+  color: var(--fung-action-primary-fg);
+  background: var(--fung-action-primary-bg);
+  border-color: var(--fung-bg-canvas);
+  box-shadow: var(--fung-shadow-elevated);
+}
+.m-app[data-fung-root] .m-bottom-nav {
+  border-color: var(--fung-border-subtle);
+  background: color-mix(in srgb, var(--fung-bg-surface) 94%, transparent);
+  box-shadow: var(--fung-shadow-overlay);
+}
+.m-app[data-fung-root] .m-capture-screen,
+.m-app[data-fung-root] .m-story-screen,
+.m-app[data-fung-root] .m-processing-screen { background: var(--fung-bg-canvas); }
+.m-app[data-fung-root] .m-surface,
+.m-app[data-fung-root] .m-sheet,
+.m-app[data-fung-root] .m-detail-layer { background: var(--fung-bg-canvas); }
+.m-app[data-fung-root] .m-sheet-backdrop { background: var(--fung-bg-backdrop); }
+
+/* Semantic state colors: local, pending, recording/error, and inferred stay
+   distinguishable in both light and dark token themes. */
+.m-app[data-fung-root] .m-status,
+.m-app[data-fung-root] .m-safe-card,
+.m-app[data-fung-root] .m-saved-banner {
+  color: var(--fung-state-local-fg);
+  background: var(--fung-state-local-bg);
+  border-color: var(--fung-state-local-fg);
+}
+.m-app[data-fung-root] .m-inline-alert,
+.m-app[data-fung-root] .m-mcp-panel .m-inline-alert {
+  color: var(--fung-state-danger-fg);
+  background: var(--fung-state-danger-bg);
+  border: 1px solid var(--fung-state-danger-fg);
+}
+.m-app[data-fung-root] .m-capture-state.is-live,
+.m-app[data-fung-root] .m-stop-wrap small { color: var(--fung-state-recording-fg); }
+.m-app[data-fung-root] .m-capture-state.is-live i { background: var(--fung-state-recording-fg); box-shadow: 0 0 0 6px var(--fung-state-recording-bg); }
+.m-app[data-fung-root] .m-fixture-notice {
+  margin: 0 8px 12px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid var(--fung-state-pending-fg);
+  border-radius: var(--fung-radius-md);
+  color: var(--fung-state-pending-fg);
+  background: var(--fung-state-pending-bg);
+  font-size: var(--fung-font-size-label);
+  line-height: var(--fung-line-height-label);
+}
+.m-app[data-fung-root] .m-fixture-notice strong { display: block; font-weight: var(--fung-font-weight-semibold); }
+.m-app[data-fung-root] .m-state-line { margin: 12px 0; color: var(--fung-text-secondary); font-size: var(--fung-font-size-label); }
+.m-app[data-fung-root] .m-state-line.is-loading::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--fung-state-pending-fg); }
+.m-app[data-fung-root] .m-timeline-truth.is-preview { color: var(--fung-state-pending-fg); }
+.m-app[data-fung-root] .m-timeline-truth.is-preview i { background: var(--fung-state-pending-fg); }
+
+/* No data means a baseline, not an invented waveform. Measured capture uses
+   LiveWaveform; playback bars only appear after decoded peaks are available. */
+.m-app[data-fung-root] .m-waveform.is-active i { animation: none; }
+.m-app[data-fung-root] .m-waveform-unavailable {
+  height: auto;
+  color: var(--fung-text-tertiary);
+  font-size: var(--fung-font-size-caption);
+  text-align: center;
+}
+.m-app[data-fung-root] .m-audio-range {
+  position: absolute;
+  inset: 50% 8px auto;
+  display: block;
+  height: 8px;
+  transform: translateY(-50%);
+  border-radius: var(--fung-radius-pill);
+  background: currentColor;
+  opacity: .72;
+}
+.m-app[data-fung-root] .m-speaker-clip > span.m-audio-range,
+.m-app[data-fung-root] .m-story-clip > span.m-audio-range { inset: 50% 8px auto; display: block; }
+.m-app[data-fung-root] .m-story-mini-wave { display: block; position: relative; }
+.m-app[data-fung-root] .m-story-mini-wave .m-audio-range { inset: 50% 8px auto; }
+
+/* Provider controls inherit the active theme instead of embedding dark-only
+   colors in JSX. */
+.m-app[data-fung-root] .m-provider-field { margin-bottom: var(--fung-space-12); }
+.m-app[data-fung-root] .m-provider-label { display: block; margin-bottom: var(--fung-space-4); color: var(--fung-text-secondary); font-size: var(--fung-font-size-label); }
+.m-app[data-fung-root] .m-provider-select {
+  width: 100%;
+  min-height: var(--fung-control-height);
+  padding: 0 var(--fung-space-12);
+  border: 1px solid var(--fung-border-subtle);
+  border-radius: var(--fung-radius-md);
+  color: var(--fung-text-primary);
+  background: var(--fung-bg-inset);
+}
+.m-app[data-fung-root] .m-provider-select option { color: var(--fung-text-primary); background: var(--fung-bg-elevated); }
+.m-app[data-fung-root] .m-provider-empty { margin: 0; color: var(--fung-text-secondary); font-size: var(--fung-font-size-label); }
+.m-app[data-fung-root] .m-panel-meta { color: var(--fung-text-secondary); font-size: var(--fung-font-size-caption); }
+
+/* Every actionable control is at least 44px; the visible icon may remain
+   compact inside that hit area. */
+.m-app[data-fung-root] button { min-height: var(--fung-touch-target); }
+.m-app[data-fung-root] .m-titlebar button,
+.m-app[data-fung-root] .m-studio-titlebar button,
+.m-app[data-fung-root] .m-icon-action,
+.m-app[data-fung-root] .m-mcp-panel button { min-width: var(--fung-touch-target); }
+.m-app[data-fung-root] .m-toggle { width: 48px; height: var(--fung-touch-target); min-height: var(--fung-touch-target); display: flex; align-items: center; }
+.m-app[data-fung-root] .m-model-list button,
+.m-app[data-fung-root] .m-refinement-diff footer button,
+.m-app[data-fung-root] .m-effect-footer button { min-height: var(--fung-touch-target); }
+.m-app[data-fung-root] .m-diarize-button { min-height: var(--fung-touch-target); }
+
+body:has(.m-app[data-fung-root]) { background: #F0EDE6; }
+body:has(.m-app[data-fung-root][data-theme="dark"]) { background: #111312; }
+@media (prefers-color-scheme: dark) {
+  body:has(.m-app[data-fung-root][data-theme="system"]) { background: #111312; }
+}
+
+@media (orientation: landscape) and (max-height: 760px) {
+  .m-app[data-fung-root] .m-screen {
+    padding-left: calc(var(--fung-layout-mobile-landscape-rail) + 24px + env(safe-area-inset-left));
+    scroll-padding-left: calc(var(--fung-layout-mobile-landscape-rail) + 24px + env(safe-area-inset-left));
+  }
+  .m-app[data-fung-root] .m-bottom-nav { width: var(--fung-layout-mobile-landscape-rail); }
+}

@@ -49,6 +49,7 @@ export function RecordingPlayer({ recordingId, autoPlay = false }: { recordingId
   const [positionMs, setPositionMs] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [peaks, setPeaks] = useState<number[] | null>(null);
+  const [peakState, setPeakState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [loadedCount, setLoadedCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +73,7 @@ export function RecordingPlayer({ recordingId, autoPlay = false }: { recordingId
     let cancelled = false;
     setError(null);
     setPeaks(null);
+    setPeakState("loading");
     setPositionMs(0);
     setPlaying(false);
     void (async () => {
@@ -81,21 +83,32 @@ export function RecordingPlayer({ recordingId, autoPlay = false }: { recordingId
         if (!manifest || manifest.segments.length === 0) {
           durations.current = [];
           setTotalMs(0);
+          setPeakState("unavailable");
           setError("ยังไม่มีส่วนเสียงที่เล่นได้");
           return;
         }
         durations.current = manifest.segments.map((segment) => segment.durationMs);
         setTotalMs(manifest.durationMs);
         const merged: number[][] = [];
+        let allDecoded = true;
         for (let index = 0; index < manifest.segments.length; index += 1) {
           const loaded = await ensureSegment(index);
           if (cancelled) return;
           const target = Math.max(4, Math.round((manifest.segments[index].durationMs / 1000) * PEAKS_PER_SECOND));
-          merged.push(loaded.peaks ? fitPeaks(loaded.peaks, target) : new Array(target).fill(0.35));
+          if (loaded.peaks) merged.push(fitPeaks(loaded.peaks, target));
+          else allDecoded = false;
+        }
+        if (allDecoded) {
           setPeaks(merged.flat());
+          setPeakState("ready");
+        } else {
+          setPeakState("unavailable");
         }
       } catch (failure) {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
+        if (!cancelled) {
+          setPeakState("unavailable");
+          setError(failure instanceof Error ? failure.message : String(failure));
+        }
       }
     })();
     return () => {
@@ -218,14 +231,23 @@ export function RecordingPlayer({ recordingId, autoPlay = false }: { recordingId
     const fitted = normalizePeaks(fitPeaks(peaks ?? [], bars));
     const progress = totalMs > 0 ? Math.min(1, positionMs / totalMs) : 0;
     const middle = height / 2;
-    for (let index = 0; index < bars; index += 1) {
-      const value = peaks ? fitted[index] : 0.08;
-      const barHeight = Math.max(3, value * (height - 8));
-      const x = index * (barWidth + gap);
-      context.fillStyle = index / bars <= progress ? played : rest;
+    if (peaks) {
+      for (let index = 0; index < bars; index += 1) {
+        const value = fitted[index];
+        const barHeight = Math.max(3, value * (height - 8));
+        const x = index * (barWidth + gap);
+        context.fillStyle = index / bars <= progress ? played : rest;
+        context.beginPath();
+        context.roundRect(x, middle - barHeight / 2, barWidth, barHeight, barWidth / 2);
+        context.fill();
+      }
+    } else {
+      context.strokeStyle = rest;
+      context.lineWidth = 1;
       context.beginPath();
-      context.roundRect(x, middle - barHeight / 2, barWidth, barHeight, barWidth / 2);
-      context.fill();
+      context.moveTo(0, middle + 0.5);
+      context.lineTo(width, middle + 0.5);
+      context.stroke();
     }
     const headX = Math.round(progress * width);
     context.fillStyle = head;
@@ -253,7 +275,7 @@ export function RecordingPlayer({ recordingId, autoPlay = false }: { recordingId
         onPointerUp={(event) => { dragging.current = false; event.currentTarget.releasePointerCapture(event.pointerId); }}
         onPointerCancel={() => { dragging.current = false; }}
       />
-      <div className="m-player-times"><span>{formatPlayerClock(positionMs)}</span><span>{peaks === null && totalMs > 0 ? `กำลังอ่านคลื่นเสียง… ${loadedCount}/${durations.current.length}` : ""}</span><span>{formatPlayerClock(totalMs)}</span></div>
+      <div className="m-player-times"><span>{formatPlayerClock(positionMs)}</span><span>{peakState === "loading" && totalMs > 0 ? `กำลังอ่านข้อมูลเสียง… ${loadedCount}/${durations.current.length}` : peakState === "unavailable" && totalMs > 0 ? "ยังอ่านรูปคลื่นเสียงไม่ได้" : ""}</span><span>{formatPlayerClock(totalMs)}</span></div>
       <div className="m-player-controls">
         <button type="button" className="m-player-skip" onClick={() => seek(positionMs - SKIP_MS)} aria-label="ย้อน 10 วินาที"><RotateCcw size={22} /><small>10</small></button>
         <button type="button" className="m-player-toggle" onClick={toggle} disabled={totalMs === 0} aria-label={playing ? "หยุดชั่วคราว" : "เล่น"}>{playing ? <Pause size={28} /> : <Play size={28} />}</button>

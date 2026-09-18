@@ -120,7 +120,7 @@ export function LandingPage() {
   };
 
   return (
-    <main className="landing-page">
+    <main className="landing-page" data-fung-root="true">
       <div className="landing-progress" aria-hidden="true" />
 
       <header className="landing-header">

@@ -18,6 +18,29 @@ import type {
   MeetingToolPreviewEnvelope,
   MeetingToolRevokeReceipt,
 } from "./lib/externalMeetingTools.ts";
+import type {
+  PlaybackAction,
+  PlaybackChannel,
+  PlaybackCloseAcknowledgement,
+  PlaybackState,
+  RecordingAnswer,
+  RecordingListRelease,
+  RecordingPage,
+  RecordingRow,
+  ReviewError,
+} from "./components/desktop/contracts.ts";
+
+export type {
+  PlaybackAction,
+  PlaybackChannel,
+  PlaybackCloseAcknowledgement,
+  PlaybackState,
+  RecordingAnswer,
+  RecordingListRelease,
+  RecordingPage,
+  RecordingRow,
+  ReviewError,
+} from "./components/desktop/contracts.ts";
 
 export type Health = {
   app: string;
@@ -109,6 +132,14 @@ const canInvoke = () => typeof window !== "undefined" && Boolean("__TAURI_INTERN
 export const nativeInvoke = canInvoke()
   ? (<T,>(command: string, args?: Record<string, unknown>) => invoke<T>(command, args))
   : null;
+
+function nativeUnavailable(operation: string): ReviewError {
+  return {
+    code: "NATIVE_UNAVAILABLE",
+    message: operation + " requires the desktop app",
+    retryable: false,
+  };
+}
 
 export async function getHealth(): Promise<Health> {
   if (!canInvoke()) return fallbackHealth;
@@ -336,6 +367,84 @@ export type ExportArtifact = {
 export async function listExportArtifacts(projectId: string): Promise<ExportArtifact[]> {
   if (!canInvoke()) return [];
   return invoke<ExportArtifact[]>("list_export_artifacts", { projectId });
+}
+
+export async function listRecordings(
+  projectId: string,
+  limit = 50,
+  cursor: string | null = null,
+): Promise<RecordingPage> {
+  if (!canInvoke()) throw nativeUnavailable("Recording history");
+  return invoke<RecordingPage>("desktop_recordings_list", {
+    projectId,
+    limit,
+    cursor,
+  });
+}
+
+export async function releaseRecordingList(snapshotId: string): Promise<RecordingListRelease> {
+  if (!canInvoke()) throw nativeUnavailable("Recording history");
+  return invoke<RecordingListRelease>("desktop_recordings_release", { snapshotId });
+}
+
+export async function getRecording(projectId: string, recordingId: string): Promise<RecordingRow> {
+  if (!canInvoke()) throw nativeUnavailable("Recording review");
+  return invoke<RecordingRow>("desktop_recording_get", { projectId, recordingId });
+}
+
+export async function askRecording(
+  projectId: string,
+  recordingId: string,
+  question: string,
+  requestId: string,
+): Promise<RecordingAnswer> {
+  if (!canInvoke()) throw nativeUnavailable("Recording questions");
+  return invoke<RecordingAnswer>("meeting_ask_recording", {
+    projectId,
+    recordingId,
+    question,
+    requestId,
+  });
+}
+
+export async function openPlayback(
+  projectId: string,
+  recordingId: string,
+  channel: PlaybackChannel,
+): Promise<PlaybackState> {
+  if (!canInvoke()) throw nativeUnavailable("Desktop playback");
+  return invoke<PlaybackState>("desktop_playback_open", {
+    projectId,
+    recordingId,
+    channel,
+  });
+}
+
+export async function controlPlayback(
+  handle: string,
+  expectedEpoch: number,
+  action: PlaybackAction,
+  positionMs?: number,
+): Promise<PlaybackState> {
+  if (!canInvoke()) throw nativeUnavailable("Desktop playback");
+  const args: {
+    handle: string;
+    expectedEpoch: number;
+    action: PlaybackAction;
+    positionMs?: number;
+  } = { handle, expectedEpoch, action };
+  if (positionMs !== undefined) args.positionMs = positionMs;
+  return invoke<PlaybackState>("desktop_playback_control", args);
+}
+
+export async function getPlayback(handle: string): Promise<PlaybackState> {
+  if (!canInvoke()) throw nativeUnavailable("Desktop playback");
+  return invoke<PlaybackState>("desktop_playback_status", { handle });
+}
+
+export async function closePlayback(handle: string): Promise<PlaybackCloseAcknowledgement> {
+  if (!canInvoke()) throw nativeUnavailable("Desktop playback");
+  return invoke<PlaybackCloseAcknowledgement>("desktop_playback_close", { handle });
 }
 
 export async function listModelProviders(): Promise<ModelProvider[]> {

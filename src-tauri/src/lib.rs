@@ -21,6 +21,7 @@ mod backup_payload;
 mod cloud_commands;
 mod cloud_config;
 mod cloud_executor;
+mod desktop_playback;
 mod device_identity;
 mod diarization;
 mod external_mcp;
@@ -44,6 +45,7 @@ mod native_auth;
 mod native_recorder;
 mod on_device_ai;
 mod policy;
+mod recording_review;
 mod recovery;
 mod speaker_merge;
 mod transcript_export;
@@ -319,7 +321,11 @@ pub(crate) struct AppState {
     whisper_runtime: WhisperRuntime,
     pub(crate) mobile_gateway: Mutex<Option<mobile::MobileGatewayControl>>,
     pub(crate) fungwire: Mutex<Option<fungwire_server::FungwireServerControl>>,
-    pub(crate) live: Mutex<Option<live_meeting::LiveSessionControl>>,
+    pub(crate) live: Arc<Mutex<Option<live_meeting::LiveSessionControl>>>,
+    pub(crate) review_registry: Mutex<recording_review::ReviewRegistry>,
+    pub(crate) playback: desktop_playback::PlaybackManager,
+    pub(crate) native_capture: Arc<recording_review::NativeCaptureGuard>,
+    pub(crate) main_window_owner: u128,
     /// The durable job queue. Cloneable handle, not a lock: the worker owns
     /// its own state, so a command that enqueues never blocks behind a job.
     pub(crate) jobs: job_engine::JobEngine,
@@ -900,7 +906,11 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         whisper_runtime: whisper_runtime(app),
         mobile_gateway: Mutex::new(None),
         fungwire: Mutex::new(None),
-        live: Mutex::new(None),
+        live: Arc::new(Mutex::new(None)),
+        review_registry: Mutex::new(recording_review::ReviewRegistry::default()),
+        playback: desktop_playback::PlaybackManager::new(),
+        native_capture: Arc::new(recording_review::NativeCaptureGuard::default()),
+        main_window_owner: recording_review::random_owner_id(),
         external_mcp: external_mcp_commands::ExternalMcpRuntime::default(),
         external_meeting_tools_enabled: matches!(
             env::var("FUNG_EXTERNAL_MEETING_TOOLS").as_deref(),
@@ -3351,6 +3361,17 @@ mod dotenv_tests {
     }
 }
 
+fn shutdown_native_state(state: &AppState) {
+    live_meeting::shutdown(state);
+    state.playback.shutdown();
+    state
+        .review_registry
+        .lock()
+        .expect("review registry mutex poisoned")
+        .clear();
+    state.jobs.shutdown();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     load_dotenv();
@@ -3453,9 +3474,17 @@ pub fn run() {
             live_meeting::live_meeting_start,
             live_meeting::live_meeting_stop,
             live_meeting::live_meeting_status,
+            recording_review::desktop_recordings_list,
+            recording_review::desktop_recordings_release,
+            recording_review::desktop_recording_get,
             meeting_intel::meeting_ask,
+            meeting_intel::meeting_ask_recording,
             meeting_intel::meeting_summaries,
             meeting_intel::generate_meeting_summary,
+            desktop_playback::desktop_playback_open,
+            desktop_playback::desktop_playback_control,
+            desktop_playback::desktop_playback_status,
+            desktop_playback::desktop_playback_close,
             external_mcp_commands::external_connectors_list,
             external_mcp_commands::external_connector_register,
             external_mcp_commands::external_connector_disconnect,
@@ -3530,18 +3559,28 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while running FUNG")
-        .run(|app, event| {
+        .run(|app, event| match event {
             // Stop taking new work at exit. Anything still queued stays
             // queued in the ledger and is adopted on the next launch —
             // shutdown is not cancellation.
-            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+            tauri::RunEvent::ExitRequested { .. } => {
                 if let Err(error_code) = auth_session::shutdown() {
                     eprintln!("{error_code}");
                 }
                 if let Some(state) = app.try_state::<AppState>() {
-                    state.jobs.shutdown();
+                    shutdown_native_state(&state);
                 }
             }
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } if label == "main" => {
+                if let Some(state) = app.try_state::<AppState>() {
+                    shutdown_native_state(&state);
+                }
+            }
+            _ => {}
         });
 }
 

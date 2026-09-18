@@ -1526,3 +1526,51 @@ button,
 .spin {
   animation: spin 1s linear infinite;
 }
+
+/* P1-B integration owns these layout boundaries. The legacy command deck
+ * remains reachable inside its own fixed stage and does not style mobile or
+ * browser-only surfaces. */
+.desktop-shell .callmd-desktop-content {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+
+.desktop-shell .callmd-surface-stack {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.desktop-shell .callmd-surface-stack .live-overlay {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.desktop-shell .callmd-surface-stack .live-panel {
+  width: 100%;
+  max-height: none;
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+.desktop-shell .callmd-legacy-workspace {
+  min-width: 0;
+  overflow-x: auto;
+  border-top: 1px solid var(--shell-line);
+  padding-top: 20px;
+}
+
+.desktop-shell .callmd-legacy-workspace .app-shell {
+  position: relative;
+  width: 1304px;
+  min-width: 1304px;
+  height: 744px;
+  min-height: 744px;
+  overflow: hidden;
+}

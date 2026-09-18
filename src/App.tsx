@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Archive,
@@ -42,16 +42,32 @@ import {
   ttsSynthesizeText,
   type Health,
   type Job,
+  type LiveStatusOutput,
   type ModelProvider,
   type Project,
   type TranscriptLoadState,
   beginTranscriptLoad,
   settleTranscriptLoad,
 } from "./tauri";
-import { LiveMeetingPanel } from "./components/LiveMeetingPanel";
+import {
+  LiveMeetingPanel,
+  type LiveControllerSnapshot,
+  type LiveMeetingController,
+} from "./components/LiveMeetingPanel";
 import { InstrumentRail } from "./components/InstrumentRail";
 import { HomeScreen } from "./components/HomeScreen";
 import type { SettingsTab } from "./components/SettingsPanel";
+import { DesktopShell } from "./components/desktop/DesktopShell";
+import { RecordingReview, type RecoveryRefresh } from "./components/desktop/RecordingReview";
+import {
+  normalizeReviewError,
+  type CloseReviewPlayer,
+  type DesktopSurface,
+  type ReadState,
+  type ReviewError,
+  type ThemeChoice,
+} from "./components/desktop/contracts";
+import type { InvokeFn, RecoveredRecording, RecoveryReport } from "./lib/recoveryFlow";
 import {
   isJobActionEnabled,
   jobActionBlockedReason,
@@ -76,6 +92,30 @@ function formatMs(ms: number): string {
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
+
+const NATIVE_UNAVAILABLE_ERROR: ReviewError = {
+  code: "NATIVE_UNAVAILABLE",
+  message: "การอ่านข้อมูลส่วนนี้ต้องใช้ FUNG Desktop",
+  retryable: false,
+};
+
+function createReadState<T>(
+  status: ReadState<T>["status"],
+  data: T | null = null,
+  error: ReviewError | null = null,
+): ReadState<T> {
+  return { status, identity: null, data, error };
+}
+
+const INITIAL_LIVE_SNAPSHOT: LiveControllerSnapshot = {
+  liveStatus: createReadState<LiveStatusOutput>(
+    nativeInvoke ? "idle" : "unavailable",
+    null,
+    nativeInvoke ? null : NATIVE_UNAVAILABLE_ERROR,
+  ),
+  phase: "idle",
+  selection: null,
+};
 
 // Plain rounded rectangle: the earlier notched silhouette let the instrument
 // rail and command-deck bar float half outside the panel, which read as
@@ -103,7 +143,29 @@ type NavLabel = (typeof navItems)[number]["label"];
 type ViewId = (typeof navItems)[number]["id"];
 type Tone = "sage" | "indigo" | "metal";
 type SignalId = "health" | "privacy" | "queue" | "focus";
-type ThemeMode = "light" | "dark";
+type ThemeMode = ThemeChoice;
+type ResolvedTheme = "light" | "dark";
+
+const SYSTEM_THEME_QUERY = "(prefers-color-scheme: dark)";
+
+export function resolveEffectiveTheme(theme: ThemeMode, systemTheme: ResolvedTheme): ResolvedTheme {
+  return theme === "system" ? systemTheme : theme;
+}
+
+export function readSystemTheme(): ResolvedTheme {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return "light";
+  return window.matchMedia(SYSTEM_THEME_QUERY).matches ? "dark" : "light";
+}
+
+export function subscribeToSystemTheme(onChange: (theme: ResolvedTheme) => void): () => void {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
+  const media = window.matchMedia(SYSTEM_THEME_QUERY);
+  const update = (matches: boolean) => onChange(matches ? "dark" : "light");
+  update(media.matches);
+  const listener = (event: MediaQueryListEvent) => update(event.matches);
+  media.addEventListener("change", listener);
+  return () => media.removeEventListener("change", listener);
+}
 
 type LibraryItem = {
   id: string;
@@ -589,6 +651,13 @@ export function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [providers, setProviders] = useState<ModelProvider[]>([]);
+  const [projectState, setProjectState] = useState<ReadState<Project[]>>(() =>
+    createReadState<Project[]>(
+      nativeInvoke ? "loading" : "unavailable",
+      null,
+      nativeInvoke ? null : NATIVE_UNAVAILABLE_ERROR,
+    ),
+  );
   const transcriptRequestId = useRef(0);
   const [transcriptRefreshToken, setTranscriptRefreshToken] = useState(0);
   const [transcriptLoad, setTranscriptLoad] = useState<TranscriptLoadState>(() =>
@@ -601,8 +670,16 @@ export function App() {
   const [activeAnchor, setActiveAnchor] = useState<Anchor>("P2");
   const [activeView, setActiveView] = useState<ViewId>("review");
   const [theme, setTheme] = useState<ThemeMode>("light");
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => readSystemTheme());
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
   const [liveMeetingOpen, setLiveMeetingOpen] = useState(false);
+  const [activeSurface, setActiveSurface] = useState<DesktopSurface>("home");
+  const [reviewSelection, setReviewSelection] = useState<{
+    projectId: string;
+    recordingId: string;
+  } | null>(null);
+  const [liveController, setLiveController] = useState<LiveMeetingController | null>(null);
+  const [liveSnapshot, setLiveSnapshot] = useState<LiveControllerSnapshot>(INITIAL_LIVE_SNAPSHOT);
   const [devicePairingPanelOpen, setDevicePairingPanelOpen] = useState(false);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>("account");
@@ -624,23 +701,124 @@ export function App() {
     P4: "export-bundle",
   });
 
-  const refresh = async () => {
-    const [nextHealth, nextProjects, nextJobs, nextProviders] = await Promise.all([
+  const reviewClosePlayerRef = useRef<CloseReviewPlayer | null>(null);
+  const recoveryRefreshRef = useRef<RecoveryRefresh | null>(null);
+  const recoveryProjectByRecordingRef = useRef(new Map<string, string>());
+
+  useEffect(() => subscribeToSystemTheme(setSystemTheme), []);
+
+  const registerClosePlayer = useCallback((closePlayer: CloseReviewPlayer | null) => {
+    reviewClosePlayerRef.current = closePlayer;
+    return () => {
+      if (reviewClosePlayerRef.current === closePlayer) reviewClosePlayerRef.current = null;
+    };
+  }, []);
+
+  const closeReviewPlayer = useCallback(async () => {
+    if (!reviewClosePlayerRef.current) return { closed: true };
+    return reviewClosePlayerRef.current();
+  }, []);
+
+  const registerRecoveryRefresh = useCallback((refreshRecovered: RecoveryRefresh | null) => {
+    recoveryRefreshRef.current = refreshRecovered;
+    return () => {
+      if (recoveryRefreshRef.current === refreshRecovered) recoveryRefreshRef.current = null;
+    };
+  }, []);
+
+  const recoveryInvoke = useMemo<InvokeFn | null>(() => {
+    const invoke = nativeInvoke;
+    if (!invoke) return null;
+
+    const invokeWithRecoveryObserver: InvokeFn = async <T,>(
+      command: string,
+      args?: Record<string, unknown>,
+    ) => {
+      const result = await invoke<T>(command, args);
+
+      if (command === "recovery_scan") {
+        const report = result as RecoveryReport;
+        const nextMapping = new Map<string, string>();
+        if (report && Array.isArray(report.interrupted)) {
+          for (const item of report.interrupted) {
+            if (item.recordingId && item.projectId) {
+              nextMapping.set(item.recordingId, item.projectId);
+            }
+          }
+        }
+        recoveryProjectByRecordingRef.current = nextMapping;
+      } else if (command === "recovery_recover") {
+        const recovered = result as RecoveredRecording;
+        const recordingId = recovered?.adopted?.recordingId;
+        const projectId = recordingId
+          ? recoveryProjectByRecordingRef.current.get(recordingId)
+          : undefined;
+        const refreshRecovered = recoveryRefreshRef.current;
+        if (recordingId && projectId && refreshRecovered) {
+          try {
+            await refreshRecovered({ projectId, recordingId });
+          } catch {
+            // Recovery itself already succeeded; a review refresh is advisory.
+          }
+        }
+      }
+
+      return result;
+    };
+
+    return invokeWithRecoveryObserver;
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!nativeInvoke) {
+      setProjectState(createReadState<Project[]>("unavailable", null, NATIVE_UNAVAILABLE_ERROR));
+      setHealth(null);
+      setProjects([]);
+      setJobs([]);
+      setProviders([]);
+      return;
+    }
+
+    setProjectState((current) => ({ ...current, status: "loading", error: null }));
+    const [healthResult, projectsResult, jobsResult, providersResult] = await Promise.allSettled([
       getHealth(),
       listProjects(),
       listJobs(),
       listModelProviders(),
     ]);
 
-    setHealth(nextHealth);
-    setProjects(nextProjects);
-    setJobs(nextJobs);
-    setProviders(nextProviders);
-  };
+    if (healthResult.status === "fulfilled") setHealth(healthResult.value);
+    if (projectsResult.status === "fulfilled") {
+      setProjects(projectsResult.value);
+      setProjectState(createReadState<Project[]>("ready", projectsResult.value));
+    } else {
+      setProjectState((current) => ({
+        ...current,
+        status: "error",
+        error: normalizeReviewError(projectsResult.reason),
+      }));
+    }
+    if (jobsResult.status === "fulfilled") setJobs(jobsResult.value);
+    if (providersResult.status === "fulfilled") setProviders(providersResult.value);
+  }, []);
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  const handleLiveControllerChange = useCallback((controller: LiveMeetingController | null) => {
+    setLiveController(controller);
   }, []);
+
+  useEffect(() => {
+    if (!liveController) {
+      setLiveSnapshot(INITIAL_LIVE_SNAPSHOT);
+      return undefined;
+    }
+
+    setLiveSnapshot(liveController.getSnapshot());
+    return liveController.subscribe(setLiveSnapshot);
+  }, [liveController]);
 
   // State reflects what the backend actually reports for each project, not
   // its position in the list: an active recording, then a running/queued
@@ -664,10 +842,10 @@ export function App() {
   const [selectedRecording, setSelectedRecording] = useState<string>("");
 
   useEffect(() => {
-    if (!libraryItems.some((item) => item.id === selectedRecording)) {
-      setSelectedRecording(libraryItems[0]?.id ?? "");
+    if (!projects.some((project) => project.id === selectedRecording)) {
+      setSelectedRecording(projects[0]?.id ?? "");
     }
-  }, [libraryItems, selectedRecording]);
+  }, [projects, selectedRecording]);
 
   const selectedCard = useMemo(
     () => libraryItems.find((item) => item.id === selectedRecording) ?? libraryItems[0],
@@ -675,9 +853,25 @@ export function App() {
   );
 
   const selectedProjectId = useMemo(
-    () => (projects.some((project) => project.id === selectedRecording) ? selectedRecording : undefined),
+    () => (projects.some((project) => project.id === selectedRecording) ? selectedRecording : null),
     [projects, selectedRecording],
   );
+
+  useEffect(() => {
+    if (reviewSelection && reviewSelection.projectId !== selectedProjectId) {
+      setReviewSelection(null);
+    }
+  }, [reviewSelection, selectedProjectId]);
+
+  const handleReviewSelection = useCallback((selection: { projectId: string; recordingId: string } | null) => {
+    if (
+      selection &&
+      (selection.projectId !== selectedProjectId || !projects.some((project) => project.id === selection.projectId))
+    ) {
+      return;
+    }
+    setReviewSelection(selection);
+  }, [projects, selectedProjectId]);
 
   const activeRecordingId = useMemo(
     () =>
@@ -734,6 +928,23 @@ export function App() {
 
     return `${localProviders}/${providers.length} local providers`;
   }, [providers]);
+
+  const liveStatus = liveSnapshot.liveStatus;
+  const captureActive = liveStatus.data?.active === true || liveStatus.data?.stopping === true;
+
+  const stopAndLeave = useCallback(async (): Promise<LiveStatusOutput> => {
+    if (!liveController) throw NATIVE_UNAVAILABLE_ERROR;
+    return liveController.stopAndLeave();
+  }, [liveController]);
+
+  const handleStopCapture = useCallback(async () => {
+    try {
+      await stopAndLeave();
+      setActionNotice("หยุดการบันทึกแล้ว — ตรวจสอบสถานะล่าสุดจาก Desktop");
+    } catch {
+      setActionNotice("หยุดการบันทึกไม่สำเร็จ — เซสชันยังอยู่ในพื้นที่ประชุมสด");
+    }
+  }, [stopAndLeave]);
 
   useEffect(() => {
     if (!currentPage.tiles.some((tile) => tile.id === activeTileByAnchor[activeAnchor])) {
@@ -923,6 +1134,7 @@ export function App() {
   const onViewChange = (label: NavLabel) => {
     const nextView = navItems.find((item) => item.label === label)?.id ?? "review";
     enterMeetingWorkspace(anchorByView[nextView]);
+    setActiveSurface(nextView === "capture" ? "live" : "review");
   };
 
   const activateAnchor = (anchor: Anchor) => {
@@ -935,7 +1147,18 @@ export function App() {
     activateAnchor(anchor);
   };
 
-  const returnToHome = () => setShowHome(true);
+  const openReviewSurface = () => {
+    setLiveMeetingOpen(false);
+    setShowHome(false);
+    setActiveSurface("review");
+    enterMeetingWorkspace("P2");
+  };
+
+  const returnToHome = () => {
+    setShowHome(true);
+    setLiveMeetingOpen(false);
+    setActiveSurface("home");
+  };
 
   const activateTile = (tileId: string) => {
     setActiveTileByAnchor((current) => ({ ...current, [activeAnchor]: tileId }));
@@ -955,6 +1178,7 @@ export function App() {
     const name = `Session ${projects.length + 1}`;
     const project = await createProject(name);
     setSelectedRecording(project.id);
+    setReviewSelection(null);
     await refresh();
     return project;
   };
@@ -1199,6 +1423,8 @@ export function App() {
     );
   };
 
+  const effectiveTheme = resolveEffectiveTheme(theme, systemTheme);
+
   const performTileAction = async (action: TileAction) => {
     if (action.kind === "anchor") {
       activateAnchor(action.value as Anchor);
@@ -1214,6 +1440,7 @@ export function App() {
       // Real capture lives in the Live Meeting panel now — the old
       // setRecording() toggle was UI state with no backend.
       setLiveMeetingOpen(true);
+      setActiveSurface("live");
       activateTile("live-capture");
       return;
     }
@@ -1230,16 +1457,53 @@ export function App() {
   };
 
   return (
-    <div className={`app-shell theme-${theme}`}>
-      <Suspense fallback={null}>
-        <RecoveryNotice invoke={nativeInvoke} />
-      </Suspense>
-      {settingsPanelOpen && (
+    <DesktopShell
+      scopeChoice="B"
+      project={projectState}
+      selectedProjectId={selectedProjectId}
+      selection={reviewSelection}
+      activeSurface={activeSurface}
+      liveStatus={liveStatus}
+      livePhase={liveSnapshot.phase}
+      theme={theme}
+      actions={{
+        selectProject: (projectId) => {
+          if (!projects.some((project) => project.id === projectId)) return;
+          setSelectedRecording(projectId);
+          setReviewSelection(null);
+        },
+        selectRecording: handleReviewSelection,
+        showHome: returnToHome,
+        showLive: () => {
+          enterMeetingWorkspace("P1");
+          setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
+          setLiveMeetingOpen(true);
+          setActiveSurface("live");
+        },
+        showReview: openReviewSurface,
+        stopAndLeave,
+        openSettings: () => setSettingsPanelOpen(true),
+        openPairing: () => setDevicePairingPanelOpen(true),
+        importMedia: async () => {
+          setActiveSurface("review");
+          setShowHome(false);
+          await handleImportAndTranscribe();
+        },
+        setTheme,
+        minimizeWindow: handleMinimizeWindow,
+        closeWindow: handleCloseWindow,
+      }}
+      recoverySlot={(
+        <Suspense fallback={null}>
+          <RecoveryNotice invoke={recoveryInvoke} />
+        </Suspense>
+      )}
+      settingsSlot={settingsPanelOpen ? (
         <Suspense fallback={null}>
           <SettingsPanel
             onClose={() => setSettingsPanelOpen(false)}
             invoke={nativeInvoke}
-            projectId={selectedProjectId ?? null}
+            projectId={selectedProjectId}
             onStartApi={() => void handleStartApi()}
             apiRunning={Boolean(health?.localApi.running)}
             onFetchStarted={(job) => {
@@ -1250,11 +1514,8 @@ export function App() {
             initialTab={settingsInitialTab}
           />
         </Suspense>
-      )}
-      {liveMeetingOpen && (
-        <LiveMeetingPanel onClose={() => setLiveMeetingOpen(false)} projectId={selectedProjectId ?? null} />
-      )}
-      {devicePairingPanelOpen && (
+      ) : null}
+      pairingSlot={devicePairingPanelOpen ? (
         <div
           className="account-login-overlay"
           role="presentation"
@@ -1272,8 +1533,33 @@ export function App() {
             </Suspense>
           </div>
         </div>
-      )}
-      <div className="ambient-grid" data-tauri-drag-region aria-hidden="true" />
+      ) : null}
+      mainContent={(
+        <div className="callmd-desktop-content">
+          <div className={`callmd-surface-stack theme-${effectiveTheme}`} aria-label="พื้นที่ P1-B">
+            <LiveMeetingPanel
+              onClose={() => {
+                setLiveMeetingOpen(false);
+                setActiveSurface("home");
+                setShowHome(true);
+              }}
+              projectId={selectedProjectId}
+              visible={activeSurface === "live"}
+              closeReviewPlayer={closeReviewPlayer}
+              onControllerChange={handleLiveControllerChange}
+            />
+            <RecordingReview
+              selectedProjectId={selectedProjectId}
+              selection={reviewSelection}
+              onSelect={handleReviewSelection}
+              visible={activeSurface === "review"}
+              registerClosePlayer={registerClosePlayer}
+              registerRecoveryRefresh={registerRecoveryRefresh}
+            />
+          </div>
+          <div className="callmd-legacy-workspace">
+            <div className={`app-shell theme-${effectiveTheme}`}>
+              <div className="ambient-grid" aria-hidden="true" />
 
       <svg className="clip-defs" width="0" height="0" aria-hidden="true" focusable="false">
         <defs>
@@ -1286,8 +1572,8 @@ export function App() {
 
       <div className="stage-wrap" style={{ transform: `scale(${scale})` }}>
         <main className="stage" aria-label="FUNG review workspace">
-          <div className="panel-glow" data-tauri-drag-region aria-hidden="true" />
-          <div className="panel-glass" data-tauri-drag-region>
+          <div className="panel-glow" aria-hidden="true" />
+          <div className="panel-glass">
             {showHome ? (
               <HomeScreen
                 items={libraryItems}
@@ -1295,19 +1581,23 @@ export function App() {
                   enterMeetingWorkspace("P1");
                   setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
                   setLiveMeetingOpen(true);
+                  setActiveSurface("live");
                 }}
                 onImport={() => {
                   enterMeetingWorkspace("P1");
+                  setActiveSurface("review");
                   void handleImportAndTranscribe();
                 }}
                 onOpenItem={(id) => {
                   setSelectedRecording(id);
+                  setReviewSelection(null);
+                  setActiveSurface("review");
                   enterMeetingWorkspace("P2");
                 }}
               />
             ) : (
               <>
-            <section className="zone score-header" data-tauri-drag-region aria-label="Score header">
+            <section className="zone score-header" aria-label="Score header">
               <div>
                 <div className="eyebrow">Meeting Mode / {activeAnchor}</div>
                 <div className="score-title">{meetingTitle}</div>
@@ -1576,7 +1866,7 @@ export function App() {
             <use href="#subtractPanelPath" className="panel-rim__stroke panel-rim__stroke--inner" />
           </svg>
 
-          <div className="fab fab-topbar" data-tauri-drag-region>
+          <div className="fab fab-topbar">
             <div className="topbar-title">
               <button type="button" className="icon-button no-drag" aria-label="Search">
                 <Search size={16} />
@@ -1598,9 +1888,9 @@ export function App() {
                 className="icon-button no-drag"
                 aria-label="Toggle light dark mode"
                 onClick={() => setTheme((mode) => (mode === "light" ? "dark" : "light"))}
-                title={theme === "light" ? "Dark mode" : "Light mode"}
+                title={theme === "dark" ? "Light mode" : "Dark mode"}
               >
-                {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
+                {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
               </button>
               <button type="button" className="action-chip no-drag" onClick={handleNewProject}>
                 <Download size={16} />
@@ -1610,14 +1900,24 @@ export function App() {
           </div>
 
           <InstrumentRail
-            recording={liveMeetingOpen}
+            recording={captureActive}
             onRecord={() => {
               enterMeetingWorkspace("P1");
               setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
               setLiveMeetingOpen(true);
+              setActiveSurface("live");
+            }}
+            onStop={() => {
+              setActiveSurface("live");
+              setShowHome(false);
+              void handleStopCapture();
+            }}
+            onOpenReview={() => {
+              openReviewSurface();
             }}
             onImport={() => {
               enterMeetingWorkspace("P1");
+              setActiveSurface("review");
               void handleImportAndTranscribe();
             }}
             importDisabled={transcribing}
@@ -1670,5 +1970,9 @@ export function App() {
         </main>
       </div>
     </div>
+          </div>
+        </div>
+      )}
+    />
   );
 }

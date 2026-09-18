@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="3968" height="1016" viewBox="0 0 3968 1016" role="img" aria-labelledby="title desc"><title id="title">FUNG low-fi interaction wireframes · 3 frames 1280x800</title><desc id="desc">Numbered layout zones H1-H4, L1-L4, R1-R4 with navigation and data scope; deliberately no polished cards, transcript fixture or copied assets. Candidate 0.1.0b.</desc><metadata>Created 2026-09-17T01:58:55+07:00; updated 2026-09-17T02:04:33+07:00; base c378af9fac3c00db063948f49f9ee857ebad9126.</metadata><style>text{font-family:"IBM Plex Sans Thai","DM Sans","Leelawadee UI",Tahoma,sans-serif}</style><rect width="3968" height="1016" fill="#FFFFFF"/><text x="32" y="34" font-size="22" font-weight="600" fill="#171918">FUNG / LOW-FI INFORMATION HIERARCHY + INTERACTION MAP</text><text x="32" y="60" font-size="14" font-weight="400" fill="#171918">0.1.0b CANDIDATE · 3 × 1280 × 800 · P1-B recommended, not selected · static document</text><g id="frame-0" transform="translate(32 80)">
+<rect x="0" y="0" width="1280" height="800" fill="none" stroke="#707570" stroke-width="1.5"/>
+<rect x="0" y="0" width="208" height="800" fill="none" stroke="#707570" stroke-width="1.5"/>
+<text x="24" y="44" font-size="16" font-weight="600" fill="#171918">FUNG · WIREFRAME</text>
+<text x="24" y="98" font-size="16" font-weight="400" fill="#171918">01 หน้าหลัก</text>
+<text x="24" y="144" font-size="16" font-weight="400" fill="#171918">02 ประชุมสด</text>
+<text x="24" y="190" font-size="16" font-weight="400" fill="#171918">03 ทบทวน</text>
+<rect x="16" y="70" width="176" height="40" fill="none" stroke="#707570" stroke-width="1.5"/>
+<text x="24" y="290" font-size="16" font-weight="400" fill="#171918">โครงการ / งาน</text>
+<text x="24" y="338" font-size="16" font-weight="400" fill="#171918">พื้นที่ทำงานเดิม</text>
+<text x="24" y="386" font-size="16" font-weight="400" fill="#171918">นำเข้า / กู้คืน</text>
+<text x="24" y="434" font-size="16" font-weight="400" fill="#171918">ส่งออกโครงการ</text>
+<text x="24" y="626" font-size="16" font-weight="400" fill="#171918">ตั้งค่า (lazy)</text>
+<text x="24" y="674" font-size="16" font-weight="400" fill="#171918">จับคู่อุปกรณ์</text>
+<text x="24" y="758" font-size="14" font-weight="400" fill="#171918">Local · ไม่บังคับ login</text>
+<text x="240" y="40" font-size="24" font-weight="600" fill="#171918">01 / HOME &amp; SHELL</text>
+<text x="240" y="69" font-size="14" font-weight="400" fill="#171918">โครงร่างการโต้ตอบ · B = PROPOSED · เลือก A ได้ก่อนเขียนโค้ด</text>
+<rect x="240" y="100" width="1008" height="170" fill="none" stroke="#707570" stroke-width="1.5"/><text x="256" y="130" font-size="19" font-weight="600" fill="#171918">H1 / จุดเริ่มต้น</text><text x="256" y="165" font-size="15" font-weight="400" fill="#171918">โครงการที่เลือก / สถานะในเครื่อง</text><text x="256" y="193" font-size="15" font-weight="400" fill="#171918">แจ้งผู้ร่วมประชุมก่อนอัด → [เริ่มประชุม] → เปิด Live</text><text x="256" y="221" font-size="15" font-weight="400" fill="#171918">[นำเข้าไฟล์] → เส้นทางเดิม; ไม่เริ่มงานอัตโนมัติ</text>
+<rect x="240" y="294" width="488" height="180" fill="none" stroke="#707570" stroke-width="1.5"/><text x="256" y="324" font-size="19" font-weight="600" fill="#171918">H2 / กลับมาอ่านต่อ</text><text x="256" y="359" font-size="15" font-weight="400" fill="#171918">B: รายการบันทึกจริงของโครงการ → เลือกบันทึก</text><text x="256" y="387" font-size="15" font-weight="400" fill="#171918">A: บันทึกปัจจุบันจาก activeRecordingId เท่านั้น</text><text x="256" y="415" font-size="15" font-weight="400" fill="#171918">Reopen = อ่าน durable recording; ไม่เริ่มอัดซ้ำ</text>
+<rect x="752" y="294" width="496" height="180" fill="none" stroke="#707570" stroke-width="1.5"/><text x="768" y="324" font-size="19" font-weight="600" fill="#171918">H3 / เครื่องมือเดิม</text><text x="768" y="359" font-size="15" font-weight="400" fill="#171918">[งานและโครงการ] → สถานะงานที่มีอยู่</text><text x="768" y="387" font-size="15" font-weight="400" fill="#171918">[ตั้งค่า] → โมเดล / บัญชี / สำรอง / Local API</text><text x="768" y="415" font-size="15" font-weight="400" fill="#171918">[จับคู่] → รหัสและอุปกรณ์ที่เชื่อถือ</text>
+<rect x="240" y="500" width="1008" height="178" fill="none" stroke="#707570" stroke-width="1.5"/><text x="256" y="530" font-size="19" font-weight="600" fill="#171918">H4 / เส้นทางและผลลัพธ์</text><text x="256" y="565" font-size="15" font-weight="400" fill="#171918">เมื่อกำลังอัด: เตือนก่อนออกจากหน้า; คง session owner คนเดียว</text><text x="256" y="593" font-size="15" font-weight="400" fill="#171918">ว่าง: สอนเริ่มงาน / โหลด: รออ่าน / error: ลองใหม่ ไม่เปลี่ยนเป็นว่าง</text><text x="256" y="621" font-size="15" font-weight="400" fill="#171918">ลิงก์พื้นที่เดิมรักษา Capture / Transcript / Summary / Runtime</text>
+<rect x="240" y="704" width="1008" height="72" fill="none" stroke="#707570" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="256" y="733" font-size="13" font-weight="600" fill="#171918">INTERACTION CONTRACT</text>
+<text x="256" y="760" font-size="14" font-weight="400" fill="#171918">Tab ตามลำดับหน้าจอ · Enter/Space เปิดปุ่ม · Escape ปิด dialog · คืน focus จุดเดิม</text>
+</g>
+<g id="frame-1" transform="translate(1344 80)">
+<rect x="0" y="0" width="1280" height="800" fill="none" stroke="#707570" stroke-width="1.5"/>
+<rect x="0" y="0" width="208" height="800" fill="none" stroke="#707570" stroke-width="1.5"/>
+<text x="24" y="44" font-size="16" font-weight="600" fill="#171918">FUNG · WIREFRAME</text>
+<text x="24" y="98" font-size="16" font-weight="400" fill="#171918">01 หน้าหลัก</text>
+<text x="24" y="144" font-size="16" font-weight="400" fill="#171918">02 ประชุมสด</text>
+<text x="24" y="190" font-size="16" font-weight="400" fill="#171918">03 ทบทวน</text>
+<rect x="16" y="116" width="176" height="40" fill="none" stroke="#707570" stroke-width="1.5"/>
+<text x="24" y="290" font-size="16" font-weight="400" fill="#171918">โครงการ / งาน</text>
+<text x="24" y="338" font-size="16" font-weight="400" fill="#171918">พื้นที่ทำงานเดิม</text>
+<text x="24" y="386" font-size="16" font-weight="400" fill="#171918">นำเข้า / กู้คืน</text>
+<text x="24" y="434" font-size="16" font-weight="400" fill="#171918">ส่งออกโครงการ</text>
+<text x="24" y="626" font-size="16" font-weight="400" fill="#171918">ตั้งค่า (lazy)</text>
+<text x="24" y="674" font-size="16" font-weight="400" fill="#171918">จับคู่อุปกรณ์</text>
+<text x="24" y="758" font-size="14" font-weight="400" fill="#171918">Local · ไม่บังคับ login</text>
+<text x="240" y="40" font-size="24" font-weight="600" fill="#171918">02 / LIVE: TRANSCRIPT + INSIGHTS</text>
+<text x="240" y="69" font-size="14" font-weight="400" fill="#171918">โครงร่างการโต้ตอบ · B = PROPOSED · เลือก A ได้ก่อนเขียนโค้ด</text>
+<rect x="240" y="100" width="1008" height="92" fill="none" stroke="#707570" stroke-width="1.5"/><text x="256" y="130" font-size="19" font-weight="600" fill="#171918">L1 / สถานะอัดและคำสั่ง</text><text x="256" y="165" font-size="15" font-weight="400" fill="#171918">สถานะจริง + recording identity / [หยุด] ต้องยังเข้าถึงได้</text>
+<rect x="240" y="216" width="612" height="290" fill="none" stroke="#707570" stroke-width="1.5"/><text x="256" y="246" font-size="19" font-weight="600" fill="#171918">L2 / บทถอดเสียง (พื้นที่หลัก)</text><text x="256" y="281" font-size="15" font-weight="400" fill="#171918">ข้อความยืนยันแล้ว / ข้อความระหว่างถอด</text><text x="256" y="309" font-size="15" font-weight="400" fill="#171918">ป้ายช่อง: ไมโครโฟน / ระบบ ไม่ยืนยันบุคคล</text><text x="256" y="337" font-size="15" font-weight="400" fill="#171918">แสดงความไม่ครบก่อนเนื้อหา</text><text x="256" y="365" font-size="15" font-weight="400" fill="#171918">อ่านย้อนหลัง → ไม่บังคับ scroll ลงล่าง</text>
+<rect x="876" y="216" width="372" height="290" fill="none" stroke="#707570" stroke-width="1.5"/><text x="892" y="246" font-size="19" font-weight="600" fill="#171918">L3 / ประเด็น + สรุป</text><text x="892" y="281" font-size="15" font-weight="400" fill="#171918">ประเด็นชั่วคราว: ป้ายข้อเสนอ</text><text x="892" y="309" font-size="15" font-weight="400" fill="#171918">สรุป: projectId + recordingId</text><text x="892" y="337" font-size="15" font-weight="400" fill="#171918">ไม่มี agenda / WPM / health P2</text><text x="892" y="365" font-size="15" font-weight="400" fill="#171918">external tools ปิดโดยค่าเริ่มต้น</text>
+<rect x="240" y="530" width="1008" height="150" fill="none" stroke="#707570" stroke-width="1.5"/><text x="256" y="560" font-size="19" font-weight="600" fill="#171918">L4 / คำถามและหลักฐาน</text><text x="256" y="595" font-size="15" font-weight="400" fill="#171918">B PROPOSED: ถามเฉพาะบันทึกนี้ / ไม่มี fallback ข้าม scope</text><text x="256" y="623" font-size="15" font-weight="400" fill="#171918">A: ค้นความรู้ในเครื่อง / โครงการกรอง transcript เท่านั้น; graph/live-tail อาจมาจากที่อื่น</text><text x="256" y="651" font-size="15" font-weight="400" fill="#171918">เปลี่ยนบันทึก → ล้างคำตอบเดิม; ป้องกันผลตอบกลับเก่าแทรก</text>
+<rect x="240" y="704" width="1008" height="72" fill="none" stroke="#707570" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="256" y="733" font-size="13" font-weight="600" fill="#171918">INTERACTION CONTRACT</text>
+<text x="256" y="760" font-size="14" font-weight="400" fill="#171918">Tab ตามลำดับหน้าจอ · Enter/Space เปิดปุ่ม · Escape ปิด dialog · คืน focus จุดเดิม</text>
+</g>
+<g id="frame-2" transform="translate(2656 80)">
+<rect x="0" y="0" width="1280" height="800" fill="none" stroke="#707570" stroke-width="1.5"/>
+<rect x="0" y="0" width="208" height="800" fill="none" stroke="#707570" stroke-width="1.5"/>
+<text x="24" y="44" font-size="16" font-weight="600" fill="#171918">FUNG · WIREFRAME</text>
+<text x="24" y="98" font-size="16" font-weight="400" fill="#171918">01 หน้าหลัก</text>
+<text x="24" y="144" font-size="16" font-weight="400" fill="#171918">02 ประชุมสด</text>
+<text x="24" y="190" font-size="16" font-weight="400" fill="#171918">03 ทบทวน</text>
+<rect x="16" y="162" width="176" height="40" fill="none" stroke="#707570" stroke-width="1.5"/>
+<text x="24" y="290" font-size="16" font-weight="400" fill="#171918">โครงการ / งาน</text>
+<text x="24" y="338" font-size="16" font-weight="400" fill="#171918">พื้นที่ทำงานเดิม</text>
+<text x="24" y="386" font-size="16" font-weight="400" fill="#171918">นำเข้า / กู้คืน</text>
+<text x="24" y="434" font-size="16" font-weight="400" fill="#171918">ส่งออกโครงการ</text>
+<text x="24" y="626" font-size="16" font-weight="400" fill="#171918">ตั้งค่า (lazy)</text>
+<text x="24" y="674" font-size="16" font-weight="400" fill="#171918">จับคู่อุปกรณ์</text>
+<text x="24" y="758" font-size="14" font-weight="400" fill="#171918">Local · ไม่บังคับ login</text>
+<text x="240" y="40" font-size="24" font-weight="600" fill="#171918">03 / HISTORY &amp; REVIEW</text>
+<text x="240" y="69" font-size="14" font-weight="400" fill="#171918">โครงร่างการโต้ตอบ · B = PROPOSED · เลือก A ได้ก่อนเขียนโค้ด</text>
+<rect x="240" y="100" width="292" height="442" fill="none" stroke="#707570" stroke-width="1.5"/><text x="256" y="130" font-size="19" font-weight="600" fill="#171918">R1 / เลือกรายการ</text><text x="256" y="165" font-size="15" font-weight="400" fill="#171918">B: รายการจริง · PROPOSED</text><text x="256" y="193" font-size="15" font-weight="400" fill="#171918">เลือก project ก่อน recording</text><text x="256" y="221" font-size="15" font-weight="400" fill="#171918">สถานะ incomplete / recovery</text><text x="256" y="249" font-size="15" font-weight="400" fill="#171918">A: current recording เท่านั้น</text><text x="256" y="277" font-size="15" font-weight="400" fill="#171918">ไม่มี history list สมมติ</text>
+<rect x="556" y="100" width="692" height="140" fill="none" stroke="#707570" stroke-width="1.5"/><text x="572" y="130" font-size="19" font-weight="600" fill="#171918">R2 / เล่นเสียงในเครื่อง · B PROPOSED</text><text x="572" y="165" font-size="15" font-weight="400" fill="#171918">[เล่น/หยุด] [ช่อง] [ตำแหน่ง] · PCM16 WAV เท่านั้น; output rate ต้องตรง</text><text x="572" y="193" font-size="15" font-weight="400" fill="#171918">กำลังอัด → ห้ามเล่น; สลับรายการ → ปล่อยเสียงเดิม; A unavailable</text>
+<rect x="556" y="264" width="692" height="278" fill="none" stroke="#707570" stroke-width="1.5"/><text x="572" y="294" font-size="19" font-weight="600" fill="#171918">R3 / บทถอดเสียง / สรุป / Q&amp;A</text><text x="572" y="329" font-size="15" font-weight="400" fill="#171918">transcript และ summary ผูก project + recording</text><text x="572" y="357" font-size="15" font-weight="400" fill="#171918">B: Q&amp;A บันทึกที่เลือก; หลักฐานต้องอยู่ใน scope เดียวกัน</text><text x="572" y="385" font-size="15" font-weight="400" fill="#171918">A: ค้นความรู้ในเครื่อง · โครงการกรอง transcript; graph/live-tail อาจมาจากที่อื่น</text><text x="572" y="413" font-size="15" font-weight="400" fill="#171918">ไม่พบหลักฐาน ≠ error; คำตอบต้องไม่ทำเป็นข้อเท็จจริง</text>
+<rect x="240" y="566" width="1008" height="114" fill="none" stroke="#707570" stroke-width="1.5"/><text x="256" y="596" font-size="19" font-weight="600" fill="#171918">R4 / ส่งออกสองขอบเขต</text><text x="256" y="631" font-size="15" font-weight="400" fill="#171918">[ส่งออกบันทึกนี้] → export.render(projectId, recordingId)</text><text x="256" y="659" font-size="15" font-weight="400" fill="#171918">[ไฟล์ส่งออกทั้งโครงการ] → listExportArtifacts(projectId)</text>
+<rect x="240" y="704" width="1008" height="72" fill="none" stroke="#707570" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="256" y="733" font-size="13" font-weight="600" fill="#171918">INTERACTION CONTRACT</text>
+<text x="256" y="760" font-size="14" font-weight="400" fill="#171918">Tab ตามลำดับหน้าจอ · Enter/Space เปิดปุ่ม · Escape ปิด dialog · คืน focus จุดเดิม</text>
+</g>
+<text x="32" y="918" font-size="14" font-weight="400" fill="#171918">H: Existing listProjects/listJobs/listModelProviders; selected activeRecordingId.</text>
+<text x="32" y="945" font-size="14" font-weight="400" fill="#171918">B: native recording enumeration/reopen PROPOSED; local access stays account-free.</text>
+<text x="1344" y="918" font-size="14" font-weight="400" fill="#171918">L: Existing liveMeetingStart/Stop + events; meetingSummaries(projectId, recordingId).</text>
+<text x="1344" y="945" font-size="14" font-weight="400" fill="#171918">Legacy ask: project filters transcript ONLY; graph/live tail may differ. B: scoped ask PROPOSED.</text>
+<text x="2656" y="918" font-size="14" font-weight="400" fill="#171918">R: Existing listTranscriptSegments + summary pair; listExportArtifacts(projectId).</text>
+<text x="2656" y="945" font-size="14" font-weight="400" fill="#171918">B PCM16/native playback/scoped ask PROPOSED. A current-only; local-knowledge ask caveat.</text></svg>

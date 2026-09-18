@@ -29,6 +29,11 @@ jobs:
       # First, so an unwired suite fails before the wired ones spend
       # four minutes reporting on a set that is missing one.
       - run: npm run test:ci-coverage
+      - run: npm run test:callmd-contracts
+      - run: npm run test:callmd-shell
+      - run: npm run test:callmd-live
+      - run: npm run test:callmd-history
+      - run: npm run test:callmd-integration
       - run: npm run test:mobile
       - run: npm run test:design-system
       - run: npm run test:auth
@@ -71,6 +76,16 @@ jobs:
       # Formatting first: it needs no build, so a formatting-only failure
       # reports in seconds instead of after a full compile.
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --all --check
+      # The native custody matrix runs on the Windows Rust job after formatting
+      # and needs the same empty bundle-resource roots before its cargo-backed checks.
+      - run: New-Item -ItemType Directory -Force .venv-whisper, runtime
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # This suite invokes the Rust behavioral matrix. Keep it on the Rust
+      # runner so it uses the platform/toolchain that owns that matrix rather
+      # than requiring GTK/GLib development packages on the frontend runner.
+      - run: npm run test:native-session-custody
       # tauri-build copies bundle.resources at build-script time (unconditionally,
       # regardless of the custom-protocol feature). .venv-whisper/ and runtime/ are
       # gitignored, so create them empty — empty dirs are skipped by ResourcePaths.

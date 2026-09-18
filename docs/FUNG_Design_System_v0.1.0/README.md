@@ -31,8 +31,10 @@
 
 - `npm run build` — PASS
 - `npm run test:callmd-contracts`, `npm run test:callmd-live`, `npm run test:callmd-shell`, `npm run test:mobile`, `npm run test:audio-viz` — PASS
+- `npm run test:release`, `npm run test:desktop-bootstrap` — PASS
 - Browser smoke — Landing, Desktop light/dark และ Mobile route render ได้; ไม่มี console warning/error ในรอบตรวจ
-- ยังไม่ทำ packaged native acceptance, physical-device UAT หรือ full accessibility audit
+- Local release executable launch smoke — `src-tauri/target/release/fung.exe` เปิด main window ชื่อ `FUNG` ได้; graceful-close probe ไม่ถือเป็นหลักฐาน packaged acceptance
+- ยังไม่ทำ installer click-through, physical-device UAT หรือ full accessibility audit
 
 ## ใช้ token
 

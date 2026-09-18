@@ -2,7 +2,7 @@
 
 ## 0.1.0 — 2026-09-19 — Beta
 
-ได้รับ approval ให้ freeze FUNG Quiet Archive Design System เป็น design authority ระดับ Beta สำหรับ implementation ต่อเนื่อง โดยคง `implementation_verified: false` เพราะ packaged native acceptance, physical-device UAT และ full accessibility audit ยังไม่ run
+ได้รับ approval ให้ freeze FUNG Quiet Archive Design System เป็น design authority ระดับ Beta สำหรับ implementation ต่อเนื่อง โดยคง `implementation_verified: false` เพราะ installer click-through, physical-device UAT และ full accessibility audit ยังไม่ run
 
 ## 0.1.0 — 2026-09-16 — Proposed
 
@@ -18,4 +18,4 @@ Companion 4 presentation modes เป็น proposal ที่ต้องผ่
 
 นำ semantic token layer, canonical currentColor mark, typography foundation และ surface mappings ไปเชื่อมกับ FUNG repository ใน local implementation slice แล้ว ครอบคลุม Desktop, Mobile, Web dashboard และ Landing; เพิ่มการสื่อสารสถานะ fixture/unavailable ใน Mobile เพื่อไม่แสดง waveform หรือผลลัพธ์ที่ไม่มีข้อมูลจริง
 
-หลักฐานที่ผ่านคือ build, desktop/callmd contracts, live workspace, mobile capture, audio visualization และ local browser smoke check สำหรับ Landing/Desktop light-dark/Mobile การตรวจ packaged native, physical device และ full accessibility ยังไม่ run
+หลักฐานที่ผ่านคือ build, desktop/callmd contracts, live workspace, mobile capture, audio visualization, local browser smoke check สำหรับ Landing/Desktop light-dark/Mobile และ local release executable launch smoke ที่เห็น main window `FUNG` การตรวจ installer click-through, physical device และ full accessibility ยังไม่ run

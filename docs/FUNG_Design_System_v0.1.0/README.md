@@ -1,6 +1,6 @@
 # FUNG — Quiet Archive Design System
 
-**Version 0.1.0 · Proposed · 16 September 2026**
+**Version 0.1.0 · Beta · approved and frozen 19 September 2026**
 
 เริ่มอ่านที่ [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) เอกสารภาษาไทยพร้อมชื่อ component/token/API ภาษาอังกฤษ ครอบคลุม Desktop, Mobile, Web dashboard, Landing, Phone page และข้อเสนอ Companion Overlay
 
@@ -19,7 +19,7 @@
 
 ## ฐานข้อมูลและสถานะ
 
-เอกสารฉบับนี้ยังคงเป็น design source และสถานะ **Proposed** โดยอิง `FRONTEND_REDESIGN_BRIEF.md` v1.0.0 ส่วนรอบ implementation วันที่ 19 กันยายน 2026 ได้นำ token และ visual foundation ไปผูกกับ FUNG repository แล้ว แต่ยังไม่ใช่การรับรองว่า component และ Companion ทุกส่วนในเอกสารถูก implement ครบ
+เอกสารฉบับนี้เป็น design source ที่ได้รับอนุมัติและ freeze ในสถานะ **Beta** โดยอิง `FRONTEND_REDESIGN_BRIEF.md` v1.0.0 รอบ implementation วันที่ 19 กันยายน 2026 ได้นำ token และ visual foundation ไปผูกกับ FUNG repository แล้ว แต่สถานะนี้ยังไม่ใช่การรับรองว่า component และ Companion ทุกส่วนในเอกสารถูก implement ครบ หรือพร้อม production
 
 ภาพ mock เป็น reference ไม่ใช่หลักฐานว่า backend รองรับปุ่มทุกตัวแล้ว เอกสาร §2 มี discrepancy register; §16 แยก native overlay ออกจาก panel ภายในแอป; §21 ผูก UI กับ API ที่ brief ระบุและชี้จุดที่ยังไม่มี contract
 

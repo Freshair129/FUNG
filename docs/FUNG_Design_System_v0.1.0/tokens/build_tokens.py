@@ -38,7 +38,7 @@ def build(data: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
     prefix = {f'brand-{k}': v for k, v in data['brand'].items()}
     common = {**prefix, **data['shared']}
     css = [
-        '/* FUNG Quiet Archive | DS-FUNG-001 v0.1.0 | PROPOSED */',
+        '/* FUNG Quiet Archive | DS-FUNG-001 v0.1.0 | BETA */',
         '/* Generated from fung.tokens.json. Re-run build_tokens.py after editing JSON. */',
         '/* Tokens only: no fonts, network imports, component styles, or native window behavior. */',
         '/* Place data-fung-root and data-theme="light|dark|system" on each surface root. */',

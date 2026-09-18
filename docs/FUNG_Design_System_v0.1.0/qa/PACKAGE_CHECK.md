@@ -1,6 +1,6 @@
 # FUNG — Package checks
 
-Version: 0.1.0 · Date: 2026-09-16
+Version: 0.1.0 · Status: Beta · Date: 2026-09-19
 
 This report documents checks performed on the supplied document/token package only. It is not a report of tests run against the FUNG application.
 
@@ -15,7 +15,7 @@ This report documents checks performed on the supplied document/token package on
 | Python build script | PASS — script compiled and executed successfully in this environment. |
 | Desktop layout arithmetic | PASS — proposed 1304px stage allocation leaves 736px main content. |
 | Reference asset integrity | PASS — copied originals are present; originals were not edited. |
-| App integration / browser/native rendering | NOT RUN — no repository patch, application launch or live screenshot validation. |
+| App integration / browser/native rendering | REPOSITORY EVIDENCE — integration patch, build and local browser smoke are recorded in the repository; packaged native/device rendering remains open. |
 | Full accessibility audit | NOT RUN — keyboard, assistive technology, zoom, focus, alpha colors and native overlay behavior require runtime tests. |
 | Figma/Penpot source and complete screen mockups | NOT INCLUDED — only the supplied logo concept and latest two mock references. |
 

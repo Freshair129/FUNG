@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0 — 2026-09-19 — Beta
+
+ได้รับ approval ให้ freeze FUNG Quiet Archive Design System เป็น design authority ระดับ Beta สำหรับ implementation ต่อเนื่อง โดยคง `implementation_verified: false` เพราะ packaged native acceptance, physical-device UAT และ full accessibility audit ยังไม่ run
+
 ## 0.1.0 — 2026-09-16 — Proposed
 
 ฉบับแรกที่รวบรวม Quiet Archive identity และ mock Desktop/Companion ล่าสุดเป็น design-system specification โดยอิง product baseline จาก frontend redesign brief v1.0.0

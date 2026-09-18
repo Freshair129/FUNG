@@ -2,21 +2,21 @@
 id: DS-FUNG-001
 title: "FUNG — Quiet Archive Design System"
 version: "0.1.0"
-status: "proposed"
+status: "beta"
 created_at: "2026-09-16"
 language: "th-TH / en"
 domain: "frontend-redesign"
 scope: "desktop, mobile, web dashboard, landing, phone page, proposed companion overlay"
 product_baseline: "FUNG 0.1.1 ตาม FRONTEND_REDESIGN_BRIEF.md v1.0.0"
 implementation_verified: false
-human_approval_required: true
+human_approval_required: false
 ---
 
 # FUNG — Quiet Archive Design System
 
 **Design direction:** Quiet Archive × Ambient Workspace
 **Brand promise:** Local by default. Connected by choice.
-**Document status:** ข้อเสนอสำหรับ review และนำไปวางแผนพัฒนา ไม่ใช่การรับรองว่าระบบในเอกสารถูก implement แล้ว
+**Document status:** ได้รับอนุมัติและ freeze ในสถานะ Beta สำหรับใช้เป็น design authority และวางแผนพัฒนา แต่ไม่ใช่การรับรองว่าระบบในเอกสารถูก implement ครบหรือพร้อม production
 
 > FUNG ต้องทำให้การฟัง การอ่าน และการเรียกใช้ข้อมูลรู้สึกสงบและควบคุมได้ ความเป็นผู้ช่วยมาจากการเข้าถึงงานได้ทันทีและบอกสถานะตามจริง ไม่ใช่การเติมแสงเรือง กราฟ หรือมาสคอตที่ไม่มีหน้าที่
 
@@ -1100,4 +1100,4 @@ B §9 ต้องการไฟล์เดียว แยก page ตาม 
 
 ---
 
-**End of document — DS-FUNG-001 v0.1.0 / Proposed**
+**End of document — DS-FUNG-001 v0.1.0 / Beta**

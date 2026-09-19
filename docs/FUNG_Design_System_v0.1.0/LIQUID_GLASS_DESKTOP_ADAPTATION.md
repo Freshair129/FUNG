@@ -1,10 +1,10 @@
 ---
 id: DS-FUNG-GLASS-DESKTOP-001
 title: "FUNG — Liquid Glass Desktop Adaptation"
-version: "0.3.1b"
+version: "0.3.2b"
 status: "beta"
 created_at: "2026-09-19T08:04:52+07:00"
-last_update: "2026-09-19T08:41:28+07:00"
+last_update: "2026-09-19T15:04:06+07:00"
 language: "th-TH / en"
 parent: "DS-FUNG-001 v0.1.0"
 superseded_by: null
@@ -159,16 +159,17 @@ Evidence นี้เป็น local engineering evidence เท่านั้�
 | Contract/regression tests | PASS | `test:desktop-bootstrap`, `test:callmd-contracts`, `test:callmd-shell`, `test:callmd-live`, `test:callmd-integration`, `test:design-system`, `test:release` |
 | Browser visual smoke | PASS | Vite `http://127.0.0.1:1420/app?surface=desktop` ที่ viewport 1280×720: light/dark, solid/reduced fallback, Companion open/Escape/focus restore, Home → Live → Review และ console errors = 0 |
 | Windows engineering build | PASS | `npx tauri build --no-bundle`; `src-tauri/target/release/fung.exe`, timestamp `2026-09-19T08:41:07+07:00`, size `25,810,944` bytes |
-| Native desktop click-through | NOT RUN | Computer Use ไม่มี native app surface (`apps: []`); จึงยังสังเกตหน้าต่างจริงและ click-through แบบ bounded ไม่ได้ |
+| Native desktop click-through | PASS WITH LIMITATIONS | Computer Use เปิด exact process `process:C:\\Users\\pc\\workspace\\fung\\src-tauri\\target\\release\\fung.exe` (SHA-256 `2D19EE66FDE98D7135590322AB71CE0BFA01AEFB7B975D98883B7524611CD1D6`) และยืนยัน initial light/glass/full state, dark/solid/reduced state, Companion open/Escape/focus restore, Home → Live → Review → Settings open/close → Home; ไม่เริ่ม recording/import/pairing |
 | Installer / clean install / production | NOT RUN | รอบนี้ใช้ `--no-bundle`; ไม่ใช่ installer, clean-VM หรือ production evidence |
 
-การแก้ stale UI: release executable ที่ path มาตรฐานถูก rebuild แล้ว แต่ต้องเปิด binary นี้หรือ build จาก commit เดียวกันจึงจะเห็น adaptation; process เก่าที่ค้างอยู่ไม่ถูกใช้เป็นหลักฐานของ UI ใหม่
+การแก้ stale UI: release executable ที่ path มาตรฐานถูก rebuild แล้ว แต่ต้องเปิด binary นี้หรือ build จาก commit เดียวกันจึงจะเห็น adaptation; registered app `dev.fung.local` ยังชี้ไปที่ `F:\\FUNG\\fung.exe` (SHA-256 `A1F16E837792A584DAA888756690FEEEAD8F7FB725834227A54F6CB2379301E6`) ซึ่งเป็น binary เก่าและแสดง UI เดิม จึงไม่ใช้เป็นหลักฐานของ UI ใหม่
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.3.1b | 2026-09-19 | beta | Recorded approved implementation, local/browser/build evidence, and explicit native/release gaps | UNCOMMITTED | RWANG |
+| 0.3.2b | 2026-09-19 | beta | Recorded bounded native click-through on the exact current executable and retained installer/release limitations | UNCOMMITTED | RWANG |
+| 0.3.1b | 2026-09-19 | beta | Recorded approved implementation, local/browser/build evidence, and explicit native/release gaps | 694607f9ecd67bbc2075f4bb1cba3021dc8b0da | RWANG |
 | 0.3.0b | 2026-09-19 | candidate | Added Liquid Glass desktop adaptation scope and approval gates; no code implementation | UNCOMMITTED | RWANG |
 
-Approval recorded in the task conversation on 2026-09-19. Code implementation has partial local evidence; native click-through and release gates remain separate evidence gates.
+Approval recorded in the task conversation on 2026-09-19. Code implementation and bounded native click-through have local evidence; installer, clean-install, production and full accessibility gates remain separate evidence gates.

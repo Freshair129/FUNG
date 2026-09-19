@@ -9,7 +9,7 @@
 | ไฟล์ | การใช้ |
 | --- | --- |
 | [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) | หลักการ, logo, tokens, component contracts, flow/state, surface mapping, overlay, QA และ implementation plan |
-| [LIQUID_GLASS_DESKTOP_ADAPTATION.md](LIQUID_GLASS_DESKTOP_ADAPTATION.md) | Approved beta addendum สำหรับแปลง `Downloads\fung-new-ui` เป็น desktop Liquid Glass; local implementation มี evidence แล้ว แต่ native click-through ยังเปิดอยู่ |
+| [LIQUID_GLASS_DESKTOP_ADAPTATION.md](LIQUID_GLASS_DESKTOP_ADAPTATION.md) | Approved beta addendum สำหรับแปลง `Downloads\fung-new-ui` เป็น desktop Liquid Glass; local implementation และ bounded native click-through มี evidence แล้ว แต่ installer/clean-install/production ยังเปิดอยู่ |
 | [fung.tokens.css](tokens/fung.tokens.css) | Semantic tokens แบบ Light/Dark/System ที่ generate แล้ว |
 | [fung.tokens.json](tokens/fung.tokens.json) | Source ของ token ในแพ็กนี้; project-specific schema |
 | [build_tokens.py](tokens/build_tokens.py) | Rebuild CSS และตรวจคู่สีด้วย Python standard library |
@@ -36,7 +36,7 @@
 - `npm run test:callmd-contracts`, `npm run test:callmd-live`, `npm run test:callmd-shell`, `npm run test:mobile`, `npm run test:audio-viz` — PASS
 - `npm run test:release`, `npm run test:desktop-bootstrap` — PASS
 - Browser smoke — Landing, Desktop light/dark และ Mobile route render ได้; ไม่มี console warning/error ในรอบตรวจ
-- Local Windows engineering build — `npx tauri build --no-bundle` สร้าง `src-tauri/target/release/fung.exe` ล่าสุดได้; native window click-through ยัง `NOT RUN` เพราะ Computer Use ไม่มี native app surface
+- Local Windows engineering build — `npx tauri build --no-bundle` สร้าง `src-tauri/target/release/fung.exe` ล่าสุดได้; bounded native window click-through ผ่านบน exact executable แล้ว โดยยังแยก installer/clean-install/production และ full accessibility เป็นหลักฐานคนละ gate
 - ยังไม่ทำ installer click-through, clean install, physical-device UAT หรือ full accessibility audit
 
 ## ใช้ token

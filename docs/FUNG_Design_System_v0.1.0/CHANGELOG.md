@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 — 2026-09-19 — Beta
+
+บันทึกผล bounded native desktop click-through บน `src-tauri/target/release/fung.exe`: ตรวจ Liquid Glass controls, Companion, Home → Live → Review, Settings open/close และ stale binary distinction; installer, clean install, production และ full accessibility ยังไม่ run
+
 ## 0.3.1 — 2026-09-19 — Beta
 
 บันทึกผล implementation ของ Liquid Glass desktop adaptation: local build, browser visual smoke และ contract checks ผ่าน; native click-through และ installer evidence ยังไม่ run

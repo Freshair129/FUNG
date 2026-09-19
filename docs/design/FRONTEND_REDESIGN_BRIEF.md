@@ -1,6 +1,7 @@
 ---
-version: "1.0.1"
+version: "1.1.0b"
 created_at: "2026-09-16T18:30:00+07:00,Claude"
+last_update: "2026-09-20T03:53:22+07:00,RWANG"
 status: "brief"
 attributes:
   domain: "frontend-redesign"
@@ -107,18 +108,37 @@ Type: Fraunces (display), **IBM Plex Sans Thai** (UI ไทย นำ), DM Sans 
 | Story/Creative | ตัด/ย้าย/แยกคลิป, effect chain, agent voice | Mobile StoryEditor/ProcessingStudio | 🧪 บางส่วน fixture | `mobile_story_*`, `mobile_effect_chain_update` |
 | Mobile MCP server | MCP บนมือถือ (ปิด default) | Mobile Devices | ✅ toggle | `mobile_mcp_set_enabled` |
 
+### 3.1 Current Desktop shell delta — 2026-09-20
+
+The current desktop shell is implemented by `src/components/desktop/DesktopShell.tsx` and is governed by [`docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md`](2026-09-19-liquid-glass-desktop-shell-refresh.md) and [`docs/FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md`](../FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md). The surface contract is:
+
+| Shell concern | Current contract | Evidence boundary |
+| --- | --- | --- |
+| Active surfaces | `home`, `live`, `review`, `appearance` | `src/components/desktop/contracts.ts`; build and WebView click-through pass |
+| Persistent sidebar | Hover/focus-expandable menu for navigation and bounded actions | No recording start/stop control; Appearance is navigation-only |
+| Recording entry | Home/Live surface and active capture strip | Live surface remains native/runtime-dependent |
+| Appearance | Dedicated main-content page with theme, material and transparency controls | Controls are not descendants of the sidebar |
+| Header | FUNG / QUIET ARCHIVE lockup, truthful recording status, profile/login CTA | Shell-level minimize/close buttons are removed; native OS controls remain outside scope |
+| Material | Liquid Glass alpha, ambient motion, reduced-motion/reduced-transparency fallbacks | Local source/build/WebView evidence; native exact click-through remains a separate gate |
+
 **ปุ่มที่มีอยู่แต่ปิดพร้อมเหตุผล** (desktop tiles, `src/lib/jobActions.ts:53-60`) — redesign ต้องเลือกว่าจะซ่อนหรือคงเป็น roadmap:
-`capture.marker` "ยังไม่มีที่เก็บ marker", `speakers.lock` "ยังไม่มีการยืนยันผู้พูดแบบถาวร", `review.evidence` "ยังไม่มีการทำเครื่องหมายหลักฐาน", `summary.compare` "ยังเทียบสรุปข้ามครั้งไม่ได้", `export.queue` "ยังไม่มีคิวส่งออกแยก", `archive.project` "ใช้แผงสำรองข้อมูลแทน" · ปุ่ม Search บน topbar **ไม่มี handler** · ปุ่ม Play บน rail **disabled ถาวร** ("No local playback in this desktop build") · VU meter บน rail **ตั้งใจ inactive** (ไม่มี level source) · Notes filter chips บนมือถือ **inert**
+`capture.marker` "ยังไม่มีที่เก็บ marker", `speakers.lock` "ยังไม่มีการยืนยันผู้พูดแบบถาวร", `review.evidence` "ยังไม่มีการทำเครื่องหมายหลักฐาน", `summary.compare` "ยังเทียบสรุปข้ามครั้งไม่ได้", `export.queue` "ยังไม่มีคิวส่งออกแยก", `archive.project` "ใช้แผงสำรองข้อมูลแทน" · ปุ่ม Search บน topbar, Play บน rail และ VU meter เป็นสถานะจาก shell รุ่นก่อนและไม่ใช่ controls ของ `DesktopShell` ปัจจุบัน · Notes filter chips บนมือถือ **inert**
 
 ## 4. หน้าจอและสถานะที่ต้องรองรับ
 
 ### 4.1 Desktop (`src/App.tsx`, 1549 บรรทัด, ไม่มี router)
 
-**Home** (`src/components/HomeScreen.tsx`): wordmark, CTA หลัก `เริ่มบันทึกประชุม`, รอง `นำเข้าไฟล์เสียง`, รายการ `การประชุมล่าสุด` (สูงสุด 5, สถานะ Live/Queued/Saved คำนวณจาก job), empty `ยังไม่มีการประชุมที่บันทึกไว้`
+**Desktop shell** (`src/components/desktop/DesktopShell.tsx`): FUNG / QUIET ARCHIVE header, truthful profile/login state, recording status, hover/focus-expandable sidebar, project context and active-surface main content. The shell surfaces are `home`, `live`, `review` and the dedicated `appearance` page.
 
-**Meeting workspace** — 4 anchor (`App.tsx:86-98`): P1 Capture · P2 Transcript (default) · P3 Summary · P4 Runtime แต่ละ anchor มี 3 focus tile (eyebrow/title/detail/action/status/tone sage|indigo|metal) + zone: score header, stats bar (4 pill), focus workbench, agent card, sector log (Activity + events), signals (4 การ์ด toggle) Label nav/tile เป็น **อังกฤษ** ทั้งที่ body เป็นไทย
+**Home**: project context, `เริ่มประชุม` and media import actions. The persistent sidebar does not own recording start/stop.
 
-Chrome คงที่: topbar (Search, segmented nav, Home, theme toggle, `New`), **InstrumentRail** ซ้าย (VU meter, Record, Import, Play, Export, Pair device, Settings), power dock (`พับจอ` / `ปิด`)
+**Live**: `LiveMeetingPanel` owns meeting consent, capture options, `● เริ่มประชุม` / `■ จบประชุม`, live transcript, topic, recording-scoped Q&A and summary states.
+
+**Review**: recording history/review remains read-only and scoped to the selected project/recording pair.
+
+**Appearance**: theme, material and transparency controls render as a dedicated main-content page; the sidebar only navigates to it.
+
+The shell no longer exposes app-level `ย่อ` / `ปิด` buttons. Native OS titlebar controls and the Tauri drag region remain outside the FUNG content contract.
 
 Overlay: `RecoveryNotice`, `SettingsPanel` (7 tab: External Connections, Sign In and Backup, TTS Providers, Cloud Providers, Fetch from URL, Zoom import, Runtime), `LiveMeetingPanel`, `DevicePairingPanel`
 
@@ -303,7 +323,7 @@ LAN TCP + Noise KK เฉพาะอุปกรณ์ที่จับคู�
 
 | Surface | หน้าจอที่ต้องมี (อ้างอิง §4) |
 | --- | --- |
-| **Desktop** (1280×800 หรือ responsive ถ้าเสนอ) | 1 Home · 2 Meeting workspace (แสดงทั้ง 4 anchor: Capture / Transcript / Summary / Runtime หรือ IA ใหม่ที่เสนอแทน) · 3 Live meeting (idle / listening / degraded / stopped + สรุปหลังประชุม) · 4 Transcript review + rename ผู้พูด · 5 Summary + TTS · 6 Export · 7 Recovery notice · 8 Settings ทุก tab (Sign In & Backup, TTS, Cloud, Fetch from URL, Zoom, Runtime/Local API + QR, External Connections) · 9 Device pairing (รหัส 6 หลัก + FUNGWIRE) · 10 External tools (preview → approve → result) · 11 Sign-in (pending / authenticated / error) · 12 Local Backup (phrase 24 คำ) |
+| **Desktop** (responsive active-surface shell) | 1 Home · 2 Live meeting (idle / listening / degraded / stopped + สรุปหลังประชุม) · 3 Review/history + rename ผู้พูด · 4 Appearance page (theme/material/transparency) · 5 Summary + TTS · 6 Export · 7 Recovery notice · 8 Settings ทุก tab (Sign In & Backup, TTS, Cloud, Fetch from URL, Zoom, Runtime/Local API + QR, External Connections) · 9 Device pairing (รหัส 6 หลัก + FUNGWIRE) · 10 External tools (preview → approve → result) · 11 Sign-in (pending / authenticated / error) · 12 Local Backup (phrase 24 คำ) |
 | **Mobile** (Android, 360–430dp) | 1 Home · 2 Capture (idle / recording / paused / finalizing / completed / recovery_required) · 3 Files + player inline · 4 Notes (list / create sheet / detail) · 5 Graph + inspector · 6 Timeline (speaker turns + inspector) · 7 Devices (signed-out / signed-in / จับคู่แล้ว / ยกเลิก) · 8 Pairing sheet · 9 Story editor · 10 Processing studio (4 tab + delegate to desktop/cloud) · 11 Sign-in ผ่าน system browser + กลับแอป · 12 Theme/MCP settings |
 | **Web dashboard** | 1 Landing → sign-in → callback (loading / error) · 2 Dashboard (3 ส่วน: อัดในเบราว์เซอร์, ไฟล์จาก desktop, อุปกรณ์) · 3 Recorder (idle / requesting mic / recording / saving / mic denied) · 4 รายการไฟล์ + ถอดที่ desktop (uploading / running % / completed transcript / failed) · 5 เชื่อมต่อ desktop (unconfigured / loading / error / ready) · 6 Account settings modal · 7 Mobile-width (≤ 640px) ของทุกหน้า |
 | **Landing** | Hero, How it works, Architecture, Demo/Download, Closing, Footer — desktop + mobile width |
@@ -313,4 +333,4 @@ LAN TCP + Noise KK เฉพาะอุปกรณ์ที่จับคู�
 
 ## เอกสารอ้างอิงเพิ่มเติม (ในรีโป)
 
-อ่านก่อน: `docs/UI_INTERFACE_INVENTORY.md` (draft 2026-08-22), `docs/superpowers/specs/2026-08-29-desktop-sitemap-redesign-design.md` (IA desktop ปัจจุบัน), `docs/Mobile/PRODUCT_UX_SPEC.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` (2026-08-23), `docs/Mobile/DESIGN_SYSTEM.md`, `docs/Desktop/02-tokens.md` + `04-components.md` (เจตนา ก.ค. ก่อน redesign), `docs/app/WEB_LANDING_PAGE_PROPOSAL.md`, `docs/WEB_PRODUCTION_DEPLOYMENT.md` (ตารางว่าเว็บทำอะไรได้), `docs/appendices/E-egress-register.md`, `docs/Desktop/08-real-progress.md` (สถานะจริงล่าสุด) · superseded: `docs/Mobile/CLONY_INSPIRED_MOBILE_TOKEN_PROPOSAL.md`, `docs/Desktop/CALLMD_FUNG_SCORECARD_TH.md`
+อ่านก่อน: `docs/UI_INTERFACE_INVENTORY.md` (beta 2026-09-20), `docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md` (Desktop shell current truth), `docs/FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md`, `docs/Mobile/PRODUCT_UX_SPEC.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md`, `docs/Mobile/DESIGN_SYSTEM.md`, `docs/Desktop/02-tokens.md` + `04-components.md` (legacy/domain intent), `docs/app/WEB_LANDING_PAGE_PROPOSAL.md`, `docs/WEB_PRODUCTION_DEPLOYMENT.md`, `docs/appendices/E-egress-register.md`, `docs/Desktop/08-real-progress.md` (สถานะจริงล่าสุด) · superseded shell reference: `docs/superpowers/specs/2026-08-29-desktop-sitemap-redesign-design.md`

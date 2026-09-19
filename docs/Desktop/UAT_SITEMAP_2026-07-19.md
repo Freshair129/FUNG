@@ -2,8 +2,8 @@
 version: "0.1.0b"
 created_at: "2026-07-19T00:00:00+07:00,ATHER"
 last_update: "2026-07-19T00:00:00+07:00,ATHER"
-status: "beta"
-superseded_by: null
+status: "superseded"
+superseded_by: "docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md"
 attributes:
   domain: "local-first-audio-ai"
   doc_type: "uat-report"
@@ -11,6 +11,10 @@ attributes:
 ---
 
 # Sitemap and Meeting Mode UAT
+
+> Historical UAT snapshot for the superseded Subtract HUD/P rail shell. Keep
+> this report as evidence of the 2026-07-19 run; it is not acceptance evidence
+> for the current Liquid Glass DesktopShell.
 
 ## Scope and Environment
 

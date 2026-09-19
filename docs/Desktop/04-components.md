@@ -1,7 +1,7 @@
 ---
-version: "0.1.1b"
+version: "0.1.2b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-07-09T15:12:00+07:00,ATHER"
+last_update: "2026-09-20T03:53:22+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -11,6 +11,11 @@ attributes:
 ---
 
 # 04 - Components
+
+> Component ownership and state rules below retain the historical P1-P4/HUD
+> domain model. Current shell chrome is implemented by
+> `src/components/desktop/DesktopShell.tsx`; do not infer a current
+> InstrumentRail, Topbar FAB or power-dock from this document.
 
 ## Component Ownership
 
@@ -97,6 +102,7 @@ Rules:
 
 | Version | Change |
 | --- | --- |
+| 0.1.2b | 2026-09-20 | Added the current DesktopShell ownership boundary and marked legacy shell chrome references as historical. |
 | 0.1.1b | Corrected the canonical layout spec reference to `03_LAYOUT.md`. |
 | 0.1.0b | Added component ownership and state rules. |
 
@@ -104,5 +110,6 @@ Rules:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.1.2b | 2026-09-20 | beta | Clarified that current shell chrome is owned by DesktopShell and the older rail/topbar terms are historical. | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
 | 0.1.1b | 2026-07-09 | beta | Updated component spec references to the current layout source-of-truth file. | N/A | ATHER |
 | 0.1.0b | 2026-07-05 | beta | Added component spec. | N/A | ATHER |

@@ -1,7 +1,7 @@
 ---
-version: "0.1.3b"
+version: "0.1.4b"
 created_at: "2026-09-17T01:59:54.000+07:00,Codex DOC_ACCEPTANCE,c378af9fac3c00db063948f49f9ee857ebad9126"
-last_update: "2026-09-17T03:35:50+07:00,Luna max worker"
+last_update: "2026-09-20T04:15:00+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 base_sha: "376ef30db13670e4dea816ceff440f44ce73fffd"
@@ -16,6 +16,13 @@ attributes:
 ---
 
 # Call.md-inspired FUNG desktop acceptance plan
+
+> Interface mapping note (2026-09-20): this P1-B acceptance plan preserves
+> the recording/history contract, but older `InstrumentRail` references are
+> historical. The current shell boundary is
+> `src/components/desktop/DesktopShell.tsx` with active surfaces
+> `home|live|review|appearance`; native recording and review acceptance remain
+> separate from shell presentation evidence.
 
 ## 1. Authority, recommendation, and explicit choices
 
@@ -69,7 +76,7 @@ CSP/capability/schema expansion still requires an explicit revised scope decisio
 | E1 | docs/verification/implementation-reports/2026-09-17-callmd-fung-contract-scan.md:78-115; src/App.tsx:627-720; src/tauri.ts:324-338,450-475 | Projects/active recording, scoped transcript, project artifact list |
 | E2 | Same scan:117-138; src/components/LiveMeetingPanel.tsx:38-220; src-tauri/src/live_meeting.rs:63-110,1555-1605 | In-memory session owner, recording events, durable recovery; no durable event epoch |
 | E3 | Same scan:111-114,169-185; src-tauri/src/meeting_intel.rs:224-280,1019-1086 | Q&A project scope; summaries attributed to recordings; B requires contracts |
-| E4 | Same scan:140-163; src-tauri/src/local_api.rs:807-845,899-974,1014-1086; src/components/InstrumentRail.tsx:97-105 | Tokenized web audio/ranges exist; desktop Play unavailable; no desktop playback wrapper verified |
+| E4 | Same scan:140-163; src-tauri/src/local_api.rs:807-845,899-974,1014-1086; `src/components/desktop/DesktopShell.tsx` active-content boundary | Tokenized web audio/ranges exist; desktop Play unavailable; no desktop playback wrapper verified |
 | E5 | docs/design/FRONTEND_REDESIGN_BRIEF.md:45-74,261-278,300-306 | Fixed desktop geometry, brand/Thai, lazy/egress/scoping rules, required state artifacts |
 | E6 | package.json:6-38; .github/workflows/ci.yml:27-90; tests/ciCoverage.test.mjs:19-48 | Existing commands and two stale CI invocations; directional coverage gap |
 | E7 | .brain/rca/2026-08-10-desktop-callmd-ui-blank-screen.md:17-48 | Historical build-pass/blank-native-root defect motivates native bootstrap proof |
@@ -255,7 +262,7 @@ capture/playback admission, packaged runtime, device, or production readiness.
 Existing src-tauri/src/meeting_intel.rs may receive scoped retrieval tests only in the approved backend lease.
 The current manifest retains the first five paths; E10 adds the player/integration-test paths.
 E10 also assigns src-tauri/src/live_meeting.rs admission to BACKEND_RECORDING (SEC-2),
-src/components/LiveMeetingPanel.css to UI_LIVE and src/components/InstrumentRail.tsx to INTEGRATE (UI-1).
+src/components/LiveMeetingPanel.css to UI_LIVE and `src/components/desktop/DesktopShell.tsx` to INTEGRATE (UI-1).
 These exact additions match the current approved SEC-1/SEC-2/UI-1 bounded leases;
 dispatch still requires the accepted interface/dependency gates and exact lease
 transfer. This amendment does not change their file or security scope.
@@ -394,11 +401,15 @@ existing command/DTO/security/resource acceptance boundaries.
 tests/nativeSessionCustody.test.mjs and only the relevant custody test script in
 package.json; existing CI, coverage, RCA/report, and all approved boundaries remain
 unchanged. No semantic scope, waiver, or Drive change.
+0.1.3b → 0.1.4b: reconcile the acceptance evidence map with the current
+Liquid Glass `DesktopShell` active-surface boundary while preserving the approved
+recording/history contract and native/runtime evidence gates.
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.1.4b | 2026-09-20 | candidate | Reconciled the shell/interface evidence map with DesktopShell active surfaces; recording/history and native evidence boundaries unchanged | pending; docs reconciliation | RWANG |
 | 0.1.3b | 2026-09-17 | candidate | FIX1 corrected the exact four baseline source-path inventory; existing CI, coverage, RCA/report, and approved boundaries preserved; no semantic change | UNCOMMITTED; base 376ef30 | Luna max worker |
 | 0.1.2b | 2026-09-17 | candidate | Approved-scope interface-first scheduling and explicit pure/expected-red/native test disposition; independent Terra review pending | UNCOMMITTED; base 376ef30 | Luna max worker |
 | 0.1.1b | 2026-09-17 | candidate | Metadata clarification: historical 24-node drafting checkpoint versus authoritative 25-node/28-edge manifest; CONTRACT_TEST_REVIEW/review-readiness clarification; actual NOT_RUN boundaries retained | UNCOMMITTED; base c378af9fac3c00db063948f49f9ee857ebad9126 | Codex DOC_ACCEPTANCE |

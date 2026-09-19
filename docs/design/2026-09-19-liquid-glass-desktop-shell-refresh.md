@@ -1,7 +1,7 @@
 ---
 version: "1.0.0b"
 created_at: "2026-09-19T15:30:00+07:00,RWANG"
-last_update: "2026-09-20T01:11:50+07:00,RWANG"
+last_update: "2026-09-20T03:53:22+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -168,7 +168,7 @@ The native boundary is an environment/evidence limitation, not a source/build fa
 - no new profile storage, avatar service or separate signup implementation
 - no production/installer claim from local evidence
 
-## 11. Version diff
+## 11. Historical version diff
 
 `LIQUID_GLASS_DESKTOP_ADAPTATION.md 0.3.2b → beta 0.4.0b`: removes the duplicated legacy desktop presentation, moves navigation into an expandable rail, adds truthful account/profile presentation, defines actual translucent glass with bounded ambient motion, and replaces overflow-heavy responsive behavior with surface tabs/sheets.
 

@@ -1,9 +1,9 @@
 ---
-version: "0.2.2b"
+version: "0.3.0b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-07-09T15:25:00+07:00,ATHER"
-status: "beta"
-superseded_by: null
+last_update: "2026-09-20T03:53:22+07:00,RWANG"
+status: "superseded"
+superseded_by: "docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md"
 attributes:
   domain: "local-first-audio-ai"
   doc_type: "sitemap-ia"
@@ -11,6 +11,12 @@ attributes:
 ---
 
 # 05 - Sitemap IA
+
+> The P1-P4 content taxonomy remains useful for domain content, but this
+> document's shell-navigation contract is superseded. Current navigation is
+> the active-surface model `home|live|review|appearance` with a
+> hover/focus-expandable sidebar, as defined by the Liquid Glass shell
+> refresh.
 
 ## IA Principle
 
@@ -141,6 +147,7 @@ Feature drivers reshape copy, tile priority, signal wording, and Agent card guid
 
 | Version | Change |
 | --- | --- |
+| 0.3.0b | 2026-09-20 | Marked P rail/topbar/power-dock shell navigation as superseded while retaining the P1-P4 domain taxonomy. |
 | 0.2.2b | Added feature-driver strategy and linked Meeting Mode as the first detailed content model. |
 | 0.2.1b | Simplified active page content into three frequent-use action tiles per P. |
 | 0.2.0b | Redesigned IA around domain taxonomy and P1-P4 page-state navigation. |
@@ -150,6 +157,7 @@ Feature drivers reshape copy, tile priority, signal wording, and Agent card guid
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.0b | 2026-09-20 | superseded | Current shell navigation moved to the Liquid Glass active-surface contract. | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
 | 0.2.2b | 2026-07-09 | beta | Added feature-driver IA rule and connected Meeting Mode to the P1-P4 content model. | N/A | ATHER |
 | 0.2.1b | 2026-07-06 | beta | Added inner content simplification rule for frequent-use tiles. | N/A | ATHER |
 | 0.2.0b | 2026-07-06 | beta | Reworked sitemap into domain-first IA and P rail page rules. | N/A | ATHER |

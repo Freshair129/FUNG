@@ -1,7 +1,7 @@
 ---
-version: "1.0.0b"
+version: "1.0.1b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-07-20T21:34:00+07:00,ATHER"
+last_update: "2026-09-20T04:25:00+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -18,7 +18,7 @@ attributes:
 | --- | --- | --- |
 | Desktop shell | Tauri v2 | Native desktop runtime, filesystem, window, secure commands |
 | Backend | Rust | Genesis SDK adapter, local API, job state, CLI, MCP host path |
-| Frontend | React + TypeScript + Vite | Skeuomorphic Subtract HUD and workspace UI |
+| Frontend | React + TypeScript + Vite | Liquid Glass `DesktopShell` and active-surface workspace UI |
 | Database boundary | GenesisBlockDB embedded core | One open/write/query/backup/restore contract |
 | Internal relational subsystem | SQLite | Genesis-owned relational projection, joins and migrations; no direct FUNG handle |
 | Internal specialized projections | Native graph + native vector | Genesis-owned traversal, graph indexes, embeddings and ANN/HNSW |
@@ -28,6 +28,11 @@ attributes:
 | AI runtime | BYOM adapters | Ollama/ollama.cpp, vLLM, local OpenAI-compatible endpoints |
 
 ## Rust Backend Decision
+
+The current desktop presentation boundary is `src/components/desktop/DesktopShell.tsx`
+with `home`, `live`, `review` and `appearance` active surfaces. This stack document
+does not change the Rust ownership boundary; shell and responsive presentation details
+are governed by [`docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md`](../design/2026-09-19-liquid-glass-desktop-shell-refresh.md).
 
 Rust is a strong fit because FUNG application services integrate the Genesis embedded SDK, native files/audio, long-running jobs, packaging, CLI and resource control. The frontend must not own durable audio-processing state.
 
@@ -116,6 +121,7 @@ Cloud providers are not default. Any cloud provider must be explicit opt-in and 
 
 | Version | Change |
 | --- | --- |
+| 1.0.1b | Reconciled the frontend stack description with the current Liquid Glass DesktopShell; backend ownership remains unchanged. |
 | 0.1.0b | Added stack reference for desktop-first implementation. |
 | 1.0.0b | Replaced parallel SQLite/domain-layer framing with GenesisBlockDB as the single operational boundary. |
 
@@ -123,5 +129,6 @@ Cloud providers are not default. Any cloud provider must be explicit opt-in and 
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 1.0.1b | 2026-09-20 | candidate | Reconciled the frontend shell description with the current DesktopShell and active surfaces; Rust/backend boundaries unchanged. | pending; docs reconciliation | RWANG |
 | 0.1.0b | 2026-07-05 | beta | Added stack doc. | N/A | ATHER |
 | 1.0.0b | 2026-07-20 | candidate | Corrected stack ownership to the GenesisBlockDB unified operational boundary | N/A — no commit created | ATHER |

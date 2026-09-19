@@ -1,7 +1,7 @@
 ---
-version: "0.2.0b"
+version: "0.2.1b"
 created_at: "2026-09-17T02:06:26+07:00,Codex,c378af9fac3c00db063948f49f9ee857ebad9126"
-last_update: "2026-09-17T02:50:41.9616339+07:00,Codex"
+last_update: "2026-09-20T04:15:00+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -85,7 +85,7 @@ schema/migration หรือ Google Drive ที่ยกเลิกไปแ�
 - **Q&A (B):** คำสั่งใหม่ไม่ส่ง graph/live tail ที่ไม่มี provenance ของ recording
   เข้า prompt; คำสั่งเดิมยังคงสัญญาเดิมและต้องติดป้ายขอบเขตตามจริง
 - **UI-1:** อนุมัติการจัด owner สำหรับ live component/CSS และการต่อ
-  `InstrumentRail.tsx` โดยคง settings/pairing/recovery/import/export เดิม
+  `DesktopShell.tsx` โดยคง settings/pairing/recovery/import/export เดิม
 - **DOC-FMT:** ยอมรับ SVG/PNG ของสามหน้าหลักเป็นชุดออกแบบ P1 นี้ หรือขอให้
   ส่ง Figma/Penpot + 2× และหน้าทั้งหมดก่อน ไม่มีการอ้างว่าชุดปัจจุบันครบ
   redesign brief ทุก surface/ทุก settings screen
@@ -149,6 +149,9 @@ Boss ยืนยัน B ครบแล้วตาม [บันทึกก�
 
 ## Version Diff
 
+- `0.2.0b → 0.2.1b`: reconcile the approved UI-1 owner from the historical
+  InstrumentRail path to the current `DesktopShell.tsx` shell boundary; feature
+  authority and implementation gates are unchanged.
 - `0.1.2b → 0.2.0b`: เสนอ interface-first fork/join สำหรับ backend/UI ขนานจริง
   และ exact baseline repair scope; รออนุมัติก่อนใช้ dependency/lease ที่เปลี่ยน
 - `0.1.1b → 0.1.2b`: บันทึก B ครบทั้ง UI/history และ WAV/Q&A พร้อมคำสั่งทำขนาน
@@ -164,6 +167,7 @@ Boss ยืนยัน B ครบแล้วตาม [บันทึกก�
 
 | Version | Date | Status | Summary | Commit | Agent |
 |---|---|---|---|---|---|
+| 0.2.1b | 2026-09-20 | candidate | Reconciled approved UI-1 owner with the current DesktopShell boundary; no new implementation authority | pending; docs reconciliation | RWANG |
 | 0.2.0b | 2026-09-17 | candidate | Propose safe backend/UI fork-join and exact baseline-only scope | UNCOMMITTED; base 376ef30 | Codex orchestrator |
 | 0.1.2b | 2026-09-17 | candidate | Record full B selection and parallel execution direction; preserve independent gates | UNCOMMITTED; base 376ef30 | Codex orchestrator |
 | 0.1.1b | 2026-09-17 | candidate | Record documentation PASS and Boss UI/history selection; remaining scope pending | UNCOMMITTED; base c378af9 | Codex orchestrator |

@@ -7,7 +7,7 @@ created_at: "2026-09-16"
 language: "th-TH / en"
 domain: "frontend-redesign"
 scope: "desktop, mobile, web dashboard, landing, phone page, proposed companion overlay"
-product_baseline: "FUNG 0.1.1 ตาม FRONTEND_REDESIGN_BRIEF.md v1.0.0"
+product_baseline: "FUNG 0.1.1 ตาม FRONTEND_REDESIGN_BRIEF.md v1.1.0b"
 implementation_verified: false
 human_approval_required: false
 ---
@@ -41,13 +41,15 @@ human_approval_required: false
 
 | ID | แหล่งข้อมูล | ใช้ตัดสินเรื่องใด |
 | --- | --- | --- |
-| **B** | [FRONTEND_REDESIGN_BRIEF.md](references/FRONTEND_REDESIGN_BRIEF.md), v1.0.0, snapshot 16 ก.ย. 2026 | ความสามารถปัจจุบัน API ข้อจำกัด CI สถานะข้อมูล และขอบเขตแต่ละ surface |
+| **B** | [FRONTEND_REDESIGN_BRIEF.md](references/FRONTEND_REDESIGN_BRIEF.md), v1.1.0b, snapshot 20 ก.ย. 2026 | ความสามารถปัจจุบัน API ข้อจำกัด CI สถานะข้อมูล และขอบเขตแต่ละ surface |
 | **L** | [Quiet Archive.png](references/quiet-archive-logo-concept.png) — ภาพโลโก้ที่ผู้ใช้ระบุ | รูปร่างมาร์ก วัสดุ porcelain บุคลิกภาพ และ palette ตั้งต้น |
 | **M1** | [Mock: Desktop Live Meeting](references/desktop-live-meeting-direction.png) — mock ล่าสุด | ทิศทาง dark workspace, รายการ transcript, สถานะ และพื้นที่ถาม FUNG |
 | **M2** | [Mock: Companion Overlay](references/companion-overlay-direction.png) — mock ล่าสุด | ทิศทางมาร์กเป็น companion และลำดับ Idle → Peek → Command → Conversation |
 | **U** | คำสั่งในบทสนทนา: niche / ใช้งานง่าย / มีลักษณะ JARVIS / overlay แบบ pet / ใช้โลโก้ที่ให้มา | เจตนาการออกแบบ ไม่ใช่ข้อยืนยันความพร้อมของ backend |
 
 เอกสารนี้อ้างความสามารถจาก **B เท่านั้น** ไม่ได้อ่านหรือทดสอบ repository ล่าสุดซ้ำ ค่า spacing, semantic colors, interaction และ layout ใหม่ในเอกสารเป็น **ข้อเสนอออกแบบ** ที่แยกจากข้อเท็จจริงเดิม ภาพ M1/M2 เป็น visual direction ไม่ใช่ภาพผลิตภัณฑ์ที่ทำงานแล้ว ไม่มีการนำคำอธิบายคู่แข่งในบทสนทนามาเป็นข้อกำหนดทางเทคนิคที่ยืนยันแล้ว
+
+Current desktop shell truth is maintained in [`docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md`](../design/2026-09-19-liquid-glass-desktop-shell-refresh.md) and its approved addendum [`LIQUID_GLASS_DESKTOP_ADAPTATION.md`](LIQUID_GLASS_DESKTOP_ADAPTATION.md). Those documents supersede the older shell navigation language in the baseline snapshot while preserving the product capability and privacy contracts here.
 
 ลำดับการตัดสิน: ความจริงของข้อมูลและข้อจำกัดความปลอดภัยใน B ต้องไม่ถูกเปลี่ยนเพราะภาพ mock; รูปร่างแบรนด์อิง L; รายละเอียด visual อิง M1/M2 และข้อเสนอในเอกสารนี้ หากสองแหล่งขัดกัน ต้องบันทึกข้อขัดแย้ง ไม่เดาเงียบ ๆ
 
@@ -277,7 +279,12 @@ Font assets ต้อง bundle ตาม pipeline ใน repo; ไม่ใช�
 | Divider | 1px; ใช้เส้นเฉพาะที่แบ่ง group จริง ไม่ล้อมข้อความทุกย่อหน้า |
 | Reading width | คุมเนื้อหาอ่านยาวประมาณ `72ch` เป็นจุดเริ่มต้น ต้อง review กับข้อความไทยจริง |
 
-### 7.2 Desktop fixed stage — ไม่เปลี่ยน runtime เงียบ ๆ
+### 7.2 Historical desktop fixed-stage baseline — superseded shell geometry
+
+The fixed-stage geometry below is retained as historical proposal/reference only.
+It does not describe the current Liquid Glass `DesktopShell`: use the current
+shell refresh and approved desktop addendum for active surfaces, hover sidebar,
+responsive layout, Appearance ownership and native-only window controls.
 
 B ระบุ native window **1280×800**, ไม่ resize และ stage **1304×744** ที่ scale ด้วย transform เอกสารนี้ใช้ geometry เดิมเป็น baseline; responsive native desktop เป็นข้อเสนอแยกที่ต้องแก้ runtime และทดสอบก่อน
 

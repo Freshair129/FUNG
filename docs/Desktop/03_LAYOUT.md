@@ -1,9 +1,9 @@
 ---
-version: "0.2.3b"
+version: "0.3.0b"
 created_at: "2026-07-05T00:00:00+07:00,ATHER"
-last_update: "2026-07-09T15:10:00+07:00,ATHER"
-status: "beta"
-superseded_by: null
+last_update: "2026-09-20T03:53:22+07:00,RWANG"
+status: "superseded"
+superseded_by: "docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md"
 attributes:
   domain: "local-first-audio-ai"
   doc_type: "layout-spec"
@@ -11,6 +11,12 @@ attributes:
 ---
 
 # 03 - Layout
+
+> Historical Subtract HUD layout reference. The fixed stage, Topbar FAB,
+> power dock and absolute coordinates below are not the current DesktopShell
+> chrome. Use the Liquid Glass shell refresh for current navigation, header,
+> sidebar, active surfaces and responsive behavior; retain this document only
+> for historical domain-layout context.
 
 Reference assets:
 
@@ -146,6 +152,7 @@ Every preset scales the original `1280 x 720` stage. Zone proportions remain sta
 
 | Version | Change |
 | --- | --- |
+| 0.3.0b | 2026-09-20 | Marked the fixed HUD layout as superseded by the Liquid Glass DesktopShell while retaining the historical inner-grid record. |
 | 0.2.3b | Synced layout spec to current implementation: 4-cell stats bar, single-column focus workbench, and 3-tile battle content. |
 | 0.2.2b | Main panel opacity clarified and scale formula adds a 24px viewport safe margin. |
 | 0.2.1b | Clarified floating FAB coordinate conversion from canvas-space to stage-space. |
@@ -156,6 +163,7 @@ Every preset scales the original `1280 x 720` stage. Zone proportions remain sta
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.0b | 2026-09-20 | superseded | Current shell chrome moved to the approved Liquid Glass DesktopShell contract. | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
 | 0.2.3b | 2026-07-09 | beta | Synced zone and grid definitions to the simplified implemented content layout. | N/A | ATHER |
 | 0.2.2b | 2026-07-06 | beta | Added main-panel readability and safe-fit scale rule. | N/A | ATHER |
 | 0.2.1b | 2026-07-06 | beta | Clarified FAB stage coordinate offset to keep controls aligned with subtract notches. | N/A | ATHER |

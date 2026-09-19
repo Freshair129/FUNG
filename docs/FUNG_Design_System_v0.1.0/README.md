@@ -20,7 +20,7 @@
 
 ## ฐานข้อมูลและสถานะ
 
-เอกสารฉบับนี้เป็น design source ที่ได้รับอนุมัติและ freeze ในสถานะ **Beta** โดยอิง `FRONTEND_REDESIGN_BRIEF.md` v1.0.0 รอบ implementation วันที่ 19 กันยายน 2026 ได้นำ token และ visual foundation ไปผูกกับ FUNG repository แล้ว แต่สถานะนี้ยังไม่ใช่การรับรองว่า component และ Companion ทุกส่วนในเอกสารถูก implement ครบ หรือพร้อม production
+เอกสารฉบับนี้เป็น design source ที่ได้รับอนุมัติและ freeze ในสถานะ **Beta** โดยอิง `FRONTEND_REDESIGN_BRIEF.md` v1.1.0b รอบ implementation วันที่ 20 กันยายน 2026 ได้นำ token และ visual foundation ไปผูกกับ FUNG repository แล้ว ส่วน current desktop shell อยู่ใน Liquid Glass addendum และมี local build/WebView evidence แล้ว แต่สถานะนี้ยังไม่ใช่การรับรองว่า component และ Companion ทุกส่วนในเอกสารถูก implement ครบ หรือพร้อม production
 
 `LIQUID_GLASS_DESKTOP_ADAPTATION.md` เป็นเอกสารลูกสถานะ **Beta** จาก reference `C:\Users\pc\Downloads\fung-new-ui` v0.3.0 ซึ่งเป็น mobile HTML prototype และ Companion concept ที่ไม่มี desktop production integration เดิม เอกสารได้รับ approval สำหรับ implementation แบบจำกัดขอบเขตแล้ว การ implement ที่มีอยู่เป็น local evidence ไม่เปลี่ยนสถานะ Beta ของ `DESIGN_SYSTEM.md` และไม่ถือเป็น production readiness
 

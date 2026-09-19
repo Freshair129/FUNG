@@ -1,7 +1,7 @@
 ---
-version: "0.2.29b"
+version: "0.2.30b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-17T00:00:00+07:00,Codex"
+last_update: "2026-09-20T03:53:22+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -16,6 +16,29 @@ Google Drive is canceled and its active implementation was removed on
 2026-09-17. Phase 4 backup truth below means the local encrypted filesystem
 path only; retained Drive migration/report references are historical
 provenance, not current runtime or deployment evidence.
+
+## Current Desktop shell truth — 2026-09-20
+
+The current desktop presentation is the Liquid Glass `DesktopShell`, not the
+older fixed HUD / P rail / InstrumentRail vocabulary used by earlier progress
+entries. The active shell surfaces are `home`, `live`, `review`, and
+`appearance`.
+
+- The persistent sidebar is hover/focus-expandable and owns navigation plus
+  bounded actions; it does not own recording start/stop.
+- Recording entry remains on the Home/Live surfaces and the active capture
+  strip. The native recording/runtime boundary is unchanged.
+- Appearance is a dedicated main-content page for theme, material and
+  transparency controls; the sidebar only navigates to it.
+- The header owns the FUNG / QUIET ARCHIVE lockup, truthful recording status
+  and profile/login CTA. Shell-level minimize/close buttons are removed;
+  native OS window controls remain outside the FUNG content contract.
+
+Local evidence for this shell delta is commit
+`285566b9515c5fc83b4fde64ce8e57389f7a565a`: build, focused Desktop tests,
+native custody test and WebView Home → Appearance → Live → Review → profile
+click-through passed. Exact native executable click-through, installer,
+clean-install and production readiness remain separate gates.
 
 ## Current Status
 

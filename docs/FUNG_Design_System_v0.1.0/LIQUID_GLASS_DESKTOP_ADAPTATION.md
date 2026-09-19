@@ -4,7 +4,7 @@ title: "FUNG — Liquid Glass Desktop Adaptation"
 version: "1.0.0b"
 status: "beta"
 created_at: "2026-09-19T08:04:52+07:00"
-last_update: "2026-09-20T01:11:50+07:00"
+last_update: "2026-09-20T03:53:22+07:00,RWANG"
 language: "th-TH / en"
 parent: "DS-FUNG-001 v0.1.0"
 superseded_by: null
@@ -175,7 +175,7 @@ Evidence นี้เป็น local engineering evidence เท่านั้�
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 1.0.0b | 2026-09-20 | beta | Moved recording out of the persistent rail, promoted appearance to a dedicated page, and removed app-level minimize/close controls | UNCOMMITTED | RWANG |
+| 1.0.0b | 2026-09-20 | beta | Moved recording out of the persistent rail, promoted appearance to a dedicated page, and removed app-level minimize/close controls | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
 | 0.4.0b | 2026-09-19 | beta | Replaced the legacy desktop presentation with the approved hover rail/profile/glass shell; browser and build evidence pass, native recheck remains environment-blocked | UNCOMMITTED | RWANG |
 | 0.3.2b | 2026-09-19 | beta | Recorded bounded native click-through on the exact current executable and retained installer/release limitations | UNCOMMITTED | RWANG |
 | 0.3.1b | 2026-09-19 | beta | Recorded approved implementation, local/browser/build evidence, and explicit native/release gaps | 694607f9ecd67bbc2075f4bb1cba3021dc8b0da | RWANG |

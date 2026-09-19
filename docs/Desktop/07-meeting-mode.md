@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-07-09T15:25:00+07:00,ATHER"
-last_update: "2026-07-09T15:25:00+07:00,ATHER"
+last_update: "2026-09-20T03:53:22+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -11,6 +11,11 @@ attributes:
 ---
 
 # 07 - Meeting Mode
+
+> This document owns Meeting Mode content and state behavior, not shell
+> chrome. The current implementation maps the content into the `live` and
+> `review` active surfaces; the older fixed-HUD/P1-P4 navigation wording is
+> historical and is superseded by the Liquid Glass shell refresh.
 
 ## Purpose
 
@@ -255,8 +260,8 @@ This keeps advanced functions available, but outside the first decision layer.
 
 ## Acceptance Criteria
 
-- Meeting Mode fits entirely inside the current HUD shell and zone map.
-- Each P page exposes exactly 3 center tiles for first-view usage.
+- Meeting Mode fits inside the current `live` and `review` active surfaces without requiring the persistent sidebar to own recording controls.
+- Where the domain content exposes task tiles, their count and placement follow the mounted surface contract rather than the superseded fixed-HUD shell.
 - Agent card always reflects the active meeting subtask.
 - Sector C always shows evidence or operational events relevant to the current meeting step.
 - Signals keep fixed positions and use meeting-specific copy.
@@ -266,10 +271,12 @@ This keeps advanced functions available, but outside the first decision layer.
 
 | Version | Change |
 | --- | --- |
+| 0.1.1b | 2026-09-20 | Reconciled Meeting Mode ownership with the current Live/Review active surfaces and superseded shell navigation. |
 | 0.1.0b | Added feature-driver content spec for Meeting Mode across P1-P4 inside the fixed HUD layout. |
 
 ## Changelog
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.1.1b | 2026-09-20 | beta | Clarified that Meeting Mode owns content/state behavior while DesktopShell owns current navigation and chrome. | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
 | 0.1.0b | 2026-07-09 | beta | Added Meeting Mode feature-driver content spec. | N/A | ATHER |

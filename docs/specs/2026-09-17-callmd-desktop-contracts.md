@@ -1,7 +1,7 @@
 ---
-version: "0.1.3b"
+version: "0.1.4b"
 created_at: "2026-09-17T02:03:10+07:00"
-last_update: "2026-09-17T04:57:00+07:00,Codex orchestrator"
+last_update: "2026-09-20T04:15:00+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 base_sha: "376ef30db13670e4dea816ceff440f44ce73fffd"
@@ -17,6 +17,12 @@ attributes:
 ---
 
 # Call.md-inspired FUNG desktop: candidate contracts
+
+> Interface mapping note (2026-09-20): this candidate contract preserves the
+> approved recording/review wire contracts. The older `InstrumentRail` and
+> `src/styles.css` references describe the pre-Liquid-Glass shell; current
+> presentation ownership is `DesktopShell.tsx`, `DesktopShell.css` and
+> `LiquidGlass.css`, with active surfaces `home|live|review|appearance`.
 
 ## 1. Decision and authority
 
@@ -65,7 +71,7 @@ The prior scan is docs/verification/implementation-reports/2026-09-17-callmd-fun
 | E8 | src-tauri/src/local_api.rs:542-684,899-974,1014-1086 | Tokenized web/phone list/audio routes exist; audio assembly currently allocates whole stream. |
 | E9 | src-tauri/src/lib.rs:1066-1128,1949-2001,3363-3424 | Jobs return newest 30; recovery detects/adopts audio and fills transcript gaps. |
 | E10 | src-tauri/src/genesis_adapter.rs:203-255,543-585,781-826,938-1009 | Existing recording/chunk/transcript/summary/export schema; v10 remains unchanged. |
-| E11 | src/lib/jobActions.ts:16-118; src/components/InstrumentRail.tsx:28-43,97-105 | Five runnable jobs; marker disabled, VU inactive, desktop playback disabled. |
+| E11 | src/lib/jobActions.ts:16-118; src/components/desktop/DesktopShell.tsx active capture/action boundary | Five runnable jobs; marker disabled, VU inactive, desktop playback disabled. |
 | E12 | src-tauri/Cargo.toml:24-25,31,38-43; src-tauri/src/live_meeting.rs:272-280 | cpal/hound/rand already dependencies; live WAV is mono integer PCM16. |
 | E13 | src-tauri/tauri.conf.json:30-49; src-tauri/capabilities/default.json:1-14 | Main window and existing CSP/capabilities; no new media URL needed for proposed native output. |
 | E14 | docs/plans/2026-09-17-callmd-ui-task-dag.json (CONTRACT_TEST_REVIEW/BACKEND_INTERFACE_REVIEW/BACKEND_RECORDING/SHARED_CONTRACT/BACKEND_REVIEW/UI_TASK_REVIEW/INTEGRATE nodes) | The approved cover amendment places BACKEND_INTERFACE_REVIEW after CONTRACT_TEST_REVIEW; BACKEND_RECORDING and SHARED_CONTRACT both wait for that accepted interface review, and INTEGRATE joins BACKEND_REVIEW with UI_TASK_REVIEW. Exact write leases remain disjoint. |
@@ -384,9 +390,9 @@ requests/player disposal, App owns selection/theme/routes. No duplicate native s
 | Shell | src/components/desktop/DesktopShell.tsx NEW; src/components/desktop/DesktopShell.css NEW; tests/callmdDesktopShell.test.mjs NEW. |
 | Live | src/components/LiveMeetingPanel.tsx; src/components/LiveMeetingPanel.css; src/components/desktop/LiveWorkspace.tsx NEW; src/components/desktop/LiveWorkspace.css NEW; tests/callmdLiveWorkspace.test.mjs NEW. |
 | Review | src/components/desktop/RecordingReview.tsx NEW; src/components/desktop/RecordingReview.css NEW; tests/callmdRecordingReview.test.mjs NEW. |
-| Integration | src/App.tsx; src/styles.css; src/components/InstrumentRail.tsx; tests/callmdDesktopIntegration.test.mjs NEW. Shared bridge changes only after serial lease transfer/re-review. |
+| Integration | src/App.tsx; src/components/desktop/DesktopShell.tsx; src/components/desktop/DesktopShell.css; tests/callmdDesktopIntegration.test.mjs NEW. Shared bridge changes only after serial lease transfer/re-review. |
 
-SettingsPanel.tsx/.css and InstrumentRail.css require no edits in this proposal;
+SettingsPanel.tsx/.css and the legacy InstrumentRail.css require no edits in this proposal;
 preserve existing settings and rail styling while rewiring the existing control.
 LiveMeetingPanel.css also styles external tools: Live owner must retain those selectors.
 jobActions.ts, meetingSummaries.ts, job_engine.rs, local_api.rs, genesis_adapter.rs,
@@ -396,7 +402,7 @@ command authority/resource bounds; native implementation remains review-gated.
 SEC-2 names the approved bounded scope for the live_meeting.rs admission guard and
 lib.rs AppState lifetime wiring; native admission remains review-gated.
 UI-1 names the approved bounded scope extension for existing
-LiveMeetingPanel.css and InstrumentRail.tsx; UI implementation remains
+LiveMeetingPanel.css and DesktopShell.tsx; UI implementation remains
 dependency/review-gated.
 No CSP/capability expansion is proposed; if native registration proves to need one,
 return a named exact-path amendment for review, never enable remote/window-wide access.
@@ -465,8 +471,12 @@ and explicit native-feasibility unknowns.
 0.1.1b → 0.1.2b: align current approval authority and the approved
 `CONTRACT_TEST_REVIEW → BACKEND_INTERFACE_REVIEW` fork; preserve native review,
 three-worker/disjoint-lease limits, and all existing command/resource/security scope.
+0.1.3b → 0.1.4b: reconcile presentation ownership and integration evidence with
+the current Liquid Glass `DesktopShell` active-surface boundary; candidate wire
+contracts and native/security gates remain unchanged.
 | Version | Date | Status | Summary | Commit | Agent |
 |---|---|---|---|---|---|
+| 0.1.4b | 2026-09-20 | candidate | Reconciled presentation/integration ownership with DesktopShell active surfaces; wire contracts and native/security scope unchanged | pending; docs reconciliation | RWANG |
 | 0.1.3b | 2026-09-17 | candidate | Align section 10 shorthand with reviewed FIX1 consumer types and approved lifecycle/error requirements; native interface/security unchanged | UNCOMMITTED; base 376ef30 | Codex orchestrator |
 | 0.1.2b | 2026-09-17 | candidate | Approved-scope interface-first scheduling/test-boundary amendment; independent Terra review pending | UNCOMMITTED; base 376ef30 | Luna max worker |
 | 0.1.1b | 2026-09-17 | candidate | Final bounded coherence corrections; prior A/B and code-approval wording retained as historical provenance | UNCOMMITTED; base c378af9 | Codex contract worker |

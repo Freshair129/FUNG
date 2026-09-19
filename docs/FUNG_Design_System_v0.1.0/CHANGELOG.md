@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0b — 2026-09-20 — Beta
+
+อัปเดต current DesktopShell ให้ตรงกับ implementation: recording อยู่บน Home/Live surface, Appearance เป็นหน้าแยก, sidebar ไม่มี controls ของ theme/material/transparency, header ไม่มีปุ่มย่อ/ปิด และมี profile/login state; commit `285566b` พร้อม build, tests และ WebView evidence แล้ว
+
 ## 0.4.0b — 2026-09-19 — Beta
 
 ปรับ desktop shell ตาม approved Liquid Glass refresh: ลบ legacy presentation tree, ย้ายเมนูเข้า hover/focus rail, เพิ่ม FUNG/QUIET ARCHIVE lockup, profile CTA, ambient motion และ responsive surface layout; browser/build/regression ผ่าน แต่ native exact-executable click-through รอบนี้ถูกบันทึกเป็น `BLOCKED_ENVIRONMENT`

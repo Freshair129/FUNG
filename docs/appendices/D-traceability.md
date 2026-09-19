@@ -1,7 +1,7 @@
 ---
-version: "0.2.1b"
+version: "0.2.2b"
 created_at: "2026-08-11T10:37:54+07:00,Agent: ATHER"
-last_update: "2026-09-17T00:00:00+07:00,Agent: Codex"
+last_update: "2026-09-20T03:53:22+07:00,Agent: RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -21,6 +21,8 @@ to preserve traceability to historical decisions and evidence reports.
 ## Historical Documentation Conflict — Resolved in This Reflight
 
 Task 4 truth-synced FR-106--FR-114 and FR-116 to current default-off code-level evidence and corrected FR-101 so both recording entry points route to `LiveMeetingPanel`. The post-fix audit re-ran `npm run test:desktop-bootstrap` (5/5) and `npm run test:external-tools` (5/5), then confirmed that the requirements, source, and focused tests agree. The historical graph `contradicts` edge remains retained with `status: resolved`; this matrix still does not claim real-connector, visual/keyboard, summary/export review after restart, artifact-secret-scan, or real-device completion.
+
+Current shell mapping (2026-09-20): FR-101 is entered through the active Home/Live surfaces and the capture strip, not a persistent microphone rail. The Liquid Glass DesktopShell and Appearance page are presentation-shell changes; they do not change the native recording command or FR-101 runtime contract.
 
 ## Scoped Executable Annotation Evidence — H3 Contract GREEN
 
@@ -66,7 +68,7 @@ nodes and are not portable repository evidence.
 
 | Req ID | Title | Implemented By | Tested By | Status |
 |---|---|---|---|---|
-| FR-101 | One real Live Meeting entry | `App.tsx`, `LiveMeetingPanel.tsx` | `desktopBootstrap.test.mjs` verifies the microphone rail opens P1 `live-capture` | Implemented; component UAT remains |
+| FR-101 | One real Live Meeting entry | `App.tsx`, `DesktopShell.tsx`, `LiveMeetingPanel.tsx` | `desktopBootstrap.test.mjs` verifies the active Live entry and the source no longer exposes a persistent sidebar recording button | Implemented; component UAT remains |
 | FR-102 | Source-aware live capture | `live_meeting.rs` | Rust module tests/headless smoke route | Implemented and annotated; two-channel/real-device UAT required |
 | FR-103 | Bounded live transcript | `live_meeting.rs`, `LiveMeetingPanel.tsx` | No component/E2E test | Implemented and annotated; visual/device verification gap |
 | FR-104 | Best-effort topic intelligence | `meeting_intel.rs`, `LiveMeetingPanel.tsx` | Parser helpers only | Implemented path; explicit unavailable/local-model verification remains |
@@ -113,7 +115,7 @@ nodes and are not portable repository evidence.
 | Metric | Value | Planning gate |
 |---|---|---|
 | FRs with any implementation evidence | 16/16 | Includes partial Live Meeting intelligence and connector health/UAT boundaries |
-| FRs with adequate end-to-end verification | 1/16 | FR-101 entry regression passes; external fixture integration plus UI source tests do not replace Windows UAT |
+| FRs with adequate end-to-end verification | 1/16 | FR-101 active-surface entry regression passes; external fixture integration plus UI source tests do not replace Windows UAT |
 | NFRs with feature-specific unit/integration evidence | 5/10 | NFR-102/103/105/107/108 have partial gates; none removes the feature flag yet |
 | External MCP/CRM FRs implemented through backend plus operator surface | 11/11 | Detailed health, restart, device, secret-scan, and real-connector UAT remain S5 gates |
 | External MCP focused verification | 23/23 Rust plus 5/5 frontend | Feature cluster green; full Rust library regression is now 195/195 after the Windows `py.exe` fallback |
@@ -140,6 +142,8 @@ graph LR
 ```
 
 ## Version Diff
+
+0.2.1b → 0.2.2b: reconciled FR-101 evidence with the current Home/Live active-surface shell and recorded that the Liquid Glass presentation change does not alter the native recording contract.
 
 `0.1.10b -> 0.1.11b`: corrected implementation-versus-test annotation counts;
 FR-101 is test-anchored while the combined contract remains 26/26.
@@ -172,6 +176,7 @@ historical evidence and left H3 plus all release/UAT gates open.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.2b | 2026-09-20 | beta | Reconciled FR-101 evidence with the current DesktopShell active-surface entry. | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
 | 0.2.1b | 2026-09-17 | beta | Marked the canceled Google Drive rows historical and removed active source/test ownership from the traceability matrix. | a9f9b80 | Codex |
 | 0.2.0b | 2026-08-26 | candidate | Expanded traceability with the Phase 4 Google Drive/D-GDA6 local-versus-external evidence boundary and local-only Recording2 provenance | `888aded` | ATHER |
 | 0.1.11b | 2026-08-12 | candidate | Corrected implementation-versus-test annotation counts and retained 26/26 union coverage. | pending | ATHER |

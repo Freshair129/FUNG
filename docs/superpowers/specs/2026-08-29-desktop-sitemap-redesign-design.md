@@ -2,11 +2,17 @@
 status: "draft"
 created_at: "2026-08-29"
 supersedes: "docs/Desktop/05-sitemap-ia.md (navigation/rail sections only)"
+superseded_by: "docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md"
 keeps_intact: "docs/Desktop/07-meeting-mode.md (P1-P4 content model is unchanged)"
 scope: "FUNG desktop shell — navigation structure and left rail"
 ---
 
 # Desktop Sitemap Redesign — Home + Notched Instrument Rail
+
+> Historical proposal. The later approved Liquid Glass shell refresh
+> supersedes this navigation/rail design. Keep the problem analysis and
+> implementation history for provenance; do not use the InstrumentRail,
+> power-dock or PAGES layout below as the current UI contract.
 
 ## 1. Problem
 

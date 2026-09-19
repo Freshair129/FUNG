@@ -1,6 +1,7 @@
 ---
-version: "1.0.0"
+version: "1.1.0b"
 created_at: "2026-09-16T18:30:00+07:00,Claude"
+last_update: "2026-09-20T03:53:22+07:00,RWANG"
 status: "brief"
 attributes:
   domain: "frontend-redesign"
@@ -10,6 +11,10 @@ attributes:
 ---
 
 # FUNG — Frontend Redesign Brief
+
+Scope correction (2026-09-17): Google Drive is canceled. The redesign covers
+local encrypted backup/restore and must not add Drive controls, Drive OAuth
+copy, Drive commands, or Drive deployment assumptions.
 
 เอกสารชุดเดียวสำหรับทีมออกแบบ UI ใหม่: ผลิตภัณฑ์คืออะไร, ฟีเจอร์ที่มีจริง (และที่ยังไม่มี), หน้าจอ/สถานะที่ต้องรองรับ, โลโก้และ token ที่ใช้อยู่, API ที่ frontend ใหม่ต้องเรียก, และข้อจำกัดที่ทดสอบบังคับไว้ ทุกข้อชี้ไฟล์ต้นทางในโค้ด (`file:line`) ณ `main` วันที่ 16 ก.ย. 2026 (เวอร์ชันแอป 0.1.1)
 
@@ -93,7 +98,6 @@ Type: Fraunces (display), **IBM Plex Sans Thai** (UI ไทย นำ), DM Sans 
 | | TTS อ่านสรุป (BYOM provider) | Desktop P3 + Settings › TTS | 🟡 ต้องตั้ง provider | `tts_*` |
 | External tools | MCP stdio connector: preview → อนุมัติ → รัน, grant ≤ 15 นาที | Desktop Live panel | 🟡 flag `VITE_FUNG_EXTERNAL_MEETING_TOOLS=1` | `external_connector_*`, `meeting_tool_*` |
 | Backup | สำรอง/กู้คืนไฟล์ในเครื่อง เข้ารหัส + รหัสกู้คืน 24 คำ | Desktop Settings | ✅ | `backup_*`, `filesystem_backup_select_root` |
-| | Google Drive `drive.appdata` | Desktop | 🟡 ต้อง `VITE_GOOGLE_DRIVE_CLIENT_ID` | `broker_drive_*` |
 | Pairing | จับคู่ desktop↔mobile ด้วยรหัส 6 หลัก (TTL 5 นาที, ผิดได้ 5 ครั้ง) | Desktop `DevicePairingPanel`, Mobile Devices | ✅ | `broker_pairing_*`, RPC `confirm_pairing` |
 | | FUNGWIRE server บน LAN | Desktop toggle | ✅ | `broker_fungwire_status/set_enabled` |
 | Local API | เว็บ/มือถืออ่าน-เล่นไฟล์ของ desktop (loopback, LAN opt-in, หรือ USB `adb reverse`) | Desktop Settings › Runtime, Web, Phone page | ✅ | `start_local_api`, `set_local_api_lan` |
@@ -104,24 +108,43 @@ Type: Fraunces (display), **IBM Plex Sans Thai** (UI ไทย นำ), DM Sans 
 | Story/Creative | ตัด/ย้าย/แยกคลิป, effect chain, agent voice | Mobile StoryEditor/ProcessingStudio | 🧪 บางส่วน fixture | `mobile_story_*`, `mobile_effect_chain_update` |
 | Mobile MCP server | MCP บนมือถือ (ปิด default) | Mobile Devices | ✅ toggle | `mobile_mcp_set_enabled` |
 
+### 3.1 Current Desktop shell delta — 2026-09-20
+
+The current desktop shell is implemented by `src/components/desktop/DesktopShell.tsx` and is governed by [`docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md`](../../design/2026-09-19-liquid-glass-desktop-shell-refresh.md) and [`../LIQUID_GLASS_DESKTOP_ADAPTATION.md`](../LIQUID_GLASS_DESKTOP_ADAPTATION.md). The surface contract is:
+
+| Shell concern | Current contract | Evidence boundary |
+| --- | --- | --- |
+| Active surfaces | `home`, `live`, `review`, `appearance` | `src/components/desktop/contracts.ts`; build and WebView click-through pass |
+| Persistent sidebar | Hover/focus-expandable menu for navigation and bounded actions | No recording start/stop control; Appearance is navigation-only |
+| Recording entry | Home/Live surface and active capture strip | Live surface remains native/runtime-dependent |
+| Appearance | Dedicated main-content page with theme, material and transparency controls | Controls are not descendants of the sidebar |
+| Header | FUNG / QUIET ARCHIVE lockup, truthful recording status, profile/login CTA | Shell-level minimize/close buttons are removed; native OS controls remain outside scope |
+| Material | Liquid Glass alpha, ambient motion, reduced-motion/reduced-transparency fallbacks | Local source/build/WebView evidence; native exact click-through remains a separate gate |
+
 **ปุ่มที่มีอยู่แต่ปิดพร้อมเหตุผล** (desktop tiles, `src/lib/jobActions.ts:53-60`) — redesign ต้องเลือกว่าจะซ่อนหรือคงเป็น roadmap:
-`capture.marker` "ยังไม่มีที่เก็บ marker", `speakers.lock` "ยังไม่มีการยืนยันผู้พูดแบบถาวร", `review.evidence` "ยังไม่มีการทำเครื่องหมายหลักฐาน", `summary.compare` "ยังเทียบสรุปข้ามครั้งไม่ได้", `export.queue` "ยังไม่มีคิวส่งออกแยก", `archive.project` "ใช้แผงสำรองข้อมูลแทน" · ปุ่ม Search บน topbar **ไม่มี handler** · ปุ่ม Play บน rail **disabled ถาวร** ("No local playback in this desktop build") · VU meter บน rail **ตั้งใจ inactive** (ไม่มี level source) · Notes filter chips บนมือถือ **inert**
+`capture.marker` "ยังไม่มีที่เก็บ marker", `speakers.lock` "ยังไม่มีการยืนยันผู้พูดแบบถาวร", `review.evidence` "ยังไม่มีการทำเครื่องหมายหลักฐาน", `summary.compare` "ยังเทียบสรุปข้ามครั้งไม่ได้", `export.queue` "ยังไม่มีคิวส่งออกแยก", `archive.project` "ใช้แผงสำรองข้อมูลแทน" · ปุ่ม Search บน topbar, Play บน rail และ VU meter เป็นสถานะจาก shell รุ่นก่อนและไม่ใช่ controls ของ `DesktopShell` ปัจจุบัน · Notes filter chips บนมือถือ **inert**
 
 ## 4. หน้าจอและสถานะที่ต้องรองรับ
 
 ### 4.1 Desktop (`src/App.tsx`, 1549 บรรทัด, ไม่มี router)
 
-**Home** (`src/components/HomeScreen.tsx`): wordmark, CTA หลัก `เริ่มบันทึกประชุม`, รอง `นำเข้าไฟล์เสียง`, รายการ `การประชุมล่าสุด` (สูงสุด 5, สถานะ Live/Queued/Saved คำนวณจาก job), empty `ยังไม่มีการประชุมที่บันทึกไว้`
+**Desktop shell** (`src/components/desktop/DesktopShell.tsx`): FUNG / QUIET ARCHIVE header, truthful profile/login state, recording status, hover/focus-expandable sidebar, project context and active-surface main content. The shell surfaces are `home`, `live`, `review` and the dedicated `appearance` page.
 
-**Meeting workspace** — 4 anchor (`App.tsx:86-98`): P1 Capture · P2 Transcript (default) · P3 Summary · P4 Runtime แต่ละ anchor มี 3 focus tile (eyebrow/title/detail/action/status/tone sage|indigo|metal) + zone: score header, stats bar (4 pill), focus workbench, agent card, sector log (Activity + events), signals (4 การ์ด toggle) Label nav/tile เป็น **อังกฤษ** ทั้งที่ body เป็นไทย
+**Home**: project context, `เริ่มประชุม` and media import actions. The persistent sidebar does not own recording start/stop.
 
-Chrome คงที่: topbar (Search, segmented nav, Home, theme toggle, `New`), **InstrumentRail** ซ้าย (VU meter, Record, Import, Play, Export, Pair device, Settings), power dock (`พับจอ` / `ปิด`)
+**Live**: `LiveMeetingPanel` owns meeting consent, capture options, `● เริ่มประชุม` / `■ จบประชุม`, live transcript, topic, recording-scoped Q&A and summary states.
+
+**Review**: recording history/review remains read-only and scoped to the selected project/recording pair.
+
+**Appearance**: theme, material and transparency controls render as a dedicated main-content page; the sidebar only navigates to it.
+
+The shell no longer exposes app-level `ย่อ` / `ปิด` buttons. Native OS titlebar controls and the Tauri drag region remain outside the FUNG content contract.
 
 Overlay: `RecoveryNotice`, `SettingsPanel` (7 tab: External Connections, Sign In and Backup, TTS Providers, Cloud Providers, Fetch from URL, Zoom import, Runtime), `LiveMeetingPanel`, `DevicePairingPanel`
 
 **LiveMeetingPanel** (หน้าจอสำคัญสุด): phase `พร้อมเริ่มประชุม / กำลังเริ่ม... / กำลังฟังอยู่ / อัดต่อเนื่อง (ถอดสดมีปัญหา) / กำลังปิดเซสชัน... / จบการประชุมแล้ว / เกิดข้อผิดพลาด`; ปุ่ม `● เริ่มประชุม` / `■ จบประชุม`; option ก่อนเริ่ม: checkbox จับเสียงระบบ, เลือกภาษา (auto/ไทย/อังกฤษ), consent line; feed `Transcript สด` (cap 200 segment, หน่วง ~10-20 s); การ์ด topic; การ์ดถาม FUNG (คำตอบ + แหล่งอ้างอิง [n]); สรุปหลังประชุม 3 ส่วน + `ลองสรุปใหม่`; ExternalMeetingToolsPanel (flag)
 
-**Panel อื่นที่มี copy/สถานะเฉพาะ**: BackupPanel (phrase 24 คำแสดงครั้งเดียว), GoogleDrivePanel, CloudProvidersPanel (5 slot คงที่, daily cap), TtsProviderPanel (3 runtime type), MediaFetchPanel (3 สถานะแยกด้วย `blockerCode`), ZoomPanel, ExternalAccountPanel (**อังกฤษล้วน**, ปุ่ม disabled ถาวร), DevicePairingPanel (รหัส 6 หลัก + นับถอยหลัง, FUNGWIRE switch), AccountLoginPanel (ชื่ออุปกรณ์, สถานะรออนุมัติ)
+**Panel อื่นที่มี copy/สถานะเฉพาะ**: BackupPanel (phrase 24 คำแสดงครั้งเดียว), CloudProvidersPanel (5 slot คงที่, daily cap), TtsProviderPanel (3 runtime type), MediaFetchPanel (3 สถานะแยกด้วย `blockerCode`), ZoomPanel, ExternalAccountPanel (**อังกฤษล้วน**, ปุ่ม disabled ถาวร), DevicePairingPanel (รหัส 6 หลัก + นับถอยหลัง, FUNGWIRE switch), AccountLoginPanel (ชื่ออุปกรณ์, สถานะรออนุมัติ)
 
 รายละเอียด copy ทุกปุ่ม/สถานะดู `docs/UI_INTERFACE_INVENTORY.md` และไฟล์ component โดยตรง
 
@@ -170,7 +193,7 @@ Header (nav Product/How it works/Demo/Privacy, chip APK "เร็ว ๆ นี
 | Core | `app_health`, `create_project(name)`, `list_projects`, `create_job(jobType, projectId?, recordingId?)`, `cancel_job(jobId)`, `runnable_job_types`, `list_jobs`, `list_model_providers`, `list_transcript_segments(projectId, recordingId)`, `import_and_transcribe(filePath, projectId?)`, `fetch_and_transcribe(url, projectId?)`, `media_fetch_status`, `media_fetch_consent_set(enabled)`, `audio_integrity_check(projectId)`, `recovery_scan`, `recovery_recover(recordingId)`, `start_local_api`, `set_local_api_lan(enabled)`, `list_export_artifacts(projectId)`, `diarization_status` |
 | Live/Intel | `live_meeting_start(projectId?, captureSystem?, language?)`, `live_meeting_stop`, `live_meeting_status`, `meeting_ask(question, projectId?)`, `meeting_summaries(projectId, recordingId)`, `generate_meeting_summary(projectId, recordingId)`, `graph_build_start(projectId, recordingId)` |
 | Session broker (`src/lib/desktopSessionBroker.ts`) | `broker_session_login_begin/cancel/status/logout`, `broker_enrollment_request/status`, `broker_device_list/revoke/audit_list/endpoint_publish`, `broker_pairing_create/poll/reconcile`, `broker_fungwire_status/set_enabled` |
-| Drive/Backup | `broker_drive_*` (9), `backup_status/list_archives/generate_recovery_phrase/run/restore/restore_select_target`, `filesystem_backup_select_root` |
+| Local Backup | `backup_status/list_archives/generate_recovery_phrase/run/restore/restore_select_target`, `filesystem_backup_select_root` |
 | Cloud/Zoom/TTS | `cloud_config_set/clear/status`, `tier_policy_get/set`, `cloud_call_counts_today`, `zoom_connect/connection_status/disconnect/list_recordings/import_recording`, `tts_provider_register/update/toggle/test`, `tts_synthesize_text` |
 | External MCP | `external_connectors_list`, `external_connector_register/disconnect`, `meeting_tool_suggest/execute/cancel/revoke/runs_list` |
 | FUNGWIRE | `fungwire_desktop_reachable`, `fungwire_desktop_status_probe`, `fungwire_delegate_transcription`, `fungwire_job_poll`, `device_identity_ensure`, `device_public_key` |
@@ -241,7 +264,7 @@ type LocalImportReceipt = { jobId; projectId; recordingId };
 
 ### 5.4 Supabase (auth + metadata เท่านั้น)
 
-ตารางที่ frontend แตะ: `profiles` (อ่าน/แก้ `display_name`), `devices` (**อ่านอย่างเดียว** — เขียนผ่าน edge function `device-enrollment` actions `pending|pairing_only|revoke` ใน `src/lib/deviceAuthority.ts` เท่านั้น), `device_audit_events` (insert), `oauth_connections` (อ่าน), `pairing_sessions` (อ่าน) · RPC: `confirm_pairing(session, code, device)` → `confirmed|already_confirmed|wrong_code|locked|expired|not_found`, `publish_device_endpoint` · Edge functions: `device-enrollment`, `google-drive-authorize`, `google-drive-metadata`
+ตารางที่ frontend แตะ: `profiles` (อ่าน/แก้ `display_name`), `devices` (**อ่านอย่างเดียว** — เขียนผ่าน edge function `device-enrollment` actions `pending|pairing_only|revoke` ใน `src/lib/deviceAuthority.ts` เท่านั้น), `device_audit_events` (insert), `oauth_connections` (อ่าน historical metadata เท่านั้น), `pairing_sessions` (อ่าน) · RPC: `confirm_pairing(session, code, device)` → `confirmed|already_confirmed|wrong_code|locked|expired|not_found`, `publish_device_endpoint` · Edge function: `device-enrollment`
 
 ### 5.5 Auth flow ต่อ surface (ต่างกันจริง ออกแบบหน้า login ต้องรู้)
 
@@ -272,7 +295,7 @@ LAN TCP + Noise KK เฉพาะอุปกรณ์ที่จับคู�
 - **ห้ามสร้างข้อมูลปลอม**: "ตรวจไม่ได้" ≠ "ไม่มี" (error กับ empty แยกกันเสมอ); ไม่มีค่าจริง → แสดงว่า inactive ไม่ใช่ศูนย์ (VU meter, `levelPercent: null`); ปุ่มที่ยังทำไม่ได้ → disabled พร้อมเหตุผล ไม่ใช่ no-op เงียบ
 - ต้องเปิดเผยความไม่ครบ: `TranscriptView.capped` แสดง **ก่อน** เนื้อหา (`transcript ไม่ครบ — อ่านได้สูงสุด {cap} ท่อน…`), `AskAnswer.searchedRowsCapped`, `MeetingSummaries.otherRecordings/unattributable`
 - ข้อมูลที่เป็น inference ต้องมีป้าย (`ai_proposed` ไม่ปนกับ `confirmed`; `ป้ายผู้พูดเป็นการจัดกลุ่มเสียง ไม่ใช่การยืนยันตัวบุคคล`)
-- ประโยค privacy ที่ต้องอยู่ต่อ: `เสียงทั้งหมดถูกบันทึกและประมวลผลในเครื่องนี้เท่านั้น — โปรดแจ้งผู้ร่วมประชุมก่อนเริ่มอัด`, `ไม่มีเสียงขึ้น cloud`, `ใช้งานแบบ Local ได้โดยไม่ต้องมีบัญชี`, `ใช้เฉพาะ drive.appdata …`, `ต้นฉบับเสียงยังคงเดิม`
+- ประโยค privacy ที่ต้องอยู่ต่อ: `เสียงทั้งหมดถูกบันทึกและประมวลผลในเครื่องนี้เท่านั้น — โปรดแจ้งผู้ร่วมประชุมก่อนเริ่มอัด`, `ไม่มีเสียงขึ้น cloud`, `ใช้งานแบบ Local ได้โดยไม่ต้องมีบัญชี`, `ต้นฉบับเสียงยังคงเดิม`
 - สีแดงสงวนไว้สำหรับ "กำลังอัด" และ destructive เท่านั้น; touch target ≥ 44dp (mobile)
 
 ## 8. UX debt ที่ควรใช้ redesign แก้ (เรียงตามผลกระทบ)
@@ -300,7 +323,7 @@ LAN TCP + Noise KK เฉพาะอุปกรณ์ที่จับคู�
 
 | Surface | หน้าจอที่ต้องมี (อ้างอิง §4) |
 | --- | --- |
-| **Desktop** (1280×800 หรือ responsive ถ้าเสนอ) | 1 Home · 2 Meeting workspace (แสดงทั้ง 4 anchor: Capture / Transcript / Summary / Runtime หรือ IA ใหม่ที่เสนอแทน) · 3 Live meeting (idle / listening / degraded / stopped + สรุปหลังประชุม) · 4 Transcript review + rename ผู้พูด · 5 Summary + TTS · 6 Export · 7 Recovery notice · 8 Settings ทุก tab (Sign In & Backup, TTS, Cloud, Fetch from URL, Zoom, Runtime/Local API + QR, External Connections) · 9 Device pairing (รหัส 6 หลัก + FUNGWIRE) · 10 External tools (preview → approve → result) · 11 Sign-in (pending / authenticated / error) · 12 Backup + Google Drive (phrase 24 คำ) |
+| **Desktop** (responsive active-surface shell) | 1 Home · 2 Live meeting (idle / listening / degraded / stopped + สรุปหลังประชุม) · 3 Review/history + rename ผู้พูด · 4 Appearance page (theme/material/transparency) · 5 Summary + TTS · 6 Export · 7 Recovery notice · 8 Settings ทุก tab (Sign In & Backup, TTS, Cloud, Fetch from URL, Zoom, Runtime/Local API + QR, External Connections) · 9 Device pairing (รหัส 6 หลัก + FUNGWIRE) · 10 External tools (preview → approve → result) · 11 Sign-in (pending / authenticated / error) · 12 Local Backup (phrase 24 คำ) |
 | **Mobile** (Android, 360–430dp) | 1 Home · 2 Capture (idle / recording / paused / finalizing / completed / recovery_required) · 3 Files + player inline · 4 Notes (list / create sheet / detail) · 5 Graph + inspector · 6 Timeline (speaker turns + inspector) · 7 Devices (signed-out / signed-in / จับคู่แล้ว / ยกเลิก) · 8 Pairing sheet · 9 Story editor · 10 Processing studio (4 tab + delegate to desktop/cloud) · 11 Sign-in ผ่าน system browser + กลับแอป · 12 Theme/MCP settings |
 | **Web dashboard** | 1 Landing → sign-in → callback (loading / error) · 2 Dashboard (3 ส่วน: อัดในเบราว์เซอร์, ไฟล์จาก desktop, อุปกรณ์) · 3 Recorder (idle / requesting mic / recording / saving / mic denied) · 4 รายการไฟล์ + ถอดที่ desktop (uploading / running % / completed transcript / failed) · 5 เชื่อมต่อ desktop (unconfigured / loading / error / ready) · 6 Account settings modal · 7 Mobile-width (≤ 640px) ของทุกหน้า |
 | **Landing** | Hero, How it works, Architecture, Demo/Download, Closing, Footer — desktop + mobile width |
@@ -310,4 +333,4 @@ LAN TCP + Noise KK เฉพาะอุปกรณ์ที่จับคู�
 
 ## เอกสารอ้างอิงเพิ่มเติม (ในรีโป)
 
-อ่านก่อน: `docs/UI_INTERFACE_INVENTORY.md` (draft 2026-08-22), `docs/superpowers/specs/2026-08-29-desktop-sitemap-redesign-design.md` (IA desktop ปัจจุบัน), `docs/Mobile/PRODUCT_UX_SPEC.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` (2026-08-23), `docs/Mobile/DESIGN_SYSTEM.md`, `docs/Desktop/02-tokens.md` + `04-components.md` (เจตนา ก.ค. ก่อน redesign), `docs/app/WEB_LANDING_PAGE_PROPOSAL.md`, `docs/WEB_PRODUCTION_DEPLOYMENT.md` (ตารางว่าเว็บทำอะไรได้), `docs/appendices/E-egress-register.md`, `docs/Desktop/08-real-progress.md` (สถานะจริงล่าสุด) · superseded: `docs/Mobile/CLONY_INSPIRED_MOBILE_TOKEN_PROPOSAL.md`, `docs/Desktop/CALLMD_FUNG_SCORECARD_TH.md`
+อ่านก่อน: `docs/UI_INTERFACE_INVENTORY.md` (beta 2026-09-20), `../../design/2026-09-19-liquid-glass-desktop-shell-refresh.md` (Desktop shell current truth), `../LIQUID_GLASS_DESKTOP_ADAPTATION.md`, `docs/Mobile/PRODUCT_UX_SPEC.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md`, `docs/Mobile/DESIGN_SYSTEM.md`, `docs/Desktop/02-tokens.md` + `04-components.md` (legacy/domain intent), `docs/app/WEB_LANDING_PAGE_PROPOSAL.md`, `docs/WEB_PRODUCTION_DEPLOYMENT.md`, `docs/appendices/E-egress-register.md`, `docs/Desktop/08-real-progress.md` (สถานะจริงล่าสุด) · superseded shell reference: `docs/superpowers/specs/2026-08-29-desktop-sitemap-redesign-design.md`

@@ -1,5 +1,10 @@
 # Desktop Sitemap Redesign Implementation Plan
 
+> Historical implementation plan. The approved Liquid Glass DesktopShell
+> refresh supersedes this InstrumentRail/power-dock plan. Retain the plan as
+> provenance, but current UI documentation must point to
+> `docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the desktop shell's dual PAGES-card + 11-icon FAB rail with a single notched instrument rail (VU meter + 6 buttons), consolidate five scattered settings triggers into one Settings surface, and add a real Home screen (hero record action + recent meetings) as the app's landing view.

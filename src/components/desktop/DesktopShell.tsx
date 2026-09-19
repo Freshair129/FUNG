@@ -8,12 +8,10 @@ import {
 } from "react";
 import {
   Archive,
-  Circle,
   Download,
   History,
   Home,
   LogIn,
-  Minimize2,
   PanelLeft,
   Radio,
   Settings2,
@@ -22,7 +20,6 @@ import {
   Upload,
   UserRound,
   Wifi,
-  X,
 } from "lucide-react";
 import type { LiveStatusOutput } from "../../tauri.ts";
 import { CompanionPanel } from "./CompanionPanel";
@@ -303,7 +300,6 @@ type SidebarActionButtonProps = {
   disabled?: boolean;
   title?: string;
   active?: boolean;
-  danger?: boolean;
 };
 
 function SidebarActionButton({
@@ -314,12 +310,11 @@ function SidebarActionButton({
   disabled = false,
   title,
   active = false,
-  danger = false,
 }: SidebarActionButtonProps) {
   return (
     <button
       ref={buttonRef}
-      className={`desktop-shell__sidebar-action${active ? " is-active" : ""}${danger ? " is-danger" : ""}`}
+      className={`desktop-shell__sidebar-action${active ? " is-active" : ""}`}
       type="button"
       onClick={onClick}
       disabled={disabled}
@@ -336,11 +331,7 @@ function SidebarActionButton({
 
 type SidebarMenuProps = {
   activeSurface: DesktopSurface;
-  captureLifecycle: CaptureLifecycle;
   actions: DesktopShellProps["actions"];
-  theme: ThemeChoice;
-  material: MaterialChoice;
-  transparency: TransparencyChoice;
   companionOpen: boolean;
   onNavigate: (surface: DesktopSurface, initiator: HTMLElement) => void;
   onRunAction: (action: () => void | Promise<void>) => void;
@@ -349,17 +340,11 @@ type SidebarMenuProps = {
   onPairing: (initiator: HTMLElement) => void;
   onToggleCompanion: () => void;
   companionTriggerRef: MutableRefObject<HTMLButtonElement | null>;
-  onMaterialChange: (material: MaterialChoice) => void;
-  onTransparencyChange: (transparency: TransparencyChoice) => void;
 };
 
 function SidebarMenu({
   activeSurface,
-  captureLifecycle,
   actions,
-  theme,
-  material,
-  transparency,
   companionOpen,
   onNavigate,
   onRunAction,
@@ -368,8 +353,6 @@ function SidebarMenu({
   onPairing,
   onToggleCompanion,
   companionTriggerRef,
-  onMaterialChange,
-  onTransparencyChange,
 }: SidebarMenuProps) {
   return (
     <div className="desktop-shell__sidebar-menu">
@@ -383,15 +366,6 @@ function SidebarMenu({
       <div className="desktop-shell__sidebar-divider" />
 
       <div className="desktop-shell__sidebar-actions" aria-label="การทำงาน">
-        <SidebarActionButton
-          icon={captureLifecycle === "inactive" ? <Circle size={17} /> : <Radio size={17} />}
-          label={captureLifecycle === "inactive" ? "เริ่มบันทึก" : "หยุดบันทึก"}
-          active={captureLifecycle !== "inactive"}
-          danger={captureLifecycle !== "inactive"}
-          onClick={() =>
-            onRunAction(captureLifecycle === "inactive" ? actions.startRecording : actions.stopRecording)
-          }
-        />
         <SidebarActionButton
           icon={<Upload size={17} />}
           label="นำเข้าไฟล์"
@@ -433,17 +407,12 @@ function SidebarMenu({
         />
       </div>
 
-      <details className="desktop-shell__appearance">
-        <summary>
-          <SlidersHorizontal size={17} aria-hidden="true" />
-          <span>ลักษณะ</span>
-        </summary>
-        <div className="desktop-shell__appearance-fields">
-          <ThemeChoice theme={theme} onChange={actions.setTheme} />
-          <MaterialSelect material={material} onChange={onMaterialChange} />
-          <TransparencySelect transparency={transparency} onChange={onTransparencyChange} />
-        </div>
-      </details>
+      <SidebarActionButton
+        icon={<SlidersHorizontal size={17} />}
+        label="ลักษณะ"
+        active={activeSurface === "appearance"}
+        onClick={(event) => onNavigate("appearance", event.currentTarget)}
+      />
 
       <SidebarActionButton
         icon={<UserRound size={17} />}
@@ -451,6 +420,42 @@ function SidebarMenu({
         onClick={(event) => onAccount(event.currentTarget)}
       />
     </div>
+  );
+}
+
+type AppearanceSurfaceProps = {
+  theme: ThemeChoice;
+  material: MaterialChoice;
+  transparency: TransparencyChoice;
+  onThemeChange: (theme: ThemeChoice) => void;
+  onMaterialChange: (material: MaterialChoice) => void;
+  onTransparencyChange: (transparency: TransparencyChoice) => void;
+};
+
+function AppearanceSurface({
+  theme,
+  material,
+  transparency,
+  onThemeChange,
+  onMaterialChange,
+  onTransparencyChange,
+}: AppearanceSurfaceProps) {
+  return (
+    <section className="desktop-shell__appearance-page" aria-labelledby="desktop-shell-appearance-heading">
+      <header className="desktop-shell__appearance-page-header">
+        <div className="desktop-shell__section-kicker">ลักษณะ</div>
+        <h2 id="desktop-shell-appearance-heading">ลักษณะและธีม</h2>
+        <p>ปรับวิธีแสดงผลของ FUNG โดยไม่เปลี่ยนโครงการ การบันทึก หรือสถานะการเชื่อมต่อ</p>
+      </header>
+      <div className="desktop-shell__appearance-page-grid">
+        <ThemeChoice theme={theme} onChange={onThemeChange} />
+        <MaterialSelect material={material} onChange={onMaterialChange} />
+        <TransparencySelect transparency={transparency} onChange={onTransparencyChange} />
+      </div>
+      <p className="desktop-shell__appearance-page-note">
+        กระจกเต็มจะแสดง ambient background ผ่านพื้นผิวที่รองรับ; ลดความโปร่งใช้ fallback ที่อ่านง่ายขึ้น
+      </p>
+    </section>
   );
 }
 
@@ -619,6 +624,11 @@ const SURFACE_COPY: Record<DesktopSurface, { kicker: string; title: string; desc
     kicker: "บันทึกย้อนหลัง / ทบทวน",
     title: "ทบทวนบันทึกที่เลือก",
     description: "อ่านเนื้อหาและการกระทำของบันทึกที่จับคู่กับโครงการนี้เท่านั้น",
+  },
+  appearance: {
+    kicker: "ลักษณะ",
+    title: "ลักษณะและธีม",
+    description: "ปรับวัสดุ ความโปร่ง และธีมของ FUNG โดยไม่เปลี่ยนข้อมูลหรือสถานะการบันทึก",
   },
 };
 
@@ -899,7 +909,13 @@ export function DesktopShell({
 
   const requestSurface = (surface: DesktopSurface, initiator: HTMLElement) => {
     const surfaceAction =
-      surface === "home" ? actions.showHome : surface === "live" ? actions.showLive : actions.showReview;
+      surface === "home"
+        ? actions.showHome
+        : surface === "live"
+          ? actions.showLive
+          : surface === "review"
+            ? actions.showReview
+            : actions.showAppearance;
     requestNavigation(
       {
         label: SURFACE_COPY[surface].kicker,
@@ -1050,26 +1066,6 @@ export function DesktopShell({
         </div>
         <div className="desktop-shell__header-actions">
           <AccountProfile status={accountStatus} onOpen={requestAccount} />
-          <button
-            className="desktop-shell__header-button"
-            type="button"
-            aria-label="ย่อหน้าต่าง"
-            title="ย่อหน้าต่าง"
-            onClick={() => void runAction(actions.minimizeWindow)}
-          >
-            <Minimize2 size={15} aria-hidden="true" />
-            <span>ย่อ</span>
-          </button>
-          <button
-            className="desktop-shell__header-button desktop-shell__header-button--danger"
-            type="button"
-            aria-label="ปิดหน้าต่าง"
-            title="ปิดหน้าต่าง"
-            onClick={() => void runAction(actions.closeWindow)}
-          >
-            <X size={15} aria-hidden="true" />
-            <span>ปิด</span>
-          </button>
         </div>
       </header>
 
@@ -1087,11 +1083,7 @@ export function DesktopShell({
         <aside className="desktop-shell__sidebar" aria-label="บริบทงาน">
           <SidebarMenu
             activeSurface={activeSurface}
-            captureLifecycle={captureLifecycle}
             actions={actions}
-            theme={theme}
-            material={material}
-            transparency={transparency}
             companionOpen={companionOpen}
             onNavigate={requestSurface}
             onRunAction={runAction}
@@ -1100,8 +1092,6 @@ export function DesktopShell({
             onPairing={requestPairing}
             onToggleCompanion={() => setCompanionOpen((current) => !current)}
             companionTriggerRef={companionTriggerRef}
-            onMaterialChange={setMaterial}
-            onTransparencyChange={setTransparency}
           />
           <div className="desktop-shell__sidebar-context">
             <ProjectPanel
@@ -1135,9 +1125,22 @@ export function DesktopShell({
               onImport={() => void runAction(actions.importMedia)}
             />
           ) : null}
-          <section className="desktop-shell__surface-content" aria-label={`เนื้อหา${SURFACE_COPY[activeSurface].kicker}`}>
-            {mainContent}
-          </section>
+          {activeSurface === "appearance" ? (
+            <div className="desktop-shell__surface-content" aria-label="เนื้อหาลักษณะ">
+              <AppearanceSurface
+                theme={theme}
+                material={material}
+                transparency={transparency}
+                onThemeChange={actions.setTheme}
+                onMaterialChange={setMaterial}
+                onTransparencyChange={setTransparency}
+              />
+            </div>
+          ) : (
+            <section className="desktop-shell__surface-content" aria-label={`เนื้อหา${SURFACE_COPY[activeSurface].kicker}`}>
+              {mainContent}
+            </section>
+          )}
         </main>
       </div>
 

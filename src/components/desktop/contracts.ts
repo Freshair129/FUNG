@@ -249,7 +249,7 @@ export type ThemeChoice = "system" | "light" | "dark";
 export type MaterialChoice = "glass" | "solid";
 export type TransparencyChoice = "full" | "reduced";
 export type ScopeChoice = "A" | "B";
-export type DesktopSurface = "home" | "live" | "review";
+export type DesktopSurface = "home" | "live" | "review" | "appearance";
 export type DesktopAccountStatus = {
   state:
     | "signed_out"
@@ -314,6 +314,7 @@ export type DesktopShellActions = {
   showHome: () => void;
   showLive: () => void;
   showReview: () => void;
+  showAppearance: () => void;
   startRecording: () => void | Promise<void>;
   stopRecording: () => void | Promise<void>;
   openReview: () => void | Promise<void>;

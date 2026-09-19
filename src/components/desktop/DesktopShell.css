@@ -250,31 +250,68 @@
   padding: 6px 10px;
 }
 
-.desktop-shell__header-button {
-  min-height: 36px;
-  padding: 7px 11px;
+.desktop-shell__appearance-page {
+  max-width: 920px;
+  padding: clamp(20px, 3vw, 32px);
   border: 1px solid var(--shell-line);
-  border-radius: 8px;
+  border-radius: 18px;
   background: var(--shell-surface);
-  color: var(--shell-muted);
-  cursor: pointer;
-  font-size: 12px;
+  box-shadow: var(--shell-shadow);
 }
 
-.desktop-shell__header-button:hover {
-  border-color: var(--shell-slate);
+.desktop-shell__appearance-page-header {
+  display: grid;
+  gap: 8px;
+}
+
+.desktop-shell__appearance-page-header h2 {
+  margin: 0;
   color: var(--shell-ink);
+  font-size: clamp(24px, 3vw, 36px);
+  line-height: 1.1;
 }
 
-.desktop-shell__header-button--danger {
-  border-color: color-mix(in srgb, var(--shell-danger) 45%, var(--shell-line));
-  color: var(--shell-danger);
+.desktop-shell__appearance-page-header p,
+.desktop-shell__appearance-page-note {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--shell-muted);
+  line-height: 1.55;
 }
 
-.desktop-shell__header-button--danger:hover {
-  border-color: var(--shell-danger);
-  background: var(--shell-danger-soft);
-  color: var(--shell-danger);
+.desktop-shell__appearance-page-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.desktop-shell__appearance-page .desktop-shell__theme-choice {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--shell-line);
+  border-radius: 14px;
+  background: var(--shell-surface-muted);
+  color: var(--shell-ink);
+  font-size: 13px;
+  white-space: normal;
+}
+
+.desktop-shell__appearance-page .desktop-shell__theme-choice span {
+  font-weight: 650;
+}
+
+.desktop-shell__appearance-page .desktop-shell__theme-choice select {
+  width: 100%;
+  min-height: 42px;
+}
+
+.desktop-shell__appearance-page-note {
+  margin-top: 20px;
+  font-size: 12px;
 }
 
 .desktop-shell__capture-strip {
@@ -809,7 +846,6 @@
   background: var(--shell-surface);
 }
 
-.desktop-shell[data-fung-root] .desktop-shell__header-button,
 .desktop-shell[data-fung-root] .desktop-shell__button,
 .desktop-shell[data-fung-root] .desktop-shell__home-action {
   border-radius: var(--fung-radius-sm, 8px);
@@ -937,15 +973,6 @@
   white-space: nowrap;
 }
 
-.desktop-shell[data-fung-root] .desktop-shell__header-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 36px;
-  padding: 7px 9px;
-}
-
 .desktop-shell__body {
   grid-template-columns: 72px minmax(0, 1fr);
   min-height: 0;
@@ -1060,7 +1087,6 @@
 
 .desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__nav-label,
 .desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__sidebar-action-label,
-.desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__appearance summary span,
 .desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__profile-copy {
   width: 0;
   opacity: 0;
@@ -1102,60 +1128,9 @@
   color: var(--shell-ink);
 }
 
-.desktop-shell__sidebar-action.is-danger {
-  color: var(--shell-danger);
-}
-
 .desktop-shell__sidebar-action:disabled {
   cursor: not-allowed;
   opacity: 0.45;
-}
-
-.desktop-shell__appearance {
-  min-width: 0;
-  border: 1px solid transparent;
-  border-radius: 13px;
-}
-
-.desktop-shell__appearance[open] {
-  border-color: var(--shell-line);
-  background: color-mix(in srgb, var(--shell-surface) 48%, transparent);
-}
-
-.desktop-shell__appearance summary {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  min-height: 44px;
-  padding: 9px;
-  color: var(--shell-muted);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  list-style: none;
-}
-
-.desktop-shell__appearance summary::-webkit-details-marker {
-  display: none;
-}
-
-.desktop-shell__appearance-fields {
-  display: grid;
-  gap: 8px;
-  padding: 0 9px 10px;
-}
-
-.desktop-shell__appearance .desktop-shell__theme-choice {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 4px;
-  font-size: 11px;
-}
-
-.desktop-shell__appearance .desktop-shell__theme-choice select {
-  width: 100%;
-  min-height: 34px;
-  padding: 5px 8px;
 }
 
 .desktop-shell__sidebar-menu > .desktop-shell__sidebar-action {
@@ -1225,14 +1200,8 @@
     max-width: 180px;
   }
 
-  .desktop-shell__profile-copy small,
-  .desktop-shell__header-button span {
+  .desktop-shell__profile-copy small {
     display: none;
-  }
-
-  .desktop-shell[data-fung-root] .desktop-shell__header-button {
-    width: 36px;
-    padding: 7px;
   }
 
   .desktop-shell__body {
@@ -1252,8 +1221,7 @@
 
   .desktop-shell__sidebar-hint,
   .desktop-shell__sidebar-divider,
-  .desktop-shell__sidebar-context,
-  .desktop-shell__appearance {
+  .desktop-shell__sidebar-context {
     display: none;
   }
 
@@ -1304,6 +1272,10 @@
 
   .desktop-shell__surface-content {
     padding-top: 16px;
+  }
+
+  .desktop-shell__appearance-page-grid {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -79,8 +79,12 @@ test("the desktop rail expands on hover and owns the action menu", async () => {
   assert.doesNotMatch(css, /grid-template-rows:\s*repeat\(6,/);
 });
 
-test("the new sidebar record action opens the real Live Meeting panel", async () => {
+test("recording entry remains owned by the active Live surface, not the sidebar", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const shellSource = await readFile(
+    new URL("../src/components/desktop/DesktopShell.tsx", import.meta.url),
+    "utf8",
+  );
   const actionIndex = appSource.indexOf("startRecording:");
   const actionEnd = appSource.indexOf("stopRecording:", actionIndex);
   const startAction = appSource.slice(actionIndex, actionEnd);
@@ -100,6 +104,8 @@ test("the new sidebar record action opens the real Live Meeting panel", async ()
   // capture state contract intact.
   assert.match(enterWorkspaceBody, /activateAnchor\(anchor\)/);
   assert.match(enterWorkspaceBody, /setShowHome\(false\)/);
+  assert.doesNotMatch(shellSource, /label=\{captureLifecycle[^}]*เริ่มบันทึก/);
+  assert.doesNotMatch(shellSource, /label="หยุดบันทึก"/);
 });
 
 test("the Android shell boots the mobile app, not the desktop shell", () => {

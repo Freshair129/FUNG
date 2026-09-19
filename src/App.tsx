@@ -1172,6 +1172,12 @@ export function App() {
     enterMeetingWorkspace("P2");
   };
 
+  const openAppearanceSurface = () => {
+    setLiveMeetingOpen(false);
+    setShowHome(false);
+    setActiveSurface("appearance");
+  };
+
   const returnToHome = () => {
     setShowHome(true);
     setLiveMeetingOpen(false);
@@ -1500,6 +1506,7 @@ export function App() {
           setActiveSurface("live");
         },
         showReview: openReviewSurface,
+        showAppearance: openAppearanceSurface,
         startRecording: () => {
           enterMeetingWorkspace("P1");
           setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));

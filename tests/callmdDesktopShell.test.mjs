@@ -100,6 +100,7 @@ function createProps(overrides = {}) {
     showHome: () => calls.push(["showHome"]),
     showLive: () => calls.push(["showLive"]),
     showReview: () => calls.push(["showReview"]),
+    showAppearance: () => calls.push(["showAppearance"]),
     startRecording: () => calls.push(["startRecording"]),
     stopRecording: () => calls.push(["stopRecording"]),
     openReview: () => calls.push(["openReview"]),
@@ -238,8 +239,7 @@ test("SSR keeps Home, Live, and History controlled by activeSurface with accessi
   assert.match(homeMarkup, /Surface content/);
   assert.doesNotMatch(homeMarkup, /พื้นที่ทำงานเดิม|callmd-legacy-workspace|fab-topbar|power-dock/);
   assert.match(homeMarkup, /data-surface="home"/);
-  assert.match(homeMarkup, /aria-label="ย่อหน้าต่าง"/);
-  assert.match(homeMarkup, /aria-label="ปิดหน้าต่าง"/);
+  assert.doesNotMatch(homeMarkup, /aria-label="ย่อหน้าต่าง"|aria-label="ปิดหน้าต่าง"/);
 
   const reviewMarkup = renderToStaticMarkup(
     React.createElement(
@@ -256,6 +256,23 @@ test("SSR keeps Home, Live, and History controlled by activeSurface with accessi
   assert.match(reviewMarkup, /บันทึกที่เลือก/);
   assert.match(reviewMarkup, /data-theme="dark"/);
   assert.doesNotMatch(reviewMarkup, /เริ่มประชุม/);
+});
+
+test("appearance is a separate active surface and not an inline sidebar disclosure", () => {
+  const markup = renderToStaticMarkup(
+    React.createElement(DesktopShell, createProps({ activeSurface: "appearance" })),
+  );
+  assert.match(markup, /data-surface="appearance"/);
+  assert.match(markup, /ลักษณะและธีม/);
+  assert.match(markup, /id="desktop-shell-theme"/);
+  assert.match(markup, /id="desktop-shell-material"/);
+  assert.match(markup, /id="desktop-shell-transparency"/);
+
+  const sidebar = markup.match(/<aside[^>]*aria-label="บริบทงาน"[\s\S]*?<\/aside>/)?.[0];
+  assert.ok(sidebar, "appearance render should keep the shell sidebar");
+  assert.match(sidebar, /ลักษณะ/);
+  assert.doesNotMatch(sidebar, /desktop-shell-theme|desktop-shell-material|desktop-shell-transparency/);
+  assert.doesNotMatch(sidebar, /<button[^>]*(เริ่มบันทึก|หยุดบันทึก)/);
 });
 
 test("SSR renders the authoritative unboxed 40px FUNG mark and currentColor wordmark", () => {
@@ -276,24 +293,25 @@ test("SSR renders the authoritative unboxed 40px FUNG mark and currentColor word
 
 test("native window controls and drag boundaries stay explicit", () => {
   assert.match(shellSource, /<header className="desktop-shell__header" data-tauri-drag-region>/);
-  assert.match(shellSource, /actions\.minimizeWindow/);
-  assert.match(shellSource, /actions\.closeWindow/);
+  assert.doesNotMatch(shellSource, /actions\.minimizeWindow|actions\.closeWindow/);
   assert.doesNotMatch(shellSource, /className="panel-glass" data-tauri-drag-region/);
   assert.doesNotMatch(shellSource, /className="fab fab-topbar" data-tauri-drag-region/);
   assert.doesNotMatch(shellSource, /desktop-shell__legacy-workspace|callmd-legacy-workspace|power-dock/);
   assert.doesNotMatch(shellSource, /HomeScreen|InstrumentRail|fab-topbar|power-dock/);
   assert.match(shellCssSource, /\.desktop-shell__header :where\(a, button, select, input, textarea\)/);
-  assert.match(shellCssSource, /\.desktop-shell__header-button--danger/);
+  assert.doesNotMatch(shellCssSource, /\.desktop-shell__header-button/);
 });
 
 test("the shell keeps truthful profile states and the hover rail owns desktop actions", () => {
   const signedOut = renderToStaticMarkup(React.createElement(DesktopShell, createProps()));
   assert.match(signedOut, /สมัคร \/ เข้าสู่ระบบ/);
   assert.match(signedOut, /desktop-shell__sidebar/);
-  assert.match(signedOut, /เริ่มบันทึก/);
+  assert.doesNotMatch(signedOut, /<button[^>]*(เริ่มบันทึก|หยุดบันทึก)/);
   assert.match(signedOut, /นำเข้าไฟล์/);
   assert.match(signedOut, /ส่งออก/);
   assert.match(signedOut, /จับคู่อุปกรณ์/);
+  assert.match(signedOut, /ลักษณะ/);
+  assert.doesNotMatch(signedOut, /desktop-shell__appearance/);
 
   const signedIn = renderToStaticMarkup(
     React.createElement(

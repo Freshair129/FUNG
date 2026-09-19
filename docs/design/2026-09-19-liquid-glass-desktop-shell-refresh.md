@@ -1,7 +1,7 @@
 ---
-version: "0.4.0b"
+version: "1.0.0b"
 created_at: "2026-09-19T15:30:00+07:00,RWANG"
-last_update: "2026-09-19T17:42:17+07:00,RWANG"
+last_update: "2026-09-20T01:11:50+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -49,7 +49,7 @@ attributes:
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
-│ native titlebar: [mark] FUNG / QUIET ARCHIVE       [profile] [—] [×]   │
+│ native titlebar: [mark] FUNG / QUIET ARCHIVE                         [profile] │
 ├────── rail 72px (hover/focus → 248px) ────┬─────────────────────────────┤
 │ [Home]                                    │ active surface                │
 │ [Live]        primary navigation          │ Home / Live / Review          │
@@ -152,7 +152,7 @@ At narrow widths, create a new surface tab/sheet when content would otherwise re
 | Legacy presentation removal | PASS | ลบ `HomeScreen`, `InstrumentRail`, old `.app-shell`/stage tree, `fab-topbar`, power dock และ `desktop-shell__legacy-workspace`; คง Live/Review owners และ handlers จริง |
 | Liquid Glass / motion | PASS (source/build) | `LiquidGlass.css` ลด alpha ของ full glass, เพิ่ม ambient drift keyframes และ reduced-motion/solid fallbacks; ไม่ใช้ animation แทน recording state |
 | Brand / sidebar / profile | PASS (browser) | FUNG → QUIET ARCHIVE lockup, rail 72px → 248px เมื่อ focus/hover, Home/Live/Review/actions, top-right `สมัคร / เข้าสู่ระบบ` และ account sheet ทำงานใน browser surface |
-| Browser click-through | PASS (local) | `http://127.0.0.1:1420/app?surface=desktop`, default viewport 1280×720: Home → Live → Review, rail expansion, appearance disclosure และ profile CTA ผ่าน; additional 1024×768, 768×1024, 390×844 viewport run: NOT RUN |
+| Browser click-through | PASS (local) | `http://127.0.0.1:1420/app?surface=desktop`: Home → Appearance → Live → Review → signed-out profile panel ผ่าน; sidebar ไม่มี recording start/stop และ appearance controls อยู่ในหน้าแยก; additional 1024×768, 768×1024, 390×844 viewport run: NOT RUN |
 | Static / regression | PASS | `npm run build`, `npm run test:callmd-shell`, `npm run test:callmd-integration`, `npm run test:desktop-bootstrap`, `npm run test:callmd-contracts`, `npm run test:callmd-live`, `npm run test:callmd-history`, `npm run test:design-system`, `npm run design-system:check`, `npm run test:release`, `npm run test:auth`, `npm run test:recovery`, `git diff --check` |
 | Windows engineering build | PASS | `npx tauri build --no-bundle`; `src-tauri/target/release/fung.exe`, 25,806,848 bytes, SHA-256 `BED7EFB569BCE7C8BDD4D4716052A3697B7EE41CE50590BB17845E9D8DCEF10E` |
 | Native exact-executable click-through | BLOCKED_ENVIRONMENT | elevated launch could not be bound by the current Computer Use session; user-session launch exits `101` while the build/runtime still reads `..\\.venv-whisper` outside the writable workspace. No native pass is claimed |
@@ -172,6 +172,28 @@ The native boundary is an environment/evidence limitation, not a source/build fa
 
 `LIQUID_GLASS_DESKTOP_ADAPTATION.md 0.3.2b → beta 0.4.0b`: removes the duplicated legacy desktop presentation, moves navigation into an expandable rail, adds truthful account/profile presentation, defines actual translucent glass with bounded ambient motion, and replaces overflow-heavy responsive behavior with surface tabs/sheets.
 
-## 12. Approval record
+## 12. Approved shell delta — 2026-09-20
+
+This approved follow-up supersedes the earlier placement of capture controls, appearance controls, and app-level window controls.
+
+### UI contract
+
+- The persistent sidebar does not render the recording start/stop action. Existing recording handlers remain available from the active Home/Live surfaces and the capture strip when recording is active.
+- Appearance is a dedicated active surface named appearance. The sidebar keeps only a navigation action; theme, material, and transparency controls render in the main surface and are never descendants of the sidebar.
+- The FUNG shell header keeps brand, profile, and truthful recording status only. The app-level ย่อ and ปิด buttons are removed. Native OS titlebar controls and the Tauri drag region remain outside this UI delta.
+- No Tauri command, recording, pairing, auth, or backend contract is removed. Existing window action handlers may remain available to native integrations even though this shell no longer exposes the buttons.
+
+### Verification gate
+
+- Accessibility tree for the shell contains no sidebar control labelled เริ่มบันทึก, หยุดบันทึก, ย่อหน้าต่าง, or ปิดหน้าต่าง.
+- Clicking ลักษณะ navigates to the appearance surface; the page heading is ลักษณะและธีม and all three presentation controls are available in the main content region.
+- Home, Live, Review, account/profile, Settings, Pairing, and Companion flows keep their existing handlers and scope.
+- Browser click-through covers Home → Appearance → Live → Review → profile/settings, followed by the existing static and regression gates.
+
+## 13. Version diff
+
+0.4.0b → 1.0.0b: moves recording out of the persistent sidebar, promotes appearance to a dedicated page, removes app-level minimize/close controls, and keeps the existing native command boundary unchanged.
+
+## 14. Approval record
 
 Approval was recorded in the task conversation on 2026-09-19 before implementation. This document now records the implementation and its evidence boundary; production/release approval remains out of scope.

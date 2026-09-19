@@ -1,10 +1,10 @@
 ---
 id: DS-FUNG-GLASS-DESKTOP-001
 title: "FUNG — Liquid Glass Desktop Adaptation"
-version: "0.4.0b"
+version: "1.0.0b"
 status: "beta"
 created_at: "2026-09-19T08:04:52+07:00"
-last_update: "2026-09-19T17:42:17+07:00"
+last_update: "2026-09-20T01:11:50+07:00"
 language: "th-TH / en"
 parent: "DS-FUNG-001 v0.1.0"
 superseded_by: null
@@ -81,6 +81,13 @@ Reference เหล่านี้อยู่นอก repository และย�
 
 Native window ที่ลอยเหนือแอปอื่นต้องทำ ADR แยกตามข้อเสนอเดิม `ADR-DS-003` และต้องมี lifecycle, focus, multi-monitor, screen-share privacy และ permission evidence ก่อน implementation ห้ามใช้ `position: fixed` แล้วเรียกว่า OS-level overlay
 
+### 3.2 Approved shell delta — 2026-09-20
+
+- Recording start/stop is an active-surface action, not a persistent sidebar action. The existing recording handler and capture guard remain unchanged.
+- Appearance is a separate in-app page with its own active destination. The sidebar may navigate to it, but theme, material, and transparency controls do not render inside the sidebar.
+- The app shell no longer renders minimize/close buttons in the upper-right header. Native OS window controls and the Tauri drag region are not changed by this UI-only delta.
+- The change is presentation-only: no backend, auth, recording, pairing, provider, or native command contract is removed.
+
 ## 4. Material contract
 
 ให้สร้าง/ใช้ namespace แยกจาก baseline tokens เดิม โดยยังไม่ลบหรือเปลี่ยน semantic token source of truth:
@@ -114,7 +121,7 @@ Implementation follows this approved document. Completion requires all of the fo
 | Visual foundation | Current source uses the reviewed Liquid Glass token namespace without deleting baseline tokens |
 | Desktop states | Home, Live Meeting, Review/Summary, Settings and in-app Companion states render in light/dark/system as scoped |
 | Capability truth | No new button reports success without an existing handler/contract; unsupported reference actions remain hidden/disabled/disclosed |
-| Interaction | Keyboard/focus/Escape/material fallback works; Companion close does not affect recording |
+| Interaction | Keyboard/focus/Escape/material fallback works; Companion close does not affect recording; recording is absent from the persistent sidebar; appearance controls are page-scoped |
 | Static validation | `npm run build`, relevant contract tests, token/design-system checks and existing CI pass |
 | Browser visual smoke | Desktop light/dark routes render without console errors; this is separate from native proof |
 | Native proof | Rebuilt release executable is opened and the bounded desktop click-through is actually observed; process launch alone is insufficient |
@@ -157,7 +164,7 @@ Evidence นี้เป็น local engineering evidence เท่านั้�
 | Desktop implementation | PASS (local source/build) | Home, Live, Review/Summary shell, settings slots และ bounded in-app Companion ถูกต่อเข้ากับ existing handlers |
 | Static validation | PASS | `npm run build`, `npm run design-system:check`, `git diff --check` |
 | Contract/regression tests | PASS | `test:desktop-bootstrap`, `test:callmd-contracts`, `test:callmd-shell`, `test:callmd-live`, `test:callmd-integration`, `test:design-system`, `test:release` |
-| Browser visual smoke | PASS (scoped) | Vite `http://127.0.0.1:1420/app?surface=desktop` ที่ default viewport 1280×720: Home → Live → Review, rail focus expansion, appearance disclosure และ top-right account CTA ผ่าน; dark/solid/Companion และ additional 1024×768, 768×1024, 390×844 runs: NOT RUN |
+| Browser visual smoke | PASS (scoped) | Vite `http://127.0.0.1:1420/app?surface=desktop`: Home → Appearance → Live → Review, rail navigation, dedicated appearance controls, no sidebar recording action, and top-right signed-out account CTA ผ่าน; dark/solid/Companion และ additional 1024×768, 768×1024, 390×844 runs: NOT RUN |
 | Windows engineering build | PASS | `npx tauri build --no-bundle`; `src-tauri/target/release/fung.exe`, size `25,806,848` bytes, SHA-256 `BED7EFB569BCE7C8BDD4D4716052A3697B7EE41CE50590BB17845E9D8DCEF10E` |
 | Native desktop click-through | BLOCKED_ENVIRONMENT | Current Computer Use session cannot bind the elevated exact process; user-session launch exits `101` while crossing the external `..\\.venv-whisper` path. No native pass is claimed |
 | Installer / clean install / production | NOT RUN | รอบนี้ใช้ `--no-bundle`; ไม่ใช่ installer, clean-VM หรือ production evidence |
@@ -168,6 +175,7 @@ Evidence นี้เป็น local engineering evidence เท่านั้�
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 1.0.0b | 2026-09-20 | beta | Moved recording out of the persistent rail, promoted appearance to a dedicated page, and removed app-level minimize/close controls | UNCOMMITTED | RWANG |
 | 0.4.0b | 2026-09-19 | beta | Replaced the legacy desktop presentation with the approved hover rail/profile/glass shell; browser and build evidence pass, native recheck remains environment-blocked | UNCOMMITTED | RWANG |
 | 0.3.2b | 2026-09-19 | beta | Recorded bounded native click-through on the exact current executable and retained installer/release limitations | UNCOMMITTED | RWANG |
 | 0.3.1b | 2026-09-19 | beta | Recorded approved implementation, local/browser/build evidence, and explicit native/release gaps | 694607f9ecd67bbc2075f4bb1cba3021dc8b0da | RWANG |

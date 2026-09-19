@@ -51,7 +51,7 @@ const ERROR_LABELS: Record<ReviewErrorCode, string> = {
   CURSOR_INVALID: "รายการประวัติไม่ถูกต้อง",
   CURSOR_EXPIRED: "รายการประวัติหมดอายุ",
   NATIVE_UNAVAILABLE: "ความสามารถนี้ใช้ได้ในแอปเดสก์ท็อปเท่านั้น",
-  LEGACY_COMMAND_FAILED: "คำสั่งเดสก์ท็อปเดิมทำงานไม่สำเร็จ",
+  LEGACY_COMMAND_FAILED: "คำสั่งเดสก์ท็อปทำงานไม่สำเร็จ",
   NO_EVIDENCE: "ยังไม่มีหลักฐานเพียงพอ",
   PROVIDER_UNAVAILABLE: "ยังไม่มีตัวประมวลผลในเครื่อง",
   PROVIDER_FAILED: "ตัวประมวลผลในเครื่องทำงานไม่สำเร็จ",
@@ -406,7 +406,7 @@ export function LiveWorkspace({
     <div className="live-workspace">
       <header className="live-workspace__header">
         <div>
-          <p className="live-workspace__eyebrow">พื้นที่ทำงานเดิม · Live Meeting</p>
+          <p className="live-workspace__eyebrow">พื้นที่ประชุมสด · Live Meeting</p>
           <h2 ref={headingRef} tabIndex={-1} id="live-workspace-title">
             บันทึกเสียงการประชุม
           </h2>
@@ -426,7 +426,7 @@ export function LiveWorkspace({
             </button>
           ) : null}
           <button type="button" className="live-btn" onClick={handleClose}>
-            กลับไปพื้นที่ทำงานเดิม
+            กลับไปหน้าหลัก
           </button>
         </div>
       </header>

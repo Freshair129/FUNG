@@ -3,15 +3,34 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
 } from "react";
-import { Sparkles } from "lucide-react";
+import {
+  Archive,
+  Circle,
+  Download,
+  History,
+  Home,
+  LogIn,
+  Minimize2,
+  PanelLeft,
+  Radio,
+  Settings2,
+  SlidersHorizontal,
+  Sparkles,
+  Upload,
+  UserRound,
+  Wifi,
+  X,
+} from "lucide-react";
 import type { LiveStatusOutput } from "../../tauri.ts";
 import { CompanionPanel } from "./CompanionPanel";
 import {
   normalizeReviewError,
   type DesktopShellProps,
   type DesktopSurface,
+  type DesktopAccountStatus,
   type LivePhase,
   type MaterialChoice,
   type ReadState,
@@ -158,7 +177,10 @@ function SurfaceNavigation({ activeSurface, onNavigate }: SurfaceNavigationProps
             onNavigate(item.id, event.currentTarget);
           }}
         >
-          {item.label}
+          <span className="desktop-shell__nav-icon" aria-hidden="true">
+            {item.id === "home" ? <Home size={17} /> : item.id === "live" ? <Radio size={17} /> : <History size={17} />}
+          </span>
+          <span className="desktop-shell__nav-label">{item.label}</span>
         </a>
       ))}
     </nav>
@@ -234,6 +256,201 @@ function TransparencySelect({ transparency, onChange }: TransparencySelectProps)
         ))}
       </select>
     </label>
+  );
+}
+
+function AccountProfile({
+  status,
+  onOpen,
+}: {
+  status: DesktopAccountStatus | null | undefined;
+  onOpen: (initiator: HTMLButtonElement) => void;
+}) {
+
+  const isAuthenticated = status?.state === "authenticated";
+  const isTransitioning = status?.state === "login_pending" || status?.state === "refreshing";
+  const label = isAuthenticated
+    ? status.email ?? "ลงชื่อเข้าใช้แล้ว"
+    : isTransitioning
+      ? "กำลังยืนยันบัญชี…"
+      : status?.state === "refresh_failed"
+        ? "เข้าสู่ระบบใหม่"
+        : "สมัคร / เข้าสู่ระบบ";
+
+  return (
+    <button
+      className={`desktop-shell__profile${isAuthenticated ? " is-authenticated" : ""}`}
+      type="button"
+      aria-label={isAuthenticated ? `บัญชี ${label}` : "สมัครหรือเข้าสู่ระบบ"}
+      onClick={(event) => onOpen(event.currentTarget)}
+    >
+      <span className="desktop-shell__profile-icon" aria-hidden="true">
+        {isAuthenticated ? <UserRound size={17} /> : <LogIn size={17} />}
+      </span>
+      <span className="desktop-shell__profile-copy">
+        <small>{isAuthenticated ? "บัญชี FUNG" : "บัญชี"}</small>
+        <strong>{label}</strong>
+      </span>
+    </button>
+  );
+}
+
+type SidebarActionButtonProps = {
+  icon: JSX.Element;
+  label: string;
+  onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void;
+  buttonRef?: MutableRefObject<HTMLButtonElement | null>;
+  disabled?: boolean;
+  title?: string;
+  active?: boolean;
+  danger?: boolean;
+};
+
+function SidebarActionButton({
+  icon,
+  label,
+  onClick,
+  buttonRef,
+  disabled = false,
+  title,
+  active = false,
+  danger = false,
+}: SidebarActionButtonProps) {
+  return (
+    <button
+      ref={buttonRef}
+      className={`desktop-shell__sidebar-action${active ? " is-active" : ""}${danger ? " is-danger" : ""}`}
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title ?? label}
+      aria-label={label}
+    >
+      <span className="desktop-shell__sidebar-action-icon" aria-hidden="true">
+        {icon}
+      </span>
+      <span className="desktop-shell__sidebar-action-label">{label}</span>
+    </button>
+  );
+}
+
+type SidebarMenuProps = {
+  activeSurface: DesktopSurface;
+  captureLifecycle: CaptureLifecycle;
+  actions: DesktopShellProps["actions"];
+  theme: ThemeChoice;
+  material: MaterialChoice;
+  transparency: TransparencyChoice;
+  companionOpen: boolean;
+  onNavigate: (surface: DesktopSurface, initiator: HTMLElement) => void;
+  onRunAction: (action: () => void | Promise<void>) => void;
+  onSettings: (initiator: HTMLElement) => void;
+  onAccount: (initiator: HTMLElement) => void;
+  onPairing: (initiator: HTMLElement) => void;
+  onToggleCompanion: () => void;
+  companionTriggerRef: MutableRefObject<HTMLButtonElement | null>;
+  onMaterialChange: (material: MaterialChoice) => void;
+  onTransparencyChange: (transparency: TransparencyChoice) => void;
+};
+
+function SidebarMenu({
+  activeSurface,
+  captureLifecycle,
+  actions,
+  theme,
+  material,
+  transparency,
+  companionOpen,
+  onNavigate,
+  onRunAction,
+  onSettings,
+  onAccount,
+  onPairing,
+  onToggleCompanion,
+  companionTriggerRef,
+  onMaterialChange,
+  onTransparencyChange,
+}: SidebarMenuProps) {
+  return (
+    <div className="desktop-shell__sidebar-menu">
+      <div className="desktop-shell__sidebar-hint" aria-hidden="true">
+        <PanelLeft size={15} />
+        <span>เมนู</span>
+      </div>
+
+      <SurfaceNavigation activeSurface={activeSurface} onNavigate={onNavigate} />
+
+      <div className="desktop-shell__sidebar-divider" />
+
+      <div className="desktop-shell__sidebar-actions" aria-label="การทำงาน">
+        <SidebarActionButton
+          icon={captureLifecycle === "inactive" ? <Circle size={17} /> : <Radio size={17} />}
+          label={captureLifecycle === "inactive" ? "เริ่มบันทึก" : "หยุดบันทึก"}
+          active={captureLifecycle !== "inactive"}
+          danger={captureLifecycle !== "inactive"}
+          onClick={() =>
+            onRunAction(captureLifecycle === "inactive" ? actions.startRecording : actions.stopRecording)
+          }
+        />
+        <SidebarActionButton
+          icon={<Upload size={17} />}
+          label="นำเข้าไฟล์"
+          onClick={() => onRunAction(actions.importMedia)}
+        />
+        <SidebarActionButton
+          icon={<Download size={17} />}
+          label="ส่งออก"
+          disabled={actions.exportDisabled}
+          title={actions.exportTitle}
+          onClick={() => onRunAction(actions.exportMedia)}
+        />
+        <SidebarActionButton
+          icon={<Archive size={17} />}
+          label="ทบทวนบันทึก"
+          onClick={(event) => onNavigate("review", event.currentTarget)}
+        />
+      </div>
+
+      <div className="desktop-shell__sidebar-divider" />
+
+      <div className="desktop-shell__sidebar-actions" aria-label="การตั้งค่าและอุปกรณ์">
+        <SidebarActionButton
+          icon={<Wifi size={17} />}
+          label="จับคู่อุปกรณ์"
+          onClick={(event) => onPairing(event.currentTarget)}
+        />
+        <SidebarActionButton
+          icon={<Settings2 size={17} />}
+          label="ตั้งค่า"
+          onClick={(event) => onSettings(event.currentTarget)}
+        />
+        <SidebarActionButton
+          icon={<Sparkles size={17} />}
+          label="Companion"
+          active={companionOpen}
+          buttonRef={companionTriggerRef}
+          onClick={onToggleCompanion}
+        />
+      </div>
+
+      <details className="desktop-shell__appearance">
+        <summary>
+          <SlidersHorizontal size={17} aria-hidden="true" />
+          <span>ลักษณะ</span>
+        </summary>
+        <div className="desktop-shell__appearance-fields">
+          <ThemeChoice theme={theme} onChange={actions.setTheme} />
+          <MaterialSelect material={material} onChange={onMaterialChange} />
+          <TransparencySelect transparency={transparency} onChange={onTransparencyChange} />
+        </div>
+      </details>
+
+      <SidebarActionButton
+        icon={<UserRound size={17} />}
+        label="บัญชี"
+        onClick={(event) => onAccount(event.currentTarget)}
+      />
+    </div>
   );
 }
 
@@ -602,6 +819,7 @@ export function DesktopShell({
   liveStatus,
   livePhase = "idle",
   theme,
+  accountStatus,
   mainContent,
   settingsSlot,
   pairingSlot,
@@ -711,6 +929,13 @@ export function DesktopShell({
     );
   };
 
+  const requestAccount = (initiator: HTMLElement) => {
+    requestNavigation(
+      { label: "บัญชี", leavesCaptureContext: true, action: actions.openAccount },
+      initiator,
+    );
+  };
+
   const requestPairing = (initiator: HTMLElement) => {
     requestNavigation(
       { label: "จับคู่อุปกรณ์", leavesCaptureContext: true, action: actions.openPairing },
@@ -796,7 +1021,6 @@ export function DesktopShell({
   };
 
   const themeClass = theme === "dark" ? "desktop-shell--dark" : theme === "light" ? "desktop-shell--light" : "desktop-shell--system";
-  const surfaceCopy = SURFACE_COPY[activeSurface];
 
   return (
     <div
@@ -815,42 +1039,17 @@ export function DesktopShell({
         <div className="desktop-shell__brand" role="img" aria-label="FUNG Quiet Archive">
           <div className="desktop-shell__brand-lockup">
             {FUNG_BRAND_MARK}
-            <span className="desktop-shell__brand-wordmark" aria-hidden="true">
-              FUNG
+            <span className="desktop-shell__brand-type">
+              <span className="desktop-shell__brand-wordmark" aria-hidden="true">FUNG</span>
+              <span className="desktop-shell__brand-note">QUIET ARCHIVE</span>
             </span>
           </div>
-          <span className="desktop-shell__brand-note">QUIET ARCHIVE</span>
         </div>
-        <SurfaceNavigation activeSurface={activeSurface} onNavigate={requestSurface} />
+        <div className="desktop-shell__header-status" aria-live="polite">
+          {captureLifecycle !== "inactive" ? <span className="desktop-shell__header-live"><Radio size={14} /> กำลังบันทึก</span> : null}
+        </div>
         <div className="desktop-shell__header-actions">
-          <ThemeChoice theme={theme} onChange={actions.setTheme} />
-          <MaterialSelect material={material} onChange={setMaterial} />
-          <TransparencySelect transparency={transparency} onChange={setTransparency} />
-          <button
-            ref={companionTriggerRef}
-            className="desktop-shell__header-button desktop-shell__header-button--companion"
-            type="button"
-            aria-expanded={companionOpen}
-            aria-controls="fung-companion-panel"
-            onClick={() => setCompanionOpen((current) => !current)}
-          >
-            <Sparkles size={15} aria-hidden="true" />
-            Companion
-          </button>
-          <button
-            className="desktop-shell__header-button"
-            type="button"
-            onClick={(event) => requestSettings(event.currentTarget)}
-          >
-            ตั้งค่า
-          </button>
-          <button
-            className="desktop-shell__header-button"
-            type="button"
-            onClick={(event) => requestPairing(event.currentTarget)}
-          >
-            จับคู่อุปกรณ์
-          </button>
+          <AccountProfile status={accountStatus} onOpen={requestAccount} />
           <button
             className="desktop-shell__header-button"
             type="button"
@@ -858,7 +1057,8 @@ export function DesktopShell({
             title="ย่อหน้าต่าง"
             onClick={() => void runAction(actions.minimizeWindow)}
           >
-            ย่อ
+            <Minimize2 size={15} aria-hidden="true" />
+            <span>ย่อ</span>
           </button>
           <button
             className="desktop-shell__header-button desktop-shell__header-button--danger"
@@ -867,7 +1067,8 @@ export function DesktopShell({
             title="ปิดหน้าต่าง"
             onClick={() => void runAction(actions.closeWindow)}
           >
-            ปิด
+            <X size={15} aria-hidden="true" />
+            <span>ปิด</span>
           </button>
         </div>
       </header>
@@ -884,18 +1085,38 @@ export function DesktopShell({
 
       <div className="desktop-shell__body">
         <aside className="desktop-shell__sidebar" aria-label="บริบทงาน">
-          <ProjectPanel
-            project={project}
-            selectedProjectId={selectedProjectId}
-            selection={selection}
-            onSelectProject={requestProject}
+          <SidebarMenu
+            activeSurface={activeSurface}
+            captureLifecycle={captureLifecycle}
+            actions={actions}
+            theme={theme}
+            material={material}
+            transparency={transparency}
+            companionOpen={companionOpen}
+            onNavigate={requestSurface}
+            onRunAction={runAction}
+            onSettings={requestSettings}
+            onAccount={requestAccount}
+            onPairing={requestPairing}
+            onToggleCompanion={() => setCompanionOpen((current) => !current)}
+            companionTriggerRef={companionTriggerRef}
+            onMaterialChange={setMaterial}
+            onTransparencyChange={setTransparency}
           />
-          <div className="desktop-shell__sidebar-note">
-            <span>สถานะพื้นที่</span>
-            <strong>{captureLifecycle === "inactive" ? "พร้อมตรวจสอบ" : "มีเซสชันบันทึกอยู่"}</strong>
-            <p>การเปลี่ยนธีมไม่เปลี่ยนโครงการหรือสถานะการบันทึก</p>
+          <div className="desktop-shell__sidebar-context">
+            <ProjectPanel
+              project={project}
+              selectedProjectId={selectedProjectId}
+              selection={selection}
+              onSelectProject={requestProject}
+            />
+            <div className="desktop-shell__sidebar-note">
+              <span>สถานะพื้นที่</span>
+              <strong>{captureLifecycle === "inactive" ? "พร้อมตรวจสอบ" : "มีเซสชันบันทึกอยู่"}</strong>
+              <p>การเปลี่ยนธีมไม่เปลี่ยนโครงการหรือสถานะการบันทึก</p>
+            </div>
+            {recoverySlot ? <div className="desktop-shell__owned-slot">{recoverySlot}</div> : null}
           </div>
-          {recoverySlot ? <div className="desktop-shell__owned-slot">{recoverySlot}</div> : null}
         </aside>
 
         <main id="desktop-shell-main" className="desktop-shell__main" tabIndex={-1}>
@@ -914,12 +1135,8 @@ export function DesktopShell({
               onImport={() => void runAction(actions.importMedia)}
             />
           ) : null}
-          <section className="desktop-shell__legacy-workspace" aria-label={`พื้นที่ทำงานเดิม: ${surfaceCopy.kicker}`}>
-            <div className="desktop-shell__legacy-heading">
-              <span>พื้นที่ทำงานเดิม</span>
-              <small>{surfaceCopy.kicker}</small>
-            </div>
-            <div className="desktop-shell__legacy-content">{mainContent}</div>
+          <section className="desktop-shell__surface-content" aria-label={`เนื้อหา${SURFACE_COPY[activeSurface].kicker}`}>
+            {mainContent}
           </section>
         </main>
       </div>

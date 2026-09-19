@@ -525,7 +525,7 @@ test("recording Q&A, export listing, and queued jobs keep project/recording scop
   );
   assert.equal(controller.snapshot.question, "เก็บคำถามเมื่อเกิดข้อผิดพลาด");
   assert.equal(controller.snapshot.ask.error.code, "LEGACY_COMMAND_FAILED");
-  assert.equal(controller.snapshot.ask.error.message, "Legacy desktop command failed.");
+  assert.equal(controller.snapshot.ask.error.message, "Desktop command failed.");
 
   mode = "answer";
   controller.setQuestion("คำถามที่สำเร็จ");

@@ -2432,7 +2432,7 @@ export function RecordingReviewView({
             ) : list.data && list.data.items.length === 0 ? (
               <ReviewStateCard
                 title="ยังไม่มีบันทึกย้อนหลังในโครงการนี้"
-                detail="เริ่มบันทึกหรือนำเข้าเสียงจากพื้นที่ทำงานเดิมเพื่อให้รายการปรากฏ"
+                detail="เริ่มบันทึกหรือนำเข้าเสียงจากพื้นที่นี้เพื่อให้รายการปรากฏ"
               />
             ) : (
               <>

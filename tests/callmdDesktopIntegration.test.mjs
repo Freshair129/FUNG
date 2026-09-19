@@ -296,9 +296,8 @@ function makeReviewBridge() {
 }
 
 if (!fixtureMode) {
-  const [appSource, railSource, stylesSource, mainSource, liveSource, reviewSource] = await Promise.all([
+  const [appSource, stylesSource, mainSource, liveSource, reviewSource] = await Promise.all([
     readFile(path.resolve(root, "src/App.tsx"), "utf8"),
-    readFile(path.resolve(root, "src/components/InstrumentRail.tsx"), "utf8"),
     readFile(path.resolve(root, "src/styles.css"), "utf8"),
     readFile(path.resolve(root, "src/main.tsx"), "utf8"),
     readFile(path.resolve(root, "src/components/LiveMeetingPanel.tsx"), "utf8"),
@@ -332,7 +331,7 @@ if (!fixtureMode) {
     assert.match(appSource, /activeRecordingId/);
   });
 
-  test("production paths keep close acknowledgement, true inactive stop, recovery mapping, and legacy slots", () => {
+  test("production paths keep close acknowledgement, true inactive stop, recovery mapping, and shell slots", () => {
     assert.match(liveSource, /runStartWithCloseAck\(/);
     assert.match(liveSource, /closeReviewPlayer\s*:/);
     assert.match(appSource, /return liveController\.stopAndLeave\(\)/);
@@ -348,12 +347,13 @@ if (!fixtureMode) {
     assert.match(mainSource, /React\.StrictMode/);
   });
 
-  test("InstrumentRail exposes real stop and native review actions", () => {
-    assert.match(railSource, /onClick=\{recording \? onStop : onRecord\}/);
-    assert.match(railSource, /aria-label=\{recording \? "Stop recording" : "Start recording"\}/);
-    assert.match(railSource, /onClick=\{onOpenReview\}/);
-    assert.doesNotMatch(railSource, /Playback unavailable/);
-    assert.match(stylesSource, /\.desktop-shell \.callmd-legacy-workspace \.app-shell/);
+  test("the new shell owns actions and removes the legacy presentation tree", () => {
+    assert.match(appSource, /startRecording:\s*\(\) =>/);
+    assert.match(appSource, /stopRecording:\s*handleStopCapture/);
+    assert.match(appSource, /exportMedia:/);
+    assert.doesNotMatch(appSource, /<InstrumentRail\b|<HomeScreen\b/);
+    assert.doesNotMatch(appSource, /callmd-legacy-workspace|className="app-shell|fab-topbar|power-dock/);
+    assert.match(appSource, /mainContent=\{\(/);
     assert.doesNotMatch(
       stylesSource,
       /(^|\n)\s*\.callmd-desktop-content\s*\{/m,
@@ -418,12 +418,12 @@ if (!fixtureMode) {
     assert.match(appSource, /useEffect\(\(\) => subscribeToSystemTheme\(setSystemTheme\), \[\]\)/);
     assert.match(appSource, /const effectiveTheme = resolveEffectiveTheme\(theme, systemTheme\)/);
     assert.ok(appSource.includes("className={`callmd-surface-stack theme-${effectiveTheme}`}"));
-    assert.ok(appSource.includes("className={`app-shell theme-${effectiveTheme}`}"));
+    assert.doesNotMatch(appSource, /className={`app-shell theme-\$\{effectiveTheme\}`}/);
 
     const surfaceStart = appSource.indexOf("className={`callmd-surface-stack theme-${effectiveTheme}`}");
-    const legacyStart = appSource.indexOf('<div className="callmd-legacy-workspace">', surfaceStart);
-    assert.ok(surfaceStart >= 0 && legacyStart > surfaceStart);
-    const surfaceMarkup = appSource.slice(surfaceStart, legacyStart);
+    assert.ok(surfaceStart >= 0);
+    assert.doesNotMatch(appSource, /callmd-legacy-workspace/);
+    const surfaceMarkup = appSource.slice(surfaceStart);
     assert.match(surfaceMarkup, /<LiveMeetingPanel\b/);
     assert.match(surfaceMarkup, /<RecordingReview\b/);
   });

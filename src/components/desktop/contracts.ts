@@ -102,7 +102,7 @@ export function normalizeReviewError(error: unknown): ReviewError {
 
   return {
     code: "LEGACY_COMMAND_FAILED",
-    message: "Legacy desktop command failed.",
+    message: "Desktop command failed.",
     retryable: false,
   };
 }
@@ -250,6 +250,18 @@ export type MaterialChoice = "glass" | "solid";
 export type TransparencyChoice = "full" | "reduced";
 export type ScopeChoice = "A" | "B";
 export type DesktopSurface = "home" | "live" | "review";
+export type DesktopAccountStatus = {
+  state:
+    | "signed_out"
+    | "login_pending"
+    | "authenticated"
+    | "refreshing"
+    | "refresh_failed"
+    | "logout_pending"
+    | "credential_cleanup_failed"
+    | "shutdown";
+  email: string | null;
+};
 export type LivePhase =
   | "idle"
   | "starting"
@@ -302,10 +314,17 @@ export type DesktopShellActions = {
   showHome: () => void;
   showLive: () => void;
   showReview: () => void;
+  startRecording: () => void | Promise<void>;
+  stopRecording: () => void | Promise<void>;
+  openReview: () => void | Promise<void>;
   stopAndLeave: StopAndLeaveAction;
   openSettings: () => void;
+  openAccount: () => void;
   openPairing: () => void;
   importMedia: () => void | Promise<void>;
+  exportMedia: () => void | Promise<void>;
+  exportDisabled?: boolean;
+  exportTitle?: string;
   setTheme: (theme: ThemeChoice) => void;
   minimizeWindow: () => void | Promise<void>;
   closeWindow: () => void | Promise<void>;
@@ -320,6 +339,7 @@ export type DesktopShellProps = {
   liveStatus: ReadState<LiveStatusOutput>;
   livePhase?: LivePhase;
   theme: ThemeChoice;
+  accountStatus?: DesktopAccountStatus | null;
   mainContent: ReactNode;
   settingsSlot?: ReactNode;
   pairingSlot?: ReactNode;

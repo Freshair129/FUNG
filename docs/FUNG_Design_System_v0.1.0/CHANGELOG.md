@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0b — 2026-09-19 — Beta
+
+ปรับ desktop shell ตาม approved Liquid Glass refresh: ลบ legacy presentation tree, ย้ายเมนูเข้า hover/focus rail, เพิ่ม FUNG/QUIET ARCHIVE lockup, profile CTA, ambient motion และ responsive surface layout; browser/build/regression ผ่าน แต่ native exact-executable click-through รอบนี้ถูกบันทึกเป็น `BLOCKED_ENVIRONMENT`
+
 ## 0.3.2 — 2026-09-19 — Beta
 
 บันทึกผล bounded native desktop click-through บน `src-tauri/target/release/fung.exe`: ตรวจ Liquid Glass controls, Companion, Home → Live → Review, Settings open/close และ stale binary distinction; installer, clean install, production และ full accessibility ยังไม่ run

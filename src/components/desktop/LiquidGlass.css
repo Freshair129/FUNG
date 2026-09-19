@@ -10,10 +10,10 @@
   --fung-glass-radius-card: 22px;
   --fung-glass-radius-nav: 30px;
   --fung-glass-canvas: #eef0e9;
-  --fung-glass-chrome: rgba(252, 252, 246, 0.76);
-  --fung-glass-control: rgba(248, 251, 245, 0.68);
-  --fung-glass-reader: rgba(255, 254, 250, 0.96);
-  --fung-glass-sheet: rgba(255, 254, 250, 0.95);
+  --fung-glass-chrome: rgba(252, 252, 246, 0.48);
+  --fung-glass-control: rgba(248, 251, 245, 0.34);
+  --fung-glass-reader: rgba(255, 254, 250, 0.68);
+  --fung-glass-sheet: rgba(255, 254, 250, 0.8);
   --fung-glass-edge: rgba(88, 104, 94, 0.44);
   --fung-glass-highlight: rgba(255, 255, 255, 0.94);
   --fung-glass-shade: rgba(53, 71, 59, 0.17);
@@ -24,8 +24,8 @@
   isolation: isolate;
   overflow: hidden;
   background:
-    radial-gradient(circle at 12% 18%, rgba(141, 162, 150, 0.2), transparent 30%),
-    radial-gradient(circle at 88% 82%, rgba(207, 215, 221, 0.28), transparent 32%),
+    radial-gradient(circle at 12% 18%, rgba(141, 162, 150, 0.42), transparent 34%),
+    radial-gradient(circle at 88% 82%, rgba(207, 215, 221, 0.42), transparent 36%),
     var(--fung-glass-canvas);
   color: var(--fung-glass-text);
   color-scheme: light;
@@ -34,10 +34,10 @@
 .desktop-shell[data-material="glass"].desktop-shell--dark,
 .desktop-shell[data-material="glass"][data-theme="dark"] {
   --fung-glass-canvas: #111a17;
-  --fung-glass-chrome: rgba(27, 40, 34, 0.76);
-  --fung-glass-control: rgba(53, 70, 62, 0.64);
-  --fung-glass-reader: rgba(22, 32, 27, 0.96);
-  --fung-glass-sheet: rgba(28, 40, 33, 0.96);
+  --fung-glass-chrome: rgba(27, 40, 34, 0.48);
+  --fung-glass-control: rgba(53, 70, 62, 0.38);
+  --fung-glass-reader: rgba(22, 32, 27, 0.7);
+  --fung-glass-sheet: rgba(28, 40, 33, 0.82);
   --fung-glass-edge: rgba(205, 223, 213, 0.42);
   --fung-glass-highlight: rgba(248, 255, 249, 0.7);
   --fung-glass-shade: rgba(2, 10, 7, 0.5);
@@ -46,18 +46,18 @@
   --fung-glass-muted: #cad1c9;
   color-scheme: dark;
   background:
-    radial-gradient(circle at 14% 16%, rgba(84, 122, 105, 0.25), transparent 31%),
-    radial-gradient(circle at 85% 76%, rgba(117, 135, 149, 0.2), transparent 34%),
+    radial-gradient(circle at 14% 16%, rgba(84, 122, 105, 0.42), transparent 35%),
+    radial-gradient(circle at 85% 76%, rgba(117, 135, 149, 0.34), transparent 38%),
     var(--fung-glass-canvas);
 }
 
 @media (prefers-color-scheme: dark) {
   .desktop-shell[data-material="glass"].desktop-shell--system {
     --fung-glass-canvas: #111a17;
-    --fung-glass-chrome: rgba(27, 40, 34, 0.76);
-    --fung-glass-control: rgba(53, 70, 62, 0.64);
-    --fung-glass-reader: rgba(22, 32, 27, 0.96);
-    --fung-glass-sheet: rgba(28, 40, 33, 0.96);
+    --fung-glass-chrome: rgba(27, 40, 34, 0.48);
+    --fung-glass-control: rgba(53, 70, 62, 0.38);
+    --fung-glass-reader: rgba(22, 32, 27, 0.7);
+    --fung-glass-sheet: rgba(28, 40, 33, 0.82);
     --fung-glass-edge: rgba(205, 223, 213, 0.42);
     --fung-glass-highlight: rgba(248, 255, 249, 0.7);
     --fung-glass-shade: rgba(2, 10, 7, 0.5);
@@ -75,9 +75,28 @@
   content: "";
   pointer-events: none;
   background:
-    linear-gradient(126deg, transparent 0 31%, rgba(255, 255, 255, 0.08) 38%, transparent 43%),
-    linear-gradient(314deg, transparent 0 55%, rgba(143, 183, 160, 0.12) 63%, transparent 70%);
-  opacity: 0.72;
+    radial-gradient(circle at 12% 22%, rgba(255, 255, 255, 0.22), transparent 24%),
+    radial-gradient(circle at 82% 72%, rgba(113, 171, 137, 0.2), transparent 28%),
+    linear-gradient(126deg, transparent 0 31%, rgba(255, 255, 255, 0.1) 38%, transparent 43%),
+    linear-gradient(314deg, transparent 0 55%, rgba(143, 183, 160, 0.16) 63%, transparent 70%);
+  opacity: 0.92;
+  transform: scale(1.08);
+  animation: fung-ambient-drift 24s ease-in-out infinite alternate;
+}
+
+@keyframes fung-ambient-drift {
+  0% {
+    transform: scale(1.08) translate3d(-1.5%, -1%, 0);
+    filter: hue-rotate(0deg) saturate(1);
+  }
+  50% {
+    transform: scale(1.14) translate3d(1%, 1.5%, 0);
+    filter: hue-rotate(8deg) saturate(1.08);
+  }
+  100% {
+    transform: scale(1.1) translate3d(2%, -1%, 0);
+    filter: hue-rotate(-5deg) saturate(1.04);
+  }
 }
 
 .desktop-shell[data-material="glass"] > * {
@@ -96,8 +115,9 @@
 }
 
 .desktop-shell[data-material="glass"] .desktop-shell__header {
-  min-height: 82px;
-  padding: 18px 30px;
+  min-height: 58px;
+  height: 58px;
+  padding: 8px 16px;
 }
 
 .desktop-shell[data-material="glass"] .desktop-shell__brand-note,
@@ -229,120 +249,6 @@
   background: var(--fung-glass-control);
   color: var(--fung-glass-text);
 }
-
-.desktop-shell[data-material="glass"] .desktop-shell__legacy-workspace {
-  margin-top: 22px;
-  border-top: 0;
-  padding-top: 0;
-}
-
-.desktop-shell[data-material="glass"] .desktop-shell__legacy-heading {
-  border: 0;
-  padding: 0 4px 12px;
-  color: var(--fung-glass-muted);
-}
-
-.desktop-shell[data-material="glass"] .desktop-shell__legacy-content {
-  padding-top: 0;
-}
-
-.desktop-shell[data-material="glass"] .callmd-desktop-content,
-.desktop-shell[data-material="glass"] .callmd-surface-stack {
-  gap: 18px;
-}
-
-.desktop-shell[data-material="glass"] .callmd-legacy-workspace .app-shell {
-  border-radius: 28px;
-  background: transparent;
-}
-
-.desktop-shell[data-material="glass"] .callmd-legacy-workspace .panel-glass {
-  border: 1px solid var(--fung-glass-edge);
-  border-radius: 28px;
-  clip-path: none;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 42%),
-    var(--fung-glass-reader);
-  box-shadow: 0 22px 58px rgba(0, 0, 0, 0.22), inset 0 1px 0 var(--fung-glass-highlight);
-  backdrop-filter: blur(var(--fung-glass-blur)) saturate(var(--fung-glass-saturation));
-  -webkit-backdrop-filter: blur(var(--fung-glass-blur)) saturate(var(--fung-glass-saturation));
-}
-
-.desktop-shell[data-material="glass"] .callmd-legacy-workspace .panel-glass::before {
-  background:
-    linear-gradient(125deg, rgba(255, 255, 255, 0.12), transparent 42%),
-    linear-gradient(315deg, transparent 45%, rgba(133, 185, 153, 0.12), transparent 72%);
-}
-
-.desktop-shell[data-material="glass"] .home-screen__brand,
-.desktop-shell[data-material="glass"] .home-screen__list-label,
-.desktop-shell[data-material="glass"] .home-screen__row-subtitle {
-  color: var(--fung-glass-muted);
-}
-
-.desktop-shell[data-material="glass"] .home-screen__hero,
-.desktop-shell[data-material="glass"] .home-screen__secondary,
-.desktop-shell[data-material="glass"] .home-screen__row,
-.desktop-shell[data-material="glass"] .home-screen__empty {
-  border: 1px solid var(--fung-glass-edge);
-  border-radius: var(--fung-glass-radius-control);
-  background: var(--fung-glass-control);
-  box-shadow: inset 0 1px 0 var(--fung-glass-highlight), 0 12px 28px rgba(0, 0, 0, 0.14);
-  color: var(--fung-glass-text);
-}
-
-.desktop-shell[data-material="glass"] .home-screen__hero {
-  min-height: 58px;
-  background: linear-gradient(145deg, rgba(111, 154, 131, 0.86), rgba(53, 91, 72, 0.94));
-}
-
-.desktop-shell[data-material="glass"] .home-screen__row {
-  padding: 16px 18px;
-}
-
-.desktop-shell[data-material="glass"] .home-screen__secondary:hover,
-.desktop-shell[data-material="glass"] .home-screen__row:hover,
-.desktop-shell[data-material="glass"] .home-screen__hero:hover {
-  border-color: var(--fung-glass-highlight);
-  transform: translateY(-1px);
-}
-
-.desktop-shell[data-material="glass"] .zone,
-.desktop-shell[data-material="glass"] .slot-card,
-.desktop-shell[data-material="glass"] .stat-pill,
-.desktop-shell[data-material="glass"] .toggle-card,
-.desktop-shell[data-material="glass"] .signal-card,
-.desktop-shell[data-material="glass"] .anchor-chip,
-.desktop-shell[data-material="glass"] .sidebar-action,
-.desktop-shell[data-material="glass"] .icon-button,
-.desktop-shell[data-material="glass"] .action-chip,
-.desktop-shell[data-material="glass"] .focus-tile,
-.desktop-shell[data-material="glass"] .focus-detail-dock,
-.desktop-shell[data-material="glass"] .agent-current,
-.desktop-shell[data-material="glass"] .quick-action,
-.desktop-shell[data-material="glass"] .badge,
-.desktop-shell[data-material="glass"] .map-node {
-  border-color: var(--fung-glass-edge);
-  background: var(--fung-glass-control);
-  box-shadow: inset 0 1px 0 var(--fung-glass-highlight), 0 10px 24px rgba(0, 0, 0, 0.12);
-  color: var(--fung-glass-text);
-}
-
-.desktop-shell[data-material="glass"] .minimap,
-.desktop-shell[data-material="glass"] .meter,
-.desktop-shell[data-material="glass"] .segmented {
-  background: var(--fung-glass-reader);
-  border-color: var(--fung-glass-edge);
-}
-
-.desktop-shell[data-material="glass"] .quick-action--primary,
-.desktop-shell[data-material="glass"] .sidebar-action.is-active,
-.desktop-shell[data-material="glass"] .map-node--active,
-.desktop-shell[data-material="glass"] .segmented__item.is-active {
-  background: linear-gradient(145deg, rgba(111, 154, 131, 0.86), rgba(53, 91, 72, 0.94));
-  color: #f8fff9;
-}
-
 .desktop-shell[data-material="glass"] .live-workspace,
 .desktop-shell[data-material="glass"] .recording-review {
   color: var(--fung-glass-text);
@@ -410,7 +316,6 @@
 .desktop-shell[data-material="glass"][data-transparency="reduced"] .desktop-shell__header,
 .desktop-shell[data-material="glass"][data-transparency="reduced"] .desktop-shell__capture-strip,
 .desktop-shell[data-material="glass"][data-transparency="reduced"] .desktop-shell__sidebar,
-.desktop-shell[data-material="glass"][data-transparency="reduced"] .callmd-legacy-workspace .panel-glass,
 .desktop-shell[data-material="glass"][data-transparency="reduced"] .settings-stack,
 .desktop-shell[data-material="glass"][data-transparency="reduced"] .companion-panel {
   backdrop-filter: none;
@@ -424,7 +329,6 @@
 .desktop-shell[data-material="glass"][data-transparency="reduced"] .desktop-shell__header,
 .desktop-shell[data-material="glass"][data-transparency="reduced"] .desktop-shell__capture-strip,
 .desktop-shell[data-material="glass"][data-transparency="reduced"] .desktop-shell__sidebar,
-.desktop-shell[data-material="glass"][data-transparency="reduced"] .callmd-legacy-workspace .panel-glass,
 .desktop-shell[data-material="glass"][data-transparency="reduced"] .settings-stack,
 .desktop-shell[data-material="glass"][data-transparency="reduced"] .companion-panel {
   background: var(--fung-glass-solid);
@@ -435,7 +339,6 @@
   .desktop-shell[data-material="glass"] .desktop-shell__header,
   .desktop-shell[data-material="glass"] .desktop-shell__capture-strip,
   .desktop-shell[data-material="glass"] .desktop-shell__sidebar,
-  .desktop-shell[data-material="glass"] .callmd-legacy-workspace .panel-glass,
   .desktop-shell[data-material="glass"] .settings-stack {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -458,19 +361,40 @@
  * give the action row its own line so labels never collide. */
 @media (max-width: 1440px) and (min-width: 821px) {
   .desktop-shell .desktop-shell__header {
-    grid-template-columns: minmax(190px, auto) minmax(0, 1fr);
-    min-height: 126px;
-    gap: 14px 24px;
+    grid-template-columns: minmax(180px, auto) minmax(0, 1fr) auto;
+    min-height: 58px;
+    height: 58px;
+    gap: 12px 16px;
   }
 
-  .desktop-shell .desktop-shell__nav {
-    justify-content: flex-end;
-  }
+  .desktop-shell .desktop-shell__header-actions { grid-column: auto; }
+}
 
-  .desktop-shell .desktop-shell__header-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    row-gap: 7px;
-  }
+.desktop-shell[data-material="glass"] .desktop-shell__profile,
+.desktop-shell[data-material="glass"] .desktop-shell__sidebar-action,
+.desktop-shell[data-material="glass"] .desktop-shell__appearance[open] {
+  border-color: var(--fung-glass-edge);
+  background: var(--fung-glass-control);
+  box-shadow: inset 0 1px 0 var(--fung-glass-highlight);
+}
+
+.desktop-shell[data-material="glass"] .desktop-shell__profile:hover,
+.desktop-shell[data-material="glass"] .desktop-shell__profile:focus-visible,
+.desktop-shell[data-material="glass"] .desktop-shell__sidebar-action:hover,
+.desktop-shell[data-material="glass"] .desktop-shell__sidebar-action:focus-visible,
+.desktop-shell[data-material="glass"] .desktop-shell__sidebar-action.is-active {
+  border-color: var(--fung-glass-highlight);
+  background: color-mix(in srgb, var(--fung-glass-control) 72%, var(--fung-glass-highlight));
+}
+
+.desktop-shell[data-material="glass"] .desktop-shell__surface-content {
+  background: transparent;
+}
+
+.desktop-shell[data-material="glass"][data-transparency="reduced"] .desktop-shell__profile,
+.desktop-shell[data-material="glass"][data-transparency="reduced"] .desktop-shell__sidebar-action,
+.desktop-shell[data-material="glass"][data-transparency="reduced"] .desktop-shell__project-panel,
+.desktop-shell[data-material="glass"][data-transparency="reduced"] .desktop-shell__sidebar-note,
+.desktop-shell[data-material="glass"][data-transparency="reduced"] .desktop-shell__home-actions {
+  background: var(--fung-glass-solid);
 }

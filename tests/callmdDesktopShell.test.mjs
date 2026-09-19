@@ -35,12 +35,11 @@ function resolveRuntimeImports(source) {
     .replaceAll('from "lucide-react"', `from "${lucideModuleUrl}"`);
 }
 
-const [shellSource, contractsSource, brandAssetSource, shellCssSource, homeSource] = await Promise.all([
+const [shellSource, contractsSource, brandAssetSource, shellCssSource] = await Promise.all([
   readFile(path.join(worktreeRoot, "src/components/desktop/DesktopShell.tsx"), "utf8"),
   readFile(path.join(worktreeRoot, "src/components/desktop/contracts.ts"), "utf8"),
   readFile(path.join(worktreeRoot, "docs/brand-kit/logo/fung-mark.svg"), "utf8"),
   readFile(path.join(worktreeRoot, "src/components/desktop/DesktopShell.css"), "utf8"),
-  readFile(path.join(worktreeRoot, "src/components/HomeScreen.tsx"), "utf8"),
 ]);
 
 await writeFile(path.join(runtimeDir, "contracts.mjs"), resolveRuntimeImports(transpile(contractsSource)), "utf8");
@@ -101,10 +100,17 @@ function createProps(overrides = {}) {
     showHome: () => calls.push(["showHome"]),
     showLive: () => calls.push(["showLive"]),
     showReview: () => calls.push(["showReview"]),
+    startRecording: () => calls.push(["startRecording"]),
+    stopRecording: () => calls.push(["stopRecording"]),
+    openReview: () => calls.push(["openReview"]),
     stopAndLeave: async () => ({ active: false, stopping: false, projectId: null, recordingId: null, elapsedMs: null }),
     openSettings: () => calls.push(["openSettings"]),
+    openAccount: () => calls.push(["openAccount"]),
     openPairing: () => calls.push(["openPairing"]),
     importMedia: () => calls.push(["importMedia"]),
+    exportMedia: () => calls.push(["exportMedia"]),
+    exportDisabled: false,
+    exportTitle: "ส่งออก",
     setTheme: (theme) => calls.push(["setTheme", theme]),
     minimizeWindow: () => calls.push(["minimizeWindow"]),
     closeWindow: () => calls.push(["closeWindow"]),
@@ -124,7 +130,7 @@ function createProps(overrides = {}) {
       elapsedMs: null,
     }),
     theme: "light",
-    mainContent: React.createElement("p", { "data-testid": "legacy-content" }, "Legacy workspace content"),
+    mainContent: React.createElement("p", { "data-testid": "surface-content" }, "Surface content"),
     settingsSlot: null,
     pairingSlot: null,
     recoverySlot: null,
@@ -160,7 +166,7 @@ test("production shell helpers keep capture guards, stop confirmation, and safe 
 
   const safeFailure = normalizeShellError(new Error("C:\\private\\recording.wav token=secret stderr=hidden"));
   assert.equal(safeFailure.code, "LEGACY_COMMAND_FAILED");
-  assert.equal(safeFailure.message, "Legacy desktop command failed.");
+  assert.equal(safeFailure.message, "Desktop command failed.");
   assert.doesNotMatch(safeFailure.message, /private|secret|hidden/);
 });
 
@@ -229,7 +235,8 @@ test("SSR keeps Home, Live, and History controlled by activeSurface with accessi
   assert.match(homeMarkup, /ข้ามไปยังเนื้อหาหลัก/);
   assert.match(homeMarkup, /เริ่มประชุม/);
   assert.match(homeMarkup, /จะเปิดประชุมสดก่อนเริ่มการบันทึกจริง/);
-  assert.match(homeMarkup, /Legacy workspace content/);
+  assert.match(homeMarkup, /Surface content/);
+  assert.doesNotMatch(homeMarkup, /พื้นที่ทำงานเดิม|callmd-legacy-workspace|fab-topbar|power-dock/);
   assert.match(homeMarkup, /data-surface="home"/);
   assert.match(homeMarkup, /aria-label="ย่อหน้าต่าง"/);
   assert.match(homeMarkup, /aria-label="ปิดหน้าต่าง"/);
@@ -273,10 +280,29 @@ test("native window controls and drag boundaries stay explicit", () => {
   assert.match(shellSource, /actions\.closeWindow/);
   assert.doesNotMatch(shellSource, /className="panel-glass" data-tauri-drag-region/);
   assert.doesNotMatch(shellSource, /className="fab fab-topbar" data-tauri-drag-region/);
-  assert.doesNotMatch(homeSource, /className="home-screen" data-tauri-drag-region/);
-  assert.match(homeSource, /className="home-screen no-drag"/);
+  assert.doesNotMatch(shellSource, /desktop-shell__legacy-workspace|callmd-legacy-workspace|power-dock/);
+  assert.doesNotMatch(shellSource, /HomeScreen|InstrumentRail|fab-topbar|power-dock/);
   assert.match(shellCssSource, /\.desktop-shell__header :where\(a, button, select, input, textarea\)/);
   assert.match(shellCssSource, /\.desktop-shell__header-button--danger/);
+});
+
+test("the shell keeps truthful profile states and the hover rail owns desktop actions", () => {
+  const signedOut = renderToStaticMarkup(React.createElement(DesktopShell, createProps()));
+  assert.match(signedOut, /สมัคร \/ เข้าสู่ระบบ/);
+  assert.match(signedOut, /desktop-shell__sidebar/);
+  assert.match(signedOut, /เริ่มบันทึก/);
+  assert.match(signedOut, /นำเข้าไฟล์/);
+  assert.match(signedOut, /ส่งออก/);
+  assert.match(signedOut, /จับคู่อุปกรณ์/);
+
+  const signedIn = renderToStaticMarkup(
+    React.createElement(
+      DesktopShell,
+      createProps({ accountStatus: { state: "authenticated", email: "owner@example.test" } }),
+    ),
+  );
+  assert.match(signedIn, /owner@example\.test/);
+  assert.doesNotMatch(signedIn, /สมัคร \/ เข้าสู่ระบบ/);
 });
 
 test("brand tint stays CSS-owned for explicit light/dark and system-effective themes", () => {
@@ -356,7 +382,7 @@ test("navigation guard presents the three choices, focuses Stay by default, and 
     }),
   );
   assert.match(failedMarkup, /หยุดบันทึกยังไม่สำเร็จ/);
-  assert.match(failedMarkup, /Legacy desktop command failed\./);
+  assert.match(failedMarkup, /Desktop command failed\./);
   assert.doesNotMatch(failedMarkup, /raw path token stderr/);
   assert.match(failedMarkup, /เซสชันยังอยู่หน้านี้/);
 });

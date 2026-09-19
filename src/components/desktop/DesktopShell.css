@@ -213,6 +213,11 @@
   -webkit-app-region: no-drag;
 }
 
+.desktop-shell[data-fung-root][data-tauri-drag-region],
+.desktop-shell[data-fung-root] [data-tauri-drag-region] {
+  -webkit-app-region: drag;
+}
+
 .desktop-shell__nav-link.is-active {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--shell-slate) 14%, transparent);
   font-weight: 650;
@@ -580,34 +585,6 @@
   margin-top: -4px;
 }
 
-.desktop-shell__legacy-workspace {
-  min-width: 0;
-  margin-top: 24px;
-  padding: 18px;
-  border: 1px solid var(--shell-line);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--shell-surface) 76%, transparent);
-}
-
-.desktop-shell__legacy-heading {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--shell-line);
-  color: var(--shell-muted);
-  font-size: 12px;
-}
-
-.desktop-shell__legacy-heading small {
-  color: var(--shell-faint);
-}
-
-.desktop-shell__legacy-content {
-  min-width: 0;
-  padding-top: 18px;
-}
-
 .desktop-shell__owned-slot--settings,
 .desktop-shell__owned-slot--pairing {
   position: fixed;
@@ -784,8 +761,7 @@
   }
 }
 
-/* Desktop shell mapping to the approved semantic tokens. The legacy stage is
- * intentionally still nested below the shell and keeps its command contracts. */
+/* Desktop shell mapping to the approved semantic tokens. */
 .desktop-shell[data-fung-root] {
   --shell-bg: var(--fung-bg-canvas, #FAF8F3);
   --shell-surface: var(--fung-bg-surface, #FFFEFA);
@@ -843,4 +819,525 @@
 .desktop-shell[data-fung-root] .desktop-shell__home-action--primary {
   background: var(--fung-action-primary-bg, #4A5B8B);
   color: var(--fung-action-primary-fg, #FAF8F3);
+}
+
+/* v0.4 shell: one slim titlebar, one hover/focus rail, one active surface. */
+.desktop-shell[data-fung-root] {
+  grid-template-rows: 58px auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__header {
+  grid-template-columns: minmax(180px, auto) minmax(0, 1fr) auto;
+  min-height: 58px;
+  height: 58px;
+  padding: 8px 16px;
+  gap: 16px;
+  background: transparent;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__brand-lockup {
+  gap: 9px;
+  min-height: 40px;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__brand-mark {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__brand-type {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__brand-wordmark {
+  font-size: 15px;
+  letter-spacing: 0.28em;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__brand-note {
+  padding-left: 0;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  line-height: 1;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__header-status {
+  min-width: 0;
+}
+
+.desktop-shell__header-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--shell-danger);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.desktop-shell__header-actions {
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.desktop-shell__profile {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 40px;
+  max-width: min(250px, 28vw);
+  padding: 5px 10px 5px 7px;
+  border: 1px solid var(--shell-line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--shell-surface) 52%, transparent);
+  color: var(--shell-ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.desktop-shell__profile:hover,
+.desktop-shell__profile:focus-visible {
+  border-color: var(--shell-slate);
+  background: var(--shell-surface-muted);
+}
+
+.desktop-shell__profile-icon {
+  display: grid;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--shell-sage) 24%, transparent);
+  color: var(--shell-sage);
+}
+
+.desktop-shell__profile-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.desktop-shell__profile-copy small {
+  color: var(--shell-faint);
+  font-size: 10px;
+}
+
+.desktop-shell__profile-copy strong {
+  overflow: hidden;
+  color: var(--shell-ink);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__header-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 7px 9px;
+}
+
+.desktop-shell__body {
+  grid-template-columns: 72px minmax(0, 1fr);
+  min-height: 0;
+}
+
+@media (min-width: 1024px) {
+  .desktop-shell[data-fung-root]:has(.desktop-shell__sidebar:hover, .desktop-shell__sidebar:focus-within) .desktop-shell__body {
+    grid-template-columns: 248px minmax(0, 1fr);
+  }
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__sidebar {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  width: 72px;
+  padding: 12px 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-right: 1px solid var(--shell-line);
+  background: color-mix(in srgb, var(--shell-surface) 44%, transparent);
+  transition: width 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__sidebar:hover,
+.desktop-shell[data-fung-root] .desktop-shell__sidebar:focus-within {
+  width: 248px;
+  background: color-mix(in srgb, var(--shell-surface) 72%, transparent);
+  box-shadow: 14px 0 32px rgba(23, 25, 24, 0.12);
+}
+
+.desktop-shell__sidebar-menu,
+.desktop-shell__sidebar-context {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.desktop-shell__sidebar-menu {
+  flex: 0 0 auto;
+}
+
+.desktop-shell__sidebar-context {
+  min-height: 0;
+  overflow: hidden;
+  transition: opacity 120ms ease, max-height 180ms ease;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__sidebar-context {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.desktop-shell__sidebar-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  padding: 0 9px;
+  color: var(--shell-faint);
+  font-family: "IBM Plex Mono", Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell:not(:hover) .desktop-shell__sidebar-hint span {
+  display: none;
+}
+
+.desktop-shell__nav {
+  display: grid;
+  justify-content: stretch;
+  gap: 5px;
+}
+
+.desktop-shell__nav-link {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 11px;
+  min-height: 44px;
+  padding: 10px 9px;
+  border-radius: 13px;
+  color: var(--shell-muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.desktop-shell__nav-icon,
+.desktop-shell__sidebar-action-icon {
+  display: grid;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+}
+
+.desktop-shell__nav-label,
+.desktop-shell__sidebar-action-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: opacity 120ms ease;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__nav-label,
+.desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__sidebar-action-label,
+.desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__appearance summary span,
+.desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__profile-copy {
+  width: 0;
+  opacity: 0;
+}
+
+.desktop-shell__sidebar-divider {
+  height: 1px;
+  margin: 2px 7px;
+  background: var(--shell-line);
+}
+
+.desktop-shell__sidebar-actions {
+  display: grid;
+  gap: 5px;
+}
+
+.desktop-shell__sidebar-action {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 44px;
+  padding: 9px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  background: transparent;
+  color: var(--shell-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.desktop-shell__sidebar-action:hover,
+.desktop-shell__sidebar-action:focus-visible,
+.desktop-shell__sidebar-action.is-active {
+  border-color: var(--shell-line);
+  background: var(--shell-surface-muted);
+  color: var(--shell-ink);
+}
+
+.desktop-shell__sidebar-action.is-danger {
+  color: var(--shell-danger);
+}
+
+.desktop-shell__sidebar-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.desktop-shell__appearance {
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 13px;
+}
+
+.desktop-shell__appearance[open] {
+  border-color: var(--shell-line);
+  background: color-mix(in srgb, var(--shell-surface) 48%, transparent);
+}
+
+.desktop-shell__appearance summary {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 44px;
+  padding: 9px;
+  color: var(--shell-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.desktop-shell__appearance summary::-webkit-details-marker {
+  display: none;
+}
+
+.desktop-shell__appearance-fields {
+  display: grid;
+  gap: 8px;
+  padding: 0 9px 10px;
+}
+
+.desktop-shell__appearance .desktop-shell__theme-choice {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.desktop-shell__appearance .desktop-shell__theme-choice select {
+  width: 100%;
+  min-height: 34px;
+  padding: 5px 8px;
+}
+
+.desktop-shell__sidebar-menu > .desktop-shell__sidebar-action {
+  margin-top: 2px;
+}
+
+.desktop-shell[data-fung-root] .desktop-shell__main {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  padding: 24px clamp(20px, 3.5vw, 52px) 24px;
+}
+
+.desktop-shell__surface-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 22px;
+  scroll-behavior: smooth;
+}
+
+.desktop-shell__surface-content > * {
+  min-width: 0;
+}
+
+.desktop-shell__surface-content .callmd-desktop-content,
+.desktop-shell__surface-content .callmd-surface-stack {
+  min-height: 100%;
+}
+
+.desktop-shell__surface-content .callmd-surface-stack {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+@media (max-width: 1023px) {
+  .desktop-shell[data-fung-root] .desktop-shell__sidebar:hover,
+  .desktop-shell[data-fung-root] .desktop-shell__sidebar:focus-within {
+    width: 72px;
+  }
+
+  .desktop-shell[data-fung-root] .desktop-shell__sidebar-context {
+    max-height: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .desktop-shell[data-fung-root] {
+    grid-template-rows: 58px auto minmax(0, 1fr);
+  }
+
+  .desktop-shell[data-fung-root] .desktop-shell__header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .desktop-shell__header-status {
+    display: none;
+  }
+
+  .desktop-shell__profile {
+    max-width: 180px;
+  }
+
+  .desktop-shell__profile-copy small,
+  .desktop-shell__header-button span {
+    display: none;
+  }
+
+  .desktop-shell[data-fung-root] .desktop-shell__header-button {
+    width: 36px;
+    padding: 7px;
+  }
+
+  .desktop-shell__body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .desktop-shell[data-fung-root] .desktop-shell__sidebar {
+    width: auto;
+    min-height: 0;
+    padding: 8px 10px;
+    overflow: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--shell-line);
+    background: color-mix(in srgb, var(--shell-surface) 58%, transparent);
+  }
+
+  .desktop-shell__sidebar-hint,
+  .desktop-shell__sidebar-divider,
+  .desktop-shell__sidebar-context,
+  .desktop-shell__appearance {
+    display: none;
+  }
+
+  .desktop-shell__sidebar-menu {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .desktop-shell__nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .desktop-shell__nav-link {
+    justify-content: center;
+    gap: 7px;
+    min-height: 42px;
+    padding: 8px 6px;
+  }
+
+  .desktop-shell__nav-label {
+    width: auto;
+    opacity: 1;
+  }
+
+  .desktop-shell__sidebar-actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .desktop-shell__sidebar-actions + .desktop-shell__sidebar-divider {
+    display: none;
+  }
+
+  .desktop-shell__sidebar-action {
+    justify-content: center;
+    min-height: 42px;
+    padding: 8px 5px;
+  }
+
+  .desktop-shell__sidebar-action-label {
+    display: none;
+  }
+
+  .desktop-shell[data-fung-root] .desktop-shell__main {
+    padding: 18px 14px 16px;
+  }
+
+  .desktop-shell__surface-content {
+    padding-top: 16px;
+  }
+}
+
+@media (max-width: 420px) {
+  .desktop-shell[data-fung-root] .desktop-shell__brand-mark {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+  }
+
+  .desktop-shell[data-fung-root] .desktop-shell__brand-wordmark {
+    font-size: 13px;
+  }
+
+  .desktop-shell[data-fung-root] .desktop-shell__brand-note {
+    font-size: 8px;
+  }
+
+  .desktop-shell__profile {
+    max-width: 145px;
+    padding-right: 7px;
+  }
+
+  .desktop-shell__profile-copy strong {
+    max-width: 92px;
+    font-size: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-shell[data-fung-root] .desktop-shell__sidebar,
+  .desktop-shell__sidebar-context,
+  .desktop-shell__nav-label,
+  .desktop-shell__sidebar-action-label {
+    transition: none;
+  }
 }

@@ -1,10 +1,10 @@
 ---
 id: DS-FUNG-GLASS-DESKTOP-001
 title: "FUNG — Liquid Glass Desktop Adaptation"
-version: "0.3.2b"
+version: "0.4.0b"
 status: "beta"
 created_at: "2026-09-19T08:04:52+07:00"
-last_update: "2026-09-19T15:04:06+07:00"
+last_update: "2026-09-19T17:42:17+07:00"
 language: "th-TH / en"
 parent: "DS-FUNG-001 v0.1.0"
 superseded_by: null
@@ -15,13 +15,13 @@ attributes:
   source_path: "C:\\Users\\pc\\Downloads\\fung-new-ui"
 implementation_verified: false
 implementation_status: "PARTIAL_LOCAL_VERIFIED"
-native_clickthrough: "NOT_RUN"
+native_clickthrough: "BLOCKED_ENVIRONMENT"
 human_approval_required: false
 ---
 
 # FUNG — Liquid Glass Desktop Adaptation
 
-**สถานะ:** Beta — approved และ local implementation verified บางส่วน; native click-through ยังไม่ verified
+**สถานะ:** Beta — approved และ local implementation verified บางส่วน; current native click-through ถูกบันทึกเป็น `BLOCKED_ENVIRONMENT`
 
 **ความเสี่ยง:** MEDIUM–HIGH — เปลี่ยน visual grammar หลาย desktop surfaces และเพิ่ม in-app companion presentation แต่ไม่เปลี่ยน backend, auth, recording, permission หรือ native command contract ในรอบนี้
 
@@ -157,19 +157,20 @@ Evidence นี้เป็น local engineering evidence เท่านั้�
 | Desktop implementation | PASS (local source/build) | Home, Live, Review/Summary shell, settings slots และ bounded in-app Companion ถูกต่อเข้ากับ existing handlers |
 | Static validation | PASS | `npm run build`, `npm run design-system:check`, `git diff --check` |
 | Contract/regression tests | PASS | `test:desktop-bootstrap`, `test:callmd-contracts`, `test:callmd-shell`, `test:callmd-live`, `test:callmd-integration`, `test:design-system`, `test:release` |
-| Browser visual smoke | PASS | Vite `http://127.0.0.1:1420/app?surface=desktop` ที่ viewport 1280×720: light/dark, solid/reduced fallback, Companion open/Escape/focus restore, Home → Live → Review และ console errors = 0 |
-| Windows engineering build | PASS | `npx tauri build --no-bundle`; `src-tauri/target/release/fung.exe`, timestamp `2026-09-19T08:41:07+07:00`, size `25,810,944` bytes |
-| Native desktop click-through | PASS WITH LIMITATIONS | Computer Use เปิด exact process `process:C:\\Users\\pc\\workspace\\fung\\src-tauri\\target\\release\\fung.exe` (SHA-256 `2D19EE66FDE98D7135590322AB71CE0BFA01AEFB7B975D98883B7524611CD1D6`) และยืนยัน initial light/glass/full state, dark/solid/reduced state, Companion open/Escape/focus restore, Home → Live → Review → Settings open/close → Home; ไม่เริ่ม recording/import/pairing |
+| Browser visual smoke | PASS (scoped) | Vite `http://127.0.0.1:1420/app?surface=desktop` ที่ default viewport 1280×720: Home → Live → Review, rail focus expansion, appearance disclosure และ top-right account CTA ผ่าน; dark/solid/Companion และ additional 1024×768, 768×1024, 390×844 runs: NOT RUN |
+| Windows engineering build | PASS | `npx tauri build --no-bundle`; `src-tauri/target/release/fung.exe`, size `25,806,848` bytes, SHA-256 `BED7EFB569BCE7C8BDD4D4716052A3697B7EE41CE50590BB17845E9D8DCEF10E` |
+| Native desktop click-through | BLOCKED_ENVIRONMENT | Current Computer Use session cannot bind the elevated exact process; user-session launch exits `101` while crossing the external `..\\.venv-whisper` path. No native pass is claimed |
 | Installer / clean install / production | NOT RUN | รอบนี้ใช้ `--no-bundle`; ไม่ใช่ installer, clean-VM หรือ production evidence |
 
-การแก้ stale UI: release executable ที่ path มาตรฐานถูก rebuild แล้ว แต่ต้องเปิด binary นี้หรือ build จาก commit เดียวกันจึงจะเห็น adaptation; registered app `dev.fung.local` ยังชี้ไปที่ `F:\\FUNG\\fung.exe` (SHA-256 `A1F16E837792A584DAA888756690FEEEAD8F7FB725834227A54F6CB2379301E6`) ซึ่งเป็น binary เก่าและแสดง UI เดิม จึงไม่ใช้เป็นหลักฐานของ UI ใหม่
+การแก้ stale UI: release executable ที่ path มาตรฐานถูก rebuild แล้ว แต่ native click-through รอบนี้ยังติด environment boundary; registered app `dev.fung.local` ที่ชี้ไป path อื่นไม่ใช้เป็นหลักฐานของ UI ใหม่
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.4.0b | 2026-09-19 | beta | Replaced the legacy desktop presentation with the approved hover rail/profile/glass shell; browser and build evidence pass, native recheck remains environment-blocked | UNCOMMITTED | RWANG |
 | 0.3.2b | 2026-09-19 | beta | Recorded bounded native click-through on the exact current executable and retained installer/release limitations | UNCOMMITTED | RWANG |
 | 0.3.1b | 2026-09-19 | beta | Recorded approved implementation, local/browser/build evidence, and explicit native/release gaps | 694607f9ecd67bbc2075f4bb1cba3021dc8b0da | RWANG |
 | 0.3.0b | 2026-09-19 | candidate | Added Liquid Glass desktop adaptation scope and approval gates; no code implementation | UNCOMMITTED | RWANG |
 
-Approval recorded in the task conversation on 2026-09-19. Code implementation and bounded native click-through have local evidence; installer, clean-install, production and full accessibility gates remain separate evidence gates.
+Approval recorded in the task conversation on 2026-09-19. Code implementation and browser/build evidence are current; native click-through is environment-blocked, and installer, clean-install, production and full accessibility gates remain separate evidence gates.

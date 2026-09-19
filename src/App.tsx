@@ -54,8 +54,6 @@ import {
   type LiveControllerSnapshot,
   type LiveMeetingController,
 } from "./components/LiveMeetingPanel";
-import { InstrumentRail } from "./components/InstrumentRail";
-import { HomeScreen } from "./components/HomeScreen";
 import type { SettingsTab } from "./components/SettingsPanel";
 import { DesktopShell } from "./components/desktop/DesktopShell";
 import { RecordingReview, type RecoveryRefresh } from "./components/desktop/RecordingReview";
@@ -68,6 +66,7 @@ import {
   type ThemeChoice,
 } from "./components/desktop/contracts";
 import type { InvokeFn, RecoveredRecording, RecoveryReport } from "./lib/recoveryFlow";
+import { brokerSessionStatus, type SessionStatus } from "./lib/desktopSessionBroker";
 import {
   isJobActionEnabled,
   jobActionBlockedReason,
@@ -646,7 +645,6 @@ function TranscriptActivityEntry({
 }
 
 export function App() {
-  const scale = useStageScale();
   const [health, setHealth] = useState<Health | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -671,6 +669,7 @@ export function App() {
   const [activeView, setActiveView] = useState<ViewId>("review");
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => readSystemTheme());
+  const [accountStatus, setAccountStatus] = useState<SessionStatus | null>(null);
   const [powerMenuOpen, setPowerMenuOpen] = useState(false);
   const [liveMeetingOpen, setLiveMeetingOpen] = useState(false);
   const [activeSurface, setActiveSurface] = useState<DesktopSurface>("home");
@@ -706,6 +705,25 @@ export function App() {
   const recoveryProjectByRecordingRef = useRef(new Map<string, string>());
 
   useEffect(() => subscribeToSystemTheme(setSystemTheme), []);
+
+  useEffect(() => {
+    if (!nativeInvoke) return;
+    let cancelled = false;
+    const refreshAccount = async () => {
+      try {
+        const next = await brokerSessionStatus();
+        if (!cancelled) setAccountStatus(next);
+      } catch {
+        if (!cancelled) setAccountStatus(null);
+      }
+    };
+    void refreshAccount();
+    const timer = window.setInterval(() => void refreshAccount(), 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const registerClosePlayer = useCallback((closePlayer: CloseReviewPlayer | null) => {
     reviewClosePlayerRef.current = closePlayer;
@@ -1466,6 +1484,7 @@ export function App() {
       liveStatus={liveStatus}
       livePhase={liveSnapshot.phase}
       theme={theme}
+      accountStatus={accountStatus}
       actions={{
         selectProject: (projectId) => {
           if (!projects.some((project) => project.id === projectId)) return;
@@ -1481,14 +1500,34 @@ export function App() {
           setActiveSurface("live");
         },
         showReview: openReviewSurface,
+        startRecording: () => {
+          enterMeetingWorkspace("P1");
+          setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
+          setLiveMeetingOpen(true);
+          setActiveSurface("live");
+        },
+        stopRecording: handleStopCapture,
+        openReview: openReviewSurface,
         stopAndLeave,
         openSettings: () => setSettingsPanelOpen(true),
+        openAccount: () => {
+          setSettingsInitialTab("account");
+          setSettingsPanelOpen(true);
+        },
         openPairing: () => setDevicePairingPanelOpen(true),
         importMedia: async () => {
           setActiveSurface("review");
           setShowHome(false);
           await handleImportAndTranscribe();
         },
+        exportMedia: () => {
+          enterMeetingWorkspace(activeAnchor);
+          void handleCreateJob("export.render");
+        },
+        exportDisabled: !activeRecordingId,
+        exportTitle:
+          jobActionBlockedReason("export.render", Boolean(activeRecordingId)) ??
+          "ส่งออก transcript .srt/.vtt และ source audio WAV/MP3 ถ้า format รองรับ",
         setTheme,
         minimizeWindow: handleMinimizeWindow,
         closeWindow: handleCloseWindow,
@@ -1556,420 +1595,6 @@ export function App() {
               registerClosePlayer={registerClosePlayer}
               registerRecoveryRefresh={registerRecoveryRefresh}
             />
-          </div>
-          <div className="callmd-legacy-workspace">
-            <div className={`app-shell theme-${effectiveTheme}`}>
-              <div className="ambient-grid" aria-hidden="true" />
-
-      <svg className="clip-defs" width="0" height="0" aria-hidden="true" focusable="false">
-        <defs>
-          <path id="subtractPanelPath" d={PANEL_PATH} />
-          <clipPath id="panelClip" clipPathUnits="userSpaceOnUse">
-            <use href="#subtractPanelPath" />
-          </clipPath>
-        </defs>
-      </svg>
-
-      <div className="stage-wrap" style={{ transform: `scale(${scale})` }}>
-        <main className="stage" aria-label="FUNG review workspace">
-          <div className="panel-glow" aria-hidden="true" />
-          <div className="panel-glass">
-            {showHome ? (
-              <HomeScreen
-                items={libraryItems}
-                onStartRecording={() => {
-                  enterMeetingWorkspace("P1");
-                  setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
-                  setLiveMeetingOpen(true);
-                  setActiveSurface("live");
-                }}
-                onImport={() => {
-                  enterMeetingWorkspace("P1");
-                  setActiveSurface("review");
-                  void handleImportAndTranscribe();
-                }}
-                onOpenItem={(id) => {
-                  setSelectedRecording(id);
-                  setReviewSelection(null);
-                  setActiveSurface("review");
-                  enterMeetingWorkspace("P2");
-                }}
-              />
-            ) : (
-              <>
-            <section className="zone score-header" aria-label="Score header">
-              <div>
-                <div className="eyebrow">Meeting Mode / {activeAnchor}</div>
-                <div className="score-title">{meetingTitle}</div>
-              </div>
-              <div className="score-meta">
-                <span className="badge badge--sage">
-                  <ShieldCheck size={14} />
-                  {currentPage.domain}
-                </span>
-                <span className="badge">
-                  <AudioLines size={14} />
-                  {currentTile.status}
-                </span>
-              </div>
-            </section>
-
-            <section className="zone stats-bar no-drag" aria-label="Stats">
-              {runtimeStats.map((item) => (
-                <button key={item.label} type="button" className="stat-pill">
-                  <span className="stat-pill__label">{item.label}</span>
-                  <strong>{item.value}</strong>
-                  <span className="stat-pill__meta">{item.meta}</span>
-                </button>
-              ))}
-            </section>
-
-            <section className="battle-grid no-drag" aria-label="Battle zone">
-              <div className="zone focus-workbench">
-                <div className="focus-workbench__head">
-                  <div>
-                    <div className="eyebrow">{currentPage.domain}</div>
-                    <div className="zone-title zone-title--large">{currentPage.focus}</div>
-                  </div>
-                  <span className="badge">{meetingSubtitle}</span>
-                </div>
-                <div className="focus-tile-grid">
-                  {currentPage.tiles.map((tile) => (
-                    <button
-                      key={tile.id}
-                      type="button"
-                      className={`focus-tile focus-tile--${tile.tone} ${tile.id === currentTile.id ? "is-active" : ""}`}
-                      onClick={() => activateTile(tile.id)}
-                    >
-                      <span>{tile.eyebrow}</span>
-                      <strong>{tile.title}</strong>
-                      <p>{tile.detail}</p>
-                      <em>{tile.action}</em>
-                    </button>
-                  ))}
-                </div>
-                <div className="focus-detail-dock">
-                  <div className="focus-detail-dock__copy">
-                    <span>{currentTile.currentLabel}</span>
-                    <strong>{currentTile.title}</strong>
-                    <p>{currentTile.detail}</p>
-                  </div>
-                  {actionNotice ? (
-                    <p className="action-notice" role="status">
-                      {actionNotice}
-                    </p>
-                  ) : null}
-                  <div className="focus-detail-dock__actions">
-                    <button
-                      type="button"
-                      className="quick-action quick-action--primary"
-                      disabled={transcribing || !tileActionEnabled(currentTile.primaryAction)}
-                      title={tileActionTitle(currentTile.primaryAction)}
-                      onClick={() => void performTileAction(currentTile.primaryAction)}
-                    >
-                      {primaryActionLabel}
-                    </button>
-                    <button
-                      type="button"
-                      className="quick-action"
-                      disabled={!tileActionEnabled(currentTile.secondaryAction)}
-                      title={tileActionTitle(currentTile.secondaryAction)}
-                      onClick={() => void performTileAction(currentTile.secondaryAction)}
-                    >
-                      {currentTile.secondaryAction.label}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="zone agent-card no-drag" aria-label="Agent card">
-              <div className="agent-card__head">
-                <div>
-                  <div className="eyebrow">{activeAnchor} / {currentPage.domain}</div>
-                  <div className="zone-title zone-title--large">{currentPage.agent}</div>
-                </div>
-                <span className="badge badge--metal">
-                  <Sparkles size={14} />
-                  {currentTile.status}
-                </span>
-              </div>
-
-              <div className="agent-card__stack">
-                <div className="agent-current">
-                  <span>{currentTile.currentLabel}</span>
-                  <strong>
-                    {currentTile.title}
-                    {activeAnchor === "P3" && currentTile.id === "meeting-recap" && (
-                      <button
-                        type="button"
-                        className="tts-speak-btn"
-                        title={ttsPlaying ? "หยุดฟัง" : "ฟังสรุป"}
-                        aria-label={ttsPlaying ? "หยุดฟังสรุป" : "ฟังสรุป"}
-                        onClick={() => void handleTtsPlay(currentTile.detail)}
-                        disabled={ttsLoading}
-                        style={{ marginLeft: 8 }}
-                      >
-                        {ttsLoading ? (
-                          <Loader2 size={14} className="spin" />
-                        ) : ttsPlaying ? (
-                          <span>⏸</span>
-                        ) : (
-                          <Volume2 size={14} />
-                        )}
-                      </button>
-                    )}
-                  </strong>
-                  <p>{currentTile.detail}</p>
-                </div>
-
-                {actionNotice ? (
-                  <p className="action-notice" role="status">
-                    {actionNotice}
-                  </p>
-                ) : null}
-                <div className="quick-actions">
-                  <button
-                    type="button"
-                    className="quick-action quick-action--primary"
-                    disabled={transcribing || !tileActionEnabled(currentTile.primaryAction)}
-                    title={tileActionTitle(currentTile.primaryAction)}
-                    onClick={() => void performTileAction(currentTile.primaryAction)}
-                  >
-                    {primaryActionLabel}
-                  </button>
-                  <button
-                    type="button"
-                    className="quick-action"
-                    disabled={!tileActionEnabled(currentTile.secondaryAction)}
-                    title={tileActionTitle(currentTile.secondaryAction)}
-                    onClick={() => void performTileAction(currentTile.secondaryAction)}
-                  >
-                    {currentTile.secondaryAction.label}
-                  </button>
-                </div>
-
-                <div className="agent-footer">
-                  <span>
-                    <Cloud size={14} />
-                    {health?.databasePath ?? "browser-preview"}
-                  </span>
-                  <span>
-                    <Wifi size={14} />
-                    {health?.localApi.bind ?? "Background offline"}
-                  </span>
-                </div>
-              </div>
-            </section>
-
-            <section className="zone sector-log no-drag" aria-label="Sector C log">
-              <div className="log-column">
-                <div className="zone-title">Activity</div>
-                <div className="log-list">
-                  {activityFeed.map((entry) =>
-                    entry.segmentId && entry.transcriptText != null ? (
-                      <TranscriptActivityEntry
-                        key={entry.segmentId}
-                        entry={entry as ActivityEntry & { segmentId: string; transcriptText: string }}
-                        onRename={(speakerId, displayName) => void handleRenameSpeaker(speakerId, displayName)}
-                        onSave={handleCorrectTranscriptSegment}
-                      />
-                    ) : (
-                      <article key={entry.time + entry.title} className="log-item">
-                        <span className="log-item__time">{entry.time}</span>
-                        <div>
-                          {entry.speakerName && entry.speakerId ? (
-                            <SpeakerLabel
-                              speakerId={entry.speakerId}
-                              speakerName={entry.speakerName}
-                              onRename={(speakerId, displayName) => void handleRenameSpeaker(speakerId, displayName)}
-                            />
-                          ) : null}
-                          <strong>{entry.title}</strong>
-                          <p>{entry.detail}</p>
-                        </div>
-                      </article>
-                    ),
-                  )}
-                  {failedGraphBuilds.map((job) => (
-                    <article key={job.id} className="log-item log-item--retry">
-                      <span className="log-item__time">
-                        {new Date(job.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                      <div>
-                        <strong>สร้างกราฟความรู้ไม่สำเร็จ</strong>
-                        <p>{job.errorMessage ?? "ลองสร้างกราฟใหม่อีกครั้ง"}</p>
-                        <button
-                          type="button"
-                          className="quick-action log-item__retry"
-                          onClick={() => void handleRetryGraphBuild(job)}
-                        >
-                          ลองใหม่
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </div>
-
-              <div className="log-column">
-                <div className="zone-title">{currentPage.eventsTitle}</div>
-                <div className="event-list">
-                  {eventFeed.map((entry) => (
-                    <article key={entry.type + entry.detail} className="event-item">
-                      <div>
-                        <span>{entry.type}</span>
-                        <strong>{entry.detail}</strong>
-                      </div>
-                      <em>{entry.state}</em>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <section className="zone signals-sector no-drag" aria-label="Signals">
-              {signalCards.map((signal) => (
-                <button
-                  key={signal.id}
-                  type="button"
-                  className={`signal-card ${signals[signal.id] ? "is-active" : ""}`}
-                  onClick={() => void toggleSignal(signal.id)}
-                >
-                  <div className="signal-card__head">
-                    <span>{signal.title}</span>
-                    {signal.icon}
-                  </div>
-                  <strong>{signal.value}</strong>
-                  <p>{signal.foot}</p>
-                </button>
-              ))}
-            </section>
-              </>
-            )}
-          </div>
-
-          <svg className="panel-rim" viewBox="0 0 1280 720" aria-hidden="true">
-            <defs>
-              <filter id="rimShadow" x="-10%" y="-10%" width="120%" height="120%">
-                <feDropShadow
-                  dx="0"
-                  dy="24"
-                  stdDeviation="24"
-                  floodColor="#181a1f"
-                  floodOpacity="0.15"
-                />
-              </filter>
-            </defs>
-            <use href="#subtractPanelPath" className="panel-rim__shadow" filter="url(#rimShadow)" />
-            <use href="#subtractPanelPath" className="panel-rim__stroke panel-rim__stroke--outer" />
-            <use href="#subtractPanelPath" className="panel-rim__stroke panel-rim__stroke--inner" />
-          </svg>
-
-          <div className="fab fab-topbar">
-            <div className="topbar-title">
-              <button type="button" className="icon-button no-drag" aria-label="Search">
-                <Search size={16} />
-              </button>
-              <span>Command deck</span>
-            </div>
-            <Segmented
-              compact
-              items={navItems.map((item) => item.label)}
-              onChange={onViewChange}
-              value={showHome ? undefined : viewLabel}
-            />
-            <div className="topbar-actions">
-              <button type="button" className="icon-button no-drag" aria-label="Back to Home" onClick={returnToHome}>
-                <Home size={16} />
-              </button>
-              <button
-                type="button"
-                className="icon-button no-drag"
-                aria-label="Toggle light dark mode"
-                onClick={() => setTheme((mode) => (mode === "light" ? "dark" : "light"))}
-                title={theme === "dark" ? "Light mode" : "Dark mode"}
-              >
-                {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-              </button>
-              <button type="button" className="action-chip no-drag" onClick={handleNewProject}>
-                <Download size={16} />
-                New
-              </button>
-            </div>
-          </div>
-
-          <InstrumentRail
-            recording={captureActive}
-            onRecord={() => {
-              enterMeetingWorkspace("P1");
-              setActiveTileByAnchor((current) => ({ ...current, P1: "live-capture" }));
-              setLiveMeetingOpen(true);
-              setActiveSurface("live");
-            }}
-            onStop={() => {
-              setActiveSurface("live");
-              setShowHome(false);
-              void handleStopCapture();
-            }}
-            onOpenReview={() => {
-              openReviewSurface();
-            }}
-            onImport={() => {
-              enterMeetingWorkspace("P1");
-              setActiveSurface("review");
-              void handleImportAndTranscribe();
-            }}
-            importDisabled={transcribing}
-            onExport={() => {
-              enterMeetingWorkspace(activeAnchor);
-              void handleCreateJob("export.render");
-            }}
-            exportTitle={
-              jobActionBlockedReason("export.render", Boolean(activeRecordingId)) ??
-              "ส่งออก transcript .srt/.vtt และ source audio WAV/MP3 ถ้า format รองรับ"
-            }
-            onPairDevice={() => setDevicePairingPanelOpen((open) => !open)}
-            onOpenSettings={() => setSettingsPanelOpen(true)}
-          />
-
-          <div className={`power-dock no-drag ${powerMenuOpen ? "is-open" : ""}`}>
-            <div className="power-radial" aria-hidden={!powerMenuOpen}>
-              <button
-                type="button"
-                className="power-radial__item"
-                onClick={() => void handleMinimizeWindow()}
-                tabIndex={powerMenuOpen ? 0 : -1}
-                aria-label="Minimize window"
-              >
-                <Minimize2 size={16} />
-                <span>พับจอ</span>
-              </button>
-              <button
-                type="button"
-                className="power-radial__item power-radial__item--danger"
-                onClick={() => void handleCloseWindow()}
-                tabIndex={powerMenuOpen ? 0 : -1}
-                aria-label="Close app"
-              >
-                <Power size={16} />
-                <span>ปิด</span>
-              </button>
-            </div>
-            <button
-              type="button"
-              className="fab fab-close power-trigger"
-              aria-label="Power menu"
-              aria-expanded={powerMenuOpen}
-              onClick={() => setPowerMenuOpen((open) => !open)}
-            >
-              <Power size={18} />
-            </button>
-          </div>
-
-        </main>
-      </div>
-    </div>
           </div>
         </div>
       )}

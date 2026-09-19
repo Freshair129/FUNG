@@ -69,42 +69,35 @@ test("desktop bootstrap keeps Supabase consumers behind lazy boundaries", async 
   assert.match(settingsSource, /import\("\.\/AccountLoginPanel"\)/);
 });
 
-test("left action rail contains added actions instead of overlapping the power dock", async () => {
-  const css = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
-  const sidebarRule = css.match(/\.fab-sidebar\s*\{(?<body>[^}]*)\}/s)?.groups?.body ?? "";
+test("the desktop rail expands on hover and owns the action menu", async () => {
+  const css = await readFile(new URL("../src/components/desktop/DesktopShell.css", import.meta.url), "utf8");
 
-  assert.match(sidebarRule, /grid-auto-rows:\s*40px/);
-  assert.match(sidebarRule, /overflow-y:\s*auto/);
-  assert.doesNotMatch(sidebarRule, /grid-template-rows:\s*repeat\(6,/);
+  assert.match(css, /grid-template-columns:\s*72px\s+minmax\(0,\s*1fr\)/);
+  assert.match(css, /desktop-shell__sidebar:hover[\s\S]*?width:\s*248px/);
+  assert.match(css, /desktop-shell__sidebar-action/);
+  assert.match(css, /desktop-shell__surface-content/);
+  assert.doesNotMatch(css, /grid-template-rows:\s*repeat\(6,/);
 });
 
-test("record rail control opens the real Live Meeting panel", async () => {
-  // The mic/record control moved from a static aria-label="Open Live
-  // Meeting" button in the old fab-sidebar into InstrumentRail's onRecord
-  // prop (aria-label is now dynamic: "Start recording" / "Pause recording"),
-  // and its anchor navigation now goes through enterMeetingWorkspace()
-  // rather than calling setActiveAnchor directly. Locate the callback by its
-  // prop name and confirm both the callback body and the helper it calls
-  // still reach the same underlying state.
+test("the new sidebar record action opens the real Live Meeting panel", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
-  const propIndex = appSource.indexOf("onRecord={");
-  const blockEnd = appSource.indexOf("}}", propIndex);
-  const onRecordCallback = appSource.slice(propIndex, blockEnd + "}}".length);
+  const actionIndex = appSource.indexOf("startRecording:");
+  const actionEnd = appSource.indexOf("stopRecording:", actionIndex);
+  const startAction = appSource.slice(actionIndex, actionEnd);
 
-  assert.notEqual(propIndex, -1);
-  assert.match(onRecordCallback, /setLiveMeetingOpen\(true\)/);
-  assert.match(onRecordCallback, /enterMeetingWorkspace\("P1"\)/);
-  assert.match(onRecordCallback, /P1:\s*"live-capture"/);
-  assert.doesNotMatch(onRecordCallback, /setRecording/);
+  assert.notEqual(actionIndex, -1);
+  assert.match(startAction, /setLiveMeetingOpen\(true\)/);
+  assert.match(startAction, /enterMeetingWorkspace\("P1"\)/);
+  assert.match(startAction, /P1:\s*"live-capture"/);
+  assert.doesNotMatch(startAction, /setRecording/);
 
   const enterWorkspaceIndex = appSource.indexOf("const enterMeetingWorkspace");
   const enterWorkspaceEnd = appSource.indexOf("};", enterWorkspaceIndex);
   const enterWorkspaceBody = appSource.slice(enterWorkspaceIndex, enterWorkspaceEnd + "};".length);
 
   assert.notEqual(enterWorkspaceIndex, -1);
-  // enterMeetingWorkspace must still actually change the active P, not just
-  // hide Home -- otherwise "opens Live Meeting" would silently stop moving
-  // the user onto P1.
+  // enterMeetingWorkspace must still change the active P and keep the existing
+  // capture state contract intact.
   assert.match(enterWorkspaceBody, /activateAnchor\(anchor\)/);
   assert.match(enterWorkspaceBody, /setShowHome\(false\)/);
 });

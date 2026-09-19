@@ -246,6 +246,8 @@ export type PlaybackCloseAcknowledgement = {
 };
 
 export type ThemeChoice = "system" | "light" | "dark";
+export type MaterialChoice = "glass" | "solid";
+export type TransparencyChoice = "full" | "reduced";
 export type ScopeChoice = "A" | "B";
 export type DesktopSurface = "home" | "live" | "review";
 export type LivePhase =

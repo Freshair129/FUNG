@@ -5,17 +5,22 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MutableRefObject,
 } from "react";
+import { Sparkles } from "lucide-react";
 import type { LiveStatusOutput } from "../../tauri.ts";
+import { CompanionPanel } from "./CompanionPanel";
 import {
   normalizeReviewError,
   type DesktopShellProps,
   type DesktopSurface,
   type LivePhase,
+  type MaterialChoice,
   type ReadState,
   type ReviewError,
   type ThemeChoice,
+  type TransparencyChoice,
 } from "./contracts.ts";
 import "./DesktopShell.css";
+import "./LiquidGlass.css";
 
 export type CaptureLifecycle = "inactive" | "starting" | "active" | "stopping";
 
@@ -41,6 +46,16 @@ export const THEME_ITEMS: ReadonlyArray<{ id: ThemeChoice; label: string }> = [
   { id: "system", label: "ตามระบบ" },
   { id: "light", label: "สว่าง" },
   { id: "dark", label: "มืด" },
+];
+
+const MATERIAL_ITEMS: ReadonlyArray<{ id: MaterialChoice; label: string }> = [
+  { id: "glass", label: "กระจก" },
+  { id: "solid", label: "ทึบ" },
+];
+
+const TRANSPARENCY_ITEMS: ReadonlyArray<{ id: TransparencyChoice; label: string }> = [
+  { id: "full", label: "เต็ม" },
+  { id: "reduced", label: "ลดความโปร่ง" },
 ];
 
 const FUNG_MARK_PATH =
@@ -165,6 +180,54 @@ function ThemeChoice({ theme, onChange }: ThemeChoiceProps) {
         onChange={(event) => onChange(event.target.value as ThemeChoice)}
       >
         {THEME_ITEMS.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+type MaterialSelectProps = {
+  material: MaterialChoice;
+  onChange: (material: MaterialChoice) => void;
+};
+
+function MaterialSelect({ material, onChange }: MaterialSelectProps) {
+  return (
+    <label className="desktop-shell__theme-choice" htmlFor="desktop-shell-material">
+      <span>วัสดุ</span>
+      <select
+        id="desktop-shell-material"
+        value={material}
+        onChange={(event) => onChange(event.target.value as MaterialChoice)}
+      >
+        {MATERIAL_ITEMS.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+type TransparencySelectProps = {
+  transparency: TransparencyChoice;
+  onChange: (transparency: TransparencyChoice) => void;
+};
+
+function TransparencySelect({ transparency, onChange }: TransparencySelectProps) {
+  return (
+    <label className="desktop-shell__theme-choice" htmlFor="desktop-shell-transparency">
+      <span>โปร่ง</span>
+      <select
+        id="desktop-shell-transparency"
+        value={transparency}
+        onChange={(event) => onChange(event.target.value as TransparencyChoice)}
+      >
+        {TRANSPARENCY_ITEMS.map((item) => (
           <option key={item.id} value={item.id}>
             {item.label}
           </option>
@@ -555,7 +618,17 @@ export function DesktopShell({
   const [actionError, setActionError] = useState<ReviewError | null>(null);
   const [stripStopState, setStripStopState] = useState<"idle" | "stopping" | "complete" | "error">("idle");
   const [stripStopError, setStripStopError] = useState<ReviewError | null>(null);
+  const [material, setMaterial] = useState<MaterialChoice>("glass");
+  const [transparency, setTransparency] = useState<TransparencyChoice>("full");
+  const [companionOpen, setCompanionOpen] = useState(false);
+  const companionTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const companionWasOpenRef = useRef(false);
   const captureLifecycle = getCaptureLifecycle(liveStatus, livePhase);
+
+  useEffect(() => {
+    if (companionWasOpenRef.current && !companionOpen) companionTriggerRef.current?.focus();
+    companionWasOpenRef.current = companionOpen;
+  }, [companionOpen]);
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -726,7 +799,14 @@ export function DesktopShell({
   const surfaceCopy = SURFACE_COPY[activeSurface];
 
   return (
-    <div className={`desktop-shell ${themeClass}`} data-fung-root="true" data-theme={theme} data-surface={activeSurface}>
+    <div
+      className={`desktop-shell ${themeClass}`}
+      data-fung-root="true"
+      data-theme={theme}
+      data-surface={activeSurface}
+      data-material={material}
+      data-transparency={transparency}
+    >
       <a className="desktop-shell__skip-link" href="#desktop-shell-main">
         ข้ามไปยังเนื้อหาหลัก
       </a>
@@ -744,6 +824,19 @@ export function DesktopShell({
         <SurfaceNavigation activeSurface={activeSurface} onNavigate={requestSurface} />
         <div className="desktop-shell__header-actions">
           <ThemeChoice theme={theme} onChange={actions.setTheme} />
+          <MaterialSelect material={material} onChange={setMaterial} />
+          <TransparencySelect transparency={transparency} onChange={setTransparency} />
+          <button
+            ref={companionTriggerRef}
+            className="desktop-shell__header-button desktop-shell__header-button--companion"
+            type="button"
+            aria-expanded={companionOpen}
+            aria-controls="fung-companion-panel"
+            onClick={() => setCompanionOpen((current) => !current)}
+          >
+            <Sparkles size={15} aria-hidden="true" />
+            Companion
+          </button>
           <button
             className="desktop-shell__header-button"
             type="button"
@@ -830,6 +923,28 @@ export function DesktopShell({
           </section>
         </main>
       </div>
+
+      {companionOpen ? (
+        <div id="fung-companion-panel">
+          <CompanionPanel
+            activeSurface={activeSurface}
+            captureLifecycle={captureLifecycle}
+            selection={selection}
+            theme={theme}
+            material={material}
+            transparency={transparency}
+            onClose={() => setCompanionOpen(false)}
+            onNavigate={(surface, initiator) => {
+              setCompanionOpen(false);
+              requestSurface(surface, initiator);
+            }}
+            onOpenSettings={(initiator) => {
+              setCompanionOpen(false);
+              requestSettings(initiator);
+            }}
+          />
+        </div>
+      ) : null}
 
       {settingsSlot ? <div className="desktop-shell__owned-slot desktop-shell__owned-slot--settings">{settingsSlot}</div> : null}
       {pairingSlot ? <div className="desktop-shell__owned-slot desktop-shell__owned-slot--pairing">{pairingSlot}</div> : null}

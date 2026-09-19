@@ -9,6 +9,7 @@
 | ไฟล์ | การใช้ |
 | --- | --- |
 | [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) | หลักการ, logo, tokens, component contracts, flow/state, surface mapping, overlay, QA และ implementation plan |
+| [LIQUID_GLASS_DESKTOP_ADAPTATION.md](LIQUID_GLASS_DESKTOP_ADAPTATION.md) | Approved beta addendum สำหรับแปลง `Downloads\fung-new-ui` เป็น desktop Liquid Glass; local implementation มี evidence แล้ว แต่ native click-through ยังเปิดอยู่ |
 | [fung.tokens.css](tokens/fung.tokens.css) | Semantic tokens แบบ Light/Dark/System ที่ generate แล้ว |
 | [fung.tokens.json](tokens/fung.tokens.json) | Source ของ token ในแพ็กนี้; project-specific schema |
 | [build_tokens.py](tokens/build_tokens.py) | Rebuild CSS และตรวจคู่สีด้วย Python standard library |
@@ -20,6 +21,8 @@
 ## ฐานข้อมูลและสถานะ
 
 เอกสารฉบับนี้เป็น design source ที่ได้รับอนุมัติและ freeze ในสถานะ **Beta** โดยอิง `FRONTEND_REDESIGN_BRIEF.md` v1.0.0 รอบ implementation วันที่ 19 กันยายน 2026 ได้นำ token และ visual foundation ไปผูกกับ FUNG repository แล้ว แต่สถานะนี้ยังไม่ใช่การรับรองว่า component และ Companion ทุกส่วนในเอกสารถูก implement ครบ หรือพร้อม production
+
+`LIQUID_GLASS_DESKTOP_ADAPTATION.md` เป็นเอกสารลูกสถานะ **Beta** จาก reference `C:\Users\pc\Downloads\fung-new-ui` v0.3.0 ซึ่งเป็น mobile HTML prototype และ Companion concept ที่ไม่มี desktop production integration เดิม เอกสารได้รับ approval สำหรับ implementation แบบจำกัดขอบเขตแล้ว การ implement ที่มีอยู่เป็น local evidence ไม่เปลี่ยนสถานะ Beta ของ `DESIGN_SYSTEM.md` และไม่ถือเป็น production readiness
 
 ภาพ mock เป็น reference ไม่ใช่หลักฐานว่า backend รองรับปุ่มทุกตัวแล้ว เอกสาร §2 มี discrepancy register; §16 แยก native overlay ออกจาก panel ภายในแอป; §21 ผูก UI กับ API ที่ brief ระบุและชี้จุดที่ยังไม่มี contract
 
@@ -33,8 +36,8 @@
 - `npm run test:callmd-contracts`, `npm run test:callmd-live`, `npm run test:callmd-shell`, `npm run test:mobile`, `npm run test:audio-viz` — PASS
 - `npm run test:release`, `npm run test:desktop-bootstrap` — PASS
 - Browser smoke — Landing, Desktop light/dark และ Mobile route render ได้; ไม่มี console warning/error ในรอบตรวจ
-- Local release executable launch smoke — `src-tauri/target/release/fung.exe` เปิด main window ชื่อ `FUNG` ได้; graceful-close probe ไม่ถือเป็นหลักฐาน packaged acceptance
-- ยังไม่ทำ installer click-through, physical-device UAT หรือ full accessibility audit
+- Local Windows engineering build — `npx tauri build --no-bundle` สร้าง `src-tauri/target/release/fung.exe` ล่าสุดได้; native window click-through ยัง `NOT RUN` เพราะ Computer Use ไม่มี native app surface
+- ยังไม่ทำ installer click-through, clean install, physical-device UAT หรือ full accessibility audit
 
 ## ใช้ token
 

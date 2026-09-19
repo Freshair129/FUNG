@@ -26,11 +26,13 @@ function transpile(source, compilerOptions = {}) {
 
 const reactModuleUrl = import.meta.resolve("react");
 const jsxRuntimeModuleUrl = import.meta.resolve("react/jsx-runtime");
+const lucideModuleUrl = import.meta.resolve("lucide-react");
 
 function resolveRuntimeImports(source) {
   return source
     .replaceAll('from "react/jsx-runtime"', `from "${jsxRuntimeModuleUrl}"`)
-    .replaceAll('from "react"', `from "${reactModuleUrl}"`);
+    .replaceAll('from "react"', `from "${reactModuleUrl}"`)
+    .replaceAll('from "lucide-react"', `from "${lucideModuleUrl}"`);
 }
 
 const [shellSource, contractsSource, brandAssetSource, shellCssSource, homeSource] = await Promise.all([
@@ -47,7 +49,14 @@ await writeFile(
   resolveRuntimeImports(transpile(shellSource))
     .replace('from "../../tauri.ts"', "")
     .replace('from "./contracts.ts"', 'from "./contracts.mjs"')
-    .replace('import "./DesktopShell.css";', ""),
+    .replace('from "./CompanionPanel"', 'from "./CompanionPanel.mjs"')
+    .replace('import "./DesktopShell.css";', "")
+    .replace('import "./LiquidGlass.css";', ""),
+  "utf8",
+);
+await writeFile(
+  path.join(runtimeDir, "CompanionPanel.mjs"),
+  "export function CompanionPanel() { return null; }\n",
   "utf8",
 );
 

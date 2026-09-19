@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 — 2026-09-19 — Beta
+
+บันทึกผล implementation ของ Liquid Glass desktop adaptation: local build, browser visual smoke และ contract checks ผ่าน; native click-through และ installer evidence ยังไม่ run
+
+## 0.3.0 — 2026-09-19 — Beta
+
+อนุมัติ `LIQUID_GLASS_DESKTOP_ADAPTATION.md` สำหรับ implementation แบบจำกัดขอบเขต โดยคง backend/command contract เดิม ใช้ in-app Companion เท่านั้น และแยก native overlay ออกจากรอบนี้
+
 ## 0.1.0 — 2026-09-19 — Beta
 
 ได้รับ approval ให้ freeze FUNG Quiet Archive Design System เป็น design authority ระดับ Beta สำหรับ implementation ต่อเนื่อง โดยคง `implementation_verified: false` เพราะ installer click-through, physical-device UAT และ full accessibility audit ยังไม่ run

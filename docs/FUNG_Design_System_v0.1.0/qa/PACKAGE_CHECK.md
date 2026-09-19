@@ -15,8 +15,10 @@ This report documents checks performed on the supplied document/token package on
 | Python build script | PASS — script compiled and executed successfully in this environment. |
 | Desktop layout arithmetic | PASS — proposed 1304px stage allocation leaves 736px main content. |
 | Reference asset integrity | PASS — copied originals are present; originals were not edited. |
-| App integration / browser/native rendering | REPOSITORY EVIDENCE — integration patch, build and local browser smoke are recorded in the repository; packaged native/device rendering remains open. |
-| Local release executable launch smoke | PASS WITH LIMITATIONS — `src-tauri/target/release/fung.exe` opened a `FUNG` main window; installer click-through, device rendering and full accessibility remain open. |
+| Liquid Glass desktop adaptation document | PASS — approved beta scope, provenance hashes, surface mapping, non-goals, implementation evidence and explicit native/release gaps are documented. |
+| External `Downloads\fung-new-ui` source | DOCUMENTED ONLY — source remains outside this package; hashes are recorded in `LIQUID_GLASS_DESKTOP_ADAPTATION.md` and assets are not treated as production inputs. |
+| App integration / browser/native rendering | PASS WITH LIMITATIONS — integration patch, production build, local browser smoke and standard Windows engineering build are recorded; native window click-through remains open because no native Computer Use surface is available. |
+| Local release executable build | PASS WITH LIMITATIONS — `src-tauri/target/release/fung.exe` rebuilt with `npx tauri build --no-bundle`; installer click-through, device rendering and full accessibility remain open. |
 | Full accessibility audit | NOT RUN — keyboard, assistive technology, zoom, focus, alpha colors and native overlay behavior require runtime tests. |
 | Figma/Penpot source and complete screen mockups | NOT INCLUDED — only the supplied logo concept and latest two mock references. |
 

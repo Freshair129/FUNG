@@ -111,6 +111,7 @@ impl RecordingOutputManager {
         self.current_root.clone()
     }
 
+    #[cfg(test)]
     pub(crate) fn known_roots(&self) -> Vec<PathBuf> {
         self.known_roots.clone()
     }

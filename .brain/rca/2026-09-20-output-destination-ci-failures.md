@@ -63,6 +63,22 @@ shape was assembled.
 - Remove the unused `RecordingOutputManager::known_roots` method.
 - Preserve the playback allow-list helper and all product behavior.
 
+## Follow-up hosted CI evidence
+
+After commit `0a1aa33`, hosted run `35522466563` confirmed the original
+inventory repair: build, `test:ci-coverage`, and the new output/live suites
+passed. The frontend job then failed at `test:job-actions`.
+
+The local reproduction was 16/17 passing. The remaining assertion searched for
+legacy `tileActionEnabled(currentTile.*)` button markup that no longer exists
+because the active-surface shell introduced by commit `285566b` owns live,
+review, and output routing. This was a stale test contract, not a product
+regression.
+
+The bounded follow-up replaces that obsolete markup assertion with checks for
+the current active-surface routing and leaves job-action resolution guards
+covered by the preceding tests in the same suite.
+
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |

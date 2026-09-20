@@ -1,7 +1,7 @@
 ---
-version: "0.1.1b"
+version: "0.1.2b"
 created_at: "2026-09-17T02:07:29+07:00"
-last_update: "2026-09-17T03:18:33+07:00,Luna max worker"
+last_update: "2026-09-20T22:05:05+07:00,RWANG"
 status: candidate
 superseded_by: null
 base_sha: 376ef30db13670e4dea816ceff440f44ce73fffd
@@ -135,6 +135,9 @@ Keep one session/event owner across shell navigation; presentation never starts 
 Live identity is independent of review selection. Mic/system describe channels, not verified people.
 Primary column: confirmed transcript and clearly pending text; right: ephemeral topic/summary.
 Existing liveMeetingStart/Stop/Status and live-* events remain the lifecycle boundary.
+The Live preflight now exposes source-level microphone and system-loopback
+selectors plus refresh/error state; these select capture channels, not verified
+people or per-application audio routes.
 Stop response means requested stop: show stopping until native status confirms completion.
 Show transcript cap/incompleteness before text. Do not estimate VU, WPM, talk ratio or health.
 Only confirmed transcript corrections use existing correction behavior; preserve original audio.
@@ -248,9 +251,11 @@ or production PASS follows from these boards.
 ## 12. Verification, unknowns and version diff
 
 Local SVG/PNG results and SHA-256 hashes: [UX report](../verification/implementation-reports/2026-09-17-callmd-doc-ux.md).
-Exact IBM Plex/DM Sans rendering, interactive accessibility, native PCM device compatibility,
-live capture/navigation behavior, integration tests, builds and hosted CI: UNKNOWN / NOT_RUN.
-The five boards do not verify runtime data or complete the global design brief.
+Exact IBM Plex/DM Sans rendering, native PCM device compatibility, and real
+hardware live capture remain UNKNOWN / NOT_RUN. Local integration tests, build,
+and WebView Live click-through are now recorded in `docs/Desktop/08-real-progress.md`;
+screenshots remain visual evidence only. The five boards do not verify runtime
+data or complete the global design brief.
 P1-B, SEC-1/SEC-2/UI-1 boundaries, and the scoped SVG/PNG exception are approved;
 native interface/backend/UI/integration reviews and runtime evidence remain NOT_RUN.
 new → 0.1.0b: five static boards, corrected legacy knowledge-search scope, scoped B review,
@@ -258,10 +263,13 @@ native format/admission constraints, preservation map, and review acceptance cri
 0.1.0b → 0.1.1b: align current approval authority and selected B order with the
 interface-first fork/join; record the accepted scoped format exception while
 preserving all visual semantics and the runtime NOT_RUN boundary.
+0.1.1b → 0.1.2b: document the approved Live preflight source selectors and sync
+the local automated/WebView evidence boundary; native device UAT remains NOT_RUN.
 
 ## CHANGELOG
 
 | Version | Timestamp (+07:00) | Status | Change | Commit |
 |---|---|---|---|---|
+| 0.1.2b | 2026-09-20T22:05:05+07:00 | candidate | Added source-level mic/loopback preflight selector semantics and synced the local/WebView verification boundary; native device UAT remains NOT_RUN | working-tree |
 | 0.1.1b | 2026-09-17T03:18:33+07:00 | candidate | Approved-scope authority/order and scoped SVG/PNG acceptance alignment; visual assets and semantics unchanged; runtime remains NOT_RUN | UNCOMMITTED; base 376ef30 |
 | 0.1.0b | 2026-09-17T02:07:29+07:00 | candidate | Initial bounded desktop UX package; no product implementation | UNCOMMITTED; base c378af9 |

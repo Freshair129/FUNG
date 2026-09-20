@@ -1,7 +1,7 @@
 ---
-version: "0.2.30b"
+version: "0.2.31b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-20T03:53:22+07:00,RWANG"
+last_update: "2026-09-20T22:05:05+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -39,6 +39,31 @@ Local evidence for this shell delta is commit
 native custody test and WebView Home → Appearance → Live → Review → profile
 click-through passed. Exact native executable click-through, installer,
 clean-install and production readiness remain separate gates.
+
+## Current live capture routing truth — 2026-09-20
+
+The approved live-capture routing slice now exposes one selectable microphone
+and one selectable Windows render-loopback output on the Live Meeting preflight
+page. `live_capture_devices` enumerates the native lists and persisted choices;
+`live_meeting_start` carries the optional opaque selections, revalidates them in
+native code, persists the last choice, and fails closed for an explicit device
+that cannot be resolved. Omitting a selection keeps the OS-default behavior;
+system capture remains optional and the existing `mic`/`system` chunk and ledger
+boundary is unchanged. This is source-level routing only, not per-application
+OBS-style capture.
+
+Local evidence for this slice: full Rust library `474 passed / 1 ignored`,
+`test:live-capture-routing` `4/4`, `test:callmd-live` `12/12`,
+`test:callmd-contracts` `13/13`, `test:callmd-integration` `6/6`, Vite build,
+format check, and `git diff --check` passed. WebView click-through reached Live
+Meeting and showed the source selectors, refresh control, and truthful
+`NATIVE_UNAVAILABLE` browser boundary. Real Windows device enumeration,
+non-default capture, selected-device WAV/ledger proof, disconnect recovery, and
+restart persistence are still **NOT_RUN**; screenshots remain visual evidence
+only. A native Tauri dev build also compiled and launched `fung.exe` outside the
+sandbox, but the process exposed no native window handle to the desktop test
+surface, so that attempt does not count as click-through evidence. The separate
+output-destination design is not included in this slice.
 
 ## Current Status
 
@@ -828,6 +853,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.31b | Recorded the approved live-capture device-routing implementation and automated/WebView evidence; native Windows device UAT, selected-device audio/ledger proof, and output-destination migration remain open. |
 | 0.2.21b | Recorded the approved bounded D-MVP-02 working-tree slice: recording-scoped manual transcript correction, accepted refinement provenance, local audit event, inline Desktop affordance, and local verification evidence; runtime/UAT and release gates remain open. |
 | 0.2.22b | Recorded bounded D-MVP-05 source WAV/MP3 export through the existing durable export queue, typed audio artifacts, truthful unsupported-format handling, and current local verification evidence; transcoding, runtime/UAT, and release gates remain open. |
 | 0.2.23b | Recorded the completed D-MVP-05 bundled PyAV WAV/MP3 transcoder, packaged resource registration, real local codec smoke, and fail-closed runtime boundary; packaged click-through, restart, provider, device, and release gates remain open. |
@@ -861,6 +887,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.31b | 2026-09-20 | beta | Added approved live-capture microphone/loopback selection, persistence, native revalidation, and local/WebView evidence; real Windows device UAT remains open. | working-tree | RWANG |
 | 0.2.27b | 2026-09-17 | beta | Integrated the bounded D-MVP-04-L1 export-artifact inventory fix after the Google Drive cancellation cleanup; local verification remains bounded by the documented Whisper runtime gap. | 086fcfa | Codex |
 | 0.2.26b | 2026-09-17 | beta | Removed the canceled Google Drive implementation, active tests, commands, and Edge functions; retained local backup as the active Phase 4 target and marked provider/migration evidence historical. | a9f9b80 | Codex |
 | 0.2.21b | 2026-09-16 | beta | Added the approved bounded D-MVP-02 recording-scoped transcript correction/audit path and recorded local Rust, Node, formatting, and build evidence; runtime/UAT, device, provider, and release gates remain open. | working-tree | Codex |

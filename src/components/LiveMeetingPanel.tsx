@@ -4,12 +4,14 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   askRecording,
   generateMeetingSummary,
+  liveCaptureDevices,
   listTranscriptSegments,
   liveMeetingStart,
   liveMeetingStatus,
   liveMeetingStop,
   meetingSummaries,
   type LiveSegmentEvent,
+  type LiveCaptureDevices,
   type LiveStartOutput,
   type LiveStatusEvent,
   type LiveStatusOutput,
@@ -563,6 +565,9 @@ export function LiveMeetingPanel({
 }: LiveMeetingPanelProps) {
   const [phase, setPhase] = useState<LivePhase>("idle");
   const [devices, setDevices] = useState<LiveDevices>({ mic: null, system: null });
+  const [captureDevices, setCaptureDevices] = useState<LiveCaptureDevices | null>(null);
+  const [captureDevicesLoading, setCaptureDevicesLoading] = useState(false);
+  const [captureDevicesError, setCaptureDevicesError] = useState<string | null>(null);
   const [selection, setSelection] = useState<RecordingKey | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [segments, setSegments] = useState<LiveSegmentEvent[]>([]);
@@ -572,6 +577,24 @@ export function LiveMeetingPanel({
   const [operationErrors, setOperationErrors] = useState<ReviewError[]>([]);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const [transcriptIncomplete, setTranscriptIncomplete] = useState(false);
+  const nativeAvailable = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+  const refreshCaptureDevices = useCallback(async () => {
+    if (!nativeAvailable) return;
+    setCaptureDevicesLoading(true);
+    setCaptureDevicesError(null);
+    try {
+      setCaptureDevices(await liveCaptureDevices());
+    } catch (error) {
+      setCaptureDevicesError(normalizeReviewError(error).message);
+    } finally {
+      setCaptureDevicesLoading(false);
+    }
+  }, [nativeAvailable]);
+
+  useEffect(() => {
+    void refreshCaptureDevices();
+  }, [refreshCaptureDevices]);
 
   const phaseRef = useRef<LivePhase>("idle");
   const activeKeyRef = useRef<RecordingKey | null>(null);
@@ -949,7 +972,13 @@ export function LiveMeetingPanel({
   }, [addError, applyAuthoritativeStatus, requestStop, setControllerStatusError, setPhaseSafe]);
 
   const start = useCallback(async (
-    options: { projectId?: string; captureSystem?: boolean; language?: string },
+    options: {
+      projectId?: string;
+      captureSystem?: boolean;
+      language?: string;
+      micDeviceId?: string;
+      systemDeviceId?: string;
+    },
     closePlayer: CloseReviewPlayer,
   ): Promise<LiveStartOutput> => {
     setOperationErrors([]);
@@ -960,6 +989,8 @@ export function LiveMeetingPanel({
           projectId: options.projectId ?? projectId ?? undefined,
           captureSystem: options.captureSystem ?? true,
           language: options.language,
+          micDeviceId: options.micDeviceId,
+          systemDeviceId: options.systemDeviceId,
         }),
       );
       const key = { projectId: output.projectId, recordingId: output.recordingId };
@@ -1152,7 +1183,6 @@ export function LiveMeetingPanel({
     onClose();
   }, [onClose]);
 
-  const nativeAvailable = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   const capabilities: DesktopCapabilities = useMemo(() => ({
     capture: {
       available: nativeAvailable,
@@ -1181,6 +1211,10 @@ export function LiveMeetingPanel({
           phase={phase}
           elapsedMs={elapsedMs}
           devices={devices}
+          captureDevices={captureDevices}
+          captureDevicesLoading={captureDevicesLoading}
+          captureDevicesError={captureDevicesError}
+          refreshCaptureDevices={refreshCaptureDevices}
           segmentFeed={segments}
           topic={topic}
           summaries={summaries}

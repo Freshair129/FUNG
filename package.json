@@ -9,6 +9,7 @@
     "test:callmd-contracts": "node --test --experimental-strip-types tests/callmdDesktopContracts.test.mjs",
     "test:callmd-shell": "node --test --experimental-strip-types tests/callmdDesktopShell.test.mjs",
     "test:callmd-live": "node --test --experimental-strip-types tests/callmdLiveWorkspace.test.mjs",
+    "test:live-capture-routing": "node --test tests/liveCaptureRouting.test.mjs",
     "test:callmd-history": "node --test --experimental-strip-types tests/callmdRecordingReview.test.mjs",
     "test:callmd-integration": "node --test --experimental-strip-types tests/callmdDesktopIntegration.test.mjs",
     "test:native-session-custody": "node --test tests/nativeSessionCustody.test.mjs",

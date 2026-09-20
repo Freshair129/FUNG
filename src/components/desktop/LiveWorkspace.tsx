@@ -239,6 +239,10 @@ export function LiveWorkspace({
   phase,
   elapsedMs,
   devices,
+  captureDevices,
+  captureDevicesLoading,
+  captureDevicesError,
+  refreshCaptureDevices,
   segmentFeed,
   topic,
   summaries: summaryState,
@@ -256,11 +260,19 @@ export function LiveWorkspace({
   const nearBottomRef = useRef(true);
   const previousSegmentCountRef = useRef(segmentFeed.length);
   const [captureSystem, setCaptureSystem] = useState(true);
+  const [micDeviceId, setMicDeviceId] = useState("");
+  const [systemDeviceId, setSystemDeviceId] = useState("");
   const [language, setLanguage] = useState("auto");
   const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
   const [question, setQuestion] = useState("");
   const [leavePrompt, setLeavePrompt] = useState(false);
   const [showReturnToLatest, setShowReturnToLatest] = useState(false);
+
+  useEffect(() => {
+    if (!captureDevices) return;
+    setMicDeviceId(captureDevices.selectedMicDeviceId ?? "");
+    setSystemDeviceId(captureDevices.selectedSystemDeviceId ?? "");
+  }, [captureDevices?.selectedMicDeviceId, captureDevices?.selectedSystemDeviceId]);
 
   const captureCapability = capabilities.capture ?? { available: true, reasonCode: null };
   const askCapability = capabilities.recordingAsk ?? {
@@ -329,6 +341,8 @@ export function LiveWorkspace({
         {
           captureSystem,
           language: language === "auto" ? undefined : language,
+          micDeviceId: micDeviceId || undefined,
+          systemDeviceId: systemDeviceId || undefined,
         },
         closeReviewPlayer ?? (async () => ({ closed: false })),
       );
@@ -401,6 +415,14 @@ export function LiveWorkspace({
   const currentSummaryRows = summaryPresentation.currentRows;
   const topicData = topic.status === "ready" ? topic.data : null;
   const askData = ask.status === "ready" ? ask.data : null;
+  const micOptions = captureDevices?.inputs ?? [];
+  const systemOptions = captureDevices?.loopbackOutputs ?? [];
+  const micSelectionUnavailable = Boolean(
+    micDeviceId && !micOptions.some((device) => device.id === micDeviceId),
+  );
+  const systemSelectionUnavailable = Boolean(
+    systemDeviceId && !systemOptions.some((device) => device.id === systemDeviceId),
+  );
 
   return (
     <div className="live-workspace">
@@ -466,6 +488,63 @@ export function LiveWorkspace({
                 />
                 <span>จับเสียงระบบด้วย (เสียงอีกฝ่ายในประชุมออนไลน์)</span>
               </label>
+              <div className="live-workspace__device-routing" aria-label="เลือกแหล่งเสียง">
+                <div className="live-workspace__device-routing-header">
+                  <span>แหล่งเสียง</span>
+                  <button
+                    type="button"
+                    className="live-btn live-btn-subtle"
+                    onClick={() => void refreshCaptureDevices()}
+                    disabled={captureDevicesLoading}
+                  >
+                    {captureDevicesLoading ? "กำลังอ่านรายการ…" : "รีเฟรชอุปกรณ์"}
+                  </button>
+                </div>
+                <label className="live-workspace__field live-workspace__field--stacked">
+                  <span>ไมโครโฟน</span>
+                  <select
+                    aria-label="อุปกรณ์ไมโครโฟน"
+                    value={micDeviceId}
+                    onChange={(event) => setMicDeviceId(event.target.value)}
+                    disabled={captureDevicesLoading}
+                  >
+                    <option value="">ค่าเริ่มต้นระบบ</option>
+                    {micSelectionUnavailable ? (
+                      <option value={micDeviceId}>อุปกรณ์เดิม — ไม่พร้อมใช้งาน</option>
+                    ) : null}
+                    {micOptions.map((device) => (
+                      <option key={device.id} value={device.id} disabled={!device.available}>
+                        {device.name}{device.isDefault ? " · ค่าเริ่มต้น" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="live-workspace__field live-workspace__field--stacked">
+                  <span>เสียงระบบ / loopback</span>
+                  <select
+                    aria-label="อุปกรณ์เสียงระบบ"
+                    value={systemDeviceId}
+                    onChange={(event) => setSystemDeviceId(event.target.value)}
+                    disabled={!captureSystem || captureDevicesLoading}
+                  >
+                    <option value="">ค่าเริ่มต้นระบบ</option>
+                    {systemSelectionUnavailable ? (
+                      <option value={systemDeviceId}>อุปกรณ์เดิม — ไม่พร้อมใช้งาน</option>
+                    ) : null}
+                    {systemOptions.map((device) => (
+                      <option key={device.id} value={device.id} disabled={!device.available}>
+                        {device.name}{device.isDefault ? " · ค่าเริ่มต้น" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {captureDevicesError ? (
+                  <p className="live-workspace__device-issue" role="alert">{captureDevicesError}</p>
+                ) : null}
+                {captureDevices?.issue ? (
+                  <p className="live-workspace__device-issue" role="status">{captureDevices.issue}</p>
+                ) : null}
+              </div>
               <label className="live-workspace__field">
                 <span>ภาษา</span>
                 <select value={language} onChange={(event) => setLanguage(event.target.value)}>

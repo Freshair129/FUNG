@@ -3097,6 +3097,7 @@ pub fn __debug_live_smoke(
         let mic = spawn_capture_thread(
             ChannelKind::Mic,
             CHANNEL_MIC,
+            None,
             stop.clone(),
             chunk_tx.clone(),
             chunks_dir.clone(),
@@ -3108,6 +3109,7 @@ pub fn __debug_live_smoke(
         let system = spawn_capture_thread(
             ChannelKind::SystemLoopback,
             CHANNEL_SYSTEM,
+            None,
             stop.clone(),
             chunk_tx.clone(),
             chunks_dir.clone(),
@@ -3471,6 +3473,7 @@ pub fn run() {
             zoom_sync::zoom_import_recording,
             graph_build::graph_build_start,
             diarization::diarization_status,
+            live_meeting::live_capture_devices,
             live_meeting::live_meeting_start,
             live_meeting::live_meeting_stop,
             live_meeting::live_meeting_status,

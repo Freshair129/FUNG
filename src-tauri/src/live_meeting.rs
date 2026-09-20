@@ -56,9 +56,188 @@ const RECENT_SEGMENT_CAP: usize = 240;
 /// Model load can include a first-time download; give it room.
 const WORKER_READY_TIMEOUT: Duration = Duration::from_secs(180);
 const WORKER_CHUNK_TIMEOUT: Duration = Duration::from_secs(120);
+const CAPTURE_PREFERENCES_FILE: &str = "live-capture-preferences.json";
 
 pub(crate) const CHANNEL_MIC: &str = "mic";
 pub(crate) const CHANNEL_SYSTEM: &str = "system";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LiveCaptureDevice {
+    id: String,
+    name: String,
+    is_default: bool,
+    available: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LiveCaptureDevices {
+    inputs: Vec<LiveCaptureDevice>,
+    loopback_outputs: Vec<LiveCaptureDevice>,
+    selected_mic_device_id: Option<String>,
+    selected_system_device_id: Option<String>,
+    issue: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct CaptureDevicePreferences {
+    mic_device_id: Option<String>,
+    system_device_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaptureDeviceKind {
+    Mic,
+    SystemLoopback,
+}
+
+impl CaptureDeviceKind {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Mic => "mic",
+            Self::SystemLoopback => "system",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Mic => "ไมโครโฟน",
+            Self::SystemLoopback => "เสียงระบบ",
+        }
+    }
+
+    fn missing_message(self) -> &'static str {
+        match self {
+            Self::Mic => "ไม่พบไมโครโฟนที่พร้อมใช้งาน",
+            Self::SystemLoopback => "ไม่พบอุปกรณ์เสียงออกที่พร้อมใช้สำหรับ loopback",
+        }
+    }
+}
+
+struct ResolvedCaptureDevice {
+    descriptor: LiveCaptureDevice,
+    device: cpal::Device,
+}
+
+fn capture_preferences_path(data_root: &Path) -> PathBuf {
+    data_root.join(CAPTURE_PREFERENCES_FILE)
+}
+
+fn read_capture_preferences(data_root: &Path) -> Result<CaptureDevicePreferences, String> {
+    let path = capture_preferences_path(data_root);
+    if !path.is_file() {
+        return Ok(CaptureDevicePreferences::default());
+    }
+    let contents = std::fs::read_to_string(&path)
+        .map_err(|error| format!("อ่านการตั้งค่าอุปกรณ์บันทึกไม่ได้: {error}"))?;
+    serde_json::from_str(&contents).map_err(|error| format!("การตั้งค่าอุปกรณ์บันทึกไม่ถูกต้อง: {error}"))
+}
+
+fn write_capture_preferences(
+    data_root: &Path,
+    preferences: &CaptureDevicePreferences,
+) -> Result<(), String> {
+    std::fs::create_dir_all(data_root)
+        .map_err(|error| format!("เตรียมพื้นที่เก็บการตั้งค่าอุปกรณ์ไม่ได้: {error}"))?;
+    let encoded = serde_json::to_vec_pretty(preferences)
+        .map_err(|error| format!("สร้างการตั้งค่าอุปกรณ์ไม่ได้: {error}"))?;
+    std::fs::write(capture_preferences_path(data_root), encoded)
+        .map_err(|error| format!("บันทึกการตั้งค่าอุปกรณ์ไม่ได้: {error}"))
+}
+
+fn normalize_device_id(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+fn capture_device_id(kind: CaptureDeviceKind, name: &str, ordinal: usize) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(kind.key().as_bytes());
+    hasher.update([0]);
+    hasher.update(name.as_bytes());
+    hasher.update([0]);
+    hasher.update(ordinal.to_le_bytes());
+    format!("{}-{:x}", kind.key(), hasher.finalize())
+}
+
+fn enumerate_capture_devices(
+    kind: CaptureDeviceKind,
+) -> Result<Vec<ResolvedCaptureDevice>, String> {
+    let host = cpal::default_host();
+    let default_name = match kind {
+        CaptureDeviceKind::Mic => host.default_input_device(),
+        CaptureDeviceKind::SystemLoopback => host.default_output_device(),
+    }
+    .and_then(|device| device.name().ok());
+    let devices = match kind {
+        CaptureDeviceKind::Mic => host
+            .input_devices()
+            .map_err(|error| format!("อ่านรายการไมโครโฟนไม่ได้: {error}"))?,
+        CaptureDeviceKind::SystemLoopback => host
+            .output_devices()
+            .map_err(|error| format!("อ่านรายการอุปกรณ์เสียงออกไม่ได้: {error}"))?,
+    };
+
+    let mut occurrences = std::collections::HashMap::<String, usize>::new();
+    let mut resolved = Vec::new();
+    for device in devices {
+        let name = device
+            .name()
+            .unwrap_or_else(|_| "อุปกรณ์เสียงไม่ทราบชื่อ".to_string());
+        let ordinal = occurrences.entry(name.clone()).or_insert(0);
+        let id = capture_device_id(kind, &name, *ordinal);
+        *ordinal += 1;
+        resolved.push(ResolvedCaptureDevice {
+            descriptor: LiveCaptureDevice {
+                id,
+                is_default: default_name.as_deref() == Some(name.as_str()),
+                name,
+                available: true,
+            },
+            device,
+        });
+    }
+    Ok(resolved)
+}
+
+fn resolve_capture_device(
+    kind: CaptureDeviceKind,
+    requested_id: Option<&str>,
+) -> Result<cpal::Device, String> {
+    if let Some(requested_id) = requested_id {
+        return enumerate_capture_devices(kind)?
+            .into_iter()
+            .find(|candidate| candidate.descriptor.id == requested_id)
+            .map(|candidate| candidate.device)
+            .ok_or_else(|| {
+                format!(
+                    "อุปกรณ์{}ที่เลือกไม่พร้อมใช้งาน — รีเฟรชรายการแล้วเลือกใหม่",
+                    kind.label()
+                )
+            });
+    }
+
+    match kind {
+        CaptureDeviceKind::Mic => cpal::default_host().default_input_device(),
+        CaptureDeviceKind::SystemLoopback => cpal::default_host().default_output_device(),
+    }
+    .ok_or_else(|| kind.missing_message().to_string())
+}
+
+fn validate_requested_device(
+    kind: CaptureDeviceKind,
+    requested_id: Option<&str>,
+) -> Result<(), String> {
+    if requested_id.is_some() {
+        resolve_capture_device(kind, requested_id).map(|_| ())
+    } else {
+        Ok(())
+    }
+}
 
 /// Rolling in-memory window of the newest live segments. Shared with the
 /// topic tracker and `meeting_ask` so they never need a mid-session DB read.
@@ -333,6 +512,7 @@ pub(crate) struct CaptureReady {
 pub(crate) fn spawn_capture_thread(
     kind: ChannelKind,
     channel: &'static str,
+    device_id: Option<String>,
     stop: Arc<AtomicBool>,
     chunk_tx: mpsc::Sender<CaptureEvent>,
     chunks_dir: PathBuf,
@@ -340,21 +520,19 @@ pub(crate) fn spawn_capture_thread(
     let (ready_tx, ready_rx) = mpsc::channel::<Result<String, String>>();
 
     thread::spawn(move || {
-        let host = cpal::default_host();
-        let device = match kind {
-            ChannelKind::Mic => host.default_input_device(),
-            // WASAPI exposes render endpoints as loopback capture sources:
-            // opening an *input* stream on the default *output* device
-            // records everything the machine plays (the "them" side of an
-            // online meeting).
-            ChannelKind::SystemLoopback => host.default_output_device(),
+        let device_kind = match kind {
+            ChannelKind::Mic => CaptureDeviceKind::Mic,
+            ChannelKind::SystemLoopback => CaptureDeviceKind::SystemLoopback,
         };
-        let Some(device) = device else {
-            let _ = ready_tx.send(Err(match kind {
-                ChannelKind::Mic => "ไม่พบไมโครโฟนเริ่มต้นของระบบ".to_string(),
-                ChannelKind::SystemLoopback => "ไม่พบอุปกรณ์เสียงออกเริ่มต้น (loopback)".to_string(),
-            }));
-            return;
+        // WASAPI exposes render endpoints as loopback capture sources:
+        // opening an *input* stream on the selected *output* device records
+        // everything the machine plays (the "them" side of an online meeting).
+        let device = match resolve_capture_device(device_kind, device_id.as_deref()) {
+            Ok(device) => device,
+            Err(error) => {
+                let _ = ready_tx.send(Err(error));
+                return;
+            }
         };
         let device_name = device.name().unwrap_or_else(|_| "unknown device".into());
 
@@ -1640,14 +1818,81 @@ fn recover_stale_capture(
 }
 
 #[tauri::command]
+pub(crate) fn live_capture_devices(state: State<'_, AppState>) -> AppResult<LiveCaptureDevices> {
+    let mut issues = Vec::new();
+    let preferences = match read_capture_preferences(&state.data_root) {
+        Ok(preferences) => preferences,
+        Err(error) => {
+            issues.push(error);
+            CaptureDevicePreferences::default()
+        }
+    };
+
+    let inputs = match enumerate_capture_devices(CaptureDeviceKind::Mic) {
+        Ok(devices) => devices
+            .into_iter()
+            .map(|device| device.descriptor)
+            .collect(),
+        Err(error) => {
+            issues.push(error);
+            Vec::new()
+        }
+    };
+    let loopback_outputs = match enumerate_capture_devices(CaptureDeviceKind::SystemLoopback) {
+        Ok(devices) => devices
+            .into_iter()
+            .map(|device| device.descriptor)
+            .collect(),
+        Err(error) => {
+            issues.push(error);
+            Vec::new()
+        }
+    };
+
+    Ok(LiveCaptureDevices {
+        inputs,
+        loopback_outputs,
+        selected_mic_device_id: preferences.mic_device_id,
+        selected_system_device_id: preferences.system_device_id,
+        issue: if issues.is_empty() {
+            None
+        } else {
+            Some(issues.join("; "))
+        },
+    })
+}
+
+#[tauri::command]
 pub(crate) fn live_meeting_start(
     project_id: Option<String>,
     capture_system: Option<bool>,
     language: Option<String>,
+    mic_device_id: Option<String>,
+    system_device_id: Option<String>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<LiveStartOutput> {
     let capture_system = capture_system.unwrap_or(true);
+    let mic_device_id = normalize_device_id(mic_device_id);
+    let system_device_id = normalize_device_id(system_device_id);
+
+    validate_requested_device(CaptureDeviceKind::Mic, mic_device_id.as_deref())
+        .map_err(AppError::InvalidInput)?;
+    if capture_system {
+        validate_requested_device(
+            CaptureDeviceKind::SystemLoopback,
+            system_device_id.as_deref(),
+        )
+        .map_err(AppError::InvalidInput)?;
+    }
+    write_capture_preferences(
+        &state.data_root,
+        &CaptureDevicePreferences {
+            mic_device_id: mic_device_id.clone(),
+            system_device_id: system_device_id.clone(),
+        },
+    )
+    .map_err(AppError::InvalidInput)?;
 
     let capture_reservation = match crate::recording_review::NativeCaptureGuard::reserve_capture(
         Arc::clone(&state.native_capture),
@@ -1766,6 +2011,7 @@ pub(crate) fn live_meeting_start(
     let mic_ready = spawn_capture_thread(
         ChannelKind::Mic,
         CHANNEL_MIC,
+        mic_device_id.clone(),
         stop.clone(),
         chunk_tx.clone(),
         chunks_dir.clone(),
@@ -1790,12 +2036,29 @@ pub(crate) fn live_meeting_start(
         match spawn_capture_thread(
             ChannelKind::SystemLoopback,
             CHANNEL_SYSTEM,
+            system_device_id.clone(),
             stop.clone(),
             chunk_tx.clone(),
             chunks_dir.clone(),
         ) {
             Ok(ready) => Some(ready.device_name),
             Err(error) => {
+                if system_device_id.is_some() {
+                    stop.store(true, Ordering::SeqCst);
+                    let _ = crate::set_job_status(
+                        &state.genesis,
+                        &job_id,
+                        "failed",
+                        None,
+                        Some(&error),
+                    );
+                    if let Ok(record) = genesis_adapter::capture(&state.genesis, &recording_id) {
+                        let _ = genesis_adapter::finish_capture(&state.genesis, &record, &now());
+                    }
+                    return Err(AppError::InvalidInput(format!(
+                        "เปิดเสียงระบบที่เลือกไม่สำเร็จ: {error}"
+                    )));
+                }
                 warning = Some(format!("จับเสียงระบบไม่ได้ ({error}) — อัดเฉพาะไมค์"));
                 None
             }
@@ -2002,6 +2265,44 @@ mod tests {
         .expect("open storage");
         genesis_adapter::install(&storage).expect("install schema");
         (path, storage)
+    }
+
+    #[test]
+    fn capture_device_keys_are_direction_scoped_and_deterministic() {
+        let mic_a = capture_device_id(CaptureDeviceKind::Mic, "USB Mic", 0);
+        let mic_b = capture_device_id(CaptureDeviceKind::Mic, "USB Mic", 0);
+        let system = capture_device_id(CaptureDeviceKind::SystemLoopback, "USB Mic", 0);
+
+        assert_eq!(mic_a, mic_b);
+        assert_ne!(mic_a, system);
+        assert!(mic_a.starts_with("mic-"));
+        assert!(system.starts_with("system-"));
+    }
+
+    #[test]
+    fn capture_preferences_round_trip_without_entering_the_genesis_ledger() {
+        let root = tempfile::tempdir().expect("temp preferences root");
+        let preferences = CaptureDevicePreferences {
+            mic_device_id: Some("mic-selected".to_string()),
+            system_device_id: Some("system-selected".to_string()),
+        };
+
+        write_capture_preferences(root.path(), &preferences).expect("write preferences");
+        assert_eq!(
+            read_capture_preferences(root.path()).expect("read preferences"),
+            preferences
+        );
+        assert!(capture_preferences_path(root.path()).is_file());
+    }
+
+    #[test]
+    fn blank_device_ids_mean_system_default() {
+        assert_eq!(normalize_device_id(None), None);
+        assert_eq!(normalize_device_id(Some("  ".to_string())), None);
+        assert_eq!(
+            normalize_device_id(Some(" mic-selected ".to_string())),
+            Some("mic-selected".to_string())
+        );
     }
 
     #[test]

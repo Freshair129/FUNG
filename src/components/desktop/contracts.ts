@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type {
   ExportArtifact,
   Job,
+  LiveCaptureDevices,
   LiveSegmentEvent,
   LiveStartOutput,
   LiveStatusOutput,
@@ -280,6 +281,8 @@ export type LiveStartOptions = {
   projectId?: string;
   captureSystem?: boolean;
   language?: string;
+  micDeviceId?: string;
+  systemDeviceId?: string;
 };
 
 export type CapabilityState = {
@@ -371,6 +374,10 @@ export type LiveWorkspaceProps = {
   phase: LivePhase;
   elapsedMs: number;
   devices: LiveDevices;
+  captureDevices: LiveCaptureDevices | null;
+  captureDevicesLoading: boolean;
+  captureDevicesError: string | null;
+  refreshCaptureDevices: () => void | Promise<void>;
   segmentFeed: readonly LiveSegmentEvent[];
   topic: ReadState<LiveTopicEvent>;
   summaries: ReadState<MeetingSummaries>;

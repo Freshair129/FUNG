@@ -1,7 +1,7 @@
 ---
-version: "0.1.4b"
+version: "0.1.5b"
 created_at: "2026-09-17T02:03:10+07:00"
-last_update: "2026-09-20T04:15:00+07:00,RWANG"
+last_update: "2026-09-20T22:05:05+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 base_sha: "376ef30db13670e4dea816ceff440f44ce73fffd"
@@ -169,7 +169,8 @@ CamelCase is the IPC wire casing, including Rust serde serialization.
 | Frontend wrapper / native command | State and arguments | Result |
 |---|---|---|
 | listProjects / list_projects; listJobs / list_jobs | EXISTING; no args | Project[]; Job[] (newest 30, not full history). |
-| liveMeetingStart / live_meeting_start | EXISTING; projectId?, captureSystem?, language? | projectId, recordingId, jobId, micDevice; systemDevice and warning are nullable fields. |
+| liveCaptureDevices / live_capture_devices | NEW; no args | `LiveCaptureDevices`: current microphone inputs, loopback outputs, persisted selections, and nullable enumeration issue. |
+| liveMeetingStart / live_meeting_start | EXISTING + approved optional routing; projectId?, captureSystem?, language?, micDeviceId?, systemDeviceId? | projectId, recordingId, jobId, micDevice; systemDevice and warning are nullable fields. Omitted device IDs preserve OS-default behavior; explicit IDs are revalidated natively. |
 | liveMeetingStop / live_meeting_stop; liveMeetingStatus / live_meeting_status | EXISTING; no args | Stop returns an acknowledged recordingId request, not completed stop; while the session remains owned status can be active:true, stopping:true; inactive requires active:false, stopping:false, with nullable projectId/recordingId/elapsedMs. |
 | listTranscriptSegments / list_transcript_segments | EXISTING; RecordingKey | TranscriptView segments; compatibility fields are capped=false and cappedRecordingIds=[], with cap retained for wire-shape stability. |
 | meetingSummaries / meeting_summaries | EXISTING; RecordingKey | rows, otherRecordings, unattributable, attributionComplete. |
@@ -474,8 +475,12 @@ three-worker/disjoint-lease limits, and all existing command/resource/security s
 0.1.3b → 0.1.4b: reconcile presentation ownership and integration evidence with
 the current Liquid Glass `DesktopShell` active-surface boundary; candidate wire
 contracts and native/security gates remain unchanged.
+0.1.4b → 0.1.5b: add the approved live-capture device enumeration DTO/command and
+optional mic/system routing arguments, preserving the existing two-channel
+boundary and recording the real-device UAT as NOT_RUN.
 | Version | Date | Status | Summary | Commit | Agent |
 |---|---|---|---|---|---|
+| 0.1.5b | 2026-09-20 | candidate | Added `live_capture_devices` and optional source device IDs to the candidate IPC contract; native Windows device UAT remains open. | working-tree; docs and implementation | RWANG |
 | 0.1.4b | 2026-09-20 | candidate | Reconciled presentation/integration ownership with DesktopShell active surfaces; wire contracts and native/security scope unchanged | pending; docs reconciliation | RWANG |
 | 0.1.3b | 2026-09-17 | candidate | Align section 10 shorthand with reviewed FIX1 consumer types and approved lifecycle/error requirements; native interface/security unchanged | UNCOMMITTED; base 376ef30 | Codex orchestrator |
 | 0.1.2b | 2026-09-17 | candidate | Approved-scope interface-first scheduling/test-boundary amendment; independent Terra review pending | UNCOMMITTED; base 376ef30 | Luna max worker |

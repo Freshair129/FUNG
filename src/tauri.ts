@@ -700,6 +700,21 @@ export type LiveStartOutput = {
   warning: string | null;
 };
 
+export type LiveCaptureDevice = {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  available: boolean;
+};
+
+export type LiveCaptureDevices = {
+  inputs: LiveCaptureDevice[];
+  loopbackOutputs: LiveCaptureDevice[];
+  selectedMicDeviceId: string | null;
+  selectedSystemDeviceId: string | null;
+  issue: string | null;
+};
+
 export type LiveStatusOutput = {
   active: boolean;
   stopping: boolean;
@@ -768,16 +783,25 @@ export type {
 } from "./lib/meetingSummaries.ts";
 export { EMPTY_MEETING_SUMMARIES } from "./lib/meetingSummaries.ts";
 
+export async function liveCaptureDevices(): Promise<LiveCaptureDevices> {
+  if (!canInvoke()) throw new Error("รายการอุปกรณ์บันทึกต้องรันในแอปเดสก์ท็อป");
+  return invoke<LiveCaptureDevices>("live_capture_devices");
+}
+
 export async function liveMeetingStart(options?: {
   projectId?: string;
   captureSystem?: boolean;
   language?: string;
+  micDeviceId?: string;
+  systemDeviceId?: string;
 }): Promise<LiveStartOutput> {
   if (!canInvoke()) throw new Error("Live Meeting ต้องรันในแอปเดสก์ท็อป");
   return invoke<LiveStartOutput>("live_meeting_start", {
     projectId: options?.projectId ?? null,
     captureSystem: options?.captureSystem ?? true,
     language: options?.language ?? null,
+    micDeviceId: options?.micDeviceId ?? null,
+    systemDeviceId: options?.systemDeviceId ?? null,
   });
 }
 

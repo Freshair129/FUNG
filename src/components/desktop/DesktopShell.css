@@ -1153,6 +1153,14 @@
   scroll-behavior: smooth;
 }
 
+.desktop-shell__surface-content--output {
+  overflow: hidden;
+}
+
+.desktop-shell__surface-content--output > .callmd-desktop-content {
+  min-height: 0;
+}
+
 .desktop-shell__surface-content > * {
   min-width: 0;
 }

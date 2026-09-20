@@ -218,6 +218,14 @@ impl NativeCaptureGuard {
         state.playback_open = false;
     }
 
+    pub(crate) fn capture_is_active(&self) -> bool {
+        self.inner
+            .lock()
+            .expect("capture admission mutex poisoned")
+            .capture
+            != CapturePhase::Inactive
+    }
+
     #[cfg(test)]
     pub(crate) fn capture_phase(&self) -> CapturePhase {
         self.inner
@@ -1029,7 +1037,9 @@ mod tests {
     #[test]
     fn native_admission_blocks_both_directions_until_release() {
         let guard = NativeCaptureGuard::default();
+        assert!(!guard.capture_is_active());
         guard.try_start_capture().unwrap();
+        assert!(guard.capture_is_active());
         assert_eq!(guard.capture_phase(), CapturePhase::Starting);
         assert_eq!(
             guard.try_open_playback(),
@@ -1038,6 +1048,7 @@ mod tests {
         guard.mark_capture_active();
         guard.mark_capture_stopping();
         guard.release_capture();
+        assert!(!guard.capture_is_active());
         guard.try_open_playback().unwrap();
         assert!(guard.playback_open());
         assert_eq!(guard.try_start_capture(), Err(AdmissionError::PlaybackBusy));

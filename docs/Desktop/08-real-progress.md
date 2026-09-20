@@ -1,7 +1,7 @@
 ---
-version: "0.2.31b"
+version: "0.2.32b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-20T22:05:05+07:00,RWANG"
+last_update: "2026-09-20T22:47:23+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -21,7 +21,7 @@ provenance, not current runtime or deployment evidence.
 
 The current desktop presentation is the Liquid Glass `DesktopShell`, not the
 older fixed HUD / P rail / InstrumentRail vocabulary used by earlier progress
-entries. The active shell surfaces are `home`, `live`, `review`, and
+entries. The active shell surfaces are `home`, `live`, `review`, `output`, and
 `appearance`.
 
 - The persistent sidebar is hover/focus-expandable and owns navigation plus
@@ -30,6 +30,10 @@ entries. The active shell surfaces are `home`, `live`, `review`, and
   strip. The native recording/runtime boundary is unchanged.
 - Appearance is a dedicated main-content page for theme, material and
   transparency controls; the sidebar only navigates to it.
+- `ไฟล์บันทึก` is a dedicated main-content page for the user-visible recording
+  destination; it exposes the current path, writable status, native folder
+  picker and reset-to-`Documents\fung` action. It is disabled while capture is
+  active.
 - The header owns the FUNG / QUIET ARCHIVE lockup, truthful recording status
   and profile/login CTA. Shell-level minimize/close buttons are removed;
   native OS window controls remain outside the FUNG content contract.
@@ -62,8 +66,30 @@ non-default capture, selected-device WAV/ledger proof, disconnect recovery, and
 restart persistence are still **NOT_RUN**; screenshots remain visual evidence
 only. A native Tauri dev build also compiled and launched `fung.exe` outside the
 sandbox, but the process exposed no native window handle to the desktop test
-surface, so that attempt does not count as click-through evidence. The separate
-output-destination design is not included in this slice.
+surface, so that attempt does not count as click-through evidence. The
+output-destination implementation is recorded below; its real WAV-path smoke
+remains a separate gate.
+
+## Current recording output destination truth — 2026-09-20
+
+The desktop now separates internal AppData from user-visible recording output.
+The default is resolved from the native Documents directory plus `fung`, so it
+does not hard-code this machine's username. The persisted current root and
+known previous roots live in `recording-output.json` under AppData. New project
+storage, live WAV chunks, local uploads, Zoom imports and project exports follow
+the selected project root; existing projects retain their ledger-owned path.
+
+Playback custody accepts the AppData legacy root and every persisted output
+root. A deleted custom destination is reported as unavailable and does not
+silently fall back to AppData. Changes are rejected while the native capture
+guard is active, and the UI only chooses folders through the native picker.
+
+Local evidence: Rust library `478 passed / 1 ignored`; focused output contract
+`3/3`; Desktop shell `11/11`; Desktop integration `6/6`; live routing `4/4`;
+Vite production build; `cargo fmt --all -- --check`; and `git diff --check`.
+Real native output-path smoke (default `Documents\fung`, custom folder,
+restart persistence, and old AppData playback) is **NOT_RUN**. Screenshots are
+visual gate evidence only.
 
 ## Current Status
 
@@ -853,6 +879,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.32b | Recorded the selectable recording output destination, AppData/legacy custody split, dedicated UI surface and automated evidence; native output-path smoke remains open. |
 | 0.2.31b | Recorded the approved live-capture device-routing implementation and automated/WebView evidence; native Windows device UAT, selected-device audio/ledger proof, and output-destination migration remain open. |
 | 0.2.21b | Recorded the approved bounded D-MVP-02 working-tree slice: recording-scoped manual transcript correction, accepted refinement provenance, local audit event, inline Desktop affordance, and local verification evidence; runtime/UAT and release gates remain open. |
 | 0.2.22b | Recorded bounded D-MVP-05 source WAV/MP3 export through the existing durable export queue, typed audio artifacts, truthful unsupported-format handling, and current local verification evidence; transcoding, runtime/UAT, and release gates remain open. |
@@ -887,6 +914,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.32b | 2026-09-20 | beta | Added selectable recording output custody, legacy playback allow-list and `ไฟล์บันทึก` surface; automated verification passed, native output-path smoke remains open. | working-tree | RWANG |
 | 0.2.31b | 2026-09-20 | beta | Added approved live-capture microphone/loopback selection, persistence, native revalidation, and local/WebView evidence; real Windows device UAT remains open. | working-tree | RWANG |
 | 0.2.27b | 2026-09-17 | beta | Integrated the bounded D-MVP-04-L1 export-artifact inventory fix after the Google Drive cancellation cleanup; local verification remains bounded by the documented Whisper runtime gap. | 086fcfa | Codex |
 | 0.2.26b | 2026-09-17 | beta | Removed the canceled Google Drive implementation, active tests, commands, and Edge functions; retained local backup as the active Phase 4 target and marked provider/migration evidence historical. | a9f9b80 | Codex |

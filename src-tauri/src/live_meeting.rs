@@ -1937,15 +1937,16 @@ pub(crate) fn live_meeting_start(
             genesis_adapter::string(row, "projects.id").map_err(AppError::Genesis)?
         }
         None => {
+            let output_root = state
+                .recording_output
+                .lock()
+                .expect("recording output mutex poisoned")
+                .ensure_current_writable()
+                .map_err(AppError::InvalidInput)?;
             let id = Uuid::new_v4().to_string();
             let timestamp = now();
             let name = format!("Live Meeting {}", &timestamp[..16]);
-            let storage_path = state
-                .data_root
-                .join("projects")
-                .join(&id)
-                .display()
-                .to_string();
+            let storage_path = output_root.join("projects").join(&id).display().to_string();
             genesis_adapter::commit_rows(&state.genesis, vec![genesis_adapter::upsert(
                 "projects",
                 serde_json::json!({"id": id, "name": name, "storage_path": storage_path, "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp}),
@@ -1957,13 +1958,12 @@ pub(crate) fn live_meeting_start(
 
     recover_stale_capture(&state.genesis, &project_id).map_err(AppError::Genesis)?;
 
+    // The ledger owns a project's storage location. New projects point at the
+    // selected output root; existing AppData projects remain on their legacy
+    // path so changing the destination never strands old recordings.
+    let storage_root = crate::project_storage_path(&state.genesis, &project_id)?;
     let recording_id = Uuid::new_v4().to_string();
-    let session_dir = state
-        .data_root
-        .join("projects")
-        .join(&project_id)
-        .join("live")
-        .join(&recording_id);
+    let session_dir = storage_root.join("live").join(&recording_id);
     let chunks_dir = session_dir.join("chunks");
     std::fs::create_dir_all(&chunks_dir)?;
 

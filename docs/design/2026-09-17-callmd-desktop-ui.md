@@ -1,14 +1,14 @@
 ---
-version: "0.1.2b"
+version: "0.1.3b"
 created_at: "2026-09-17T02:07:29+07:00"
-last_update: "2026-09-20T22:05:05+07:00,RWANG"
+last_update: "2026-09-20T22:47:23+07:00,RWANG"
 status: candidate
 superseded_by: null
 base_sha: 376ef30db13670e4dea816ceff440f44ce73fffd
 branch: codex/callmd-ui-dag
 attributes:
   doc_type: desktop-ux-spec
-  scope: "Three desktop surfaces; documentation only"
+  scope: "Four desktop surfaces plus appearance; documentation only"
   complexity: C-3
   documentation_risk: MEDIUM
   proposed_backend_security_risk: HIGH
@@ -181,6 +181,22 @@ If close fails or capture admission rejects, show the failure and do not bypass 
 A Play remains unavailable with “ยังไม่รองรับการเล่นเสียงบน Desktop”.
 Reopen after restart does not auto-resume playback or label an interrupted recording active.
 
+## 7A. Recording output destination — O1–O4
+
+`ไฟล์บันทึก` is a dedicated main-content surface reachable from the hover/focus
+sidebar. It shows the current user-visible output path, writable/unavailable
+state, the native **เลือกโฟลเดอร์** action and **คืนค่าเริ่มต้น** action. The
+renderer never writes a path directly; the native command validates and
+persists the selected absolute directory.
+
+The default is the native Documents directory plus `fung`. Changing the
+destination affects new projects and new output only. Existing AppData or
+previously selected project roots remain reviewable, and playback custody
+accepts the retained known-root list. Both destination actions are disabled
+while the live capture guard owns the storage boundary. The compact layout
+keeps the path readable with wrapping and uses a short card rather than a
+scroll-dependent form.
+
 ## 8. Q&A, summary and export scopes
 
 | UI action | Existing or proposed binding | Required copy/behavior |
@@ -219,6 +235,7 @@ Runtime keyboard, zoom, screen-reader and contrast compliance are NOT_RUN in thi
 | Existing surface/group | Reachability proposal | Board coverage |
 |---|---|---|
 | Capture / Transcript / Summary / Runtime anchors | “พื้นที่ทำงานเดิม”; preserve current commands and gates | Linked, detailed legacy screens deferred. |
+| Recording output destination | `ไฟล์บันทึก` sidebar entry; native picker/reset, writable state and legacy-root notice | Implemented surface; real native path smoke remains a separate gate. |
 | Transcript correction/rename; summary + TTS | Existing review/workspace detail actions | Summarized here; full dialogs/TTS deferred. |
 | Export / jobs / projects | Shell links + review export pair/project-list distinction | Entry/actions shown; full detail deferred. |
 | Recovery notice and interrupted recording flow | Global notice + “นำเข้า / กู้คืน”, no automatic recovery | States specified; full recovery screen deferred. |
@@ -265,11 +282,15 @@ interface-first fork/join; record the accepted scoped format exception while
 preserving all visual semantics and the runtime NOT_RUN boundary.
 0.1.1b → 0.1.2b: document the approved Live preflight source selectors and sync
 the local automated/WebView evidence boundary; native device UAT remains NOT_RUN.
+0.1.2b → 0.1.3b: add the dedicated `ไฟล์บันทึก` surface, selectable output
+destination behavior, capture lock and legacy-root notice; native output-path
+smoke remains NOT_RUN.
 
 ## CHANGELOG
 
 | Version | Timestamp (+07:00) | Status | Change | Commit |
 |---|---|---|---|---|
+| 0.1.3b | 2026-09-20T22:47:23+07:00 | candidate | Added the recording output destination surface and documented its native picker, capture lock and legacy custody behavior; native path smoke remains NOT_RUN | working-tree |
 | 0.1.2b | 2026-09-20T22:05:05+07:00 | candidate | Added source-level mic/loopback preflight selector semantics and synced the local/WebView verification boundary; native device UAT remains NOT_RUN | working-tree |
 | 0.1.1b | 2026-09-17T03:18:33+07:00 | candidate | Approved-scope authority/order and scoped SVG/PNG acceptance alignment; visual assets and semantics unchanged; runtime remains NOT_RUN | UNCOMMITTED; base 376ef30 |
 | 0.1.0b | 2026-09-17T02:07:29+07:00 | candidate | Initial bounded desktop UX package; no product implementation | UNCOMMITTED; base c378af9 |

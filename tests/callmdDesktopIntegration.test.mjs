@@ -353,7 +353,7 @@ if (!fixtureMode) {
     assert.match(appSource, /exportMedia:/);
     assert.doesNotMatch(appSource, /<InstrumentRail\b|<HomeScreen\b/);
     assert.doesNotMatch(appSource, /callmd-legacy-workspace|className="app-shell|fab-topbar|power-dock/);
-    assert.match(appSource, /mainContent=\{\(/);
+    assert.match(appSource, /mainContent=\{/);
     assert.doesNotMatch(
       stylesSource,
       /(^|\n)\s*\.callmd-desktop-content\s*\{/m,

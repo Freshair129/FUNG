@@ -100,6 +100,7 @@ function createProps(overrides = {}) {
     showHome: () => calls.push(["showHome"]),
     showLive: () => calls.push(["showLive"]),
     showReview: () => calls.push(["showReview"]),
+    showOutput: () => calls.push(["showOutput"]),
     showAppearance: () => calls.push(["showAppearance"]),
     startRecording: () => calls.push(["startRecording"]),
     stopRecording: () => calls.push(["stopRecording"]),
@@ -228,11 +229,12 @@ test("bootstrap and failed reads do not fabricate capture while known capture su
   }
 });
 
-test("SSR keeps Home, Live, and History controlled by activeSurface with accessible navigation", () => {
+test("SSR keeps Home, Live, History, and Output controlled by activeSurface with accessible navigation", () => {
   const homeMarkup = renderToStaticMarkup(React.createElement(DesktopShell, createProps()));
   assert.match(homeMarkup, /href="#home"[^>]*aria-current="page"/);
   assert.match(homeMarkup, /href="#live"/);
   assert.match(homeMarkup, /href="#history"/);
+  assert.match(homeMarkup, /href="#output"/);
   assert.match(homeMarkup, /ข้ามไปยังเนื้อหาหลัก/);
   assert.match(homeMarkup, /เริ่มประชุม/);
   assert.match(homeMarkup, /จะเปิดประชุมสดก่อนเริ่มการบันทึกจริง/);
@@ -256,6 +258,12 @@ test("SSR keeps Home, Live, and History controlled by activeSurface with accessi
   assert.match(reviewMarkup, /บันทึกที่เลือก/);
   assert.match(reviewMarkup, /data-theme="dark"/);
   assert.doesNotMatch(reviewMarkup, /เริ่มประชุม/);
+
+  const outputMarkup = renderToStaticMarkup(
+    React.createElement(DesktopShell, createProps({ activeSurface: "output" })),
+  );
+  assert.match(outputMarkup, /href="#output"[^>]*aria-current="page"/);
+  assert.match(outputMarkup, /กำหนดปลายทางไฟล์บันทึก/);
 });
 
 test("appearance is a separate active surface and not an inline sidebar disclosure", () => {

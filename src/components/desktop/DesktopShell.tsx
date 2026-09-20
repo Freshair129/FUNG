@@ -9,6 +9,7 @@ import {
 import {
   Archive,
   Download,
+  FolderOpen,
   History,
   Home,
   LogIn,
@@ -56,6 +57,7 @@ export const SURFACE_ITEMS: ReadonlyArray<{
   { id: "home", href: "#home", label: "หน้าหลัก" },
   { id: "live", href: "#live", label: "ประชุมสด" },
   { id: "review", href: "#history", label: "บันทึกย้อนหลัง" },
+  { id: "output", href: "#output", label: "ไฟล์บันทึก" },
 ];
 
 export const THEME_ITEMS: ReadonlyArray<{ id: ThemeChoice; label: string }> = [
@@ -175,7 +177,7 @@ function SurfaceNavigation({ activeSurface, onNavigate }: SurfaceNavigationProps
           }}
         >
           <span className="desktop-shell__nav-icon" aria-hidden="true">
-            {item.id === "home" ? <Home size={17} /> : item.id === "live" ? <Radio size={17} /> : <History size={17} />}
+            {item.id === "home" ? <Home size={17} /> : item.id === "live" ? <Radio size={17} /> : item.id === "review" ? <History size={17} /> : <FolderOpen size={17} />}
           </span>
           <span className="desktop-shell__nav-label">{item.label}</span>
         </a>
@@ -625,6 +627,11 @@ const SURFACE_COPY: Record<DesktopSurface, { kicker: string; title: string; desc
     title: "ทบทวนบันทึกที่เลือก",
     description: "อ่านเนื้อหาและการกระทำของบันทึกที่จับคู่กับโครงการนี้เท่านั้น",
   },
+  output: {
+    kicker: "ไฟล์บันทึก",
+    title: "กำหนดปลายทางไฟล์บันทึก",
+    description: "เลือกโฟลเดอร์สำหรับไฟล์ใหม่ โดยไฟล์เดิมยังอยู่ที่ตำแหน่งเดิมและเปิดอ่านได้",
+  },
   appearance: {
     kicker: "ลักษณะ",
     title: "ลักษณะและธีม",
@@ -915,7 +922,9 @@ export function DesktopShell({
           ? actions.showLive
           : surface === "review"
             ? actions.showReview
-            : actions.showAppearance;
+            : surface === "output"
+              ? actions.showOutput
+              : actions.showAppearance;
     requestNavigation(
       {
         label: SURFACE_COPY[surface].kicker,
@@ -1118,7 +1127,7 @@ export function DesktopShell({
               <small>รหัส {actionError.code}</small>
             </div>
           ) : null}
-          <LiveStatusNotice liveStatus={liveStatus} />
+          {activeSurface === "output" ? null : <LiveStatusNotice liveStatus={liveStatus} />}
           {activeSurface === "home" ? (
             <HomeActions
               onOpenLive={(initiator) => requestSurface("live", initiator)}
@@ -1137,7 +1146,10 @@ export function DesktopShell({
               />
             </div>
           ) : (
-            <section className="desktop-shell__surface-content" aria-label={`เนื้อหา${SURFACE_COPY[activeSurface].kicker}`}>
+            <section
+              className={`desktop-shell__surface-content${activeSurface === "output" ? " desktop-shell__surface-content--output" : ""}`}
+              aria-label={`เนื้อหา${SURFACE_COPY[activeSurface].kicker}`}
+            >
               {mainContent}
             </section>
           )}

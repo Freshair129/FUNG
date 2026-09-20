@@ -45,6 +45,7 @@ mod native_auth;
 mod native_recorder;
 mod on_device_ai;
 mod policy;
+mod recording_output;
 mod recording_review;
 mod recovery;
 mod speaker_merge;
@@ -315,6 +316,7 @@ type AppResult<T> = Result<T, AppError>;
 
 pub(crate) struct AppState {
     pub(crate) data_root: PathBuf,
+    pub(crate) recording_output: Arc<Mutex<recording_output::RecordingOutputManager>>,
     pub(crate) genesis: Arc<genesis_block_native::Storage>,
     pub(crate) genesis_path: PathBuf,
     pub(crate) local_api: Mutex<Option<local_api::LocalApiControl>>,
@@ -874,6 +876,14 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         .path()
         .app_data_dir()
         .map_err(|_| AppError::MissingAppDataDir)?;
+    let default_output_root = app
+        .path()
+        .document_dir()
+        .map_err(|_| AppError::InvalidInput("Documents directory is not available".to_string()))?
+        .join("fung");
+    let recording_output =
+        recording_output::RecordingOutputManager::load(app_data_dir.clone(), default_output_root)
+            .map_err(AppError::InvalidInput)?;
     let legacy_db_path = app_data_dir.join("fung.db");
     let genesis_path = app_data_dir.join("genesisdb");
     let genesis = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
@@ -899,6 +909,7 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
     let genesis = Arc::new(genesis);
     Ok(AppState {
         data_root: app_data_dir,
+        recording_output: Arc::new(Mutex::new(recording_output)),
         jobs: job_engine::JobEngine::new(Arc::clone(&genesis)),
         genesis,
         genesis_path,
@@ -959,12 +970,13 @@ fn create_project(name: String, state: State<'_, AppState>) -> AppResult<Project
 
     let id = Uuid::new_v4().to_string();
     let timestamp = now();
-    let storage_path = state
-        .data_root
-        .join("projects")
-        .join(&id)
-        .display()
-        .to_string();
+    let output_root = state
+        .recording_output
+        .lock()
+        .expect("recording output mutex poisoned")
+        .ensure_current_writable()
+        .map_err(AppError::InvalidInput)?;
+    let storage_path = output_root.join("projects").join(&id).display().to_string();
     genesis_adapter::commit_rows(&state.genesis, vec![
         genesis_adapter::upsert("projects", serde_json::json!({"id": id, "name": trimmed, "storage_path": storage_path, "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp})),
         genesis_adapter::upsert("graph_nodes", serde_json::json!({"id": id, "project_id": id, "entity_type": "project", "entity_id": id, "label": trimmed, "position_x": 50.0, "position_y": 17.0, "created_at": timestamp, "updated_at": timestamp})),
@@ -2120,21 +2132,31 @@ fn resolve_or_create_project(
     if let Some(id) = project_id {
         return Ok(id);
     }
-    create_project_named(&state.genesis, &state.data_root, default_name)
+    let output_root = state
+        .recording_output
+        .lock()
+        .expect("recording output mutex poisoned")
+        .ensure_current_writable()
+        .map_err(AppError::InvalidInput)?;
+    create_project_named(&state.genesis, &output_root, default_name)
 }
 
-/// Creates a project whose storage lives under `<data_root>/projects/<id>`
+/// Creates a project whose storage lives under `<storage_root>/projects/<id>`
 /// and returns its id. The Tauri-state-free half of
 /// [`resolve_or_create_project`], shared with the loopback API's upload
 /// route (`local_api::import_recording`), which has no `AppState`.
 pub(crate) fn create_project_named(
     genesis: &genesis_block_native::Storage,
-    data_root: &std::path::Path,
+    storage_root: &std::path::Path,
     name: &str,
 ) -> AppResult<String> {
     let id = Uuid::new_v4().to_string();
     let timestamp = now();
-    let storage_path = data_root.join("projects").join(&id).display().to_string();
+    let storage_path = storage_root
+        .join("projects")
+        .join(&id)
+        .display()
+        .to_string();
     genesis_adapter::commit_rows(genesis, vec![genesis_adapter::upsert("projects", serde_json::json!({"id":id,"name":name,"storage_path":storage_path,"active_recording_id":null,"created_at":timestamp,"updated_at":timestamp}))]).map_err(AppError::Genesis)?;
     Ok(id)
 }
@@ -3473,6 +3495,9 @@ pub fn run() {
             zoom_sync::zoom_import_recording,
             graph_build::graph_build_start,
             diarization::diarization_status,
+            recording_output::recording_output_get,
+            recording_output::recording_output_set,
+            recording_output::recording_output_reset,
             live_meeting::live_capture_devices,
             live_meeting::live_meeting_start,
             live_meeting::live_meeting_stop,

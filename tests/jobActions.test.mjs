@@ -112,23 +112,18 @@ test("the runnable set matches the job kinds the engine registers", () => {
   );
 });
 
-test("the desktop shell disables tile buttons instead of filing dead rows", () => {
+test("the active desktop shell routes work through surfaces instead of legacy tile rows", () => {
   const app = readFileSync("src/App.tsx", "utf8");
-  assert.match(
-    app,
-    /disabled=\{[^}]*!tileActionEnabled\(currentTile\.primaryAction\)/,
-    "the primary tile button must respect what can actually run",
-  );
-  assert.match(
-    app,
-    /disabled=\{!tileActionEnabled\(currentTile\.secondaryAction\)\}/,
-    "the secondary tile button must respect what can actually run",
-  );
-  assert.match(
-    app,
-    /className="action-notice"/,
-    "a refused action must have somewhere to say why",
-  );
+  const shell = readFileSync("src/components/desktop/DesktopShell.tsx", "utf8");
+  assert.match(app, /<DesktopShell[\s\S]*showLive:/, "the app must delegate desktop work to the active shell");
+  assert.match(app, /showReview: openReviewSurface/, "review must be an explicit active surface");
+  assert.match(app, /showOutput: openOutputSurface/, "output must be an explicit active surface");
+  assert.match(shell, /id: "live"/, "the shell must expose the live surface");
+  assert.match(shell, /id: "review"/, "the shell must expose the review surface");
+  assert.match(shell, /id: "output"/, "the shell must expose the output surface");
+  assert.match(app, /visible=\{activeSurface === "live"\}/, "live content must follow the active surface");
+  assert.match(app, /visible=\{activeSurface === "review"\}/, "review content must follow the active surface");
+  assert.match(app, /mainContent=\{activeSurface === "output" \?/, "output content must follow the active surface");
 });
 
 test("queued jobs target the project's active recording", () => {

@@ -923,16 +923,19 @@ pub(crate) fn zoom_import_recording(
 
     let job_id = uuid::Uuid::new_v4().to_string();
     let timestamp = now();
-    let storage_path = state
-        .data_root
-        .join("projects")
-        .join(&project_id)
-        .display()
-        .to_string();
-    let base_dir = state
-        .data_root
-        .join("projects")
-        .join(&project_id)
+    let storage_root = if resuming {
+        crate::project_storage_path(&state.genesis, &project_id)?
+    } else {
+        let output_root = state
+            .recording_output
+            .lock()
+            .expect("recording output mutex poisoned")
+            .ensure_current_writable()
+            .map_err(AppError::InvalidInput)?;
+        output_root.join("projects").join(&project_id)
+    };
+    let storage_path = storage_root.display().to_string();
+    let base_dir = storage_root
         .join("zoom")
         .join(sanitize_component(&meeting_uuid));
     let mixed_path = base_dir.join("mixed.m4a");

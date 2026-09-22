@@ -66,6 +66,13 @@ impl SessionLifecycleState {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LifecycleWitness {
+    pub(crate) native_user_id: Option<String>,
+    pub(crate) account_generation: u64,
+    pub(crate) state: &'static str,
+}
+
 pub(crate) trait KeyringPort: Send + 'static {
     fn read(&mut self, slot: &str) -> Result<Option<Zeroizing<String>>, String>;
     fn write(&mut self, slot: &str, value: &Zeroizing<String>) -> Result<(), String>;
@@ -113,6 +120,12 @@ pub(crate) struct LifecycleOutcome {
 pub(crate) trait RegisteredBrokerPort: Send + Sync {
     fn check_account_operation(&self, ticket: LifecycleTicket) -> Result<(), String>;
     fn finish_account_operation(&self, ticket: LifecycleTicket);
+    fn with_account_commit_fence(
+        &self,
+        expected_witness: &LifecycleWitness,
+        ticket: LifecycleTicket,
+        commit: &mut dyn FnMut() -> Result<(), String>,
+    ) -> Result<(), String>;
 }
 
 pub(crate) enum RefreshAdmission<P> {
@@ -190,6 +203,17 @@ impl AccountOperationGuard {
     pub(crate) fn check(&self) -> Result<(), String> {
         self.broker.check_account_operation(self.ticket)
     }
+
+    pub(crate) fn with_account_commit_fence(
+        &self,
+        expected_witness: &LifecycleWitness,
+        commit: &mut dyn FnMut() -> Result<(), String>,
+    ) -> Result<(), String> {
+        // The guard retains the exact trait object that admitted its ticket.
+        // This cannot be replaced by a shadow lifecycle lock from the caller.
+        self.broker
+            .with_account_commit_fence(expected_witness, self.ticket, commit)
+    }
 }
 
 impl Drop for AccountOperationGuard {
@@ -262,6 +286,14 @@ where
         self.account.user_id = None;
         self.account.email = None;
         self.listener.close();
+    }
+
+    fn lifecycle_witness(&self) -> LifecycleWitness {
+        LifecycleWitness {
+            native_user_id: self.account.user_id.clone(),
+            account_generation: self.account.generation,
+            state: self.account.state.as_str(),
+        }
     }
     fn mark_credential_cleanup_failed(&mut self) {
         self.clear_memory();
@@ -402,6 +434,17 @@ where
     }
 
     pub(crate) fn check_account_operation(&self, ticket: LifecycleTicket) -> Result<(), String> {
+        self.ensure_account_ticket(ticket)
+    }
+
+    fn validate_account_commit_fence(
+        &self,
+        expected_witness: &LifecycleWitness,
+        ticket: LifecycleTicket,
+    ) -> Result<(), String> {
+        if &self.lifecycle_witness() != expected_witness {
+            return Err(public_error("auth_transition_in_progress"));
+        }
         self.ensure_account_ticket(ticket)
     }
 
@@ -777,6 +820,10 @@ where
         })
     }
 
+    pub(crate) fn lifecycle_witness(&self) -> Result<LifecycleWitness, String> {
+        self.with(|lifecycle| Ok(lifecycle.lifecycle_witness()))
+    }
+
     pub(crate) fn login_is_current(&self, request_id: &str, generation: u64) -> bool {
         self.lifecycle.lock().ok().is_some_and(|lifecycle| {
             lifecycle.account.generation == generation
@@ -882,6 +929,24 @@ where
         if let Ok(mut lifecycle) = self.lifecycle.lock() {
             lifecycle.finish_account_operation(ticket);
         }
+    }
+
+    fn with_account_commit_fence(
+        &self,
+        expected_witness: &LifecycleWitness,
+        ticket: LifecycleTicket,
+        commit: &mut dyn FnMut() -> Result<(), String>,
+    ) -> Result<(), String> {
+        // This mutex is the registered broker's lifecycle critical section.
+        // Do not call lifecycle_source.read(), check_account_operation(), or
+        // any broker entry while it is held: the validation is direct and the
+        // Genesis commit is the only operation performed under this fence.
+        let lifecycle = self
+            .lifecycle
+            .lock()
+            .map_err(|_| public_error("auth_transition_in_progress"))?;
+        lifecycle.validate_account_commit_fence(expected_witness, ticket)?;
+        commit()
     }
 }
 
@@ -1577,6 +1642,10 @@ pub(crate) fn startup_recover() -> Result<(), String> {
     production_lifecycle().startup_recover()
 }
 
+pub(crate) fn read_lifecycle_witness() -> Result<LifecycleWitness, String> {
+    production_lifecycle().lifecycle_witness()
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SessionStatus {
@@ -1934,10 +2003,9 @@ pub(crate) async fn ensure_access_token() -> Result<Zeroizing<String>, String> {
 }
 
 pub(crate) fn native_user_id() -> Option<String> {
-    production_lifecycle()
-        .session_snapshot()
+    read_lifecycle_witness()
         .ok()
-        .and_then(|(_, user_id, _, _)| user_id)
+        .and_then(|witness| witness.native_user_id)
 }
 
 async fn finish_login(_app: AppHandle, request_id: String, generation: u64) {
@@ -2588,7 +2656,7 @@ pub(crate) async fn broker_device_audit_list() -> Result<Vec<AuditRow>, String> 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::collections::HashMap;
 
@@ -2881,6 +2949,115 @@ mod tests {
         provider: FakeProvider,
     }
 
+    pub(crate) struct TestAccountOperationHarness {
+        broker: Arc<TestBroker>,
+        guard: Option<AccountOperationGuard>,
+    }
+
+    impl TestAccountOperationHarness {
+        pub(crate) fn new() -> Self {
+            let broker = make_broker();
+            let guard = broker.begin_account_operation().unwrap();
+            Self {
+                broker,
+                guard: Some(guard),
+            }
+        }
+
+        pub(crate) fn take_guard(&mut self) -> AccountOperationGuard {
+            self.guard.take().unwrap()
+        }
+
+        pub(crate) fn lifecycle_witness(&self) -> Result<LifecycleWitness, String> {
+            self.broker.lifecycle_witness()
+        }
+
+        pub(crate) fn switch_account_for_test(
+            &self,
+            user_id: &str,
+        ) -> Result<LifecycleOutcome, String> {
+            Self::switch_account_on_broker(&self.broker, user_id)
+        }
+
+        fn switch_account_on_broker(
+            broker: &TestBroker,
+            user_id: &str,
+        ) -> Result<LifecycleOutcome, String> {
+            let generation = broker.generation();
+            broker.registered_login_begin(pending_login(false))?;
+            let (_pending, ticket, _provider) = broker
+                .registered_login_take_for_exchange("behavioral", generation)
+                .ok_or_else(|| public_error("auth_request_not_found"))?;
+            broker.registered_login_complete(
+                ticket,
+                Ok(LifecycleMaterial {
+                    access: Zeroizing::new("test-account-access".to_owned()),
+                    refresh: Zeroizing::new("test-account-refresh".to_owned()),
+                    user_id: Some(user_id.to_owned()),
+                    email: None,
+                    access_expires_at_ms: Some(3_600_000),
+                }),
+            )
+        }
+
+        pub(crate) fn spawn_account_switch_contender(
+            &self,
+            user_id: &str,
+            attempted: std::sync::mpsc::SyncSender<()>,
+            lock_state: std::sync::mpsc::SyncSender<bool>,
+            linearized: std::sync::mpsc::SyncSender<LifecycleWitness>,
+            completed: std::sync::mpsc::SyncSender<()>,
+        ) -> std::thread::JoinHandle<Result<LifecycleOutcome, String>> {
+            let broker = self.broker.clone();
+            let user_id = user_id.to_owned();
+            std::thread::spawn(move || {
+                let result = (|| {
+                    attempted.send(()).map_err(|_| {
+                        "account-switch contender attempt channel closed".to_string()
+                    })?;
+                    let blocked = match broker.lifecycle.try_lock() {
+                        Ok(_lifecycle) => false,
+                        Err(std::sync::TryLockError::WouldBlock) => true,
+                        Err(std::sync::TryLockError::Poisoned(_)) => {
+                            return Err(
+                                "account-switch contender lifecycle lock poisoned".to_string(),
+                            )
+                        }
+                    };
+                    lock_state.send(blocked).map_err(|_| {
+                        "account-switch contender lock channel closed".to_string()
+                    })?;
+                    let result = Self::switch_account_on_broker(&broker, &user_id);
+                    if result.is_ok() {
+                        linearized
+                            .send(broker.lifecycle_witness()?)
+                            .map_err(|_| {
+                                "account-switch contender linearization channel closed"
+                                    .to_string()
+                            })?;
+                    }
+                    result
+                })();
+                let _ = completed.send(());
+                result
+            })
+        }
+
+        pub(crate) fn spawn_logout(
+            &self,
+            attempted: std::sync::mpsc::SyncSender<()>,
+            completed: Arc<AtomicBool>,
+        ) -> std::thread::JoinHandle<Result<LifecycleOutcome, String>> {
+            let broker = self.broker.clone();
+            std::thread::spawn(move || {
+                attempted.send(()).unwrap();
+                let result = broker.logout();
+                completed.store(true, Ordering::Release);
+                result
+            })
+        }
+    }
+
     fn make_fixture_with_keyring(keyring: FakeKeyring) -> TestFixture {
         let provider = FakeProvider::default();
         let broker = Arc::new(RegisteredBrokerEntrypoints::new(
@@ -2957,6 +3134,13 @@ mod tests {
             provider,
             Ok(Zeroizing::new("code".to_owned())),
         )
+    }
+
+    fn record_hook_error(slot: &Arc<Mutex<Option<String>>>, message: impl Into<String>) {
+        let mut error = slot.lock().unwrap();
+        if error.is_none() {
+            *error = Some(message.into());
+        }
     }
 
     fn write_port_slot(keyring: &FakeKeyring, slot: &str, value: &str) {
@@ -3048,6 +3232,305 @@ mod tests {
             callback.unwrap().as_str(),
             "http://127.0.0.1:43123/auth/callback?code=code&state=callback-state"
         );
+    }
+
+    #[test]
+    fn atomic_lifecycle_witness_invalidates_same_account_relogin() {
+        let broker = make_broker();
+        let signed_out = broker.lifecycle_witness().unwrap();
+        assert_eq!(signed_out.native_user_id, None);
+        assert_eq!(signed_out.state, "signed_out");
+
+        let generation = broker.generation();
+        broker.registered_login_begin(pending_login(false)).unwrap();
+        let (_, ticket, _) = broker
+            .registered_login_take_for_exchange("behavioral", generation)
+            .unwrap();
+        broker
+            .registered_login_complete(
+                ticket,
+                Ok(LifecycleMaterial {
+                    access: Zeroizing::new("access".to_owned()),
+                    refresh: Zeroizing::new("refresh".to_owned()),
+                    user_id: Some("account-a".to_owned()),
+                    email: None,
+                    access_expires_at_ms: Some(3_600_000),
+                }),
+            )
+            .unwrap();
+        let authenticated = broker.lifecycle_witness().unwrap();
+        assert_eq!(authenticated.native_user_id.as_deref(), Some("account-a"));
+        assert_eq!(authenticated.state, "authenticated");
+        assert_ne!(signed_out, authenticated);
+
+        broker.logout().unwrap();
+        let after_logout = broker.lifecycle_witness().unwrap();
+        assert_eq!(after_logout.native_user_id, None);
+        assert_eq!(after_logout.state, "signed_out");
+        assert_ne!(authenticated, after_logout);
+
+        let generation = broker.generation();
+        broker.registered_login_begin(pending_login(false)).unwrap();
+        let (_, ticket, _) = broker
+            .registered_login_take_for_exchange("behavioral", generation)
+            .unwrap();
+        broker
+            .registered_login_complete(
+                ticket,
+                Ok(LifecycleMaterial {
+                    access: Zeroizing::new("access-2".to_owned()),
+                    refresh: Zeroizing::new("refresh-2".to_owned()),
+                    user_id: Some("account-a".to_owned()),
+                    email: None,
+                    access_expires_at_ms: Some(3_600_000),
+                }),
+            )
+            .unwrap();
+        let relogged = broker.lifecycle_witness().unwrap();
+        assert_eq!(relogged.native_user_id.as_deref(), Some("account-a"));
+        assert_eq!(relogged.state, "authenticated");
+        assert_ne!(authenticated, relogged);
+        assert!(relogged.account_generation > authenticated.account_generation);
+    }
+
+    #[test]
+    fn short_account_guard_allows_terminal_drain_after_drop() {
+        let broker = make_broker();
+        let guard = broker.begin_account_operation().unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let logout_broker = broker.clone();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            logout_broker.logout().unwrap();
+            finished_tx.send(()).unwrap();
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(finished_rx.recv_timeout(Duration::from_millis(25)).is_err());
+        drop(guard);
+        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn account_commit_fence_rejects_stale_ticket_under_current_witness() {
+        let broker = make_broker();
+        let guard = broker.begin_account_operation().unwrap();
+        let expected_witness = broker.lifecycle_witness().unwrap();
+        let stale_ticket = LifecycleTicket {
+            operation_id: guard.ticket.operation_id.wrapping_add(1),
+            ..guard.ticket
+        };
+        let commit_called = Arc::new(AtomicBool::new(false));
+        let commit_called_by_callback = commit_called.clone();
+        let mut commit = || {
+            commit_called_by_callback.store(true, Ordering::Release);
+            Ok(())
+        };
+
+        let result = broker.with_account_commit_fence(
+            &expected_witness,
+            stale_ticket,
+            &mut commit,
+        );
+
+        assert_eq!(result, Err("auth_transition_in_progress".to_string()));
+        assert!(!commit_called.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn account_commit_fence_releases_before_caller_guard_drop() {
+        let mut harness = TestAccountOperationHarness::new();
+        harness.switch_account_for_test("account-a").unwrap();
+        let guard = harness.take_guard();
+        let expected_witness = harness.lifecycle_witness().unwrap();
+        let (attempted_tx, attempted_rx) = std::sync::mpsc::sync_channel(1);
+        let (lock_state_tx, lock_state_rx) = std::sync::mpsc::sync_channel(1);
+        let (linearized_tx, linearized_rx) = std::sync::mpsc::sync_channel(1);
+        let (completed_tx, completed_rx) = std::sync::mpsc::sync_channel(1);
+        let contender_slot = Arc::new(Mutex::new(
+            None::<std::thread::JoinHandle<Result<LifecycleOutcome, String>>>,
+        ));
+        let hook_error = Arc::new(Mutex::new(None::<String>));
+        let contender_slot_for_hook = contender_slot.clone();
+        let hook_error_for_hook = hook_error.clone();
+        let mut commit = || {
+            let handle = harness.spawn_account_switch_contender(
+                "account-b",
+                attempted_tx.clone(),
+                lock_state_tx.clone(),
+                linearized_tx.clone(),
+                completed_tx.clone(),
+            );
+            *contender_slot_for_hook.lock().unwrap() = Some(handle);
+            if attempted_rx.recv_timeout(Duration::from_secs(1)).is_err() {
+                record_hook_error(
+                    &hook_error_for_hook,
+                    "account-switch contender did not announce attempt",
+                );
+                return Ok(());
+            }
+            match lock_state_rx.recv_timeout(Duration::from_secs(1)) {
+                Ok(true) => {}
+                Ok(false) => record_hook_error(
+                    &hook_error_for_hook,
+                    "account-switch contender acquired the broker fence",
+                ),
+                Err(_) => record_hook_error(
+                    &hook_error_for_hook,
+                    "account-switch contender did not report try-lock state",
+                ),
+            }
+            match linearized_rx.try_recv() {
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Ok(_) => record_hook_error(
+                    &hook_error_for_hook,
+                    "account-switch contender linearized while the broker fence was held",
+                ),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => record_hook_error(
+                    &hook_error_for_hook,
+                    "account-switch contender linearization channel disconnected",
+                ),
+            }
+            Ok(())
+        };
+
+        let fence_result = guard.with_account_commit_fence(&expected_witness, &mut commit);
+        let completion = completed_rx.recv_timeout(Duration::from_secs(1));
+        let handle = contender_slot.lock().unwrap().take();
+        let joined = if let Some(handle) = handle {
+            let (joined_tx, joined_rx) = std::sync::mpsc::sync_channel(1);
+            std::thread::spawn(move || {
+                let result = handle
+                    .join()
+                    .map_err(|_| "account-switch contender panicked".to_string())
+                    .and_then(|result| result);
+                let _ = joined_tx.send(result);
+            });
+            joined_rx.recv_timeout(Duration::from_secs(1))
+        } else {
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected)
+        };
+        let linearized = linearized_rx.recv_timeout(Duration::from_secs(1));
+        let hook_error = hook_error.lock().unwrap().clone();
+
+        assert_eq!(fence_result, Ok(()));
+        assert!(completion.is_ok(), "contender did not complete before join");
+        assert!(hook_error.is_none(), "{hook_error:?}");
+        assert!(matches!(
+            joined,
+            Ok(Ok(outcome)) if outcome.state == "authenticated"
+        ));
+        assert_eq!(
+            linearized.unwrap().native_user_id.as_deref(),
+            Some("account-b")
+        );
+        // The caller-owned guard remains alive until this point. Its drop is
+        // deliberately after the independent login has completed.
+        drop(guard);
+    }
+
+    #[test]
+    fn concurrent_lifecycle_witness_reads_are_coherent_during_logout() {
+        let broker = make_broker();
+        let generation = broker.generation();
+        broker.registered_login_begin(pending_login(false)).unwrap();
+        let (_, ticket, _) = broker
+            .registered_login_take_for_exchange("behavioral", generation)
+            .unwrap();
+        broker
+            .registered_login_complete(
+                ticket,
+                Ok(LifecycleMaterial {
+                    access: Zeroizing::new("access".to_owned()),
+                    refresh: Zeroizing::new("refresh".to_owned()),
+                    user_id: Some("account-a".to_owned()),
+                    email: None,
+                    access_expires_at_ms: Some(3_600_000),
+                }),
+            )
+            .unwrap();
+
+        let guard = broker.begin_account_operation().unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let stop = Arc::new(AtomicBool::new(false));
+        let reader_ready = Arc::new(AtomicBool::new(false));
+        let signed_out_seen = Arc::new(AtomicBool::new(false));
+        let samples = Arc::new(Mutex::new(Vec::<LifecycleWitness>::new()));
+        let reader_broker = broker.clone();
+        let reader_barrier = barrier.clone();
+        let reader_stop = stop.clone();
+        let reader_ready_flag = reader_ready.clone();
+        let reader_signed_out = signed_out_seen.clone();
+        let reader_samples = samples.clone();
+        let reader = std::thread::spawn(move || {
+            reader_barrier.wait();
+            let mut first_sample = true;
+            while !reader_stop.load(Ordering::Acquire) {
+                let witness = reader_broker.lifecycle_witness().unwrap();
+                if first_sample {
+                    reader_ready_flag.store(true, Ordering::Release);
+                    first_sample = false;
+                }
+                if witness.state == "signed_out" {
+                    reader_signed_out.store(true, Ordering::Release);
+                }
+                reader_samples.lock().unwrap().push(witness);
+                std::thread::yield_now();
+            }
+        });
+        barrier.wait();
+        let reader_ready_deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while !reader_ready.load(Ordering::Acquire) {
+            assert!(std::time::Instant::now() < reader_ready_deadline);
+            std::thread::yield_now();
+        }
+
+        let logout_broker = broker.clone();
+        let logout_started = Arc::new(AtomicBool::new(false));
+        let logout_started_thread = logout_started.clone();
+        let logout = std::thread::spawn(move || {
+            logout_started_thread.store(true, Ordering::Release);
+            logout_broker.logout()
+        });
+        let transition_deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while broker.lifecycle_witness().unwrap().state != "logout_pending" {
+            assert!(
+                std::time::Instant::now() < transition_deadline,
+                "logout did not publish a coherent transition witness"
+            );
+            std::thread::yield_now();
+        }
+        assert!(logout_started.load(Ordering::Acquire));
+        drop(guard);
+        assert_eq!(logout.join().unwrap().unwrap().state, "signed_out");
+
+        let signed_out_deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while !signed_out_seen.load(Ordering::Acquire) {
+            assert!(
+                std::time::Instant::now() < signed_out_deadline,
+                "reader did not observe the terminal lifecycle witness"
+            );
+            std::thread::yield_now();
+        }
+        stop.store(true, Ordering::Release);
+        reader.join().unwrap();
+        let samples = samples.lock().unwrap();
+        assert!(samples.iter().any(|witness| witness.state == "authenticated"));
+        assert!(samples.iter().any(|witness| witness.state == "logout_pending"));
+        assert!(samples.iter().any(|witness| witness.state == "signed_out"));
+        for witness in samples.iter() {
+            assert!(witness.account_generation > 0);
+            match witness.state {
+                "authenticated" => {
+                    assert_eq!(witness.native_user_id.as_deref(), Some("account-a"));
+                }
+                "logout_pending" | "signed_out" => {
+                    assert!(witness.native_user_id.is_none());
+                }
+                state => panic!("unexpected lifecycle witness state: {state}"),
+            }
+        }
     }
 
     #[derive(Clone, Copy)]

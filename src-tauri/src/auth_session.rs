@@ -940,7 +940,7 @@ where
         // This mutex is the registered broker's lifecycle critical section.
         // Do not call lifecycle_source.read(), check_account_operation(), or
         // any broker entry while it is held: the validation is direct and the
-        // Genesis commit is the only operation performed under this fence.
+        // The durable commit is the only operation performed under this fence.
         let lifecycle = self
             .lifecycle
             .lock()

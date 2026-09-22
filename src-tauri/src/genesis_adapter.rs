@@ -1,3 +1,10 @@
+// The meeting-intelligence adapter is staged as a bounded foundation before
+// the production meeting workflow wires every contract into a live caller.
+// Keep its tested candidate surface visible without weakening clippy elsewhere.
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
+
 use genesis_block_native::{
     BatchInput, EdgeInput, GenesisTransaction, NodeInput, RelationalColumn, RelationalColumnType,
     RelationalFilter, RelationalForeignKey, RelationalIndex, RelationalMutationGroup,

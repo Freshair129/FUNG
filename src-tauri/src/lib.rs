@@ -206,6 +206,9 @@ fn transcription_profile_from(configured: Option<&str>) -> Result<String, String
     }
 }
 
+// Candidate-only profile selection remains exposed for the release contract
+// while the production transcription path continues to use its existing API.
+#[allow(dead_code)]
 pub(crate) fn whisper_model_name() -> Result<&'static str, String> {
     let configured = env::var("FUNG_WHISPER_MODEL_PROFILE").ok();
     whisper_model_name_from(configured.as_deref())

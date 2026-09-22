@@ -120,6 +120,8 @@ pub(crate) struct LifecycleOutcome {
 pub(crate) trait RegisteredBrokerPort: Send + Sync {
     fn check_account_operation(&self, ticket: LifecycleTicket) -> Result<(), String>;
     fn finish_account_operation(&self, ticket: LifecycleTicket);
+    // R3 foundation API: production meeting wiring is intentionally deferred.
+    #[allow(dead_code)]
     fn with_account_commit_fence(
         &self,
         expected_witness: &LifecycleWitness,
@@ -204,6 +206,8 @@ impl AccountOperationGuard {
         self.broker.check_account_operation(self.ticket)
     }
 
+    // R3 foundation API: production meeting wiring is intentionally deferred.
+    #[allow(dead_code)]
     pub(crate) fn with_account_commit_fence(
         &self,
         expected_witness: &LifecycleWitness,
@@ -437,6 +441,8 @@ where
         self.ensure_account_ticket(ticket)
     }
 
+    // R3 foundation API: production meeting wiring is intentionally deferred.
+    #[allow(dead_code)]
     fn validate_account_commit_fence(
         &self,
         expected_witness: &LifecycleWitness,

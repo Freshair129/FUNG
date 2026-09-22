@@ -1,3 +1,7 @@
+// These contracts are exercised by the native regression matrix before the
+// production meeting workflow adopts the full schema surface.
+#![allow(dead_code)]
+
 use chacha20poly1305::{
     aead::{Aead, Payload},
     KeyInit, XChaCha20Poly1305, XNonce,

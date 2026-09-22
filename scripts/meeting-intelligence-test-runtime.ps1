@@ -75,7 +75,7 @@ try {
         throw "TargetDir exists but is not a directory: $TargetDir"
     }
     if ($null -eq $targetItem) {
-        New-Item -ItemType Directory -Force -LiteralPath $TargetDir | Out-Null
+        [System.IO.Directory]::CreateDirectory($TargetDir) | Out-Null
         $targetItem = Get-Item -LiteralPath $TargetDir -ErrorAction Stop
     }
 

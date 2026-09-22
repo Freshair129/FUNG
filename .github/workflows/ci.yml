@@ -29,6 +29,7 @@ jobs:
       # First, so an unwired suite fails before the wired ones spend
       # four minutes reporting on a set that is missing one.
       - run: npm run test:ci-coverage
+      - run: npm run test:live-capture-routing
       - run: npm run test:callmd-contracts
       - run: npm run test:callmd-shell
       - run: npm run test:callmd-live

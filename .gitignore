@@ -3,6 +3,7 @@ dist/
 .target-mobile/
 .toolchains/
 .venv-whisper/
+.venv-whisper-transformers-candidate/
 .runtime-cache/
 .playwright-cli/
 .codex/

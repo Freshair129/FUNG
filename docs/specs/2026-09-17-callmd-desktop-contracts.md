@@ -1,7 +1,7 @@
 ---
-version: "0.1.5b"
+version: "0.1.6b"
 created_at: "2026-09-17T02:03:10+07:00"
-last_update: "2026-09-20T22:05:05+07:00,RWANG"
+last_update: "2026-09-20T22:47:23+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 base_sha: "376ef30db13670e4dea816ceff440f44ce73fffd"
@@ -22,7 +22,7 @@ attributes:
 > approved recording/review wire contracts. The older `InstrumentRail` and
 > `src/styles.css` references describe the pre-Liquid-Glass shell; current
 > presentation ownership is `DesktopShell.tsx`, `DesktopShell.css` and
-> `LiquidGlass.css`, with active surfaces `home|live|review|appearance`.
+> `LiquidGlass.css`, with active surfaces `home|live|review|output|appearance`.
 
 ## 1. Decision and authority
 
@@ -172,6 +172,9 @@ CamelCase is the IPC wire casing, including Rust serde serialization.
 | liveCaptureDevices / live_capture_devices | NEW; no args | `LiveCaptureDevices`: current microphone inputs, loopback outputs, persisted selections, and nullable enumeration issue. |
 | liveMeetingStart / live_meeting_start | EXISTING + approved optional routing; projectId?, captureSystem?, language?, micDeviceId?, systemDeviceId? | projectId, recordingId, jobId, micDevice; systemDevice and warning are nullable fields. Omitted device IDs preserve OS-default behavior; explicit IDs are revalidated natively. |
 | liveMeetingStop / live_meeting_stop; liveMeetingStatus / live_meeting_status | EXISTING; no args | Stop returns an acknowledged recordingId request, not completed stop; while the session remains owned status can be active:true, stopping:true; inactive requires active:false, stopping:false, with nullable projectId/recordingId/elapsedMs. |
+| recordingOutputGet / recording_output_get | NEW; no args | Current/default absolute paths, `isDefault`, writable state, issue and `captureActive`; AppData config is not exposed as a UI destination. |
+| recordingOutputSet / recording_output_set | NEW; absolute path | Validated writable output status; rejected while native capture owns the storage boundary. |
+| recordingOutputReset / recording_output_reset | NEW; no args | Validated status after restoring the native Documents\\fung default; rejected while capture is active. |
 | listTranscriptSegments / list_transcript_segments | EXISTING; RecordingKey | TranscriptView segments; compatibility fields are capped=false and cappedRecordingIds=[], with cap retained for wire-shape stability. |
 | meetingSummaries / meeting_summaries | EXISTING; RecordingKey | rows, otherRecordings, unattributable, attributionComplete. |
 | createJob / create_job | EXISTING; jobType + RecordingKey | Job; use only five existing runnable kinds. |
@@ -362,9 +365,9 @@ These are proposed behavior requirements beyond E4, not claims the current UI pa
 PROPOSED shared contracts live in src/components/desktop/contracts.ts NEW.
 DesktopShell props: scopeChoice A|B, project ReadState<Project[]>,
 selectedProjectId:string|null independent of selection:RecordingKey|null,
-activeSurface:home|live|review, liveStatus ReadState, theme, main content slot,
+activeSurface:home|live|review|output, liveStatus ReadState, theme, main content slot,
 settings/pairing/recovery slots. Actions: selectProject, selectRecording,
-showHome, showLive, showReview, stopAndLeave, openSettings, openPairing,
+showHome, showLive, showReview, showOutput, stopAndLeave, openSettings, openPairing,
 importMedia, setTheme. Navigation itself never starts capture or network calls.
 LiveWorkspace props: RecordingKey|null, phase, elapsedMs, devices, segment feed,
 topic ReadState, summaries ReadState, ask ReadState, capabilities, operation errors.
@@ -478,8 +481,12 @@ contracts and native/security gates remain unchanged.
 0.1.4b → 0.1.5b: add the approved live-capture device enumeration DTO/command and
 optional mic/system routing arguments, preserving the existing two-channel
 boundary and recording the real-device UAT as NOT_RUN.
+0.1.5b → 0.1.6b: add the recording output destination DTOs/commands, the
+`output` active surface and capture-lock semantics; preserve AppData internals,
+legacy custody and the native output-path smoke as NOT_RUN.
 | Version | Date | Status | Summary | Commit | Agent |
 |---|---|---|---|---|---|
+| 0.1.6b | 2026-09-20 | candidate | Added recording output get/set/reset contracts, `output` surface reachability and capture-lock behavior; native output-path smoke remains open. | working-tree; docs and implementation | RWANG |
 | 0.1.5b | 2026-09-20 | candidate | Added `live_capture_devices` and optional source device IDs to the candidate IPC contract; native Windows device UAT remains open. | working-tree; docs and implementation | RWANG |
 | 0.1.4b | 2026-09-20 | candidate | Reconciled presentation/integration ownership with DesktopShell active surfaces; wire contracts and native/security scope unchanged | pending; docs reconciliation | RWANG |
 | 0.1.3b | 2026-09-17 | candidate | Align section 10 shorthand with reviewed FIX1 consumer types and approved lifecycle/error requirements; native interface/security unchanged | UNCOMMITTED; base 376ef30 | Codex orchestrator |

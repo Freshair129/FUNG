@@ -1,0 +1,129 @@
+.recording-output-page {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: auto;
+  max-width: 860px;
+  padding: 10px clamp(18px, 3vw, 42px) 12px;
+}
+
+.recording-output-page__heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.recording-output-page__heading-row h2 {
+  margin: 0;
+  color: var(--fung-ink, #f4f1ea);
+  font-size: clamp(1.55rem, 2.6vw, 2.35rem);
+  letter-spacing: -0.035em;
+}
+
+.recording-output-page__heading-row p {
+  max-width: 620px;
+  margin: 10px 0 0;
+  color: var(--fung-muted, #a8a49d);
+  line-height: 1.6;
+}
+
+.recording-output-card {
+  display: grid;
+  gap: 8px;
+  padding: clamp(14px, 2vw, 18px);
+  border: 1px solid color-mix(in srgb, var(--fung-accent, #d89b4a) 36%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--fung-surface, #1a1b1d) 82%, transparent);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 18%);
+}
+
+.recording-output-card.is-unavailable {
+  border-color: color-mix(in srgb, #e37c6e 58%, transparent);
+}
+
+.recording-output-card__label {
+  color: var(--fung-muted, #a8a49d);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.recording-output-card__path {
+  overflow-wrap: anywhere;
+  color: var(--fung-ink, #f4f1ea);
+  font-family: var(--fung-mono, ui-monospace, monospace);
+  font-size: clamp(0.86rem, 1.5vw, 1rem);
+  line-height: 1.55;
+}
+
+.recording-output-card__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #9bd5a6;
+  font-size: 0.9rem;
+}
+
+.recording-output-card.is-unavailable .recording-output-card__status,
+.recording-output-card__issue {
+  color: #f2a49a;
+}
+
+.recording-output-card__issue {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.recording-output-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.recording-output-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 0;
+  padding: 8px 12px;
+  border-left: 2px solid color-mix(in srgb, var(--fung-accent, #d89b4a) 70%, transparent);
+  color: var(--fung-muted, #a8a49d);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.recording-output-note strong {
+  color: var(--fung-ink, #f4f1ea);
+}
+
+.recording-output-spin {
+  animation: recording-output-spin 0.9s linear infinite;
+}
+
+@keyframes recording-output-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 720px) {
+  .recording-output-page {
+    min-height: auto;
+    padding: 16px 18px 20px;
+  }
+
+  .recording-output-page__heading-row {
+    gap: 12px;
+  }
+
+  .recording-output-card__actions {
+    display: grid;
+  }
+
+  .recording-output-card__actions button {
+    justify-content: center;
+  }
+}

@@ -29,16 +29,19 @@
 //!   local dev servers), so a random page open in the same browser cannot
 //!   read the response even if it somehow learned the token.
 
-use crate::{audio_custody, genesis_adapter, AppState, WhisperRuntime};
+use crate::{
+    audio_custody, genesis_adapter, recording_output::RecordingOutputManager, AppState,
+    WhisperRuntime,
+};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
@@ -63,7 +66,7 @@ const MAX_UPLOAD_BYTES: usize = 512 * 1024 * 1024;
 /// runtime (tests), in which case the route answers `503`.
 pub(crate) struct ImportHost {
     pub(crate) genesis: Arc<genesis_block_native::Storage>,
-    pub(crate) data_root: PathBuf,
+    pub(crate) recording_output: Arc<Mutex<RecordingOutputManager>>,
     pub(crate) runtime: WhisperRuntime,
 }
 
@@ -231,7 +234,7 @@ pub(crate) fn set_lan(state: &AppState, enabled: bool) -> std::io::Result<LocalA
 fn import_host(state: &AppState) -> Arc<ImportHost> {
     Arc::new(ImportHost {
         genesis: state.genesis.clone(),
-        data_root: state.data_root.clone(),
+        recording_output: Arc::clone(&state.recording_output),
         runtime: state.whisper_runtime_clone(),
     })
 }
@@ -744,7 +747,21 @@ fn import_recording(
     let recording_id = Uuid::new_v4().to_string();
     let extension = upload_extension(request.header("content-type"));
     let name = upload_project_name(request.header("x-fung-filename"));
-    let directory = host.data_root.join("imports").join("web");
+    let output_root = match host
+        .recording_output
+        .lock()
+        .expect("recording output mutex poisoned")
+        .ensure_current_writable()
+    {
+        Ok(path) => path,
+        Err(error) => {
+            return Response::json(
+                "503 Service Unavailable",
+                json!({"error": "OUTPUT_UNAVAILABLE", "detail": error}),
+            )
+        }
+    };
+    let directory = output_root.join("imports").join("web");
     let path = directory.join(format!("{recording_id}.{extension}"));
     if let Err(error) = fs::create_dir_all(&directory).and_then(|_| fs::write(&path, &request.body))
     {
@@ -754,7 +771,7 @@ fn import_recording(
         );
     }
     let path_string = path.display().to_string();
-    let project_id = match crate::create_project_named(storage, &host.data_root, &name) {
+    let project_id = match crate::create_project_named(storage, &output_root, &name) {
         Ok(id) => id,
         Err(error) => {
             return Response::json(
@@ -1906,9 +1923,11 @@ mod tests {
     }
 
     fn import_host(storage: Arc<Storage>, data_root: PathBuf) -> ImportHost {
+        let recording_output = RecordingOutputManager::load(data_root.clone(), data_root.clone())
+            .expect("test recording output manager");
         ImportHost {
             genesis: storage,
-            data_root,
+            recording_output: Arc::new(Mutex::new(recording_output)),
             runtime: WhisperRuntime {
                 python: PathBuf::from("python-that-does-not-exist"),
                 script: PathBuf::from("transcribe.py"),
@@ -2180,9 +2199,11 @@ mod tests {
         let (dir, storage) = open_genesis();
         let storage = Arc::new(storage);
         let data_root = dir.join("data");
+        let recording_output = RecordingOutputManager::load(data_root.clone(), data_root.clone())
+            .expect("test recording output manager");
         let host = ImportHost {
             genesis: storage.clone(),
-            data_root: data_root.clone(),
+            recording_output: Arc::new(Mutex::new(recording_output)),
             runtime,
         };
         let control = control();

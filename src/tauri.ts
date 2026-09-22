@@ -620,6 +620,41 @@ export async function pickAudioOrVideoFile(): Promise<string | null> {
   return Array.isArray(selection) ? selection[0] ?? null : selection;
 }
 
+export type RecordingOutputStatus = {
+  currentPath: string;
+  defaultPath: string;
+  isDefault: boolean;
+  writable: boolean;
+  issue: string | null;
+  captureActive: boolean;
+};
+
+export async function recordingOutputGet(): Promise<RecordingOutputStatus> {
+  if (!canInvoke()) throw new Error("ปลายทางไฟล์บันทึกต้องรันในแอปเดสก์ท็อป");
+  return invoke<RecordingOutputStatus>("recording_output_get");
+}
+
+export async function recordingOutputSet(path: string): Promise<RecordingOutputStatus> {
+  if (!canInvoke()) throw new Error("ปลายทางไฟล์บันทึกต้องรันในแอปเดสก์ท็อป");
+  return invoke<RecordingOutputStatus>("recording_output_set", { path });
+}
+
+export async function recordingOutputReset(): Promise<RecordingOutputStatus> {
+  if (!canInvoke()) throw new Error("ปลายทางไฟล์บันทึกต้องรันในแอปเดสก์ท็อป");
+  return invoke<RecordingOutputStatus>("recording_output_reset");
+}
+
+export async function pickRecordingOutputFolder(): Promise<string | null> {
+  if (!canInvoke()) return null;
+  const selection = await open({
+    directory: true,
+    multiple: false,
+    title: "เลือกโฟลเดอร์ไฟล์บันทึก",
+  });
+  if (!selection) return null;
+  return Array.isArray(selection) ? selection[0] ?? null : selection;
+}
+
 export async function minimizeWindow(): Promise<void> {
   if (!canInvoke()) return;
   await getCurrentWindow().minimize();

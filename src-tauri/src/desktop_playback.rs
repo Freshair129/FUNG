@@ -924,13 +924,17 @@ fn open_source(
 
 fn project_custody_root(data_root: &Path, storage_path: &str) -> Result<PathBuf, ReviewError> {
     reject_untrusted_path(storage_path)?;
-    let projects_root = std::fs::canonicalize(data_root.join("projects")).map_err(|_| {
-        playback_error(
+    let allowed_projects_roots = crate::recording_output::known_roots_from_config(data_root)
+        .into_iter()
+        .filter_map(|root| std::fs::canonicalize(root.join("projects")).ok())
+        .collect::<Vec<_>>();
+    if allowed_projects_roots.is_empty() {
+        return Err(playback_error(
             "PLAYBACK_PATH_DENIED",
             "The playback project root is not permitted.",
             false,
-        )
-    })?;
+        ));
+    }
     let raw = Path::new(storage_path);
     let candidate = if raw.is_absolute() {
         raw.to_path_buf()
@@ -944,7 +948,11 @@ fn project_custody_root(data_root: &Path, storage_path: &str) -> Result<PathBuf,
             false,
         )
     })?;
-    if !root.is_dir() || !normalized_path_inside(&root, &projects_root) {
+    if !root.is_dir()
+        || !allowed_projects_roots
+            .iter()
+            .any(|projects_root| normalized_path_inside(&root, projects_root))
+    {
         return Err(playback_error(
             "PLAYBACK_PATH_DENIED",
             "The playback project root is not permitted.",

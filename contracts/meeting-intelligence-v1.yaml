@@ -1,0 +1,105 @@
+version: "0.1.4b"
+updated_at: "2026-09-23T01:22:19+07:00"
+status: "candidate"
+scope: "local Genesis meeting-intelligence contract and native SI/D8 adapter boundary"
+authority:
+  native_context:
+    local_owner:
+      owner_principal_ref: "captured by native device-identity authorization evidence; never caller supplied"
+      bound_account_ref: "optional; an account-free local vault remains usable after explicit local-owner unlock"
+      vault_selection: "one active vault owned by the native principal; locked/revoked/ambiguous vaults fail closed"
+    account_bound:
+      requirement: "the active native account session must match identity_vaults.bound_account_ref"
+      transition_guard: "account_begin_operation/account guard is held through the guarded commit"
+      account_switch_commit_serialization: "R3 CANDIDATE IMPLEMENTATION; the same registered broker that issued the short guard validates the lifecycle witness and operation ticket under its commit fence and holds that fence through Genesis commit; independent_n4_g1: ACCEPTED — BOUNDED N4 LOCAL FOUNDATION (docs/verification/implementation-reports/2026-09-22-meeting-intelligence-g1-contract-r3.md); the broader D10-D13 workflow G1/G2 remains separate and NOT_RUN; fixture evidence uses identity-protected unlock with an account-free local-owner vault and fake ports"
+      approved_r3_scope: "USER/Boss approval on 2026-09-22 covers only this minimal AccountCommitFence/equivalent, deterministic cross-thread regressions, and the independent N4/G1 review recorded above; it does not approve general auth-policy, provider, root-integration, native, or production activation changes"
+    prohibited_claims:
+      - "request actor, ACL, provider label, reviewed_by, owner identity, or key reference"
+      - "renderer path, arbitrary blob path, or cloud login as a substitute for local-owner authority"
+  unlock_boundary:
+    local_owner: "native OS-user and OS secure-storage boundary with explicit unlock semantics"
+    explicit_native_owner_unlock: "identity key access and mutation require a live native local-owner unlock session"
+    session: "unlock_native_local_owner creates a process-local session bound to canonical data root, vault, verified native owner, and lifecycle witness"
+    account_witness: "atomic native_user_id/account_generation/lifecycle_state tuple is captured and revalidated; same-account relogin invalidates prior sessions"
+    vault_generation: "shared per-root/vault authority invalidates all prior-generation handles on lock or revoke"
+    operation_fence: "short same-authority read fence spans final revalidation, account guard check, and Genesis commit; it never spans the whole unlock session"
+    restart: "unlock authority is not persisted; a restarted process begins locked"
+    account_free: "active vault state, OS-key availability, or a caller-provided trusted context alone is not unlock proof"
+    cache: "no decrypted identity cache is retained by this adapter; lock/revoke/review changes are re-read and invalidate the guarded operation"
+identity_envelope:
+  version: 1
+  cipher: "XChaCha20-Poly1305"
+  nonce: "24 bytes from OS randomness; never reused by the adapter"
+  aad:
+    account_ref: "optional account binding"
+    scope: "project/recording/session/source/track/generation"
+    vault_id: "trusted native vault"
+    entity_id: "native identity-link reference"
+    revision: "current reviewed identity-link revision"
+    model_context: "stored identity-link model_run_id, or none; never the unrelated transcript ASR model run"
+  key:
+    namespace: "people_metadata"
+    reference: "opaque people_metadata:<32 hex> key reference in native secure storage"
+    separation: "not a device-identity signing key, backup key, voice-biometric key, or provider key"
+  payload:
+    fields: "link_id, opaque profile_id, private person_id, private display_name, optional account_ref, vault_id, relationship_revision, profile_revision"
+    debug: "plaintext-bearing payload and authorized result use redacted Debug/no Debug"
+    lifetime: "bounded Zeroizing plaintext/key buffers; AuthorizedPerson has an explicit zeroizing Drop"
+  bounds:
+    ciphertext_max_bytes: 4096
+    validation_order: "reject malformed/oversized envelope before key lookup or decryption"
+profile_gate:
+  participant_profiles:
+    primary_key: "opaque profile_id is an approved necessary index"
+    eligibility: "row must exist, be active, match trusted vault and project owner scope, and match decrypted profile_revision"
+    invalid: "missing, deleted/inactive, wrong-vault, wrong-scope, or revision-mismatched profile"
+  identity_link:
+    requirements: "confirmed status, matching recording/session/vault, current expected review/evidence revision, no lock/revoke timestamp"
+serialization:
+  durable_identity_relationships: "ciphertext reference and digest only; no plaintext person/provider/ACL relationship JSON or private foreign keys"
+  transcript: "ordinary spoken transcript remains plaintext as transcript content"
+  revision_attribution: "opaque identity-link and ciphertext reference metadata only"
+  event_log_wal_projection_audit_backup: "no plaintext private relationship fields"
+  authorized_result: "decrypted Person is permitted only in bounded authorized native memory"
+commit_protocol:
+  capture_frontier: "begin_meeting_commit captures Genesis transaction frontier before validation or identity reads"
+  compare_and_swap: "commit uses expected_frontier; any interleaved lock/revoke/review/account mutation rejects the guarded transaction"
+  uncertainty: "MEETING_COMMIT_UNCERTAIN preserves transaction identity; no blind retry, rollback, or new identity"
+  atomic_writes:
+    - "meeting_source_coverage"
+    - "transcript_revisions"
+    - "transcript_projection"
+    - "transcript_event_log"
+    - "meeting_source_cursors"
+compatibility:
+  schema: "preserve v10 and the approved retained v11 aggregate set additively"
+  genesis_limit: "clone-only 64->128 is owned by R1-DEP; this repair does not reduce, partition, or drop v11 tables"
+  replay: "same event/payload is idempotent and returns the durable original transaction_id across alternate attempts and reopen; changed payload under an existing event identity conflicts"
+tests:
+  contract_fixture: "tests/meetingIntelligenceContract.test.mjs is supplemental and executable, not Rust behavior proof"
+  rust_behavior:
+    - "positive local account-free native-owner Person authorization and differing ASR model run reuse"
+    - "current eligible profile existence, missing/deleted/wrong-vault rejection"
+    - "wrong/missing key, tamper/digest, authentication, AAD/scope/vault swap, stored identity model provenance tamper"
+    - "oversized envelope rejected before key retrieval/decryption"
+    - "placeholder reference and request actor/ACL/provider/key-reference injection rejection"
+    - "stale expected revision, review change, lock/revoke, account-bound switch guard"
+    - "plaintext canaries absent after persistence/reopen from raw durable rows, WAL/event output, projection, and event serialization"
+    - "atomic five-write failure behavior, replay, changed-payload conflict, source cursor/frontier preservation"
+    - "canonical data-root binding, shared vault lock/revoke fence, prior-generation handle invalidation, and fence-held commit race"
+    - "real RegisteredBroker account guard is short-lived around the protected commit; concurrent lifecycle witness reads remain coherent"
+    - "direct protected-call rejection when an identity-protected unlock has no account guard"
+    - "stale operation-ticket rejection under the admitting broker lock with the expected witness unchanged"
+    - "contender-first rejection after the last precheck, commit-fence-first success/error schedules, bounded completion cleanup, and unchanged five-write effects"
+    - "auth broker-fence API release permits an independently contending login before the caller-owned short guard is dropped; adapter schedule tests provide the complementary held-fence and durable-effect evidence"
+  fixtures:
+    key_backend: "in-memory injected backend performs real encryption/decryption and persisted ciphertext; never reads the real user keyring"
+    native_boundary: "device identity, OS keyring, native UI, backup recovery, provider, CI, portable, and release gates remain separate"
+evidence_gates:
+  account_switch_commit_serialization: "IMPLEMENTED_CANDIDATE; independent_n4_g1: ACCEPTED — BOUNDED N4 LOCAL FOUNDATION; no self-acceptance; adapter and auth evidence are compositional for fence release versus caller-guard lifetime"
+  account_switch_diagnostic: "KNOWN_BUG_BASELINE_ONLY; r2_registered_broker_account_switch_after_final_check_is_unclosed was removed as an acceptance test"
+  native_keyring_integration: "NOT_RUN"
+  native_ui_or_uat: "NOT_RUN"
+  backup_key_recovery: "NOT_RUN"
+  provider_or_cloud: "NOT_RUN"
+  ci_portable_release: "NOT_RUN"

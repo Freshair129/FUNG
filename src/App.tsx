@@ -55,8 +55,9 @@ import {
   type LiveMeetingController,
 } from "./components/LiveMeetingPanel";
 import type { SettingsTab } from "./components/SettingsPanel";
-import { DesktopShell } from "./components/desktop/DesktopShell";
+import { DesktopShell, getCaptureLifecycle } from "./components/desktop/DesktopShell";
 import { RecordingReview, type RecoveryRefresh } from "./components/desktop/RecordingReview";
+import { RecordingOutputPanel } from "./components/desktop/RecordingOutputPanel";
 import {
   normalizeReviewError,
   type CloseReviewPlayer,
@@ -1178,6 +1179,12 @@ export function App() {
     setActiveSurface("appearance");
   };
 
+  const openOutputSurface = () => {
+    setLiveMeetingOpen(false);
+    setShowHome(false);
+    setActiveSurface("output");
+  };
+
   const returnToHome = () => {
     setShowHome(true);
     setLiveMeetingOpen(false);
@@ -1520,6 +1527,7 @@ export function App() {
           setActiveSurface("live");
         },
         showReview: openReviewSurface,
+        showOutput: openOutputSurface,
         showAppearance: openAppearanceSurface,
         startRecording: () => {
           enterMeetingWorkspace("P1");
@@ -1594,7 +1602,11 @@ export function App() {
           </div>
         </div>
       ) : null}
-      mainContent={(
+      mainContent={activeSurface === "output" ? (
+        <div className={`callmd-desktop-content theme-${effectiveTheme}`}>
+          <RecordingOutputPanel captureActive={getCaptureLifecycle(liveStatus, liveSnapshot.phase) !== "inactive"} />
+        </div>
+      ) : (
         <div className="callmd-desktop-content">
           <section className="desktop-shell__state-card" aria-label={`${currentPage.primary} actions`}>
             <span className="desktop-shell__section-kicker">{currentTile.eyebrow}</span>

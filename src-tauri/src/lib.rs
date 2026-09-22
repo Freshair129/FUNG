@@ -45,6 +45,7 @@ mod native_auth;
 mod native_recorder;
 mod on_device_ai;
 mod policy;
+mod recording_output;
 mod recording_review;
 mod recovery;
 mod speaker_merge;
@@ -70,6 +71,10 @@ pub(crate) const DEFAULT_VLLM_ENDPOINT: &str = "http://127.0.0.1:8000";
 /// Default local model name used by `graph_build::llm_provider_config` when
 /// a `model_providers` row's `config_json` has no `model` key.
 pub(crate) const DEFAULT_OLLAMA_MODEL: &str = "llama3.1:8b";
+
+const THAI_CANDIDATE_PROFILE: &str = "thai-large-candidate";
+const THAI_CANDIDATE_MODEL: &str = "whisper-th-large-combined";
+const THAI_CANDIDATE_RUNTIME: &str = ".venv-whisper-transformers-candidate";
 
 #[derive(Clone)]
 pub(crate) struct WhisperRuntime {
@@ -201,6 +206,9 @@ fn transcription_profile_from(configured: Option<&str>) -> Result<String, String
     }
 }
 
+// Candidate-only profile selection remains exposed for the release contract
+// while the production transcription path continues to use its existing API.
+#[allow(dead_code)]
 pub(crate) fn whisper_model_name() -> Result<&'static str, String> {
     let configured = env::var("FUNG_WHISPER_MODEL_PROFILE").ok();
     whisper_model_name_from(configured.as_deref())
@@ -210,30 +218,89 @@ fn whisper_model_name_from(configured: Option<&str>) -> Result<&'static str, Str
     match configured.unwrap_or("turbo") {
         "turbo" => Ok("large-v3-turbo"),
         "medium" => Ok("medium"),
+        THAI_CANDIDATE_PROFILE => Ok(THAI_CANDIDATE_MODEL),
         "large-v3" | "reference" => Err(
             "large-v3 is qualification-only; run the reference worker explicitly instead of selecting it in the desktop profile".to_string(),
         ),
         profile => Err(format!(
-            "invalid FUNG_WHISPER_MODEL_PROFILE '{profile}'; use 'turbo' or 'medium'"
+            "invalid FUNG_WHISPER_MODEL_PROFILE '{profile}'; use 'turbo', 'medium', or '{THAI_CANDIDATE_PROFILE}'"
         )),
     }
 }
 
-fn bundled_whisper_model(runtime: &WhisperRuntime) -> Option<PathBuf> {
+fn whisper_model_backend_from(configured: Option<&str>) -> Result<&'static str, String> {
+    match configured.unwrap_or("turbo") {
+        THAI_CANDIDATE_PROFILE => Ok("transformers"),
+        "turbo" | "medium" => Ok("faster-whisper"),
+        "large-v3" | "reference" => Err(
+            "large-v3 is qualification-only; run the reference worker explicitly instead of selecting it in the desktop profile".to_string(),
+        ),
+        profile => Err(format!(
+            "invalid FUNG_WHISPER_MODEL_PROFILE '{profile}'; use 'turbo', 'medium', or '{THAI_CANDIDATE_PROFILE}'"
+        )),
+    }
+}
+
+fn whisper_worker_script_for_profile(
+    runtime: &WhisperRuntime,
+    profile: &str,
+    live: bool,
+) -> Result<PathBuf, String> {
+    if profile == THAI_CANDIDATE_PROFILE {
+        let scripts_dir = runtime
+            .script
+            .parent()
+            .ok_or_else(|| "scripts directory not found".to_string())?;
+        return Ok(scripts_dir.join(if live {
+            "transcribe_transformers_live.py"
+        } else {
+            "transcribe_transformers.py"
+        }));
+    }
+    Ok(runtime.script.clone())
+}
+
+pub(crate) fn whisper_worker_script(
+    runtime: &WhisperRuntime,
+    live: bool,
+) -> Result<PathBuf, String> {
+    let configured = env::var("FUNG_WHISPER_MODEL_PROFILE").ok();
+    let profile = configured.as_deref().unwrap_or("turbo");
+    whisper_model_backend_from(configured.as_deref())?;
+    whisper_worker_script_for_profile(runtime, profile, live)
+}
+
+fn bundled_whisper_model_for_profile(runtime: &WhisperRuntime, profile: &str) -> Option<PathBuf> {
     let runtime_root = runtime.python.parent()?.parent()?;
-    let model = whisper_model_name().ok()?;
-    Some(runtime_root.join("models").join(model))
+    let model = whisper_model_name_from(Some(profile)).ok()?;
+    let model_root = if profile == THAI_CANDIDATE_PROFILE {
+        runtime_root.parent()?.join(THAI_CANDIDATE_RUNTIME)
+    } else {
+        runtime_root.to_path_buf()
+    };
+    Some(model_root.join("models").join(model))
+}
+
+fn bundled_whisper_model(runtime: &WhisperRuntime) -> Option<PathBuf> {
+    let configured = env::var("FUNG_WHISPER_MODEL_PROFILE").ok();
+    bundled_whisper_model_for_profile(runtime, configured.as_deref().unwrap_or("turbo"))
 }
 
 pub(crate) fn require_bundled_whisper_model(runtime: &WhisperRuntime) -> Result<PathBuf, String> {
-    let model = whisper_model_name()?;
+    let configured = env::var("FUNG_WHISPER_MODEL_PROFILE").ok();
+    let model = whisper_model_name_from(configured.as_deref())?;
     let model_path = bundled_whisper_model(runtime).ok_or_else(|| {
         "FUNG Whisper runtime layout is invalid; the bundled Python path has no runtime root"
             .to_string()
     })?;
     if !model_path.is_dir() {
+        let staging_hint = if configured.as_deref() == Some(THAI_CANDIDATE_PROFILE) {
+            "scripts/stage_whisper_transformers_candidate.ps1"
+        } else {
+            "scripts/stage_whisper_runtime.ps1"
+        };
         return Err(format!(
-            "FUNG Whisper model '{model}' is missing at {}. Stage it with scripts/stage_whisper_runtime.ps1 -Model {model}.",
+            "FUNG Whisper model '{model}' is missing at {}. Stage it with {staging_hint}.",
             model_path.display()
         ));
     }
@@ -349,6 +416,7 @@ type AppResult<T> = Result<T, AppError>;
 
 pub(crate) struct AppState {
     pub(crate) data_root: PathBuf,
+    pub(crate) recording_output: Arc<Mutex<recording_output::RecordingOutputManager>>,
     pub(crate) genesis: Arc<genesis_block_native::Storage>,
     pub(crate) genesis_path: PathBuf,
     pub(crate) local_api: Mutex<Option<local_api::LocalApiControl>>,
@@ -908,6 +976,14 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         .path()
         .app_data_dir()
         .map_err(|_| AppError::MissingAppDataDir)?;
+    let default_output_root = app
+        .path()
+        .document_dir()
+        .map_err(|_| AppError::InvalidInput("Documents directory is not available".to_string()))?
+        .join("fung");
+    let recording_output =
+        recording_output::RecordingOutputManager::load(app_data_dir.clone(), default_output_root)
+            .map_err(AppError::InvalidInput)?;
     let legacy_db_path = app_data_dir.join("fung.db");
     let genesis_path = app_data_dir.join("genesisdb");
     let genesis = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
@@ -933,6 +1009,7 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
     let genesis = Arc::new(genesis);
     Ok(AppState {
         data_root: app_data_dir,
+        recording_output: Arc::new(Mutex::new(recording_output)),
         jobs: job_engine::JobEngine::new(Arc::clone(&genesis)),
         genesis,
         genesis_path,
@@ -993,12 +1070,13 @@ fn create_project(name: String, state: State<'_, AppState>) -> AppResult<Project
 
     let id = Uuid::new_v4().to_string();
     let timestamp = now();
-    let storage_path = state
-        .data_root
-        .join("projects")
-        .join(&id)
-        .display()
-        .to_string();
+    let output_root = state
+        .recording_output
+        .lock()
+        .expect("recording output mutex poisoned")
+        .ensure_current_writable()
+        .map_err(AppError::InvalidInput)?;
+    let storage_path = output_root.join("projects").join(&id).display().to_string();
     genesis_adapter::commit_rows(&state.genesis, vec![
         genesis_adapter::upsert("projects", serde_json::json!({"id": id, "name": trimmed, "storage_path": storage_path, "active_recording_id": null, "created_at": timestamp, "updated_at": timestamp})),
         genesis_adapter::upsert("graph_nodes", serde_json::json!({"id": id, "project_id": id, "entity_type": "project", "entity_id": id, "label": trimmed, "position_x": 50.0, "position_y": 17.0, "created_at": timestamp, "updated_at": timestamp})),
@@ -2154,21 +2232,31 @@ fn resolve_or_create_project(
     if let Some(id) = project_id {
         return Ok(id);
     }
-    create_project_named(&state.genesis, &state.data_root, default_name)
+    let output_root = state
+        .recording_output
+        .lock()
+        .expect("recording output mutex poisoned")
+        .ensure_current_writable()
+        .map_err(AppError::InvalidInput)?;
+    create_project_named(&state.genesis, &output_root, default_name)
 }
 
-/// Creates a project whose storage lives under `<data_root>/projects/<id>`
+/// Creates a project whose storage lives under `<storage_root>/projects/<id>`
 /// and returns its id. The Tauri-state-free half of
 /// [`resolve_or_create_project`], shared with the loopback API's upload
 /// route (`local_api::import_recording`), which has no `AppState`.
 pub(crate) fn create_project_named(
     genesis: &genesis_block_native::Storage,
-    data_root: &std::path::Path,
+    storage_root: &std::path::Path,
     name: &str,
 ) -> AppResult<String> {
     let id = Uuid::new_v4().to_string();
     let timestamp = now();
-    let storage_path = data_root.join("projects").join(&id).display().to_string();
+    let storage_path = storage_root
+        .join("projects")
+        .join(&id)
+        .display()
+        .to_string();
     genesis_adapter::commit_rows(genesis, vec![genesis_adapter::upsert("projects", serde_json::json!({"id":id,"name":name,"storage_path":storage_path,"active_recording_id":null,"created_at":timestamp,"updated_at":timestamp}))]).map_err(AppError::Genesis)?;
     Ok(id)
 }
@@ -2831,6 +2919,7 @@ pub(crate) fn run_transcription(
 ) -> Result<WhisperOutput, String> {
     require_bundled_whisper_model(runtime)?;
     let profile = transcription_profile()?;
+    let worker_script = whisper_worker_script(runtime, false)?;
 
     let path_prefix = if profile == "gpu" {
         let missing: Vec<&str> = REQUIRED_CUDA_DLLS
@@ -2852,7 +2941,7 @@ pub(crate) fn run_transcription(
 
     let raw_output = run_python_worker(
         runtime,
-        &runtime.script,
+        &worker_script,
         &[file_path, "--profile", &profile],
         path_prefix,
         // Transcription loads a bundled model by path. Passing `None`
@@ -3508,6 +3597,9 @@ pub fn run() {
             zoom_sync::zoom_import_recording,
             graph_build::graph_build_start,
             diarization::diarization_status,
+            recording_output::recording_output_get,
+            recording_output::recording_output_set,
+            recording_output::recording_output_reset,
             live_meeting::live_capture_devices,
             live_meeting::live_meeting_start,
             live_meeting::live_meeting_stop,
@@ -3757,8 +3849,44 @@ mod worker_tests {
             "large-v3-turbo"
         );
         assert_eq!(whisper_model_name_from(Some("medium")).unwrap(), "medium");
+        assert_eq!(
+            whisper_model_name_from(Some(THAI_CANDIDATE_PROFILE)).unwrap(),
+            THAI_CANDIDATE_MODEL
+        );
+        assert_eq!(
+            whisper_model_backend_from(Some(THAI_CANDIDATE_PROFILE)).unwrap(),
+            "transformers"
+        );
         assert!(whisper_model_name_from(Some("reference")).is_err());
         assert!(whisper_model_name_from(Some("small")).is_err());
+    }
+
+    #[test]
+    fn thai_candidate_uses_separate_model_root_and_workers() {
+        let runtime = WhisperRuntime {
+            python: PathBuf::from(r"C:\Program Files\FUNG\.venv-whisper\Scripts\python.exe"),
+            script: PathBuf::from(r"C:\Program Files\FUNG\scripts\transcribe.py"),
+            cuda_bin: PathBuf::new(),
+        };
+
+        assert_eq!(
+            bundled_whisper_model_for_profile(&runtime, THAI_CANDIDATE_PROFILE),
+            Some(PathBuf::from(
+                r"C:\Program Files\FUNG\.venv-whisper-transformers-candidate\models\whisper-th-large-combined"
+            ))
+        );
+        assert_eq!(
+            whisper_worker_script_for_profile(&runtime, THAI_CANDIDATE_PROFILE, false).unwrap(),
+            PathBuf::from(r"C:\Program Files\FUNG\scripts\transcribe_transformers.py")
+        );
+        assert_eq!(
+            whisper_worker_script_for_profile(&runtime, THAI_CANDIDATE_PROFILE, true).unwrap(),
+            PathBuf::from(r"C:\Program Files\FUNG\scripts\transcribe_transformers_live.py")
+        );
+        assert_eq!(
+            whisper_worker_script_for_profile(&runtime, "turbo", false).unwrap(),
+            runtime.script
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 ---
-version: "0.2.35b"
+version: "0.2.36b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-21T03:58:31+07:00,RWANG"
+last_update: "2026-09-23T01:22:19+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -19,7 +19,7 @@ provenance, not current runtime or deployment evidence.
 
 ## Candidate live transcript / Google Meet Agent docs — 2026-09-21
 
-**Documentation only; new capability implementation and qualification NOT_RUN.**
+**Full M1–M5 capability remains documentation only; bounded R3 foundation is implemented and independently accepted locally.**
 
 The user selected Google Meet first and accepted API integration to improve speaker-source attribution. The proposal is indexed in [Meeting Intelligence Domains](../architecture/MEETING_INTELLIGENCE_DOMAINS.md), with detailed [live transcript](../specs/2026-09-21-live-meeting-transcription-spec.md), [knowledge evidence](../specs/2026-09-21-meeting-knowledge-evidence-spec.md), [Meeting Agent](../specs/2026-09-21-meeting-agent-participation-spec.md) and [API strategy](../decisions/2026-09-21-google-meet-agent-api-strategy.md) contracts.
 
@@ -32,13 +32,27 @@ The user selected Google Meet first and accepted API integration to improve spea
 | Publication | existing external MCP remains read-only; same-room outbox, links, receipts and bounded auto-response are proposed |
 | API feasibility | primary provider docs reviewed; no account, tenant, media, billing, real-room or deployed-gateway test performed |
 
-New specs are candidate and do not close any existing real-capture, model, packaged, provider/device or release gate. This turn changes documentation only; prior working-tree runtime edits and their previously recorded evidence are preserved.
+New specs are candidate and do not close any existing real-capture, model, packaged, provider/device or release gate. The separate R3 AccountCommitFence/native SI-D8 foundation was later integrated in `85c96ed` and merged into `main` in `5809d70`; that bounded result does not activate the broader meeting-intelligence capability.
+
+## Current bounded meeting-intelligence R3 foundation — 2026-09-23
+
+The approved R3 AccountCommitFence/native SI-D8 source slice is present in the
+current `main` checkout. The independent N4/G1 report records
+**ACCEPTED — BOUNDED N4 LOCAL FOUNDATION** for the registered-broker fence,
+deterministic cross-thread regressions, native Genesis adapter boundary and
+supplemental contract checks.
+
+The report's temporary R3/R2 absolute paths are historical custody references;
+those worktrees were deleted after integration. The current root source hashes
+match the R3 review-set hashes. This is not full meeting-intelligence
+acceptance: M1–M5, the workflow package's own G1/G2, provider/native/real-room,
+CI, portable, release and production gates remain **NOT_RUN** or open.
 
 ## Current Desktop shell truth — 2026-09-20
 
 The current desktop presentation is the Liquid Glass `DesktopShell`, not the
 older fixed HUD / P rail / InstrumentRail vocabulary used by earlier progress
-entries. The active shell surfaces are `home`, `live`, `review`, and
+entries. The active shell surfaces are `home`, `live`, `review`, `output`, and
 `appearance`.
 
 - The persistent sidebar is hover/focus-expandable and owns navigation plus
@@ -47,6 +61,10 @@ entries. The active shell surfaces are `home`, `live`, `review`, and
   strip. The native recording/runtime boundary is unchanged.
 - Appearance is a dedicated main-content page for theme, material and
   transparency controls; the sidebar only navigates to it.
+- `ไฟล์บันทึก` is a dedicated main-content page for the user-visible recording
+  destination; it exposes the current path, writable status, native folder
+  picker and reset-to-`Documents\fung` action. It is disabled while capture is
+  active.
 - The header owns the FUNG / QUIET ARCHIVE lockup, truthful recording status
   and profile/login CTA. Shell-level minimize/close buttons are removed;
   native OS window controls remain outside the FUNG content contract.
@@ -122,8 +140,30 @@ non-default capture, selected-device WAV/ledger proof, disconnect recovery, and
 restart persistence are still **NOT_RUN**; screenshots remain visual evidence
 only. A native Tauri dev build also compiled and launched `fung.exe` outside the
 sandbox, but the process exposed no native window handle to the desktop test
-surface, so that attempt does not count as click-through evidence. The separate
-output-destination design is not included in this slice.
+surface, so that attempt does not count as click-through evidence. The
+output-destination implementation is recorded below; its real WAV-path smoke
+remains a separate gate.
+
+## Current recording output destination truth — 2026-09-20
+
+The desktop now separates internal AppData from user-visible recording output.
+The default is resolved from the native Documents directory plus `fung`, so it
+does not hard-code this machine's username. The persisted current root and
+known previous roots live in `recording-output.json` under AppData. New project
+storage, live WAV chunks, local uploads, Zoom imports and project exports follow
+the selected project root; existing projects retain their ledger-owned path.
+
+Playback custody accepts the AppData legacy root and every persisted output
+root. A deleted custom destination is reported as unavailable and does not
+silently fall back to AppData. Changes are rejected while the native capture
+guard is active, and the UI only chooses folders through the native picker.
+
+Local evidence: Rust library `478 passed / 1 ignored`; focused output contract
+`3/3`; Desktop shell `11/11`; Desktop integration `6/6`; live routing `4/4`;
+Vite production build; `cargo fmt --all -- --check`; and `git diff --check`.
+Real native output-path smoke (default `Documents\fung`, custom folder,
+restart persistence, and old AppData playback) is **NOT_RUN**. Screenshots are
+visual gate evidence only.
 
 ## Current Status
 
@@ -913,9 +953,11 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.36b | Synced current `main` with the bounded R3 foundation integration and independent bounded N4/G1 evidence; historical worktree paths are identified as custody references and broader gates remain open. |
 | 0.2.35b | Recorded candidate live/knowledge/Google Meet agent documentation separately from existing runtime and unrun provider/deployment proof. |
 | 0.2.34b | Clarified that the local-capture stop path alone adds speaker diarization; manual summary retry remains summary-only. |
 | 0.2.33b | Added the approved FUNG adaptation slice: local-capture speaker diarization is queued before recording-scoped summary without blocking summary fallback; staged pyannote runtime/import evidence is recorded separately from gated model and real-meeting proof. |
+| 0.2.32b | Recorded the selectable recording output destination, AppData/legacy custody split, dedicated UI surface and automated evidence; native output-path smoke remains open. |
 | 0.2.31b | Recorded the approved live-capture device-routing implementation and automated/WebView evidence; native Windows device UAT, selected-device audio/ledger proof, and output-destination migration remain open. |
 | 0.2.21b | Recorded the approved bounded D-MVP-02 working-tree slice: recording-scoped manual transcript correction, accepted refinement provenance, local audit event, inline Desktop affordance, and local verification evidence; runtime/UAT and release gates remain open. |
 | 0.2.22b | Recorded bounded D-MVP-05 source WAV/MP3 export through the existing durable export queue, typed audio artifacts, truthful unsupported-format handling, and current local verification evidence; transcoding, runtime/UAT, and release gates remain open. |
@@ -950,10 +992,12 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.36b | 2026-09-23 | beta | Synced the current bounded R3 foundation and independent bounded N4/G1 evidence while preserving the broader meeting-intelligence and release boundaries. | working-tree | RWANG |
 | 0.2.35b | 2026-09-21 | beta | Recorded candidate live/knowledge/Google Meet agent documentation separately from existing runtime and unrun provider/deployment proof. | working-tree | RWANG |
 | 0.2.34b | 2026-09-21 | beta | Clarified local-capture-only speaker-pass enqueue and preserved summary-only manual retry behavior. | working-tree | RWANG |
 | 0.2.33b | 2026-09-21 | beta | Implemented the approved FUNG meeting-transcript adaptation slice: queue optional local speaker diarization before summary, preserve non-blocking transcript fallback, and record pyannote runtime/import evidence with model fetch and real-meeting qualification still NOT_RUN. | working-tree | RWANG |
 | 0.2.32b | 2026-09-21 | beta | Added the approved Whisper `large-v3-turbo` default / `medium` lower-resource profile contract, multi-model staging support, and the `large-v3` qualification-only boundary; model download and runtime evidence remain NOT_RUN. | working-tree | RWANG |
+| 0.2.32b | 2026-09-20 | beta | Added selectable recording output custody, legacy playback allow-list and `ไฟล์บันทึก` surface; automated verification passed, native output-path smoke remains open. | working-tree | RWANG |
 | 0.2.31b | 2026-09-20 | beta | Added approved live-capture microphone/loopback selection, persistence, native revalidation, and local/WebView evidence; real Windows device UAT remains open. | working-tree | RWANG |
 | 0.2.27b | 2026-09-17 | beta | Integrated the bounded D-MVP-04-L1 export-artifact inventory fix after the Google Drive cancellation cleanup; local verification remains bounded by the documented Whisper runtime gap. | 086fcfa | Codex |
 | 0.2.26b | 2026-09-17 | beta | Removed the canceled Google Drive implementation, active tests, commands, and Edge functions; retained local backup as the active Phase 4 target and marked provider/migration evidence historical. | a9f9b80 | Codex |

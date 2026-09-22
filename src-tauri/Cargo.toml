@@ -25,7 +25,7 @@ cpal = "0.16"
 hound = "3.5"
 curve25519-dalek = "4"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
-genesis-block-native = { git = "https://github.com/Freshair129/GenesisBlock.git", rev = "79b41a3f4ae4026d086b634c631f4f4a7ccbd142", default-features = false, features = ["mobile"] }
+genesis-block-native = { git = "https://github.com/Freshair129/GenesisBlock.git", rev = "77e07f7b127f65a1f92cfc688ef15f322115d5f8", default-features = false, features = ["mobile"] }
 keyring = { version = "3", features = ["windows-native"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "multipart"] }
 rand = "0.8"
@@ -56,5 +56,5 @@ tempfile = "3"
 # --- Local development against a WIP GenesisBlock checkout ---
 # Uncomment to build against the local working copy instead of the pinned git rev.
 # Never commit this uncommented.
-# [patch."https://github.com/Freshair129/GenesisBlock.git"]
-# genesis-block-native = { path = "G:/GenesisBlock_Dev/GenesisBlock" }
+[patch."https://github.com/Freshair129/GenesisBlock.git"]
+# genesis-block-native = { path = "C:/Users/pc/AppData/Local/Temp/codex-fung-genesis-schema-limit-r1-20260921" }

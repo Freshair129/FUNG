@@ -194,13 +194,13 @@ test("cloud dispatch is reachable only through the tier policy", () => {
   }
 
   const gated = rustModules
-    .filter(({ source }) => /policy::decide_cloud_tier/.test(source))
+    .filter(({ source }) => /policy::reserve_cloud_call/.test(source))
     .map(({ name }) => name)
     .sort();
   assert.deepEqual(
     gated,
     ["cloud_executor", "fungwire_server"],
-    "a new module consults the cloud tier policy — add it to the register",
+    "the cloud dispatch gates must use the authoritative reserve_cloud_call admission boundary",
   );
 
   const callers = rustModules
@@ -209,7 +209,7 @@ test("cloud dispatch is reachable only through the tier policy", () => {
   assert.deepEqual(
     callers,
     ["fungwire_server"],
-    "dispatch_stt/dispatch_llm must not be called from anywhere that skips decide_cloud_tier",
+    "dispatch_stt/dispatch_llm must not be called from anywhere that skips reserve_cloud_call",
   );
 });
 

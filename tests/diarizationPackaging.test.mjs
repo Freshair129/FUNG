@@ -78,16 +78,30 @@ test("the dependency tree is staged separately from the default bundle", () => {
   );
 });
 
-test("the staging script refuses to install without a reviewed lockfile", () => {
+test("the staging script installs from the reviewed hash-pinned lockfile", () => {
   // Fabricated or absent hashes would be worse than none: the point of
   // --require-hashes is that the tree was resolved and reviewed once.
   const staging = readFileSync("scripts/stage_diarization_runtime.ps1", "utf8");
   assert.match(staging, /No pinned lockfile at/);
-  assert.equal(
-    existsSync("scripts/diarization-runtime-requirements.txt"),
-    false,
-    "the lockfile must be generated on a machine with network access, not committed unresolved",
-  );
+  const lockPath = "scripts/diarization-runtime-requirements.txt";
+  assert.equal(existsSync(lockPath), true, "the reviewed lockfile must ship with the staging contract");
+  const lock = readFileSync(lockPath, "utf8");
+  assert.match(lock, /pyannote_audio==3\.4\.0\s+--hash=sha256:/);
+  assert.match(lock, /torch==2\.4\.1\s+--hash=sha256:/);
+  assert.match(lock, /torchaudio==2\.4\.1\s+--hash=sha256:/);
+
+  const entries = lock
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+  assert.ok(entries.length > 20, "the lockfile must contain the resolved transitive tree");
+  for (const entry of entries) {
+    assert.match(
+      entry,
+      /^[A-Za-z0-9_.-]+==[^\s]+\s+--hash=sha256:[0-9a-f]{64}$/,
+      `lock entry is not a single hash-pinned distribution: ${entry}`,
+    );
+  }
 });
 
 test("the app and the staging script agree on where the model cache lives", () => {

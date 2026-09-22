@@ -7,6 +7,7 @@ use crate::cloud_config::CloudProviderConfig;
 use crate::fungwire::Segment;
 use std::path::Path;
 use std::time::Duration;
+use url::Url;
 
 const STT_TIMEOUT: Duration = Duration::from_secs(120);
 const LLM_TIMEOUT: Duration = Duration::from_secs(60);
@@ -20,6 +21,265 @@ const DEFAULT_ANTHROPIC_MODEL: &str = "claude-3-5-sonnet-20241022";
 /// Fallback OpenAI chat model, used when the user's `CloudProviderConfig` has
 /// no `model` override configured.
 const DEFAULT_OPENAI_LLM_MODEL: &str = "gpt-4o-mini";
+
+/// Stable prefix for an LLM cloud-admission failure. `job_engine::classify`
+/// checks this before the local transport markers because admission failures
+/// must not retry the graph build or reserve the same cloud slot again.
+pub(crate) const CLOUD_ADMISSION_NON_RETRYABLE_PREFIX: &str = "cloud_admission_non_retryable:";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EffectiveLlmExecution {
+    pub(crate) text: String,
+    pub(crate) provider_id: String,
+    pub(crate) provider_label: String,
+    pub(crate) model_name: String,
+    pub(crate) endpoint: String,
+    pub(crate) runtime_location: &'static str,
+}
+
+fn redact_case_insensitive(text: &str, needle: &str, replacement: &str) -> String {
+    if needle.is_empty() {
+        return text.to_string();
+    }
+    let mut output = text.to_string();
+    loop {
+        let lower = output.to_ascii_lowercase();
+        let Some(start) = lower.find(&needle.to_ascii_lowercase()) else {
+            return output;
+        };
+        let end = start + needle.len();
+        output.replace_range(start..end, replacement);
+    }
+}
+
+fn redact_sensitive_text(text: &str, secrets: &[&str]) -> String {
+    let mut output = text.to_string();
+    for secret in secrets {
+        if !secret.trim().is_empty() {
+            output = redact_case_insensitive(&output, secret, "<redacted>");
+        }
+    }
+    let output = redact_sensitive_header_values(&output);
+    redact_bearer_value(&output)
+}
+
+fn truncated_redacted(body: &str, secrets: &[&str]) -> String {
+    let redacted = redact_sensitive_text(body, secrets);
+    truncated(&redacted).to_string()
+}
+
+const SENSITIVE_HEADER_NAMES: &[&str] = &[
+    "proxy-authorization",
+    "authorization",
+    "x-api-key",
+    "x-api_key",
+    "xapikey",
+    "api-key",
+    "api_key",
+    "apikey",
+    "authentication",
+    "x-auth-token",
+    "auth-token",
+    "access-token",
+    "refresh-token",
+    "id-token",
+    "set-cookie",
+    "cookie",
+    "client-secret",
+    "client_secret",
+    "proxy-auth",
+    "token",
+    "session",
+    "secret",
+    "password",
+];
+
+fn starts_with_ascii_case_insensitive_at(text: &str, start: usize, needle: &str) -> bool {
+    let bytes = text.as_bytes();
+    let needle = needle.as_bytes();
+    start + needle.len() <= bytes.len()
+        && bytes[start..start + needle.len()]
+            .iter()
+            .zip(needle)
+            .all(|(actual, expected)| actual.eq_ignore_ascii_case(expected))
+}
+
+fn is_header_name_boundary(text: &str, start: usize) -> bool {
+    start == 0 || !text.as_bytes()[start - 1].is_ascii_alphanumeric()
+}
+
+fn sensitive_header_value_end(text: &str, start: usize, name: &str, quoted: bool) -> usize {
+    // Cookie values contain semicolon-separated name/value pairs, so redact
+    // the entire line rather than risking a later cookie fragment escaping.
+    // Do the same for quoted/JSON-shaped values: stopping at punctuation
+    // inside a quoted value could leave a secret suffix behind.
+    if quoted || matches!(name, "cookie" | "set-cookie") {
+        return text[start..]
+            .find(['\r', '\n'])
+            .map(|offset| start + offset)
+            .unwrap_or(text.len());
+    }
+    text[start..]
+        .find([';', ',', '\r', '\n'])
+        .map(|offset| start + offset)
+        .unwrap_or(text.len())
+}
+
+/// Removes values attached to sensitive header-like fields, including values
+/// the caller did not configure as its own API key. The prefix before the
+/// field (which contains the provider/status classification) is retained.
+fn redact_sensitive_header_values(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut copied_until = 0;
+    let mut index = 0;
+    while index < text.len() {
+        if is_header_name_boundary(text, index) {
+            let mut match_end = None;
+            for name in SENSITIVE_HEADER_NAMES {
+                if !starts_with_ascii_case_insensitive_at(text, index, name) {
+                    continue;
+                }
+                let mut separator = index + name.len();
+                while text
+                    .as_bytes()
+                    .get(separator)
+                    .is_some_and(u8::is_ascii_whitespace)
+                {
+                    separator += 1;
+                }
+                let mut quoted = false;
+                if matches!(text.as_bytes().get(separator), Some(b'"' | b'\'')) {
+                    quoted = true;
+                    separator += 1;
+                    while text
+                        .as_bytes()
+                        .get(separator)
+                        .is_some_and(u8::is_ascii_whitespace)
+                    {
+                        separator += 1;
+                    }
+                }
+                if !matches!(text.as_bytes().get(separator), Some(b':' | b'=')) {
+                    continue;
+                }
+                let mut value_start = separator + 1;
+                while text
+                    .as_bytes()
+                    .get(value_start)
+                    .is_some_and(u8::is_ascii_whitespace)
+                {
+                    value_start += 1;
+                }
+                if matches!(text.as_bytes().get(value_start), Some(b'"' | b'\'')) {
+                    quoted = true;
+                    value_start += 1;
+                }
+                match_end = Some(sensitive_header_value_end(text, value_start, name, quoted));
+                break;
+            }
+            if let Some(end) = match_end {
+                output.push_str(&text[copied_until..index]);
+                output.push_str("<redacted-header>");
+                copied_until = end;
+                index = end;
+                continue;
+            }
+        }
+        index += text[index..].chars().next().unwrap().len_utf8();
+    }
+    output.push_str(&text[copied_until..]);
+    output
+}
+
+fn redact_bearer_value(text: &str) -> String {
+    const BEARER: &str = "bearer";
+    let mut output = String::with_capacity(text.len());
+    let mut copied_until = 0;
+    let mut index = 0;
+    while index < text.len() {
+        if is_header_name_boundary(text, index)
+            && starts_with_ascii_case_insensitive_at(text, index, BEARER)
+        {
+            let mut value_start = index + BEARER.len();
+            while text
+                .as_bytes()
+                .get(value_start)
+                .is_some_and(u8::is_ascii_whitespace)
+            {
+                value_start += 1;
+            }
+            if value_start > index + BEARER.len() && value_start < text.len() {
+                let end = text[value_start..]
+                    .find([' ', '\t', ';', ',', '\r', '\n', '"', '\'', '}', ']'])
+                    .map(|offset| value_start + offset)
+                    .unwrap_or(text.len());
+                output.push_str(&text[copied_until..index]);
+                output.push_str("<redacted-bearer>");
+                copied_until = end;
+                index = end;
+                continue;
+            }
+        }
+        index += text[index..].chars().next().unwrap().len_utf8();
+    }
+    output.push_str(&text[copied_until..]);
+    output
+}
+
+/// Returns the configured custom endpoint without userinfo, query, or
+/// fragment. Production cloud configuration is HTTPS-only; unit tests may
+/// use a loopback HTTP listener as their fake provider.
+fn sanitize_custom_endpoint(endpoint: &str) -> Result<String, String> {
+    let mut parsed =
+        Url::parse(endpoint.trim()).map_err(|_| "custom cloud endpoint is invalid".to_string())?;
+    let loopback_http = cfg!(test)
+        && parsed.scheme() == "http"
+        && matches!(parsed.host_str(), Some("127.0.0.1" | "localhost"));
+    if parsed.scheme() != "https" && !loopback_http {
+        return Err("custom cloud endpoint must use https".into());
+    }
+    if parsed.host_str().is_none() {
+        return Err("custom cloud endpoint is invalid".into());
+    }
+    parsed
+        .set_username("")
+        .map_err(|_| "custom cloud endpoint is invalid".to_string())?;
+    parsed.set_password(None).ok();
+    parsed.set_query(None);
+    parsed.set_fragment(None);
+    Ok(parsed.to_string().trim_end_matches('/').to_string())
+}
+
+fn effective_cloud_provenance(
+    config: &CloudProviderConfig,
+) -> Result<(String, String, String, String), String> {
+    match config {
+        CloudProviderConfig::Anthropic { model, .. } => Ok((
+            "cloud-anthropic-summary-intent".into(),
+            "Anthropic".into(),
+            model
+                .as_deref()
+                .unwrap_or(DEFAULT_ANTHROPIC_MODEL)
+                .to_string(),
+            "https://api.anthropic.com/v1/messages".into(),
+        )),
+        CloudProviderConfig::OpenAi { model, .. } => Ok((
+            "cloud-openai-summary-intent".into(),
+            "OpenAI".into(),
+            model
+                .as_deref()
+                .unwrap_or(DEFAULT_OPENAI_LLM_MODEL)
+                .to_string(),
+            "https://api.openai.com/v1/chat/completions".into(),
+        )),
+        CloudProviderConfig::Custom { endpoint, .. } => Ok((
+            "cloud-custom-summary-intent".into(),
+            "Custom".into(),
+            "custom-unspecified".into(),
+            sanitize_custom_endpoint(endpoint)?,
+        )),
+    }
+}
 
 fn truncated(body: &str) -> &str {
     if body.len() <= 500 {
@@ -63,6 +323,9 @@ pub(crate) fn dispatch_stt(
     config: &CloudProviderConfig,
     audio_path: &Path,
 ) -> Result<Vec<Segment>, String> {
+    if !config.has_configured_api_key() {
+        return Err("cloud provider API key is not configured".into());
+    }
     match config {
         CloudProviderConfig::OpenAi { api_key, model } => {
             openai_stt(api_key, model.as_deref(), audio_path)
@@ -75,6 +338,9 @@ pub(crate) fn dispatch_stt(
 }
 
 pub(crate) fn dispatch_llm(config: &CloudProviderConfig, prompt: &str) -> Result<String, String> {
+    if !config.has_configured_api_key() {
+        return Err("cloud provider API key is not configured".into());
+    }
     match config {
         CloudProviderConfig::Anthropic { api_key, model } => {
             anthropic_llm(api_key, model.as_deref(), prompt)
@@ -125,7 +391,7 @@ fn openai_stt(
     let client = reqwest::blocking::Client::builder()
         .timeout(STT_TIMEOUT)
         .build()
-        .map_err(|e| format!("สร้าง HTTP client ไม่ได้: {e}"))?;
+        .map_err(|e| redact_sensitive_text(&format!("สร้าง HTTP client ไม่ได้: {e}"), &[api_key]))?;
     let response = client
         .post("https://api.openai.com/v1/audio/transcriptions")
         .header("Authorization", format!("Bearer {api_key}"))
@@ -135,19 +401,22 @@ fn openai_stt(
             if e.is_timeout() {
                 "OpenAI STT ไม่ตอบสนองภายใน 120 วินาที".to_string()
             } else {
-                format!("เชื่อมต่อ OpenAI STT ไม่ได้: {e}")
+                redact_sensitive_text(&format!("เชื่อมต่อ OpenAI STT ไม่ได้: {e}"), &[api_key])
             }
         })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().unwrap_or_default();
-        return Err(format!("OpenAI STT ตอบ {status}: {}", truncated(&body)));
+        return Err(format!(
+            "OpenAI STT ตอบ {status}: {}",
+            truncated_redacted(&body, &[api_key])
+        ));
     }
 
-    let parsed: OpenAiSttResponse = response
-        .json()
-        .map_err(|e| format!("อ่าน response OpenAI STT ไม่ได้: {e}"))?;
+    let parsed: OpenAiSttResponse = response.json().map_err(|e| {
+        redact_sensitive_text(&format!("อ่าน response OpenAI STT ไม่ได้: {e}"), &[api_key])
+    })?;
     Ok(parsed
         .segments
         .into_iter()
@@ -162,10 +431,11 @@ fn openai_stt(
 
 fn custom_stt(endpoint: &str, api_key: &str, audio_path: &Path) -> Result<Vec<Segment>, String> {
     let bytes = std::fs::read(audio_path).map_err(|e| format!("อ่านไฟล์เสียงไม่ได้: {e}"))?;
+    let endpoint = sanitize_custom_endpoint(endpoint)?;
     let client = reqwest::blocking::Client::builder()
         .timeout(STT_TIMEOUT)
         .build()
-        .map_err(|e| format!("สร้าง HTTP client ไม่ได้: {e}"))?;
+        .map_err(|e| redact_sensitive_text(&format!("สร้าง HTTP client ไม่ได้: {e}"), &[api_key]))?;
     let response = client
         .post(endpoint)
         .header("Authorization", format!("Bearer {api_key}"))
@@ -176,7 +446,7 @@ fn custom_stt(endpoint: &str, api_key: &str, audio_path: &Path) -> Result<Vec<Se
             if e.is_timeout() {
                 "custom STT endpoint ไม่ตอบสนองภายใน 120 วินาที".to_string()
             } else {
-                format!("เชื่อมต่อ custom STT endpoint ไม่ได้: {e}")
+                redact_sensitive_text(&format!("เชื่อมต่อ custom STT endpoint ไม่ได้: {e}"), &[api_key])
             }
         })?;
 
@@ -185,12 +455,12 @@ fn custom_stt(endpoint: &str, api_key: &str, audio_path: &Path) -> Result<Vec<Se
         let body = response.text().unwrap_or_default();
         return Err(format!(
             "custom STT endpoint ตอบ {status}: {}",
-            truncated(&body)
+            truncated_redacted(&body, &[api_key])
         ));
     }
-    response
-        .json::<Vec<Segment>>()
-        .map_err(|e| format!("อ่าน response custom STT ไม่ได้: {e}"))
+    response.json::<Vec<Segment>>().map_err(|e| {
+        redact_sensitive_text(&format!("อ่าน response custom STT ไม่ได้: {e}"), &[api_key])
+    })
 }
 
 fn anthropic_llm(api_key: &str, model: Option<&str>, prompt: &str) -> Result<String, String> {
@@ -206,7 +476,7 @@ fn anthropic_llm(api_key: &str, model: Option<&str>, prompt: &str) -> Result<Str
     let client = reqwest::blocking::Client::builder()
         .timeout(LLM_TIMEOUT)
         .build()
-        .map_err(|e| format!("สร้าง HTTP client ไม่ได้: {e}"))?;
+        .map_err(|e| redact_sensitive_text(&format!("สร้าง HTTP client ไม่ได้: {e}"), &[api_key]))?;
     let response = client
         .post("https://api.anthropic.com/v1/messages")
         .header("x-api-key", api_key)
@@ -221,18 +491,21 @@ fn anthropic_llm(api_key: &str, model: Option<&str>, prompt: &str) -> Result<Str
             if e.is_timeout() {
                 format!("Anthropic ไม่ตอบสนองภายใน {} วินาที", LLM_TIMEOUT.as_secs())
             } else {
-                format!("เชื่อมต่อ Anthropic ไม่ได้: {e}")
+                redact_sensitive_text(&format!("เชื่อมต่อ Anthropic ไม่ได้: {e}"), &[api_key])
             }
         })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().unwrap_or_default();
-        return Err(format!("Anthropic ตอบ {status}: {}", truncated(&body)));
+        return Err(format!(
+            "Anthropic ตอบ {status}: {}",
+            truncated_redacted(&body, &[api_key])
+        ));
     }
-    let parsed: MessagesResponse = response
-        .json()
-        .map_err(|e| format!("อ่าน response Anthropic ไม่ได้: {e}"))?;
+    let parsed: MessagesResponse = response.json().map_err(|e| {
+        redact_sensitive_text(&format!("อ่าน response Anthropic ไม่ได้: {e}"), &[api_key])
+    })?;
     parsed
         .content
         .into_iter()
@@ -258,7 +531,7 @@ fn openai_llm(api_key: &str, model: Option<&str>, prompt: &str) -> Result<String
     let client = reqwest::blocking::Client::builder()
         .timeout(LLM_TIMEOUT)
         .build()
-        .map_err(|e| format!("สร้าง HTTP client ไม่ได้: {e}"))?;
+        .map_err(|e| redact_sensitive_text(&format!("สร้าง HTTP client ไม่ได้: {e}"), &[api_key]))?;
     let response = client
         .post("https://api.openai.com/v1/chat/completions")
         .header("Authorization", format!("Bearer {api_key}"))
@@ -271,18 +544,21 @@ fn openai_llm(api_key: &str, model: Option<&str>, prompt: &str) -> Result<String
             if e.is_timeout() {
                 format!("OpenAI ไม่ตอบสนองภายใน {} วินาที", LLM_TIMEOUT.as_secs())
             } else {
-                format!("เชื่อมต่อ OpenAI ไม่ได้: {e}")
+                redact_sensitive_text(&format!("เชื่อมต่อ OpenAI ไม่ได้: {e}"), &[api_key])
             }
         })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().unwrap_or_default();
-        return Err(format!("OpenAI ตอบ {status}: {}", truncated(&body)));
+        return Err(format!(
+            "OpenAI ตอบ {status}: {}",
+            truncated_redacted(&body, &[api_key])
+        ));
     }
-    let parsed: ChatResponse = response
-        .json()
-        .map_err(|e| format!("อ่าน response OpenAI ไม่ได้: {e}"))?;
+    let parsed: ChatResponse = response.json().map_err(|e| {
+        redact_sensitive_text(&format!("อ่าน response OpenAI ไม่ได้: {e}"), &[api_key])
+    })?;
     parsed
         .choices
         .into_iter()
@@ -303,10 +579,11 @@ fn custom_llm(endpoint: &str, api_key: &str, prompt: &str) -> Result<String, Str
         message: ChatMessage,
     }
 
+    let endpoint = sanitize_custom_endpoint(endpoint)?;
     let client = reqwest::blocking::Client::builder()
         .timeout(LLM_TIMEOUT)
         .build()
-        .map_err(|e| format!("สร้าง HTTP client ไม่ได้: {e}"))?;
+        .map_err(|e| redact_sensitive_text(&format!("สร้าง HTTP client ไม่ได้: {e}"), &[api_key]))?;
     let response = client
         .post(format!("{endpoint}/api/chat"))
         .header("Authorization", format!("Bearer {api_key}"))
@@ -322,7 +599,7 @@ fn custom_llm(endpoint: &str, api_key: &str, prompt: &str) -> Result<String, Str
                     LLM_TIMEOUT.as_secs()
                 )
             } else {
-                format!("เชื่อมต่อ custom LLM endpoint ไม่ได้: {e}")
+                redact_sensitive_text(&format!("เชื่อมต่อ custom LLM endpoint ไม่ได้: {e}"), &[api_key])
             }
         })?;
 
@@ -331,13 +608,15 @@ fn custom_llm(endpoint: &str, api_key: &str, prompt: &str) -> Result<String, Str
         let body = response.text().unwrap_or_default();
         return Err(format!(
             "custom LLM endpoint ตอบ {status}: {}",
-            truncated(&body)
+            truncated_redacted(&body, &[api_key])
         ));
     }
     response
         .json::<ChatResponse>()
         .map(|r| r.message.content)
-        .map_err(|e| format!("อ่าน response custom LLM ไม่ได้: {e}"))
+        .map_err(|e| {
+            redact_sensitive_text(&format!("อ่าน response custom LLM ไม่ได้: {e}"), &[api_key])
+        })
 }
 
 // ---- Tier-3 LLM cloud fallback (spec §8) ---------------------------------
@@ -382,6 +661,17 @@ pub(crate) fn is_connection_error(message: &str) -> bool {
 /// The STT counterpart is `fungwire_server::resolve_stt_cloud_config`, which
 /// consults only two slots because Anthropic has no STT product.
 pub(crate) fn first_configured_llm_provider() -> Option<CloudProviderConfig> {
+    #[cfg(test)]
+    {
+        if let Some(config) = TEST_LLM_CLOUD_CONFIG
+            .lock()
+            .expect("test cloud config mutex poisoned")
+            .clone()
+        {
+            return config.has_configured_api_key().then_some(config);
+        }
+    }
+
     use crate::cloud_config::{cloud_config_slot, load_cloud_config, CloudTaskKind};
     for provider in ["anthropic", "openai", "custom"] {
         let slot = cloud_config_slot(provider, CloudTaskKind::Llm);
@@ -392,11 +682,42 @@ pub(crate) fn first_configured_llm_provider() -> Option<CloudProviderConfig> {
     None
 }
 
+#[cfg(test)]
+static TEST_LLM_CLOUD_CONFIG: std::sync::Mutex<Option<CloudProviderConfig>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(test)]
+pub(crate) fn set_test_llm_cloud_config(config: Option<CloudProviderConfig>) {
+    *TEST_LLM_CLOUD_CONFIG
+        .lock()
+        .expect("test cloud config mutex poisoned") = config;
+}
+
+#[cfg(test)]
+pub(crate) fn set_test_custom_llm_provider(endpoint: String, api_key: String) {
+    set_test_llm_cloud_config(Some(CloudProviderConfig::Custom {
+        endpoint,
+        api_key,
+        task_kind: crate::cloud_config::CloudTaskKind::Llm,
+    }));
+}
+
 /// `runtime_location` value recorded on the `model_runs` audit row when the
 /// extraction came from the user's own machine.
 pub(crate) const RUNTIME_LOCAL: &str = "local";
 /// `runtime_location` value recorded when the cloud fallback actually ran.
 pub(crate) const RUNTIME_CLOUD: &str = "cloud";
+
+fn cloud_admission_failure(code: &str, detail: Option<&str>) -> String {
+    match detail {
+        Some(detail) => format!(
+            "{CLOUD_ADMISSION_NON_RETRYABLE_PREFIX}{code}: Ollama fallback not admitted ({detail})"
+        ),
+        None => {
+            format!("{CLOUD_ADMISSION_NON_RETRYABLE_PREFIX}{code}: Ollama fallback not admitted")
+        }
+    }
+}
 
 /// Wraps a local LLM call with the tier-3 cloud fallback.
 ///
@@ -407,57 +728,66 @@ pub(crate) const RUNTIME_CLOUD: &str = "cloud";
 ///
 /// `cloud` is the first-configured LLM provider (see
 /// [`first_configured_llm_provider`]); `None` if nothing is configured.
-/// `calls_today` is read by the caller before this function, mirroring
-/// `fungwire_server::dispatch_cloud_stt`'s convention, and `policy_conn` is
-/// the same connection it was read from so that a successful dispatch can
-/// charge the day's budget here — the only place that knows the cloud path
-/// actually ran.
-///
-/// On success returns `(text, runtime_location)` where the second element is
-/// [`RUNTIME_LOCAL`] or [`RUNTIME_CLOUD`]. Only this function knows which
-/// transport produced the text, so the caller cannot record an honest
-/// `model_runs.runtime_location` without being told — before this, every
-/// audit row claimed "local" even for a cloud-fallback build.
+/// `policy_conn` is used only after the local connection failure has been
+/// classified. The reservation commits before `dispatch_llm` can contact a
+/// provider.
 pub(crate) fn call_llm_with_fallback(
     local_call: impl FnOnce() -> Result<String, String>,
+    local_endpoint: &str,
+    local_model: &str,
     prompt: &str,
     cloud: Option<&CloudProviderConfig>,
-    policy: &crate::policy::TierPolicy,
-    calls_today: u32,
     policy_conn: &rusqlite::Connection,
-) -> Result<(String, &'static str), String> {
+) -> Result<EffectiveLlmExecution, String> {
     match local_call() {
-        Ok(text) => Ok((text, RUNTIME_LOCAL)),
+        Ok(text) => Ok(EffectiveLlmExecution {
+            text,
+            provider_id: "ollama-summary-intent".into(),
+            provider_label: "Ollama / llama.cpp".into(),
+            model_name: local_model.to_string(),
+            endpoint: local_endpoint.to_string(),
+            runtime_location: RUNTIME_LOCAL,
+        }),
         Err(e) if is_connection_error(&e) => {
-            // Mirrors fungwire_server::dispatch_cloud_stt: decide the tier
-            // first, passing the real key_configured state, so a `None`
-            // cloud config surfaces as a `no_key_configured` block reason
-            // instead of silently falling through to the original local
-            // error with no indication cloud fallback was even considered.
-            match crate::policy::decide_cloud_tier(
-                policy,
-                crate::cloud_config::CloudTaskKind::Llm,
-                calls_today,
-                cloud.is_some(),
-            ) {
-                crate::policy::TierDecision::Allow => {
-                    let config = cloud.expect(
-                        "decide_cloud_tier only returns Allow when key_configured was true",
-                    );
-                    let result = dispatch_llm(config, prompt);
-                    // Charged only on success: a failed cloud round trip
-                    // produced nothing, so it must not eat the daily cap.
-                    if result.is_ok() {
-                        let _ = crate::policy::increment_calls_today(
-                            policy_conn,
-                            crate::cloud_config::CloudTaskKind::Llm,
-                        );
+            let Some(config) = cloud else {
+                return match crate::policy::reserve_cloud_call(
+                    policy_conn,
+                    crate::cloud_config::CloudTaskKind::Llm,
+                    false,
+                ) {
+                    Err(crate::policy::CloudAdmissionError::Blocked { reason }) => {
+                        Err(cloud_admission_failure(reason, None))
                     }
-                    result.map(|text| (text, RUNTIME_CLOUD))
+                    Err(crate::policy::CloudAdmissionError::Persistence(message)) => {
+                        Err(cloud_admission_failure("policy_error", Some(&message)))
+                    }
+                    Ok(()) => Err(cloud_admission_failure("no_key_configured", None)),
+                };
+            };
+            let (provider_id, provider_label, model_name, endpoint) =
+                effective_cloud_provenance(config)?;
+            match crate::policy::reserve_cloud_call(
+                policy_conn,
+                crate::cloud_config::CloudTaskKind::Llm,
+                true,
+            ) {
+                Ok(()) => {
+                    let text = dispatch_llm(config, prompt)?;
+                    Ok(EffectiveLlmExecution {
+                        text,
+                        provider_id,
+                        provider_label,
+                        model_name,
+                        endpoint,
+                        runtime_location: RUNTIME_CLOUD,
+                    })
                 }
-                crate::policy::TierDecision::Blocked { reason } => Err(format!(
-                    "Ollama unreachable and cloud fallback blocked ({reason}): {e}"
-                )),
+                Err(crate::policy::CloudAdmissionError::Blocked { reason }) => {
+                    Err(cloud_admission_failure(reason, None))
+                }
+                Err(crate::policy::CloudAdmissionError::Persistence(message)) => {
+                    Err(cloud_admission_failure("policy_error", Some(&message)))
+                }
             }
         }
         Err(e) => Err(e),
@@ -580,6 +910,17 @@ mod tests {
         assert!(result.unwrap_err().contains("STT"));
     }
 
+    #[test]
+    fn empty_llm_api_key_is_rejected_before_dispatch() {
+        let config = CloudProviderConfig::Custom {
+            endpoint: "http://127.0.0.1:1".into(),
+            api_key: " \t".into(),
+            task_kind: crate::cloud_config::CloudTaskKind::Llm,
+        };
+        let error = dispatch_llm(&config, "prompt").unwrap_err();
+        assert_eq!(error, "cloud provider API key is not configured");
+    }
+
     // ---- Tier-3 LLM cloud fallback --------------------------------------
     // The fallback's whole contract is "which of the two transports ran, and
     // did the daily counter move". The local side is injected as a closure
@@ -600,12 +941,16 @@ mod tests {
     const LOCAL_TIMEOUT: &str =
         "LLM endpoint timed out at http://127.0.0.1:11434: operation timed out";
 
-    fn llm_cloud_policy(enabled: bool) -> crate::policy::TierPolicy {
+    fn llm_cloud_policy(enabled: bool, daily_cap: u32) -> crate::policy::TierPolicy {
         crate::policy::TierPolicy {
             stt_cloud_enabled: false,
             llm_cloud_enabled: enabled,
-            daily_cap: 20,
+            daily_cap,
         }
+    }
+
+    fn configure_llm_policy(conn: &rusqlite::Connection, enabled: bool, daily_cap: u32) {
+        crate::policy::save_policy(conn, &llm_cloud_policy(enabled, daily_cap)).unwrap();
     }
 
     fn llm_calls_today(conn: &rusqlite::Connection) -> u32 {
@@ -651,10 +996,10 @@ mod tests {
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_TIMEOUT.to_string()),
+            "http://127.0.0.1:11434",
+            "llama3.1:8b",
             "prompt",
             Some(&cloud_config),
-            &llm_cloud_policy(true),
-            0,
             &policy_conn,
         );
 
@@ -674,20 +1019,23 @@ mod tests {
     fn ollama_connection_failure_falls_back_to_cloud_when_enabled_and_configured() {
         let cloud_config = stub_cloud_provider();
         let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+        configure_llm_policy(&policy_conn, true, 20);
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_UNREACHABLE.to_string()),
+            "http://127.0.0.1:11434",
+            "llama3.1:8b",
             "prompt",
             Some(&cloud_config),
-            &llm_cloud_policy(true),
-            0,
             &policy_conn,
         );
 
-        assert_eq!(
-            result.unwrap(), ("cloud extraction result".to_string(), RUNTIME_CLOUD),
-            "a cloud-served extraction must report itself as cloud, or the model_runs audit row lies",
-        );
+        let execution = result.unwrap();
+        assert_eq!(execution.text, "cloud extraction result");
+        assert_eq!(execution.provider_id, "cloud-custom-summary-intent");
+        assert_eq!(execution.model_name, "custom-unspecified");
+        assert_eq!(execution.runtime_location, RUNTIME_CLOUD);
+        assert!(execution.endpoint.starts_with("http://127.0.0.1:"));
         assert_eq!(
             llm_calls_today(&policy_conn),
             1,
@@ -696,20 +1044,21 @@ mod tests {
     }
 
     #[test]
-    fn ollama_connection_failure_with_cloud_disabled_returns_original_error() {
+    fn ollama_connection_failure_with_cloud_disabled_returns_non_retryable_admission_error() {
         let cloud_config = CloudProviderConfig::Custom {
             endpoint: "http://127.0.0.1:9".into(),
             api_key: "k".into(),
             task_kind: crate::cloud_config::CloudTaskKind::Llm,
         };
         let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+        configure_llm_policy(&policy_conn, false, 20);
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_UNREACHABLE.to_string()),
+            "http://127.0.0.1:11434",
+            "llama3.1:8b",
             "prompt",
             Some(&cloud_config),
-            &llm_cloud_policy(false),
-            0,
             &policy_conn,
         );
 
@@ -721,6 +1070,22 @@ mod tests {
         assert!(
             error.contains("cloud_disabled"),
             "the block reason must be surfaced: {error}"
+        );
+        assert!(error.starts_with(CLOUD_ADMISSION_NON_RETRYABLE_PREFIX));
+        assert!(
+            !error.contains("LLM endpoint unreachable"),
+            "admission failure must not retain the local retry marker: {error}"
+        );
+        let failure = crate::job_engine::classify(&error);
+        assert_eq!(failure.code, "cloud_admission_blocked");
+        assert!(!failure.retryable);
+        assert!(matches!(
+            crate::job_engine::next_step(Err(failure), 1, false),
+            crate::job_engine::NextStep::Fail(_)
+        ));
+        assert!(
+            crate::job_engine::classify(LOCAL_UNREACHABLE).retryable,
+            "the genuine local transport failure must remain retryable"
         );
         assert_eq!(
             llm_calls_today(&policy_conn),
@@ -737,13 +1102,14 @@ mod tests {
     #[test]
     fn ollama_connection_failure_without_a_configured_provider_surfaces_no_key_configured() {
         let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+        configure_llm_policy(&policy_conn, true, 20);
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_UNREACHABLE.to_string()),
+            "http://127.0.0.1:11434",
+            "llama3.1:8b",
             "prompt",
             None,
-            &llm_cloud_policy(true),
-            0,
             &policy_conn,
         );
 
@@ -756,6 +1122,8 @@ mod tests {
             error.contains("no_key_configured"),
             "the block reason must be surfaced: {error}",
         );
+        assert!(error.starts_with(CLOUD_ADMISSION_NON_RETRYABLE_PREFIX));
+        assert!(!error.contains("LLM endpoint unreachable"));
         assert_eq!(llm_calls_today(&policy_conn), 0);
     }
 
@@ -766,13 +1134,14 @@ mod tests {
         // unchanged instead of being silently retried in the cloud.
         let cloud_config = stub_cloud_provider();
         let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+        configure_llm_policy(&policy_conn, true, 20);
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_BAD_STATUS.to_string()),
+            "http://127.0.0.1:11434",
+            "llama3.1:8b",
             "prompt",
             Some(&cloud_config),
-            &llm_cloud_policy(true),
-            0,
             &policy_conn,
         );
 
@@ -795,24 +1164,27 @@ mod tests {
 
         let result = call_llm_with_fallback(
             || Ok("local extraction result".to_string()),
+            "http://127.0.0.1:11434",
+            "llama3.1:8b",
             "prompt",
             Some(&cloud_config),
-            &llm_cloud_policy(true),
-            0,
             &policy_conn,
         );
 
-        assert_eq!(
-            result.unwrap(),
-            ("local extraction result".to_string(), RUNTIME_LOCAL),
-            "a locally-served extraction must report itself as local",
-        );
+        let execution = result.unwrap();
+        assert_eq!(execution.text, "local extraction result");
+        assert_eq!(execution.provider_id, "ollama-summary-intent");
+        assert_eq!(execution.model_name, "llama3.1:8b");
+        assert_eq!(execution.endpoint, "http://127.0.0.1:11434");
+        assert_eq!(execution.runtime_location, RUNTIME_LOCAL);
         assert_eq!(llm_calls_today(&policy_conn), 0);
     }
 
     #[test]
-    fn a_failed_cloud_dispatch_does_not_consume_a_call() {
+    fn a_failed_cloud_dispatch_retains_its_reserved_call() {
         // Cloud is allowed and configured, but the provider is unreachable.
+        // Admission is committed before egress, so the failed provider round
+        // trip retains its reservation.
         let cloud_config = CloudProviderConfig::Custom {
             // Nothing listens on TCP port 1 — deterministic, immediate refusal.
             endpoint: "http://127.0.0.1:1".into(),
@@ -820,21 +1192,22 @@ mod tests {
             task_kind: crate::cloud_config::CloudTaskKind::Llm,
         };
         let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
+        configure_llm_policy(&policy_conn, true, 20);
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_UNREACHABLE.to_string()),
+            "http://127.0.0.1:11434",
+            "llama3.1:8b",
             "prompt",
             Some(&cloud_config),
-            &llm_cloud_policy(true),
-            0,
             &policy_conn,
         );
 
         assert!(result.is_err());
         assert_eq!(
             llm_calls_today(&policy_conn),
-            0,
-            "a cloud round trip that produced nothing must not eat the daily cap",
+            1,
+            "a committed reservation must remain charged when the provider fails",
         );
     }
 
@@ -842,14 +1215,20 @@ mod tests {
     fn a_reached_daily_cap_blocks_the_fallback() {
         let cloud_config = stub_cloud_provider();
         let policy_conn = rusqlite::Connection::open_in_memory().unwrap();
-        let policy = llm_cloud_policy(true);
+        configure_llm_policy(&policy_conn, true, 1);
+        crate::policy::reserve_cloud_call(
+            &policy_conn,
+            crate::cloud_config::CloudTaskKind::Llm,
+            true,
+        )
+        .unwrap();
 
         let result = call_llm_with_fallback(
             || Err(LOCAL_UNREACHABLE.to_string()),
+            "http://127.0.0.1:11434",
+            "llama3.1:8b",
             "prompt",
             Some(&cloud_config),
-            &policy,
-            policy.daily_cap,
             &policy_conn,
         );
 
@@ -858,6 +1237,99 @@ mod tests {
             error.contains("cap_reached"),
             "the block reason must be surfaced: {error}"
         );
-        assert_eq!(llm_calls_today(&policy_conn), 0);
+        assert!(error.starts_with(CLOUD_ADMISSION_NON_RETRYABLE_PREFIX));
+        assert!(!error.contains("LLM endpoint unreachable"));
+        assert_eq!(llm_calls_today(&policy_conn), 1);
+    }
+
+    #[test]
+    fn cloud_errors_redact_api_keys_and_sensitive_headers() {
+        let key = "sentinel-api-key-should-never-escape";
+        let arbitrary_authorization = "another-authorization-secret";
+        let arbitrary_api_key = "another-api-key-secret";
+        let arbitrary_cookie = "session=another-cookie-secret";
+        let arbitrary_quoted_api_key = "another-quoted-api-key-secret";
+        let body: &'static str = Box::leak(
+            format!(
+                "error=unauthorized; authorization: Bearer {arbitrary_authorization}; \
+                 x-api-key: {arbitrary_api_key}; api-key={key}; cookie: {arbitrary_cookie}\n\
+                 \"x-api-key\": \"{arbitrary_quoted_api_key}\""
+            )
+            .into_boxed_str(),
+        );
+        let addr = one_shot_server("HTTP/1.1 401 Unauthorized", body);
+        let result = custom_llm(&format!("http://{addr}"), key, "prompt");
+        let error = result.unwrap_err();
+
+        for secret in [
+            key,
+            arbitrary_authorization,
+            arbitrary_api_key,
+            arbitrary_cookie,
+            arbitrary_quoted_api_key,
+        ] {
+            assert!(
+                !error.contains(secret),
+                "sensitive value leaked in error: {error}"
+            );
+        }
+        assert!(
+            error.contains("401"),
+            "status classification was lost: {error}"
+        );
+        assert!(
+            error.contains("error=unauthorized"),
+            "error detail was lost: {error}"
+        );
+        assert!(!error.to_ascii_lowercase().contains("authorization"));
+        assert!(!error.to_ascii_lowercase().contains("x-api-key"));
+        assert!(!error.to_ascii_lowercase().contains("api-key"));
+        assert!(!error.to_ascii_lowercase().contains("cookie"));
+    }
+
+    #[test]
+    fn custom_provenance_strips_userinfo_query_and_fragment() {
+        let config = CloudProviderConfig::Custom {
+            endpoint: "http://user:password@127.0.0.1:8080/private?api_key=sentinel#fragment"
+                .into(),
+            api_key: "sentinel-api-key".into(),
+            task_kind: crate::cloud_config::CloudTaskKind::Llm,
+        };
+        let (_, _, model, endpoint) = effective_cloud_provenance(&config).unwrap();
+        assert_eq!(model, "custom-unspecified");
+        assert_eq!(endpoint, "http://127.0.0.1:8080/private");
+        assert!(!endpoint.contains("sentinel"));
+        assert!(!endpoint.contains("password"));
+    }
+
+    #[test]
+    fn built_in_cloud_provenance_uses_provider_specific_defaults_and_overrides() {
+        let anthropic = CloudProviderConfig::Anthropic {
+            api_key: "sentinel-anthropic-key".into(),
+            model: None,
+        };
+        assert_eq!(
+            effective_cloud_provenance(&anthropic).unwrap(),
+            (
+                "cloud-anthropic-summary-intent".into(),
+                "Anthropic".into(),
+                DEFAULT_ANTHROPIC_MODEL.into(),
+                "https://api.anthropic.com/v1/messages".into(),
+            )
+        );
+
+        let openai = CloudProviderConfig::OpenAi {
+            api_key: "sentinel-openai-key".into(),
+            model: Some("gpt-test-model".into()),
+        };
+        assert_eq!(
+            effective_cloud_provenance(&openai).unwrap(),
+            (
+                "cloud-openai-summary-intent".into(),
+                "OpenAI".into(),
+                "gpt-test-model".into(),
+                "https://api.openai.com/v1/chat/completions".into(),
+            )
+        );
     }
 }

@@ -1,8 +1,8 @@
 ---
-version: "0.1.0b"
+version: "0.2.0b"
 created_at: "2026-07-05T00:00:00+07:00,ATHER"
-last_update: "2026-07-05T00:00:00+07:00,ATHER"
-status: "beta"
+last_update: "2026-09-21T03:58:31+07:00,RWANG"
+status: "candidate"
 superseded_by: null
 attributes:
   domain: "local-first-audio-ai"
@@ -71,11 +71,29 @@ Product feeling:
 - สีอุ่น สุขุม อ่านง่าย เหมาะกับงานเสียงและเอกสารยาว.
 - interaction ต้องให้ความรู้สึกเป็นเครื่องมือมืออาชีพ แต่ไม่แข็งแบบ enterprise.
 
+## Proposed live meeting and agent features — 2026-09-21
+
+ส่วนนี้เป็น candidate extension ของ baseline เดิม ไม่ใช่สถานะว่าฟีเจอร์พร้อมใช้ ความเสี่ยง HIGH / C-3; ดู [domain map](../architecture/MEETING_INTELLIGENCE_DOMAINS.md) และ [Desktop current truth](08-real-progress.md)
+
+| Feature | Product behavior | Detail |
+| --- | --- | --- |
+| Live transcript | เห็นข้อความระหว่างประชุม แยกกำลังถอด/บันทึกแล้ว เวลา ผู้พูด ความหน่วง และช่วงข้อมูลขาด | [Live spec](../specs/2026-09-21-live-meeting-transcription-spec.md) |
+| API speaker attribution | ใช้ชื่อ/participant-session จาก Google Meet พร้อม source badge; voiceprint ไม่ใช่ prerequisite | [Speaker spec](../specs/2026-08-23-speaker-identification-and-voice-profile-spec.md) |
+| Meeting knowledge | เลือกคลัง/บริษัท/ปีงบประมาณ ค้นเอกสารจริงพร้อม citation และสิทธิ์แชร์ | [Knowledge spec](../specs/2026-09-21-meeting-knowledge-evidence-spec.md) |
+| Participating Agent | เข้า Google Meet อย่างเปิดเผย ตอบเมื่อเรียก และค้นตามบริบทเมื่อเปิด policy | [Agent spec](../specs/2026-09-21-meeting-agent-participation-spec.md) |
+| Same-channel evidence | ส่งคำตอบและลิงก์เอกสารที่มีสิทธิ์ไป Meet chat; native attachment/voice output มี gate แยก | [API strategy](../decisions/2026-09-21-google-meet-agent-api-strategy.md) |
+
+User story: กล่าวถึงยอดขายปีที่แล้ว → resolve บริษัท/นิยามยอดขาย/ช่วงปี → ค้นรายงานฉบับที่อนุญาต → ตอบตัวเลขพร้อมหน้า/เซลล์อ้างอิง → ส่งเฉพาะข้อมูลที่ผู้รับมีสิทธิ์. หากปี/หน่วย/เอกสารขัดกัน ต้องถามหรือแสดงข้อจำกัด ไม่เดาตัวเลข
+
+Default เป็น local-first และ private draft; online meeting-media, cloud inference, voice recognition และ external publication เป็นสิทธิ์แยก เปิด proactive publication ได้ด้วย session policy ที่จำกัดขอบเขต ไม่ใช่ทุกคำพูดเป็นคำสั่ง. Guest/shared-room/unknown speakers ต้องใช้งานได้โดยไม่บังคับบัญชี FUNG
+
+Release acceptance ของ extension: real Meet join, speaker source mapping, live transcript, cited local-knowledge answer, same-room link visible to authorized recipient, stop/revoke, restart/no-duplicate และ provider/packaged evidence. Local copilot alone ไม่ปิดฟีเจอร์ Agent เข้าร่วมประชุม. Mobile/Web rollout ไม่ได้รวมโดยอัตโนมัติ
+
 ## Acceptance Criteria
 
 - อัดเสียงต่อเนื่องได้อย่างน้อย 3 ชั่วโมงโดยไม่มี memory growth ผิดปกติ.
 - เมื่อ app crash ระหว่างบันทึก สามารถ recover chunk ที่บันทึกแล้วได้.
-- Project ทุกตัวมี local state ใน SQLite WAL.
+- Project ทุกตัวมี local state ผ่าน GenesisBlockDB operational boundary และ WAL/custody ที่ระบบนั้นเป็นเจ้าของ.
 - ผู้ใช้สามารถถอดเทปไฟล์เสียงหนึ่งรายการและแก้ speaker label ได้.
 - ผู้ใช้สามารถ export audio เป็น `.wav` และ `.mp3`.
 - ผู้ใช้สามารถ export transcript พร้อม timestamp.
@@ -87,10 +105,12 @@ Product feeling:
 
 | Version | Change |
 | --- | --- |
+| 0.2.0b | Added candidate live transcript, Google Meet speaker attribution, scoped knowledge and participating-agent product requirements. |
 | 0.1.0b | Initial product spec for desktop-first local audio AI app with BYOM and legal/privacy boundaries. |
 
 ## Changelog
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.0b | 2026-09-21 | candidate | Added candidate live transcript, Google Meet speaker attribution, scoped knowledge and participating-agent product requirements. | working-tree | RWANG |
 | 0.1.0b | 2026-07-05 | beta | Initial product spec. | N/A | ATHER |

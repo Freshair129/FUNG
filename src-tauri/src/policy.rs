@@ -1,4 +1,4 @@
-//! Tier-3 (cloud) fallback policy: a pure decision function plus its two
+//! Tier-3 (cloud) fallback policy: an atomic admission boundary plus its two
 //! bits of local SQLite-backed state (the policy row, the daily call
 //! counter). No secrets live here — cloud API keys stay in cloud_config.rs's
 //! keyring entries; this module only decides whether cloud is *allowed*.
@@ -6,6 +6,7 @@
 use crate::cloud_config::CloudTaskKind;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +26,7 @@ impl Default for TierPolicy {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum TierDecision {
@@ -32,15 +34,9 @@ pub(crate) enum TierDecision {
     Blocked { reason: &'static str },
 }
 
-/// Pure — no I/O. Callers (fungwire_server.rs for STT, graph_build.rs for
-/// LLM) read `calls_today`/`key_configured` themselves before calling this.
-///
-/// The read-check-increment sequence spanning this function and
-/// [`increment_calls_today`] is not transactional -- under concurrent cloud
-/// dispatches (FUNGWIRE allows multiple simultaneous connections), the cap
-/// can be exceeded by a small, bounded amount. This is treated as an
-/// acceptable trade-off for a rate-limit-style guardrail, not a hard
-/// invariant.
+/// Pure — no I/O. Kept for policy-matrix reasoning; cloud dispatch paths use
+/// [`reserve_cloud_call`] as their authoritative admission boundary.
+#[cfg(test)]
 pub(crate) fn decide_cloud_tier(
     policy: &TierPolicy,
     task: CloudTaskKind,
@@ -151,26 +147,62 @@ fn today_local() -> String {
     datetime.format("%Y-%m-%d").to_string()
 }
 
-pub(crate) fn load_policy(conn: &Connection) -> Result<TierPolicy, String> {
-    ensure_policy_tables(conn)?;
-    conn.query_row(
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CloudAdmissionError {
+    Blocked { reason: &'static str },
+    Persistence(String),
+}
+
+impl CloudAdmissionError {
+    pub(crate) fn code(&self) -> &'static str {
+        match self {
+            Self::Blocked { reason } => reason,
+            Self::Persistence(_) => "policy_error",
+        }
+    }
+}
+
+impl fmt::Display for CloudAdmissionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Blocked { reason } => f.write_str(reason),
+            Self::Persistence(message) => {
+                write!(f, "cloud admission persistence failed: {message}")
+            }
+        }
+    }
+}
+
+fn read_policy_row(conn: &Connection) -> Result<TierPolicy, String> {
+    let result = conn.query_row(
         "SELECT stt_cloud_enabled, llm_cloud_enabled, daily_cap FROM tier_policy WHERE id = 1",
         [],
         |row| {
-            Ok(TierPolicy {
-                stt_cloud_enabled: row.get::<_, i64>(0)? != 0,
-                llm_cloud_enabled: row.get::<_, i64>(1)? != 0,
-                daily_cap: row.get::<_, i64>(2)? as u32,
-            })
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
         },
-    )
-    .or_else(|e| {
-        if matches!(e, rusqlite::Error::QueryReturnedNoRows) {
-            Ok(TierPolicy::default())
-        } else {
-            Err(e.to_string())
+    );
+    match result {
+        Ok((stt_cloud_enabled, llm_cloud_enabled, daily_cap)) => {
+            let daily_cap = u32::try_from(daily_cap)
+                .map_err(|_| "daily_cap is outside the supported range".to_string())?;
+            Ok(TierPolicy {
+                stt_cloud_enabled: stt_cloud_enabled != 0,
+                llm_cloud_enabled: llm_cloud_enabled != 0,
+                daily_cap,
+            })
         }
-    })
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(TierPolicy::default()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+pub(crate) fn load_policy(conn: &Connection) -> Result<TierPolicy, String> {
+    ensure_policy_tables(conn)?;
+    read_policy_row(conn)
 }
 
 pub(crate) fn save_policy(conn: &Connection, policy: &TierPolicy) -> Result<(), String> {
@@ -209,15 +241,75 @@ pub(crate) fn calls_today(conn: &Connection, task: CloudTaskKind) -> Result<u32,
     .map(|count| count as u32)
 }
 
-pub(crate) fn increment_calls_today(conn: &Connection, task: CloudTaskKind) -> Result<(), String> {
-    ensure_policy_tables(conn)?;
-    conn.execute(
-        "INSERT INTO cloud_call_counter (task_kind, call_date, count) VALUES (?1, ?2, 1) \
-         ON CONFLICT(task_kind, call_date) DO UPDATE SET count = count + 1",
-        params![task_kind_str(task), today_local()],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
+fn rollback_after_failure(conn: &Connection, error: CloudAdmissionError) -> CloudAdmissionError {
+    match conn.execute_batch("ROLLBACK") {
+        Ok(()) => error,
+        Err(rollback_error) => {
+            CloudAdmissionError::Persistence(format!("{error}; rollback failed: {rollback_error}"))
+        }
+    }
+}
+
+/// Atomically reserves one outbound cloud slot for the current local day.
+///
+/// The policy and counter are read and updated inside one `BEGIN IMMEDIATE`
+/// transaction. A successful commit is the only value that permits a caller
+/// to contact a provider; every other result is fail-closed.
+pub(crate) fn reserve_cloud_call(
+    conn: &Connection,
+    task: CloudTaskKind,
+    key_configured: bool,
+) -> Result<(), CloudAdmissionError> {
+    ensure_policy_tables(conn).map_err(CloudAdmissionError::Persistence)?;
+    conn.execute_batch("BEGIN IMMEDIATE")
+        .map_err(|error| CloudAdmissionError::Persistence(error.to_string()))?;
+
+    let result = (|| {
+        let policy = read_policy_row(conn).map_err(CloudAdmissionError::Persistence)?;
+        let enabled = match task {
+            CloudTaskKind::Stt => policy.stt_cloud_enabled,
+            CloudTaskKind::Llm => policy.llm_cloud_enabled,
+        };
+        if !enabled {
+            return Err(CloudAdmissionError::Blocked {
+                reason: "cloud_disabled",
+            });
+        }
+        if !key_configured {
+            return Err(CloudAdmissionError::Blocked {
+                reason: "no_key_configured",
+            });
+        }
+        if policy.daily_cap == 0 {
+            return Err(CloudAdmissionError::Blocked {
+                reason: "cap_reached",
+            });
+        }
+
+        let changed = conn
+            .execute(
+                "INSERT INTO cloud_call_counter (task_kind, call_date, count) \
+                 VALUES (?1, ?2, 1) \
+                 ON CONFLICT(task_kind, call_date) \
+                 DO UPDATE SET count = cloud_call_counter.count + 1 \
+                 WHERE cloud_call_counter.count < ?3",
+                params![task_kind_str(task), today_local(), policy.daily_cap],
+            )
+            .map_err(|error| CloudAdmissionError::Persistence(error.to_string()))?;
+        if changed != 1 {
+            return Err(CloudAdmissionError::Blocked {
+                reason: "cap_reached",
+            });
+        }
+
+        conn.execute_batch("COMMIT")
+            .map_err(|error| CloudAdmissionError::Persistence(error.to_string()))
+    })();
+
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) => Err(rollback_after_failure(conn, error)),
+    }
 }
 
 #[cfg(test)]
@@ -374,8 +466,17 @@ mod tests {
     fn calls_today_starts_at_zero_and_increments() {
         let conn = open_test_db();
         assert_eq!(calls_today(&conn, CloudTaskKind::Stt).unwrap(), 0);
-        increment_calls_today(&conn, CloudTaskKind::Stt).unwrap();
-        increment_calls_today(&conn, CloudTaskKind::Stt).unwrap();
+        save_policy(
+            &conn,
+            &TierPolicy {
+                stt_cloud_enabled: true,
+                llm_cloud_enabled: false,
+                daily_cap: 20,
+            },
+        )
+        .unwrap();
+        reserve_cloud_call(&conn, CloudTaskKind::Stt, true).unwrap();
+        reserve_cloud_call(&conn, CloudTaskKind::Stt, true).unwrap();
         assert_eq!(calls_today(&conn, CloudTaskKind::Stt).unwrap(), 2);
     }
 
@@ -402,11 +503,130 @@ mod tests {
     #[test]
     fn calls_today_is_independent_per_task_kind() {
         let conn = open_test_db();
-        increment_calls_today(&conn, CloudTaskKind::Stt).unwrap();
-        increment_calls_today(&conn, CloudTaskKind::Stt).unwrap();
-        increment_calls_today(&conn, CloudTaskKind::Llm).unwrap();
+        save_policy(
+            &conn,
+            &TierPolicy {
+                stt_cloud_enabled: true,
+                llm_cloud_enabled: true,
+                daily_cap: 2,
+            },
+        )
+        .unwrap();
+        reserve_cloud_call(&conn, CloudTaskKind::Stt, true).unwrap();
+        reserve_cloud_call(&conn, CloudTaskKind::Stt, true).unwrap();
+        reserve_cloud_call(&conn, CloudTaskKind::Llm, true).unwrap();
         assert_eq!(calls_today(&conn, CloudTaskKind::Stt).unwrap(), 2);
         assert_eq!(calls_today(&conn, CloudTaskKind::Llm).unwrap(), 1);
+    }
+
+    #[test]
+    fn reservation_failure_is_fail_closed_and_does_not_increment() {
+        let conn = open_test_db();
+        save_policy(
+            &conn,
+            &TierPolicy {
+                stt_cloud_enabled: true,
+                llm_cloud_enabled: false,
+                daily_cap: 2,
+            },
+        )
+        .unwrap();
+        conn.execute_batch(
+            "CREATE TRIGGER block_counter_insert BEFORE INSERT ON cloud_call_counter \
+             BEGIN SELECT RAISE(ABORT, 'simulated counter write failure'); END;",
+        )
+        .unwrap();
+
+        let error = reserve_cloud_call(&conn, CloudTaskKind::Stt, true).unwrap_err();
+        assert_eq!(error.code(), "policy_error");
+        assert_eq!(calls_today(&conn, CloudTaskKind::Stt).unwrap(), 0);
+    }
+
+    #[test]
+    fn reservations_keep_stt_and_llm_counters_independent() {
+        let conn = open_test_db();
+        save_policy(
+            &conn,
+            &TierPolicy {
+                stt_cloud_enabled: true,
+                llm_cloud_enabled: true,
+                daily_cap: 2,
+            },
+        )
+        .unwrap();
+
+        reserve_cloud_call(&conn, CloudTaskKind::Stt, true).unwrap();
+        reserve_cloud_call(&conn, CloudTaskKind::Stt, true).unwrap();
+        assert_eq!(
+            reserve_cloud_call(&conn, CloudTaskKind::Stt, true),
+            Err(CloudAdmissionError::Blocked {
+                reason: "cap_reached"
+            })
+        );
+
+        reserve_cloud_call(&conn, CloudTaskKind::Llm, true).unwrap();
+        assert_eq!(calls_today(&conn, CloudTaskKind::Llm).unwrap(), 1);
+    }
+
+    #[test]
+    fn concurrent_reservations_never_exceed_the_shared_cap_per_task_kind() {
+        use std::sync::{Arc, Barrier};
+
+        let db_path = std::env::temp_dir().join(format!("fung-policy-{}.db", uuid::Uuid::new_v4()));
+        let setup = Connection::open(&db_path).unwrap();
+        setup.pragma_update(None, "journal_mode", "WAL").unwrap();
+        setup.pragma_update(None, "busy_timeout", 5000).unwrap();
+        ensure_policy_tables(&setup).unwrap();
+        save_policy(
+            &setup,
+            &TierPolicy {
+                stt_cloud_enabled: true,
+                llm_cloud_enabled: false,
+                daily_cap: 3,
+            },
+        )
+        .unwrap();
+        drop(setup);
+
+        let barrier = Arc::new(Barrier::new(8));
+        let mut workers = Vec::new();
+        for _ in 0..8 {
+            let path = db_path.clone();
+            let barrier = Arc::clone(&barrier);
+            workers.push(std::thread::spawn(move || {
+                let conn = Connection::open(path).unwrap();
+                conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+                conn.pragma_update(None, "busy_timeout", 5000).unwrap();
+                barrier.wait();
+                reserve_cloud_call(&conn, CloudTaskKind::Stt, true)
+            }));
+        }
+
+        let results: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect();
+        let allowed = results.iter().filter(|result| result.is_ok()).count();
+        let blocked = results
+            .iter()
+            .filter(|result| {
+                matches!(
+                    result,
+                    Err(CloudAdmissionError::Blocked {
+                        reason: "cap_reached"
+                    })
+                )
+            })
+            .count();
+        assert_eq!(allowed, 3, "exactly the cap may commit: {results:?}");
+        assert_eq!(
+            blocked, 5,
+            "all remaining reservations must block: {results:?}"
+        );
+
+        let check = Connection::open(&db_path).unwrap();
+        assert_eq!(calls_today(&check, CloudTaskKind::Stt).unwrap(), 3);
+        let _ = std::fs::remove_file(db_path);
     }
 
     #[test]

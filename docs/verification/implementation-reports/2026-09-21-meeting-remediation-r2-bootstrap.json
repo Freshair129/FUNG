@@ -1,0 +1,160 @@
+{
+  "report_type": "MEETING-REMEDIATION-R2-BOOTSTRAP",
+  "version": "0.1.0b",
+  "created_at": "2026-09-21T11:24:11+07:00",
+  "last_update": "2026-09-21T11:36:39+07:00",
+  "status": "PREPARED_NEEDS_PARENT_REVIEW",
+  "execution_state": "PREPARATION_STOPPED_SCOPE_BOUNDARY",
+  "implementation_state": "NOT_STARTED_SOURCE_UNLEASED",
+  "verification": "NOT_RUN",
+  "decision": "STOPPED_PENDING_AUTH_SESSION_SCOPE_APPROVAL",
+  "r2_state": "BARE_BASE_ONLY_UNPREPARED",
+  "implementation_test_handoff": "NONE",
+  "pass_claim": "NONE",
+  "change_risk": "C3/HIGH",
+  "author": {
+    "name": "Bohr",
+    "agent_id": "01a0c224-76c8-7900-8fe6-ba516aec21f6",
+    "model": "gpt-5.6-luna",
+    "reasoning_effort": "max"
+  },
+  "parent_orchestrator": {
+    "agent_id": "01a0bfa8-2ac8-7ed1-a1a9-363e391c7d75",
+    "mode": "ORCHESTRATOR/RISK_REVIEW_ONLY"
+  },
+  "other_agents_spawned": false,
+  "cargo_slot_held": false,
+  "frozen_inputs": {
+    "fung_root": "C:/Users/pc/workspace/fung",
+    "root_branch": "main",
+    "root_head": "b336f33ec400a38f003a0665c121069a87a543ac",
+    "failed_r1_report": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-g1-contract-r1.md",
+    "failed_r1_report_sha256": "19E41145C5869C67B314E4398D0831D7679B46E7F6B44DFB3B766FB20F70E9E6",
+    "r1_worktree": "C:/Users/pc/AppData/Local/Temp/codex-fung-meeting-intelligence-repair-r1-20260921",
+    "r1_branch": "codex/meeting-intelligence-repair-r1-20260921",
+    "engine_r1": "C:/Users/pc/AppData/Local/Temp/codex-fung-genesis-schema-limit-r1-20260921",
+    "engine_r1_head": "79b41a3f4ae4026d086b634c631f4f4a7ccbd142",
+    "r1_frozen_file_hashes": {
+      "src-tauri/src/genesis_adapter.rs": "9E2448B83A4DBB2860D5ECC4F9E18899FA2E1F1565AF8095FEBDEAF9BD7E00EE",
+      "src-tauri/src/meeting_intelligence_schema.rs": "80B396198647E745F26B63ED283513D2579DA199A49137C47B38B95B6B34BBAD",
+      "contracts/meeting-intelligence-v1.yaml": "9684757F02EFD8A0F54B43FD58111757A3CA8E80CE586AD8751ED1F2FD119B48",
+      "tests/meetingIntelligenceContract.test.mjs": "D171A4EBE50E7273DCE68574C12E9B0C01D1D64C6D5496BFA4E1C142ABA1AB73",
+      "src-tauri/Cargo.toml": "ED5CCA795367A1B31577DEAE3C81B0712B7DD13762577DD8F8702D8F653BF86E",
+      "src-tauri/Cargo.lock": "2952DB9D3E62281980847E941C2F89E594A502E08397AA888459AA6065FDCF4E",
+      "engine/src/lib.rs": "2D17B3914BC5DD9AE5CB0EE22BF3BB5B5751FBE8EACD8DC467E190591ED94F53",
+      "engine/tests/relational_schema_resource_limit_tests.rs": "494CB6A4A63C79934653C879F8DB8024D966A8AF84E05D903A424F25763F9704"
+    }
+  },
+  "r2_worktree": {
+    "path": "C:/Users/pc/AppData/Local/Temp/codex-fung-meeting-intelligence-repair-r2-20260921",
+    "branch": "codex/meeting-intelligence-repair-r2-20260921",
+    "path_absent_before_create": true,
+    "branch_absent_before_create": true,
+    "creation_exit_code": 0,
+    "head": "b336f33ec400a38f003a0665c121069a87a543ac",
+    "clean_at_creation": true,
+    "overlay_transfer": "NOT_RUN_STOPPED_BEFORE_COPY",
+    "original_overlay_inventory40_read": true,
+    "current_r1_overlay_inventory_transferred": false,
+    "original_tracked_deletions_reproduced": false,
+    "source_destination_hash_comparison": "NOT_RUN",
+    "forbidden_material_copied": false
+  },
+  "current_root_source_hashes": {
+    "src-tauri/src/genesis_adapter.rs": "2F2C3599931E4D68E3F6B050528491D7E99A957906D51A51A2E70E55DC7A15A9",
+    "src-tauri/src/lib.rs": "9948C2160DA422A406C5CF3F5B719E18F6C8F105ABC857E06407DFD3F3F7316F",
+    "src-tauri/src/auth_session.rs": "95F4114647932A6B072C7BBA1C3D1E06B42EA525FA939A14820FC5AF33A95EC7",
+    "src-tauri/src/device_identity.rs": "C5041F4689126F71055FDBD6C9A40189397F54C591B6BCA0A21C88FF8B94B93F",
+    "src-tauri/Cargo.toml": "54BEB684AA73B89F030B6627E9A98F9EC63A02EEC5CB8C1039394D70BE2B4AAD",
+    "src-tauri/Cargo.lock": "E756A52BB041C5F43D4674E46FD0781CBB66F2649B3CD0385C15F02FEE8B9D07",
+    "src/tauri.ts": "578FF537CC7F67432B93F8CB4F60475C1DA1B4B023059C51E0447578272C3782"
+  },
+  "scope_boundary": {
+    "finding": "F001 needs a production lifecycle epoch witness; native_user_id alone is insufficient and AccountOperationGuard cannot be held for the unlock lifetime",
+    "requested_extra_path": "src-tauri/src/auth_session.rs",
+    "requested_api": "pub(crate) read-only lifecycle witness performing one atomic existing-broker read of opaque native_user_id, account generation/epoch, and lifecycle state; caller re-reads and compares the whole tuple without acquiring or retaining OperationDrain",
+    "reason": "production_lifecycle is private and broker generation is not exposed by public session status",
+    "approval_authority": "USER",
+    "approval_status": "NOT_APPROVED_USER_DECISION_REQUIRED",
+    "parent_review_after_user_approval": true,
+    "account_witness_semantics": [
+      "Covers logout, same-account relogin, account switch, and native lifecycle transitions",
+      "Capture and revalidation are atomic under the existing broker; separate identity and epoch reads are invalid",
+      "Restart does not depend on a numeric epoch surviving and starts without persisted account witness authority",
+      "Exposes no secret, token, key byte, keyring handle, ciphertext, or guard internals"
+    ],
+    "vault_authority_semantics": [
+      "Independent bounded unlock-session/process lifetime with explicit native local-owner unlock",
+      "Independently enforces binding/owner, vault lock/revoke, review revision, and capture/frontier guards",
+      "Account epoch neither grants vault permission nor replaces vault lock, revoke, review, or frontier checks",
+      "Restart starts locked with no persisted unlock authority",
+      "Short per-operation AccountOperationGuard/check+drain remains through protected commit; long-lived unlock retains no guard"
+    ],
+    "native_control_scenarios": [
+      "Injected lifecycle backend: logout then same-account login makes the old atomic witness stale",
+      "Injected vault backend: vault lock/revoke between read and commit rejects with unchanged account witness",
+      "Injected lifecycle/drain backend: logout drain completes while a long-lived unlock session exists",
+      "Injected restart path: process starts locked and does not reuse persisted unlock authority"
+    ],
+    "not_requested": [
+      "shadow broker",
+      "lifelong OperationDrain guard",
+      "cached identity IDs as authority",
+      "lib.rs",
+      "device_identity.rs",
+      "Cargo.toml",
+      "Cargo.lock",
+      "UI or product-policy change"
+    ],
+    "approval_required": true
+  },
+  "proposed_later_lease": [
+    "src-tauri/src/genesis_adapter.rs",
+    "src-tauri/src/meeting_intelligence_schema.rs",
+    "contracts/meeting-intelligence-v1.yaml",
+    "tests/meetingIntelligenceContract.test.mjs",
+    "src-tauri/src/auth_session.rs",
+    "docs/verification/implementation-reports/2026-09-21-meeting-identity-custody-r2.md"
+  ],
+  "commands_and_exit_codes": {
+    "absence_and_custody_checks": 0,
+    "r2_worktree_add": 0,
+    "overlay_transfer": "NOT_RUN",
+    "source_edits": "NOT_RUN",
+    "test_compilation": "NOT_RUN",
+    "cargo": "NOT_RUN",
+    "builds": "NOT_RUN",
+    "children": "NOT_RUN",
+    "commit_push_pr_merge_release": "NOT_RUN",
+    "provider_network_model_runtime_app_userdb_os_keyring": "NOT_RUN"
+  },
+  "acceptance_plan_after_scope_approval": [
+    "Explicit account-free local-owner unlock is required; active row, OS key availability, and injected TrustedIdentityContext alone fail closed",
+    "Injected lifecycle backend proves logout then same-account relogin and account switch stale the old atomic ACCOUNT identity/epoch/state witness; restart starts locked without persisted unlock authority",
+    "Injected vault backend proves vault lock/revoke between read and commit rejects independently of an unchanged ACCOUNT witness, with review-revision and capture/frontier guards",
+    "Injected logout/drain control proves no long-lived OperationDrain guard is retained while the short per-operation AccountOperationGuard/check+drain still spans protected commit",
+    "Atomic concurrent lifecycle capture/revalidation is coherent; no shadow broker, cached authority, or separate identity/epoch snapshots",
+    "Alternate-attempt replay returns the original durable transaction_id",
+    "SI/D8 custody, encrypted AAD/hash/scope, plaintext absence, five-write atomicity, capture-before-validation frontier, CAS, reopen, recovery, and anonymous/unknown compatibility remain proven",
+    "Native UI, real OS keyring, app/lib integration, provider, real meeting, model/runtime, device, CI, packaging, release, and production remain NOT_RUN"
+  ],
+  "changed_paths": [
+    ".brain/rca/2026-09-21-meeting-unlock-replay-r2.md",
+    "docs/verification/implementation-reports/2026-09-21-meeting-remediation-r2-bootstrap.md",
+    "docs/verification/implementation-reports/2026-09-21-meeting-remediation-r2-bootstrap.json"
+  ],
+  "lease_interval": "documentary preparation only through 2026-09-21T11:36:39+07:00; no source lease acquired",
+  "next_gate_or_blocker": "USER approval is required for the exact auth_session.rs read-only lifecycle witness path/API; only after that decision may parent review and issue a fresh exact lease and snapshot-transfer decision; R2 remains unseeded",
+  "rollback_or_recovery": "No source/runtime side effect; retain root and frozen snapshots. If scope is rejected, remove only these three new root preparation records and the unseeded R2 worktree through an explicitly approved cleanup step.",
+  "version_diff": "new -> 0.1.0b: recorded bare base-only R2 preparation, separate ACCOUNT/VAULT controls, the USER-approval-only auth-session witness blocker, and no overlay/source/test handoff.",
+  "changelog": [
+    {
+      "version": "0.1.0b",
+      "date": "2026-09-21",
+      "status": "need review",
+      "summary": "R2 preparation stopped before overlay transfer pending USER approval of the smallest auth_session.rs lifecycle witness API; no implementation, test handoff, or PASS claim.",
+      "commit_hash": "working-tree; base b336f33",
+      "agent": "Bohr / 01a0c224-76c8-7900-8fe6-ba516aec21f6"
+    }
+  ]
+}

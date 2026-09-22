@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.2.0b"
 created_at: "2026-08-23T01:15:22+07:00,ATHER"
-last_update: "2026-08-23T01:15:22+07:00,ATHER"
+last_update: "2026-09-21T03:58:31+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -27,6 +27,20 @@ preserving the existing current-state source.
 | Contracts | [`../../contracts/`](../../contracts/) | API, MCP, CLI, and data boundaries |
 | Decisions | [`../decisions/`](../decisions/) | Approved or candidate choices |
 
+## Meeting intelligence extension — candidate
+
+Start with [Meeting Intelligence Domain Map](MEETING_INTELLIGENCE_DOMAINS.md): D1–D9 People/Voice support plus D10 Live Transcription, D11 Knowledge, D12 Meeting Agent and D13 Conversation Delivery.
+
+Detailed contracts:
+
+- [Live transcription](../specs/2026-09-21-live-meeting-transcription-spec.md)
+- [Knowledge and evidence](../specs/2026-09-21-meeting-knowledge-evidence-spec.md)
+- [Meeting Agent participation](../specs/2026-09-21-meeting-agent-participation-spec.md)
+- [People and Voice Identity](../specs/2026-09-21-speaker-identity-domain-design.md)
+- [Google Meet API strategy](../decisions/2026-09-21-google-meet-agent-api-strategy.md)
+
+These are design contracts, not deployment or real-meeting evidence. Provider API identity, confirmed Person identity and publication authority are separate.
+
 ## Architecture record rules
 
 - Label current state, target state, and historical evidence separately.
@@ -45,8 +59,15 @@ preserving the existing current-state source.
 5. Deployment and hardware profile
 6. Failure, rollback, and observability paths
 
+## Version Diff
+
+| Version | Change |
+| --- | --- |
+| 0.2.0b | Indexed the integrated meeting domains and detailed Google Meet/live/knowledge/agent contracts. |
+
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.0b | 2026-09-21 | candidate | Indexed the integrated meeting domains and detailed Google Meet/live/knowledge/agent contracts. | working-tree | RWANG |
 | 0.1.0b | 2026-08-23 | candidate | Added architecture-view index and current/target boundary rules. | pending | ATHER |

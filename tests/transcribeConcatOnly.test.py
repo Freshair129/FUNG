@@ -8,10 +8,12 @@ import tempfile
 import unittest
 import wave
 from pathlib import Path
-
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "transcribe.py"
+sys.path.insert(0, str(REPO_ROOT))
+from scripts.transcribe import default_compute_type
 
 
 def write_silent_wav(path: Path, frames: int) -> None:
@@ -27,6 +29,16 @@ def concat_temps(directory: Path, destination: Path) -> list[Path]:
 
 
 class ConcatOnlyTests(unittest.TestCase):
+    def test_model_compute_defaults_cover_turbo_medium_and_override(self) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("FUNG_TRANSCRIPTION_COMPUTE_TYPE", None)
+            self.assertEqual(default_compute_type("large-v3-turbo", "cuda"), "float16")
+            self.assertEqual(default_compute_type("C:/models/medium", "cuda"), "int8_float16")
+            self.assertEqual(default_compute_type("large-v3-turbo", "cpu"), "int8")
+
+        with patch.dict(os.environ, {"FUNG_TRANSCRIPTION_COMPUTE_TYPE": "int8"}, clear=False):
+            self.assertEqual(default_compute_type("large-v3-turbo", "cuda"), "int8")
+
     def run_worker(
         self, *args: str, env: dict[str, str] | None = None
     ) -> subprocess.CompletedProcess[str]:

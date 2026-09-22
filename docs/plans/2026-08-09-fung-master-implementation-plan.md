@@ -1,3 +1,15 @@
+---
+version: "1.7.0b"
+created_at: "2026-09-21T03:45:30+07:00,RWANG,base-b336f33"
+last_update: "2026-09-21T05:58:39+07:00,RWANG"
+status: "need review"
+superseded_by: null
+attributes:
+  domain: "programme-roadmap"
+  doc_type: "implementation-plan"
+  scope: "FUNG programme and candidate meeting intelligence track"
+---
+
 # FUNG Master Implementation Plan / แผนการพัฒนาหลักโปรเจกต์ FUNG
 
 > **For agentic workers:** This is a **program-level roadmap**. Each Phase below is executed as its own cycle: `brainstorming` (if spec missing) → `writing-plans` (task-level TDD plan) → `subagent-driven-development` (automated execution). Phase-level checkboxes here track *phase* completion; task-level checkboxes live in each phase's own plan file.
@@ -6,8 +18,8 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.5.1b |
-| Date | 2026-09-17 |
+| Version | 1.7.0b |
+| Date | 2026-09-21 |
 | Status | need review — Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
 | Author | Claude (Fable 5) + Boss |
 | Supersedes | none (first master plan) |
@@ -65,6 +77,50 @@ installed. The NSIS attempt remains incomplete, so installer/release acceptance
 is still open.
 
 ---
+
+## 0.2 Candidate meeting intelligence workstream — 2026-09-21
+
+User requests: detailed supporting-domain specs, live transcript during meetings, and an Agent that joins/responds/shares evidence in the meeting. Platform direction: **Google Meet first; API acceptable for speaker attribution**. This is C-3 / HIGH and currently **documentation only**.
+
+Canonical [domain map](../architecture/MEETING_INTELLIGENCE_DOMAINS.md) links the [live transcript](../specs/2026-09-21-live-meeting-transcription-spec.md), [knowledge evidence](../specs/2026-09-21-meeting-knowledge-evidence-spec.md), [Meeting Agent](../specs/2026-09-21-meeting-agent-participation-spec.md), [speaker identity](../specs/2026-09-21-speaker-identity-domain-design.md) and [Google Meet API decision](../decisions/2026-09-21-google-meet-agent-api-strategy.md).
+
+| Track gate | Dependencies | Exit evidence | Status |
+| --- | --- | --- | --- |
+| M0 Contracts/provider/privacy | spec review; provider/deployment/region/budget choice | approved contracts + actual API capability spike | candidate docs prepared; approval/spike pending |
+| M1 Live transcript | M0 contract approval | revisions/cursors/recovery + measured hardware latency/soak | NOT_IMPLEMENTED |
+| M2 People + knowledge | M0 contract approval | reviewed source-person links + scoped documents/citations/ACL/numeric tests | NOT_IMPLEMENTED |
+| M3 Meet observe/draft | M0 provider/privacy + M1 + M2 | real admission/media mapping + authenticated gateway + local answer | NOT_IMPLEMENTED |
+| M4 Approved same-room output | M3 | exact payload approval + real Meet chat/link + receipt/revoke/no-duplicate proof | NOT_IMPLEMENTED |
+| M5 Bounded proactive output | M4 | session policy, trigger quality, guest/ACL/adversarial/rate/budget/kill tests | NOT_IMPLEMENTED |
+| M6 Optional file/voice/platform expansion | separately approved capability after M4 | native attachment / conversational audio / other provider qualification | OUTSIDE TEXT/LINK MVP |
+
+M1/M2 can proceed independently after contract approval. Voice enrollment/biometric matching is optional and not required when API participant attribution is sufficient. The existing local diarization/summary slice is not evidence that M1–M5 already exist.
+
+New work does not change Phase 0–5 completion, re-enable canceled Google Drive backup, or authorize deployment, procurement, real meeting recording or external messages. Selected-collection knowledge is a scoped candidate addition; historical Zoom cross-meeting-search non-goals remain in force for that ingestion lane.
+
+Before implementation: obtain spec approval, write task-level tests/migrations/rollback plan, and maintain separate local/fixture/provider/real-room/packaged/deployment evidence. Do not treat Google Chat output as Meet chat acceptance.
+
+## 0.3 Current meeting-intelligence workflow overlay — 2026-09-21
+
+The current D10-D13 meeting-intelligence track is governed by the
+[bounded Luna/Terra workflow](2026-09-21-meeting-intelligence-multiagent-workflow.md)
+and [declarative task DAG](2026-09-21-meeting-intelligence-task-dag.json).
+Those files take precedence for this track's dispatch, leases, independent
+gates, and evidence rules; the roadmap's phase and Boss-approval gates still
+dominate. The historical August workflow remains applicable to its other lanes,
+but its approvals are not inherited by this track.
+
+M1/M2 may proceed after feature-contract approval and the serialized
+contract/schema G1 without provider procurement. The GM/provider, public
+ingress, real-room, external-send, merge, and release gates remain separate.
+The parent is orchestration/risk-review only and has no implementation or
+repair authority. The frozen baseline is linked as reference only and excludes
+the concurrently authored workflow package; G1 and G2 are **NOT_RUN**. This
+overlay does not authorize implementation, procurement, recording, external
+messages, commit/push/PR, deployment, or release.
+
+The master pre-overlay hash is intentionally historical; the current dirty
+worktree baseline is represented only by the separate frozen baseline reports.
 
 ## 0. Historical Delivery Overlay (2026-08-13; superseded)
 
@@ -531,3 +587,20 @@ Per phase:
 ---
 
 *Plan generated 2026-08-09 from filesystem ground truth (23 TS files / 12 Rust files / 57 commands / 68+6 tests / 0 CI workflows). Numbers re-auditable via the inventory commands in the source session.*
+
+## Version Diff
+
+| Version | Change |
+| --- | --- |
+| 1.6.0b -> 1.7.0b | Linked the frozen current-workstream meeting-intelligence workflow and declarative DAG with scoped precedence; existing roadmap phase states unchanged. |
+
+| Version | Change |
+| --- | --- |
+| 1.5.1b → 1.6.0b | Added a separate candidate meeting-intelligence track, Google Meet-first API direction and dependency/exit gates; existing Phase 0–5 states unchanged. |
+
+## CHANGELOG
+
+| Version | Date | Status | Summary | Commit Hash | Agent |
+| --- | --- | --- | --- | --- | --- |
+| 1.7.0b | 2026-09-21 | need review | Added a scoped link/precedence overlay for the frozen meeting-intelligence workflow package; no implementation or delivery gate closed. | working-tree; base b336f33 | RWANG |
+| 1.6.0b | 2026-09-21 | need review | Added documentation-complete but implementation-unapproved live/knowledge/Meet-agent workstream and metadata; no delivery gate closed. | working-tree; base b336f33 | RWANG |

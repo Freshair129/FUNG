@@ -1,0 +1,149 @@
+{
+  "version": "0.1.2b",
+  "last_update": "2026-09-22T04:00:05+07:00, Kant / 01a0c57a-69ec-7a10-a13c-8661f52f6e08",
+  "status": "UNDER_REVIEW",
+  "changelog": [
+    {
+      "version": "0.1.2b",
+      "date": "2026-09-22",
+      "status": "UNDER_REVIEW",
+      "summary": "Final freeze documentation correction: serial post-resume wording and frozen lease status; no test-result changes",
+      "commit_hash": "b336f33ec400a38f003a0665c121069a87a543ac",
+      "agent": "Kant / 01a0c57a-69ec-7a10-a13c-8661f52f6e08"
+    },
+    {
+      "version": "0.1.1b",
+      "date": "2026-09-22",
+      "status": "UNDER_REVIEW",
+      "summary": "Corrected HEAD/timestamp and restored approved design/lock-order checkpoint while preserving exact incident evidence",
+      "commit_hash": "b336f33ec400a38f003a0665c121069a87a543ac",
+      "agent": "Kant / 01a0c57a-69ec-7a10-a13c-8661f52f6e08"
+    }
+  ],
+  "location": "C:\\Users\\pc\\workspace\\fung",
+  "task": "N3-R3",
+  "role": "ROLE-FIXER",
+  "classification": "C3/HIGH",
+  "identity": {
+    "nickname": "Kant",
+    "uuid": "01a0c57a-69ec-7a10-a13c-8661f52f6e08",
+    "model": "gpt-5.6-luna",
+    "reasoning_effort": "max",
+    "parent": "01a0bfa8-2ac8-7ed1-a1a9-363e391c7d75"
+  },
+  "approval": {
+    "date_ict": "2026-09-22",
+    "message": "ลุย",
+    "scope": "minimal AccountCommitFence/equivalent, cross-thread regression, and later independent Luna G1 only"
+  },
+  "paths": {
+    "root_md": "C:\\Users\\pc\\workspace\\fung\\docs\\verification\\implementation-reports\\2026-09-22-meeting-remediation-r3-execution.md",
+    "root_json": "C:\\Users\\pc\\workspace\\fung\\docs\\verification\\implementation-reports\\2026-09-22-meeting-remediation-r3-execution.json",
+    "r3_checkout": "C:\\Users\\pc\\AppData\\Local\\Temp\\codex-fung-meeting-intelligence-repair-r3-20260922",
+    "mistaken_r3_md": "C:\\Users\\pc\\AppData\\Local\\Temp\\codex-fung-meeting-intelligence-repair-r3-20260922\\docs\\verification\\implementation-reports\\2026-09-22-meeting-remediation-r3-execution.md",
+    "mistaken_r3_json": "C:\\Users\\pc\\AppData\\Local\\Temp\\codex-fung-meeting-intelligence-repair-r3-20260922\\docs\\verification\\implementation-reports\\2026-09-22-meeting-remediation-r3-execution.json"
+  },
+  "incident": {
+    "short_exact_filter": {
+      "manifest": "src-tauri/Cargo.toml",
+      "cwd": "C:\\Users\\pc\\AppData\\Local\\Temp\\codex-fung-meeting-intelligence-repair-r3-20260922",
+      "exit": 0,
+      "result": "0 passed / 0 failed / 499 filtered out",
+      "valid_baseline": false
+    },
+    "list_probe": {
+      "manifest": "src-tauri/Cargo.toml",
+      "cwd": "C:\\Users\\pc\\AppData\\Local\\Temp\\codex-fung-meeting-intelligence-repair-r3-20260922",
+      "tauri_config_set": false,
+      "profile_settings_set": false,
+      "tool_exit": 1,
+      "inner_build_script_exit": 1,
+      "error": "resource path ..\\.venv-whisper doesn't exist",
+      "timing_overlap_with_first_run": "UNCONFIRMED"
+    },
+    "corrected_baseline": {
+      "exec_id": "exec-3955e30a-92ef-44b4-a740-0ab5cc9f8e00",
+      "manifest": "C:\\Users\\pc\\AppData\\Local\\Temp\\codex-fung-meeting-intelligence-repair-r3-20260922\\src-tauri\\Cargo.toml",
+      "offline_locked": true,
+      "approved_process_env": true,
+      "exit": 0,
+      "result": "1 diagnostic passed / 498 filtered",
+      "valid_local_bug_baseline": true,
+      "acceptance": false,
+      "hold_violation": "The command was started while the explicit read-only HOLD was active; disclosed separately from its valid result.",
+      "rerun_needed": false
+    },
+    "cached_binary": {
+      "result": "run and reported one passed",
+      "provenance": "INVALID; excluded"
+    }
+  },
+  "seed": {
+    "preflight_count": 30,
+    "preflight_status": "ALL_MATCHED",
+    "r3_current_file_count": 51,
+    "r3_seed_hashes_match": true,
+    "reparse_points": 0,
+    "initial_failed_attempt": "PowerShell Split-Path -LiteralPath ... -Parent parameter-set error stopped before destination writes; corrected 51-file seed passed.",
+    "approved_historical_deletions": 3,
+    "no_cleanup_in_checkpoint": true
+  },
+  "hashes": {
+    "root_head": "b336f33ec400a38f003a0665c121069a87a543ac",
+    "root_lib_rs": "9948C2160DA422A406C5CF3F5B719E18F6C8F105ABC857E06407DFD3F3F7316F",
+    "root_device_identity_rs": "C5041F4689126F71055FDBD6C9A40189397F54C591B6BCA0A21C88FF8B94B93F",
+    "root_cargo_toml": "54BEB684AA73B89F030B6627E9A98F9EC63A02EEC5CB8C1039394D70BE2B4AAD",
+    "root_cargo_lock": "E756A52BB041C5F43D4674E46FD0781CBB66F2649B3CD0385C15F02FEE8B9D07",
+    "normal_genesis_rlib_after_corrected_rebuild": "6B775FE6FB743436B434AB2644AE866B46B15D7EA3EBB34BFE5CD1B5ECB7E4DB",
+    "direct_artifact_mutation": false
+  },
+  "final_verification": {
+    "unique_rust_tests": 48,
+    "duplicate_focused_auth_tests": 2,
+    "r2_runs": [
+      {"exec_id": "exec-9121a267-b7f6-4c53-9692-06fddd5aca9a", "passed": 3, "failed": 1},
+      {"exec_id": "exec-30066131-1db3-46e3-a0d7-77e6773ddf2e", "passed": 2, "failed": 2, "cause": "incorrect PRE-VAULT relocation; reverted"},
+      {"exec_id": "exec-bc86d48f-840a-4ef6-8070-4492e7560f7f", "passed": 4, "failed": 0}
+    ],
+    "rust_counts": {"r3": 4, "r2": 4, "r1": 3, "n3": 8, "auth_session": 28, "oversized_envelope": 1},
+    "cargo_check_exit": 0,
+    "cargo_lib_no_run_exit": 0,
+    "node_contract_pass": 3,
+    "node_contract_fail": 0,
+    "r3_source_auth_sha256": "55F2C89772B88A7ED9D045FBD2D0B5751448E0D779E8DE40618BDC9B3B8545BF",
+    "r3_source_adapter_sha256": "07BAF498CFE96AB7AA9863823D92C16BE7C57D93410D17AB9BF55DFBE1348C05",
+    "r3_contract_sha256": "31FCFDC0A444EE528AB719521BB22B9E7900542B23B7A13617C7CF67BF80BDD6",
+    "r3_node_test_sha256": "ABE6EC9DC212B1B01C7E98DBF21701A63418103B8643C54EB0BDAAF8242BCAEE",
+    "r3_report_sha256": "0B772C14C65D88F47B22005F36281ADF28468F8084B2028871DA02577EBD818B",
+    "cargo_slot_released": true,
+    "cargo_slot_release_marker": "CARGO_SLOT_RELEASED",
+    "zero_cargo_rustc_before_release": true,
+    "independent_g1": "NOT_RUN",
+    "self_acceptance": false
+  },
+  "design_checkpoint": {
+    "authority": "approved RCA .brain/rca/2026-09-21-meeting-account-switch-commit-r2.md and frozen R2 G1 findings",
+    "fence": "same registered broker that issued the ticket; non-reentrant",
+    "lock_order": [
+      "VAULT read fence",
+      "registered broker lifecycle critical section",
+      "direct expected lifecycle witness and operation-ticket validation",
+      "Genesis storage/projection commit locks"
+    ],
+    "release_order": [
+      "broker fence release on success/error",
+      "owning AccountOperationGuard drop may release drain and call finish_account_operation"
+    ],
+    "protected_identity_none_bypass": false,
+    "anonymous_no_identity_compatibility": true,
+    "test_schedule_boundary": "ordering signal after the last existing precheck and immediately before broker-fence acquisition; contending registered-broker threads while the fence is held",
+    "old_synchronous_post_fence_reentry": "excluded"
+  },
+  "status": {
+    "source_edits": "FROZEN",
+    "independent_g1": "NOT_RUN",
+    "review_complete": false,
+    "awaiting": "independent Luna G1 and HIGH-risk final review; no downstream activation",
+    "cargo_slot": "CARGO_SLOT_RELEASED"
+  }
+}

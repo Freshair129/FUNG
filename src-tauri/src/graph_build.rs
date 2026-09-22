@@ -636,9 +636,6 @@ pub(crate) fn run_graph_build(
         "cannot locate the app data directory from the graph storage path".to_string()
     })?;
     let policy_conn = crate::paired_devices_connection_at(data_root).map_err(|e| e.to_string())?;
-    let policy = crate::policy::load_policy(&policy_conn)?;
-    let calls_today =
-        crate::policy::calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Llm)?;
     // The fallback itself lives in cloud_executor.rs, which is the module
     // allowed to handle key-bearing cloud configs; see the guard note there.
     let cloud = crate::cloud_executor::first_configured_llm_provider();
@@ -646,15 +643,15 @@ pub(crate) fn run_graph_build(
     // knows which transport actually produced the text; recording a hardcoded
     // "local" here would make the model_runs audit row false for every
     // cloud-fallback build.
-    let (raw, runtime_location) = crate::cloud_executor::call_llm_with_fallback(
+    let execution = crate::cloud_executor::call_llm_with_fallback(
         || call_llm(&endpoint, &model, &prompt),
+        &endpoint,
+        &model,
         &prompt,
         cloud.as_ref(),
-        &policy,
-        calls_today,
         &policy_conn,
     )?;
-    let extraction = parse_extraction(&raw)?;
+    let extraction = parse_extraction(&execution.text)?;
     let _ = crate::set_job_status(storage, job_id, "running", Some(80), None);
 
     let model_run_id = Uuid::new_v4().to_string();
@@ -662,7 +659,39 @@ pub(crate) fn run_graph_build(
     // The prior extraction's cleanup deletes and the fresh insert land in one
     // commit — only now that the new extraction has actually parsed.
     let mut mutations = cleanup;
-    mutations.push(genesis_adapter::upsert("model_runs", serde_json::json!({"id": model_run_id, "recording_id": recording_id, "provider_id": "ollama-summary-intent", "model_name": model, "task_kind": "graph_extraction", "runtime_location": runtime_location, "input_ref": recording_id, "output_ref": format!("graph:{recording_id}"), "parameters_json": {"endpoint": endpoint}, "created_at": timestamp})));
+    if execution.runtime_location == crate::cloud_executor::RUNTIME_CLOUD {
+        mutations.push(genesis_adapter::upsert(
+            "model_providers",
+            serde_json::json!({
+                "id": execution.provider_id,
+                "label": execution.provider_label,
+                "runtime_location": execution.runtime_location,
+                "kind": "summary_intent",
+                "enabled": true,
+                "config_json": {
+                    "endpoint": execution.endpoint,
+                    "model": execution.model_name,
+                },
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }),
+        ));
+    }
+    mutations.push(genesis_adapter::upsert(
+        "model_runs",
+        serde_json::json!({
+            "id": model_run_id,
+            "recording_id": recording_id,
+            "provider_id": execution.provider_id,
+            "model_name": execution.model_name,
+            "task_kind": "graph_extraction",
+            "runtime_location": execution.runtime_location,
+            "input_ref": recording_id,
+            "output_ref": format!("graph:{recording_id}"),
+            "parameters_json": {"endpoint": execution.endpoint},
+            "created_at": timestamp,
+        }),
+    ));
     mutations.extend(extraction_mutations(
         project_id,
         recording_id,
@@ -698,6 +727,9 @@ pub(crate) fn graph_build_start(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Mutex;
 
     const EXTRACTION_FIXTURE: &str = r#"{
       "topics": [{"label": "Q3 roadmap", "evidence": [0, 2], "confidence": 0.8}],
@@ -705,6 +737,21 @@ mod tests {
       "actionItems": [{"label": "Boss drafts the release note", "owner": "p:boss", "evidence": [3], "confidence": 0.9}],
       "mentions": [{"label": "GenesisBlockDB", "kind": "project", "evidence": [1], "confidence": 0.6}]
     }"#;
+
+    static LLM_CLOUD_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct LlmCloudConfigReset;
+
+    impl Drop for LlmCloudConfigReset {
+        fn drop(&mut self) {
+            crate::cloud_executor::set_test_llm_cloud_config(None);
+        }
+    }
+
+    fn clear_test_cloud_config() -> LlmCloudConfigReset {
+        crate::cloud_executor::set_test_llm_cloud_config(None);
+        LlmCloudConfigReset
+    }
 
     #[test]
     fn extraction_parses_with_tolerant_defaults() {
@@ -769,7 +816,7 @@ mod tests {
     fn open_storage() -> (std::path::PathBuf, genesis_block_native::Storage) {
         let path = std::env::temp_dir().join(format!("fung-graph-test-{}", Uuid::new_v4()));
         let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
-            path: path.display().to_string(),
+            path: path.join("genesisdb").display().to_string(),
             page_cache_mb: Some(16),
             read_only: Some(false),
             vector_dim: Some(4),
@@ -778,6 +825,88 @@ mod tests {
         .unwrap();
         crate::genesis_adapter::install(&storage).unwrap();
         (path, storage)
+    }
+
+    fn seed_graph_inputs(
+        storage: &genesis_block_native::Storage,
+        local_endpoint: &str,
+        local_model: &str,
+    ) {
+        let local_config = serde_json::json!({
+            "endpoint": local_endpoint,
+            "model": local_model,
+        })
+        .to_string();
+        crate::genesis_adapter::commit_rows(
+            storage,
+            vec![
+                crate::genesis_adapter::upsert(
+                    "projects",
+                    serde_json::json!({"id":"p1","name":"Weekly sync","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"}),
+                ),
+                crate::genesis_adapter::upsert(
+                    "recordings",
+                    serde_json::json!({"id":"r1","project_id":"p1","source":"import","input_path":null,"canonical_audio_path":"c","status":"completed","duration_ms":10,"created_at":"t","updated_at":"t"}),
+                ),
+                crate::genesis_adapter::upsert(
+                    "transcript_segments",
+                    serde_json::json!({"id":"s1","project_id":"p1","recording_id":"r1","speaker_id":null,"start_ms":0,"end_ms":1000,"text":"Discuss the Q3 roadmap.","confidence":0.9,"created_at":"t","updated_at":"t"}),
+                ),
+                crate::genesis_adapter::upsert(
+                    "model_providers",
+                    serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":local_config,"created_at":"t","updated_at":"t"}),
+                ),
+            ],
+        )
+        .unwrap();
+    }
+
+    fn save_llm_policy(app_data: &std::path::Path, enabled: bool, daily_cap: u32) {
+        let conn = crate::paired_devices_connection_at(app_data).unwrap();
+        crate::policy::save_policy(
+            &conn,
+            &crate::policy::TierPolicy {
+                stt_cloud_enabled: false,
+                llm_cloud_enabled: enabled,
+                daily_cap,
+            },
+        )
+        .unwrap();
+    }
+
+    fn serve_llm_responses(status_line: &'static str, bodies: Vec<String>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        std::thread::spawn(move || {
+            for body in bodies {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    return;
+                };
+                let mut request = [0u8; 8192];
+                let _ = stream.read(&mut request);
+                let response = format!(
+                    "{status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    fn serve_local_ollama(extraction: &'static str) -> String {
+        let tags = r#"{"models":[{"name":"llama3.1:8b"}]}"#;
+        serve_llm_responses(
+            "HTTP/1.1 200 OK",
+            vec![
+                tags.to_string(),
+                format!(
+                    "{{\"message\":{{\"content\":{}}}}}",
+                    serde_json::to_string(extraction).unwrap()
+                ),
+            ],
+        )
     }
 
     #[test]
@@ -869,6 +998,10 @@ mod tests {
 
     #[test]
     fn a_failed_llm_call_leaves_the_prior_extraction_intact() {
+        let _cloud_seam = LLM_CLOUD_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _cloud_config = clear_test_cloud_config();
         let (path, storage) = open_storage();
         crate::genesis_adapter::commit_rows(&storage, vec![
             crate::genesis_adapter::upsert("projects", serde_json::json!({"id":"p1","name":"Weekly sync","storage_path":"s","active_recording_id":null,"created_at":"t","updated_at":"t"})),
@@ -908,6 +1041,220 @@ mod tests {
             1,
             "a failed LLM call must not delete the prior extraction"
         );
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn local_graph_build_persists_local_effective_provenance() {
+        let _cloud_seam = LLM_CLOUD_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _cloud_config = clear_test_cloud_config();
+        let endpoint = serve_local_ollama(EXTRACTION_FIXTURE);
+        let (path, storage) = open_storage();
+        seed_graph_inputs(&storage, &endpoint, "llama3.1:8b");
+        save_llm_policy(&path, false, 20);
+
+        run_graph_build(&storage, "p1", "r1", "Weekly sync", "job-does-not-exist").unwrap();
+
+        let runs = crate::genesis_adapter::query(
+            &storage,
+            "model_runs",
+            &[
+                "provider_id",
+                "model_name",
+                "runtime_location",
+                "parameters_json",
+            ],
+            vec![crate::genesis_adapter::eq(
+                "model_runs",
+                "recording_id",
+                serde_json::json!("r1"),
+            )],
+            1,
+        )
+        .unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0]["model_runs.provider_id"], "ollama-summary-intent");
+        assert_eq!(runs[0]["model_runs.model_name"], "llama3.1:8b");
+        assert_eq!(runs[0]["model_runs.runtime_location"], "local");
+        assert_eq!(runs[0]["model_runs.parameters_json"]["endpoint"], endpoint);
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn whitespace_llm_key_is_treated_as_unconfigured_before_fallback() {
+        let _cloud_seam = LLM_CLOUD_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _cloud_config = clear_test_cloud_config();
+        crate::cloud_executor::set_test_custom_llm_provider(
+            "http://127.0.0.1:1".into(),
+            " \t\n ".into(),
+        );
+        let (path, storage) = open_storage();
+        seed_graph_inputs(&storage, "http://127.0.0.1:1", "llama3.1:8b");
+        save_llm_policy(&path, true, 20);
+
+        let error =
+            run_graph_build(&storage, "p1", "r1", "Weekly sync", "job-does-not-exist").unwrap_err();
+        assert!(
+            error.contains("no_key_configured"),
+            "a whitespace LLM key must fail closed before cloud dispatch: {error}"
+        );
+        let policy_conn = crate::paired_devices_connection_at(&path).unwrap();
+        assert_eq!(
+            crate::policy::calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Llm)
+                .unwrap(),
+            0,
+            "an unconfigured LLM provider must not reserve or dispatch a call"
+        );
+
+        drop(policy_conn);
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn cloud_graph_build_persists_sanitized_provider_and_effective_run_provenance() {
+        let _cloud_seam = LLM_CLOUD_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _cloud_config = clear_test_cloud_config();
+        let cloud_endpoint = serve_llm_responses(
+            "HTTP/1.1 200 OK",
+            vec![format!(
+                "{{\"message\":{{\"content\":{}}}}}",
+                serde_json::to_string(EXTRACTION_FIXTURE).unwrap()
+            )],
+        );
+        let expected_cloud_endpoint = format!("{cloud_endpoint}/private");
+        crate::cloud_executor::set_test_custom_llm_provider(
+            format!("{cloud_endpoint}/private?api_key=sentinel"),
+            "sentinel-api-key-must-not-persist".into(),
+        );
+        let (path, storage) = open_storage();
+        seed_graph_inputs(&storage, "http://127.0.0.1:1", "llama3.1:8b");
+        save_llm_policy(&path, true, 20);
+
+        run_graph_build(&storage, "p1", "r1", "Weekly sync", "job-does-not-exist").unwrap();
+
+        let providers = crate::genesis_adapter::query(
+            &storage,
+            "model_providers",
+            &["id", "label", "runtime_location", "kind", "config_json"],
+            vec![crate::genesis_adapter::eq(
+                "model_providers",
+                "id",
+                serde_json::json!("cloud-custom-summary-intent"),
+            )],
+            1,
+        )
+        .unwrap();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0]["model_providers.label"], "Custom");
+        assert_eq!(providers[0]["model_providers.runtime_location"], "cloud");
+        assert_eq!(providers[0]["model_providers.kind"], "summary_intent");
+        let provider_config = &providers[0]["model_providers.config_json"];
+        assert_eq!(
+            provider_config["endpoint"], expected_cloud_endpoint,
+            "custom endpoint provenance must exclude query secrets"
+        );
+        assert_eq!(provider_config["model"], "custom-unspecified");
+        assert!(!provider_config.to_string().contains("sentinel"));
+
+        let runs = crate::genesis_adapter::query(
+            &storage,
+            "model_runs",
+            &[
+                "provider_id",
+                "model_name",
+                "runtime_location",
+                "parameters_json",
+            ],
+            vec![crate::genesis_adapter::eq(
+                "model_runs",
+                "recording_id",
+                serde_json::json!("r1"),
+            )],
+            1,
+        )
+        .unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(
+            runs[0]["model_runs.provider_id"],
+            "cloud-custom-summary-intent"
+        );
+        assert_eq!(runs[0]["model_runs.model_name"], "custom-unspecified");
+        assert_eq!(runs[0]["model_runs.runtime_location"], "cloud");
+        assert_eq!(
+            runs[0]["model_runs.parameters_json"]["endpoint"],
+            expected_cloud_endpoint
+        );
+        assert!(
+            !runs[0].to_string().contains("sentinel"),
+            "model run provenance must not contain the cloud key"
+        );
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn cloud_graph_error_does_not_persist_provenance_or_leak_key() {
+        let _cloud_seam = LLM_CLOUD_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _cloud_config = clear_test_cloud_config();
+        let key = "sentinel-cloud-error-api-key";
+        let cloud_endpoint = serve_llm_responses(
+            "HTTP/1.1 401 Unauthorized",
+            vec![format!("authorization: Bearer {key}; x-api-key: {key}")],
+        );
+        crate::cloud_executor::set_test_custom_llm_provider(cloud_endpoint, key.to_string());
+        let (path, storage) = open_storage();
+        seed_graph_inputs(&storage, "http://127.0.0.1:1", "llama3.1:8b");
+        save_llm_policy(&path, true, 20);
+
+        let error =
+            run_graph_build(&storage, "p1", "r1", "Weekly sync", "job-does-not-exist").unwrap_err();
+        assert!(
+            !error.contains(key),
+            "cloud key leaked into graph error: {error}"
+        );
+        assert!(!error.to_ascii_lowercase().contains("authorization"));
+        assert!(!error.to_ascii_lowercase().contains("x-api-key"));
+
+        let cloud_providers = crate::genesis_adapter::query(
+            &storage,
+            "model_providers",
+            &["id"],
+            vec![crate::genesis_adapter::eq(
+                "model_providers",
+                "id",
+                serde_json::json!("cloud-custom-summary-intent"),
+            )],
+            1,
+        )
+        .unwrap();
+        assert!(cloud_providers.is_empty());
+        let runs = crate::genesis_adapter::query(
+            &storage,
+            "model_runs",
+            &["id"],
+            vec![crate::genesis_adapter::eq(
+                "model_runs",
+                "recording_id",
+                serde_json::json!("r1"),
+            )],
+            1,
+        )
+        .unwrap();
+        assert!(runs.is_empty());
 
         drop(storage);
         let _ = std::fs::remove_dir_all(path);

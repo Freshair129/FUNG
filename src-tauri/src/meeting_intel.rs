@@ -1070,7 +1070,18 @@ fn collect_item_refs(items: &serde_json::Value, segments: &[SegmentView]) -> Vec
     ids
 }
 
-/// Queues post-meeting summarisation for a recording.
+/// The local-capture post-meeting order. The speaker pass is deliberately
+/// optional at runtime, but it must be scheduled before the summary pass so a
+/// successful diarization can enrich the exact transcript that the summary
+/// cites. A failed speaker pass does not prevent the summary job from running.
+fn post_meeting_job_order() -> [crate::job_engine::JobKind; 2] {
+    [
+        crate::job_engine::JobKind::SpeakerDiarize,
+        crate::job_engine::JobKind::SummaryGenerate,
+    ]
+}
+
+/// Queues the local-capture post-meeting pipeline for a recording.
 ///
 /// Previously this ran the whole pipeline inline on the caller's thread and
 /// emitted the result directly, which meant a meeting that ended while
@@ -1082,12 +1093,17 @@ fn collect_item_refs(items: &serde_json::Value, segments: &[SegmentView]) -> Vec
 ///
 /// Emitting `running` here rather than waiting for the worker keeps the
 /// panel honest about queued work: the user pressed stop and something is
-/// pending, even if the worker is still finishing a previous job.
+/// pending, even if the worker is still finishing a previous job. For a new
+/// local capture, the two queue entries receive increasing ready-at
+/// timestamps, so the single job worker takes the diarization pass before the
+/// summary pass; if the former declines, the latter still runs from the
+/// unchanged transcript. A manual summary retry queues only the summary job.
 pub(crate) fn queue_post_meeting(
     app: &tauri::AppHandle,
     engine: &crate::job_engine::JobEngine,
     project_id: &str,
     recording_id: &str,
+    include_diarization: bool,
 ) {
     let emit = |state: &str, detail: Option<String>| {
         let _ = app.emit(
@@ -1100,15 +1116,40 @@ pub(crate) fn queue_post_meeting(
             },
         );
     };
-    match engine.enqueue(
-        crate::job_engine::JobKind::SummaryGenerate,
-        project_id,
-        Some(recording_id),
-    ) {
-        Ok(_) => emit("running", Some("กำลังสรุปการประชุม...".to_string())),
-        // A queue that cannot accept work is a failure the user must see;
-        // silently dropping it is how the summary went missing before.
-        Err(error) => emit("failed", Some(format!("เข้าคิวสรุปไม่สำเร็จ: {error}"))),
+    let mut diarization_error = None;
+    let mut summary_error = None;
+    let job_order = if include_diarization {
+        post_meeting_job_order().to_vec()
+    } else {
+        vec![crate::job_engine::JobKind::SummaryGenerate]
+    };
+    for kind in job_order {
+        match engine.enqueue(kind, project_id, Some(recording_id)) {
+            Ok(_) if kind == crate::job_engine::JobKind::SummaryGenerate => {}
+            Ok(_) => {}
+            Err(error) if kind == crate::job_engine::JobKind::SpeakerDiarize => {
+                // The summary remains useful without speaker labels. Keep
+                // queueing it even when the optional stage cannot be filed.
+                diarization_error = Some(error);
+            }
+            Err(error) => summary_error = Some(error),
+        }
+    }
+
+    match summary_error {
+        None => {
+            let detail = match diarization_error {
+                Some(error) => format!("กำลังสรุปการประชุม... (ข้ามแยกผู้พูด: {error})"),
+                None => "กำลังแยกผู้พูดและสรุปการประชุม...".to_string(),
+            };
+            emit("running", Some(detail));
+        }
+        Some(error) => {
+            // A queue that cannot accept the summary is a failure the user
+            // must see; silently dropping it is how the summary went missing
+            // before. The optional speaker job, if queued, may still finish.
+            emit("failed", Some(format!("เข้าคิวสรุปไม่สำเร็จ: {error}")));
+        }
     }
 }
 
@@ -1589,13 +1630,28 @@ pub(crate) fn generate_meeting_summary(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
-    queue_post_meeting(&app, &state.jobs, &project_id, &recording_id);
+    queue_post_meeting(&app, &state.jobs, &project_id, &recording_id, false);
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn post_meeting_pipeline_diarizes_before_summary_without_new_job_types() {
+        assert_eq!(
+            post_meeting_job_order(),
+            [
+                crate::job_engine::JobKind::SpeakerDiarize,
+                crate::job_engine::JobKind::SummaryGenerate,
+            ]
+        );
+        assert_eq!(
+            post_meeting_job_order().map(crate::job_engine::JobKind::as_str),
+            ["speakers.diarize", "summary.generate"]
+        );
+    }
 
     /// A summary row as the ledger returns it.
     fn summary(id: &str, kind: &str, run: &str, created_at: &str) -> serde_json::Value {

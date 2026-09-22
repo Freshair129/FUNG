@@ -68,12 +68,17 @@ pub(crate) struct CloudConfigValidation {
 }
 
 impl CloudProviderConfig {
-    pub(crate) fn validate(&self) -> CloudConfigValidation {
+    pub(crate) fn has_configured_api_key(&self) -> bool {
         let key = match self {
-            Self::Anthropic { api_key, .. } | Self::OpenAi { api_key, .. } => api_key,
-            Self::Custom { api_key, .. } => api_key,
+            Self::Anthropic { api_key, .. }
+            | Self::OpenAi { api_key, .. }
+            | Self::Custom { api_key, .. } => api_key,
         };
-        if key.trim().is_empty() {
+        !key.trim().is_empty()
+    }
+
+    pub(crate) fn validate(&self) -> CloudConfigValidation {
+        if !self.has_configured_api_key() {
             return CloudConfigValidation {
                 ok: false,
                 error: Some("ต้องระบุ API key".into()),
@@ -121,9 +126,11 @@ pub(crate) fn save_cloud_config(slot: &str, config: &CloudProviderConfig) -> Res
 
 pub(crate) fn load_cloud_config(slot: &str) -> Result<Option<CloudProviderConfig>, String> {
     match keyring_entry(slot)?.get_password() {
-        Ok(payload) => serde_json::from_str(&payload)
-            .map(Some)
-            .map_err(|e| e.to_string()),
+        Ok(payload) => {
+            let config: CloudProviderConfig =
+                serde_json::from_str(&payload).map_err(|e| e.to_string())?;
+            Ok(config.has_configured_api_key().then_some(config))
+        }
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(error.to_string()),
     }
@@ -149,6 +156,17 @@ mod tests {
         let result = config.validate();
         assert!(!result.ok);
         assert!(result.error.as_deref().unwrap().contains("API key"));
+    }
+
+    #[test]
+    fn whitespace_key_is_not_configured() {
+        let config = CloudProviderConfig::Custom {
+            endpoint: "https://example.com/stt".into(),
+            api_key: " \t\n ".into(),
+            task_kind: CloudTaskKind::Stt,
+        };
+        assert!(!config.has_configured_api_key());
+        assert!(!config.validate().ok);
     }
 
     #[test]

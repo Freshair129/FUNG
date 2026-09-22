@@ -1038,7 +1038,7 @@ fn receive_and_transcribe(
 /// `cloud-stt-anthropic` entry to consult.
 ///
 /// `Ok(None)` means the user simply has not configured a cloud STT key. That
-/// is not an error here: it is fed to `decide_cloud_tier` as
+/// is not an error here: it is fed to `reserve_cloud_call` as
 /// `key_configured: false`, which turns it into a `no_key_configured` block
 /// alongside the other policy reasons, so the peer gets one consistent
 /// "cloud is not available and here's why" answer.
@@ -1050,7 +1050,7 @@ fn resolve_stt_cloud_config() -> Result<Option<crate::cloud_config::CloudProvide
             .expect("test cloud config mutex poisoned")
             .clone()
         {
-            return Ok(Some(config));
+            return Ok(config.has_configured_api_key().then_some(config));
         }
     }
 
@@ -1072,13 +1072,13 @@ fn resolve_stt_cloud_config() -> Result<Option<crate::cloud_config::CloudProvide
 /// ones the local path already uses.
 ///
 /// ## Policy is consulted before anything leaves the machine
-/// `decide_cloud_tier` runs first, against the desktop's own tier policy: the
+/// `reserve_cloud_call` runs first, against the desktop's own tier policy: the
 /// STT-cloud toggle, whether a key is configured at all, and the daily cap.
-/// A `Blocked` decision returns that decision's reason verbatim as the error
-/// code (`cloud_disabled`, `no_key_configured`, `cap_reached`) with no network
-/// call and no audio upload. The daily counter is incremented only *after*
-/// `dispatch_stt` comes back with a transcript, so a failed call never eats
-/// the user's quota.
+/// Its `BEGIN IMMEDIATE` transaction commits the reservation before any
+/// network call; a blocked or persistence-failed admission returns its reason
+/// as the error code (`cloud_disabled`, `no_key_configured`, `cap_reached`, or
+/// `policy_error`) with no audio upload. A provider failure retains its
+/// reservation because the slot was already committed before egress.
 ///
 /// ## One file, not many (the concat step)
 /// FUNG's local pipeline is built around many short segments; every cloud STT
@@ -1129,31 +1129,20 @@ fn dispatch_cloud_stt(
 ) -> Result<(i64, Vec<Segment>), JobFailure> {
     let policy_conn = crate::paired_devices_connection_at(data_root)
         .map_err(|e| JobFailure::Failed("io_error".into(), e.to_string()))?;
-    let policy = crate::policy::load_policy(&policy_conn)
-        .map_err(|e| JobFailure::Failed("policy_error".into(), e))?;
-    let calls_today =
-        crate::policy::calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt)
-            .map_err(|e| JobFailure::Failed("policy_error".into(), e))?;
     let config =
         resolve_stt_cloud_config().map_err(|e| JobFailure::Failed("policy_error".into(), e))?;
-
-    let decision = crate::policy::decide_cloud_tier(
-        &policy,
+    crate::policy::reserve_cloud_call(
+        &policy_conn,
         crate::cloud_config::CloudTaskKind::Stt,
-        calls_today,
         config.is_some(),
-    );
-    let config = match decision {
-        crate::policy::TierDecision::Blocked { reason } => {
-            return Err(JobFailure::Failed(
-                reason.to_string(),
-                "cloud tier blocked by policy".into(),
-            ));
-        }
-        crate::policy::TierDecision::Allow => {
-            config.expect("decide_cloud_tier only returns Allow when key_configured was true")
-        }
-    };
+    )
+    .map_err(|error| JobFailure::Failed(error.code().into(), error.to_string()))?;
+    let config = config.ok_or_else(|| {
+        JobFailure::Failed(
+            "no_key_configured".into(),
+            "cloud admission completed without a configured provider".into(),
+        )
+    })?;
 
     channel
         .send(&Control::Progress {
@@ -1191,9 +1180,8 @@ fn dispatch_cloud_stt(
 
     // A keepalive that fails means the peer is gone. We record it and stop
     // writing, but keep waiting for the worker rather than returning
-    // immediately: the request is already in flight and will consume the
-    // user's quota whether or not anyone is left to receive the answer, so
-    // bailing out here would under-count `calls_today` against the daily cap.
+    // immediately: the reservation was already committed before the request
+    // went in flight, whether or not anyone is left to receive the answer.
     let mut transport_error: Option<String> = None;
     // Not a `while let`: the loop body runs on *both* the "still working" arms
     // as well as ticking the keepalive, so collapsing it would drop the
@@ -1224,14 +1212,6 @@ fn dispatch_cloud_stt(
             "cloud worker thread panicked".into(),
         )
     })??;
-
-    // Success: the call happened and counts against today's cap, even if the
-    // peer disappeared while it was in flight. A successful cloud result is
-    // not discarded merely because writing today's usage count failed -- the
-    // spend guardrail is a rate limit, not a correctness invariant (mirrors
-    // cloud_executor::call_llm_with_fallback's LLM path).
-    let _ =
-        crate::policy::increment_calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt);
 
     if let Some(e) = transport_error {
         return Err(JobFailure::Failed("transport_error".into(), e));
@@ -2455,6 +2435,36 @@ mod tests {
         (addr, contacted)
     }
 
+    #[test]
+    fn whitespace_stt_key_is_not_resolved_or_dispatched() {
+        let _cloud_seam = CLOUD_STT_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let (addr, contacted) = contact_tracking_stt_server();
+        let config = crate::cloud_config::CloudProviderConfig::Custom {
+            endpoint: format!("http://{addr}/stt"),
+            api_key: " \t\n ".into(),
+            task_kind: crate::cloud_config::CloudTaskKind::Stt,
+        };
+        set_test_stt_cloud_config(Some(config.clone()));
+        assert!(
+            resolve_stt_cloud_config().unwrap().is_none(),
+            "a whitespace key must be treated as no configured STT provider"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let audio_path = dir.path().join("test.wav");
+        std::fs::write(&audio_path, b"fake-wav-bytes").unwrap();
+        let error = crate::cloud_executor::dispatch_stt(&config, &audio_path).unwrap_err();
+        assert_eq!(error, "cloud provider API key is not configured");
+        assert!(
+            !contacted.load(Ordering::SeqCst),
+            "an invalid STT config must not contact its provider"
+        );
+
+        set_test_stt_cloud_config(None);
+    }
+
     /// The negative of `cloud_executor_job_dispatches_via_cloud_executor_not_local_pipeline`:
     /// when the desktop's tier policy says no, the job must fail with the
     /// policy's own reason code **and no audio may leave the machine**.
@@ -2589,21 +2599,12 @@ mod tests {
         set_test_stt_cloud_config(None);
     }
 
-    /// A successful cloud STT call must not be discarded just because the
-    /// follow-up write to today's usage counter fails (e.g. a transient
-    /// SQLite error) -- mirrors `cloud_executor::call_llm_with_fallback`'s
-    /// LLM path, which already treats the spend guardrail as best-effort.
-    ///
-    /// The failure is injected with a `BEFORE INSERT` trigger that aborts
-    /// every write to `cloud_call_counter`, rather than the
-    /// drop-and-recreate-with-a-missing-column technique
-    /// `policy::calls_today_fails_closed_on_real_db_errors` uses: that
-    /// technique breaks the `SELECT` `calls_today` runs too, which would
-    /// fail the job before it ever reached the cloud call and defeat the
-    /// point of this test. The trigger breaks only the `INSERT` that
-    /// `increment_calls_today` issues.
+    /// A failed counter reservation must fail closed before a cloud provider
+    /// is contacted. The `BEFORE INSERT` trigger makes the admission write
+    /// fail while leaving the policy tables readable, so this proves the
+    /// provider is not contacted when the reservation cannot commit.
     #[test]
-    fn cloud_stt_result_survives_a_failed_counter_increment() {
+    fn cloud_stt_counter_persistence_failure_blocks_egress() {
         let _cloud_seam = CLOUD_STT_TEST_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -2629,9 +2630,7 @@ mod tests {
         .unwrap();
 
         // save_policy's ensure_policy_tables already created cloud_call_counter;
-        // now make every insert into it fail, while leaving it fully readable
-        // (so calls_today's SELECT -- run before increment_calls_today --
-        // still succeeds and the job reaches the actual cloud dispatch).
+        // now make the admission insert fail while leaving the policy readable.
         policy_conn
             .execute_batch(
                 "CREATE TRIGGER block_counter_insert BEFORE INSERT ON cloud_call_counter \
@@ -2639,7 +2638,7 @@ mod tests {
             )
             .unwrap();
 
-        let addr = one_shot_stt_server();
+        let (addr, contacted) = contact_tracking_stt_server();
         set_test_stt_cloud_config(Some(crate::cloud_config::CloudProviderConfig::Custom {
             endpoint: format!("http://{addr}/stt"),
             api_key: "test-key".into(),
@@ -2705,30 +2704,30 @@ mod tests {
             other => panic!("expected receiving Progress, got {other:?}"),
         }
 
-        let transcribing_percents = recv_transcribing_progress_until_done(&mut channel);
-        assert_eq!(*transcribing_percents.last().unwrap(), 100);
-
-        // The point of the test: despite the counter write failing, the
-        // paid-for cloud transcript must still come back as a Result, not be
-        // thrown away behind a policy_error.
         match channel.recv_control().unwrap() {
-            Control::Result {
-                job_id, segments, ..
-            } => {
+            Control::Error { job_id, code, .. } => {
                 assert_eq!(job_id, "job-cloud-counter-fail");
-                assert_eq!(segments.len(), 1);
-                assert_eq!(segments[0].text, "cloud result");
+                assert_eq!(code, "policy_error");
             }
-            other => panic!(
-                "a successful cloud dispatch must survive a failed counter increment, got {other:?}"
-            ),
+            other => panic!("expected policy_error before cloud egress, got {other:?}"),
         }
 
         drop(channel);
         let result = server_thread.join().unwrap();
         assert!(
             result.is_ok(),
-            "cloud job loop should exit cleanly: {result:?}"
+            "fail-closed cloud job loop should exit cleanly: {result:?}"
+        );
+
+        assert!(
+            !contacted.load(Ordering::SeqCst),
+            "a failed admission must not open a connection to the cloud provider"
+        );
+        assert_eq!(
+            crate::policy::calls_today(&policy_conn, crate::cloud_config::CloudTaskKind::Stt)
+                .unwrap(),
+            0,
+            "a failed reservation must not increment the counter"
         );
 
         set_test_stt_cloud_config(None);

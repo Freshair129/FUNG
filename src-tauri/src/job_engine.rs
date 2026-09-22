@@ -213,7 +213,9 @@ impl JobFailure {
 /// one burns the local model and — for any handler whose idempotency the
 /// engine has mis-assumed — risks duplicating output.
 ///
-/// The transient markers are the ones `graph_build::send_error_message` and
+/// Cloud admission has an explicit non-retryable prefix because its error may
+/// originate from a local transport failure that is otherwise retryable. The
+/// transient markers are the ones `graph_build::send_error_message` and
 /// `call_llm` actually produce; `cloud_executor::is_connection_error` keys
 /// off the same "LLM endpoint unreachable" text, so the three must not
 /// drift apart.
@@ -224,7 +226,9 @@ pub(crate) fn classify(message: &str) -> JobFailure {
         "LLM endpoint returned 5",
         "worker failure",
     ];
-    if TRANSIENT.iter().any(|marker| message.contains(marker)) {
+    if message.starts_with(crate::cloud_executor::CLOUD_ADMISSION_NON_RETRYABLE_PREFIX) {
+        JobFailure::permanent("cloud_admission_blocked", message)
+    } else if TRANSIENT.iter().any(|marker| message.contains(marker)) {
         JobFailure::transient("provider_unavailable", message)
     } else {
         JobFailure::permanent("job_failed", message)
@@ -1120,6 +1124,23 @@ mod tests {
         ] {
             assert!(classify(message).retryable, "{message} must be retryable");
         }
+    }
+
+    #[test]
+    fn cloud_admission_marker_overrides_a_local_transport_marker() {
+        let admission = format!(
+            "{}cloud_disabled: local LLM endpoint unreachable",
+            crate::cloud_executor::CLOUD_ADMISSION_NON_RETRYABLE_PREFIX
+        );
+        let failure = classify(&admission);
+        assert_eq!(failure.code, "cloud_admission_blocked");
+        assert!(!failure.retryable);
+        assert!(matches!(
+            next_step(Err(failure), 1, false),
+            NextStep::Fail(_)
+        ));
+
+        assert!(classify("LLM endpoint unreachable at 127.0.0.1").retryable);
     }
 
     #[test]

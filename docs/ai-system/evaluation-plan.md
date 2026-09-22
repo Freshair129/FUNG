@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.2.0b"
 created_at: "2026-08-23T01:15:22+07:00,ATHER"
-last_update: "2026-08-23T01:15:22+07:00,ATHER"
+last_update: "2026-09-21T03:58:31+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -59,6 +59,24 @@ A model may be promoted only when the owner can answer:
 
 If any answer is unknown, status remains `evaluating` or `candidate`.
 
+## Meeting intelligence qualification — candidate extension
+
+Use the requirement/test matrices in [Live transcript](../specs/2026-09-21-live-meeting-transcription-spec.md), [Knowledge evidence](../specs/2026-09-21-meeting-knowledge-evidence-spec.md), [Meeting Agent](../specs/2026-09-21-meeting-agent-participation-spec.md) and [Google Meet strategy](../decisions/2026-09-21-google-meet-agent-api-strategy.md).
+
+| Track | Measure separately |
+| --- | --- |
+| Live ASR | WER/CER, first-partial and durable-final latency, RTF, churn, coverage/gaps, 3-hour CPU/GPU soak |
+| API source attribution | misattributed duration, unmapped duration, shared-room ambiguity, rejoin/track-slot changes; not biometric accuracy |
+| Voice recognition | false accept/reject/unknown, calibrated thresholds and consent-scoped gallery; not required for API-attributed MVP |
+| Knowledge | relevant evidence retrieval, claim support/citation correctness, company/fiscal year/unit consistency, numeric exactness |
+| Proactive agent | relevant/irrelevant triggers, interruptions/hour, stale/self-echo suppression, response latency and cost |
+| Publication | wrong-room/unauthorized-source exposure, duplicate sends, unknown-send reconciliation, revoke races and real recipient access |
+| Operations | actual admission/chat/media permissions, provider/gateway outage, lease cleanup and deletion receipts |
+
+Release safety fixtures require zero unauthorized/wrong-room sends and zero silent duplicate publications in the defined suite. This is a required test result, not a measured result or statistical guarantee. Quality scores and numeric latency budgets in new specs are candidate targets requiring approved datasets/hardware.
+
+Evidence layers must stay separate: document validation, unit/contract fixtures, local integration, real vendor API, real Google Meet room, packaged Desktop and deployed gateway. No mocked event stream, Google Chat message or private local draft closes same-Meet delivery acceptance.
+
 ## Evidence naming
 
 Use a stable, reviewable pattern such as:
@@ -70,8 +88,15 @@ verification/ai/<model-or-run>/<yyyy-mm-dd>-<dataset-version>-<run-id>/
 Keep raw sensitive inputs out of source control; store only approved references,
 metrics, manifests, and redacted examples.
 
+## Version Diff
+
+| Version | Change |
+| --- | --- |
+| 0.2.0b | Added live/API-attribution, grounded-knowledge, proactive-agent and same-room delivery qualification tracks. |
+
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.0b | 2026-09-21 | candidate | Added live/API-attribution, grounded-knowledge, proactive-agent and same-room delivery qualification tracks. | working-tree | RWANG |
 | 0.1.0b | 2026-08-23 | candidate | Added AI quality, performance, safety, and reproducibility gates. | pending | ATHER |

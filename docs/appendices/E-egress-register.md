@@ -1,3 +1,15 @@
+---
+version: "0.1.0b"
+created_at: "2026-09-21T03:45:30+07:00,RWANG,base-b336f33"
+last_update: "2026-09-21T03:58:31+07:00,RWANG"
+status: "candidate"
+superseded_by: null
+attributes:
+  domain: "privacy-and-egress"
+  doc_type: "egress-register"
+  scope: "Audited historical paths and separately proposed meeting-agent paths"
+---
+
 # Appendix E — Network egress register
 
 Google Drive egress was removed from the active product on 2026-09-17. Any
@@ -336,6 +348,30 @@ quietly is not the safer failure.
 
 ---
 
+## Candidate meeting-agent paths — NOT_IMPLEMENTED / NOT_AUDITED
+
+This section records proposed paths, not network paths found in the historical audit above. No deployment, provider account/media call or packet-capture test occurred in the documentation task.
+
+Authority: [Google Meet API decision](../decisions/2026-09-21-google-meet-agent-api-strategy.md), [Meeting Agent spec](../specs/2026-09-21-meeting-agent-participation-spec.md), [Knowledge evidence](../specs/2026-09-21-meeting-knowledge-evidence-spec.md).
+
+| Proposed path | Data / direction | Required gate and limit |
+| --- | --- | --- |
+| Official Meet media client | OAuth/control/metrics out; audio/participant metadata in | narrow scopes, preview/tenant eligibility, consent; secrets not in logs |
+| Managed bot control | selected meeting URL, bot identity, lifecycle config out to provider | explicit online-media/session grant, provider/region/billing/retention approval |
+| Managed meeting media | Meet media/participant/chat -> vendor -> approved gateway -> Desktop | visible disclosure; local ASR does not remove vendor access; signatures/tenant scope |
+| Gateway Desktop transport | authenticated outbound WSS control/heartbeat; scoped media/events return | public ingress separately deployed, no local API exposure; bounded encrypted buffer |
+| External knowledge content read | selected query/document refs out; bounded content in | independent content capability/approval; metadata search permission is insufficient |
+| Cloud model inference, if opted in | selected excerpts/question -> approved provider | independent BYOM/egress grant; no entire transcript/corpus by default |
+| Same-Meet publication | approved answer/citation/link -> gateway/provider -> bound room chat | exact payload + audience/share/source/freshness policy; outbox/receipt |
+| Artifact hosting / native upload | approved redacted excerpt or explicitly allowed file out | separate sharing grant, ACL/expiry/MIME/size; no public default or local path masquerading as attachment |
+| Agent audio output, optional | generated TTS audio out | separate rights and output capability; no voiceprint/enrollment samples |
+
+All new paths default OFF and require implementation/security/real-provider evidence. Provider credentials use appropriate keyring/server secret store. Google Chat is a separate egress destination, not an implicit Meet fallback. The canceled Google Drive backup path remains canceled.
+
+Retention/delete: vendor media, gateway spool, published artifacts and recipients' copies are distinct custody domains. Record supported minimum retention, deletion outcome and remaining copies; do not assert local delete retracts remote content. Gateway control journal exists only for stop/reconciliation, not transcript/knowledge storage.
+
+Required negative verification: local-only zero new egress; no bytes before applicable approval; wrong tenant/room rejected; revoked grant blocks queued send; no tokens/voice embeddings in payloads; crash/lease cleanup; uncertain send not duplicated; actual remote recipient access checked.
+
 ## 4. Open gaps
 
 - **`model_providers.runtime_location` is a label, not a constraint.** §1.3.
@@ -375,3 +411,15 @@ quietly is not the safer failure.
   bundled Whisper model previously might have downloaded one; it now fails.
   That is the intended direction, and it has not been observed on a real
   broken install.
+
+## Version Diff
+
+| Version | Change |
+| --- | --- |
+| unversioned → 0.1.0b | Added metadata and a separately labelled candidate meeting-media/gateway/publication register; historical audit is unchanged. |
+
+## CHANGELOG
+
+| Version | Date | Status | Summary | Commit Hash | Agent |
+| --- | --- | --- | --- | --- | --- |
+| 0.1.0b | 2026-09-21 | candidate | Registered proposed Meet/API/agent data flows without claiming runtime or packet-capture verification. | working-tree; base b336f33 | RWANG |

@@ -26,6 +26,7 @@
     "test:recovery": "node --test --experimental-strip-types tests/recoveryFlow.test.mjs",
     "test:desktop-bootstrap": "node --test --experimental-strip-types tests/desktopBootstrap.test.mjs",
     "test:release": "node --test --experimental-strip-types tests/releaseDistribution.test.mjs",
+    "test:meeting-intelligence-contract": "node --test tests/meetingIntelligenceContract.test.mjs",
     "test:external-tools": "node --test --experimental-strip-types tests/externalMeetingTools.test.mjs",
     "test:traceability": "node --test tests/traceabilityAnnotations.test.mjs",
     "test:job-actions": "node --test --experimental-strip-types tests/jobActions.test.mjs",

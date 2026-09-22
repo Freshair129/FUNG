@@ -1020,7 +1020,10 @@ fn schema_v11() -> RelationalSchemaPackage {
                 required("created_at", Text),
                 required("updated_at", Text),
             ],
-            vec![fk("project_id", "projects"), fk("recording_id", "recordings")],
+            vec![
+                fk("project_id", "projects"),
+                fk("recording_id", "recordings"),
+            ],
             vec![RelationalIndex {
                 name: "idx_meeting_sessions_recording_generation".to_string(),
                 columns: vec!["recording_id".to_string(), "session_generation".to_string()],
@@ -1978,9 +1981,8 @@ fn sha256_file(path: &str) -> Result<(i64, String), String> {
     if !candidate.is_absolute() || path.contains("://") || path.starts_with("\\\\") {
         return Err("audio custody path must be an absolute local path".to_string());
     }
-    let before = std::fs::metadata(candidate).map_err(|error| {
-        format!("audio custody file is not finalized/readable: {error}")
-    })?;
+    let before = std::fs::metadata(candidate)
+        .map_err(|error| format!("audio custody file is not finalized/readable: {error}"))?;
     if !before.is_file() || before.len() == 0 {
         return Err("audio custody file must be a non-empty regular file".to_string());
     }
@@ -2085,7 +2087,9 @@ fn verify_audio_coverage(
     }
     let (actual_byte_size, actual_checksum) = sha256_file(&stored_path)?;
     if actual_byte_size != stored_byte_size || actual_checksum != stored_checksum {
-        return Err("audio chunk checksum or byte size does not match the finalized file".to_string());
+        return Err(
+            "audio chunk checksum or byte size does not match the finalized file".to_string(),
+        );
     }
     Ok(VerifiedSourceCoverage {
         id: source.id.clone(),
@@ -2179,10 +2183,8 @@ fn require_meeting_scope(storage: &Storage, scope: &MeetingScope) -> Result<(), 
             &source_session,
             "meeting_source_sessions.meeting_session_id",
         )? != scope.meeting_session_id
-        || integer(
-            &source_session,
-            "meeting_source_sessions.source_generation",
-        )? != scope.source_generation
+        || integer(&source_session, "meeting_source_sessions.source_generation")?
+            != scope.source_generation
     {
         return Err("source session scope/generation mismatch".to_string());
     }
@@ -2268,7 +2270,8 @@ fn check_coverage_conflicts(
     let mut audio_spans = Vec::new();
     for row in &existing {
         let same_scope = string(row, "meeting_source_coverage.track_id")? == scope.track_id
-            && integer(row, "meeting_source_coverage.source_generation")? == scope.source_generation;
+            && integer(row, "meeting_source_coverage.source_generation")?
+                == scope.source_generation;
         if !same_scope {
             continue;
         }
@@ -2286,8 +2289,8 @@ fn check_coverage_conflicts(
                 }
                 continue;
             }
-            let same_sequence = integer(row, "meeting_source_coverage.sequence_no")?
-                == source.sequence_no;
+            let same_sequence =
+                integer(row, "meeting_source_coverage.sequence_no")? == source.sequence_no;
             let overlaps = integer(row, "meeting_source_coverage.start_ms")? < source.end_ms
                 && source.start_ms < integer(row, "meeting_source_coverage.end_ms")?;
             if same_sequence || overlaps {
@@ -2313,36 +2316,34 @@ fn check_revision_conflicts(
     let rows = query_all(
         storage,
         "transcript_revisions",
-        &[
-            "id",
-            "revision",
-            "origin",
-            "review_state",
-            "payload_hash",
-        ],
+        &["id", "revision", "origin", "review_state", "payload_hash"],
         vec![
-                eq(
-                    "transcript_revisions",
-                    "meeting_session_id",
-                    json!(&request.scope.meeting_session_id),
-                ),
-                eq(
-                    "transcript_revisions",
-                    "utterance_id",
-                    json!(&request.revision.utterance_id),
-                ),
+            eq(
+                "transcript_revisions",
+                "meeting_session_id",
+                json!(&request.scope.meeting_session_id),
+            ),
+            eq(
+                "transcript_revisions",
+                "utterance_id",
+                json!(&request.revision.utterance_id),
+            ),
         ],
     )?;
     if rows.iter().any(|row| {
-        row.get("transcript_revisions.id")
-            .and_then(Value::as_str)
+        row.get("transcript_revisions.id").and_then(Value::as_str)
             == Some(request.revision.id.as_str())
     }) {
-        return Err("transcript revision identity already exists; reconcile exact attempt".to_string());
+        return Err(
+            "transcript revision identity already exists; reconcile exact attempt".to_string(),
+        );
     }
     let current = rows
         .iter()
-        .filter_map(|row| row.get("transcript_revisions.revision").and_then(Value::as_i64))
+        .filter_map(|row| {
+            row.get("transcript_revisions.revision")
+                .and_then(Value::as_i64)
+        })
         .max()
         .unwrap_or(0);
     if request.revision.revision != current + 1 {
@@ -2351,9 +2352,7 @@ fn check_revision_conflicts(
     if request.revision.expected_revision != Some(current) && request.revision.revision > 1 {
         return Err("REVISION_CONFLICT: expectedRevision is stale or missing".to_string());
     }
-    if request.revision.origin.is_manual()
-        && request.revision.expected_revision != Some(current)
-    {
+    if request.revision.origin.is_manual() && request.revision.expected_revision != Some(current) {
         return Err("REVISION_CONFLICT: manual correction requires expectedRevision".to_string());
     }
     let current_review_state = rows
@@ -2363,10 +2362,15 @@ fn check_revision_conflicts(
                 .and_then(Value::as_i64)
                 == Some(current)
         })
-        .filter_map(|row| row.get("transcript_revisions.review_state").and_then(Value::as_str))
+        .filter_map(|row| {
+            row.get("transcript_revisions.review_state")
+                .and_then(Value::as_str)
+        })
         .next();
     if current_review_state == Some("reviewed") && !request.revision.origin.is_manual() {
-        return Err("REVISION_CONFLICT: late ASR/refinement cannot overwrite manual correction".to_string());
+        return Err(
+            "REVISION_CONFLICT: late ASR/refinement cannot overwrite manual correction".to_string(),
+        );
     }
     if request.revision.origin.is_manual() && request.revision.review_state != "reviewed" {
         return Err("manual correction must create a reviewed revision".to_string());
@@ -2395,9 +2399,9 @@ fn check_knowledge_scope(storage: &Storage, request: &AtomicMeetingRequest) -> R
         )],
         1,
     )?
-        .into_iter()
-        .next()
-        .ok_or_else(|| "knowledge evidence references a missing collection".to_string())?;
+    .into_iter()
+    .next()
+    .ok_or_else(|| "knowledge evidence references a missing collection".to_string())?;
     if collection
         .get("knowledge_collections.project_id")
         .filter(|value| !value.is_null())
@@ -2441,7 +2445,8 @@ fn check_knowledge_scope(storage: &Storage, request: &AtomicMeetingRequest) -> R
     .next()
     .ok_or_else(|| "knowledge evidence references a missing document version".to_string())?;
     if string(&version, "knowledge_document_versions.document_id")? != knowledge.document_id
-        || string(&version, "knowledge_document_versions.version_label")? != knowledge.source_version
+        || string(&version, "knowledge_document_versions.version_label")?
+            != knowledge.source_version
         || string(&version, "knowledge_document_versions.state")? != "active"
     {
         return Err("knowledge document version is not currently readable".to_string());
@@ -2451,11 +2456,7 @@ fn check_knowledge_scope(storage: &Storage, request: &AtomicMeetingRequest) -> R
             storage,
             "knowledge_evidence_bundles",
             &["project_id", "meeting_session_id", "state", "share_state"],
-            vec![eq(
-                "knowledge_evidence_bundles",
-                "id",
-                json!(bundle_id),
-            )],
+            vec![eq("knowledge_evidence_bundles", "id", json!(bundle_id))],
             1,
         )?
         .into_iter()
@@ -2470,7 +2471,9 @@ fn check_knowledge_scope(storage: &Storage, request: &AtomicMeetingRequest) -> R
             || string(&bundle, "knowledge_evidence_bundles.state")? == "revoked"
             || string(&bundle, "knowledge_evidence_bundles.share_state")? == "denied"
         {
-            return Err("knowledge evidence bundle is outside the current read/share scope".to_string());
+            return Err(
+                "knowledge evidence bundle is outside the current read/share scope".to_string(),
+            );
         }
     }
     Ok(())
@@ -2510,9 +2513,9 @@ struct LocalOwnerVaultAuthority {
 }
 
 const MAX_LOCAL_OWNER_AUTHORITIES: usize = 128;
-static LOCAL_OWNER_AUTHORITIES:
-    OnceLock<Mutex<HashMap<LocalOwnerAuthorityKey, Weak<LocalOwnerVaultAuthority>>>> =
-    OnceLock::new();
+static LOCAL_OWNER_AUTHORITIES: OnceLock<
+    Mutex<HashMap<LocalOwnerAuthorityKey, Weak<LocalOwnerVaultAuthority>>>,
+> = OnceLock::new();
 
 fn canonical_data_root(storage: &Storage) -> Result<PathBuf, String> {
     std::fs::canonicalize(&storage.path)
@@ -2794,14 +2797,15 @@ fn revalidate_native_local_owner_session_under_fence(
     .into_iter()
     .next()
     .ok_or_else(|| "native local-owner vault is missing".to_string())?;
-    let bound_account_ref = optional_row_value(&vault, "identity_vaults.bound_account_ref")
-        .and_then(Value::as_str);
-    if string(&vault, "identity_vaults.owner_principal_ref")?
-        != session.context.owner_principal_ref
+    let bound_account_ref =
+        optional_row_value(&vault, "identity_vaults.bound_account_ref").and_then(Value::as_str);
+    if string(&vault, "identity_vaults.owner_principal_ref")? != session.context.owner_principal_ref
         || bound_account_ref != session.context.account_ref.as_deref()
         || string(&vault, "identity_vaults.state")? != "active"
     {
-        return Err("native local-owner vault is locked, revoked, or outside the trusted owner".to_string());
+        return Err(
+            "native local-owner vault is locked, revoked, or outside the trusted owner".to_string(),
+        );
     }
     if let Some(bound_account_ref) = bound_account_ref {
         if current_witness.native_user_id.as_deref() != Some(bound_account_ref)
@@ -2846,7 +2850,9 @@ fn resolve_native_identity_context(
         })
         .collect::<Vec<_>>();
     if active.len() != 1 {
-        return Err("native local-owner vault is missing, locked, revoked, or ambiguous".to_string());
+        return Err(
+            "native local-owner vault is missing, locked, revoked, or ambiguous".to_string(),
+        );
     }
     let bound_account_ref = active[0]
         .get("identity_vaults.bound_account_ref")
@@ -2923,12 +2929,9 @@ fn identity_scope_key(scope: &MeetingScope) -> String {
 }
 
 fn reference_from_identity_row(row: &Value) -> Result<PrivateIdentityReference, String> {
-    let encrypted_blob_ref =
-        string(row, "speaker_identity_links.person_ref_ciphertext_ref")?;
-    let ciphertext_sha256 =
-        string(row, "speaker_identity_links.person_ref_ciphertext_sha256")?;
-    let envelope_json =
-        string(row, "speaker_identity_links.person_ref_ciphertext_json")?;
+    let encrypted_blob_ref = string(row, "speaker_identity_links.person_ref_ciphertext_ref")?;
+    let ciphertext_sha256 = string(row, "speaker_identity_links.person_ref_ciphertext_sha256")?;
+    let envelope_json = string(row, "speaker_identity_links.person_ref_ciphertext_json")?;
     let envelope = serde_json::from_str(&envelope_json)
         .map_err(|_| "identity envelope persistence is malformed".to_string())?;
     let reference = PrivateIdentityReference {
@@ -2937,11 +2940,8 @@ fn reference_from_identity_row(row: &Value) -> Result<PrivateIdentityReference, 
         envelope,
     };
     meeting_intelligence_schema::validate_private_identity_reference(&reference)?;
-    if let Some(row_key_ref) = optional_row_value(
-        row,
-        "speaker_identity_links.person_ref_key_ref",
-    )
-    .and_then(Value::as_str)
+    if let Some(row_key_ref) =
+        optional_row_value(row, "speaker_identity_links.person_ref_key_ref").and_then(Value::as_str)
     {
         if row_key_ref != reference.envelope.key_ref {
             return Err("identity key reference persistence mismatch".to_string());
@@ -2952,9 +2952,7 @@ fn reference_from_identity_row(row: &Value) -> Result<PrivateIdentityReference, 
     Ok(reference)
 }
 
-fn opaque_reference_payload(
-    reference: Option<&PrivateIdentityReference>,
-) -> Result<Value, String> {
+fn opaque_reference_payload(reference: Option<&PrivateIdentityReference>) -> Result<Value, String> {
     reference
         .map(|reference| {
             meeting_intelligence_schema::validate_private_identity_reference(reference)?;
@@ -3012,11 +3010,7 @@ fn check_identity_link_scope(
             "person_ref_ciphertext_json",
             "person_ref_key_ref",
         ],
-        vec![eq(
-            "speaker_identity_links",
-            "id",
-            json!(link_id),
-        )],
+        vec![eq("speaker_identity_links", "id", json!(link_id))],
         1,
     )?
     .into_iter()
@@ -3046,12 +3040,11 @@ fn check_identity_link_scope(
         1,
     )?
     .into_iter()
-        .next()
-        .ok_or_else(|| "identity vault is missing".to_string())?;
-    let bound_account_ref = optional_row_value(&vault, "identity_vaults.bound_account_ref")
-        .and_then(Value::as_str);
-    if string(&vault, "identity_vaults.owner_principal_ref")?
-        != trusted.owner_principal_ref
+    .next()
+    .ok_or_else(|| "identity vault is missing".to_string())?;
+    let bound_account_ref =
+        optional_row_value(&vault, "identity_vaults.bound_account_ref").and_then(Value::as_str);
+    if string(&vault, "identity_vaults.owner_principal_ref")? != trusted.owner_principal_ref
         || bound_account_ref != trusted.account_ref.as_deref()
         || string(&vault, "identity_vaults.state")? != "active"
     {
@@ -3060,7 +3053,9 @@ fn check_identity_link_scope(
     let stored = reference_from_identity_row(&row)?;
     if let Some(claimed) = request.attribution.person_ref_ciphertext.as_ref() {
         if claimed != &stored {
-            return Err("caller identity ciphertext claim does not match native custody".to_string());
+            return Err(
+                "caller identity ciphertext claim does not match native custody".to_string(),
+            );
         }
     }
     let context = IdentityAadContext {
@@ -3079,11 +3074,7 @@ fn check_identity_link_scope(
         storage,
         "participant_profiles",
         &["vault_id", "owner_scope", "status", "revision"],
-        vec![eq(
-            "participant_profiles",
-            "id",
-            json!(&person.profile_id),
-        )],
+        vec![eq("participant_profiles", "id", json!(&person.profile_id))],
         1,
     )?
     .into_iter()
@@ -3256,8 +3247,7 @@ fn commit_meeting_transcript_with_test_unlock_and_backend_options(
             || supplied_witness.native_user_id.is_some()
         {
             return Err(
-                "test protected identity commit requires a same-broker account guard"
-                    .to_string(),
+                "test protected identity commit requires a same-broker account guard".to_string(),
             );
         }
         Some(crate::auth_session::tests::TestAccountOperationHarness::new())
@@ -3332,7 +3322,7 @@ fn commit_meeting_transcript_with_backend_and_guard_impl(
     account_guard: Option<&crate::auth_session::AccountOperationGuard>,
     unlock: Option<(&NativeOwnerUnlockSession, &dyn LifecycleWitnessSource)>,
     test_hooks: CommitTestHooks<'_>,
-    ) -> Result<CommittedMeetingEvent, String> {
+) -> Result<CommittedMeetingEvent, String> {
     if unlock.is_some() && account_guard.is_none() {
         return Err("native account operation is unavailable".to_string());
     }
@@ -3359,8 +3349,7 @@ fn commit_meeting_transcript_with_backend_and_guard_impl(
         request.revision.end_ms,
     )?;
     check_knowledge_scope(storage, request)?;
-    let _authorized_person =
-        check_identity_link_scope(storage, request, trusted, key_backend)?;
+    let _authorized_person = check_identity_link_scope(storage, request, trusted, key_backend)?;
 
     let coverage = verified.iter().map(coverage_payload).collect::<Vec<_>>();
     let attribution = opaque_attribution_payload(&request.attribution)?;
@@ -3407,11 +3396,7 @@ fn commit_meeting_transcript_with_backend_and_guard_impl(
         storage,
         "meeting_source_cursors",
         &["last_sequence", "last_event_cursor"],
-        vec![eq(
-            "meeting_source_cursors",
-            "id",
-            json!(&cursor_id),
-        )],
+        vec![eq("meeting_source_cursors", "id", json!(&cursor_id))],
         1,
     )?
     .into_iter()
@@ -3432,7 +3417,12 @@ fn commit_meeting_transcript_with_backend_and_guard_impl(
         .min()
         .ok_or_else(|| "no verified source coverage".to_string())?;
     if first_sequence != previous_sequence + 1
-        || request.source_cursor != verified.iter().map(|source| source.sequence_no).max().unwrap()
+        || request.source_cursor
+            != verified
+                .iter()
+                .map(|source| source.sequence_no)
+                .max()
+                .unwrap()
         || request.committed_cursor != previous_event_cursor + 1
     {
         return Err("SOURCE_CURSOR_CONFLICT: source cursor is stale or has a gap".to_string());
@@ -3631,8 +3621,8 @@ fn commit_meeting_transcript_with_backend_and_guard_impl(
     });
     let commit = if let Some((session, _lifecycle_source)) = unlock {
         let expected_witness = session.account_witness.clone();
-        let account_guard = account_guard
-            .ok_or_else(|| "native account operation is unavailable".to_string())?;
+        let account_guard =
+            account_guard.ok_or_else(|| "native account operation is unavailable".to_string())?;
         let mut commit_result = None;
         let mut commit_operation = || -> Result<(), String> {
             // No broker entry is made here. The callback only records the
@@ -3657,8 +3647,8 @@ fn commit_meeting_transcript_with_backend_and_guard_impl(
                 }
             }
         };
-        let fence_result = account_guard
-            .with_account_commit_fence(&expected_witness, &mut commit_operation);
+        let fence_result =
+            account_guard.with_account_commit_fence(&expected_witness, &mut commit_operation);
         match fence_result {
             Ok(()) => commit_result
                 .expect("account commit fence returned without executing the commit")?,
@@ -4266,7 +4256,6 @@ pub(crate) fn finish_capture(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::meeting_intelligence_schema::{
         open_person_identity, seal_person_identity, validate_private_identity_reference,
         AtomicMeetingRequest, IdentityAadContext, IdentityEnvelope, InMemoryIdentityKeyBackend,
@@ -4274,6 +4263,7 @@ mod tests {
         PrivateIdentityReference, SourceCoverageInput, SourceCoverageKind, TranscriptOrigin,
         TranscriptRevisionInput,
     };
+    use super::*;
     use genesis_block_native::{BackupExportRequest, BackupRestoreRequest, OpenOptions};
     use serde::Serialize;
     use std::path::{Path, PathBuf};
@@ -4628,15 +4618,7 @@ mod tests {
         revoked_at: Option<&str>,
     ) -> Value {
         identity_link_row_with_model(
-            scope,
-            context,
-            link_id,
-            reference,
-            revision,
-            None,
-            status,
-            locked_at,
-            revoked_at,
+            scope, context, link_id, reference, revision, None, status, locked_at, revoked_at,
         )
     }
 
@@ -4738,13 +4720,12 @@ mod tests {
             owner_principal_ref: context.owner_principal_ref.clone(),
             captured_path: Arc::new(Mutex::new(None)),
         };
-        let lifecycle_source = TestLifecycleWitnessSource::new(
-            crate::auth_session::LifecycleWitness {
+        let lifecycle_source =
+            TestLifecycleWitnessSource::new(crate::auth_session::LifecycleWitness {
                 native_user_id: None,
                 account_generation: 1,
                 state: "signed_out",
-            },
-        );
+            });
         let link_id = "identity-link:11111111111111111111111111111111".to_string();
         let profile_id = "profile:22222222222222222222222222222222".to_string();
         let key_ref = format!("people_metadata:{}", "3".repeat(32));
@@ -4786,12 +4767,7 @@ mod tests {
                 ),
                 upsert(
                     "identity_vaults",
-                    identity_vault_row(
-                        &vault_id,
-                        &context.owner_principal_ref,
-                        None,
-                        "active",
-                    ),
+                    identity_vault_row(&vault_id, &context.owner_principal_ref, None, "active"),
                 ),
                 upsert(
                     "participant_profiles",
@@ -4894,16 +4870,8 @@ mod tests {
         );
     }
 
-    fn identity_attempt(
-        fixture: &IdentityFixture,
-        transaction_id: &str,
-    ) -> MeetingCommitAttempt {
-        begin_meeting_commit(
-            &fixture.storage,
-            transaction_id,
-            "2026-09-21T10:01:00Z",
-        )
-        .unwrap()
+    fn identity_attempt(fixture: &IdentityFixture, transaction_id: &str) -> MeetingCommitAttempt {
+        begin_meeting_commit(&fixture.storage, transaction_id, "2026-09-21T10:01:00Z").unwrap()
     }
 
     fn record_hook_error(slot: &Arc<Mutex<Option<String>>>, message: impl Into<String>) {
@@ -4917,9 +4885,7 @@ mod tests {
         contender_slot: &Arc<
             Mutex<
                 Option<
-                    std::thread::JoinHandle<
-                        Result<crate::auth_session::LifecycleOutcome, String>,
-                    >,
+                    std::thread::JoinHandle<Result<crate::auth_session::LifecycleOutcome, String>>,
                 >,
             >,
         >,
@@ -5021,7 +4987,10 @@ mod tests {
             .unwrap();
         assert_eq!(captured, app_data_root);
         assert_ne!(captured, storage_root);
-        assert_eq!(storage_root, std::fs::canonicalize(&fixture.storage.path).unwrap());
+        assert_eq!(
+            storage_root,
+            std::fs::canonicalize(&fixture.storage.path).unwrap()
+        );
         let path = fixture.path.clone();
         drop(fixture);
         let _ = std::fs::remove_dir_all(path);
@@ -5339,11 +5308,7 @@ mod tests {
         let (linearized_tx, linearized_rx) = std::sync::mpsc::sync_channel(1);
         let (completed_tx, completed_rx) = std::sync::mpsc::sync_channel(1);
         let contender_slot = Arc::new(Mutex::new(
-            None::<
-                std::thread::JoinHandle<
-                    Result<crate::auth_session::LifecycleOutcome, String>,
-                >,
-            >,
+            None::<std::thread::JoinHandle<Result<crate::auth_session::LifecycleOutcome, String>>>,
         ));
         let hook_error = Arc::new(Mutex::new(None::<String>));
         let contender_slot_for_hook = contender_slot.clone();
@@ -5437,11 +5402,7 @@ mod tests {
         let (linearized_tx, linearized_rx) = std::sync::mpsc::sync_channel(1);
         let (completed_tx, completed_rx) = std::sync::mpsc::sync_channel(1);
         let contender_slot = Arc::new(Mutex::new(
-            None::<
-                std::thread::JoinHandle<
-                    Result<crate::auth_session::LifecycleOutcome, String>,
-                >,
-            >,
+            None::<std::thread::JoinHandle<Result<crate::auth_session::LifecycleOutcome, String>>>,
         ));
         let hook_error = Arc::new(Mutex::new(None::<String>));
         let contender_slot_for_hook = contender_slot.clone();
@@ -5531,11 +5492,7 @@ mod tests {
         let (linearized_tx, linearized_rx) = std::sync::mpsc::sync_channel(1);
         let (completed_tx, completed_rx) = std::sync::mpsc::sync_channel(1);
         let contender_slot = Arc::new(Mutex::new(
-            None::<
-                std::thread::JoinHandle<
-                    Result<crate::auth_session::LifecycleOutcome, String>,
-                >,
-            >,
+            None::<std::thread::JoinHandle<Result<crate::auth_session::LifecycleOutcome, String>>>,
         ));
         let hook_error = Arc::new(Mutex::new(None::<String>));
         let contender_slot_for_hook = contender_slot.clone();
@@ -5671,7 +5628,10 @@ mod tests {
         assert_private_canaries_absent(&committed);
 
         for (table, id) in [
-            ("meeting_source_coverage", "coverage-event-identity-positive"),
+            (
+                "meeting_source_coverage",
+                "coverage-event-identity-positive",
+            ),
             ("transcript_revisions", "revision-event-identity-positive"),
             ("transcript_projection", "utterance-event-identity-positive"),
             ("transcript_event_log", "event-identity-positive"),
@@ -5745,11 +5705,7 @@ mod tests {
                 "person_ref_ciphertext_json",
                 "person_ref_key_ref",
             ],
-            vec![eq(
-                "speaker_identity_links",
-                "id",
-                json!(&fixture.link_id),
-            )],
+            vec![eq("speaker_identity_links", "id", json!(&fixture.link_id))],
             1,
         )
         .unwrap();
@@ -5767,11 +5723,7 @@ mod tests {
                 "status",
                 "revision",
             ],
-            vec![eq(
-                "participant_profiles",
-                "id",
-                json!(&fixture.profile_id),
-            )],
+            vec![eq("participant_profiles", "id", json!(&fixture.profile_id))],
             1,
         )
         .unwrap();
@@ -5800,7 +5752,10 @@ mod tests {
             None,
         )
         .unwrap_err();
-        assert!(changed_error.contains("EVENT_ID_CONFLICT"), "{changed_error}");
+        assert!(
+            changed_error.contains("EVENT_ID_CONFLICT"),
+            "{changed_error}"
+        );
         assert_eq!(
             query(
                 &fixture.storage,
@@ -5890,14 +5845,9 @@ mod tests {
         let mut tampered = fixture.reference.clone();
         tampered.envelope.ciphertext[0] ^= 1;
         tampered.ciphertext_sha256 = sha256_bytes(&tampered.envelope.ciphertext);
-        let tamper_error = open_person_identity(
-            &tampered,
-            &aad,
-            &fixture.link_id,
-            1,
-            &fixture.backend,
-        )
-        .unwrap_err();
+        let tamper_error =
+            open_person_identity(&tampered, &aad, &fixture.link_id, 1, &fixture.backend)
+                .unwrap_err();
         assert!(tamper_error.contains("authentication failed"));
 
         let mut swapped_scope = aad.clone();
@@ -6073,14 +6023,12 @@ mod tests {
             )],
         )
         .unwrap();
-        assert!(
-            resolve_native_identity_context(
-                &bound.storage,
-                &bound.context.owner_principal_ref,
-                None,
-            )
-            .is_err()
-        );
+        assert!(resolve_native_identity_context(
+            &bound.storage,
+            &bound.context.owner_principal_ref,
+            None,
+        )
+        .is_err());
         let bound_context = resolve_native_identity_context(
             &bound.storage,
             &bound.context.owner_principal_ref,
@@ -6088,14 +6036,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(bound_context.account_ref.as_deref(), Some("account-a"));
-        assert!(
-            resolve_native_identity_context(
-                &bound.storage,
-                &bound.context.owner_principal_ref,
-                Some("account-b"),
-            )
-            .is_err()
-        );
+        assert!(resolve_native_identity_context(
+            &bound.storage,
+            &bound.context.owner_principal_ref,
+            Some("account-b"),
+        )
+        .is_err());
         let bound_path = bound.path.clone();
         drop(bound);
         let _ = std::fs::remove_dir_all(bound_path);
@@ -6219,8 +6165,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(stale_path);
 
         for (suffix, locked_at, revoked_at, expected) in [
-            ("locked", Some("2026-09-21T10:02:00Z"), None, "active review scope"),
-            ("revoked", None, Some("2026-09-21T10:03:00Z"), "active review scope"),
+            (
+                "locked",
+                Some("2026-09-21T10:02:00Z"),
+                None,
+                "active review scope",
+            ),
+            (
+                "revoked",
+                None,
+                Some("2026-09-21T10:03:00Z"),
+                "active review scope",
+            ),
         ] {
             let guarded = identity_fixture();
             commit_rows(
@@ -7063,22 +7019,21 @@ mod tests {
             "same words",
             "unreviewed",
         );
-        let attempt = begin_meeting_commit(&storage, "n3-tx-atomic-0", "2026-09-21T10:02:00Z")
-            .unwrap();
+        let attempt =
+            begin_meeting_commit(&storage, "n3-tx-atomic-0", "2026-09-21T10:02:00Z").unwrap();
         let committed = commit_meeting_transcript(&storage, &attempt, &request).unwrap();
         assert!(!committed.idempotent);
-        assert_eq!(committed.commit_sequence, Some(committed.commit_sequence.unwrap()));
+        assert_eq!(
+            committed.commit_sequence,
+            Some(committed.commit_sequence.unwrap())
+        );
 
         for (table, id, column) in [
             ("meeting_source_coverage", "coverage-0", "id"),
             ("transcript_revisions", "revision-0", "id"),
             ("transcript_projection", "utterance-0", "id"),
             ("transcript_event_log", "event-atomic-0", "id"),
-            (
-                "meeting_source_cursors",
-                "n3-source::mic-1::1",
-                "id",
-            ),
+            ("meeting_source_cursors", "n3-source::mic-1::1", "id"),
         ] {
             assert_eq!(
                 query(
@@ -7120,11 +7075,7 @@ mod tests {
                 &reopened,
                 "transcript_event_log",
                 &["transaction_id"],
-                vec![eq(
-                    "transcript_event_log",
-                    "id",
-                    json!("event-atomic-0")
-                )],
+                vec![eq("transcript_event_log", "id", json!("event-atomic-0"))],
                 1,
             )
             .unwrap()
@@ -7165,8 +7116,8 @@ mod tests {
             "repeatable text",
             "unreviewed",
         );
-        let attempt = begin_meeting_commit(&storage, "n3-tx-idempotent", "2026-09-21T10:03:00Z")
-            .unwrap();
+        let attempt =
+            begin_meeting_commit(&storage, "n3-tx-idempotent", "2026-09-21T10:03:00Z").unwrap();
         commit_meeting_transcript(&storage, &attempt, &request).unwrap();
         let replay = commit_meeting_transcript(&storage, &attempt, &request).unwrap();
         assert!(replay.idempotent);
@@ -7239,8 +7190,8 @@ mod tests {
             "same words",
             "unreviewed",
         );
-        let first_attempt = begin_meeting_commit(&storage, "n3-tx-repeat-0", "2026-09-21T10:05:00Z")
-            .unwrap();
+        let first_attempt =
+            begin_meeting_commit(&storage, "n3-tx-repeat-0", "2026-09-21T10:05:00Z").unwrap();
         commit_meeting_transcript(&storage, &first_attempt, &first).unwrap();
 
         let second_path = add_audio_chunk(
@@ -7277,8 +7228,8 @@ mod tests {
             "same words",
             "unreviewed",
         );
-        let second_attempt = begin_meeting_commit(&storage, "n3-tx-repeat-1", "2026-09-21T10:06:00Z")
-            .unwrap();
+        let second_attempt =
+            begin_meeting_commit(&storage, "n3-tx-repeat-1", "2026-09-21T10:06:00Z").unwrap();
         commit_meeting_transcript(&storage, &second_attempt, &second).unwrap();
         let revisions = query_all(
             &storage,
@@ -7335,11 +7286,23 @@ mod tests {
             "not committed",
             "unreviewed",
         );
-        let bad_attempt = begin_meeting_commit(&storage, "n3-tx-bad-custody", "2026-09-21T10:07:00Z")
-            .unwrap();
-        let bad_error = commit_meeting_transcript(&storage, &bad_attempt, &bad_custody).unwrap_err();
-        assert!(bad_error.contains("caller audio custody assertion"), "{bad_error}");
-        assert!(query(&storage, "transcript_event_log", &["id"], vec![eq("transcript_event_log", "id", json!("event-bad-custody"))], 1).unwrap().is_empty());
+        let bad_attempt =
+            begin_meeting_commit(&storage, "n3-tx-bad-custody", "2026-09-21T10:07:00Z").unwrap();
+        let bad_error =
+            commit_meeting_transcript(&storage, &bad_attempt, &bad_custody).unwrap_err();
+        assert!(
+            bad_error.contains("caller audio custody assertion"),
+            "{bad_error}"
+        );
+        assert!(query(
+            &storage,
+            "transcript_event_log",
+            &["id"],
+            vec![eq("transcript_event_log", "id", json!("event-bad-custody"))],
+            1
+        )
+        .unwrap()
+        .is_empty());
 
         let gap = SourceCoverageInput {
             id: "coverage-gap".to_string(),
@@ -7371,10 +7334,23 @@ mod tests {
             "gap is not silence",
             "unreviewed",
         );
-        let gap_attempt = begin_meeting_commit(&storage, "n3-tx-gap", "2026-09-21T10:08:00Z").unwrap();
-        let gap_error = commit_meeting_transcript(&storage, &gap_attempt, &gap_request).unwrap_err();
-        assert!(gap_error.contains("not covered by finalized audio"), "{gap_error}");
-        assert!(query(&storage, "transcript_event_log", &["id"], vec![eq("transcript_event_log", "id", json!("event-gap"))], 1).unwrap().is_empty());
+        let gap_attempt =
+            begin_meeting_commit(&storage, "n3-tx-gap", "2026-09-21T10:08:00Z").unwrap();
+        let gap_error =
+            commit_meeting_transcript(&storage, &gap_attempt, &gap_request).unwrap_err();
+        assert!(
+            gap_error.contains("not covered by finalized audio"),
+            "{gap_error}"
+        );
+        assert!(query(
+            &storage,
+            "transcript_event_log",
+            &["id"],
+            vec![eq("transcript_event_log", "id", json!("event-gap"))],
+            1
+        )
+        .unwrap()
+        .is_empty());
 
         let valid = meeting_request(
             &scope,
@@ -7418,9 +7394,36 @@ mod tests {
         )
         .unwrap();
         let stale_error = commit_meeting_transcript(&storage, &stale_attempt, &valid).unwrap_err();
-        assert!(stale_error.contains("MEETING_COMMIT_REJECTED"), "{stale_error}");
-        assert!(query(&storage, "transcript_event_log", &["id"], vec![eq("transcript_event_log", "id", json!("event-stale-frontier"))], 1).unwrap().is_empty());
-        assert!(query(&storage, "meeting_source_coverage", &["id"], vec![eq("meeting_source_coverage", "id", json!("coverage-stale-frontier"))], 1).unwrap().is_empty());
+        assert!(
+            stale_error.contains("MEETING_COMMIT_REJECTED"),
+            "{stale_error}"
+        );
+        assert!(query(
+            &storage,
+            "transcript_event_log",
+            &["id"],
+            vec![eq(
+                "transcript_event_log",
+                "id",
+                json!("event-stale-frontier")
+            )],
+            1
+        )
+        .unwrap()
+        .is_empty());
+        assert!(query(
+            &storage,
+            "meeting_source_coverage",
+            &["id"],
+            vec![eq(
+                "meeting_source_coverage",
+                "id",
+                json!("coverage-stale-frontier")
+            )],
+            1
+        )
+        .unwrap()
+        .is_empty());
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
     }
@@ -7455,15 +7458,33 @@ mod tests {
             "draft text",
             "unreviewed",
         );
-        let first_attempt = begin_meeting_commit(&storage, "n3-tx-review-0", "2026-09-21T10:10:00Z").unwrap();
+        let first_attempt =
+            begin_meeting_commit(&storage, "n3-tx-review-0", "2026-09-21T10:10:00Z").unwrap();
         commit_meeting_transcript(&storage, &first_attempt, &first).unwrap();
 
-        let manual_path = add_audio_chunk(&storage, root.path(), "n3-chunk-review-1", 1, 1000, 2000, b"n3-review-audio-1");
+        let manual_path = add_audio_chunk(
+            &storage,
+            root.path(),
+            "n3-chunk-review-1",
+            1,
+            1000,
+            2000,
+            b"n3-review-audio-1",
+        );
         let manual_bytes = std::fs::read(&manual_path).unwrap();
         let manual = meeting_request(
             &scope,
             "event-review-1",
-            audio_source(&scope, "coverage-review-1", "n3-chunk-review-1", &manual_path, 1, 1000, 2000, Some(sha256_bytes(&manual_bytes))),
+            audio_source(
+                &scope,
+                "coverage-review-1",
+                "n3-chunk-review-1",
+                &manual_path,
+                1,
+                1000,
+                2000,
+                Some(sha256_bytes(&manual_bytes)),
+            ),
             1,
             1,
             "revision-review-1",
@@ -7475,15 +7496,33 @@ mod tests {
             "reviewed text",
             "reviewed",
         );
-        let manual_attempt = begin_meeting_commit(&storage, "n3-tx-review-1", "2026-09-21T10:11:00Z").unwrap();
+        let manual_attempt =
+            begin_meeting_commit(&storage, "n3-tx-review-1", "2026-09-21T10:11:00Z").unwrap();
         commit_meeting_transcript(&storage, &manual_attempt, &manual).unwrap();
 
-        let late_path = add_audio_chunk(&storage, root.path(), "n3-chunk-review-2", 2, 2000, 3000, b"n3-review-audio-2");
+        let late_path = add_audio_chunk(
+            &storage,
+            root.path(),
+            "n3-chunk-review-2",
+            2,
+            2000,
+            3000,
+            b"n3-review-audio-2",
+        );
         let late_bytes = std::fs::read(&late_path).unwrap();
         let late = meeting_request(
             &scope,
             "event-review-late",
-            audio_source(&scope, "coverage-review-late", "n3-chunk-review-2", &late_path, 2, 2000, 3000, Some(sha256_bytes(&late_bytes))),
+            audio_source(
+                &scope,
+                "coverage-review-late",
+                "n3-chunk-review-2",
+                &late_path,
+                2,
+                2000,
+                3000,
+                Some(sha256_bytes(&late_bytes)),
+            ),
             2,
             2,
             "revision-review-late",
@@ -7495,14 +7534,36 @@ mod tests {
             "late worker text",
             "unreviewed",
         );
-        let late_attempt = begin_meeting_commit(&storage, "n3-tx-review-late", "2026-09-21T10:12:00Z").unwrap();
+        let late_attempt =
+            begin_meeting_commit(&storage, "n3-tx-review-late", "2026-09-21T10:12:00Z").unwrap();
         let late_error = commit_meeting_transcript(&storage, &late_attempt, &late).unwrap_err();
         assert!(late_error.contains("late ASR"), "{late_error}");
-        let projection = query(&storage, "transcript_projection", &["revision", "effective_text", "review_state"], vec![eq("transcript_projection", "id", json!("utterance-review"))], 1).unwrap();
+        let projection = query(
+            &storage,
+            "transcript_projection",
+            &["revision", "effective_text", "review_state"],
+            vec![eq("transcript_projection", "id", json!("utterance-review"))],
+            1,
+        )
+        .unwrap();
         assert_eq!(projection[0]["transcript_projection.revision"], 2);
-        assert_eq!(projection[0]["transcript_projection.effective_text"], "reviewed text");
-        assert_eq!(projection[0]["transcript_projection.review_state"], "reviewed");
-        assert!(query(&storage, "transcript_event_log", &["id"], vec![eq("transcript_event_log", "id", json!("event-review-late"))], 1).unwrap().is_empty());
+        assert_eq!(
+            projection[0]["transcript_projection.effective_text"],
+            "reviewed text"
+        );
+        assert_eq!(
+            projection[0]["transcript_projection.review_state"],
+            "reviewed"
+        );
+        assert!(query(
+            &storage,
+            "transcript_event_log",
+            &["id"],
+            vec![eq("transcript_event_log", "id", json!("event-review-late"))],
+            1
+        )
+        .unwrap()
+        .is_empty());
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
     }
@@ -7567,17 +7628,10 @@ mod tests {
             relationship_revision: 1,
             profile_revision: 1,
         };
-        let valid_private =
-            seal_person_identity(&payload, &context, &key_ref, &backend).unwrap();
+        let valid_private = seal_person_identity(&payload, &context, &key_ref, &backend).unwrap();
         assert!(validate_private_identity_reference(&valid_private).is_ok());
-        let opened = open_person_identity(
-            &valid_private,
-            &context,
-            &payload.link_id,
-            1,
-            &backend,
-        )
-        .unwrap();
+        let opened =
+            open_person_identity(&valid_private, &context, &payload.link_id, 1, &backend).unwrap();
         assert_eq!(opened.person_id, "private-person-canary");
         assert_eq!(opened.display_name, "private-label-canary");
         let identity = ParticipantAttribution {
@@ -7603,7 +7657,16 @@ mod tests {
         let request = meeting_request(
             &scope,
             "event-reopen-replay",
-            audio_source(&scope, "coverage-reopen-replay", "n3-chunk-0", &audio_path, 0, 0, 1000, Some(sha256_bytes(&audio))),
+            audio_source(
+                &scope,
+                "coverage-reopen-replay",
+                "n3-chunk-0",
+                &audio_path,
+                0,
+                0,
+                1000,
+                Some(sha256_bytes(&audio)),
+            ),
             0,
             0,
             "revision-reopen-replay",
@@ -7615,7 +7678,8 @@ mod tests {
             "reopen exact attempt",
             "unreviewed",
         );
-        let attempt = begin_meeting_commit(&storage, "n3-tx-reopen-replay", "2026-09-21T10:13:00Z").unwrap();
+        let attempt =
+            begin_meeting_commit(&storage, "n3-tx-reopen-replay", "2026-09-21T10:13:00Z").unwrap();
         commit_meeting_transcript(&storage, &attempt, &request).unwrap();
         drop(storage);
 

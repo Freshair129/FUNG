@@ -3020,21 +3020,18 @@ pub(crate) mod tests {
                         Err(std::sync::TryLockError::WouldBlock) => true,
                         Err(std::sync::TryLockError::Poisoned(_)) => {
                             return Err(
-                                "account-switch contender lifecycle lock poisoned".to_string(),
+                                "account-switch contender lifecycle lock poisoned".to_string()
                             )
                         }
                     };
-                    lock_state.send(blocked).map_err(|_| {
-                        "account-switch contender lock channel closed".to_string()
-                    })?;
+                    lock_state
+                        .send(blocked)
+                        .map_err(|_| "account-switch contender lock channel closed".to_string())?;
                     let result = Self::switch_account_on_broker(&broker, &user_id);
                     if result.is_ok() {
-                        linearized
-                            .send(broker.lifecycle_witness()?)
-                            .map_err(|_| {
-                                "account-switch contender linearization channel closed"
-                                    .to_string()
-                            })?;
+                        linearized.send(broker.lifecycle_witness()?).map_err(|_| {
+                            "account-switch contender linearization channel closed".to_string()
+                        })?;
                     }
                     result
                 })();
@@ -3328,11 +3325,7 @@ pub(crate) mod tests {
             Ok(())
         };
 
-        let result = broker.with_account_commit_fence(
-            &expected_witness,
-            stale_ticket,
-            &mut commit,
-        );
+        let result = broker.with_account_commit_fence(&expected_witness, stale_ticket, &mut commit);
 
         assert_eq!(result, Err("auth_transition_in_progress".to_string()));
         assert!(!commit_called.load(Ordering::Acquire));
@@ -3516,8 +3509,12 @@ pub(crate) mod tests {
         stop.store(true, Ordering::Release);
         reader.join().unwrap();
         let samples = samples.lock().unwrap();
-        assert!(samples.iter().any(|witness| witness.state == "authenticated"));
-        assert!(samples.iter().any(|witness| witness.state == "logout_pending"));
+        assert!(samples
+            .iter()
+            .any(|witness| witness.state == "authenticated"));
+        assert!(samples
+            .iter()
+            .any(|witness| witness.state == "logout_pending"));
         assert!(samples.iter().any(|witness| witness.state == "signed_out"));
         for witness in samples.iter() {
             assert!(witness.account_generation > 0);

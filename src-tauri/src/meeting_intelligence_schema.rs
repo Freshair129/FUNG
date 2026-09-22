@@ -431,13 +431,18 @@ impl ParticipantAttribution {
     pub(crate) fn validate(&self) -> Result<(), String> {
         valid_id(&self.kind, "attribution kind")?;
         if self.participant_session_id.is_none() && self.speaker_cluster_id.is_none() {
-            return Err("attribution needs participant_session_id or speaker_cluster_id".to_string());
+            return Err(
+                "attribution needs participant_session_id or speaker_cluster_id".to_string(),
+            );
         }
         if self.evidence_revision < 0 {
             return Err("attribution evidence_revision must be non-negative".to_string());
         }
         for (value, field) in [
-            (self.participant_session_id.as_deref(), "participant_session_id"),
+            (
+                self.participant_session_id.as_deref(),
+                "participant_session_id",
+            ),
             (self.speaker_cluster_id.as_deref(), "speaker_cluster_id"),
             (self.label_snapshot_ref.as_deref(), "label_snapshot_ref"),
         ] {
@@ -457,16 +462,21 @@ impl ParticipantAttribution {
                 return Err("identity_link_id must be an opaque native reference".to_string());
             }
             if self.kind != "confirmed_person" {
-                return Err("only confirmed_person attribution may carry an identity link".to_string());
+                return Err(
+                    "only confirmed_person attribution may carry an identity link".to_string(),
+                );
             }
             if self.identity_expected_revision.is_none() {
                 return Err("identity link requires expected review revision".to_string());
             }
-        } else if self.identity_expected_revision.is_some() || self.person_ref_ciphertext.is_some() {
+        } else if self.identity_expected_revision.is_some() || self.person_ref_ciphertext.is_some()
+        {
             return Err("identity review fields require an identity link".to_string());
         }
         if self.kind == "confirmed_person" && self.identity_link_id.is_none() {
-            return Err("confirmed_person attribution requires a reviewed identity link".to_string());
+            return Err(
+                "confirmed_person attribution requires a reviewed identity link".to_string(),
+            );
         }
         Ok(())
     }
@@ -501,7 +511,10 @@ impl KnowledgeEvidenceInput {
         } else if self.share_grant_id.is_some() {
             return Err("share_grant_id is not valid without granted share_state".to_string());
         }
-        if self.audience_policy_revision.is_some_and(|revision| revision < 0) {
+        if self
+            .audience_policy_revision
+            .is_some_and(|revision| revision < 0)
+        {
             return Err("audience_policy_revision must be non-negative".to_string());
         }
         reject_sensitive_json_keys(&self.citation, "knowledge citation")?;
@@ -530,7 +543,9 @@ impl AtomicMeetingRequest {
             .any(|window| window[1] != window[0].saturating_add(1))
             || sequences.last().copied() != Some(self.source_cursor)
         {
-            return Err("source coverage sequence and source cursor are not contiguous".to_string());
+            return Err(
+                "source coverage sequence and source cursor are not contiguous".to_string(),
+            );
         }
         for pair in self.sources.iter().enumerate() {
             for other in self.sources.iter().skip(pair.0 + 1) {
@@ -562,20 +577,34 @@ impl AtomicMeetingRequest {
             return Err("confidence must be nullable or between 0 and 1".to_string());
         }
         if revision.expected_revision.is_some_and(|value| value < 0)
-            || revision
-                .supersedes_revision
-                .is_some_and(|value| value < 1)
+            || revision.supersedes_revision.is_some_and(|value| value < 1)
         {
             return Err("revision expectations must be non-negative".to_string());
         }
-        if revision.model_run_id.as_deref().is_some_and(|value| value.is_empty()) {
+        if revision
+            .model_run_id
+            .as_deref()
+            .is_some_and(|value| value.is_empty())
+        {
             return Err("model_run_id cannot be empty".to_string());
         }
         if revision.review_state != "unreviewed" && revision.review_state != "reviewed" {
             return Err("review_state must be unreviewed or reviewed".to_string());
         }
-        if revision.start_ms < self.sources.iter().map(|source| source.start_ms).min().unwrap_or(0)
-            || revision.end_ms > self.sources.iter().map(|source| source.end_ms).max().unwrap_or(0)
+        if revision.start_ms
+            < self
+                .sources
+                .iter()
+                .map(|source| source.start_ms)
+                .min()
+                .unwrap_or(0)
+            || revision.end_ms
+                > self
+                    .sources
+                    .iter()
+                    .map(|source| source.end_ms)
+                    .max()
+                    .unwrap_or(0)
         {
             return Err("transcript revision is outside supplied source coverage".to_string());
         }
@@ -587,11 +616,7 @@ impl AtomicMeetingRequest {
     }
 }
 
-pub(crate) fn audio_range_is_covered(
-    spans: &[(i64, i64)],
-    start_ms: i64,
-    end_ms: i64,
-) -> bool {
+pub(crate) fn audio_range_is_covered(spans: &[(i64, i64)], start_ms: i64, end_ms: i64) -> bool {
     if start_ms < 0 || end_ms <= start_ms {
         return false;
     }
@@ -626,7 +651,11 @@ fn validate_key_ref(value: &str) -> Result<(), String> {
     let Some(suffix) = value.strip_prefix("people_metadata:") else {
         return Err("identity key must use the people_metadata namespace".to_string());
     };
-    if suffix.len() != 32 || !suffix.chars().all(|character| character.is_ascii_hexdigit()) {
+    if suffix.len() != 32
+        || !suffix
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
         return Err("identity key reference must be opaque".to_string());
     }
     Ok(())
@@ -636,7 +665,11 @@ fn validate_blob_ref(value: &str) -> Result<(), String> {
     let Some(suffix) = value.strip_prefix("identity-envelope:") else {
         return Err("private identity data needs an opaque envelope reference".to_string());
     };
-    if suffix.len() != 32 || !suffix.chars().all(|character| character.is_ascii_hexdigit()) {
+    if suffix.len() != 32
+        || !suffix
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
         return Err("private identity data needs an opaque envelope reference".to_string());
     }
     Ok(())
@@ -682,9 +715,11 @@ pub(crate) fn seal_person_identity(
     }
     let cipher = XChaCha20Poly1305::new_from_slice(&key)
         .map_err(|_| "identity cipher initialization failed".to_string())?;
-    let aad = serde_json::to_vec(context).map_err(|_| "identity AAD serialization failed".to_string())?;
+    let aad =
+        serde_json::to_vec(context).map_err(|_| "identity AAD serialization failed".to_string())?;
     let plaintext = Zeroizing::new(
-        serde_json::to_vec(payload).map_err(|_| "identity payload serialization failed".to_string())?,
+        serde_json::to_vec(payload)
+            .map_err(|_| "identity payload serialization failed".to_string())?,
     );
     let mut nonce = [0u8; 24];
     OsRng.fill_bytes(&mut nonce);
@@ -732,7 +767,8 @@ pub(crate) fn open_person_identity(
     }
     let cipher = XChaCha20Poly1305::new_from_slice(&key)
         .map_err(|_| "identity cipher initialization failed".to_string())?;
-    let aad = serde_json::to_vec(context).map_err(|_| "identity AAD serialization failed".to_string())?;
+    let aad =
+        serde_json::to_vec(context).map_err(|_| "identity AAD serialization failed".to_string())?;
     if sha256_hex(&aad) != reference.envelope.aad_sha256 {
         return Err("identity AAD context mismatch".to_string());
     }
@@ -847,7 +883,10 @@ mod tests {
         let mut second = first.clone();
         second.id = "revision-b".to_string();
         second.utterance_id = "utterance-b".to_string();
-        assert_ne!(canonical_sha256(&first).unwrap(), canonical_sha256(&second).unwrap());
+        assert_ne!(
+            canonical_sha256(&first).unwrap(),
+            canonical_sha256(&second).unwrap()
+        );
     }
 
     #[test]

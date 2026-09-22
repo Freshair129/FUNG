@@ -49,6 +49,7 @@ jobs:
       - run: npm run test:device-reconcile
       - run: npm run test:desktop-bootstrap
       - run: npm run test:release
+      - run: npm run test:meeting-intelligence-contract
       - run: npm run test:external-tools
       - run: npm run test:traceability
       - run: npm run test:recovery

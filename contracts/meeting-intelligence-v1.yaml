@@ -1,5 +1,5 @@
-version: "0.1.3b"
-updated_at: "2026-09-22T03:51:34+07:00"
+version: "0.1.4b"
+updated_at: "2026-09-23T01:22:19+07:00"
 status: "candidate"
 scope: "local Genesis meeting-intelligence contract and native SI/D8 adapter boundary"
 authority:
@@ -11,8 +11,8 @@ authority:
     account_bound:
       requirement: "the active native account session must match identity_vaults.bound_account_ref"
       transition_guard: "account_begin_operation/account guard is held through the guarded commit"
-      account_switch_commit_serialization: "R3 CANDIDATE IMPLEMENTATION; the same registered broker that issued the short guard validates the lifecycle witness and operation ticket under its commit fence and holds that fence through Genesis commit; independent Luna G1 is NOT_RUN; fixture evidence uses identity-protected unlock with an account-free local-owner vault and fake ports"
-      approved_r3_scope: "USER/Boss approval on 2026-09-22 covers only this minimal AccountCommitFence/equivalent, deterministic cross-thread regressions, and later independent Luna G1; it does not approve general auth-policy, provider, root-integration, native, or production activation changes"
+      account_switch_commit_serialization: "R3 CANDIDATE IMPLEMENTATION; the same registered broker that issued the short guard validates the lifecycle witness and operation ticket under its commit fence and holds that fence through Genesis commit; independent_n4_g1: ACCEPTED — BOUNDED N4 LOCAL FOUNDATION (docs/verification/implementation-reports/2026-09-22-meeting-intelligence-g1-contract-r3.md); the broader D10-D13 workflow G1/G2 remains separate and NOT_RUN; fixture evidence uses identity-protected unlock with an account-free local-owner vault and fake ports"
+      approved_r3_scope: "USER/Boss approval on 2026-09-22 covers only this minimal AccountCommitFence/equivalent, deterministic cross-thread regressions, and the independent N4/G1 review recorded above; it does not approve general auth-policy, provider, root-integration, native, or production activation changes"
     prohibited_claims:
       - "request actor, ACL, provider label, reviewed_by, owner identity, or key reference"
       - "renderer path, arbitrary blob path, or cloud login as a substitute for local-owner authority"
@@ -96,7 +96,7 @@ tests:
     key_backend: "in-memory injected backend performs real encryption/decryption and persisted ciphertext; never reads the real user keyring"
     native_boundary: "device identity, OS keyring, native UI, backup recovery, provider, CI, portable, and release gates remain separate"
 evidence_gates:
-  account_switch_commit_serialization: "IMPLEMENTED_CANDIDATE; independent Luna G1 required; no self-acceptance; adapter and auth evidence are compositional for fence release versus caller-guard lifetime"
+  account_switch_commit_serialization: "IMPLEMENTED_CANDIDATE; independent_n4_g1: ACCEPTED — BOUNDED N4 LOCAL FOUNDATION; no self-acceptance; adapter and auth evidence are compositional for fence release versus caller-guard lifetime"
   account_switch_diagnostic: "KNOWN_BUG_BASELINE_ONLY; r2_registered_broker_account_switch_after_final_check_is_unclosed was removed as an acceptance test"
   native_keyring_integration: "NOT_RUN"
   native_ui_or_uat: "NOT_RUN"

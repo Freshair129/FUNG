@@ -1,7 +1,7 @@
 ---
-version: "1.7.0b"
+version: "1.8.0b"
 created_at: "2026-09-21T03:45:30+07:00,RWANG,base-b336f33"
-last_update: "2026-09-21T05:58:39+07:00,RWANG"
+last_update: "2026-09-23T01:22:19+07:00,RWANG"
 status: "need review"
 superseded_by: null
 attributes:
@@ -23,7 +23,7 @@ attributes:
 | Status | need review — Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
 | Author | Claude (Fable 5) + Boss |
 | Supersedes | none (first master plan) |
-| Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.2b, `docs/Desktop/08-real-progress.md` v0.2.29b, `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`, Sub-project B brainstorm decisions (2026-08-09) |
+| Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.3b, `docs/Desktop/08-real-progress.md` v0.2.36b, `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`, Sub-project B brainstorm decisions (2026-08-09) |
 
 ---
 
@@ -80,7 +80,7 @@ is still open.
 
 ## 0.2 Candidate meeting intelligence workstream — 2026-09-21
 
-User requests: detailed supporting-domain specs, live transcript during meetings, and an Agent that joins/responds/shares evidence in the meeting. Platform direction: **Google Meet first; API acceptable for speaker attribution**. This is C-3 / HIGH and currently **documentation only**.
+User requests: detailed supporting-domain specs, live transcript during meetings, and an Agent that joins/responds/shares evidence in the meeting. Platform direction: **Google Meet first; API acceptable for speaker attribution**. This is C-3 / HIGH. The full M1–M5 capability remains **documentation only**; a separate bounded native AccountCommitFence foundation is implemented and independently accepted as local evidence below.
 
 Canonical [domain map](../architecture/MEETING_INTELLIGENCE_DOMAINS.md) links the [live transcript](../specs/2026-09-21-live-meeting-transcription-spec.md), [knowledge evidence](../specs/2026-09-21-meeting-knowledge-evidence-spec.md), [Meeting Agent](../specs/2026-09-21-meeting-agent-participation-spec.md), [speaker identity](../specs/2026-09-21-speaker-identity-domain-design.md) and [Google Meet API decision](../decisions/2026-09-21-google-meet-agent-api-strategy.md).
 
@@ -115,12 +115,30 @@ contract/schema G1 without provider procurement. The GM/provider, public
 ingress, real-room, external-send, merge, and release gates remain separate.
 The parent is orchestration/risk-review only and has no implementation or
 repair authority. The frozen baseline is linked as reference only and excludes
-the concurrently authored workflow package; G1 and G2 are **NOT_RUN**. This
-overlay does not authorize implementation, procurement, recording, external
-messages, commit/push/PR, deployment, or release.
+the concurrently authored workflow package; that package's G1 and G2 remain
+**NOT_RUN**. The separate N4/G1 review of the bounded R3 AccountCommitFence
+foundation is recorded as **ACCEPTED — BOUNDED N4 LOCAL FOUNDATION** in
+`docs/verification/implementation-reports/2026-09-22-meeting-intelligence-g1-contract-r3.md`;
+it does not accept or activate the broader M1–M5 workflow. This overlay does
+not authorize provider procurement, recording, external messages, deployment,
+or release.
 
-The master pre-overlay hash is intentionally historical; the current dirty
+The master pre-overlay hash is intentionally historical; the pre-integration
 worktree baseline is represented only by the separate frozen baseline reports.
+
+## 0.4 Current bounded R3 foundation sync — 2026-09-23
+
+The approved R3 AccountCommitFence/native SI-D8 foundation is now integrated
+into `main` by source commit `85c96ed` and merge commit `5809d70`. The
+independent N4/G1 report accepts this bounded local foundation. Its evidence is
+limited to the registered-broker fence, deterministic cross-thread fixtures,
+the native Genesis adapter boundary, and supplemental contract checks.
+
+This does **not** mean the full meeting-intelligence product is implemented:
+M1 live transcript revisions, M2 knowledge/evidence, M3 Meet observe/draft, M4
+same-room publication, M5 proactive output, provider/native/device/CI/
+portable/release/production gates remain open or **NOT_RUN**. The workflow
+package's own G1/G2 status remains separate and **NOT_RUN**.
 
 ## 0. Historical Delivery Overlay (2026-08-13; superseded)
 
@@ -592,6 +610,7 @@ Per phase:
 
 | Version | Change |
 | --- | --- |
+| 1.7.0b -> 1.8.0b | Synced the roadmap with the merged bounded R3 AccountCommitFence foundation and independent bounded N4/G1 result while preserving the broader M1–M5 and workflow G1/G2 gates as open. |
 | 1.6.0b -> 1.7.0b | Linked the frozen current-workstream meeting-intelligence workflow and declarative DAG with scoped precedence; existing roadmap phase states unchanged. |
 
 | Version | Change |
@@ -602,5 +621,6 @@ Per phase:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 1.8.0b | 2026-09-23 | need review | Synced current `main` R3 bounded-foundation integration and independent bounded N4/G1 evidence; broader meeting-intelligence and release gates remain open. | working-tree | RWANG |
 | 1.7.0b | 2026-09-21 | need review | Added a scoped link/precedence overlay for the frozen meeting-intelligence workflow package; no implementation or delivery gate closed. | working-tree; base b336f33 | RWANG |
 | 1.6.0b | 2026-09-21 | need review | Added documentation-complete but implementation-unapproved live/knowledge/Meet-agent workstream and metadata; no delivery gate closed. | working-tree; base b336f33 | RWANG |

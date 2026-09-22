@@ -1,7 +1,7 @@
 ---
-version: "1.1.0b"
+version: "1.1.1b"
 created_at: "2026-07-05T00:00:00+07:00,ATHER"
-last_update: "2026-09-21T03:58:31+07:00,RWANG"
+last_update: "2026-09-23T01:22:19+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -163,7 +163,14 @@ Local-only capture remains available. API mode explicitly discloses third-party 
 
 Existing manual external MCP stays read-only/per-call approved. The new participant/publication boundary is separately default-off. Meeting Agent cannot call vendor endpoints directly from model-generated tools or UI code.
 
-All new schemas, commands, gateway, auto-publication and latency targets are **target contracts, not implemented claims**. Speaker recognition remains optional when participant-track attribution is sufficient; shared-room microphones still need anonymous diarization/review.
+The full D1–D13 schemas, commands, gateway, auto-publication and latency
+targets remain **target contracts, not implemented claims**. The sole bounded
+local exception is the `meeting-intelligence-v1` native SI/D8
+AccountCommitFence foundation, implemented in `85c96ed` and independently
+accepted as bounded N4/G1 local evidence. It does not implement or accept M1–M5,
+provider/native/real-room, release or production capability. Speaker recognition
+remains optional when participant-track attribution is sufficient; shared-room
+microphones still need anonymous diarization/review.
 
 ## Risks
 
@@ -224,6 +231,7 @@ All new schemas, commands, gateway, auto-publication and latency targets are **t
 
 | Version | Change |
 | --- | --- |
+| 1.1.1b | Clarified the bounded R3 native SI/D8 AccountCommitFence implementation exception without promoting the broader D1–D13 meeting-intelligence contracts to implementation. |
 | 1.1.0b | Added candidate live-transcript, knowledge, Google Meet agent and governed external gateway boundaries while retaining Genesis authority. |
 | 0.1.0b | Initial architecture with desktop-first Tauri v2, SQLite WAL, GenesisBlockDB, API, MCP, CLI, BYOM runtimes, and stateful jobs. |
 | 1.0.0b | Corrected GenesisBlockDB to the single operational boundary with internal SQLite relational, native graph/vector, managed blob and signed WAL authority. |
@@ -232,6 +240,7 @@ All new schemas, commands, gateway, auto-publication and latency targets are **t
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 1.1.1b | 2026-09-23 | candidate | Clarified current bounded R3 AccountCommitFence evidence versus the still-candidate D1–D13 capability surface. | working-tree | RWANG |
 | 1.1.0b | 2026-09-21 | candidate | Added candidate live-transcript, knowledge, Google Meet agent and governed external gateway boundaries while retaining Genesis authority. | working-tree | RWANG |
 | 0.1.0b | 2026-07-05 | beta | Initial technical design. | N/A | ATHER |
 | 1.0.0b | 2026-07-20 | candidate | Structural correction to the GenesisBlockDB unified operational boundary | N/A — no commit created | ATHER |

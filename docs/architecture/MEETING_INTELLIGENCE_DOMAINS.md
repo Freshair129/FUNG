@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-09-21T03:36:16+07:00,RWANG,base-b336f33"
-last_update: "2026-09-21T03:58:31+07:00,RWANG"
+last_update: "2026-09-23T01:22:19+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -15,7 +15,7 @@ attributes:
 
 ## 1. Status, assumptions and scope
 
-เอกสารออกแบบ C-3 / HIGH; **ยังไม่ใช่ implementation หรือ production acceptance** ผู้ใช้เลือก Google Meet เป็นแพลตฟอร์มแรกและยอมรับการใช้ API วันที่ 2026-09-21 การเลือกนี้ไม่ใช่การอนุมัติค่าใช้จ่าย สมัคร vendor ส่งเสียงจริง หรือเปิดบริการสาธารณะ
+เอกสารออกแบบ C-3 / HIGH; full D1–D13 capability ยัง **ไม่ใช่ implementation หรือ production acceptance**. bounded R3 native SI/D8 AccountCommitFence foundation เป็นข้อยกเว้นเฉพาะที่ implement และผ่าน independent bounded N4/G1 local review แล้ว แต่ไม่เปิดใช้งาน M1–M5 หรือ provider/production path. ผู้ใช้เลือก Google Meet เป็นแพลตฟอร์มแรกและยอมรับการใช้ API วันที่ 2026-09-21 การเลือกนี้ไม่ใช่การอนุมัติค่าใช้จ่าย สมัคร vendor ส่งเสียงจริง หรือเปิดบริการสาธารณะ
 
 [ASSUMPTIONS]
 
@@ -136,7 +136,7 @@ M1/M2 work can proceed after contract approval independently of managed provider
 
 ## 9. Documentation verification — 2026-09-21
 
-Scope: 5 new documents and 18 related document updates in this turn, based on working-tree source at `b336f33`; pre-existing runtime changes are not part of this documentation delivery.
+Scope: 5 new documents and 18 related document updates in this turn, based on working-tree source at `b336f33`; pre-existing runtime changes are not part of this documentation delivery. The later bounded R3 foundation is tracked separately by commit `85c96ed` and the independent N4/G1 report.
 
 - Required frontmatter fields, version/change history and balanced Markdown fences checked across all 23 task documents.
 - 146 local document links / 41 unique targets and 6 local heading anchors checked; no missing targets.
@@ -149,10 +149,12 @@ Scope: 5 new documents and 18 related document updates in this turn, based on wo
 
 | Version | Change |
 | --- | --- |
+| 0.1.0b -> 0.1.1b | Synced the domain boundary with the later bounded R3 native SI/D8 foundation while keeping the full D1–D13 capability and production gates open. |
 | 0.0.0 → 0.1.0b | Unified D1–D13 ownership, API participant identity, live/knowledge/agent/delivery contracts and staged gates. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.1.1b | 2026-09-23 | candidate | Clarified the bounded R3 foundation exception versus the documentation-only full meeting-intelligence domain surface. | working-tree | RWANG |
 | 0.1.0b | 2026-09-21 | candidate | Proposed integrated meeting domain architecture; documentation only. | working-tree; base b336f33 | RWANG |

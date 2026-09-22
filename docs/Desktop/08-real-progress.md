@@ -1,7 +1,7 @@
 ---
-version: "0.2.35b"
+version: "0.2.36b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-21T03:58:31+07:00,RWANG"
+last_update: "2026-09-23T01:22:19+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -19,7 +19,7 @@ provenance, not current runtime or deployment evidence.
 
 ## Candidate live transcript / Google Meet Agent docs — 2026-09-21
 
-**Documentation only; new capability implementation and qualification NOT_RUN.**
+**Full M1–M5 capability remains documentation only; bounded R3 foundation is implemented and independently accepted locally.**
 
 The user selected Google Meet first and accepted API integration to improve speaker-source attribution. The proposal is indexed in [Meeting Intelligence Domains](../architecture/MEETING_INTELLIGENCE_DOMAINS.md), with detailed [live transcript](../specs/2026-09-21-live-meeting-transcription-spec.md), [knowledge evidence](../specs/2026-09-21-meeting-knowledge-evidence-spec.md), [Meeting Agent](../specs/2026-09-21-meeting-agent-participation-spec.md) and [API strategy](../decisions/2026-09-21-google-meet-agent-api-strategy.md) contracts.
 
@@ -32,7 +32,21 @@ The user selected Google Meet first and accepted API integration to improve spea
 | Publication | existing external MCP remains read-only; same-room outbox, links, receipts and bounded auto-response are proposed |
 | API feasibility | primary provider docs reviewed; no account, tenant, media, billing, real-room or deployed-gateway test performed |
 
-New specs are candidate and do not close any existing real-capture, model, packaged, provider/device or release gate. This turn changes documentation only; prior working-tree runtime edits and their previously recorded evidence are preserved.
+New specs are candidate and do not close any existing real-capture, model, packaged, provider/device or release gate. The separate R3 AccountCommitFence/native SI-D8 foundation was later integrated in `85c96ed` and merged into `main` in `5809d70`; that bounded result does not activate the broader meeting-intelligence capability.
+
+## Current bounded meeting-intelligence R3 foundation — 2026-09-23
+
+The approved R3 AccountCommitFence/native SI-D8 source slice is present in the
+current `main` checkout. The independent N4/G1 report records
+**ACCEPTED — BOUNDED N4 LOCAL FOUNDATION** for the registered-broker fence,
+deterministic cross-thread regressions, native Genesis adapter boundary and
+supplemental contract checks.
+
+The report's temporary R3/R2 absolute paths are historical custody references;
+those worktrees were deleted after integration. The current root source hashes
+match the R3 review-set hashes. This is not full meeting-intelligence
+acceptance: M1–M5, the workflow package's own G1/G2, provider/native/real-room,
+CI, portable, release and production gates remain **NOT_RUN** or open.
 
 ## Current Desktop shell truth — 2026-09-20
 
@@ -939,6 +953,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.36b | Synced current `main` with the bounded R3 foundation integration and independent bounded N4/G1 evidence; historical worktree paths are identified as custody references and broader gates remain open. |
 | 0.2.35b | Recorded candidate live/knowledge/Google Meet agent documentation separately from existing runtime and unrun provider/deployment proof. |
 | 0.2.34b | Clarified that the local-capture stop path alone adds speaker diarization; manual summary retry remains summary-only. |
 | 0.2.33b | Added the approved FUNG adaptation slice: local-capture speaker diarization is queued before recording-scoped summary without blocking summary fallback; staged pyannote runtime/import evidence is recorded separately from gated model and real-meeting proof. |
@@ -977,6 +992,7 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.36b | 2026-09-23 | beta | Synced the current bounded R3 foundation and independent bounded N4/G1 evidence while preserving the broader meeting-intelligence and release boundaries. | working-tree | RWANG |
 | 0.2.35b | 2026-09-21 | beta | Recorded candidate live/knowledge/Google Meet agent documentation separately from existing runtime and unrun provider/deployment proof. | working-tree | RWANG |
 | 0.2.34b | 2026-09-21 | beta | Clarified local-capture-only speaker-pass enqueue and preserved summary-only manual retry behavior. | working-tree | RWANG |
 | 0.2.33b | 2026-09-21 | beta | Implemented the approved FUNG meeting-transcript adaptation slice: queue optional local speaker diarization before summary, preserve non-blocking transcript fallback, and record pyannote runtime/import evidence with model fetch and real-meeting qualification still NOT_RUN. | working-tree | RWANG |

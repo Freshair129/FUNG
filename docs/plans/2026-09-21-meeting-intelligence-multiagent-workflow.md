@@ -1,7 +1,7 @@
 ---
-version: "0.2.1b"
+version: "0.2.2b"
 created_at: "2026-09-21T05:45:50+07:00,RWANG,base-b336f33"
-last_update: "2026-09-21T06:34:20+07:00,01a0c11c-0b30-78d1-bc5c-24e4c9efaa9e,gpt-5.6-luna,max"
+last_update: "2026-09-23T01:22:19+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -47,8 +47,11 @@ At this freeze:
   <code>01a0c0ee-e8e0-76f3-843a-375905d51e20</code>; the baseline-agent dispatch
   is the user-supplied <code>01a0c0ee-e9d5-7220-89bf-2e4bb97ad501</code>. These
   are provenance inputs, not G1/G2 runs.
-- G1 and G2 have **NOT_RUN**. No PASS, ACCEPTED, fabricated run, or reviewer
-  identity is recorded for this package.
+- G1 and G2 for this workflow package have **NOT_RUN**. No PASS, ACCEPTED,
+  fabricated run, or reviewer identity is recorded for this package. The
+  separate N4/G1 report for the bounded R3 AccountCommitFence foundation is a
+  narrower native SI/D8 review and does not satisfy or activate this package's
+  contract-lane G1 or final G2.
 - The exact workflow, manifest, and both linked-parent files are frozen as one
   review set after the checks listed below. Later verdicts or reports must be
   separate files and must not silently mutate this set.
@@ -351,6 +354,7 @@ reports are separate artifacts and cannot revise this frozen review set.
 
 | Version | Change |
 | --- | --- |
+| 0.2.1b -> 0.2.2b | Clarified that the separately accepted bounded R3 N4/G1 AccountCommitFence review does not change this workflow package's own G1/G2 NOT_RUN state. |
 | 0.1.0b -> 0.2.0b | Added the explicit accepted contract/security G1 prerequisite for the GM consumer and recorded the now-frozen baseline as reference-only evidence; local M1/M2 provider independence remains unchanged. |
 | 0.2.0b -> 0.2.1b | Repaired the contract lease readiness cycle: release follows the FROZEN N3 handoff/report/hashes before N4 readiness, immutable snapshot custody stays separate, integration reacquisition is gated by accepted N12, and the operational assertion is declared; G1/G2 remain NOT_RUN. |
 | new -> 0.1.0b | Added the bounded current-workstream workflow, model/role governance, serial contract and protected-file leases, independent Luna G1, Terra/high G2, local/provider split, high-risk stop points, packet/report contract, and declarative validation rules. |
@@ -359,6 +363,7 @@ reports are separate artifacts and cannot revise this frozen review set.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.2b | 2026-09-23 | candidate | Distinguished the bounded R3 N4/G1 foundation review from this workflow package's own contract G1 and final G2 gates. | working-tree | RWANG |
 | 0.2.1b | 2026-09-21 | candidate | Repair cycle 1 corrected the producer-handoff contract lease release and operational readiness criteria; fresh independent G1 is required and no approval is issued. | working-tree; base b336f33 | 01a0c11c-0b30-78d1-bc5c-24e4c9efaa9e |
 | 0.2.0b | 2026-09-21 | candidate | Added the accepted contract/security G1 prerequisite for GM and froze the baseline reference boundary; G1/G2 remain NOT_RUN. | working-tree; base b336f33 | RWANG |
 | 0.1.0b | 2026-09-21 | candidate | Created the review-frozen meeting-intelligence workflow package; no feature or provider implementation authorized. | working-tree; base b336f33 | RWANG |

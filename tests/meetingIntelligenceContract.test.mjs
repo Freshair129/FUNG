@@ -35,7 +35,7 @@ test("meeting-intelligence contract records approved native authority and custod
     "R3 CANDIDATE IMPLEMENTATION",
     "approved_r3_scope",
     "deterministic cross-thread regressions",
-    "independent Luna G1 is NOT_RUN",
+    "independent_n4_g1: ACCEPTED — BOUNDED N4 LOCAL FOUNDATION",
     "identity-protected unlock",
     "account-free local-owner vault",
   ]) {
@@ -76,13 +76,13 @@ test("supplemental source-shape checks show relationship plaintext is not in typ
   );
 });
 
-test("contract keeps deferred and unrun evidence explicit", () => {
+test("contract keeps bounded G1 acceptance and deferred evidence explicit", () => {
   assert.match(contract, /clone-only 64->128/);
   assert.match(contract, /preserve v10 and the approved retained v11 aggregate set/);
   for (const marker of [
     'account_switch_commit_serialization: "IMPLEMENTED_CANDIDATE',
     "account_switch_diagnostic: \"KNOWN_BUG_BASELINE_ONLY",
-    "independent Luna G1 required",
+    "independent_n4_g1: ACCEPTED — BOUNDED N4 LOCAL FOUNDATION",
     'native_keyring_integration: "NOT_RUN"',
     'native_ui_or_uat: "NOT_RUN"',
     'backup_key_recovery: "NOT_RUN"',

@@ -26,6 +26,14 @@ test("Tauri release resources include the live worker and portable runtime", asy
   assert.equal(resources["../.venv-whisper"], ".venv-whisper");
   assert.equal(resources["../scripts/transcribe.py"], "scripts/transcribe.py");
   assert.equal(resources["../scripts/transcribe_live.py"], "scripts/transcribe_live.py");
+  assert.equal(
+    resources["../scripts/transcribe_transformers.py"],
+    "scripts/transcribe_transformers.py",
+  );
+  assert.equal(
+    resources["../scripts/transcribe_transformers_live.py"],
+    "scripts/transcribe_transformers_live.py",
+  );
 });
 
 test("package and Tauri versions agree with the public release", async () => {
@@ -73,4 +81,20 @@ test("portable runtime staging is pinned and bundles a local model", async () =>
   assert.match(source, /\[ValidateSet\(\s*'small'\s*,\s*'large-v3-turbo'\s*,\s*'medium'\s*,\s*'large-v3'\s*\)\]/);
   assert.match(source, /manifest\.json/);
   assert.match(source, /SHA256/);
+});
+
+test("Thai Transformers candidate staging is pinned, transactional, and space-aware", async () => {
+  const source = await readFile(
+    new URL("../scripts/stage_whisper_transformers_candidate.ps1", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /b751db1e8dbfee6561de22ca99fe070282fcf459/);
+  assert.match(source, /pytorch_model\.bin/);
+  assert.match(source, /e1e0b5b4c9a89d7d60fb795448c3102e07af87fa73c5fce7c0206c6bd99a7e7b/);
+  assert.match(source, /SafetyMarginBytes/);
+  assert.match(source, /Move-Item -LiteralPath \$stagingRoot/);
+  assert.match(source, /Remove-Item -LiteralPath \$stagingRoot -Recurse -Force/);
+  assert.match(source, /transformers/);
+  assert.match(source, /ConvertTo-Json/);
 });

@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.3.0b"
 created_at: "2026-09-21T00:00:00+07:00,RWANG"
-last_update: "2026-09-21T00:00:00+07:00,RWANG"
+last_update: "2026-09-22T21:39:15.4522633+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -31,11 +31,52 @@ by the normal desktop profile, is not required in the normal bundle, and is
 run explicitly by the qualification command against the same approved fixture
 and decoding settings as the operational profiles.
 
+## Candidate Thai Transformers lane
+
+`biodatlab/whisper-th-large-combined` is accepted as a candidate Thai model,
+not as a third CTranslate2 operational profile. The pinned Hugging Face
+revision is `b751db1e8dbfee6561de22ca99fe070282fcf459`. The model card declares
+`WhisperForConditionalGeneration` with Transformers/PyTorch and the model
+repository contains `pytorch_model.bin`; it is a fine-tune of
+`openai/whisper-large-v2` under Apache-2.0. This format is incompatible with
+the current `faster-whisper`/CTranslate2 staging contract, which expects a
+local CTranslate2 directory containing `model.bin` and its tokenizer files.
+
+The safe integration boundary is a separately identifiable, opt-in
+Transformers backend and model/manifest root, for example
+`.venv-whisper-transformers-candidate/`, with an explicit candidate profile
+such as `thai-large-candidate`. It must not be copied into
+`.venv-whisper/models/`, added to the existing `stage_whisper_runtime.ps1`
+model set, or selected by default. The candidate batch/live routing is now
+wired to separate worker scripts and reuses the selected Python interpreter
+only after the candidate dependency preflight passes; the model and manifest
+remain separate. The workers must load only a local pinned path with offline
+Hugging Face settings and emit the existing `WhisperOutput` contract before
+candidate dependency/runtime or quality evidence is promoted.
+
+### 2026-09-22 bounded compatibility check
+
+The repository metadata reports `pytorch_model.bin` at 6,173,655,480 bytes;
+the local C: volume had 2,048,868,352 bytes free. The current staged Python
+environment has PyTorch and faster-whisper but no `transformers` module.
+Therefore the candidate model was **not downloaded or partially staged** in
+this run. Existing `turbo`, `medium`, `large-v3` qualification, and default
+selection remain unchanged; only the explicit candidate routing and worker
+resources were added.
+
+The next implementation gate is the candidate Transformers/PyTorch
+dependency/runtime qualification plus transactional model staging, a manifest
+containing repository, revision, license, selected-file sizes and SHA-256
+digests, a local-only processor/model load probe, and a same-clip benchmark
+against the existing profiles. Until that gate passes, the Thai result
+remains user-supplied benchmark evidence and not FUNG runtime or
+production-quality evidence.
+
 ## Configuration contract
 
 | Variable | Values | Default | Meaning |
 | --- | --- | --- | --- |
-| `FUNG_WHISPER_MODEL_PROFILE` | `turbo`, `medium` | `turbo` | Selects the bundled operational model directory |
+| `FUNG_WHISPER_MODEL_PROFILE` | `turbo`, `medium`; `thai-large-candidate` (candidate only) | `turbo` | Selects an operational model directory or the separate opt-in Transformers candidate |
 | `FUNG_TRANSCRIPTION_PROFILE` | `cpu`, `gpu` | `cpu` | Selects the execution device and CUDA DLL path |
 | `FUNG_TRANSCRIPTION_COMPUTE_TYPE` | faster-whisper compute type | profile-derived | Optional override; `int8_float16` is the low-VRAM CUDA setting |
 
@@ -53,6 +94,11 @@ The staged runtime uses one canonical directory per model:
     large-v3-turbo/
     medium/
     large-v3/             # optional qualification-only staging
+
+.venv-whisper-transformers-candidate/
+  models/
+    whisper-th-large-combined/
+  manifest.json
 ```
 
 The staging script records the model repository, resolved revision, license,
@@ -83,6 +129,8 @@ separate from release readiness.
 7. GPU smoke evidence is recorded for `large-v3-turbo`; CPU `int8` evidence is
    recorded for `medium`; `large-v3` is reported only after an explicit
    qualification run.
+8. `thai-large-candidate` routes only to the Transformers workers and fails
+   closed when its separate runtime/model directory is absent.
 
 ## Risk and boundaries
 
@@ -99,10 +147,14 @@ or production-readiness claim.
 
 | Version | Change |
 | --- | --- |
+| 0.3.0b | Added explicit `thai-large-candidate` routing to separate batch/live Transformers workers and release-resource wiring; retained the unstaged runtime and quality-evidence gates. |
+| 0.2.0b | Recorded the Thai Transformers/PyTorch checkpoint compatibility boundary, pinned revision, disk/dependency blocker, and separate opt-in candidate-lane proposal without changing operational profiles. |
 | 0.1.0b | Approved two-level operational model profile design with `large-v3-turbo` default, `medium` low-resource path and `large-v3` qualification boundary. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.3.0b | 2026-09-22 | beta | Added opt-in candidate backend routing, worker resources, and transactional staging contract; model download and runtime qualification remain NOT_RUN. | working-tree | RWANG |
+| 0.2.0b | 2026-09-22 | beta | Recorded the Thai Transformers candidate compatibility decision and bounded staging blocker; no model artifact or default/profile change. | working-tree | RWANG |
 | 0.1.0b | 2026-09-21 | beta | Added the approved Whisper model-profile contract and qualification boundary. | working-tree | RWANG |

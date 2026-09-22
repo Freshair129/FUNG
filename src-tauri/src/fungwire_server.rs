@@ -953,7 +953,12 @@ fn receive_and_transcribe(
     // (`RecvTimeoutError::Disconnected`).
     let (progress_tx, progress_rx) = mpsc::channel::<i64>();
     let worker_runtime = runtime.clone();
-    let worker_script = runtime.script.clone();
+    let worker_script = crate::whisper_worker_script(runtime, false).map_err(|e| {
+        JobFailure::Failed(
+            "transcribe_failed".into(),
+            format!("could not resolve Whisper worker: {e}"),
+        )
+    })?;
     let worker_handle: thread::JoinHandle<Result<String, String>> = thread::spawn(move || {
         let arg_refs: Vec<&str> = worker_args.iter().map(String::as_str).collect();
         crate::run_python_worker(

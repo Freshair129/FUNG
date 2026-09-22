@@ -748,11 +748,7 @@ impl LiveWorker {
     pub(crate) fn spawn(runtime: &WhisperRuntime, language: Option<&str>) -> Result<Self, String> {
         crate::require_bundled_whisper_model(runtime)?;
         let profile = crate::transcription_profile()?;
-        let script = runtime
-            .script
-            .parent()
-            .ok_or_else(|| "scripts directory not found".to_string())?
-            .join("transcribe_live.py");
+        let script = crate::whisper_worker_script(runtime, true)?;
 
         // GPU profile needs the staged CUDA DLLs on PATH, same as the batch
         // path. If they are missing we degrade to CPU instead of refusing to
@@ -791,6 +787,7 @@ impl LiveWorker {
         if let Some(model) = crate::bundled_whisper_model(runtime) {
             command.env("FUNG_WHISPER_MODEL", model);
         }
+        command.env("HF_HUB_OFFLINE", "1");
         if let Some(language) = language {
             command.arg("--language").arg(language);
         }

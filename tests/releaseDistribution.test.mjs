@@ -69,7 +69,8 @@ test("portable runtime staging is pinned and bundles a local model", async () =>
 
   assert.match(source, /PythonVersion\s*=\s*'3\.11\.9'/);
   assert.match(source, /FasterWhisperVersion\s*=\s*'1\.2\.1'/);
-  assert.match(source, /Model\s*=\s*'small'/);
+  assert.match(source, /\[string\]\$Model\s*=\s*'large-v3-turbo'/);
+  assert.match(source, /\[ValidateSet\(\s*'small'\s*,\s*'large-v3-turbo'\s*,\s*'medium'\s*,\s*'large-v3'\s*\)\]/);
   assert.match(source, /manifest\.json/);
   assert.match(source, /SHA256/);
 });

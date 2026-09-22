@@ -201,9 +201,43 @@ fn transcription_profile_from(configured: Option<&str>) -> Result<String, String
     }
 }
 
+pub(crate) fn whisper_model_name() -> Result<&'static str, String> {
+    let configured = env::var("FUNG_WHISPER_MODEL_PROFILE").ok();
+    whisper_model_name_from(configured.as_deref())
+}
+
+fn whisper_model_name_from(configured: Option<&str>) -> Result<&'static str, String> {
+    match configured.unwrap_or("turbo") {
+        "turbo" => Ok("large-v3-turbo"),
+        "medium" => Ok("medium"),
+        "large-v3" | "reference" => Err(
+            "large-v3 is qualification-only; run the reference worker explicitly instead of selecting it in the desktop profile".to_string(),
+        ),
+        profile => Err(format!(
+            "invalid FUNG_WHISPER_MODEL_PROFILE '{profile}'; use 'turbo' or 'medium'"
+        )),
+    }
+}
+
 fn bundled_whisper_model(runtime: &WhisperRuntime) -> Option<PathBuf> {
     let runtime_root = runtime.python.parent()?.parent()?;
-    Some(runtime_root.join("models").join("small"))
+    let model = whisper_model_name().ok()?;
+    Some(runtime_root.join("models").join(model))
+}
+
+pub(crate) fn require_bundled_whisper_model(runtime: &WhisperRuntime) -> Result<PathBuf, String> {
+    let model = whisper_model_name()?;
+    let model_path = bundled_whisper_model(runtime).ok_or_else(|| {
+        "FUNG Whisper runtime layout is invalid; the bundled Python path has no runtime root"
+            .to_string()
+    })?;
+    if !model_path.is_dir() {
+        return Err(format!(
+            "FUNG Whisper model '{model}' is missing at {}. Stage it with scripts/stage_whisper_runtime.ps1 -Model {model}.",
+            model_path.display()
+        ));
+    }
+    Ok(model_path)
 }
 
 fn child_compatible_whisper_model_path(path: PathBuf) -> PathBuf {
@@ -2728,7 +2762,7 @@ pub(crate) fn run_python_worker(
         // The transcription worker loads a bundled model *by path*. If that
         // path ever stops resolving -- a partial install, a runtime layout
         // change, the script run by hand -- faster-whisper's own default is
-        // the string "small", which it resolves by downloading from
+        // a model name, which it resolves by downloading from
         // huggingface.co. That would turn the one pass this product's
         // local-first claim rests on into a silent network fetch, on the
         // machine of someone who chose FUNG precisely so their audio would
@@ -2795,6 +2829,7 @@ pub(crate) fn run_transcription(
     file_path: &str,
     on_progress: impl Fn(i64) + Send + 'static,
 ) -> Result<WhisperOutput, String> {
+    require_bundled_whisper_model(runtime)?;
     let profile = transcription_profile()?;
 
     let path_prefix = if profile == "gpu" {
@@ -3715,6 +3750,18 @@ mod worker_tests {
     use super::*;
 
     #[test]
+    fn whisper_model_profiles_default_to_turbo_and_reject_reference_in_desktop() {
+        assert_eq!(whisper_model_name_from(None).unwrap(), "large-v3-turbo");
+        assert_eq!(
+            whisper_model_name_from(Some("turbo")).unwrap(),
+            "large-v3-turbo"
+        );
+        assert_eq!(whisper_model_name_from(Some("medium")).unwrap(), "medium");
+        assert!(whisper_model_name_from(Some("reference")).is_err());
+        assert!(whisper_model_name_from(Some("small")).is_err());
+    }
+
+    #[test]
     fn public_release_defaults_to_cpu_and_keeps_explicit_gpu_override() {
         assert_eq!(transcription_profile_from(None).unwrap(), "cpu");
         assert_eq!(transcription_profile_from(Some("gpu")).unwrap(), "gpu");
@@ -3732,7 +3779,7 @@ mod worker_tests {
         assert_eq!(
             bundled_whisper_model(&runtime),
             Some(PathBuf::from(
-                r"C:\Program Files\FUNG\.venv-whisper\models\small"
+                r"C:\Program Files\FUNG\.venv-whisper\models\large-v3-turbo"
             ))
         );
     }
@@ -3791,10 +3838,13 @@ mod worker_tests {
         if cfg!(windows) {
             assert_eq!(
                 model,
-                PathBuf::from(r"C:\Program Files\FUNG\.venv-whisper\models\small")
+                PathBuf::from(r"C:\Program Files\FUNG\.venv-whisper\models\large-v3-turbo")
             );
         } else {
-            assert_eq!(model, PathBuf::from("/opt/FUNG/.venv-whisper/models/small"));
+            assert_eq!(
+                model,
+                PathBuf::from("/opt/FUNG/.venv-whisper/models/large-v3-turbo")
+            );
         }
     }
 

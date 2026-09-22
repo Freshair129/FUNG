@@ -1,0 +1,1468 @@
+{
+  "schema_version": "1.0",
+ "document_version": "0.2.1b",
+  "last_update": "2026-09-21T06:34:20+07:00,01a0c11c-0b30-78d1-bc5c-24e4c9efaa9e,gpt-5.6-luna,max",
+  "status": "candidate",
+  "scope": "FUNG meeting-intelligence D10-D13 current workstream only",
+  "base_sha": "b336f33ec400a38f003a0665c121069a87a543ac",
+  "branch": "main",
+  "working_directory": "C:/Users/pc/workspace/fung",
+  "snapshot_at": "2026-09-21T06:34:20+07:00",
+  "declarative_plan": true,
+  "installed_scheduler": false,
+  "authorization": {
+    "workflow_setup_and_validation_only": true,
+    "feature_implementation_authorized": false,
+    "provider_procurement_or_activation_authorized": false,
+    "real_meeting_authorized": false,
+    "external_message_authorized": false,
+    "commit_push_pr_deployment_authorized": false,
+    "model_download_or_global_config_authorized": false,
+    "parent_may_write_source_or_docs": false,
+    "parent_may_repair_child_artifacts": false,
+    "parent_may_waive_failed_tests_or_g2": false,
+    "boss_approval_required_for": [
+      "feature contract and schema",
+      "provider, public gateway, credentials, region, retention, and external send",
+      "merge and release"
+    ]
+  },
+  "execution_context": {
+    "workflow_author_dispatch_id": "01a0c0ee-e8e0-76f3-843a-375905d51e20",
+    "baseline_agent_dispatch_id": "01a0c0ee-e9d5-7220-89bf-2e4bb97ad501",
+    "baseline_report_paths": [
+      "docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.md",
+      "docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.json"
+    ],
+    "baseline_report_status_at_freeze": "DONE_WITH_OPEN_CONCERNS_FROZEN",
+    "baseline_snapshot": {
+      "head": "b336f33ec400a38f003a0665c121069a87a543ac",
+      "path_count": 40,
+      "protected_source_test_config_hashes_recorded": true,
+      "input_spec_hashes_recorded": true,
+      "git_diff_check_exit_code": 0,
+      "local_egress_checks": "8/8 PASS",
+      "json_parse_exit_code": 0,
+      "reference_only": true,
+      "excludes_concurrently_authored_workflow_package": true,
+      "g1_g2_verdicts_issued": false,
+      "worker_closed": true,
+      "open_concerns": true
+    },
+    "g1_status_at_freeze": "NOT_RUN",
+    "g2_status_at_freeze": "NOT_RUN",
+    "workflow_reviewers_recorded_as_run": false,
+    "authoring_lease_status_at_freeze": "RELEASED",
+    "repair_cycle": 1,
+    "repair_agent_dispatch_id": "01a0c11c-0b30-78d1-bc5c-24e4c9efaa9e",
+    "repair_state_at_freeze": "FROZEN_REPAIR_HANDOFF_REQUIRES_FRESH_INDEPENDENT_G1",
+    "prior_g1_report_status": "FAIL",
+    "fresh_independent_g1_required": true
+  },
+  "capacity": {
+    "max_concurrent_luna_execution_agents_total": 3,
+    "max_open_luna_agent_records": 3,
+    "max_open_terra_agent_records": 1,
+    "terra_counts_outside_luna_cap": true,
+    "open_agent_cap_is_tracked_separately": true,
+    "close_finished_agents_before_reuse": true,
+    "one_integration_writer": true,
+    "no_silent_model_or_effort_downgrade": true
+  },
+  "states": [
+    {
+      "id": "WAITING_APPROVAL",
+      "meaning": "A required human or external approval is absent."
+    },
+    {
+      "id": "WAITING_DEPENDENCY",
+      "meaning": "A predecessor handoff, baseline, lease, or evidence is absent."
+    },
+    {
+      "id": "READY",
+      "meaning": "All declared approvals, dependencies, and leases are satisfied."
+    },
+    {
+      "id": "LEASED",
+      "meaning": "The exact packet paths are reserved by one writer."
+    },
+    {
+      "id": "IN_PROGRESS",
+      "meaning": "The assigned agent is working within its packet."
+    },
+    {
+      "id": "REVIEW",
+      "meaning": "Worker DONE handoff awaiting independent review; not accepted."
+    },
+    {
+      "id": "FROZEN",
+      "meaning": "The predecessor handoff and hashes are immutable for review."
+    },
+    {
+      "id": "ACCEPTED",
+      "meaning": "The required independent gate and evidence are complete."
+    },
+    {
+      "id": "REPAIR_REQUIRED",
+      "meaning": "A fresh Luna repair cycle is required."
+    },
+    {
+      "id": "INVALIDATED",
+      "meaning": "A changed input or contract invalidated this node and descendants."
+    },
+    {
+      "id": "BLOCKED",
+      "meaning": "A failed stop point, unresolved HIGH objection, or escalation blocks progress."
+    },
+    {
+      "id": "SKIPPED",
+      "meaning": "An optional node was intentionally not selected and has a recorded reason."
+    },
+    {
+      "id": "NOT_RUN",
+      "meaning": "No execution or gate evidence exists."
+    },
+    {
+      "id": "CLOSED",
+      "meaning": "The agent and its leases are released after handoff."
+    }
+  ],
+  "roles": [
+    {
+      "id": "ROLE-PARENT",
+      "name": "parent_orchestrator",
+      "model": null,
+      "reasoning_effort": null,
+      "writes": [],
+      "may_dispatch": true,
+      "may_review_high_risk": true,
+      "may_repair": false,
+      "may_accept": false
+    },
+    {
+      "id": "ROLE-WORKER",
+      "name": "worker",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "writes": [
+        "exact assigned partition paths",
+        "own dated report path"
+      ],
+      "may_dispatch": false,
+      "may_repair": false,
+      "may_accept_own_work": false
+    },
+    {
+      "id": "ROLE-G1-INDEPENDENT",
+      "name": "independent_first_verification_gate",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "writes": [
+        "own dated report path only"
+      ],
+      "read_only_artifacts": true,
+      "must_have_distinct_agent_or_person_id": true,
+      "must_not_repair": true
+    },
+    {
+      "id": "ROLE-FIXER",
+      "name": "luna_fixer",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "writes": [
+        "exact assigned repair partition",
+        "own dated report path"
+      ],
+      "must_be_fresh_cycle": true,
+      "may_accept_own_work": false
+    },
+    {
+      "id": "ROLE-INTEGRATOR",
+      "name": "luna_integration_writer",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "writes": [
+        "P-INTEGRATION exact paths",
+        "own dated report path"
+      ],
+      "single_writer": true,
+      "may_accept_own_work": false
+    },
+    {
+      "id": "ROLE-LUNA-VERIFY",
+      "name": "luna_full_integrated_verifier",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "read_only_artifacts": true,
+      "must_not_repair": true
+    },
+    {
+      "id": "ROLE-G2-TERRA",
+      "name": "final_integrated_gate",
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "high",
+      "read_only_artifacts": true,
+      "must_not_repair": true,
+      "must_be_independent_from_integration": true
+    },
+    {
+      "id": "ROLE-BOSS",
+      "name": "human_approval_authority",
+      "model": null,
+      "reasoning_effort": null,
+      "may_approve_feature_contract": true,
+      "may_approve_external_provider": true,
+      "may_approve_merge_or_release": true
+    }
+  ],
+  "approval_requirements": [
+    {
+      "id": "APP-SPEC-REVIEW",
+      "authority": "ROLE-PARENT",
+      "required_before": [
+        "N2-FEATURE-CONTRACT-APPROVAL"
+      ],
+      "evidence": "Read-only review of the current LT, KE, MA, GM, SI-API, domain-map, and Google Meet decision inputs."
+    },
+    {
+      "id": "APP-FEATURE-CONTRACT",
+      "authority": "ROLE-BOSS",
+      "required_before": [
+        "N3-LOCAL-CONTRACT-SCHEMA",
+        "N5-LT-WORKER",
+        "N6-KE-WORKER",
+        "N7-SI-API-WORKER",
+        "N11-MA-WORKER"
+      ],
+      "evidence": "Approved feature contract, schema, privacy/security boundary, and local M1/M2 scope."
+    },
+    {
+      "id": "APP-EXTERNAL-PROVIDER",
+      "authority": "ROLE-BOSS",
+      "required_before": [
+        "N10-GM-PROVIDER-GATEWAY"
+      ],
+      "evidence": "Accepted independent contract/security G1 plus provider, account, gateway, credentials, region, retention, egress, and public-ingress approval."
+    },
+    {
+      "id": "APP-G1-FIRST-INDEPENDENT",
+      "authority": "ROLE-G1-INDEPENDENT",
+      "required_before": [
+        "N5-LT-WORKER",
+        "N6-KE-WORKER",
+        "N7-SI-API-WORKER"
+      ],
+      "evidence": "Frozen contract/schema handoff, released serial lease, distinct agent/person identity, report-only review."
+    },
+    {
+      "id": "APP-G2-FINAL",
+      "authority": "ROLE-G2-TERRA",
+      "required_before": [
+        "N16-BOSS-RELEASE"
+      ],
+      "evidence": "Integrated Luna verification, all declared checks, no unresolved HIGH objection, and exact hashes."
+    },
+    {
+      "id": "APP-RELEASE",
+      "authority": "ROLE-BOSS",
+      "required_before": [
+        "merge",
+        "release",
+        "deployment"
+      ],
+      "evidence": "G2 acceptance, CI/release evidence, rollback artifact, and explicit Boss decision."
+    }
+  ],
+  "partitions": [
+    {
+      "id": "P-CONTRACT",
+      "family": [
+        "LT",
+        "KE",
+        "MA",
+        "SI-API"
+      ],
+      "future_only": true,
+      "broad_root_grant": false,
+      "proposed_write_paths": [
+        "contracts/meeting-intelligence-v1.yaml",
+        "src-tauri/src/meeting_intelligence_schema.rs",
+        "src-tauri/src/genesis_adapter.rs",
+        "tests/meetingIntelligenceContract.test.mjs"
+      ],
+      "report_paths": [
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-contract.md"
+      ],
+      "shared_lease_ids": [
+        "LEASE-GENESIS-CONTRACT"
+      ]
+    },
+    {
+      "id": "P-LT",
+      "family": [
+        "LT"
+      ],
+      "future_only": true,
+      "broad_root_grant": false,
+      "proposed_write_paths": [
+        "src-tauri/src/live_meeting.rs",
+        "src-tauri/src/live_transcript.rs",
+        "src/components/LiveMeetingPanel.tsx",
+        "src/components/LiveMeetingPanel.css",
+        "tests/liveTranscriptionContract.test.mjs",
+        "tests/liveTranscriptionRecovery.test.mjs"
+      ],
+      "report_paths": [
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-lt.md"
+      ],
+      "shared_lease_ids": []
+    },
+    {
+      "id": "P-KE",
+      "family": [
+        "KE"
+      ],
+      "future_only": true,
+      "broad_root_grant": false,
+      "proposed_write_paths": [
+        "src-tauri/src/meeting_knowledge.rs",
+        "src/lib/meetingKnowledge.ts",
+        "src/components/MeetingKnowledgePanel.tsx",
+        "tests/meetingKnowledge.test.mjs",
+        "tests/meetingKnowledgeAcl.test.mjs"
+      ],
+      "report_paths": [
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-ke.md"
+      ],
+      "shared_lease_ids": []
+    },
+    {
+      "id": "P-SI",
+      "family": [
+        "SI-API"
+      ],
+      "future_only": true,
+      "broad_root_grant": false,
+      "proposed_write_paths": [
+        "src-tauri/src/meeting_participation.rs",
+        "src-tauri/src/speaker_merge.rs",
+        "src-tauri/src/local_diarization.rs",
+        "src/lib/meetingParticipants.ts",
+        "src/components/SpeakerIdentityReview.tsx",
+        "tests/meetingParticipantAttribution.test.mjs",
+        "tests/speakerIdentityReview.test.mjs"
+      ],
+      "report_paths": [
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-si-api.md"
+      ],
+      "shared_lease_ids": []
+    },
+    {
+      "id": "P-MA",
+      "family": [
+        "MA"
+      ],
+      "future_only": true,
+      "broad_root_grant": false,
+      "proposed_write_paths": [
+        "src-tauri/src/meeting_agent.rs",
+        "src-tauri/src/meeting_delivery.rs",
+        "src/lib/meetingAgent.ts",
+        "src/components/MeetingAgentPanel.tsx",
+        "tests/meetingAgentDelivery.test.mjs"
+      ],
+      "report_paths": [
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-ma.md"
+      ],
+      "shared_lease_ids": []
+    },
+    {
+      "id": "P-GM",
+      "family": [
+        "GM"
+      ],
+      "future_only": true,
+      "broad_root_grant": false,
+      "proposed_write_paths": [
+        "src-tauri/src/meeting_provider.rs",
+        "src-tauri/src/meeting_gateway_client.rs",
+        "gateway/src/meet_ingress.ts",
+        "gateway/src/lease_watchdog.ts",
+        "gateway/tests/meetingGateway.test.mjs",
+        "tests/meetingProviderGateway.test.mjs"
+      ],
+      "report_paths": [
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-gm.md"
+      ],
+      "shared_lease_ids": []
+    },
+    {
+      "id": "P-INTEGRATION",
+      "family": [
+        "LT",
+        "KE",
+        "MA",
+        "GM",
+        "SI-API"
+      ],
+      "future_only": true,
+      "broad_root_grant": false,
+      "proposed_write_paths": [
+        "src-tauri/src/lib.rs",
+        "src-tauri/src/genesis_adapter.rs",
+        "src-tauri/src/meeting_intel.rs",
+        "src/tauri.ts",
+        "package.json",
+        "package-lock.json",
+        "src-tauri/Cargo.toml",
+        "src-tauri/Cargo.lock",
+        ".github/workflows/ci.yml",
+        "tests/meetingIntelligenceIntegration.test.mjs"
+      ],
+      "report_paths": [
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-integration.md"
+      ],
+      "shared_lease_ids": [
+        "LEASE-GENESIS-INTEGRATION",
+        "LEASE-PROTECTED-INTEGRATION"
+      ]
+    },
+    {
+      "id": "P-VERIFICATION",
+      "family": [
+        "G1",
+        "LUNA-VERIFY",
+        "G2"
+      ],
+      "future_only": true,
+      "broad_root_grant": false,
+      "proposed_write_paths": [],
+      "report_paths": [
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-g1-contract.md",
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-g1-local.md",
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-g1-preintegration.md",
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-verification.md",
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-g2-terra.md"
+      ],
+      "shared_lease_ids": []
+    }
+  ],
+  "serialized_leases": [
+    {
+      "id": "LEASE-GENESIS-CONTRACT",
+      "paths": [
+        "src-tauri/src/genesis_adapter.rs"
+      ],
+      "owner_node": "N3-LOCAL-CONTRACT-SCHEMA",
+     "predecessor": "N2-FEATURE-CONTRACT-APPROVAL",
+      "release_condition": "N3-LOCAL-CONTRACT-SCHEMA handoff is FROZEN with its report and hashes frozen; release before N4-G1-CONTRACT starts or becomes READY",
+      "snapshot_custody_after_release": "The frozen N3 handoff, report, and hashes remain immutable review input; no writer may mutate the reviewed snapshot",
+      "reacquisition_condition": "The separate LEASE-GENESIS-INTEGRATION may be acquired only after accepted N12-G1-PREINTEGRATION for new integration work",
+     "may_overlap_with": [],
+      "state_at_freeze": "UNALLOCATED"
+    },
+    {
+      "id": "LEASE-GENESIS-INTEGRATION",
+      "paths": [
+        "src-tauri/src/genesis_adapter.rs"
+      ],
+     "owner_node": "N13-INTEGRATION",
+     "predecessor": "N12-G1-PREINTEGRATION",
+      "acquisition_condition": "N12-G1-PREINTEGRATION is ACCEPTED with its frozen report and hashes",
+     "release_condition": "N13-INTEGRATION handoff is FROZEN and its report is written",
+      "snapshot_custody": "The reviewed N3/N4 snapshot remains immutable input; integration writes only after this separate lease is acquired",
+      "may_overlap_with": [],
+      "state_at_freeze": "UNALLOCATED"
+    },
+    {
+      "id": "LEASE-PROTECTED-INTEGRATION",
+      "paths": [
+        "src-tauri/src/lib.rs",
+        "src/tauri.ts",
+        "package.json",
+        "package-lock.json",
+        "src-tauri/Cargo.toml",
+        "src-tauri/Cargo.lock",
+        ".github/workflows/ci.yml"
+      ],
+      "owner_node": "N13-INTEGRATION",
+      "predecessor": "N12-G1-PREINTEGRATION",
+      "release_condition": "N13-INTEGRATION handoff is FROZEN and its report is written",
+      "may_overlap_with": [],
+      "state_at_freeze": "UNALLOCATED"
+    }
+  ],
+  "parallel_groups": [
+    {
+      "id": "PG-LOCAL-M1-M2",
+      "nodes": [
+        "N5-LT-WORKER",
+        "N6-KE-WORKER",
+        "N7-SI-API-WORKER"
+      ],
+      "maximum_concurrency": 3,
+      "entry_gate": "N4-G1-CONTRACT plus SP-LT-ATOMIC-SOURCE-COVERAGE",
+      "provider_dependency": false,
+      "path_overlap_exceptions": []
+    },
+    {
+      "id": "PG-GM-INDEPENDENT",
+      "nodes": [
+        "N10-GM-PROVIDER-GATEWAY"
+      ],
+      "maximum_concurrency": 1,
+      "entry_gate": "APP-EXTERNAL-PROVIDER",
+      "provider_dependency": true,
+      "path_overlap_exceptions": []
+    }
+  ],
+  "nodes": [
+    {
+      "id": "N0-SPEC-DOC-REVIEW",
+      "kind": "review",
+      "family": [
+        "LT",
+        "KE",
+        "MA",
+        "GM",
+        "SI-API"
+      ],
+      "role": "ROLE-PARENT",
+      "model": null,
+      "reasoning_effort": null,
+      "state": "NOT_RUN",
+      "agent_id": null,
+      "read_only": true,
+      "code_writes": false,
+      "partition_id": "P-VERIFICATION",
+      "depends_on": [],
+      "approval_gate": "APP-SPEC-REVIEW",
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-spec-review.md",
+      "acceptance_criteria": [
+        "Record conflicts, missing approvals, and proposed contract boundary",
+        "Do not treat candidate specs as implementation evidence"
+      ],
+      "success_criteria": [
+        "A separate review report exists or status remains NOT_RUN"
+      ]
+    },
+    {
+      "id": "N1-WF-BASELINE",
+      "kind": "baseline",
+      "family": [
+        "GOVERNANCE"
+      ],
+      "role": "ROLE-WORKER",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "FROZEN",
+      "agent_id": null,
+      "read_only": true,
+      "code_writes": false,
+      "partition_id": "P-VERIFICATION",
+      "depends_on": [],
+      "approval_gate": null,
+      "completion_label": "DONE_WITH_OPEN_CONCERNS",
+      "worker_closed": true,
+      "reference_only": true,
+      "excludes_concurrently_authored_workflow_package": true,
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.md",
+      "companion_report_path": "docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.json",
+      "acceptance_criteria": [
+        "Inventory dirty and untracked paths",
+        "Record content, dependency, lockfile, and protected-path digests",
+        "Verify pinned snapshot transfer without commit-as-workaround"
+      ],
+      "success_criteria": [
+        "Both baseline reports exist with hashes and environment"
+      ]
+    },
+    {
+      "id": "N2-FEATURE-CONTRACT-APPROVAL",
+      "kind": "approval",
+      "family": [
+        "LT",
+        "KE",
+        "MA",
+        "GM",
+        "SI-API"
+      ],
+      "role": "ROLE-BOSS",
+      "model": null,
+      "reasoning_effort": null,
+      "state": "WAITING_APPROVAL",
+      "agent_id": null,
+      "read_only": true,
+      "code_writes": false,
+      "partition_id": "P-VERIFICATION",
+      "depends_on": [
+        "N0-SPEC-DOC-REVIEW"
+      ],
+      "approval_gate": "APP-FEATURE-CONTRACT",
+      "report_path": null,
+      "acceptance_criteria": [
+        "Feature contract, schema, privacy/security boundary, and local M1/M2 scope are approved"
+      ],
+      "success_criteria": [
+        "Boss approval is recorded outside this manifest"
+      ]
+    },
+    {
+      "id": "N3-LOCAL-CONTRACT-SCHEMA",
+      "kind": "implementation",
+      "family": [
+        "LT",
+        "KE",
+        "MA",
+        "SI-API"
+      ],
+      "role": "ROLE-WORKER",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "WAITING_DEPENDENCY",
+      "agent_id": null,
+      "read_only": false,
+      "code_writes": true,
+      "partition_id": "P-CONTRACT",
+      "depends_on": [
+        "N1-WF-BASELINE",
+        "N2-FEATURE-CONTRACT-APPROVAL"
+      ],
+      "approval_gate": "APP-FEATURE-CONTRACT",
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-contract.md",
+      "acceptance_criteria": [
+        "Freeze local contracts/schema/security/publication interfaces before lane fan-out",
+        "Prove source revision and event atomicity criteria needed by SP-LT-ATOMIC-SOURCE-COVERAGE",
+        "Record migration, rollback, dependency, and dirty-path evidence"
+      ],
+     "success_criteria": [
+        "Worker handoff reaches REVIEW then FROZEN; no self-acceptance",
+        "Release LEASE-GENESIS-CONTRACT after the FROZEN N3 handoff, report, and hashes and before N4 becomes READY"
+     ]
+    },
+    {
+      "id": "N4-G1-CONTRACT",
+      "kind": "verification",
+      "family": [
+        "LT",
+        "KE",
+        "MA",
+        "SI-API"
+      ],
+      "role": "ROLE-G1-INDEPENDENT",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "WAITING_DEPENDENCY",
+      "agent_id": null,
+      "read_only": true,
+      "code_writes": false,
+      "partition_id": "P-VERIFICATION",
+      "depends_on": [
+        "N3-LOCAL-CONTRACT-SCHEMA"
+      ],
+      "approval_gate": "APP-G1-FIRST-INDEPENDENT",
+     "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-g1-contract.md",
+     "independence_requirement": "Distinct person/agent identity from N3 and from the workflow author dispatch; no actual identity assigned at freeze",
+      "readiness_condition": "N3-LOCAL-CONTRACT-SCHEMA is FROZEN with its report and hashes frozen and LEASE-GENESIS-CONTRACT is RELEASED; N4 own verdict is not an input to N4 READY",
+     "acceptance_criteria": [
+        "Review only after N3 handoff is FROZEN with its report and hashes and the Genesis write lease is released",
+        "The released lease does not transfer immutable N3 snapshot custody; no writer may mutate the reviewed snapshot",
+       "Confirm the source-coverage/ASR revision write plus event atomicity stop point",
+        "Confirm no provider procurement is a hard prerequisite for local M1/M2"
+      ],
+      "success_criteria": [
+        "Report is PASS or FAIL with hashes and no artifact repair"
+      ]
+    },
+    {
+      "id": "N5-LT-WORKER",
+      "kind": "implementation",
+      "family": [
+        "LT"
+      ],
+      "role": "ROLE-WORKER",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "WAITING_DEPENDENCY",
+      "agent_id": null,
+      "read_only": false,
+      "code_writes": true,
+      "partition_id": "P-LT",
+     "depends_on": [
+       "N4-G1-CONTRACT"
+     ],
+      "required_predecessor_state": "N4-G1-CONTRACT must be ACCEPTED; FAIL, REVIEW, or FROZEN never unlocks this node",
+     "approval_gate": "APP-FEATURE-CONTRACT",
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-lt.md",
+      "acceptance_criteria": [
+        "Implement only the exact LT partition",
+        "Keep raw revision, canonical projection, committed event, and cursor atomic or use recoverable idempotent reconciliation",
+        "Keep local-only path explicit and test crash/replay behavior"
+      ],
+      "success_criteria": [
+        "Worker DONE is REVIEW and evidence addresses SP-LT-ATOMIC-SOURCE-COVERAGE"
+      ]
+    },
+    {
+      "id": "N6-KE-WORKER",
+      "kind": "implementation",
+      "family": [
+        "KE"
+      ],
+      "role": "ROLE-WORKER",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "WAITING_DEPENDENCY",
+      "agent_id": null,
+      "read_only": false,
+      "code_writes": true,
+      "partition_id": "P-KE",
+     "depends_on": [
+       "N4-G1-CONTRACT"
+     ],
+      "required_predecessor_state": "N4-G1-CONTRACT must be ACCEPTED; FAIL, REVIEW, or FROZEN never unlocks this node",
+     "approval_gate": "APP-FEATURE-CONTRACT",
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-ke.md",
+      "acceptance_criteria": [
+        "Implement evidence references, freshness/revocation, minimization, and ACL/audience checks",
+        "Do not publish across a changed source revision or audience"
+      ],
+      "success_criteria": [
+        "Worker DONE is REVIEW and external publication remains gated by SP-KE-MA-DESTINATION-RECHECK"
+      ]
+    },
+    {
+      "id": "N7-SI-API-WORKER",
+      "kind": "implementation",
+      "family": [
+        "SI-API"
+      ],
+      "role": "ROLE-WORKER",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "WAITING_DEPENDENCY",
+      "agent_id": null,
+      "read_only": false,
+      "code_writes": true,
+      "partition_id": "P-SI",
+     "depends_on": [
+       "N4-G1-CONTRACT"
+     ],
+      "required_predecessor_state": "N4-G1-CONTRACT must be ACCEPTED; FAIL, REVIEW, or FROZEN never unlocks this node",
+     "approval_gate": "APP-FEATURE-CONTRACT",
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-si-api.md",
+      "acceptance_criteria": [
+        "Keep provider labels separate from Person identity and ACL authority",
+        "Require review and expected-revision checks; preserve shared-mic and unknown attribution"
+      ],
+      "success_criteria": [
+        "Worker DONE is REVIEW and identity high-risk objections are explicit"
+      ]
+    },
+    {
+      "id": "N8-G1-LOCAL",
+      "kind": "verification",
+      "family": [
+        "LT",
+        "KE",
+        "SI-API"
+      ],
+      "role": "ROLE-G1-INDEPENDENT",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "WAITING_DEPENDENCY",
+      "agent_id": null,
+      "read_only": true,
+      "code_writes": false,
+      "partition_id": "P-VERIFICATION",
+      "depends_on": [
+        "N5-LT-WORKER",
+        "N6-KE-WORKER",
+        "N7-SI-API-WORKER"
+      ],
+      "approval_gate": "APP-G1-FIRST-INDEPENDENT",
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-g1-local.md",
+      "independence_requirement": "Distinct from all three local workers; report-only",
+      "acceptance_criteria": [
+        "Review local lane handoffs, tests, hashes, leases, and stop-point evidence",
+        "Do not repair or edit worker artifacts"
+      ],
+      "success_criteria": [
+        "PASS, FAIL, SKIPPED, or NOT_RUN is recorded truthfully"
+      ]
+    },
+    {
+      "id": "N9-EXTERNAL-APPROVAL",
+      "kind": "approval",
+      "family": [
+        "GM",
+        "MA"
+      ],
+      "role": "ROLE-BOSS",
+      "model": null,
+      "reasoning_effort": null,
+      "state": "WAITING_APPROVAL",
+      "agent_id": null,
+      "read_only": true,
+      "code_writes": false,
+      "partition_id": "P-VERIFICATION",
+     "depends_on": [
+       "N2-FEATURE-CONTRACT-APPROVAL",
+       "N3-LOCAL-CONTRACT-SCHEMA",
+       "N4-G1-CONTRACT"
+     ],
+      "required_predecessor_state": "N4-G1-CONTRACT must be ACCEPTED; FAIL, REVIEW, or FROZEN never unlocks this approval",
+     "approval_gate": "APP-EXTERNAL-PROVIDER",
+      "report_path": null,
+     "acceptance_criteria": [
+        "Require N4-G1-CONTRACT to be ACCEPTED for the GM consumer; N4 FAIL never unlocks this approval",
+        "Provider, credentials, public ingress, region, retention, egress, and external-send policy are approved",
+        "Provider unavailability is allowed to leave this branch pending without blocking local M1/M2"
+      ],
+      "success_criteria": [
+        "Approval or explicit SKIPPED/BLOCKED decision is recorded outside this package"
+      ]
+    },
+    {
+      "id": "N10-GM-PROVIDER-GATEWAY",
+      "kind": "implementation",
+      "family": [
+        "GM"
+      ],
+      "role": "ROLE-WORKER",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "WAITING_APPROVAL",
+      "agent_id": null,
+      "read_only": false,
+      "code_writes": true,
+      "partition_id": "P-GM",
+      "depends_on": [
+        "N9-EXTERNAL-APPROVAL"
+      ],
+      "approval_gate": "APP-EXTERNAL-PROVIDER",
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-gm.md",
+      "acceptance_criteria": [
+        "Implement only the approved provider/gateway partition",
+        "Prove public ingress and cleanup do not inherit LAN FUNGWIRE authority",
+        "Record provider capability limits and keep real-room proof pending until run"
+      ],
+      "success_criteria": [
+        "Worker DONE is REVIEW; provider unavailability may produce SKIPPED without blocking local lanes"
+      ]
+    },
+    {
+      "id": "N11-MA-WORKER",
+      "kind": "implementation",
+      "family": [
+        "MA"
+      ],
+      "role": "ROLE-WORKER",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "WAITING_DEPENDENCY",
+      "agent_id": null,
+      "read_only": false,
+      "code_writes": true,
+      "partition_id": "P-MA",
+      "depends_on": [
+        "N8-G1-LOCAL"
+      ],
+      "approval_gate": "APP-FEATURE-CONTRACT",
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-ma.md",
+      "acceptance_criteria": [
+        "Use committed transcript revisions and non-self inputs",
+        "Bind payload, audience, ACL, source revision, and destination to the same occurrence",
+        "Persist outbox idempotency and delivery_unknown reconciliation; never blind retry"
+      ],
+      "success_criteria": [
+        "Worker DONE is REVIEW and external send remains stopped until all MA stop points pass"
+      ]
+    },
+    {
+      "id": "N12-G1-PREINTEGRATION",
+      "kind": "verification",
+      "family": [
+        "LT",
+        "KE",
+        "MA",
+        "GM",
+        "SI-API"
+      ],
+      "role": "ROLE-G1-INDEPENDENT",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "WAITING_DEPENDENCY",
+      "agent_id": null,
+      "read_only": true,
+      "code_writes": false,
+      "partition_id": "P-VERIFICATION",
+      "depends_on": [
+        "N8-G1-LOCAL",
+        "N11-MA-WORKER"
+      ],
+      "optional_depends_on": [
+        "N10-GM-PROVIDER-GATEWAY"
+      ],
+      "optional_dependency_condition": "full_meet_participation_variant_selected",
+      "approval_gate": "APP-G1-FIRST-INDEPENDENT",
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-g1-preintegration.md",
+      "independence_requirement": "Distinct from every implementation writer; report-only",
+      "acceptance_criteria": [
+        "Review local integration boundaries, optional provider branch, leases, stop points, and rollback",
+        "Do not make a provider absence block an approved local variant"
+      ],
+      "success_criteria": [
+        "Frozen pre-integration handoff with no unresolved HIGH objection"
+      ]
+    },
+    {
+      "id": "N13-INTEGRATION",
+      "kind": "integration",
+      "family": [
+        "LT",
+        "KE",
+        "MA",
+        "GM",
+        "SI-API"
+      ],
+      "role": "ROLE-INTEGRATOR",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "WAITING_DEPENDENCY",
+      "agent_id": null,
+      "read_only": false,
+      "code_writes": true,
+      "partition_id": "P-INTEGRATION",
+      "depends_on": [
+        "N12-G1-PREINTEGRATION"
+      ],
+      "optional_depends_on": [
+        "N10-GM-PROVIDER-GATEWAY"
+      ],
+      "optional_dependency_condition": "full_meet_participation_variant_selected",
+      "approval_gate": "APP-FEATURE-CONTRACT",
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-integration.md",
+     "acceptance_criteria": [
+       "One writer only; acquire each protected lease explicitly",
+        "Acquire LEASE-GENESIS-INTEGRATION only after N12-G1-PREINTEGRATION is ACCEPTED with its frozen report and hashes; preserve the immutable reviewed snapshot",
+       "Integrate only frozen, independently reviewed partitions",
+       "Do not change the workflow package, linked parents, or unrelated dirty files"
+     ],
+      "success_criteria": [
+        "Integration handoff is FROZEN with exact hashes and released protected leases"
+      ]
+    },
+    {
+      "id": "N14-LUNA-FULL-VERIFICATION",
+      "kind": "verification",
+      "family": [
+        "LT",
+        "KE",
+        "MA",
+        "GM",
+        "SI-API"
+      ],
+      "role": "ROLE-LUNA-VERIFY",
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "state": "WAITING_DEPENDENCY",
+      "agent_id": null,
+      "read_only": true,
+      "code_writes": false,
+      "partition_id": "P-VERIFICATION",
+      "depends_on": [
+        "N13-INTEGRATION"
+      ],
+      "approval_gate": "APP-G1-FIRST-INDEPENDENT",
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-verification.md",
+      "independence_requirement": "Distinct from N13 integration writer; report-only",
+      "acceptance_criteria": [
+        "Run declared focused checks and inspect source, tests, contracts, stop points, hashes, and rollback",
+        "Mark provider, real-room, and release evidence NOT_RUN or SKIPPED when absent"
+      ],
+      "success_criteria": [
+        "Complete verification report with exact exit codes and no silent evidence upgrade"
+      ]
+    },
+    {
+      "id": "N15-TERRA-FINAL",
+      "kind": "verification",
+      "family": [
+        "LT",
+        "KE",
+        "MA",
+        "GM",
+        "SI-API"
+      ],
+      "role": "ROLE-G2-TERRA",
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "high",
+      "state": "WAITING_DEPENDENCY",
+      "agent_id": null,
+      "read_only": true,
+      "code_writes": false,
+      "partition_id": "P-VERIFICATION",
+      "depends_on": [
+        "N14-LUNA-FULL-VERIFICATION"
+      ],
+      "approval_gate": "APP-G2-FINAL",
+      "report_path": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-g2-terra.md",
+      "independence_requirement": "Independent final gate; not the parent, an implementation writer, or a prior reviewer",
+      "acceptance_criteria": [
+        "Review the complete integrated evidence and all unresolved objections",
+        "Reject any failed check, missing hash, missing approval, or unresolved HIGH objection",
+        "Do not repair or waive evidence"
+      ],
+      "success_criteria": [
+        "G2 report is PASS or FAIL; no G2 run is claimed at package freeze"
+      ]
+    },
+    {
+      "id": "N16-BOSS-RELEASE",
+      "kind": "approval",
+      "family": [
+        "RELEASE"
+      ],
+      "role": "ROLE-BOSS",
+      "model": null,
+      "reasoning_effort": null,
+      "state": "WAITING_APPROVAL",
+      "agent_id": null,
+      "read_only": true,
+      "code_writes": false,
+      "partition_id": "P-VERIFICATION",
+      "depends_on": [
+        "N15-TERRA-FINAL"
+      ],
+      "approval_gate": "APP-RELEASE",
+      "report_path": null,
+      "acceptance_criteria": [
+        "Boss separately approves merge, release, or deployment after G2"
+      ],
+      "success_criteria": [
+        "No release action occurs from this declarative package"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "E0-SPEC-TO-APPROVAL",
+      "from": "N0-SPEC-DOC-REVIEW",
+      "to": "N2-FEATURE-CONTRACT-APPROVAL",
+      "kind": "hard"
+    },
+    {
+      "id": "E1-BASELINE-TO-CONTRACT",
+      "from": "N1-WF-BASELINE",
+      "to": "N3-LOCAL-CONTRACT-SCHEMA",
+      "kind": "hard"
+    },
+    {
+      "id": "E2-APPROVAL-TO-CONTRACT",
+      "from": "N2-FEATURE-CONTRACT-APPROVAL",
+      "to": "N3-LOCAL-CONTRACT-SCHEMA",
+      "kind": "hard"
+    },
+    {
+      "id": "E3-CONTRACT-TO-G1",
+      "from": "N3-LOCAL-CONTRACT-SCHEMA",
+      "to": "N4-G1-CONTRACT",
+      "kind": "hard"
+    },
+    {
+      "id": "E4-G1-TO-LT",
+      "from": "N4-G1-CONTRACT",
+      "to": "N5-LT-WORKER",
+      "kind": "hard"
+    },
+    {
+      "id": "E5-G1-TO-KE",
+      "from": "N4-G1-CONTRACT",
+      "to": "N6-KE-WORKER",
+      "kind": "hard"
+    },
+    {
+      "id": "E6-G1-TO-SI",
+      "from": "N4-G1-CONTRACT",
+      "to": "N7-SI-API-WORKER",
+      "kind": "hard"
+    },
+    {
+      "id": "E7-LT-TO-LOCAL-G1",
+      "from": "N5-LT-WORKER",
+      "to": "N8-G1-LOCAL",
+      "kind": "hard"
+    },
+    {
+      "id": "E8-KE-TO-LOCAL-G1",
+      "from": "N6-KE-WORKER",
+      "to": "N8-G1-LOCAL",
+      "kind": "hard"
+    },
+    {
+      "id": "E9-SI-TO-LOCAL-G1",
+      "from": "N7-SI-API-WORKER",
+      "to": "N8-G1-LOCAL",
+      "kind": "hard"
+    },
+    {
+      "id": "E10-APPROVAL-TO-EXTERNAL",
+      "from": "N2-FEATURE-CONTRACT-APPROVAL",
+      "to": "N9-EXTERNAL-APPROVAL",
+      "kind": "hard"
+    },
+    {
+      "id": "E11-CONTRACT-TO-EXTERNAL",
+      "from": "N3-LOCAL-CONTRACT-SCHEMA",
+      "to": "N9-EXTERNAL-APPROVAL",
+      "kind": "hard"
+    },
+    {
+      "id": "E11B-G1-CONTRACT-TO-EXTERNAL",
+      "from": "N4-G1-CONTRACT",
+      "to": "N9-EXTERNAL-APPROVAL",
+      "kind": "hard",
+      "condition": "accepted_independent_contract_security_review"
+    },
+    {
+      "id": "E12-EXTERNAL-TO-GM",
+      "from": "N9-EXTERNAL-APPROVAL",
+      "to": "N10-GM-PROVIDER-GATEWAY",
+      "kind": "hard"
+    },
+    {
+      "id": "E13-LOCAL-G1-TO-MA",
+      "from": "N8-G1-LOCAL",
+      "to": "N11-MA-WORKER",
+      "kind": "hard"
+    },
+    {
+      "id": "E14-LOCAL-G1-TO-PREINTEGRATION",
+      "from": "N8-G1-LOCAL",
+      "to": "N12-G1-PREINTEGRATION",
+      "kind": "hard"
+    },
+    {
+      "id": "E15-MA-TO-PREINTEGRATION",
+      "from": "N11-MA-WORKER",
+      "to": "N12-G1-PREINTEGRATION",
+      "kind": "hard"
+    },
+    {
+      "id": "E16-GM-OPTIONAL-PREINTEGRATION",
+      "from": "N10-GM-PROVIDER-GATEWAY",
+      "to": "N12-G1-PREINTEGRATION",
+      "kind": "optional",
+      "condition": "full_meet_participation_variant_selected"
+    },
+    {
+      "id": "E17-PREINTEGRATION-TO-INTEGRATION",
+      "from": "N12-G1-PREINTEGRATION",
+      "to": "N13-INTEGRATION",
+      "kind": "hard"
+    },
+    {
+      "id": "E18-GM-OPTIONAL-INTEGRATION",
+      "from": "N10-GM-PROVIDER-GATEWAY",
+      "to": "N13-INTEGRATION",
+      "kind": "optional",
+      "condition": "full_meet_participation_variant_selected"
+    },
+    {
+      "id": "E19-INTEGRATION-TO-LUNA-VERIFY",
+      "from": "N13-INTEGRATION",
+      "to": "N14-LUNA-FULL-VERIFICATION",
+      "kind": "hard"
+    },
+    {
+      "id": "E20-LUNA-VERIFY-TO-G2",
+      "from": "N14-LUNA-FULL-VERIFICATION",
+      "to": "N15-TERRA-FINAL",
+      "kind": "hard"
+    },
+    {
+      "id": "E21-G2-TO-RELEASE",
+      "from": "N15-TERRA-FINAL",
+      "to": "N16-BOSS-RELEASE",
+      "kind": "hard"
+    }
+  ],
+  "stop_points": [
+    {
+      "id": "SP-LT-ATOMIC-SOURCE-COVERAGE",
+      "before_nodes": [
+        "N5-LT-WORKER",
+        "N6-KE-WORKER",
+        "N7-SI-API-WORKER"
+      ],
+      "required_evidence": [
+        "source coverage and ASR revision write",
+        "canonical projection, committed event, and processed cursor in one serialized mutation boundary",
+        "event emission only after commit",
+        "recoverable write-intent or idempotent reconciliation for crash/replay"
+      ],
+      "failure_state": "BLOCKED",
+      "parent_may_waive": false
+    },
+    {
+      "id": "SP-KE-MA-DESTINATION-RECHECK",
+      "before_nodes": [
+        "N11-MA-WORKER",
+        "N13-INTEGRATION"
+      ],
+      "required_evidence": [
+        "audience and ACL/grant recheck immediately before external send",
+        "source revision freshness/revocation recheck",
+        "immutable DestinationBinding for the same occurrence, provider/account/channel/thread, and approval snapshot"
+      ],
+      "failure_state": "BLOCKED",
+      "parent_may_waive": false
+    },
+    {
+      "id": "SP-MA-DELIVERY-UNKNOWN",
+      "before_nodes": [
+        "N11-MA-WORKER",
+        "N13-INTEGRATION"
+      ],
+      "required_evidence": [
+        "possible-send timeout becomes durable delivery_unknown",
+        "provider receipt or idempotency reconciliation before retry",
+        "no blind retry or automatic resend absent proof"
+      ],
+      "failure_state": "BLOCKED",
+      "parent_may_waive": false
+    },
+    {
+      "id": "SP-GM-PUBLIC-INGRESS-LEASE-AUTHORITY",
+      "before_nodes": [
+        "N10-GM-PROVIDER-GATEWAY"
+      ],
+      "required_evidence": [
+        "public ingress authentication and capability boundary",
+        "independent lease ownership, TTL/watchdog, and cleanup",
+        "no inheritance of LAN FUNGWIRE authority or credentials"
+      ],
+      "failure_state": "BLOCKED",
+      "parent_may_waive": false
+    },
+    {
+      "id": "SP-CUSTODY-MIGRATION",
+      "before_nodes": [
+        "N3-LOCAL-CONTRACT-SCHEMA",
+        "N13-INTEGRATION"
+      ],
+      "required_evidence": [
+        "add-only migration, expected-revision checks, custody, and rollback"
+      ],
+      "failure_state": "BLOCKED",
+      "parent_may_waive": false
+    },
+    {
+      "id": "SP-CREDENTIAL-EGRESS",
+      "before_nodes": [
+        "N9-EXTERNAL-APPROVAL",
+        "N10-GM-PROVIDER-GATEWAY",
+        "N11-MA-WORKER"
+      ],
+      "required_evidence": [
+        "credential, region, retention, egress, redaction, and kill-switch approval"
+      ],
+      "failure_state": "BLOCKED",
+      "parent_may_waive": false
+    },
+    {
+      "id": "SP-IDENTITY-ACL",
+      "before_nodes": [
+        "N7-SI-API-WORKER",
+        "N11-MA-WORKER"
+      ],
+      "required_evidence": [
+        "source, proposed, confirmed, and TTS rights remain separate",
+        "provider labels are not Person or ACL authority",
+        "human review for sensitive identity changes"
+      ],
+      "failure_state": "BLOCKED",
+      "parent_may_waive": false
+    },
+    {
+      "id": "SP-OUTBOX-SAME-OCCURRENCE",
+      "before_nodes": [
+        "N11-MA-WORKER",
+        "N13-INTEGRATION"
+      ],
+      "required_evidence": [
+        "occurrence-bound idempotency key",
+        "destination receipt/revoke evidence",
+        "duplicate prevention for same-room output"
+      ],
+      "failure_state": "BLOCKED",
+      "parent_may_waive": false
+    },
+    {
+      "id": "SP-CI-RELEASE",
+      "before_nodes": [
+        "N15-TERRA-FINAL",
+        "N16-BOSS-RELEASE"
+      ],
+      "required_evidence": [
+        "CI evidence, package/lockfile review, rollback artifact, and Boss release decision"
+      ],
+      "failure_state": "BLOCKED",
+      "parent_may_waive": false
+    }
+  ],
+  "high_risk_policy": {
+    "unresolved_high_objection_blocks_task": true,
+    "reviewer_pass_cannot_waive_high_objection": true,
+    "parent_cannot_waive_failed_tests": true,
+    "parent_cannot_waive_g2": true,
+    "provider_unavailability_does_not_block_local_m1_m2": true,
+    "real_room_gate_remains_pending_without_real_room_evidence": true
+  },
+  "invalidation_policy": {
+    "invalidate_descendants_on": [
+      "contract change",
+      "schema or migration change",
+      "security or ACL change",
+      "public interface or destination binding change",
+      "source revision or freshness change",
+      "dependency or lockfile digest change",
+      "protected dirty-path inventory change",
+      "worktree or pinned snapshot change"
+    ],
+    "repair_route": [
+      "INVALIDATED or FAIL",
+      "fresh gpt-5.6-luna fixer",
+      "REVIEW",
+      "independent G1 again"
+    ],
+    "maximum_unsuccessful_cycles": 3,
+    "after_max_cycles": "Escalate to Boss; do not bypass or self-accept."
+  },
+  "report_schema": {
+    "status_enum": [
+      "PASS",
+      "FAIL",
+      "SKIPPED",
+      "NOT_RUN"
+    ],
+    "required_fields": [
+      "task_id",
+      "role",
+      "agent_or_person_id",
+      "model",
+      "reasoning_effort",
+      "base_snapshot",
+      "sha256_hashes",
+      "environment",
+      "dependency_digests",
+      "commands_and_exit_codes",
+      "changed_paths",
+      "lease_interval",
+      "stop_points",
+      "high_risk_objections",
+      "rollback_or_recovery",
+      "next_gate_or_blocker"
+    ],
+    "reviewer_rule": "Reviewers may write only their own report; they may not repair artifacts.",
+    "truth_rule": "SKIPPED and NOT_RUN remain explicit and are never upgraded to PASS."
+  },
+  "commands_and_checks": [
+    {
+      "id": "CHK-JSON-PARSE",
+      "purpose": "Parse the declarative manifest",
+      "command": "node -e \"JSON.parse(require('fs').readFileSync('docs/plans/2026-09-21-meeting-intelligence-task-dag.json','utf8')); console.log('JSON_PARSE')\"",
+      "expected_exit_code": 0,
+      "status_at_freeze": "NOT_RUN"
+    },
+    {
+      "id": "CHK-PLAN-FLAGS",
+      "purpose": "Confirm this is not an installed scheduler",
+      "command": "node -e \"const p=JSON.parse(require('fs').readFileSync('docs/plans/2026-09-21-meeting-intelligence-task-dag.json','utf8')); if(!p.declarative_plan || p.installed_scheduler) process.exit(2); console.log('PLAN_FLAGS_OK')\"",
+      "expected_exit_code": 0,
+      "status_at_freeze": "NOT_RUN"
+    },
+    {
+      "id": "CHK-STRUCTURAL-DAG",
+      "purpose": "Validate unique IDs, known endpoints, acyclic graph, approval dominance, independent roles, capacity, and parallel path overlap against this manifest",
+      "command": "node -e \"run the bounded manifest validator over nodes, edges, roles, approvals, partitions, serialized_leases, and parallel_groups\"",
+      "expected_exit_code": 0,
+      "status_at_freeze": "NOT_RUN"
+    },
+    {
+      "id": "CHK-LEASE-READINESS-CYCLE",
+      "purpose": "Prove producer-handoff lease release, independent N4 readiness, consumer fail-closed gating, and post-N12 integration reacquisition",
+      "criteria": [
+        "N3 FROZEN with report and hashes releases LEASE-GENESIS-CONTRACT before N4 READY; N4 own verdict is not a release input",
+        "N4 FAIL or non-ACCEPTED never unlocks N5, N6, N7, or N9; accepted N4 is required",
+        "LEASE-GENESIS-INTEGRATION is acquired only after accepted N12-G1-PREINTEGRATION"
+      ],
+      "command": "node -e \"const fs=require('fs');const p=JSON.parse(fs.readFileSync('docs/plans/2026-09-21-meeting-intelligence-task-dag.json','utf8'));const node=id=>p.nodes.find(n=>n.id===id);const lease=id=>p.serialized_leases.find(l=>l.id===id);const n4=node('N4-G1-CONTRACT');const consumers=['N5-LT-WORKER','N6-KE-WORKER','N7-SI-API-WORKER','N9-EXTERNAL-APPROVAL'];const contract=lease('LEASE-GENESIS-CONTRACT');const integration=lease('LEASE-GENESIS-INTEGRATION');const has=(v,s)=>String(v||'').includes(s);if(!has(contract.release_condition,'N3-LOCAL-CONTRACT-SCHEMA')||!has(contract.release_condition,'FROZEN')||!has(contract.release_condition,'report')||!has(contract.release_condition,'hashes')||!has(contract.release_condition,'before N4-G1-CONTRACT')||has(contract.release_condition,'N4-G1-CONTRACT is FROZEN'))throw new Error('producer release invariant');if(!has(contract.snapshot_custody_after_release,'immutable')||!has(contract.snapshot_custody_after_release,'no writer'))throw new Error('snapshot custody invariant');if(!has(n4.readiness_condition,'LEASE-GENESIS-CONTRACT is RELEASED')||!has(n4.readiness_condition,'not an input'))throw new Error('N4 readiness invariant');if(!consumers.every(id=>{const n=node(id);return n.depends_on.includes('N4-G1-CONTRACT')&&has(n.required_predecessor_state,'must be ACCEPTED')&&has(n.required_predecessor_state,'FAIL')}))throw new Error('consumer gate invariant');if(!has(integration.acquisition_condition,'N12-G1-PREINTEGRATION')||!has(integration.acquisition_condition,'ACCEPTED'))throw new Error('integration reacquisition invariant');console.log('LEASE_READINESS_OK')\"",
+      "expected_exit_code": 0,
+      "status_at_freeze": "NOT_RUN"
+    },
+    {
+      "id": "CHK-DIFF-CHECK",
+      "purpose": "Check whitespace in the four authorized files",
+      "command": "git diff --check -- docs/plans/2026-09-21-meeting-intelligence-multiagent-workflow.md docs/plans/2026-09-21-meeting-intelligence-task-dag.json docs/plans/2026-08-23-fung-luna-terra-multiagent-workflow.md docs/plans/2026-08-09-fung-master-implementation-plan.md",
+      "expected_exit_code": 0,
+      "status_at_freeze": "NOT_RUN"
+    },
+    {
+     "id": "CHK-PACKAGE-HASHES",
+      "purpose": "Freeze SHA256 for the four package files and verify both linked parent overlays remain unchanged",
+      "command": "Get-FileHash -Algorithm SHA256 -LiteralPath docs/plans/2026-09-21-meeting-intelligence-multiagent-workflow.md,docs/plans/2026-09-21-meeting-intelligence-task-dag.json,docs/plans/2026-08-23-fung-luna-terra-multiagent-workflow.md,docs/plans/2026-08-09-fung-master-implementation-plan.md",
+     "expected_exit_code": 0,
+     "status_at_freeze": "NOT_RUN"
+    },
+    {
+      "id": "CHK-NO-HEAVY-BUILD",
+      "purpose": "Respect documentation-only scope",
+      "command": "No app build, provider call, model download, real-room test, commit, push, PR, deployment, or release command",
+      "expected_exit_code": 0,
+      "status_at_freeze": "NOT_RUN"
+    }
+  ],
+  "rollback_policy": [
+    "This package has no source or runtime side effect; discard only the four authorized documentation changes if Boss rejects the candidate.",
+    "Future code nodes must provide add-only migration and durable rollback before acquiring the Genesis or protected integration leases.",
+    "A delivery uncertainty is reconciled through provider receipt/idempotency evidence, not blind retry.",
+    "Public gateway cleanup must revoke its own lease/capability and must not clean up or inherit LAN FUNGWIRE authority."
+  ],
+  "freeze_policy": {
+    "review_set": [
+      "docs/plans/2026-09-21-meeting-intelligence-multiagent-workflow.md",
+      "docs/plans/2026-09-21-meeting-intelligence-task-dag.json",
+      "docs/plans/2026-08-23-fung-luna-terra-multiagent-workflow.md",
+      "docs/plans/2026-08-09-fung-master-implementation-plan.md"
+    ],
+    "later_reports_must_be_separate": true,
+    "later_verdict_must_not_mutate_review_set": true,
+    "g1_and_g2_are_not_recorded_as_run": true,
+    "authoring_leases_released_after_hash": true,
+    "future_source_leases_at_freeze": "UNALLOCATED"
+  },
+  "out_of_scope": [
+    "feature implementation",
+    "source, test, or docs repair by parent",
+    "provider procurement, credentials, gateway deployment, or model downloads",
+    "real meeting or real-room acceptance",
+    "native attachment, TTS, voice enrollment, biometric matching, or platform expansion",
+    "commit, push, PR, merge, deployment, or release"
+  ],
+  "provenance": [
+    "docs/architecture/MEETING_INTELLIGENCE_DOMAINS.md",
+    "docs/specs/2026-09-21-live-meeting-transcription-spec.md",
+    "docs/specs/2026-09-21-meeting-knowledge-evidence-spec.md",
+    "docs/specs/2026-09-21-meeting-agent-participation-spec.md",
+    "docs/specs/2026-09-21-speaker-identity-domain-design.md",
+    "docs/specs/2026-08-23-speaker-identification-and-voice-profile-spec.md",
+    "docs/decisions/2026-09-21-google-meet-agent-api-strategy.md",
+    "docs/plans/2026-08-23-fung-luna-terra-multiagent-workflow.md",
+    "docs/plans/2026-09-17-callmd-ui-luna-max-dag-workflow.md",
+    "https://learn.chatgpt.com/docs/agent-configuration/subagents",
+    "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+    "https://developers.openai.com/api/docs/models/gpt-5.6-terra"
+  ]
+}

@@ -56,5 +56,5 @@ tempfile = "3"
 # --- Local development against a WIP GenesisBlock checkout ---
 # Uncomment to build against the local working copy instead of the pinned git rev.
 # Never commit this uncommented.
-# [patch."https://github.com/Freshair129/GenesisBlock.git"]
-# genesis-block-native = { path = "G:/GenesisBlock_Dev/GenesisBlock" }
+[patch."https://github.com/Freshair129/GenesisBlock.git"]
+genesis-block-native = { path = "C:/Users/pc/AppData/Local/Temp/codex-fung-genesis-schema-limit-r1-20260921" }

@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.2.0b"
 created_at: "2026-08-23T01:15:22+07:00,ATHER"
-last_update: "2026-08-23T01:15:22+07:00,ATHER"
+last_update: "2026-09-21T03:58:31+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -47,6 +47,17 @@ not open an independent application database.
 | [`prompt-engineering.md`](prompt-engineering.md) | Versioned prompt and structured-output controls | candidate |
 | [`model-cards/TEMPLATE.md`](model-cards/TEMPLATE.md) | Per-model deployment and limitation record | active template |
 
+## Meeting intelligence specs
+
+The [domain map](../architecture/MEETING_INTELLIGENCE_DOMAINS.md) connects this governance layer to:
+
+- [Live transcription](../specs/2026-09-21-live-meeting-transcription-spec.md): provisional/final revisions, media evidence and latency qualification.
+- [Knowledge evidence](../specs/2026-09-21-meeting-knowledge-evidence-spec.md): scoped retrieval, numeric claims and share rights.
+- [Meeting Agent](../specs/2026-09-21-meeting-agent-participation-spec.md): explicit/session-bounded actions and same-channel publication.
+- [API strategy](../decisions/2026-09-21-google-meet-agent-api-strategy.md): Google Meet input/output capability limits.
+
+All are candidate. The optional managed-media gateway is transport/control infrastructure, not an alternative AI/persistence authority; media reaches a third party in that mode even with local inference.
+
 ## Current versus target truth
 
 - `Desktop/ARCHITECTURE.md` is the current parent architecture and records
@@ -64,8 +75,15 @@ to it: transcription accuracy, diarization quality, summary fidelity,
 latency, memory/VRAM, failure isolation, privacy, reproducibility, and human
 reviewability.
 
+## Version Diff
+
+| Version | Change |
+| --- | --- |
+| 0.2.0b | Linked the candidate live-transcription, evidence retrieval and participating-agent governance contracts. |
+
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.0b | 2026-09-21 | candidate | Linked the candidate live-transcription, evidence retrieval and participating-agent governance contracts. | working-tree | RWANG |
 | 0.1.0b | 2026-08-23 | candidate | Added AI system documentation map and control boundary. | pending | ATHER |

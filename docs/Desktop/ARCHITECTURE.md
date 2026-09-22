@@ -1,7 +1,7 @@
 ---
-version: "1.0.0b"
+version: "1.1.0b"
 created_at: "2026-07-05T00:00:00+07:00,ATHER"
-last_update: "2026-07-20T21:34:00+07:00,ATHER"
+last_update: "2026-09-21T03:58:31+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -148,6 +148,23 @@ Supported adapter classes:
 - Model runs must record provider, model name, parameters, and output artifact references.
 - Intent analysis must be labelled as AI inference.
 
+## Live meeting intelligence extension — candidate, 2026-09-21
+
+The [D1–D13 domain map](../architecture/MEETING_INTELLIGENCE_DOMAINS.md) extends the modular monolith with revisioned live transcription, scoped knowledge/evidence, meeting participation and conversation delivery. The existing Desktop GenesisBlockDB remains the authoritative application persistence boundary. No independent transcript/vector/people database is introduced.
+
+- [Live transcript spec](../specs/2026-09-21-live-meeting-transcription-spec.md): source coverage, provisional/committed revisions, replay cursors and resource budgets.
+- [Knowledge spec](../specs/2026-09-21-meeting-knowledge-evidence-spec.md): selected collections, exact source versions, citation and audience/share checks.
+- [Meeting Agent spec](../specs/2026-09-21-meeting-agent-participation-spec.md): session policy, visible join, grounded triggers, durable publication outbox and receipts.
+- [Google Meet API strategy](../decisions/2026-09-21-google-meet-agent-api-strategy.md): Google Meet first, API participant attribution; official receive-only preview versus candidate managed bot for actual chat interaction.
+
+The managed-bot proposal adds an **optional external transport/control gateway**, requiring a public verified WSS/HTTPS ingress, Desktop outbound authenticated WSS and a bot lease watchdog. Its bounded encrypted transport buffer/minimal durable control journal is not a second application knowledge store. This is new infrastructure requiring deployment/privacy approval; neither the current loopback API nor LAN FUNGWIRE becomes internet-facing.
+
+Local-only capture remains available. API mode explicitly discloses third-party meeting-media access even when Whisper and knowledge run locally. Provider identity is source metadata, not a verified Person or authorization principal. Human/agent identities, read rights and publication rights remain separate.
+
+Existing manual external MCP stays read-only/per-call approved. The new participant/publication boundary is separately default-off. Meeting Agent cannot call vendor endpoints directly from model-generated tools or UI code.
+
+All new schemas, commands, gateway, auto-publication and latency targets are **target contracts, not implemented claims**. Speaker recognition remains optional when participant-track attribution is sufficient; shared-room microphones still need anonymous diarization/review.
+
 ## Risks
 
 | Risk | Level | Mitigation |
@@ -207,6 +224,7 @@ Supported adapter classes:
 
 | Version | Change |
 | --- | --- |
+| 1.1.0b | Added candidate live-transcript, knowledge, Google Meet agent and governed external gateway boundaries while retaining Genesis authority. |
 | 0.1.0b | Initial architecture with desktop-first Tauri v2, SQLite WAL, GenesisBlockDB, API, MCP, CLI, BYOM runtimes, and stateful jobs. |
 | 1.0.0b | Corrected GenesisBlockDB to the single operational boundary with internal SQLite relational, native graph/vector, managed blob and signed WAL authority. |
 
@@ -214,5 +232,6 @@ Supported adapter classes:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 1.1.0b | 2026-09-21 | candidate | Added candidate live-transcript, knowledge, Google Meet agent and governed external gateway boundaries while retaining Genesis authority. | working-tree | RWANG |
 | 0.1.0b | 2026-07-05 | beta | Initial technical design. | N/A | ATHER |
 | 1.0.0b | 2026-07-20 | candidate | Structural correction to the GenesisBlockDB unified operational boundary | N/A — no commit created | ATHER |

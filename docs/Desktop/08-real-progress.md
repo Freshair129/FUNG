@@ -1,7 +1,7 @@
 ---
-version: "0.2.31b"
+version: "0.2.35b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-20T22:05:05+07:00,RWANG"
+last_update: "2026-09-21T03:58:31+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -16,6 +16,23 @@ Google Drive is canceled and its active implementation was removed on
 2026-09-17. Phase 4 backup truth below means the local encrypted filesystem
 path only; retained Drive migration/report references are historical
 provenance, not current runtime or deployment evidence.
+
+## Candidate live transcript / Google Meet Agent docs — 2026-09-21
+
+**Documentation only; new capability implementation and qualification NOT_RUN.**
+
+The user selected Google Meet first and accepted API integration to improve speaker-source attribution. The proposal is indexed in [Meeting Intelligence Domains](../architecture/MEETING_INTELLIGENCE_DOMAINS.md), with detailed [live transcript](../specs/2026-09-21-live-meeting-transcription-spec.md), [knowledge evidence](../specs/2026-09-21-meeting-knowledge-evidence-spec.md), [Meeting Agent](../specs/2026-09-21-meeting-agent-participation-spec.md) and [API strategy](../decisions/2026-09-21-google-meet-agent-api-strategy.md) contracts.
+
+| Area | Current evidence / remaining boundary |
+| --- | --- |
+| Live transcription | existing `CHUNK_MS=8_000`, persistent Whisper worker and committed segments; new provisional revisions/cursor/SLO are not implemented |
+| Speaker identity | existing mic/system labels and optional post-meeting diarization; API participant sessions and reviewed People links are proposed |
+| Knowledge | existing legacy/local and separately recording-scoped QA; selected document corpus, metric resolution and share ACL are proposed |
+| Meeting participant | no Google Meet join/media/chat adapter or gateway proven by this task |
+| Publication | existing external MCP remains read-only; same-room outbox, links, receipts and bounded auto-response are proposed |
+| API feasibility | primary provider docs reviewed; no account, tenant, media, billing, real-room or deployed-gateway test performed |
+
+New specs are candidate and do not close any existing real-capture, model, packaged, provider/device or release gate. This turn changes documentation only; prior working-tree runtime edits and their previously recorded evidence are preserved.
 
 ## Current Desktop shell truth — 2026-09-20
 
@@ -39,6 +56,49 @@ Local evidence for this shell delta is commit
 native custody test and WebView Home → Appearance → Live → Review → profile
 click-through passed. Exact native executable click-through, installer,
 clean-install and production readiness remain separate gates.
+
+## Current Whisper model-profile slice — 2026-09-21
+
+The approved model-profile contract now defines `large-v3-turbo` as the
+default operational model (`turbo`) and `medium` as the lower-resource
+operational model. `FUNG_TRANSCRIPTION_PROFILE` remains the execution choice
+(`cpu` or `gpu`); `FUNG_WHISPER_MODEL_PROFILE` selects the model. On GPU, the
+`medium` model defaults to CTranslate2 `int8_float16`; on CPU it defaults to
+`int8`. `large-v3` remains qualification-only and is not a desktop profile.
+
+The staging script now preserves the existing Python runtime and model
+directories so the operational models can be staged separately, and records
+all staged model revisions in the runtime manifest. The code and focused unit
+tests are updated, but the new model downloads, GPU turbo smoke, CPU medium
+smoke, Thai qualification comparison and packaged acceptance are **NOT_RUN**
+in this workspace. The current staged runtime still contains the earlier
+`small` model until the new pinned model artifacts are staged.
+
+## Current FUNG meeting-transcript pipeline adaptation — 2026-09-21
+
+The approved adaptation of the LALIN reference pipeline now uses FUNG's
+existing recording/job/provenance boundaries rather than creating a parallel
+`apps/api` pipeline. The first implementation slice changes the local-capture
+stop path to queue `speakers.diarize` before `summary.generate` on the same
+serial job engine. A missing or failed optional diarization pass remains
+non-blocking: the summary still runs against the unchanged transcript, while
+the diarization blocker remains visible in its own job/event.
+The existing manual summary retry remains summary-only and does not rerun a
+completed speaker pass.
+
+Local source evidence for this slice: the focused Rust test passed, the full
+`meeting_intel::tests` cluster passed `19/19`, the diarization packaging suite
+passed `8/8`, the staging PowerShell parser passed, and `git diff --check`
+passed. Meet ring-gate video evidence, context-pack/initial-prompt support,
+raw-transcript correction by an LLM, real meeting inference, and packaged
+click-through remain outside this slice.
+
+The optional diarization runtime was resolved into a 97-entry hash-pinned CPU
+lockfile and the embedded runtime import probe passed with `torch 2.4.1+cpu`,
+`torchaudio 2.4.1+cpu`, and `pyannote.audio 3.4.0`; the gated model weights
+were not fetched because no Hugging Face token/licenses were configured here.
+Therefore actual pyannote inference and real-meeting speaker accuracy remain
+**NOT_RUN**.
 
 ## Current live capture routing truth — 2026-09-20
 
@@ -67,7 +127,7 @@ output-destination design is not included in this slice.
 
 ## Current Status
 
-FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The host `py -3` interpreter cannot import `faster_whisper`, but FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the pinned `small` model, and uses the staged CUDA 12/cuDNN 9 bundle. The standalone GPU worker smoke passed; Live Meeting real-capture, device, connector, and visual UAT remain open. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
+FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The host `py -3` interpreter cannot import `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the earlier pinned `small` model, and uses the staged CUDA 12/cuDNN 9 bundle. The new `large-v3-turbo` default is not runnable from this staged directory until its model artifact is installed; turbo/medium smoke and qualification remain open. Live Meeting real-capture, device, connector, and visual UAT remain open. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
 
 This document separates implemented truth from planned capability.
 
@@ -756,20 +816,18 @@ overlay does not promote Phase 3 to fully release-ready.
 
 ## Not Implemented Yet
 
-- Speaker diarization *reach*. `diarize.py` now ships in `bundle.resources`,
-  `scripts/stage_diarization_runtime.ps1` installs the `torch`/`pyannote.audio`
-  tree into the staged runtime, and `diarization_status` reports which
-  prerequisite is missing before a worker is spawned — so an installed build
-  can run diarization once the operator opts in. The dependencies stay out of
-  the default bundle deliberately: the tree is hundreds of megabytes and the
-  `pyannote/speaker-diarization-3.1` weights are gated per user on Hugging
-  Face, so they cannot be redistributed in an installer.
-  What remains is reach: the only route into diarization is still Zoom
-  mixed-audio import. A locally captured meeting cannot be diarized, because
-  its audio is per-channel chunks rather than one file, and deciding what to
-  feed the model (system channel alone, or a mixdown) changes what the speaker
-  timings mean. Neither the dependency install nor a diarization run has been
-  executed on a device.
+- Speaker diarization *qualification*. `diarize.py` ships in
+  `bundle.resources`, `scripts/stage_diarization_runtime.ps1` installs the
+  hash-pinned `torch`/`pyannote.audio` tree into the staged runtime, and
+  `diarization_status` reports the next missing prerequisite before a worker is
+  spawned. The local `speakers.diarize` path now reads only the far-side/system
+  chunks, projects turns back onto the recording timeline, and preserves the
+  microphone's capture-provenance label. The dependencies remain outside the
+  default bundle because the tree is large and the
+  `pyannote/speaker-diarization-3.1` weights are gated per user on Hugging Face.
+  The embedded import probe passed, but the gated model weights were not
+  fetched and no real meeting inference/device/UAT has run; speaker accuracy
+  therefore remains **NOT_RUN**.
 - URL ingest *at scale*. The path works, but two things are unproven and one
   is structural. Unproven: a real extractor run on a device, and the `deno`
   JS-runtime install that YouTube's signature challenges need. Structural:
@@ -790,6 +848,8 @@ overlay does not promote Phase 3 to fully release-ready.
 | Check | Result |
 | --- | --- |
 | `npm run build` | Passed on 2026-08-14 after `npm ci` restored missing local CLI binaries |
+| FUNG meeting pipeline ordering | Passed: approved local-capture order queues `speakers.diarize` before `summary.generate`; Rust `meeting_intel::tests` `19/19`, new order regression `1/1`, and diarization packaging `8/8`. This is local source/contract evidence, not real-meeting UAT. |
+| Optional pyannote runtime import | Passed locally: 97 hash-pinned CPU distributions staged; embedded import probe reported `torch 2.4.1+cpu`, `torchaudio 2.4.1+cpu`, `AudioMetaData=True`, and `pyannote.audio 3.4.0`. Gated model fetch and actual inference are **NOT_RUN**. |
 | `cargo check` | Passed |
 | `npm audit --audit-level=moderate` | Passed on 2026-08-23; current lockfile reports **0 vulnerabilities** across 84 audited dependencies. |
 | SVG XML validation | Passed |
@@ -814,7 +874,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | Rebuilt Desktop runtime | The debug `fung.exe` launched with title `FUNG`; a close/relaunch smoke observed PID 37720 then PID 9088 and non-zero window handles, with Genesis counts unchanged (`projects=1`, `recordings=1`, `transcript_segments=13`, `audit_events=1`). Windows Graphics Capture, browser screenshot, and keyboard automation remain unavailable, so visual/keyboard UAT is still open. |
 | Real connector/device diagnostics | Claude Desktop MCP registry is empty, no approved vendor endpoint/credential is configured, and `adb`/`scrcpy` are absent. The real-connector and physical-device gates remain blocked, not waived. |
 | Python worker syntax | `py_compile scripts/transcribe.py` passed. |
-| Current Whisper runtime availability | `py -3` reports no `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the pinned `small` model, and passes the standalone GPU smoke with the staged CUDA 12/cuDNN 9 bundle. Live Meeting real-capture, device, visual, and connector UAT remain open. |
+| Current Whisper runtime availability | `py -3` reports no `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the earlier pinned `small` model, and passes the historical standalone GPU smoke with the staged CUDA 12/cuDNN 9 bundle. The new `large-v3-turbo`/`medium` artifacts and smokes are NOT_RUN; Live Meeting real-capture, device, visual, and connector UAT remain open. |
 | D-MVP-02 correction/audit slice (2026-09-16) | Native recording-scoped correction and accepted refinement/audit provenance passed targeted Rust `2/2`; full `cargo test --manifest-path src-tauri/Cargo.toml --lib` passed `452`, with `1` ignored; `npm run test:job-actions` `16/16`, `test:summary-scoping` `6/6`, `test:desktop-bootstrap` `10/10`, and `npm run build` passed. This is local source/test/build evidence; packaged, restart, provider, device, and release gates remain open. |
 | D-MVP-05 source-audio export (2026-09-16) | Existing durable `export.render` emits source WAV/MP3 artifacts and uses the bundled PyAV worker for other project-owned formats. Output is temp-file + atomic-replace so failed retries preserve the previous artifact. Targeted Rust audio tests `3/3`; full Rust `455 passed / 1 ignored`; clippy and scoped fmt passed; Node job actions `17/17`, summary scoping `6/6`, desktop bootstrap `10/10`, CI coverage `2/2`, traceability `1/1`, Vite build passed, real local WAV/MP3 codec smoke passed, release EXE build passed, host-level MSI build passed, NSIS build incomplete, release launch smoke passed outside the sandbox, and opt-in import/runtime route passed. This is local source/test/build/runtime-worker/package evidence; packaged click-through, restart, provider, device, and release gates remain open. |
 | D-MVP-04-L1 export-artifact inventory (2026-09-17) | `list_export_artifacts` now reads through Genesis `query_all`, preserving project scope, newest-first ordering, command signature, and JSON shape. Focused Rust `transcript_export` tests passed `16/16`; `ROW_CAP + 5` regression and cross-project isolation passed. Full Rust is environment-partial at `450 passed / 6 failed / 1 ignored` because the actual `.venv-whisper\\Scripts\\python.exe` is absent for six FUNGWIRE transcription tests. `npm run build` and relevant Node suites passed. Runtime/provider/device/release gates remain open. |
@@ -853,6 +913,9 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Change |
 | --- | --- |
+| 0.2.35b | Recorded candidate live/knowledge/Google Meet agent documentation separately from existing runtime and unrun provider/deployment proof. |
+| 0.2.34b | Clarified that the local-capture stop path alone adds speaker diarization; manual summary retry remains summary-only. |
+| 0.2.33b | Added the approved FUNG adaptation slice: local-capture speaker diarization is queued before recording-scoped summary without blocking summary fallback; staged pyannote runtime/import evidence is recorded separately from gated model and real-meeting proof. |
 | 0.2.31b | Recorded the approved live-capture device-routing implementation and automated/WebView evidence; native Windows device UAT, selected-device audio/ledger proof, and output-destination migration remain open. |
 | 0.2.21b | Recorded the approved bounded D-MVP-02 working-tree slice: recording-scoped manual transcript correction, accepted refinement provenance, local audit event, inline Desktop affordance, and local verification evidence; runtime/UAT and release gates remain open. |
 | 0.2.22b | Recorded bounded D-MVP-05 source WAV/MP3 export through the existing durable export queue, typed audio artifacts, truthful unsupported-format handling, and current local verification evidence; transcoding, runtime/UAT, and release gates remain open. |
@@ -887,6 +950,10 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.35b | 2026-09-21 | beta | Recorded candidate live/knowledge/Google Meet agent documentation separately from existing runtime and unrun provider/deployment proof. | working-tree | RWANG |
+| 0.2.34b | 2026-09-21 | beta | Clarified local-capture-only speaker-pass enqueue and preserved summary-only manual retry behavior. | working-tree | RWANG |
+| 0.2.33b | 2026-09-21 | beta | Implemented the approved FUNG meeting-transcript adaptation slice: queue optional local speaker diarization before summary, preserve non-blocking transcript fallback, and record pyannote runtime/import evidence with model fetch and real-meeting qualification still NOT_RUN. | working-tree | RWANG |
+| 0.2.32b | 2026-09-21 | beta | Added the approved Whisper `large-v3-turbo` default / `medium` lower-resource profile contract, multi-model staging support, and the `large-v3` qualification-only boundary; model download and runtime evidence remain NOT_RUN. | working-tree | RWANG |
 | 0.2.31b | 2026-09-20 | beta | Added approved live-capture microphone/loopback selection, persistence, native revalidation, and local/WebView evidence; real Windows device UAT remains open. | working-tree | RWANG |
 | 0.2.27b | 2026-09-17 | beta | Integrated the bounded D-MVP-04-L1 export-artifact inventory fix after the Google Drive cancellation cleanup; local verification remains bounded by the documented Whisper runtime gap. | 086fcfa | Codex |
 | 0.2.26b | 2026-09-17 | beta | Removed the canceled Google Drive implementation, active tests, commands, and Edge functions; retained local backup as the active Phase 4 target and marked provider/migration evidence historical. | a9f9b80 | Codex |

@@ -33,6 +33,20 @@ import sys
 
 from faster_whisper import WhisperModel
 
+DEFAULT_MODEL = "large-v3-turbo"
+
+
+def default_compute_type(model: str, device: str) -> str:
+    configured = os.environ.get("FUNG_TRANSCRIPTION_COMPUTE_TYPE")
+    if configured:
+        return configured
+    if device == "cpu":
+        return "int8"
+    model_name = os.path.basename(os.path.normpath(model)).lower()
+    if model_name == "medium":
+        return "int8_float16"
+    return "float16"
+
 
 def main() -> int:
     # Windows pipes default to the console codepage (cp1252), which cannot
@@ -44,7 +58,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Persistent chunk transcriber for live meetings.")
     parser.add_argument(
         "--model",
-        default=os.environ.get("FUNG_WHISPER_MODEL", "small"),
+        default=os.environ.get("FUNG_WHISPER_MODEL", DEFAULT_MODEL),
         help="faster-whisper model size, repo id, or bundled local model path",
     )
     parser.add_argument("--language", default=None, help="Force a language code (e.g. th, en); omit to auto-detect")
@@ -56,10 +70,16 @@ def main() -> int:
     args = parser.parse_args()
 
     device = "cuda" if args.profile == "gpu" else "cpu"
-    compute_type = "float16" if device == "cuda" else "int8"
+    compute_type = default_compute_type(args.model, device)
 
     model = WhisperModel(args.model, device=device, compute_type=compute_type)
-    print(json.dumps({"ready": True, "model": args.model, "device": device}, ensure_ascii=False), flush=True)
+    print(
+        json.dumps(
+            {"ready": True, "model": args.model, "device": device, "computeType": compute_type},
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
 
     for line in sys.stdin:
         line = line.strip()

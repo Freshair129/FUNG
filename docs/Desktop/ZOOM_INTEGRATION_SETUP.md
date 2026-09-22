@@ -53,27 +53,59 @@ known limitations and the manual UAT checklist for a real Zoom account.
 ## 3. Local diarization model (Path B only)
 
 Path B is exercised only when a meeting was **not** recorded with separate
-per-participant audio files.
+per-participant audio files. The worker uses
+`pyannote/speaker-diarization-3.1` and returns anonymous speaker labels.
 
-1. `D:\FUNG\.venv-whisper\Scripts\pip.exe install pyannote.audio`
-2. Accept the model license on Hugging Face while signed in — the diarization
-   worker (`scripts/diarize.py`) loads `pyannote/speaker-diarization-3.1` by
-   default, which is a gated model:
-   - https://huggingface.co/pyannote/speaker-diarization-3.1
-   - (this pipeline also pulls `pyannote/segmentation-3.0` as a dependency;
-     accept that license too if Hugging Face prompts for it)
-3. Create a read token (https://huggingface.co/settings/tokens) and set
-   `FUNG_HF_TOKEN`:
+The dependency tree is optional and is not inside the default installer. From
+the repository root, stage it into the existing `.venv-whisper` runtime:
 
-    ```powershell
-    [Environment]::SetEnvironmentVariable("FUNG_HF_TOKEN", "<token>", "User")
-    ```
+```powershell
+# If Python or uv is not on PATH, pass -HostPython C:\path\to\python.exe
+pwsh -File .\scripts\stage_diarization_runtime.ps1 -GenerateLock
+# Review scripts/diarization-runtime-requirements.txt, then run:
+pwsh -File .\scripts\stage_diarization_runtime.ps1 -TorchVariant cpu
+```
 
-   `scripts/diarize.py` also accepts a plain `HF_TOKEN` variable as a
-   fallback. The token is needed only for the first model download from
-   Hugging Face; once cached locally, diarization runs fully offline. If
-   `pyannote.audio` is not installed or the model can't be loaded, the import
-   job still completes with a transcript — see Known limitations below.
+`-GenerateLock` needs network access and only writes the reviewable,
+hash-pinned lockfile; do not hand-edit the generated dependency list. Use
+`-TorchVariant cu121` instead of `cpu` only when the machine has the matching
+GPU runtime and CUDA wheels are intentionally wanted.
+
+The staging script pins `torch==2.4.1` with `torchaudio==2.4.1` because
+`pyannote.audio==3.4.0` still uses torchaudio's `AudioMetaData` API. Do not
+silently replace either pin with the latest Torch release without rerunning
+the import probe.
+
+The staged app Python is an embedded CPython runtime and does not contain
+`pip`. The script therefore uses a separate host Python/uv interpreter to
+resolve and install CPython 3.11 wheels into the app runtime.
+
+Accept both model licenses on Hugging Face while signed in:
+
+- https://huggingface.co/pyannote/speaker-diarization-3.1
+- https://huggingface.co/pyannote/segmentation-3.0
+
+Create a read token (https://huggingface.co/settings/tokens), set
+`FUNG_HF_TOKEN`, then fetch the gated weights once:
+
+```powershell
+$env:FUNG_HF_TOKEN = "<token>"
+pwsh -File .\scripts\stage_diarization_runtime.ps1 -TorchVariant cpu -FetchModel
+```
+
+The token is needed only for the first model download. The cache defaults to
+FUNG's app-data directory; set `FUNG_HF_HOME` before staging and running if an
+existing shared cache should be reused instead of downloading another copy.
+After the first successful fetch, diarization runs fully offline. The token
+value must never be committed or pasted into logs/chat. `HF_TOKEN` is accepted
+as a fallback name when an existing Hugging Face toolchain already uses it.
+
+The app's `diarization_status` readiness command distinguishes missing runtime,
+worker, dependencies and model cache. If setup is incomplete, the import job
+still persists the transcript and records that diarization was unavailable.
+
+For a one-off manual worker check, the same environment variables are used by
+`scripts/diarize.py`; do not pass a token as a command-line argument.
 
 ## 4. Knowledge-graph extraction model
 

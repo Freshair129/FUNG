@@ -1,7 +1,7 @@
 ---
-version: "0.1.3b"
+version: "0.2.0b"
 created_at: "2026-08-11T10:37:54+07:00,Agent: ATHER"
-last_update: "2026-08-12T01:19:19+07:00,Agent: ATHER"
+last_update: "2026-09-21T03:58:31+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -17,6 +17,16 @@ attributes:
 Implement a FUNG-native, read-only external MCP client behind the existing Tauri/Rust control plane. The React UI never opens an MCP/network connection and never receives credentials. GenesisBlockDB remains the sole persistence boundary. OS keyring owns secrets.
 
 Call.md remains an interaction reference only. No Electron, tRPC, VideoDB, component source, branding, or automatic transcript-trigger execution is adopted.
+
+## Separate meeting-agent extension — candidate
+
+[Meeting Agent participation](2026-09-21-meeting-agent-participation-spec.md) introduces proposed join/media/chat/link operations through a dedicated adapter and publication outbox. [Knowledge evidence](2026-09-21-meeting-knowledge-evidence-spec.md) introduces scoped document content/metric evidence; [Live transcription](2026-09-21-live-meeting-transcription-spec.md) introduces revisioned evidence.
+
+None of these changes is implemented or permitted by this legacy design's capability table. `documents.get_content`, `meeting.chat.send`, file upload and media access remain denied here. Do not infer content read from search/get_metadata or publication from read access.
+
+The legacy preview hash/per-call approval remains mandatory. A new bounded meeting-publication grant cannot be used as a generic `meeting_tool_execute` approval. Agent policy calls old MCP only through its exact original approval flow until a separately reviewed connector capability contract exists.
+
+See [Google Meet strategy](../decisions/2026-09-21-google-meet-agent-api-strategy.md) for official API limitations and the candidate managed-bot gateway. Existing stdio credential/runtime UAT gaps below remain open; documentation is not connector readiness evidence.
 
 ## Design Goals
 
@@ -297,6 +307,7 @@ These items affect task ordering and UAT fixtures but do not weaken default-deny
 
 | Version | Change |
 |---|---|
+| 0.2.0b | Separated candidate agent/content/publication adapters from legacy read-only MCP capability and approval semantics. |
 | 0.1.3b | Clarified the transient registration credential exception and marked credential resolution/use in production stdio execution as an open real-connector/UAT gate. |
 | 0.1.2b | Recorded the Sprint 4 eight-command boundary, independently default-off backend/UI flags, local stdio connector lifecycle, operator preview/approve/cancel/revoke/result workflow, and inert sanitized provenance rendering while retaining real-connector, HTTP, and device UAT gates. |
 
@@ -304,6 +315,7 @@ These items affect task ordering and UAT fixtures but do not weaken default-deny
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.0b | 2026-09-21 | candidate | Separated candidate agent/content/publication adapters from legacy read-only MCP capability and approval semantics. | working-tree | RWANG |
 | 0.1.3b | 2026-08-12 | candidate | Clarified transient credential registration and the open execution-use boundary. | pending | ATHER |
 | 0.1.2b | 2026-08-11 | candidate | Truth-synced Sprint 4 connector and operator UI boundaries. | pending | ATHER |
 | 0.1.1b | 2026-08-11 | candidate | Truth-synced bounded stdio MCP execution and default-off command boundary. | pending | ATHER |

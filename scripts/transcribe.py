@@ -2,13 +2,13 @@
 
 Invoked by the Rust backend as a subprocess, either with paths given directly:
 
-    python transcribe.py <audio_or_video_path> [<audio_or_video_path> ...] [--model small] [--language th]
+    python transcribe.py <audio_or_video_path> [<audio_or_video_path> ...] [--model large-v3-turbo] [--language th]
 
 or (FUNGWIRE desktop worker, many segments) via a newline-delimited manifest
 file, to avoid overflowing the ~32KB Windows command-line length limit that a
 several-hundred-segment job's positional-argv paths could otherwise hit:
 
-    python transcribe.py --manifest <path/to/segments.txt> [--model small] [--language th]
+    python transcribe.py --manifest <path/to/segments.txt> [--model large-v3-turbo] [--language th]
 
 Accepts one or more audio/video paths so a single process (and a single
 loaded Whisper model) can transcribe every segment of a job, instead of the
@@ -41,6 +41,21 @@ import os
 import sys
 import tempfile
 
+DEFAULT_MODEL = "large-v3-turbo"
+
+
+def default_compute_type(model: str, device: str) -> str:
+    configured = os.environ.get("FUNG_TRANSCRIPTION_COMPUTE_TYPE")
+    if configured:
+        return configured
+    if device == "cpu":
+        return "int8"
+    model_name = os.path.basename(os.path.normpath(model)).lower()
+    if model_name == "medium":
+        return "int8_float16"
+    return "float16"
+
+
 def main() -> int:
     # Windows pipes stdout through the console codepage (cp1252) by default,
     # which cannot represent Thai/CJK text even when the parent redirects it.
@@ -62,7 +77,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--model",
-        default=os.environ.get("FUNG_WHISPER_MODEL", "small"),
+        default=os.environ.get("FUNG_WHISPER_MODEL", DEFAULT_MODEL),
         help="faster-whisper model size, repo id, or bundled local model path",
     )
     parser.add_argument("--language", default=None, help="Force a language code (e.g. th, en); omit to auto-detect")
@@ -72,7 +87,11 @@ def main() -> int:
         choices=["cpu", "gpu"],
     )
     parser.add_argument("--device", choices=["cpu", "cuda"], help="Override the selected profile for diagnostics only")
-    parser.add_argument("--compute-type", default=None)
+    parser.add_argument(
+        "--compute-type",
+        default=None,
+        help="Override compute type; otherwise FUNG_TRANSCRIPTION_COMPUTE_TYPE or the model/device default is used",
+    )
     parser.add_argument(
         "--concat-only",
         default=None,
@@ -177,7 +196,7 @@ def main() -> int:
     from faster_whisper import WhisperModel
 
     device = args.device or ("cuda" if args.profile == "gpu" else "cpu")
-    compute_type = args.compute_type or ("float16" if device == "cuda" else "int8")
+    compute_type = args.compute_type or default_compute_type(args.model, device)
 
     def report(pct: float) -> None:
         print(f"PROGRESS {max(0, min(100, round(pct)))}", file=sys.stderr, flush=True)

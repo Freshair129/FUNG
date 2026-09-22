@@ -746,6 +746,7 @@ pub(crate) struct LiveWorker {
 
 impl LiveWorker {
     pub(crate) fn spawn(runtime: &WhisperRuntime, language: Option<&str>) -> Result<Self, String> {
+        crate::require_bundled_whisper_model(runtime)?;
         let profile = crate::transcription_profile()?;
         let script = runtime
             .script
@@ -1337,12 +1338,12 @@ fn spawn_coordinator(
             None,
         );
 
-        // Post-meeting pipeline: summary → export. Queued rather than run
+        // Post-meeting pipeline: speaker pass → summary → export. Queued rather than run
         // here, so a meeting that ends while the local model is down keeps
         // its summary as pending work instead of losing it to a thread that
         // dies with the process.
         if let Some(state) = app.try_state::<AppState>() {
-            meeting_intel::queue_post_meeting(&app, &state.jobs, &project_id, &recording_id);
+            meeting_intel::queue_post_meeting(&app, &state.jobs, &project_id, &recording_id, true);
         }
 
         // Release the in-memory session slot last, so `live_meeting_status`

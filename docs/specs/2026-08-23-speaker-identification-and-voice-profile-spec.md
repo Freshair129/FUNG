@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.3.0b"
 created_at: "2026-08-23T00:00:00+07:00,ATHER"
-last_update: "2026-08-23T00:00:00+07:00,ATHER"
+last_update: "2026-09-21T03:58:31+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -12,6 +12,41 @@ attributes:
 ---
 
 # FUNG — Assisted Speaker Identification & Voice Profile Specification
+
+## Companion domain design — 2026-09-21
+
+The requested complete domain design is proposed in
+[People, Voice Identity and supporting domains](2026-09-21-speaker-identity-domain-design.md).
+It expands account/person/local-vault separation, roster scope, enrollment,
+recognition, review, encryption, revocation, backup/restore, typed jobs and
+qualification. It proposes defaults for this document's open decisions,
+requires human confirmation for named identity links, and uses current source
+evidence instead of the historical hardware snapshot below. Both documents
+remain candidate; the companion does not grant implementation approval or
+change the existing TTS voice-profile rights contract.
+
+## Google Meet participant attribution extension — candidate
+
+ผู้ใช้เลือก Google Meet/API เพื่อแยกผู้พูด จึงเพิ่มทางเลือก **provider-attributed speaker** ซึ่งไม่ต้อง enroll voice ก่อน ดู [API strategy](../decisions/2026-09-21-google-meet-agent-api-strategy.md) และ [Live transcript](2026-09-21-live-meeting-transcription-spec.md)
+
+| ID | Requirement | Acceptance |
+| --- | --- | --- |
+| SI-API-01 | เก็บ provider/account/conference occurrence/participant session/join generation เป็น source evidence | recurring URL, rejoin และชื่อซ้ำไม่รวมคนผิด |
+| SI-API-02 | แสดง display name อัตโนมัติพร้อมป้าย “ชื่อจาก Meet” | ไม่แสดงเป็น confirmed Person หรือ biometric match |
+| SI-API-03 | ยืนยัน link ไป local Person ด้วย explicit review + expectedRevision | provider metadata/worker update ทับการยืนยันไม่ได้ |
+| SI-API-04 | mic ห้องประชุมหนึ่งตัวอาจมีหลาย speaker child | API ไม่บังคับหนึ่ง participant เท่ากับหนึ่งคนจริง |
+| SI-API-05 | unknown/late attribution ไม่หยุด transcript | เพิ่ม attribution revision ภายหลังโดยไม่แก้ raw text |
+| SI-API-06 | agent participant แยก kind=agent | ไม่ enroll/voice-match และไม่ตอบเสียงของตนวน |
+| SI-API-07 | provider label ไม่เป็นสิทธิ์อ่าน/แชร์ knowledge | ชื่อ/email/host/voice score ไม่ผ่าน authorization โดยตัวมันเอง |
+| SI-API-08 | แยก source labels, proposed identity, confirmed person และ TTS rights ใน UI/export | ทุกชื่อมี source/review state; ไม่มีสิทธิ์สังเคราะห์เสียงแถมจากการระบุคน |
+
+Commands ที่เสนอ: `meeting_participant_list(recordingId)`, `meeting_participant_link_person(participantSessionId, personId, expectedRevision)`, `meeting_participant_unlink_person(...)`; derive actor/vault จาก native session. Link รองรับ scope เฉพาะ occurrence; reusable provider-person alias เป็นข้อเสนอที่ต้อง review ไม่ใช่ auto-merge
+
+Provider label state: `unmapped → provider_labelled`; Person-link state: `proposed → confirmed/rejected → stale/revoked`. เป็นสอง state machines แยกกัน การยืนยันช่วงเสียงไม่ยืนยันคน และการเปลี่ยนชื่อบน Meet ไม่เปลี่ยนชื่อใน People directory
+
+Tests: participant-name collision, delayed mapping, stream-slot reuse, reconnect/new generation, shared microphone, agent self-echo, spoofed display name, manual-review race, denied knowledge access และ export provenance. API fixtures ไม่ใช่ real-Meet acceptance
+
+ข้อกำหนด “ชื่อเฉพาะ confirmed link” ใน acceptance เดิมหมายถึง **ชื่อบุคคลที่ยืนยันแล้ว**; source display label แสดงได้เมื่อระบุชัดว่าเป็นชื่อจากแพลตฟอร์ม ไม่ใช่ข้อยกเว้นให้ยืนยัน identity อัตโนมัติ
 
 ## 1. Classification
 
@@ -35,7 +70,7 @@ FUNG สามารถทำ speaker diarization เพื่อแบ่งช
 ## 3. Goals
 
 1. ให้ผู้ใช้สร้างโปรไฟล์ผู้เข้าร่วมประชุมและลงทะเบียนตัวอย่างเสียงได้
-2. ใช้ diarization แบ่งเสียงเป็น anonymous speaker ก่อน
+2. ใช้ API/participant-track attribution เมื่อมีหลักฐานแหล่งเสียง; ใช้ diarization แบ่ง anonymous speaker เมื่อเสียงผสมหรือไม่ทราบแหล่ง
 3. เปรียบเทียบ voice embedding เพื่อเสนอชื่อบุคคลที่อาจตรงกัน
 4. ให้ผู้ใช้ยืนยัน ปฏิเสธ หรือยกเลิกการจับคู่ได้
 5. เก็บ provenance, model run, confidence และประวัติการแก้ไขครบถ้วน
@@ -311,12 +346,16 @@ Stage B เป็น scope ที่แนะนำให้ทำก่อน S
 
 | Version | Change |
 | --- | --- |
+| 0.3.0b | Added Google Meet source attribution requirements, separate provider/person states and shared-mic/agent safeguards; candidate only. |
+| 0.2.0b | Linked the comprehensive domain-design companion and clarified the candidate approval/evidence boundary. |
 | 0.1.0b | Candidate spec: assisted speaker identification, local voice profiles, identity links, consent, provenance and rollout gates. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.3.0b | 2026-09-21 | candidate | Added Google Meet source attribution requirements, separate provider/person states and shared-mic/agent safeguards; candidate only. | working-tree | RWANG |
+| 0.2.0b | 2026-09-21 | candidate | Added the domain-design companion for the user's expanded design request; implementation remains unapproved. | working-tree | RWANG |
 | 0.1.0b | 2026-08-23 | candidate | Initial specification for local-first assisted speaker identification and voice profiles. | N/A | ATHER |
 
 Please review and approve this documentation. I will generate the implementation plan and code only after approval.

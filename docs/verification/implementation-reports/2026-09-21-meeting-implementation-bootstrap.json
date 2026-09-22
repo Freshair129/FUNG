@@ -1,0 +1,222 @@
+{
+  "report_type": "MEETING-IMPLEMENTATION-BOOTSTRAP",
+  "version": "0.1.0b",
+  "created_at": "2026-09-21T07:33:19.459+07:00",
+  "last_update": "2026-09-21T07:38:13.151+07:00",
+  "status": "PASS",
+  "status_boundary": "baseline_readiness_only",
+  "task_id": "01a0bfa8-2ac8-7ed1-a1a9-363e391c7d75",
+  "role": "FUNG Luna/max bootstrap worker",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "max",
+  "main": {
+    "root": "C:\\Users\\pc\\workspace\\fung",
+    "branch": "main",
+    "head": "b336f33ec400a38f003a0665c121069a87a543ac",
+    "pre_report_dirty_path_count": 49,
+    "tracked_modified_count": 28,
+    "tracked_deleted_count": 3,
+    "untracked_count": 18,
+    "post_transfer_head_unchanged": true,
+    "post_transfer_status_count_unchanged": true,
+    "source_code_written": false,
+    "workflow_or_dag_written": false,
+    "commits_created": false
+  },
+  "n1_refresh": {
+    "state": "FROZEN_REFRESHED",
+    "baseline_reports_not_overwritten": true,
+    "full_overlay_inventory_in_companion": true,
+    "tracked_deleted_paths": [
+      "AIOS/CORE/CONTEXT_LOADING_RULES.md",
+      "AIOS/CORE/SHARED_CONTEXT.md",
+      "AIOS/WORKFLOW/COMPLEXITY_BASED_WORKFLOW.md"
+    ]
+  },
+  "n2_external_approval": {
+    "message_verbatim": "approve",
+    "approved_scope": "local M1/M2 contract/schema/LT/KE/SI API foundation and local observe/draft only",
+    "recorded_outside_immutable_workflow": true,
+    "workflow_manifest_edited": false,
+    "provider_or_external_actions_authorized": false,
+    "parent_n0_review": "in_progress",
+    "implementation_acceptance": false
+  },
+  "isolated_snapshot": {
+    "path": "C:\\Users\\pc\\AppData\\Local\\Temp\\codex-fung-meeting-intelligence-contract-20260921",
+    "branch": "codex/meeting-intelligence-contract-20260921",
+    "head": "b336f33ec400a38f003a0665c121069a87a543ac",
+    "ahead_of_main": 0,
+    "behind_main": 0,
+    "tracked_modified_overlaid": 28,
+    "tracked_deletions_reproduced": 3,
+    "approved_untracked_overlaid": 12,
+    "forbidden_paths_present": false,
+    "forbidden_paths": [
+      ".env",
+      ".env.local",
+      ".env.production",
+      ".venv-whisper",
+      ".runtime-cache",
+      "node_modules",
+      "target",
+      "src-tauri/target",
+      "runtime",
+      "models"
+    ],
+    "excluded_untracked_inputs": [
+      ".brain/rca/2026-09-21-meeting-workflow-lease-deadlock.md",
+      "docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.json",
+      "docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.md",
+      "docs/verification/implementation-reports/2026-09-21-meeting-workflow-g1-review.md",
+      "docs/verification/implementation-reports/2026-09-21-meeting-workflow-g1-r2-review.md",
+      "docs/verification/implementation-reports/2026-09-21-meeting-workflow-g2-terra-review.md"
+    ],
+    "transfer_equality": {
+      "method": "SHA256 source-to-snapshot comparison",
+      "files_checked": 40,
+      "hash_mismatches": 0,
+      "deletion_map_checked": 3,
+      "deletion_mismatches": 0,
+      "all_equal": true
+    }
+  },
+  "n3_lease": {
+    "state": "SNAPSHOT_PREPARED_WRITE_READINESS_PENDING_PARENT_GRANT",
+    "worker_identity": "Leibniz 01a0c15b-9db7-7993-ace4-15cf9e1deb03",
+    "exact_paths": [
+      "contracts/meeting-intelligence-v1.yaml",
+      "src-tauri/src/meeting_intelligence_schema.rs",
+      "src-tauri/src/genesis_adapter.rs",
+      "tests/meetingIntelligenceContract.test.mjs",
+      "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-contract.md"
+    ],
+    "lib_rs_or_dependency_bridge_lease": false,
+    "initial_target_presence": {
+      "contracts/meeting-intelligence-v1.yaml": false,
+      "src-tauri/src/meeting_intelligence_schema.rs": false,
+      "src-tauri/src/genesis_adapter.rs": true,
+      "tests/meetingIntelligenceContract.test.mjs": false,
+      "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-contract.md": false
+    },
+    "child_schema_module_in_genesis_adapter_allowed": true,
+    "source_lease_acquired_by_bootstrap": false
+  },
+  "overlay_hash_inventory": [
+    {"path": ".env.example", "status": "M", "sha256": "2e9e16dbe7fb3e16d560e67e5c31f5287fc1085ee1e1bb18d7bf63911ffc327c"},
+    {"path": "docs/Desktop/07-meeting-mode.md", "status": "M", "sha256": "19e9fe322fb399740e0247da07b77bf7984b3456494726a35d2e586c7d056041"},
+    {"path": "docs/Desktop/08-real-progress.md", "status": "M", "sha256": "5ec314aaec4d18ef6ec20ffe8973cd3559d4e21a90107c694570abb747295019"},
+    {"path": "docs/Desktop/ARCHITECTURE.md", "status": "M", "sha256": "a0c6ea25e5537cc20cd0143de8c31fe6f849f4a33d8891880fd426d44ccfc9c7"},
+    {"path": "docs/Desktop/AUDIO_AI_PIPELINE.md", "status": "M", "sha256": "8cf7091315d59a0d6248335dd1564db02868c843abc0f725d9f337d7da71eb12"},
+    {"path": "docs/Desktop/LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md", "status": "M", "sha256": "b39713bde25862ead669de443eb6f27a9cd62f98f8cd68891e7d9bdc75bdb73f"},
+    {"path": "docs/Desktop/PRODUCT_SPEC.md", "status": "M", "sha256": "0597769526dd6a3b119768bbaf5ba75beb235b027f352989c5b7a0a865bdf32e"},
+    {"path": "docs/Desktop/ZOOM_INTEGRATION_SETUP.md", "status": "M", "sha256": "120847e6d33f823c8c1a26ca91b5bb1ca612a2e8163bdde7265bdf2abd8af74e"},
+    {"path": "docs/ai-system/README.md", "status": "M", "sha256": "146ef5734f9ea78d562cde26f233352fd87577440a5379980f585a966a9e3686"},
+    {"path": "docs/ai-system/agent-architecture.md", "status": "M", "sha256": "96aa92f0af900314bbee8018173955ac933e75897fcba98f128fb3835a4a2c3b"},
+    {"path": "docs/ai-system/data-pipeline.md", "status": "M", "sha256": "a30f07295fc2d8e1afa56e19b9b4b52c4e4f4795ff576186a14fd0a5e00621cb"},
+    {"path": "docs/ai-system/ethics-governance.md", "status": "M", "sha256": "c46f439ac6af5bbae04cd6d0eb2a647a95b2e29c6eb92d9961cbac844d7f5bde"},
+    {"path": "docs/ai-system/evaluation-plan.md", "status": "M", "sha256": "7a49914ac76c3b3edd63993a47f5340acf14d2bbea02deee8274fa2286cc3490"},
+    {"path": "docs/appendices/E-egress-register.md", "status": "M", "sha256": "8b2d8f5eb8c54ae99f33ff132853a9ac81751974594b02f34dcd78b9a6b7a393"},
+    {"path": "docs/architecture/README.md", "status": "M", "sha256": "327710fe5058266d1dfad5b23ffad811477f6277282aee6bc4c4d73e3b924397"},
+    {"path": "docs/plans/2026-08-09-fung-master-implementation-plan.md", "status": "M", "sha256": "99e72872456e3f1651d46a43d5f4f4cab46f68842bc73921c44e2fc3a81a0324"},
+    {"path": "docs/plans/2026-08-23-fung-luna-terra-multiagent-workflow.md", "status": "M", "sha256": "3bbb6fb3c4174ed27a50a0446cf7f18ccc0375aa7db16b1f4ecc3472c7a99bd7"},
+    {"path": "docs/specs/2026-08-11-live-meeting-external-retrieval-design.md", "status": "M", "sha256": "0164f442d9c9bb421340cf0a6c99146f47af55cafffbada24f58acaac8e2dccb"},
+    {"path": "docs/specs/2026-08-23-speaker-identification-and-voice-profile-spec.md", "status": "M", "sha256": "da101a8f2988b6767ed095917489d40c5d9792768e6d15e31c999b9128b5fa64"},
+    {"path": "scripts/stage_diarization_runtime.ps1", "status": "M", "sha256": "9add03d5d6efdf6ae9a641ed6d56e7d862b431d40e47ec865946d8831ad9e277"},
+    {"path": "scripts/stage_whisper_runtime.ps1", "status": "M", "sha256": "0a32086037d88817bb09f862374145f28852d630f4a259f7833ce87790bb2aaf"},
+    {"path": "scripts/transcribe.py", "status": "M", "sha256": "46578cae1ef2b3dc7df5cec0f646891b9e4090abf16a79d7fe018ff2876674df"},
+    {"path": "scripts/transcribe_live.py", "status": "M", "sha256": "46698f796dc726cbf4817d0048be95bb27589fc664bd88314f2840d2e8694eb1"},
+    {"path": "src-tauri/src/lib.rs", "status": "M", "sha256": "9948c2160da422a406c5cf3f5b719e18f6c8f105abc857e06407dfd3f3f7316f"},
+    {"path": "src-tauri/src/live_meeting.rs", "status": "M", "sha256": "efff8ef8068317d1a4ddf4734a5f597ad9624c96490af3b334468955e1cf3aaf"},
+    {"path": "src-tauri/src/meeting_intel.rs", "status": "M", "sha256": "eaa1a181069697dcb5ad80c6cc7a71548e827ccea7f30c7f110d153c1389d9f5"},
+    {"path": "tests/diarizationPackaging.test.mjs", "status": "M", "sha256": "a5399509d306ec98ebdef90e295eaec6b0cbf91ad13128c607ecc6849b0e68d8"},
+    {"path": "tests/transcribeConcatOnly.test.py", "status": "M", "sha256": "3f9244e579127480a61671823d1eab8c7c2a9faa835523a763da71c2619f39ab"},
+    {"path": "docs/architecture/MEETING_INTELLIGENCE_DOMAINS.md", "status": "??", "sha256": "c4ad32aba6b2c26686a298846c553d84d5ada199c80c795c70fa596d3ec23b6f"},
+    {"path": "docs/decisions/2026-09-21-google-meet-agent-api-strategy.md", "status": "??", "sha256": "8cdf28b258d5ab61609ab4699f69efd22a18ff394e49f88bdc3409bcbbea06e5"},
+    {"path": "docs/plans/2026-09-21-meeting-intelligence-multiagent-workflow.md", "status": "??", "sha256": "ce83de3d4073ee01365d370b2b516816e7710fc5d529ab534d0f1e7c70d6ce6f"},
+    {"path": "docs/plans/2026-09-21-meeting-intelligence-task-dag.json", "status": "??", "sha256": "2e98f55d4d71aeb308ea0ef9906dc04db580f5ceaebe10901301be06c98a1dfb"},
+    {"path": "docs/specs/2026-09-21-fung-meeting-transcript-pipeline-adaptation.md", "status": "??", "sha256": "616aeeeb8b018c0bde4b25556fdb5d64038687394b36c32e139a0d1d361a29cd"},
+    {"path": "docs/specs/2026-09-21-live-meeting-transcription-spec.md", "status": "??", "sha256": "6fb143593d9f6f9b71160efeaa4f8ae95e951f2d84b9e4dd4424e9d9569e754f"},
+    {"path": "docs/specs/2026-09-21-meeting-agent-participation-spec.md", "status": "??", "sha256": "c62746282920c8b32d393576383279f89d6e63bef9ce7ad2877059abb279261e"},
+    {"path": "docs/specs/2026-09-21-meeting-knowledge-evidence-spec.md", "status": "??", "sha256": "c98d754c5db068561177164cb0500b842305546e71ce5823be0d2374a311847d"},
+    {"path": "docs/specs/2026-09-21-pyannote-diarization-runtime.md", "status": "??", "sha256": "eb02ea0038fc8b67191b955c13aed6e4336ac9aaf36bcb19030bf2a6e174ca58"},
+    {"path": "docs/specs/2026-09-21-speaker-identity-domain-design.md", "status": "??", "sha256": "60ce5789f7ed5e10eefc7d67d41f29aa2549df075c726f383f22c4380a1b3359"},
+    {"path": "docs/specs/2026-09-21-whisper-model-profiles.md", "status": "??", "sha256": "2eb3709adcacc6dfe591ae681cef3e95c742e5e40647afa76481ee9fffb94d91"},
+    {"path": "scripts/diarization-runtime-requirements.txt", "status": "??", "sha256": "ec90d85ebe8ea13b3e39d9db9693bbe31638dc3da6a4ce2851e87e4ffa3cc978"}
+  ],
+  "protected_paths": [
+    {"path": "src-tauri/src/genesis_adapter.rs", "status": "clean", "sha256": "2f2c3599931e4d68e3f6b050528491d7e99a957906d51a51a2e70e55dc7a15a9", "lease": "N3 contract then N13 integration"},
+    {"path": "src-tauri/src/lib.rs", "status": "M", "sha256": "9948c2160da422a406c5cf3f5b719e18f6c8f105abc857e06407dfd3f3f7316f", "lease": "N13 integration only"},
+    {"path": "src/tauri.ts", "status": "clean", "sha256": "578ff537cc7f67432b93f8cb4f60475c1da1b4b023059c51e0447578272c3782", "lease": "N13 integration only"},
+    {"path": "package.json", "status": "clean", "sha256": "982dbdbc2caf0e76b6b6555993248ba71ba92c6af429fbc5f408d614af2fd38f", "lease": "N13 integration only"},
+    {"path": "package-lock.json", "status": "clean", "sha256": "eb0205561d40e536987ca46f83b3ada2d2ee28b8b61813fb571fc22d756d9120", "lease": "N13 integration only"},
+    {"path": "src-tauri/Cargo.toml", "status": "clean", "sha256": "54beb684aa73b89f030b6627e9a98f9ec63a02eec5cb8c1039394d70be2b4aad", "lease": "N13 integration only"},
+    {"path": "src-tauri/Cargo.lock", "status": "clean", "sha256": "e756a52bb041c5f43d4674e46fd0781cbb66f2649b3cd0385c15f02fee8b9d07", "lease": "N13 integration only"},
+    {"path": ".github/workflows/ci.yml", "status": "clean", "sha256": "52357104f784ce02a151780143bce5fe765d0b4d1e6502669b498acc326a019e", "lease": "N13 integration only"}
+  ],
+  "four_frozen_workflow_hashes": {
+    "current_workflow": "ce83de3d4073ee01365d370b2b516816e7710fc5d529ab534d0f1e7c70d6ce6f",
+    "task_dag": "2e98f55d4d71aeb308ea0ef9906dc04db580f5ceaebe10901301be06c98a1dfb",
+    "historical_workflow": "3bbb6fb3c4174ed27a50a0446cf7f18ccc0375aa7db16b1f4ecc3472c7a99bd7",
+    "master_plan": "99e72872456e3f1651d46a43d5f4f4cab46f68842bc73921c44e2fc3a81a0324",
+    "equal_to_previous_frozen_review": true
+  },
+  "dependency_digests": {
+    "package.json": "982dbdbc2caf0e76b6b6555993248ba71ba92c6af429fbc5f408d614af2fd38f",
+    "package-lock.json": "eb0205561d40e536987ca46f83b3ada2d2ee28b8b61813fb571fc22d756d9120",
+    "src-tauri/Cargo.toml": "54beb684aa73b89f030b6627e9a98f9ec63a02eec5cb8c1039394d70be2b4aad",
+    "src-tauri/Cargo.lock": "e756a52bb041c5f43d4674e46fd0781cbb66f2649b3cd0385c15f02fee8b9d07",
+    "genesis_revision": "79b41a3f4ae4026d086b634c631f4f4a7ccbd142"
+  },
+  "tooling_and_capacity": {
+    "node": "v24.19.0",
+    "npm": "11.17.0",
+    "rustc": "1.98.0 (88d9e12ae 2026-08-18)",
+    "cargo": "1.98.0 (797e8a9bc 2026-08-05)",
+    "active_rust_toolchain": "stable-x86_64-pc-windows-msvc",
+    "cargo_metadata_offline_no_deps_exit": 0,
+    "cargo_cache_roots": [
+      {"path": "C:\\Users\\pc\\.cargo\\registry\\cache", "sandbox_probe_exists": false, "result": "visibility-limited; not global absence"},
+      {"path": "C:\\Users\\pc\\.cargo\\registry\\src", "sandbox_probe_exists": false, "result": "visibility-limited; not global absence"},
+      {"path": "C:\\Users\\pc\\.cargo\\git\\db", "sandbox_probe_exists": false, "result": "visibility-limited; not global absence"},
+      {"path": "C:\\Users\\pc\\.cargo\\git\\checkouts", "sandbox_probe_exists": false, "result": "visibility-limited; not global absence"}
+    ],
+    "parent_confirmed_cache": {
+      "path": "C:\\Users\\pc\\.cargo\\git\\checkouts\\genesisblock-88970819a8b18a23\\79b41a3\\src\\lib.rs",
+      "exists": true,
+      "readable": true,
+      "basis": "parent N0 read successfully this turn"
+    },
+    "cache_conclusion": "No blanket cache-absence claim; N3 may use process-only CARGO_HOME pointed at the known cache.",
+    "disk_free_bytes": 68965789696,
+    "disk_free_gib_approx": 64.23,
+    "large_build_started": false,
+    "dependency_fetch_started": false,
+    "model_download_started": false
+  },
+  "validation_commands": [
+    {"command": "git worktree add -b codex/meeting-intelligence-contract-20260921 <temp> HEAD", "exit_code": 0, "result": "isolated branch created; initial sandbox ref-lock denial was retried with authorized escalation"},
+    {"command": "node -e JSON.parse(package-lock.json); JSON.parse(task-dag.json)", "exit_code": 0, "result": "PACKAGE_LOCK_AND_DAG_JSON_PARSE"},
+    {"command": "node -e declarative_plan and installed_scheduler flags plus N1-N4 states", "exit_code": 0, "result": "PLAN_FLAGS_OK; N1 FROZEN; N2 WAITING_APPROVAL in immutable manifest; N3/N4 WAITING_DEPENDENCY"},
+    {"command": "git diff --check -- .", "exit_code": 0, "result": "pass; existing LF-to-CRLF warnings only"},
+    {"command": "git status and rev-parse on main after transfer", "exit_code": 0, "result": "HEAD unchanged; 49 pre-report dirty paths preserved"}
+  ],
+  "migration_rollback_constraints": [
+    "Preserve Genesis schema chain v1-v10 and the single application persistence boundary.",
+    "Use add-only, idempotent registration; do not add direct SQLite or a parallel transcript/knowledge store.",
+    "Do not assume current genesis_adapter::commit_rows protects read-then-write races: it uses random transaction_id and expected_frontier=None.",
+    "Before N4/fan-out, prove source custody/range/generation and raw revision/canonical/event/cursor atomicity with post-commit emission only.",
+    "Require executable reopen, replay, rejection, and concurrency evidence; no migration was applied by bootstrap.",
+    "Do not claim downgrade or production rollback support without a tested recovery artifact."
+  ],
+  "evidence_boundary": [
+    "Parent N0 facts are transcribed separately and are not an independent G1.",
+    "Read-only API existence is not runtime proof.",
+    "Provider, real-room, external-send, deployment, release, production, and implementation acceptance remain NOT_RUN."
+  ],
+  "report_paths": {
+    "bootstrap_markdown": "docs/verification/implementation-reports/2026-09-21-meeting-implementation-bootstrap.md",
+    "bootstrap_json": "docs/verification/implementation-reports/2026-09-21-meeting-implementation-bootstrap.json",
+    "n0_transcription": "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-spec-review.md"
+  }
+}

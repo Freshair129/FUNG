@@ -1,7 +1,7 @@
 ---
-version: "0.1.4b"
+version: "0.2.0b"
 created_at: "2026-08-11T10:37:54+07:00,Agent: ATHER"
-last_update: "2026-08-12T03:39:30+07:00,Agent: ATHER"
+last_update: "2026-09-21T03:58:31+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -17,6 +17,23 @@ attributes:
 FUNG Desktop already routes real-time microphone/system capture, live transcript, current-topic extraction, local Knowledge Base questions, and post-meeting summaries. This document defines the missing product contract for a safe meeting assistant that may suggest and, only after an explicit preview and approval, execute a read-only external MCP lookup such as finding a document or reading a customer status from CRM.
 
 The first delivery remains local-first. Capture and durable transcript work must continue when the local LLM, connector, network, MCP server, or external provider fails.
+
+## Candidate extension boundary — 2026-09-21
+
+The user requested live transcription and an Agent that joins Google Meet, retrieves knowledge and responds in the meeting. These are separate proposed capabilities, detailed in the [domain map](../architecture/MEETING_INTELLIGENCE_DOMAINS.md), [live spec](../specs/2026-09-21-live-meeting-transcription-spec.md), [knowledge spec](../specs/2026-09-21-meeting-knowledge-evidence-spec.md), [Agent spec](../specs/2026-09-21-meeting-agent-participation-spec.md) and [API decision](../decisions/2026-09-21-google-meet-agent-api-strategy.md).
+
+**FR-101–116 and the read-only/non-autonomous scope below remain the contract for this legacy MCP retrieval lane.** In particular FR-108 per-call approval and BR-103 write denial are not removed. Meeting media/join/chat publication use a new separately approved adapter/policy boundary, not new tool names smuggled through the old allowlist.
+
+| Concern | Legacy lane | Proposed extension |
+| --- | --- | --- |
+| Transcript | existing channel-labelled chunk results | LT revisions/cursors/API participants and qualified latency |
+| Retrieval | manual scoped question + approved read-only MCP metadata/status | KE selected documents/content and citation bundles; separate content capability |
+| Trigger | suggest/manual; transcript never authorizes tool execution | private context suggestions; bounded session policy required for public auto-response |
+| Output | local sanitized result panel | MA same-Meet chat/link via explicit publication gate/outbox |
+| Approval | exact per-call preview | old rule unchanged; new local knowledge/session-publication policy has its own scope |
+| Completion proof | current legacy tests and real-connector gaps | new LT/KE/MA/GM acceptance, real Meet and deployment gates |
+
+Current recording-scoped QA must not silently expand to historical/all-corpus search. Meeting participants' display names do not authorize knowledge access. The extension does not reopen canceled Google Drive backup work or make the local API internet-facing.
 
 ## Scope and Boundaries
 
@@ -153,6 +170,7 @@ When the network or connector is unavailable, FUNG explains the failure without 
 
 | Version | Change |
 |---|---|
+| 0.2.0b | Linked candidate live/knowledge/Google Meet participation requirements while preserving the existing read-only per-call MCP contract. |
 | 0.1.3b | Expanded executable source/test-intent annotations to all 26 FR/NFR IDs, recorded the 195/195 Rust regression, and added bounded restart/UAT evidence without closing blocked visual, device, or real-connector gates. |
 | 0.1.2b | Corrected FR-101 to record that both recording entry points route to `LiveMeetingPanel`, backed by the passing desktop-bootstrap microphone-rail regression; all other UAT and open-gate boundaries are unchanged. |
 | 0.1.1b | Truth-synced FR-106--FR-114 and FR-116 plus their mapping rows to the current default-off code-level operator/backend evidence, while retaining every real-connector, visual/keyboard, restart, artifact-secret-scan, device, and full-regression gate. |
@@ -162,6 +180,7 @@ When the network or connector is unavailable, FUNG explains the failure without 
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.0b | 2026-09-21 | candidate | Linked candidate live/knowledge/Google Meet participation requirements while preserving the existing read-only per-call MCP contract. | working-tree | RWANG |
 | 0.1.4b | 2026-08-12 | candidate | Clarified that FR-101 is test-anchored while the combined implementation/test annotation contract covers all 26 IDs. | pending | ATHER |
 | 0.1.3b | 2026-08-12 | candidate | Expanded all-26 annotation intent, recorded full Rust regression and bounded restart evidence; retained blocked visual/device/real-connector gates. | pending | ATHER |
 | 0.1.2b | 2026-08-12 | candidate | Corrected FR-101 entry-point routing evidence; retained all UAT and release gates. | pending | ATHER |

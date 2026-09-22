@@ -1,8 +1,8 @@
 ---
-version: "0.1.1b"
+version: "0.2.0b"
 created_at: "2026-07-09T15:25:00+07:00,ATHER"
-last_update: "2026-09-20T03:53:22+07:00,RWANG"
-status: "beta"
+last_update: "2026-09-21T03:58:31+07:00,RWANG"
+status: "candidate"
 superseded_by: null
 attributes:
   domain: "local-first-audio-ai"
@@ -25,7 +25,7 @@ This document does not change the shell layout. It only defines what content bel
 
 ## Risk Level
 
-Change class: MEDIUM.
+Change class: HIGH for the proposed live/API/agent extension; the existing content-layout slice remains MEDIUM.
 
 Reason:
 
@@ -258,6 +258,25 @@ The meeting workflow collapses many low-level features into a small number of wo
 
 This keeps advanced functions available, but outside the first decision layer.
 
+## Live and participating-agent content extension — candidate
+
+Preserve the current `live`/`review` shell ownership; no return to historical P1–P4 navigation. New content follows the [domain map](../architecture/MEETING_INTELLIGENCE_DOMAINS.md), [live spec](../specs/2026-09-21-live-meeting-transcription-spec.md) and [agent spec](../specs/2026-09-21-meeting-agent-participation-spec.md).
+
+| Stage / surface | Primary state and controls |
+| --- | --- |
+| Prepare | local/API mode, Meet URL, source/permission preflight, selected knowledge, business time context, audience/publication policy |
+| Live transcript | provisional vs committed, source speaker badge, follow-live, lag and gap markers; source recording health separate |
+| Agent participation | requested/lobby/joined/listening; observe/draft/asked/proactive mode; visible stop/revoke |
+| Answer preview | exact recipient, cited source version, ambiguity, redaction, link expiry; approve/edit/deny |
+| Delivery | queued/accepted/delivered/unknown; never show API acceptance as confirmed room delivery |
+| Review | corrections, source attribution vs reviewed Person, stale summaries and already-published correction status |
+
+A Meeting Agent can be present without permission to publish. Recording may be healthy while transcript is delayed or agent offline. Separate indicators must preserve these combinations.
+
+MVP document delivery in Meet is a labelled document **link**, not an unproven native file attachment. User can inspect evidence without forcing a public answer. Stop Agent must not accidentally delete recording; Stop recording must explain whether a remote agent remains and offer explicit combined stop.
+
+Additional acceptance: Thai labels, keyboard/focus, non-color-only states, screen-reader throttling of committed text, no enrollment prerequisite, guest audience block visible privately, and no silent Google Chat/DM fallback.
+
 ## Acceptance Criteria
 
 - Meeting Mode fits inside the current `live` and `review` active surfaces without requiring the persistent sidebar to own recording controls.
@@ -271,12 +290,14 @@ This keeps advanced functions available, but outside the first decision layer.
 
 | Version | Change |
 | --- | --- |
-| 0.1.1b | 2026-09-20 | Reconciled Meeting Mode ownership with the current Live/Review active surfaces and superseded shell navigation. |
+| 0.2.0b | Added candidate Live/Review content states for source-aware transcript, agent admission, evidence preview and truthful delivery. |
+| 0.1.1b | 2026-09-20: Reconciled Meeting Mode ownership with the current Live/Review active surfaces and superseded shell navigation. |
 | 0.1.0b | Added feature-driver content spec for Meeting Mode across P1-P4 inside the fixed HUD layout. |
 
 ## Changelog
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.2.0b | 2026-09-21 | candidate | Added candidate Live/Review content states for source-aware transcript, agent admission, evidence preview and truthful delivery. | working-tree | RWANG |
 | 0.1.1b | 2026-09-20 | beta | Clarified that Meeting Mode owns content/state behavior while DesktopShell owns current navigation and chrome. | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
 | 0.1.0b | 2026-07-09 | beta | Added Meeting Mode feature-driver content spec. | N/A | ATHER |

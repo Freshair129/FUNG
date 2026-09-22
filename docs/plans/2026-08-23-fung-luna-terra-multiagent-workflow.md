@@ -1,8 +1,8 @@
 ---
-version: "0.1.1b"
+version: "0.2.0b"
 created_at: "2026-08-23T15:34:22+07:00,ATHER"
-last_update: "2026-09-17T00:00:00+07:00,Codex"
-status: "beta"
+last_update: "2026-09-21T05:58:39+07:00,RWANG"
+status: "under review"
 superseded_by: null
 attributes:
   domain: "agent-governance"
@@ -11,6 +11,27 @@ attributes:
 ---
 
 # FUNG Luna–Terra Multi-Agent Workflow
+
+## Current scoped meeting-intelligence overlay — 2026-09-21
+
+For the current FUNG meeting-intelligence D10-D13 track only, the
+[meeting-intelligence workflow](./2026-09-21-meeting-intelligence-multiagent-workflow.md)
+and its [declarative task DAG](./2026-09-21-meeting-intelligence-task-dag.json)
+take precedence over this document's broad execution defaults. Historical and
+non-meeting lanes remain governed by the sections below.
+
+- The new package's approval sequence is authoritative for this track; old
+  approvals are not inherited.
+- M1/M2 local lanes may proceed after Boss feature-contract approval and the
+  serialized contract/schema G1 without provider procurement. Provider,
+  public-ingress, real-room, external-send, merge, and release gates remain
+  separate.
+- The new package requires <code>gpt-5.6-luna/max</code> workers and an
+  independent Luna/max first gate, plus <code>gpt-5.6-terra/high</code> final
+  gate. The parent orchestrates and reviews risk only; it does not repair
+  artifacts.
+- G1 and G2 have **NOT_RUN** status at this freeze. Later reports are separate
+  artifacts and must not mutate the frozen four-file review set.
 
 ## 1. Approval and risk
 
@@ -137,6 +158,9 @@ approved task explicitly creates that dependency.
 
 ## Version Diff
 
+- 0.1.1b -> 0.2.0b: added the minimal current-workstream precedence overlay;
+  historical and other execution lanes remain unchanged.
+
 - `new -> 0.1.0b`: approved Luna worker, Terra review-gate, and Codex
   final-integrator workflow with bounded parallelism and FUNG execution waves.
 
@@ -144,5 +168,6 @@ approved task explicitly creates that dependency.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.0b | 2026-09-21 | under review | Linked the frozen meeting-intelligence workflow and declarative DAG for the current track only; no G1/G2 run or implementation authority added. | working-tree; base b336f33 | RWANG |
 | 0.1.1b | 2026-09-17 | beta | Canceled Google Drive implementation/deployment/UAT waves and retained local backup/device work as the active execution scope. | a9f9b80 | Codex |
 | 0.1.0b | 2026-08-23 | beta | Approved Luna–Terra multi-agent workflow; no implementation code changed | working-tree | ATHER |

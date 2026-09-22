@@ -1,0 +1,251 @@
+{
+  "report_type": "MEETING-REMEDIATION-R1-BOOTSTRAP",
+  "version": "0.1.0b",
+  "status": "need review",
+  "execution_state": "READY_PREPARATION_ONLY",
+  "implementation_state": "NOT_STARTED_SOURCE_UNLEASED",
+  "verification": "PREPARED_NOT_IMPLEMENTED",
+  "decision": "READY_FOR_DISJOINT_REPAIR_LEASE_ALLOCATION",
+  "change_risk": "C3/HIGH",
+  "author": {
+    "name": "Sartre",
+    "agent_id": "01a0c1b9-b266-7332-9a87-a612b0c0ebf0",
+    "model": "gpt-5.6-luna",
+    "reasoning": "max"
+  },
+  "parent_orchestrator": {
+    "agent_id": "01a0bfa8-2ac8-7ed1-a1a9-363e391c7d75",
+    "mode": "read-only-high-risk-reviewer"
+  },
+  "other_agents_spawned": false,
+  "approval_scope": {
+    "approved": "local Genesis dependency remediation with regression tests plus the existing approved SI/D8 private-identity repair",
+    "not_implied": [
+      "upstream provider or public release permission",
+      "commit, push, PR, merge, deployment, production activation, or qualified higher resource usage",
+      "product/privacy redesign or plaintext identity persistence"
+    ],
+    "numeric_cap_selection": {
+      "resource": "package tables",
+      "baseline": 64,
+      "selected_local_implementation_bound": 128,
+      "selection_status": "implementation selection under approved cap-remediation scope; not a prior user quote"
+    }
+  },
+  "frozen_inputs": {
+    "fung_root": "C:\\Users\\pc\\workspace\\fung",
+    "root_head": "b336f33ec400a38f003a0665c121069a87a543ac",
+    "root_branch": "main",
+    "root_status_lines_before_records": 53,
+    "old_subject": "C:\\Users\\pc\\AppData\\Local\\Temp\\codex-fung-meeting-intelligence-contract-20260921",
+    "old_subject_head": "b336f33ec400a38f003a0665c121069a87a543ac",
+    "old_subject_immutable": true,
+    "n3_hashes": {
+      "src-tauri/src/genesis_adapter.rs": "15682F5CDB7D4C67920854CFE88E971627BBF1A5D6C4E55E6461F413ED7CD8BD",
+      "src-tauri/src/meeting_intelligence_schema.rs": "801856B92C276996737CEACB7A9A39634CA912C5E58272CFFB1D89E79147ABC7",
+      "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-contract.md": "523544E70FD15E176EED102A9219B98E06F6B1B770B918C73F7C23181B51E187",
+      ".brain/rca/2026-09-21-meeting-schema-resource-budget.md": "A9287CBDE739DB71D333E2A060A35B3114A3DBA6FD1AEB16EA363195D54A411D"
+    },
+    "workflow_sha256": "CE83DE3D4073EE01365D370B2B516816E7710FC5D529AB534D0F1E7C70D6CE6F",
+    "dag_sha256": "2E98F55D4D71AEB308EA0EF9906DC04DB580F5CEAEBE10901301BE06C98A1DFB",
+    "bootstrap_inventory": {
+      "count": 40,
+      "source": "docs/verification/implementation-reports/2026-09-21-meeting-implementation-bootstrap.json",
+      "source_sha256": "0714672D92084A591C689674BDDB2A4C25B80C49096ACF7BCFE950F8260A9CC9",
+      "hashes_in_source": true
+    },
+    "known_tracked_deletions": [
+      "AIOS/CORE/CONTEXT_LOADING_RULES.md",
+      "AIOS/CORE/SHARED_CONTEXT.md",
+      "AIOS/WORKFLOW/COMPLEXITY_BASED_WORKFLOW.md"
+    ]
+  },
+  "repair_worktree": {
+    "path": "C:\\Users\\pc\\AppData\\Local\\Temp\\codex-fung-meeting-intelligence-repair-r1-20260921",
+    "branch": "codex/meeting-intelligence-repair-r1-20260921",
+    "head": "b336f33ec400a38f003a0665c121069a87a543ac",
+    "path_absent_before_create": true,
+    "branch_absent_before_create": true,
+    "creation_exit_code": 0,
+    "overlay": {
+      "bootstrap_files_copied": 40,
+      "extra_reference_or_source_files_copied": 4,
+      "total_files_copied": 44,
+      "tracked_deletions_reproduced": 3,
+      "hash_mismatches": 0,
+      "absolute_path_validation": "passed",
+      "explicit_copy_only": true,
+      "extra_files": {
+        "src-tauri/src/genesis_adapter.rs": "15682F5CDB7D4C67920854CFE88E971627BBF1A5D6C4E55E6461F413ED7CD8BD",
+        "src-tauri/src/meeting_intelligence_schema.rs": "801856B92C276996737CEACB7A9A39634CA912C5E58272CFFB1D89E79147ABC7",
+        "docs/verification/implementation-reports/2026-09-21-meeting-intelligence-contract.md": "523544E70FD15E176EED102A9219B98E06F6B1B770B918C73F7C23181B51E187",
+        ".brain/rca/2026-09-21-meeting-schema-resource-budget.md": "A9287CBDE739DB71D333E2A060A35B3114A3DBA6FD1AEB16EA363195D54A411D"
+      },
+      "forbidden_material_present": [],
+      "worktree_status_lines_after_seed_before_records": 47
+    },
+    "source_lease": "unleased_until_parent_handoff"
+  },
+  "genesis_clone": {
+    "path": "C:\\Users\\pc\\AppData\\Local\\Temp\\codex-fung-genesis-schema-limit-r1-20260921",
+    "cached_source": "C:\\Users\\pc\\.cargo\\git\\checkouts\\genesisblock-88970819a8b18a23\\79b41a3",
+    "cached_source_pinned_commit": "79b41a3f4ae4026d086b634c631f4f4a7ccbd142",
+    "clone_path_absent_before_create": true,
+    "clone_exit_code": 0,
+    "checkout_exit_code": 0,
+    "head": "79b41a3f4ae4026d086b634c631f4f4a7ccbd142",
+    "branch": "detached",
+    "clean": true,
+    "no_hardlinks": true,
+    "alternates_file_present": false,
+    "reparse_point": false,
+    "cached_source_preserved": true,
+    "cached_source_preexisting_status": ["?? .cargo-ok"],
+    "key_hashes": {
+      "src/lib.rs": "299B248E14876861F035149D36D61A0AE40C574E7B6BA82086B6A60AA4E00972",
+      "AGENTS.md": "0CCD6880862C1B5DD6CF76FB1933485765E512B60CCBC7C49498F171A15F26C3",
+      "AGENT.md": "8078E0716F56D6DB25565E75176820165D9878B27D747C12C8EC2C730F3BFA66",
+      "docs/C4--GENESISDB-ARCHITECTURE.md": "52C0B7C13B00BE2990080803134AEB31EE31EB663BB801BC56A107403FA5A991",
+      "docs/MASTER-SPEC--GENESIS-DB.md": "A8624C8299038DA2B7372A568664CF3453E5FEE8B69A2E1241878741F3A254DD",
+      "docs/adr/ADR--GENESISBLOCKDB-DOMAIN-NEUTRAL-CORE.md": "60BCACB7B05A97F7563015BCEEE0A473DBF08D4E4307C0CE80E0D852EE8270C1",
+      "docs/contracts/CONTRACT--CLIENT-NAMESPACE-AND-SCHEMA.md": "52B13910930419F4865C5DA4AF03FDA9DFCF2F116848A3D86B46F2B34908EF8D"
+    }
+  },
+  "upstream_governance": {
+    "observed": "Genesis is domain-neutral and FUNG owns ontology, privacy, and application validation; upstream public contract changes require upstream owner/architecture approval.",
+    "additional_product_approval": "not identified for this already-approved local bounded remediation",
+    "additional_upstream_approval": "required only if the work is promoted as an upstream/public Genesis contract change; not requested or authorized here",
+    "local_only": true
+  },
+  "selected_repair": {
+    "genesis": {
+      "change": "package table validation bound 64 -> 128 only",
+      "unchanged_limits": {
+        "named_queries": 128,
+        "columns_per_table": 128,
+        "primary_key_length": 4,
+        "indexes": 64
+      },
+      "unchanged_behavior": ["atomic checks", "schema checks", "WAL/replay/backup/restore contract"]
+    },
+    "fung_si_d8": {
+      "change": "close the approved private-identity custody, encryption, AAD/hash/scope, and durable-projection gap",
+      "preserve": ["encrypted relationship payloads", "opaque vault-scoped durable authority", "atomic transaction boundary", "provider labels are not Person or ACL authority"],
+      "prohibit": ["plaintext private identity in durable projections, attribution, event, WAL, or audit records", "privacy/product redesign"]
+    },
+    "missing_yaml_and_node_contract": "reserved for a later codeworker; not authored in preparation"
+  },
+  "lease_split": {
+    "genesis_source_and_cargo": {
+      "status": "unallocated",
+      "planned_paths": ["C:\\Users\\pc\\AppData\\Local\\Temp\\codex-fung-genesis-schema-limit-r1-20260921", "src-tauri/Cargo.toml"]
+    },
+    "fung_adapter_types_contract_privacy": {
+      "status": "unallocated",
+      "planned_paths": ["src-tauri/src/genesis_adapter.rs", "src-tauri/src/meeting_intelligence_schema.rs", "later-codeworker-owned YAML and Node contract paths"]
+    },
+    "source_remains_unleased": true,
+    "disjointness_ready": true
+  },
+  "cargo_recipe": {
+    "root_manifest_sha256": "54BEB684AA73B89F030B6627E9A98F9EC63A02EEC5CB8C1039394D70BE2B4AAD",
+    "root_lockfile_sha256": "E756A52BB041C5F43D4674E46FD0781CBB66F2649B3CD0385C15F02FEE8B9D07",
+    "recipe": "Use the existing commented [patch.\"https://github.com/Freshair129/GenesisBlock.git\"] local WIP convention with the prepared Genesis clone path in the repair worktree only.",
+    "global_cargo_config_or_cache_edits": false,
+    "portable": false,
+    "release_permission": false
+  },
+  "shared_later_build": {
+    "target": "C:\\Users\\pc\\AppData\\Local\\Temp\\codex-fung-meeting-intelligence-contract-20260921-target",
+    "preexisting_and_preserved": true,
+    "process_only_settings": {
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_INCREMENTAL": "0"
+    },
+    "new_build_cache_created": false
+  },
+  "regression_acceptance_planned": {
+    "genesis": [
+      "66-table schema_v11 chain validates under the local 128-table bound",
+      "128 tables remain accepted and 129 tables remain rejected",
+      "named_queries 128/129, columns 128/129, primary-key 4/5, and indexes 64/65 retain their existing boundaries",
+      "atomic and schema validation checks remain passing"
+    ],
+    "fung": [
+      "private-identity custody/key/blob/AAD/hash/scope checks are enforced before commit",
+      "durable projections and attribution/event/WAL/audit paths contain no plaintext private identity",
+      "atomic commit and rollback behavior remains preserved"
+    ],
+    "independent_gates": "Luna and Terra gates are later work; not run in preparation"
+  },
+  "evidence_correction": {
+    "runtime_claim": "invalid as stated in the old N3 report",
+    "exact_frozen_test": "checked the version sequence but did not print N3_RUNTIME_SCHEMA_COUNTS",
+    "source_arithmetic": "41 + 25 = 66",
+    "install_failure": "exit 101 reproduced by G1 before fixture setup",
+    "interpretation": "66 is source arithmetic, not runtime telemetry"
+  },
+  "tool_environment": {
+    "node": "v24.19.0",
+    "npm": "11.17.0",
+    "rustc": "1.98.0 (88d9e12ae 2026-08-18)",
+    "cargo": "1.98.0 (797e8a9bc 2026-08-05)",
+    "free_space_bytes": 53253361664,
+    "network_used": false,
+    "provider_or_model_download": false,
+    "user_db_or_app_launch": false
+  },
+  "commands_and_exit_codes": {
+    "worktree_add": 0,
+    "genesis_clone_no_hardlinks_no_checkout_no_tags": 0,
+    "genesis_detached_checkout": 0,
+    "explicit_overlay_transfer": 0,
+    "initial_seed_attempt": "ABORTED_BEFORE_COPY: PowerShell Split-Path parameter-set error; target remained clean; corrected explicit transfer then exited 0",
+    "status_and_hash_verification": 0,
+    "source_edits": "NOT_RUN",
+    "cargo_edits": "NOT_RUN",
+    "test_compilation": "NOT_RUN",
+    "Luna_gate": "NOT_RUN",
+    "Terra_gate": "NOT_RUN",
+    "commit_push_pr": "NOT_RUN",
+    "provider_release_production": "NOT_RUN"
+  },
+  "gate_state": {
+    "N3": "FROZEN/BLOCKED reference evidence only",
+    "N4": "FAIL/BLOCKED immutable prior evidence",
+    "repair": "NOT_STARTED",
+    "source_lease": "UNLEASED",
+    "provider": "NOT_PERMITTED",
+    "release": "NOT_PERMITTED",
+    "production": "NOT_RUN"
+  },
+  "root_status_after_records": {
+    "observed_lines": 57,
+    "authorized_new_paths_count": 3,
+    "authorized_new_paths": [
+      "docs/verification/implementation-reports/2026-09-21-meeting-remediation-r1-bootstrap.md",
+      "docs/verification/implementation-reports/2026-09-21-meeting-remediation-r1-bootstrap.json",
+      "docs/decisions/2026-09-21-genesis-local-schema-limit-remediation.md"
+    ],
+    "unexpected_new_record_paths": [],
+    "count_note": "57 = historical 53 status lines + 3 Sartre records + Dalton's separately authorized RCA. Exact path and hash comparison is authoritative over aggregate counts; the parallel RCA is preserved and is not a Sartre source write.",
+    "parallel_authorized_addition": {
+      "path": ".brain/rca/2026-09-21-meeting-identity-custody-plaintext.md",
+      "author": "Dalton",
+      "scope": "separately authorized RCA",
+      "part_of_this_prep": false
+    },
+    "preexisting_dirty_inventory_preserved": true
+  },
+  "record_paths": [
+    "docs/verification/implementation-reports/2026-09-21-meeting-remediation-r1-bootstrap.md",
+    "docs/verification/implementation-reports/2026-09-21-meeting-remediation-r1-bootstrap.json",
+    "docs/decisions/2026-09-21-genesis-local-schema-limit-remediation.md"
+  ],
+  "changelog": {
+    "version": "0.1.0b",
+    "summary": "Preparation records for approved bounded local remediation; no implementation or release authority granted.",
+    "agent": "Sartre / 01a0c1b9-b266-7332-9a87-a612b0c0ebf0"
+  }
+}

@@ -1,0 +1,604 @@
+{
+  "report_type": "WF-BASELINE",
+  "schema_version": "0.1.1b",
+  "status": "beta",
+  "final_status": "DONE_WITH_OPEN_CONCERNS",
+  "created_at": "2026-09-21T05:37:17.176+07:00",
+  "last_update": "2026-09-21T05:54:10.961+07:00",
+  "agent": "RWANG",
+  "head": "b336f33ec400a38f003a0665c121069a87a543ac",
+  "branch": "main",
+  "cwd": "C:/Users/pc/workspace/fung",
+  "captured_at": "2026-09-21T05:37:17.176+07:00",
+  "tooling_note": {
+    "initial_attempt": "The first apply_patch payload was rejected before execution because embedded Markdown backticks were parsed as JavaScript template-literal syntax.",
+    "filesystem_effect": "none",
+    "retry": "A bounded apply_patch payload without template-literal backticks was used; only the two authorized report paths are being written."
+  },
+  "scope": {
+    "mode": "read-only inventory and bounded report write",
+    "authorized_output_paths": [
+      "docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.md",
+      "docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.json"
+    ],
+    "excluded": [
+      "feature implementation",
+      "source repair",
+      "workflow plan/spec edits",
+      "provider or vendor setup",
+      "model download or staging",
+      "network/provider/UI/real-meeting actions",
+      "build or Cargo execution",
+      "commit",
+      "push",
+      "pull request",
+      "deployment"
+    ],
+    "subagents_used": 0,
+    "g1": "NOT_ISSUED",
+    "g2": "NOT_ISSUED"
+  },
+  "requested_workflow": {
+    "workers": {
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max"
+    },
+    "first_verification_gate": {
+      "model": "gpt-5.6-luna",
+      "reasoning_effort": "max",
+      "independence": "different independent Luna worker"
+    },
+    "final_verification_gate": {
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "max"
+    },
+    "parent": "orchestrates and reviews risks only; does not write or repair source or docs"
+  },
+  "snapshot": {
+    "pre_report_snapshot": true,
+    "dirty_counts": {
+      "modified": 27,
+      "deleted": 3,
+      "untracked": 10,
+      "total": 40
+    },
+    "tracked_diff_stat": "30 files changed, 1072 insertions(+), 276 deletions(-)",
+    "git_warnings": [
+      "LF will be replaced by CRLF for scripts/stage_diarization_runtime.ps1",
+      "LF will be replaced by CRLF for scripts/stage_whisper_runtime.ps1"
+    ],
+    "deleted_aios_paths": [
+      "AIOS/CORE/CONTEXT_LOADING_RULES.md",
+      "AIOS/CORE/SHARED_CONTEXT.md",
+      "AIOS/WORKFLOW/COMPLEXITY_BASED_WORKFLOW.md"
+    ],
+    "deleted_aios_hash_policy": "not hashed because files do not exist; deletions preserved"
+  },
+  "post_write_verification": {
+    "git_status_exit_code": 0,
+    "current_total_paths": 43,
+    "delta_from_frozen_pre_report_snapshot": [
+      {
+        "path": "docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.md",
+        "status": "??",
+        "created_by_this_task": true
+      },
+      {
+        "path": "docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.json",
+        "status": "??",
+        "created_by_this_task": true
+      },
+      {
+        "path": "docs/plans/2026-09-21-meeting-intelligence-multiagent-workflow.md",
+        "status": "??",
+        "created_by_this_task": false,
+        "read_or_hashed_by_this_task": false,
+        "boundary": "separate concurrent workflow lane; not assumed frozen"
+      }
+    ],
+    "current_status_interpretation": "The frozen baseline remains the 40-path pre-report snapshot. The current working tree has those 40 paths plus the two authorized reports and one separate in-progress workflow plan."
+  },
+  "dirty_state": {
+    "modified": [
+      ".env.example",
+      "docs/Desktop/07-meeting-mode.md",
+      "docs/Desktop/08-real-progress.md",
+      "docs/Desktop/ARCHITECTURE.md",
+      "docs/Desktop/AUDIO_AI_PIPELINE.md",
+      "docs/Desktop/LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md",
+      "docs/Desktop/PRODUCT_SPEC.md",
+      "docs/Desktop/ZOOM_INTEGRATION_SETUP.md",
+      "docs/ai-system/README.md",
+      "docs/ai-system/agent-architecture.md",
+      "docs/ai-system/data-pipeline.md",
+      "docs/ai-system/ethics-governance.md",
+      "docs/ai-system/evaluation-plan.md",
+      "docs/appendices/E-egress-register.md",
+      "docs/architecture/README.md",
+      "docs/plans/2026-08-09-fung-master-implementation-plan.md",
+      "docs/specs/2026-08-11-live-meeting-external-retrieval-design.md",
+      "docs/specs/2026-08-23-speaker-identification-and-voice-profile-spec.md",
+      "scripts/stage_diarization_runtime.ps1",
+      "scripts/stage_whisper_runtime.ps1",
+      "scripts/transcribe.py",
+      "scripts/transcribe_live.py",
+      "src-tauri/src/lib.rs",
+      "src-tauri/src/live_meeting.rs",
+      "src-tauri/src/meeting_intel.rs",
+      "tests/diarizationPackaging.test.mjs",
+      "tests/transcribeConcatOnly.test.py"
+    ],
+    "deleted": [
+      "AIOS/CORE/CONTEXT_LOADING_RULES.md",
+      "AIOS/CORE/SHARED_CONTEXT.md",
+      "AIOS/WORKFLOW/COMPLEXITY_BASED_WORKFLOW.md"
+    ],
+    "untracked": [
+      "docs/architecture/MEETING_INTELLIGENCE_DOMAINS.md",
+      "docs/decisions/2026-09-21-google-meet-agent-api-strategy.md",
+      "docs/specs/2026-09-21-fung-meeting-transcript-pipeline-adaptation.md",
+      "docs/specs/2026-09-21-live-meeting-transcription-spec.md",
+      "docs/specs/2026-09-21-meeting-agent-participation-spec.md",
+      "docs/specs/2026-09-21-meeting-knowledge-evidence-spec.md",
+      "docs/specs/2026-09-21-pyannote-diarization-runtime.md",
+      "docs/specs/2026-09-21-speaker-identity-domain-design.md",
+      "docs/specs/2026-09-21-whisper-model-profiles.md",
+      "scripts/diarization-runtime-requirements.txt"
+    ],
+    "protected_existing_dirty_hashes": [
+      {
+        "path": ".env.example",
+        "status": "M",
+        "bytes": 1512,
+        "sha256": "2e9e16dbe7fb3e16d560e67e5c31f5287fc1085ee1e1bb18d7bf63911ffc327c",
+        "content_policy": "digest only; no environment values read"
+      },
+      {
+        "path": "scripts/stage_diarization_runtime.ps1",
+        "status": "M",
+        "bytes": 14915,
+        "sha256": "9add03d5d6efdf6ae9a641ed6d56e7d862b431d40e47ec865946d8831ad9e277"
+      },
+      {
+        "path": "scripts/stage_whisper_runtime.ps1",
+        "status": "M",
+        "bytes": 9110,
+        "sha256": "0a32086037d88817bb09f862374145f28852d630f4a259f7833ce87790bb2aaf"
+      },
+      {
+        "path": "scripts/transcribe.py",
+        "status": "M",
+        "bytes": 11340,
+        "sha256": "46578cae1ef2b3dc7df5cec0f646891b9e4090abf16a79d7fe018ff2876674df"
+      },
+      {
+        "path": "scripts/transcribe_live.py",
+        "status": "M",
+        "bytes": 5027,
+        "sha256": "46698f796dc726cbf4817d0048be95bb27589fc664bd88314f2840d2e8694eb1"
+      },
+      {
+        "path": "scripts/diarization-runtime-requirements.txt",
+        "status": "??",
+        "bytes": 9722,
+        "sha256": "ec90d85ebe8ea13b3e39d9db9693bbe31638dc3da6a4ce2851e87e4ffa3cc978"
+      },
+      {
+        "path": "src-tauri/src/lib.rs",
+        "status": "M",
+        "bytes": 164157,
+        "sha256": "9948c2160da422a406c5cf3f5b719e18f6c8f105abc857e06407dfd3f3f7316f"
+      },
+      {
+        "path": "src-tauri/src/live_meeting.rs",
+        "status": "M",
+        "bytes": 107730,
+        "sha256": "efff8ef8068317d1a4ddf4734a5f597ad9624c96490af3b334468955e1cf3aaf"
+      },
+      {
+        "path": "src-tauri/src/meeting_intel.rs",
+        "status": "M",
+        "bytes": 86403,
+        "sha256": "eaa1a181069697dcb5ad80c6cc7a71548e827ccea7f30c7f110d153c1389d9f5"
+      },
+      {
+        "path": "tests/diarizationPackaging.test.mjs",
+        "status": "M",
+        "bytes": 6632,
+        "sha256": "a5399509d306ec98ebdef90e295eaec6b0cbf91ad13128c607ecc6849b0e68d8"
+      },
+      {
+        "path": "tests/transcribeConcatOnly.test.py",
+        "status": "M",
+        "bytes": 7009,
+        "sha256": "3f9244e579127480a61671823d1eab8c7c2a9faa835523a763da71c2619f39ab"
+      }
+    ]
+  },
+  "input_documents": [
+    {
+      "path": "docs/architecture/MEETING_INTELLIGENCE_DOMAINS.md",
+      "version_status": "v0.1.0b candidate",
+      "bytes": 14698,
+      "sha256": "c4ad32aba6b2c26686a298846c553d84d5ada199c80c795c70fa596d3ec23b6f"
+    },
+    {
+      "path": "docs/decisions/2026-09-21-google-meet-agent-api-strategy.md",
+      "version_status": "v0.1.0b candidate",
+      "bytes": 14042,
+      "sha256": "8cdf28b258d5ab61609ab4699f69efd22a18ff394e49f88bdc3409bcbbea06e5"
+    },
+    {
+      "path": "docs/specs/2026-09-21-fung-meeting-transcript-pipeline-adaptation.md",
+      "version_status": "v0.2.2b beta",
+      "bytes": 14739,
+      "sha256": "616aeeeb8b018c0bde4b25556fdb5d64038687394b36c32e139a0d1d361a29cd"
+    },
+    {
+      "path": "docs/specs/2026-09-21-live-meeting-transcription-spec.md",
+      "version_status": "v0.1.0b candidate",
+      "bytes": 18105,
+      "sha256": "6fb143593d9f6f9b71160efeaa4f8ae95e951f2d84b9e4dd4424e9d9569e754f"
+    },
+    {
+      "path": "docs/specs/2026-09-21-meeting-agent-participation-spec.md",
+      "version_status": "v0.1.0b candidate",
+      "bytes": 24931,
+      "sha256": "c62746282920c8b32d393576383279f89d6e63bef9ce7ad2877059abb279261e"
+    },
+    {
+      "path": "docs/specs/2026-09-21-meeting-knowledge-evidence-spec.md",
+      "version_status": "v0.1.0b candidate",
+      "bytes": 17890,
+      "sha256": "c98d754c5db068561177164cb0500b842305546e71ce5823be0d2374a311847d"
+    },
+    {
+      "path": "docs/specs/2026-09-21-pyannote-diarization-runtime.md",
+      "version_status": "v0.1.0 beta; local optional runtime approval noted",
+      "bytes": 7588,
+      "sha256": "eb02ea0038fc8b67191b955c13aed6e4336ac9aaf36bcb19030bf2a6e174ca58"
+    },
+    {
+      "path": "docs/specs/2026-09-21-speaker-identity-domain-design.md",
+      "version_status": "v0.2.0b candidate",
+      "bytes": 71687,
+      "sha256": "60ce5789f7ed5e10eefc7d67d41f29aa2549df075c726f383f22c4380a1b3359"
+    },
+    {
+      "path": "docs/specs/2026-09-21-whisper-model-profiles.md",
+      "version_status": "v0.1.0b beta",
+      "bytes": 4712,
+      "sha256": "2eb3709adcacc6dfe591ae681cef3e95c742e5e40647afa76481ee9fffb94d91"
+    },
+    {
+      "path": "docs/plans/2026-08-09-fung-master-implementation-plan.md",
+      "version_status": "v1.6.0b need review",
+      "bytes": 43075,
+      "sha256": "7c0081099a915f5e773e1f3cc3bf8d29aa4070050d3d3732a267b2858c94c5bb"
+    },
+    {
+      "path": "docs/Desktop/ARCHITECTURE.md",
+      "version_status": "v1.1.0b candidate",
+      "bytes": 10548,
+      "sha256": "a0c6ea25e5537cc20cd0143de8c31fe6f849f4a33d8891880fd426d44ccfc9c7"
+    },
+    {
+      "path": "docs/Mobile/IMPLEMENTATION_STATUS.md",
+      "version_status": "v0.4.3b beta",
+      "bytes": 22478,
+      "sha256": "ddc3877fb0e6b15044876def37de4cec5d56eb59cee0cafdd0ecc37adaeaeca5"
+    },
+    {
+      "path": "docs/Desktop/08-real-progress.md",
+      "version_status": "v0.2.35b beta",
+      "bytes": 90105,
+      "sha256": "5ec314aaec4d18ef6ec20ffe8973cd3559d4e21a90107c694570abb747295019"
+    },
+    {
+      "path": "docs/Desktop/07-meeting-mode.md",
+      "version_status": "adjacent meeting document",
+      "bytes": 10699,
+      "sha256": "19e9fe322fb399740e0247da07b77bf7984b3456494726a35d2e586c7d056041"
+    },
+    {
+      "path": "docs/Desktop/AUDIO_AI_PIPELINE.md",
+      "version_status": "adjacent pipeline document",
+      "bytes": 6660,
+      "sha256": "8cf7091315d59a0d6248335dd1564db02868c843abc0f725d9f337d7da71eb12"
+    },
+    {
+      "path": "docs/Desktop/LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md",
+      "version_status": "adjacent external-retrieval document",
+      "bytes": 19106,
+      "sha256": "b39713bde25862ead669de443eb6f27a9cd62f98f8cd68891e7d9bdc75bdb73f"
+    },
+    {
+      "path": "docs/specs/2026-08-05-zoom-meeting-ingestion-design.md",
+      "version_status": "adjacent provider design",
+      "bytes": 15079,
+      "sha256": "c11f519f54f0963e544e9ed04693480f87a1d75f944822cf3081a2db2b428d5a"
+    },
+    {
+      "path": "docs/specs/2026-08-23-speaker-identification-and-voice-profile-spec.md",
+      "version_status": "adjacent speaker specification",
+      "bytes": 27716,
+      "sha256": "da101a8f2988b6767ed095917489d40c5d9792768e6d15e31c999b9128b5fa64"
+    },
+    {
+      "path": "docs/ai-system/agent-architecture.md",
+      "version_status": "adjacent governance/architecture",
+      "bytes": 4895,
+      "sha256": "96aa92f0af900314bbee8018173955ac933e75897fcba98f128fb3835a4a2c3b"
+    },
+    {
+      "path": "docs/ai-system/ethics-governance.md",
+      "version_status": "adjacent governance",
+      "bytes": 4839,
+      "sha256": "c46f439ac6af5bbae04cd6d0eb2a647a95b2e29c6eb92d9961cbac844d7f5bde"
+    }
+  ],
+  "source_seams": [
+    {
+      "path": "src-tauri/src/lib.rs",
+      "status": "dirty",
+      "evidence": "shared module registry, AppState, Genesis opening, worker/runtime wiring, and invoke registration",
+      "partition_risk": "high-contention shared seam"
+    },
+    {
+      "path": "src-tauri/src/genesis_adapter.rs",
+      "status": "clean",
+      "evidence": "single Genesis boundary; schema chain currently v1-v10; proposed meeting aggregates absent",
+      "partition_risk": "schema/migration/rollback must be separately approved"
+    },
+    {
+      "path": "src/tauri.ts",
+      "status": "clean",
+      "evidence": "existing live start/stop/status, segment events, recording ask, summaries, and read-only MCP bridge only",
+      "partition_risk": "no candidate v2/People/knowledge/agent/gateway/outbox bridge"
+    },
+    {
+      "path": "src-tauri/src/live_meeting.rs",
+      "status": "dirty",
+      "evidence": "local mic/system capture, persisted chunks, persistent worker, CHUNK_MS=8000; labels are capture provenance",
+      "partition_risk": "do not conflate mic/system labels with Person/provider identity or live revisions"
+    },
+    {
+      "path": "src-tauri/src/meeting_intel.rs",
+      "status": "dirty",
+      "evidence": "meeting_ask_recording validates project/recording and excludes graph/live tail; existing queue keeps optional diarization before summary",
+      "partition_risk": "recording-scoped QA must not broaden"
+    },
+    {
+      "path": "src-tauri/src/job_engine.rs",
+      "status": "clean",
+      "evidence": "serial worker and five closed recording-oriented JobKind values",
+      "partition_risk": "no live revision DAG, gateway outbox, or agent job vocabulary"
+    },
+    {
+      "path": "scripts/transcribe.py",
+      "status": "dirty",
+      "evidence": "one-shot faster-Whisper worker; large-v3-turbo default in current script/progress evidence",
+      "partition_risk": "model/runtime worker is shared; no staging/download proof"
+    },
+    {
+      "path": "scripts/transcribe_live.py",
+      "status": "dirty",
+      "evidence": "persistent JSONL chunk worker",
+      "partition_risk": "not live-transcript-v2 provisional revision evidence"
+    },
+    {
+      "path": "src-tauri/src/diarization.rs and src-tauri/src/local_diarization.rs",
+      "status": "clean",
+      "evidence": "optional local pyannote path and anonymous system-channel clusters",
+      "partition_risk": "diarization is not People or biometric identity proof"
+    },
+    {
+      "path": "src-tauri/src/external_mcp_commands.rs",
+      "status": "clean",
+      "evidence": "read-only per-call-approved external MCP",
+      "partition_risk": "not a Meet publication/send path"
+    },
+    {
+      "path": "src-tauri/src/mobile.rs and src-tauri/src/fungwire_server.rs",
+      "status": "existing local gateway code",
+      "evidence": "mobile/LAN FUNGWIRE surfaces",
+      "partition_risk": "not proof of a public Google Meet gateway"
+    }
+  ],
+  "candidate_implementation_search": {
+    "identifiers_checked": [
+      "meeting_agent",
+      "meeting_delivery",
+      "knowledge_collections",
+      "transcript_revisions",
+      "live-transcript-v2",
+      "participant_session",
+      "voice_identity"
+    ],
+    "result": "no candidate implementation hits in bounded source/scripts/tests/contracts scope",
+    "caveat": "generic gateway/media-fetch/websocket references are not Meet-gateway evidence"
+  },
+  "runtime_inventory": {
+    "existing_model_path": ".venv-whisper/models/small",
+    "requested_model_artifacts": "not staged/proven in current progress evidence",
+    "venv_whisper_manifest": "missing at .venv-whisper/manifest.json",
+    "runtime_manifest": "runtime/manifest.json exists as CUDA runtime manifest, not Whisper model proof",
+    "cache_hash_policy": "no recursive multi-GB model/build cache hash",
+    "secret_policy": "no HF token, .env, .env.local, or secret values read"
+  },
+  "gates": [
+    {
+      "id": "feature-approval",
+      "status": "OPEN",
+      "evidence": "candidate/beta documentation; exact overall meeting-intelligence approval not established"
+    },
+    {
+      "id": "workflow-authorization",
+      "status": "BOUNDED_AUTHORIZED",
+      "evidence": "this baseline inventory and two report writes only"
+    },
+    {
+      "id": "M0",
+      "status": "OPEN",
+      "evidence": "provider/privacy/API capability, account, region, budget, retention, and deployment choices pending"
+    },
+    {
+      "id": "M1",
+      "status": "NOT_IMPLEMENTED",
+      "evidence": "no live-transcript-v2 provisional/cursor/recovery runtime"
+    },
+    {
+      "id": "M2",
+      "status": "NOT_IMPLEMENTED",
+      "evidence": "People/knowledge contracts not implemented"
+    },
+    {
+      "id": "M3",
+      "status": "NOT_IMPLEMENTED",
+      "evidence": "no Meet join/media/chat adapter proven"
+    },
+    {
+      "id": "M4",
+      "status": "NOT_IMPLEMENTED",
+      "evidence": "no approved same-room publication/outbox/receipt path"
+    },
+    {
+      "id": "M5",
+      "status": "NOT_IMPLEMENTED",
+      "evidence": "no bounded proactive behavior"
+    },
+    {
+      "id": "M6",
+      "status": "NOT_IMPLEMENTED_OR_OPTIONAL",
+      "evidence": "outside current evidence"
+    },
+    {
+      "id": "pyannote-local-runtime",
+      "status": "APPROVAL_NOT_FEATURE_PROOF",
+      "evidence": "optional local runtime approval noted in spec; weights, quality, identity qualification, and packaging remain unproven"
+    },
+    {
+      "id": "G1",
+      "status": "NOT_ISSUED"
+    },
+    {
+      "id": "G2",
+      "status": "NOT_ISSUED"
+    }
+  ],
+  "manifest_commands": {
+    "package_json_scripts_found": [
+      "test:egress",
+      "test:diarization",
+      "test:transcribe-concat",
+      "build"
+    ],
+    "cargo_manifest": {
+      "path": "src-tauri/Cargo.toml",
+      "found": true,
+      "evidence": "pinned Genesis dependency and normal Rust dependencies; no Meet/Recall adapter or gateway dependency found"
+    },
+    "feasible_without_rebuild": [
+      "git diff --check",
+      "node --test tests/egressRegister.test.mjs",
+      "other declared local contract tests when their own runtime prerequisites are available"
+    ],
+    "not_run": [
+      "cargo",
+      "build",
+      "model staging/download",
+      "provider/API",
+      "UI/browser",
+      "real meeting",
+      "gateway/deployment"
+    ]
+  },
+  "checks": [
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "passed with only two LF-to-CRLF working-copy warnings",
+      "boundary": "does not inspect untracked files"
+    },
+    {
+      "command": "node --test tests/egressRegister.test.mjs",
+      "exit_code": 0,
+      "result": "8 passed, 0 failed, 0 skipped; duration 120.4657 ms",
+      "boundary": "local egress contract only; not Meet/provider/gateway/real-room proof"
+    },
+    {
+      "command": "Get-Content docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.json -Raw | ConvertFrom-Json",
+      "exit_code": 0,
+      "result": "JSON_OK report_type=WF-BASELINE final_status=DONE_WITH_OPEN_CONCERNS",
+      "boundary": "artifact syntax/integrity only"
+    },
+    {
+      "command": "git status --short",
+      "exit_code": 0,
+      "result": "same 40 pre-report paths plus the two authorized reports and the concurrent workflow-plan path",
+      "boundary": "does not establish ownership or approval of the concurrent workflow-plan path"
+    }
+  ],
+  "historical_evidence": [
+    "Current progress documentation reports focused Rust 19/19, diarization packaging 8/8, a PowerShell parser check, a prior diff check, and a pyannote import probe; these were not rerun for this baseline.",
+    "Historical pyannote import/probe evidence does not prove model-weight access, inference quality, speaker accuracy, packaged acceptance, or real-meeting behavior."
+  ],
+  "worktree_seeding": {
+    "performed": false,
+    "future_protocol": [
+      "Start from exact base b336f33ec400a38f003a0665c121069a87a543ac.",
+      "Carry branch, HEAD, path-status, deletion map, and listed SHA256 manifest.",
+      "Overlay only approved tracked diffs and enumerated untracked specs/runtime requirements.",
+      "Preserve the three AIOS deletions; do not restore or discard user changes.",
+      "Recompute hashes and fail closed on mismatch, missing path, extra path, or changed deletion map.",
+      "Exclude multi-GB caches unless a later task explicitly scopes bounded artifacts."
+    ],
+    "no_commit_invented": true,
+    "no_source_checkout_mutated": true
+  },
+  "approval_boundary": {
+    "feature_approval": "separate and still open",
+    "workflow_authorization": "bounded baseline/report write only",
+    "parent_authority": "orchestration and risk review only",
+    "implementation_or_provider_authority": false
+  },
+  "concerns": [
+    "Shared lib.rs, genesis_adapter.rs, tauri.ts, and model worker/runtime seams need explicit ownership before implementation.",
+    "M0 provider/privacy/API qualification and exact feature approval are open.",
+    "Recording-scoped QA must not broaden.",
+    "People identity must remain distinct from provider participant metadata and capture provenance.",
+    "Local pipeline evidence must not be promoted to live/gateway/outbox/publication evidence.",
+    "Runtime/model staging, real-room/provider, packaged, deployment, and publication evidence are open.",
+    "Dirty-state overlay must be treated as a verified artifact manifest, not an invented commit or clean baseline."
+  ],
+  "non_claims": [
+    "No G1 or G2 PASS.",
+    "No implementation completion.",
+    "No provider capability, gateway, real meeting, UI, deployment, or production readiness.",
+    "No credentials or secret contents.",
+    "No blanket model/build cache hash."
+  ],
+  "authorized_output_paths": [
+    "docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.md",
+    "docs/verification/implementation-reports/2026-09-21-meeting-workflow-baseline.json"
+  ],
+  "version_diff": "Created 0.1.0b beta read-only WF-BASELINE report and JSON companion, then updated to 0.1.1b to record post-write status and artifact verification; no product/source/test/workflow-plan/spec file was edited by this task.",
+  "changelog": [
+    {
+      "version": "0.1.1b",
+      "date": "2026-09-21",
+      "status": "beta",
+      "summary": "Recorded post-write artifact verification and the separate concurrent workflow-plan path without adopting or editing it.",
+      "commit_hash": "b336f33ec400a38f003a0665c121069a87a543ac",
+      "agent": "RWANG"
+    },
+    {
+      "version": "0.1.0b",
+      "date": "2026-09-21",
+      "status": "beta",
+      "summary": "Created the read-only WF-BASELINE handoff for meeting-intelligence workflow planning.",
+      "commit_hash": "b336f33ec400a38f003a0665c121069a87a543ac",
+      "agent": "RWANG"
+    }
+  ]
+}

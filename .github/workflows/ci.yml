@@ -94,4 +94,30 @@ jobs:
       # removed or annotated with why it is kept. Every current exemption
       # carries that reason inline.
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib --all-targets -- -D warnings
-      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - uses: actions/setup-python@v5
+        id: setup-python
+        with:
+          python-version: "3.12"
+      - name: Run Rust library regression with test runtime
+        shell: pwsh
+        env:
+          FUNG_MANIFEST_PATH: ${{ github.workspace }}\src-tauri\Cargo.toml
+          FUNG_TARGET_DIR: ${{ runner.temp }}\fung-meeting-rust-target
+          FUNG_SETUP_PYTHON_PATH: ${{ steps.setup-python.outputs.python-path }}
+        run: |
+          $pythonPath = $env:FUNG_SETUP_PYTHON_PATH
+          if ([string]::IsNullOrWhiteSpace($pythonPath) -or -not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {
+            $pythonCommand = Get-Command -Name python -CommandType Application -ErrorAction SilentlyContinue
+            if ($null -eq $pythonCommand) {
+              throw 'setup-python did not provide a usable python-path and no python executable is available'
+            }
+            $pythonPath = $pythonCommand.Source
+          }
+
+          & "$env:GITHUB_WORKSPACE\scripts\meeting-intelligence-test-runtime.ps1" `
+            -ManifestPath $env:FUNG_MANIFEST_PATH `
+            -TargetDir $env:FUNG_TARGET_DIR `
+            -PythonPath $pythonPath
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }

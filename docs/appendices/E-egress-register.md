@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.2.0b"
 created_at: "2026-09-21T03:45:30+07:00,RWANG,base-b336f33"
-last_update: "2026-09-21T03:58:31+07:00,RWANG"
+last_update: "2026-09-25T11:04:53+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -95,6 +95,25 @@ command that writes this column. `tts_provider_register` /
 ever write `kind: "tts"` rows. Changing the summary/intent endpoint requires
 editing the database directly. **Open gap:** the field is a claim, not a
 constraint — see [§4](#4-open-gaps).
+
+### 1.3a Meeting Agent local model proposal — selected knowledge leaves the process
+
+| | |
+|---|---|
+| **Payload** | The manually entered question and up to eight selected knowledge excerpts with evidence IDs, document/version IDs and source-version labels; `/api/tags` receives no meeting content |
+| **Destination** | Enabled `ollama-summary-intent` endpoint, restricted by `meeting_agent_model.rs` to `http://127.0.0.1` or `http://[::1]` with an optional port |
+| **Evidence** | `src-tauri/src/meeting_agent_model.rs::configured_model_endpoint` (`/api/tags`) and `::generate` (`/api/chat`) |
+| **Consent gate** | User manually selects `model_proposal`, enters the exact installed model name, and asks a question under the active local owner/knowledge grant; otherwise the default extractive path makes no model call |
+| **Reached from** | `lib.rs::meeting_agent_ask` only |
+
+This is an implemented local process boundary, distinct from §1.3's summary
+path. The agent adapter rejects non-loopback endpoints, disables HTTP proxy
+and redirect handling, checks the exact model in `/api/tags`, and has no cloud
+fallback. The outbound question/excerpts are not logged in plaintext; the
+`model_runs` row stores input/output hashes and provider/model provenance.
+Source/ACL freshness is checked again for every excerpt supplied to the model
+before draft commit and local preview. This source review and fixture suite do
+not constitute a packet capture or real-model quality test.
 
 ### 1.4 TTS — synthesis text leaves the machine
 
@@ -348,7 +367,7 @@ quietly is not the safer failure.
 
 ---
 
-## Candidate meeting-agent paths — NOT_IMPLEMENTED / NOT_AUDITED
+## Candidate external meeting-agent paths — NOT_IMPLEMENTED / NOT_AUDITED
 
 This section records proposed paths, not network paths found in the historical audit above. No deployment, provider account/media call or packet-capture test occurred in the documentation task.
 
@@ -417,9 +436,11 @@ Required negative verification: local-only zero new egress; no bytes before appl
 | Version | Change |
 | --- | --- |
 | unversioned → 0.1.0b | Added metadata and a separately labelled candidate meeting-media/gateway/publication register; historical audit is unchanged. |
+| 0.1.0b → 0.2.0b | Registered the implemented local Ollama Meeting Agent path separately from proposed external paths. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
 | 0.1.0b | 2026-09-21 | candidate | Registered proposed Meet/API/agent data flows without claiming runtime or packet-capture verification. | working-tree; base b336f33 | RWANG |
+| 0.2.0b | 2026-09-25 | candidate | Registered bounded local Meeting Agent model proposal egress and consent gate. | working-tree | RWANG |

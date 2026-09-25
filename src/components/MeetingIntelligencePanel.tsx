@@ -10,6 +10,7 @@ import {
   MEETING_REPLAY_PAGE_SIZE,
   mergeReplayEvents,
   type AgentMode,
+  type AgentCapability,
   type KnowledgeCollection,
   type KnowledgeCollectionClassification,
   type KnowledgeImportReceipt,
@@ -48,6 +49,12 @@ function failureMessage(error: unknown): string {
   }
   if (/MEETING_TRANSCRIPT_CURSOR_STALE/.test(message)) {
     return "Transcript changed while preparing this draft. Refresh it and create a new draft before preview or approval.";
+  }
+  if (/MEETING_AGENT_MODEL_(NOT_INSTALLED|NOT_CONFIGURED|ENDPOINT_INVALID|UNAVAILABLE|TIMEOUT|CONFIG_STALE)/.test(message)) {
+    return "โมเดลท้องถิ่นไม่พร้อมหรือการตั้งค่าเปลี่ยนระหว่างสร้างร่าง ตรวจชื่อโมเดลและ Ollama แล้วลองใหม่";
+  }
+  if (/MEETING_AGENT_MODEL_(OUTPUT_INVALID|REFS_INVALID|INPUT_INVALID|NAME_INVALID)/.test(message)) {
+    return "ข้อเสนอจากโมเดลไม่ผ่านการตรวจรูปแบบหรือหลักฐาน จึงไม่สร้างร่างใหม่";
   }
   if (/MEETING_KNOWLEDGE_METRIC_CONFLICT/.test(message)) {
     return "พบตัวเลขจากหลายแหล่งที่ขัดแย้งกัน จึงไม่คำนวณผลให้";
@@ -196,6 +203,9 @@ export function MeetingIntelligencePanel({
   const [deliveryPreview, setDeliveryPreview] = useState<LocalDeliveryPreview | null>(null);
   const [mode, setMode] = useState<AgentMode>("off");
   const [question, setQuestion] = useState("");
+  const [draftKind, setDraftKind] = useState<"extractive" | "model_proposal">("extractive");
+  const [modelName, setModelName] = useState("");
+  const [modelReadiness, setModelReadiness] = useState<AgentCapability | null>(null);
   const [correctionText, setCorrectionText] = useState<Record<string, string>>({});
   const [selectedUtterance, setSelectedUtterance] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -531,6 +541,20 @@ export function MeetingIntelligencePanel({
 
   const selectedVault = vaultOptions.find((option) => option.vaultId === selectedVaultId) ?? null;
   const canDraftLocally = canUseLocalDrafting(vaultUnlockedInPanel, timelineIncomplete, agentStatus);
+  useEffect(() => {
+    if (draftKind !== "model_proposal" || !canDraftLocally || !modelName.trim()) {
+      setModelReadiness(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void service.modelReadiness(modelName.trim()).then(
+        (result) => { if (!cancelled) setModelReadiness(result); },
+        () => { if (!cancelled) setModelReadiness({ readiness: "blocked", reasonCode: "MEETING_AGENT_MODEL_UNAVAILABLE" }); },
+      );
+    }, 350);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [canDraftLocally, draftKind, modelName, service]);
 
   const provisionOwnerVault = useCallback(() => {
     if (busy || vaultUnlockedInPanel) return;
@@ -758,6 +782,8 @@ export function MeetingIntelligencePanel({
       question: text,
       collectionIds: selectedCollectionIds,
       transcriptCursor: snapshot.cursor,
+      draftKind,
+      modelName: draftKind === "model_proposal" ? modelName.trim() : null,
     }), (result) => {
       if (!vaultUnlockedRef.current) return;
       publishDraft(result);
@@ -765,7 +791,7 @@ export function MeetingIntelligencePanel({
       setQuestion("");
       void refreshAgentData(generationRef.current);
     });
-  }, [agentStatus?.revision, busy, canDraftLocally, collections, mode, mutation, question, refreshAgentData, runOperation, service, snapshot, publishDraft]);
+  }, [agentStatus?.revision, busy, canDraftLocally, collections, draftKind, mode, modelName, mutation, question, refreshAgentData, runOperation, service, snapshot, publishDraft]);
 
   const prepareLocalPreview = useCallback(() => {
     if (!canDraftLocally || !draft || draft.state !== "private" || busy) return;
@@ -1103,10 +1129,27 @@ export function MeetingIntelligencePanel({
                   placeholder="พิมพ์คำถามเพื่อค้นเฉพาะคลังที่เลือก"
                 />
               </label>
+              <label className="meeting-intelligence__field">
+                วิธีสร้างร่าง
+                <select value={draftKind} onChange={(event) => setDraftKind(event.target.value as "extractive" | "model_proposal") }>
+                  <option value="extractive">ยกข้อความหลักฐาน (ค่าเริ่มต้น)</option>
+                  <option value="model_proposal">ให้โมเดลท้องถิ่นเสนอคำตอบ</option>
+                </select>
+              </label>
+              {draftKind === "model_proposal" && (
+                <>
+                  <label className="meeting-intelligence__field">
+                    ชื่อโมเดล Ollama ที่ติดตั้งในเครื่อง
+                    <input type="text" value={modelName} maxLength={128} onChange={(event) => { setModelName(event.target.value); setModelReadiness(null); }} placeholder="เช่น llama3.1:8b" />
+                  </label>
+                  <p className="meeting-intelligence__muted">เลือกชื่อโมเดลให้ตรงกับที่ติดตั้งไว้; คำตอบเป็นข้อเสนอที่ต้องตรวจหลักฐานเอง</p>
+                  <ReadinessRow label="โมเดลท้องถิ่น" readiness={modelReadiness?.readiness ?? "unavailable"} reason={modelReadiness?.reasonCode ?? (modelName.trim() ? "MEETING_AGENT_MODEL_CHECKING" : "MEETING_AGENT_MODEL_NAME_REQUIRED")} />
+                </>
+              )}
               <button
                 type="button"
                 className="meeting-intelligence__button meeting-intelligence__button--primary"
-                disabled={busy !== null || mode !== "draft" || !snapshot || timelineIncomplete || !collections.some((row) => row.selected && row.readable) || !question.trim()}
+                disabled={busy !== null || mode !== "draft" || !snapshot || timelineIncomplete || !collections.some((row) => row.selected && row.readable) || !question.trim() || (draftKind === "model_proposal" && modelReadiness?.readiness !== "ready")}
                 onClick={submitQuestion}
               >
                 สร้างร่างส่วนตัว
@@ -1126,6 +1169,7 @@ export function MeetingIntelligencePanel({
                 <div>
                   <h3 id="mi-draft-title">ร่างส่วนตัว</h3>
                   <p>draft rev {draft.revision} · transcript cursor {draft.basedOnTranscriptCursor}</p>
+                  {draft.draftKind === "model_proposal" && <p>model proposal — ยังไม่ยืนยันความถูกต้อง · run {draft.modelRunId}</p>}
                 </div>
                 <span className={`meeting-intelligence__badge meeting-intelligence__badge--${draft.state}`}>{draft.state === "private" ? "ส่วนตัว" : draft.state === "stale" ? "ข้อมูลเปลี่ยน" : "ถูกบล็อก"}</span>
               </div>

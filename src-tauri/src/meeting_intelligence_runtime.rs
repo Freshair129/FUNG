@@ -144,6 +144,8 @@ mod tests {
                 based_on_transcript_cursor: 4,
                 expires_at: "2026-09-25T00:00:00Z".to_string(),
                 state: "private".to_string(),
+                draft_kind: crate::meeting_intelligence_schema::MeetingAgentDraftKind::Extractive,
+                model_run_id: None,
             },
         );
         session.deliveries.insert(

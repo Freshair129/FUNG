@@ -237,6 +237,30 @@ test("Tauri bridge uses the registered transcript command argument contract", as
   assert.equal(calls[2].args.request.revision.expected_revision, 1);
 });
 
+test("model proposal is opt-in and carries an exact local model name", async () => {
+  const calls = [];
+  const port = {
+    invoke: async (command, args) => {
+      calls.push({ command, args });
+      if (command === "meeting_agent_model_readiness") return { readiness: "ready", reasonCode: null };
+      return { draftId: "draft-a", draftKind: "model_proposal", modelRunId: "model-run-a" };
+    },
+    listen: async () => () => undefined,
+  };
+  const service = createMeetingIntelligenceService(port);
+  const request = {
+    projectId: "project-a", recordingId: "recording-a", requestId: "ask-a",
+    expectedRevision: 2, question: "สรุปข้อสรุป", collectionIds: ["collection-a"],
+    transcriptCursor: 4, draftKind: "model_proposal", modelName: "llama3.1:8b",
+  };
+  assert.equal((await service.modelReadiness(request.modelName)).readiness, "ready");
+  assert.equal((await service.ask(request)).modelRunId, "model-run-a");
+  assert.deepEqual(calls, [
+    { command: "meeting_agent_model_readiness", args: { modelName: "llama3.1:8b" } },
+    { command: "meeting_agent_ask", args: { request } },
+  ]);
+});
+
 test("local vault and knowledge actions carry explicit project and recording scope", async () => {
   const calls = [];
   const imported = {

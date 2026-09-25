@@ -141,6 +141,24 @@ try {
         )
         & $cargoPath @cargoArguments
         $cargoExitCode = [int]$LASTEXITCODE
+        if ($cargoExitCode -eq 0) {
+            Write-Host 'Running the meeting-knowledge behavioral integration suite'
+            $knowledgeArguments = @(
+                'test',
+                '--quiet',
+                '--manifest-path',
+                $manifestFullPath,
+                '--offline',
+                '--locked',
+                '--test',
+                'meeting_knowledge',
+                '--',
+                '--color',
+                'never'
+            )
+            & $cargoPath @knowledgeArguments
+            $cargoExitCode = [int]$LASTEXITCODE
+        }
     } finally {
         foreach ($environmentName in $environmentNames) {
             Restore-ProcessEnvironmentValue -Name $environmentName -Snapshot $originalEnvironment[$environmentName]

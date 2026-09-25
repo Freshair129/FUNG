@@ -1,6 +1,14 @@
 // @req FR-106, FR-108, FR-116
 // @tested tests/externalMeetingTools.test.mjs
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import {
+  createMeetingIntelligenceService,
+  type MeetingNativeCommandArgs,
+  type MeetingNativeCommandResult,
+  type MeetingNativeEventPayload,
+  type MeetingNativePort,
+} from "./lib/meetingIntelligence.ts";
 import {
   EMPTY_MEETING_SUMMARIES as EMPTY_SUMMARIES,
   type MeetingSummaries as MeetingSummariesShape,
@@ -132,6 +140,29 @@ const canInvoke = () => typeof window !== "undefined" && Boolean("__TAURI_INTERN
 export const nativeInvoke = canInvoke()
   ? (<T,>(command: string, args?: Record<string, unknown>) => invoke<T>(command, args))
   : null;
+
+export function createTauriMeetingIntelligenceService() {
+  const invokeNative = nativeInvoke;
+  if (!invokeNative) return null;
+  const port: MeetingNativePort = {
+    invoke: async function invokeMeetingCommand<K extends keyof MeetingNativeCommandArgs>(
+      command: K,
+      args: MeetingNativeCommandArgs[K],
+    ): Promise<MeetingNativeCommandResult[K]> {
+      return invokeNative<MeetingNativeCommandResult[K]>(
+        command,
+        args as unknown as Record<string, unknown>,
+      );
+    },
+    listen: async function listenMeetingEvent<K extends keyof MeetingNativeEventPayload>(
+      eventName: K,
+      handler: (payload: MeetingNativeEventPayload[K]) => void,
+    ): Promise<() => void> {
+      return listen<MeetingNativeEventPayload[K]>(eventName, (event) => handler(event.payload));
+    },
+  };
+  return createMeetingIntelligenceService(port);
+}
 
 function nativeUnavailable(operation: string): ReviewError {
   return {
@@ -827,6 +858,7 @@ export async function liveMeetingStart(options?: {
   projectId?: string;
   captureSystem?: boolean;
   language?: string;
+  transcriptProfile?: "chunked" | "revisioned";
   micDeviceId?: string;
   systemDeviceId?: string;
 }): Promise<LiveStartOutput> {
@@ -835,6 +867,7 @@ export async function liveMeetingStart(options?: {
     projectId: options?.projectId ?? null,
     captureSystem: options?.captureSystem ?? true,
     language: options?.language ?? null,
+    transcriptProfile: options?.transcriptProfile ?? "chunked",
     micDeviceId: options?.micDeviceId ?? null,
     systemDeviceId: options?.systemDeviceId ?? null,
   });

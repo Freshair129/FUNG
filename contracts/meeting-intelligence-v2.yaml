@@ -1,0 +1,94 @@
+version: "0.1.1b"
+updated_at: "2026-09-25T01:20:00+07:00"
+status: "beta"
+scope: "FUNG local M1-M5 runtime contract with provider transport deferred"
+approval:
+  local_implementation: "user-approved; external activation remains deferred"
+  amendment: "local People lifecycle and Windows PDF sandbox approved"
+schema:
+  namespace: fung_mobile
+  previous_version: 11
+  schema_version: 12
+  rule: "Add-only; keep v1-v11 definitions frozen; register sequentially through GenesisBlockDB"
+  new_entities:
+    meeting_recording_cursors: "one monotonic replay cursor per recording; initialized with last_cursor=-1"
+    meeting_input_batches: "stable input identity and payload digest for idempotent source consumption"
+    meeting_control_events: "single recording-wide ordered transcript/control/gap/silence event log"
+    meeting_session_contexts: "selected collection IDs and temporal context; private content by encrypted asset reference"
+    meeting_private_assets: "opaque custody and key metadata; never plaintext content or key bytes"
+  ownership:
+    transcript: Genesis-only; source input sequence and recording-wide event cursor are distinct
+    knowledge: Genesis metadata + encrypted project-custody asset + native keyring key
+    people: existing SI identity aggregates, explicit native-owner unlock, separate people_metadata:<vault-id> key purpose
+    meeting_agent: existing grant/run/destination/outbox/receipt aggregates behind typed native services
+    transport: typed adapter port; production implementation always fails closed until configured
+operations:
+  input_batch:
+    identity: "source_session_id + source_generation + first_sequence + last_sequence + operation_id"
+    digest_mismatch: INPUT_BATCH_CONFLICT
+    commit: "source coverage + 0..N raw revisions/projections + ordered events + per-source input cursor + recording cursor + chunk completion in one Genesis CAS transaction"
+    empty_result: "one batch_processed event and completed source coverage; no fabricated transcript revision"
+  revision_only:
+    identity: utterance_id
+    requirements: "expectedRevision equals current; audio coverage already durable; next revision exactly current+1"
+    human_review: "manual edits create reviewed revision; late ASR cannot replace reviewed state"
+    commit: "revision + projection + event; do not advance audio input sequence"
+  replay:
+    order: "meeting_control_events by (recording_id, cursor), strictly after requested cursor"
+    page: "bounded; returns explicit high watermark and minimum retained cursor"
+    expired: CURSOR_EXPIRED with snapshot required; never empty-success
+  correction: "unsent evidence/triggers are invalidated when referenced revisions change"
+authority:
+  actor: "native identity/account broker only; never request-supplied identity"
+  account: "reuse same RegisteredBroker operation/commit fence and revalidate account generation at mutation"
+  vault: "explicit native-owner unlock bound to canonical data root and vault generation; restart locked"
+  knowledge_acl: "selected collection allowlist; native check before read/rank/model context and again before publication"
+  publication: "scope, destination, audience, source version, payload digest, expiry and policy checked at final dispatch"
+  external_mode: "disabled; no join/media ingress/chat send or upload without separately configured and qualified provider"
+crypto:
+  private_assets: "XChaCha20-Poly1305 with fresh 24-byte nonce, separate meeting-knowledge key purpose and vault/entity/version AAD"
+  keyring: "native OS secure storage only; 256-bit random key; lost key means KEY_UNAVAILABLE, never silent replacement"
+  persistence: "ciphertext is finalized before Genesis reference; relative custody path is resolver-owned and confined below project root"
+  logs: "no private plaintext, key bytes, secret tokens, or caller paths"
+  backup: "versioned authenticated encrypted archive; allowlisted People/knowledge keys and ciphertext assets only; no auth refresh, vendor or signing keys"
+  restore: "fresh target, archive authentication and owner binding required; collision fails closed; no grants auto-enable"
+limits:
+  document_bytes: 26214400
+  pdf_pages: 500
+  parser_seconds: 60
+  retrieval_chunks: 8
+  context_chars: 12000
+  search_deadline_ms: 10000
+  provisional_window_ms: 4000
+  hypothesis_cadence_ms: 1000
+  durable_audio_fragment_ms: 2000
+  max_active_agent_runs_per_session: 1
+  max_retrieval_attempts_per_trigger: 3
+  trigger_debounce_ms: 2000
+  trigger_expiry_ms: 30000
+  semantic_cooldown_ms: 60000
+  proactive_public_per_minute: 2
+  proactive_public_per_hour: 20
+capabilities:
+  import:
+    supported_initially: [txt, md, text_layer_pdf]
+    unsupported_without_separate_qualification: [scanned_pdf_ocr, docx, xlsx, csv_auto_ingest, remote_connectors]
+    pdf_parser:
+      target: windows_desktop
+      sandbox: [appcontainer, job_object]
+      capabilities: []
+      source_input: bounded_stdin_pipe
+      selected_path_passed_to_child: false
+      runtime: {python: "3.11.9", pypdf: "6.10.0", license: "BSD-3-Clause"}
+      unsupported_targets: [android, macos, linux]
+    parser_network_access: false
+    macros_or_external_recalculation: false
+    lexical_index_only: true
+  output:
+    supported_locally: [private_cited_draft, local_evidence_preview]
+    unavailable_until_provider_qualification: [meet_join, remote_media, meet_chat_send, meet_link_send, file_upload, spoken_reply]
+acceptance:
+  fixture_results_are: local_implementation_evidence_only
+  required: [migration_reopen, multi_source_order, silence_batch, multi_revision_batch, same_coverage_correction, snapshot_replay_race, source_gap, crash_reconcile, acl_revoke, exact_citation, deterministic_decimal, malicious_document, windows_appcontainer_file_and_network_denial, bounded_pdf_stdin, audience_recheck, uncertain_delivery, no_blind_retry, interrupted_key_provisioning, people_profile_revisioned_lifecycle, people_identity_review, encrypted_backup_restore, distinct_people_and_knowledge_recovery_keys]
+  external_provider: NOT_RUN_UNTIL_SEPARATELY_APPROVED
+  physical_device_real_speech_latency_and_soak: SEPARATE_OPEN_GATES

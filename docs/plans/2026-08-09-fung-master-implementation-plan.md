@@ -1,7 +1,7 @@
 ---
-version: "1.8.0b"
+version: "1.9.3b"
 created_at: "2026-09-21T03:45:30+07:00,RWANG,base-b336f33"
-last_update: "2026-09-23T01:22:19+07:00,RWANG"
+last_update: "2026-09-25T03:13:29+07:00,RWANG"
 status: "need review"
 superseded_by: null
 attributes:
@@ -18,9 +18,9 @@ attributes:
 
 | Field | Value |
 |---|---|
-| Version | 1.7.0b |
+| Version | 1.9.3b |
 | Date | 2026-09-21 |
-| Status | need review — Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
+| Status | need review — local M1–M5 campaign passed; independent review, Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
 | Author | Claude (Fable 5) + Boss |
 | Supersedes | none (first master plan) |
 | Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.3b, `docs/Desktop/08-real-progress.md` v0.2.36b, `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`, Sub-project B brainstorm decisions (2026-08-09) |
@@ -80,7 +80,7 @@ is still open.
 
 ## 0.2 Candidate meeting intelligence workstream — 2026-09-21
 
-User requests: detailed supporting-domain specs, live transcript during meetings, and an Agent that joins/responds/shares evidence in the meeting. Platform direction: **Google Meet first; API acceptable for speaker attribution**. This is C-3 / HIGH. The full M1–M5 capability remains **documentation only**; a separate bounded native AccountCommitFence foundation is implemented and independently accepted as local evidence below.
+User requests: detailed supporting-domain specs, live transcript during meetings, and an Agent that joins/responds/shares evidence in the meeting. Platform direction: **Google Meet first; API acceptable for speaker attribution**. This is C-3 / HIGH. As of 2026-09-21, the full M1–M5 capability was **documentation only**; a separate bounded native AccountCommitFence foundation is implemented and independently accepted as local evidence below.
 
 Canonical [domain map](../architecture/MEETING_INTELLIGENCE_DOMAINS.md) links the [live transcript](../specs/2026-09-21-live-meeting-transcription-spec.md), [knowledge evidence](../specs/2026-09-21-meeting-knowledge-evidence-spec.md), [Meeting Agent](../specs/2026-09-21-meeting-agent-participation-spec.md), [speaker identity](../specs/2026-09-21-speaker-identity-domain-design.md) and [Google Meet API decision](../decisions/2026-09-21-google-meet-agent-api-strategy.md).
 
@@ -136,9 +136,40 @@ the native Genesis adapter boundary, and supplemental contract checks.
 
 This does **not** mean the full meeting-intelligence product is implemented:
 M1 live transcript revisions, M2 knowledge/evidence, M3 Meet observe/draft, M4
-same-room publication, M5 proactive output, provider/native/device/CI/
+same-room publication, M5 proactive output, provider/native/device/
 portable/release/production gates remain open or **NOT_RUN**. The workflow
 package's own G1/G2 status remains separate and **NOT_RUN**.
+
+Integrated-source CI is now separately verified: run
+[`35783285300`](https://github.com/Freshair129/FUNG/actions/runs/35783285300)
+passed frontend and Windows Rust on `2c2559fdd907cf94a6f38b34bbb2c6650e68a0e1`.
+This supersedes the frozen R3 report's unrun CI status for this integrated
+source only. It does not accept M1–M5 or provider/device/package/release gates.
+The [Gap Analysis](../verification/2026-09-23-fung-gap-analysis.md) and
+[closure ledger](../verification/implementation-reports/2026-09-24-gap-closure-runtime.md)
+separate current qualification from historical Phase 0–2 acceptance.
+
+## 0.5 Approved local meeting-intelligence implementation — 2026-09-24
+
+After reviewing the Gap Analysis, the user approved local M1–M5 implementation
+and provider-neutral adapters, while explicitly deferring external service
+activation. The task plan and source changes are indexed in
+[Meeting Intelligence local adapters](2026-09-24-meeting-intelligence-local-adapters.md).
+The approved local implementation now includes revisioned transcript/replay,
+selected local knowledge, People profile/review lifecycle, Windows-isolated PDF
+parsing, local observe/draft behavior, persistent delivery preview/outbox, and
+local session controls. Source reached freeze on 2026-09-25 and the consolidated
+local campaign passed: 573 Rust library tests passed with 1 ignored, all 15
+meeting-knowledge integration tests passed, and local native, Desktop and
+worker checks passed. Typed metric operands use authenticated vault-bound
+ciphertext at rest. The [implementation report](../verification/implementation-reports/2026-09-24-meeting-intelligence-local-adapters.md)
+records exact source hashes and unrun gates. The approved
+[M2 completion amendment](2026-09-24-meeting-intelligence-m2-completion-amendment.md)
+records its boundaries and implementation status.
+
+Independent final source/security review, real Meet join, provider send,
+provider receipt, room reconciliation, physical-device, installed-artifact and
+release gates remain open; this local work does not promote them.
 
 ## 0. Historical Delivery Overlay (2026-08-13; superseded)
 
@@ -610,6 +641,11 @@ Per phase:
 
 | Version | Change |
 | --- | --- |
+| 1.9.2b → 1.9.3b | Recorded passing consolidated local M1–M5 checks and source-hash report while retaining independent, provider, device and release gates. |
+| 1.9.1b → 1.9.2b | Recorded source-frozen local M1–M5 implementation including People and Windows PDF sandbox; consolidated validation and all external/device/release gates remain open. |
+| 1.9.0b → 1.9.1b | Recorded authenticated vault-bound metric operand storage and dimension-bounded computation; retained open People/PDF and external acceptance gates. |
+| 1.8.1b → 1.9.0b | Recorded user-approved local M1–M5 adapter implementation in progress, with PDF/People and external/device/release gates explicitly open. |
+| 1.8.0b -> 1.8.1b | Reconciled header version and exact-HEAD integrated CI evidence; linked gap closure without changing phase completion. |
 | 1.7.0b -> 1.8.0b | Synced the roadmap with the merged bounded R3 AccountCommitFence foundation and independent bounded N4/G1 result while preserving the broader M1–M5 and workflow G1/G2 gates as open. |
 | 1.6.0b -> 1.7.0b | Linked the frozen current-workstream meeting-intelligence workflow and declarative DAG with scoped precedence; existing roadmap phase states unchanged. |
 
@@ -621,6 +657,11 @@ Per phase:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 1.9.3b | 2026-09-25 | need review | Consolidated local M1–M5 campaign passed; independent review, real provider/device and release gates remain open | working-tree | RWANG |
+| 1.9.2b | 2026-09-25 | need review | Recorded source-frozen local M1–M5, People and Windows PDF implementation; final campaign and independent review remain open | working-tree | RWANG |
+| 1.9.1b | 2026-09-24 | need review | Recorded encrypted metric operands and dimension-bounded computation; People/PDF and full campaign remain open | working-tree | RWANG |
+| 1.9.0b | 2026-09-24 | need review | Recorded approved local M1–M5 worktree implementation without promoting acceptance; PDF/People and real-service gates remain open. | working-tree | RWANG |
+| 1.8.1b | 2026-09-24 | need review | Reconciled version metadata and integrated source CI; phase acceptance gates unchanged. | base 2c2559f; working-tree | RWANG |
 | 1.8.0b | 2026-09-23 | need review | Synced current `main` R3 bounded-foundation integration and independent bounded N4/G1 evidence; broader meeting-intelligence and release gates remain open. | working-tree | RWANG |
 | 1.7.0b | 2026-09-21 | need review | Added a scoped link/precedence overlay for the frozen meeting-intelligence workflow package; no implementation or delivery gate closed. | working-tree; base b336f33 | RWANG |
 | 1.6.0b | 2026-09-21 | need review | Added documentation-complete but implementation-unapproved live/knowledge/Meet-agent workstream and metadata; no delivery gate closed. | working-tree; base b336f33 | RWANG |

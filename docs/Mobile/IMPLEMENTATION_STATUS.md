@@ -1,7 +1,7 @@
 ---
-version: "0.4.3b"
+version: "0.4.4b"
 created_at: "2026-07-20T12:10:00+07:00,ATHER"
-last_update: "2026-08-23T03:47:57+07:00,ATHER"
+last_update: "2026-09-24T00:01:06+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -48,6 +48,16 @@ status. The approved Phase 4 roots contain fixtures/README only.
 
 ## Phase Matrix
 
+Current evidence boundary (2026-09-24): programme Phase 2 and this Mobile
+matrix use different numbering and acceptance scopes. The master plan records
+historical Boss-confirmed FUNGWIRE delegate/progress/resume/revoke acceptance.
+The transport is implemented in `fungwire_server.rs` / `fungwire_client.rs`;
+integrated CI run `35783285300` passed at `2c2559f`. Physical lifecycle and
+delegation requalification of a current Genesis-enabled APK remain open.
+Older browser/model-list observations below are dated evidence, not current
+Desktop installed-model inventory. See the
+[closure ledger](../verification/implementation-reports/2026-09-24-gap-closure-runtime.md).
+
 | Phase | Implemented in this workspace | Evidence | Exit status |
 | --- | --- | --- | --- |
 | 0 — Feasibility / stack gate | Tauri Android project, local JDK/SDK/NDK toolchain, arm64 Rust cross-build, signed debug APK | `app-arm64-debug.apk`; Android manifest; APK signature verification; Samsung install/UAT | Partial — Android install passes; iOS/macOS and extended lifecycle evidence pending |
@@ -55,7 +65,7 @@ status. The approved Phase 4 roots contain fixtures/README only.
 | 2 — Recording / recovery | Android microphone foreground service, native-first 5-second AAC segments, atomic journal, SHA-256 reconciliation, safe short-tail finalization and pause-adjusted UI clock; browser MediaRecorder fallback | completed 7-segment device journal; `FungRecorderService`; capture orchestration tests | Partial — foreground record/pause/resume/stop passes; screen-off and kill/restart suite pending |
 | 3 — Shell / voice UX | voice-first porcelain UI, local Thai intent parser, destructive confirmation flag, permission-denied truth state | browser interaction evidence and Rust parser test | Partial — command grammar works; embedded on-device STT model pending |
 | 4 — Notes / graph | notes, immutable revisions and epistemic relations commit through one Genesis transaction with canonical IDs and GraphQuery hydration | adapter transaction tests; Notes/Graph interaction evidence | Verified at code/test level; vector/provider and physical-device proof remain pending |
-| 5 — Desktop pairing / delegation | 6-digit pairing proof hash, paired-device/capability/job schema, pairing UX | paired-device interaction evidence | Partial — simulated endpoint registration works; mutual-auth encrypted Desktop transport and resumable remote execution pending |
+| 5 — Desktop pairing / delegation | Pairing identity, authenticated encrypted FUNGWIRE transport and resumable delegation are implemented | Master programme Phase 2 historical Boss-confirmed LAN acceptance; current integrated source CI | Current APK/device requalification pending — do not confuse this gate with missing transport implementation |
 | 6 — MCP | opt-in local HTTP JSON-RPC gateway, Bearer authentication, bounded read-only tools, explicit LAN exposure flag | `contracts/mobile-mcp-v1.yaml`; `mobile_mcp_set_enabled` | Verified at code/test-build level; device-to-client interoperability suite pending |
 | 7 — AI / release hardening | local intent grammar, permission error UX, Android arm64 debug artifact | browser console 0 errors; APK v2 signature verified | Partial — on-device STT/LLM asset, 3-hour capture, battery/thermal, release signing and store checks pending |
 | 8 — Dark / Speaker Timeline | persistent System/Light/Dark preference; DAW-style speaker lanes, waveform clips, overlap, playhead, seek, zoom/pinch, rename/split/merge/confirm; revision ledger; Genesis-backed diarization queue/import and checksum-verified source segment playback | production build; Rust/mobile tests; Light/Dark 393×852 evidence | Partial — playback implementation/build verified; physical playback, actual Desktop diarization executor and gesture/performance suite pending |
@@ -165,7 +175,7 @@ Browser note: the Codex in-app browser could not reach the workspace localhost d
 
 1. macOS + Xcode + signed iPhone are required to generate and verify the iOS shell.
 2. Android and iPhone reference devices are required for screen-off, background, interruption, forced-termination, 60-minute and 3-hour recording tests.
-3. The Desktop runtime needs a concrete authenticated pairing endpoint before mutual-auth encryption and delegated job resume can be proven end-to-end.
+3. Requalify the implemented authenticated Desktop pairing/FUNGWIRE transport on the selected current APK/Desktop pair, including reconnect, revoke and interrupted-job resume. Programme Phase 2 acceptance is historical and does not close this current-artifact gate.
 4. Product must select and license the on-device Thai STT model before offline speech-to-text size, latency, battery and privacy gates can pass.
 5. Release keystores, Apple signing identities, store metadata and distribution credentials are intentionally outside this debug artifact.
 6. Product/legal approval is required for voice-rights evidence retention, grant expiry and revocation policy before Agent Voice can be enabled.
@@ -178,6 +188,10 @@ Browser note: the Codex in-app browser could not reach the workspace localhost d
 The current implementation is suitable for code review, automated acceptance and installation of the signed debug APK. It is not release-ready and must not be described as physically verified for source playback, Genesis reopen/migration, populated diarized results, screen-off/kill-safe background recording, production-secure Desktop delegation, coherent backup or iOS completion until those gates pass.
 
 ## Version Diff
+
+### `0.4.3b` → `0.4.4b`
+
+- Reconciled implemented FUNGWIRE transport and historical programme acceptance with current APK/device requalification; physical and release gates remain open.
 
 ### `0.0.0` → `0.1.0b`
 
@@ -248,6 +262,7 @@ The current implementation is suitable for code review, automated acceptance and
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.4.4b | 2026-09-24 | beta | Reconciled programme versus Mobile acceptance scopes and dated model inventory; no physical gate promoted. | base 2c2559f; working-tree | RWANG |
 | 0.4.3b | 2026-08-23 | beta | Rechecked current Android/credential/Genesis evidence without promoting desktop GPU smoke to mobile or release acceptance. | working-tree | ATHER |
 | 0.4.2b | 2026-08-12 | beta | Recorded the merged Phase 3 follow-up and passing post-merge CI without upgrading physical/provider/release gates. | `cea2d93` | ATHER |
 | 0.4.1b | 2026-08-12 | beta | Added current Phase 3 candidate evidence without upgrading physical or release gates. | same commit | ATHER |

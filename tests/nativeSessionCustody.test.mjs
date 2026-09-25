@@ -53,8 +53,23 @@ test("native session custody has generation ownership, zeroization, keyring-only
   assert.match(session, /delete|remove/);
   assert.doesNotMatch(session, /LifecycleCore|SessionMemory|KeyringSeam|ClockSeam|ListenerSeam|RequestTargetSeam|ProviderSeam/);
   assert.doesNotMatch(session, /pub\s+(?:access|refresh)_token/);
-  assert.doesNotMatch(session, /emit\s*\(/);
+  assert.deepEqual(
+    [...session.matchAll(/\.emit\s*\(\s*"([^"]+)"/g)].map((match) => match[1]),
+    ["auth-session-changed"],
+  );
   assert.doesNotMatch(session, /localStorage|sessionStorage|Genesis|metadata/);
+});
+
+test("automatic refresh lifecycle changes notify panels to clear account-bound state", () => {
+  const session = read("src-tauri/src/auth_session.rs");
+  const refreshStart = session.indexOf("pub(crate) async fn ensure_access_token(");
+  const refreshEnd = session.indexOf("\npub(crate) fn native_user_id", refreshStart);
+  const refresh = session.slice(refreshStart, refreshEnd);
+  assert.match(refresh, /witness_before_refresh\s*=\s*read_lifecycle_witness\(\)/);
+  assert.match(refresh, /finish_refresh\(ticket, result\)/);
+  assert.match(refresh, /witness_after_refresh\s*=\s*read_lifecycle_witness\(\)/);
+  assert.match(refresh, /witness_before_refresh\s*!=\s*witness_after_refresh/);
+  assert.match(refresh, /emit_account_lifecycle_changed\(app\)/);
 });
 
 test("native command inventory removes secret-bearing legacy aliases", () => {

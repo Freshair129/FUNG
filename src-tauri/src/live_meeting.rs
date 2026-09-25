@@ -14,10 +14,11 @@
 //!    project speaker `me` (เรา) and WASAPI loopback `system` maps to `them`
 //!    (อีกฝ่าย). These are editable speaker labels, not verified identities.
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -49,9 +50,9 @@ const MIN_FREE_BYTES_TO_CONTINUE: u64 = 256 * 1024 * 1024;
 /// Chunks between free-space checks. Two channels at 8s chunks produce ~15
 /// per minute, so this is about a one-minute cadence.
 const DISK_CHECK_EVERY_CHUNKS: usize = 16;
-/// A trailing partial chunk shorter than this is dropped: whisper yields
-/// nothing useful for it and the ledger row would be noise.
 const MIN_FINAL_CHUNK_MS: u64 = 400;
+const CAPTURE_SAMPLE_QUEUE_CAPACITY: usize = 64;
+const CAPTURE_EVENT_QUEUE_CAPACITY: usize = 32;
 const RECENT_SEGMENT_CAP: usize = 240;
 /// Model load can include a first-time download; give it room.
 const WORKER_READY_TIMEOUT: Duration = Duration::from_secs(180);
@@ -345,6 +346,7 @@ pub(crate) enum ChannelKind {
     SystemLoopback,
 }
 
+#[derive(Clone)]
 pub(crate) struct RawChunk {
     pub(crate) channel: &'static str,
     pub(crate) chunk_id: String,
@@ -353,6 +355,11 @@ pub(crate) struct RawChunk {
     pub(crate) end_ms: i64,
     pub(crate) byte_size: i64,
     pub(crate) checksum: String,
+}
+
+struct CaptureSampleBatch {
+    first_sample: u64,
+    samples: Vec<i16>,
 }
 
 /// What a capture thread reports to the coordinator.
@@ -369,7 +376,17 @@ pub(crate) enum CaptureEvent {
     /// source audio: the samples are already gone from the accumulator.
     ChunkWriteFailed {
         channel: &'static str,
+        start_ms: i64,
+        end_ms: i64,
         error: String,
+    },
+    /// Non-blocking audio callback input was shed because the bounded sample
+    /// queue filled. The exact missing media interval is retained separately.
+    SourceGap {
+        channel: &'static str,
+        start_ms: i64,
+        end_ms: i64,
+        reason: &'static str,
     },
     /// The OS reported an error on the audio stream — device removed, format
     /// change, driver reset. Capture may continue but is no longer trustworthy.
@@ -394,14 +411,16 @@ fn sample_u16_to_i16(sample: u16) -> i16 {
 /// Downmixes interleaved frames to mono i16 and forwards them off the
 /// realtime callback. The per-callback Vec allocation is deliberate: it keeps
 /// the callback free of locks shared with slow consumers.
+#[allow(clippy::too_many_arguments)]
 fn build_stream<T: cpal::SizedSample + Send + 'static>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
     channels: usize,
-    tx: mpsc::Sender<Vec<i16>>,
+    tx: mpsc::SyncSender<CaptureSampleBatch>,
+    sample_cursor: Arc<AtomicU64>,
     convert: fn(T) -> i16,
     channel: &'static str,
-    faults: mpsc::Sender<CaptureEvent>,
+    faults: mpsc::SyncSender<CaptureEvent>,
 ) -> Result<cpal::Stream, String> {
     device
         .build_input_stream(
@@ -415,12 +434,16 @@ fn build_stream<T: cpal::SizedSample + Send + 'static>(
                     }
                     mono.push((acc / frame.len().max(1) as i32) as i16);
                 }
-                let _ = tx.send(mono);
+                let first_sample = sample_cursor.fetch_add(mono.len() as u64, Ordering::Relaxed);
+                let _ = tx.try_send(CaptureSampleBatch {
+                    first_sample,
+                    samples: mono,
+                });
             },
             move |error| {
                 // Runs on the audio callback thread; sending is non-blocking
                 // and the coordinator turns this into user-visible state.
-                let _ = faults.send(CaptureEvent::StreamFailed {
+                let _ = faults.try_send(CaptureEvent::StreamFailed {
                     channel,
                     error: error.to_string(),
                 });
@@ -428,6 +451,111 @@ fn build_stream<T: cpal::SizedSample + Send + 'static>(
             None,
         )
         .map_err(|error| format!("build_input_stream failed: {error}"))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cut_capture_chunk(
+    channel: &'static str,
+    sample_rate: u32,
+    chunks_dir: &Path,
+    chunk_tx: &mpsc::SyncSender<CaptureEvent>,
+    accumulator: &mut Vec<i16>,
+    timeline_samples: &mut u64,
+    local_seq: &mut u32,
+    take: usize,
+) {
+    if take == 0 || take > accumulator.len() {
+        return;
+    }
+    let samples: Vec<i16> = accumulator.drain(..take).collect();
+    let start_ms = (*timeline_samples * 1000 / sample_rate as u64) as i64;
+    *timeline_samples += samples.len() as u64;
+    let end_ms = (*timeline_samples * 1000 / sample_rate as u64) as i64;
+    *local_seq += 1;
+    let chunk_id = Uuid::new_v4().to_string();
+    let file_path = chunks_dir.join(format!("{channel}-{local_seq:05}.wav"));
+    match write_chunk_wav(&file_path, sample_rate, &samples) {
+        Ok((byte_size, checksum)) => {
+            let _ = chunk_tx.send(CaptureEvent::Chunk(RawChunk {
+                channel,
+                chunk_id,
+                file_path: file_path.display().to_string(),
+                start_ms,
+                end_ms,
+                byte_size,
+                checksum,
+            }));
+        }
+        Err(error) => {
+            let _ = chunk_tx.send(CaptureEvent::ChunkWriteFailed {
+                channel,
+                start_ms,
+                end_ms,
+                error,
+            });
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_capture_sample_batch(
+    batch: CaptureSampleBatch,
+    channel: &'static str,
+    sample_rate: u32,
+    samples_per_chunk: usize,
+    chunks_dir: &Path,
+    chunk_tx: &mpsc::SyncSender<CaptureEvent>,
+    accumulator: &mut Vec<i16>,
+    timeline_samples: &mut u64,
+    expected_sample: &mut u64,
+    local_seq: &mut u32,
+) {
+    let overlap = expected_sample.saturating_sub(batch.first_sample) as usize;
+    if overlap >= batch.samples.len() {
+        return;
+    }
+    let first_sample = batch.first_sample + overlap as u64;
+    if first_sample > *expected_sample {
+        if !accumulator.is_empty() {
+            let pending = accumulator.len();
+            cut_capture_chunk(
+                channel,
+                sample_rate,
+                chunks_dir,
+                chunk_tx,
+                accumulator,
+                timeline_samples,
+                local_seq,
+                pending,
+            );
+        }
+        let gap_start_ms = (*expected_sample * 1000 / sample_rate as u64) as i64;
+        let gap_end_ms = (first_sample * 1000 / sample_rate as u64) as i64;
+        *timeline_samples = first_sample;
+        if gap_end_ms > gap_start_ms {
+            let _ = chunk_tx.send(CaptureEvent::SourceGap {
+                channel,
+                start_ms: gap_start_ms,
+                end_ms: gap_end_ms,
+                reason: "sample_queue_overflow",
+            });
+        }
+    }
+    let samples = &batch.samples[overlap..];
+    accumulator.extend_from_slice(samples);
+    *expected_sample = first_sample + samples.len() as u64;
+    while accumulator.len() >= samples_per_chunk {
+        cut_capture_chunk(
+            channel,
+            sample_rate,
+            chunks_dir,
+            chunk_tx,
+            accumulator,
+            timeline_samples,
+            local_seq,
+            samples_per_chunk,
+        );
+    }
 }
 
 /// Free bytes available on the volume that holds `path`.
@@ -514,8 +642,22 @@ pub(crate) fn spawn_capture_thread(
     channel: &'static str,
     device_id: Option<String>,
     stop: Arc<AtomicBool>,
-    chunk_tx: mpsc::Sender<CaptureEvent>,
+    chunk_tx: mpsc::SyncSender<CaptureEvent>,
     chunks_dir: PathBuf,
+) -> Result<CaptureReady, String> {
+    spawn_capture_thread_with_fragment_ms(
+        kind, channel, device_id, stop, chunk_tx, chunks_dir, CHUNK_MS,
+    )
+}
+
+fn spawn_capture_thread_with_fragment_ms(
+    kind: ChannelKind,
+    channel: &'static str,
+    device_id: Option<String>,
+    stop: Arc<AtomicBool>,
+    chunk_tx: mpsc::SyncSender<CaptureEvent>,
+    chunks_dir: PathBuf,
+    fragment_ms: u64,
 ) -> Result<CaptureReady, String> {
     let (ready_tx, ready_rx) = mpsc::channel::<Result<String, String>>();
 
@@ -580,13 +722,16 @@ pub(crate) fn spawn_capture_thread(
         let sample_rate = stream_config.sample_rate.0;
         let channels = stream_config.channels as usize;
 
-        let (sample_tx, sample_rx) = mpsc::channel::<Vec<i16>>();
+        let (sample_tx, sample_rx) =
+            mpsc::sync_channel::<CaptureSampleBatch>(CAPTURE_SAMPLE_QUEUE_CAPACITY);
+        let sample_cursor = Arc::new(AtomicU64::new(0));
         let stream = match sample_format {
             cpal::SampleFormat::F32 => build_stream::<f32>(
                 &device,
                 &stream_config,
                 channels,
                 sample_tx,
+                Arc::clone(&sample_cursor),
                 sample_f32_to_i16,
                 channel,
                 chunk_tx.clone(),
@@ -596,6 +741,7 @@ pub(crate) fn spawn_capture_thread(
                 &stream_config,
                 channels,
                 sample_tx,
+                Arc::clone(&sample_cursor),
                 sample_i16_to_i16,
                 channel,
                 chunk_tx.clone(),
@@ -605,6 +751,7 @@ pub(crate) fn spawn_capture_thread(
                 &stream_config,
                 channels,
                 sample_tx,
+                Arc::clone(&sample_cursor),
                 sample_u16_to_i16,
                 channel,
                 chunk_tx.clone(),
@@ -624,56 +771,29 @@ pub(crate) fn spawn_capture_thread(
         }
         let _ = ready_tx.send(Ok(device_name));
 
-        let samples_per_chunk = (sample_rate as u64 * CHUNK_MS / 1000) as usize;
+        let samples_per_chunk = (sample_rate as u64 * fragment_ms / 1000) as usize;
         let min_final_samples = (sample_rate as u64 * MIN_FINAL_CHUNK_MS / 1000) as usize;
         let mut accumulator: Vec<i16> = Vec::with_capacity(samples_per_chunk + 4096);
-        let mut written_samples: u64 = 0;
+        let mut timeline_samples: u64 = 0;
+        let mut expected_sample: u64 = 0;
         let mut local_seq: u32 = 0;
-
-        let cut_chunk = |accumulator: &mut Vec<i16>,
-                         written_samples: &mut u64,
-                         local_seq: &mut u32,
-                         take: usize| {
-            let samples: Vec<i16> = accumulator.drain(..take).collect();
-            let start_ms = (*written_samples * 1000 / sample_rate as u64) as i64;
-            *written_samples += samples.len() as u64;
-            let end_ms = (*written_samples * 1000 / sample_rate as u64) as i64;
-            *local_seq += 1;
-            let chunk_id = Uuid::new_v4().to_string();
-            let file_path = chunks_dir.join(format!("{channel}-{local_seq:05}.wav"));
-            match write_chunk_wav(&file_path, sample_rate, &samples) {
-                Ok((byte_size, checksum)) => {
-                    let _ = chunk_tx.send(CaptureEvent::Chunk(RawChunk {
-                        channel,
-                        chunk_id,
-                        file_path: file_path.display().to_string(),
-                        start_ms,
-                        end_ms,
-                        byte_size,
-                        checksum,
-                    }));
-                }
-                // These samples are gone. Report it instead of printing to a
-                // stderr no user reads.
-                Err(error) => {
-                    let _ = chunk_tx.send(CaptureEvent::ChunkWriteFailed { channel, error });
-                }
-            }
-        };
 
         loop {
             match sample_rx.recv_timeout(Duration::from_millis(200)) {
-                Ok(batch) => accumulator.extend_from_slice(&batch),
+                Ok(batch) => process_capture_sample_batch(
+                    batch,
+                    channel,
+                    sample_rate,
+                    samples_per_chunk,
+                    &chunks_dir,
+                    &chunk_tx,
+                    &mut accumulator,
+                    &mut timeline_samples,
+                    &mut expected_sample,
+                    &mut local_seq,
+                ),
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            }
-            while accumulator.len() >= samples_per_chunk {
-                cut_chunk(
-                    &mut accumulator,
-                    &mut written_samples,
-                    &mut local_seq,
-                    samples_per_chunk,
-                );
             }
             if stop.load(Ordering::SeqCst) {
                 break;
@@ -683,19 +803,72 @@ pub(crate) fn spawn_capture_thread(
         // Stop the callback source first, then flush whatever already arrived.
         drop(stream);
         for batch in sample_rx.try_iter() {
-            accumulator.extend_from_slice(&batch);
-        }
-        while accumulator.len() >= samples_per_chunk {
-            cut_chunk(
-                &mut accumulator,
-                &mut written_samples,
-                &mut local_seq,
+            process_capture_sample_batch(
+                batch,
+                channel,
+                sample_rate,
                 samples_per_chunk,
+                &chunks_dir,
+                &chunk_tx,
+                &mut accumulator,
+                &mut timeline_samples,
+                &mut expected_sample,
+                &mut local_seq,
             );
+        }
+        let captured_end_sample = sample_cursor.load(Ordering::Acquire);
+        if captured_end_sample > expected_sample {
+            if !accumulator.is_empty() {
+                let pending = accumulator.len();
+                cut_capture_chunk(
+                    channel,
+                    sample_rate,
+                    &chunks_dir,
+                    &chunk_tx,
+                    &mut accumulator,
+                    &mut timeline_samples,
+                    &mut local_seq,
+                    pending,
+                );
+            }
+            let gap_start_ms = (expected_sample * 1000 / sample_rate as u64) as i64;
+            let gap_end_ms = (captured_end_sample * 1000 / sample_rate as u64) as i64;
+            if gap_end_ms > gap_start_ms {
+                let _ = chunk_tx.send(CaptureEvent::SourceGap {
+                    channel,
+                    start_ms: gap_start_ms,
+                    end_ms: gap_end_ms,
+                    reason: "sample_queue_overflow",
+                });
+            }
+            timeline_samples = captured_end_sample;
+            expected_sample = captured_end_sample;
         }
         if accumulator.len() >= min_final_samples {
             let take = accumulator.len();
-            cut_chunk(&mut accumulator, &mut written_samples, &mut local_seq, take);
+            cut_capture_chunk(
+                channel,
+                sample_rate,
+                &chunks_dir,
+                &chunk_tx,
+                &mut accumulator,
+                &mut timeline_samples,
+                &mut local_seq,
+                take,
+            );
+        } else if !accumulator.is_empty() {
+            let gap_start_sample = expected_sample.saturating_sub(accumulator.len() as u64);
+            let gap_start_ms = (gap_start_sample * 1000 / sample_rate as u64) as i64;
+            let gap_end_ms = (expected_sample * 1000 / sample_rate as u64) as i64;
+            if gap_end_ms > gap_start_ms {
+                let _ = chunk_tx.send(CaptureEvent::SourceGap {
+                    channel,
+                    start_ms: gap_start_ms,
+                    end_ms: gap_end_ms,
+                    reason: "final_tail_too_short",
+                });
+            }
+            accumulator.clear();
         }
         // chunk_tx drops here; the coordinator sees Disconnected once every
         // channel thread has flushed.
@@ -733,15 +906,38 @@ pub(crate) struct WorkerResponse {
     pub(crate) start_ms: i64,
     #[serde(default)]
     pub(crate) segments: Vec<WorkerSegment>,
+    language: Option<String>,
     pub(crate) error: Option<String>,
     #[serde(default)]
     ready: bool,
+    model: Option<String>,
+    device: Option<String>,
+    #[serde(rename = "computeType")]
+    compute_type: Option<String>,
+    backend: Option<String>,
+    #[serde(rename = "windowId")]
+    window_id: Option<String>,
+    #[serde(rename = "windowStartMs")]
+    window_start_ms: Option<i64>,
+    #[serde(rename = "windowEndMs")]
+    window_end_ms: Option<i64>,
+    #[serde(rename = "finalWindow")]
+    final_window: Option<bool>,
+}
+
+#[derive(Clone, Debug)]
+struct WorkerRuntimeInfo {
+    model: String,
+    device: String,
+    compute_type: String,
+    backend: String,
 }
 
 pub(crate) struct LiveWorker {
     child: Child,
     stdin: std::process::ChildStdin,
     lines: mpsc::Receiver<String>,
+    runtime_info: Option<WorkerRuntimeInfo>,
 }
 
 impl LiveWorker {
@@ -840,6 +1036,7 @@ impl LiveWorker {
             child,
             stdin,
             lines: line_rx,
+            runtime_info: None,
         })
     }
 
@@ -855,6 +1052,16 @@ impl LiveWorker {
                 .map_err(|_| "live worker exited or stalled before ready".to_string())?;
             if let Ok(response) = serde_json::from_str::<WorkerResponse>(&line) {
                 if response.ready {
+                    self.runtime_info = Some(WorkerRuntimeInfo {
+                        model: response.model.unwrap_or_else(|| "unknown".to_string()),
+                        device: response.device.unwrap_or_else(|| "unknown".to_string()),
+                        compute_type: response
+                            .compute_type
+                            .unwrap_or_else(|| "unknown".to_string()),
+                        backend: response
+                            .backend
+                            .unwrap_or_else(|| "faster-whisper".to_string()),
+                    });
                     return Ok(());
                 }
                 if let Some(error) = response.error {
@@ -890,6 +1097,51 @@ impl LiveWorker {
         }
     }
 
+    fn transcribe_window(
+        &mut self,
+        window: &crate::live_transcript::DecodeWindow,
+    ) -> Result<WorkerResponse, String> {
+        let request = serde_json::json!({
+            "id": window.id,
+            "startMs": window.start_ms,
+            "window": {
+                "id": window.id,
+                "startMs": window.start_ms,
+                "endMs": window.end_ms,
+                "final": window.is_final,
+                "fragments": window.fragments.iter().map(|fragment| serde_json::json!({
+                    "id": fragment.id,
+                    "path": fragment.path,
+                    "fragmentStartMs": fragment.fragment_start_ms,
+                    "fragmentEndMs": fragment.fragment_end_ms,
+                    "clipStartMs": fragment.clip_start_ms,
+                    "clipEndMs": fragment.clip_end_ms,
+                })).collect::<Vec<_>>(),
+            },
+        });
+        writeln!(self.stdin, "{request}")
+            .map_err(|error| format!("worker stdin closed: {error}"))?;
+        let deadline = Instant::now() + WORKER_CHUNK_TIMEOUT;
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .ok_or("live worker timed out on a rolling window")?;
+            let line = self
+                .lines
+                .recv_timeout(remaining)
+                .map_err(|_| "live worker stopped responding".to_string())?;
+            match serde_json::from_str::<WorkerResponse>(&line) {
+                Ok(response) if response.ready => continue,
+                Ok(response) => return Ok(response),
+                Err(_) => continue,
+            }
+        }
+    }
+
+    fn runtime_info(&self) -> Option<&WorkerRuntimeInfo> {
+        self.runtime_info.as_ref()
+    }
+
     pub(crate) fn shutdown(mut self) {
         let _ = writeln!(self.stdin, "{}", serde_json::json!({"cmd": "shutdown"}));
         drop(self.stdin);
@@ -902,6 +1154,1287 @@ impl LiveWorker {
             }
         }
         let _ = self.child.kill();
+    }
+}
+
+#[derive(Clone)]
+struct RevisionedSessionContext {
+    meeting_session_id: String,
+    sources: HashMap<String, crate::meeting_intelligence_schema::MeetingScope>,
+}
+
+fn create_revisioned_session(
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+    recording_id: &str,
+    channels: &[&str],
+) -> Result<RevisionedSessionContext, String> {
+    let meeting_session_id = Uuid::new_v4().to_string();
+    let timestamp = now();
+    let mut mutations = vec![genesis_adapter::upsert(
+        "meeting_sessions",
+        serde_json::json!({
+            "id": meeting_session_id,
+            "project_id": project_id,
+            "recording_id": recording_id,
+            "session_generation": 1,
+            "source_mode": "desktop_local_capture",
+            "state": "active",
+            "owner_scope": "local_unverified",
+            "policy_version": "meeting-intelligence-v1",
+            "revision": 1,
+            "contract_version": crate::meeting_intelligence_schema::CONTRACT_VERSION,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }),
+    )];
+    let mut sources = HashMap::new();
+    for (index, channel) in channels.iter().enumerate() {
+        let source_generation = index as i64 + 1;
+        let source_session_id = Uuid::new_v4().to_string();
+        let scope = crate::meeting_intelligence_schema::MeetingScope {
+            project_id: project_id.to_string(),
+            recording_id: recording_id.to_string(),
+            meeting_session_id: meeting_session_id.clone(),
+            source_session_id: source_session_id.clone(),
+            track_id: (*channel).to_string(),
+            source_generation,
+        };
+        mutations.push(genesis_adapter::upsert(
+            "meeting_source_sessions",
+            serde_json::json!({
+                "id": source_session_id,
+                "project_id": project_id,
+                "recording_id": recording_id,
+                "meeting_session_id": meeting_session_id,
+                "source_kind": if *channel == CHANNEL_MIC { "microphone_capture" } else { "system_loopback_capture" },
+                "source_generation": source_generation,
+                "state": "active",
+                "contract_version": crate::meeting_intelligence_schema::CONTRACT_VERSION,
+                "created_at": timestamp,
+                "ended_at": null,
+            }),
+        ));
+        sources.insert((*channel).to_string(), scope);
+    }
+    genesis_adapter::commit_rows(storage, mutations)?;
+    Ok(RevisionedSessionContext {
+        meeting_session_id,
+        sources,
+    })
+}
+
+fn update_revisioned_session_state(
+    storage: &genesis_block_native::Storage,
+    context: &RevisionedSessionContext,
+    state: &str,
+) {
+    let timestamp = now();
+    let mut mutations = vec![genesis_adapter::upsert(
+        "meeting_sessions",
+        serde_json::json!({
+            "id": context.meeting_session_id,
+            "state": state,
+            "updated_at": timestamp,
+        }),
+    )];
+    for scope in context.sources.values() {
+        let source_unavailable = match genesis_adapter::query(
+            storage,
+            "meeting_source_sessions",
+            &["state"],
+            vec![genesis_adapter::eq(
+                "meeting_source_sessions",
+                "id",
+                serde_json::json!(scope.source_session_id),
+            )],
+            1,
+        ) {
+            Ok(rows) => rows
+                .first()
+                .and_then(|row| row.get("meeting_source_sessions.state"))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|state| state == "unavailable"),
+            Err(error) => {
+                eprintln!(
+                    "[live-transcript] could not read source state before session close: {error}"
+                );
+                continue;
+            }
+        };
+        if source_unavailable {
+            continue;
+        }
+        mutations.push(genesis_adapter::upsert(
+            "meeting_source_sessions",
+            serde_json::json!({
+                "id": scope.source_session_id,
+                "state": state,
+                "ended_at": timestamp,
+            }),
+        ));
+    }
+    if let Err(error) = genesis_adapter::commit_rows(storage, mutations) {
+        eprintln!("[live-transcript] could not update revisioned session state: {error}");
+    }
+}
+
+fn update_revisioned_source_state(
+    storage: &genesis_block_native::Storage,
+    context: &RevisionedSessionContext,
+    channel: &str,
+    state: &str,
+) {
+    let Some(scope) = context.sources.get(channel) else {
+        return;
+    };
+    let timestamp = now();
+    if let Err(error) = genesis_adapter::commit_rows(
+        storage,
+        vec![genesis_adapter::upsert(
+            "meeting_source_sessions",
+            serde_json::json!({
+                "id": scope.source_session_id,
+                "state": state,
+                "ended_at": timestamp,
+            }),
+        )],
+    ) {
+        eprintln!("[live-transcript] could not update source state: {error}");
+    }
+}
+
+fn create_live_model_run(
+    storage: &genesis_block_native::Storage,
+    recording_id: &str,
+    run: &WorkerRuntimeInfo,
+    language: Option<&str>,
+) -> Result<String, String> {
+    let timestamp = now();
+    let provider_id = format!("local-whisper-live-{}", run.backend);
+    let model_name = Path::new(&run.model)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(&run.model);
+    let run_id = Uuid::new_v4().to_string();
+    genesis_adapter::commit_rows(
+        storage,
+        vec![
+            genesis_adapter::upsert(
+                "model_providers",
+                serde_json::json!({
+                    "id": provider_id,
+                    "label": format!("Local {}", run.backend),
+                    "runtime_location": "local",
+                    "kind": "transcription",
+                    "enabled": true,
+                    "config_json": {"backend": run.backend},
+                    "created_at": timestamp,
+                    "updated_at": timestamp,
+                }),
+            ),
+            genesis_adapter::upsert(
+                "model_runs",
+                serde_json::json!({
+                    "id": run_id,
+                    "recording_id": recording_id,
+                    "provider_id": provider_id,
+                    "model_name": model_name,
+                    "task_kind": "transcription",
+                    "runtime_location": "local",
+                    "input_ref": format!("audio_chunks:{recording_id}"),
+                    "output_ref": format!("transcript_revisions:{recording_id}"),
+                    "parameters_json": {
+                        "device": run.device,
+                        "computeType": run.compute_type,
+                        "language": language,
+                    },
+                    "created_at": timestamp,
+                }),
+            ),
+        ],
+    )?;
+    Ok(run_id)
+}
+
+struct RevisionedTrack {
+    scope: crate::meeting_intelligence_schema::MeetingScope,
+    next_sequence_no: i64,
+    last_source_end_ms: i64,
+    scheduler: crate::live_transcript::RollingWindowScheduler,
+    tracker: crate::live_transcript::RevisionTracker,
+    pending_sources: Vec<crate::meeting_intelligence_schema::SourceCoverageInput>,
+    pending_chunks: Vec<RawChunk>,
+    retry_batch: Option<(
+        crate::meeting_intelligence_schema::MeetingIngestBatchRequest,
+        Vec<RevisionCandidate>,
+    )>,
+}
+
+impl RevisionedTrack {
+    fn new(scope: crate::meeting_intelligence_schema::MeetingScope) -> Self {
+        Self {
+            scope,
+            next_sequence_no: 0,
+            last_source_end_ms: 0,
+            scheduler: crate::live_transcript::RollingWindowScheduler::new(),
+            tracker: crate::live_transcript::RevisionTracker::new(),
+            pending_sources: Vec::new(),
+            pending_chunks: Vec::new(),
+            retry_batch: None,
+        }
+    }
+
+    fn add_chunk(
+        &mut self,
+        chunk: RawChunk,
+    ) -> Result<crate::live_transcript::WindowBatch, crate::live_transcript::ScheduleError> {
+        if chunk.start_ms > self.last_source_end_ms {
+            let sequence_no = self.next_sequence_no;
+            self.next_sequence_no += 1;
+            self.pending_sources
+                .push(crate::meeting_intelligence_schema::SourceCoverageInput {
+                    id: format!("coverage::{}::{sequence_no}", self.scope.source_session_id),
+                    source_session_id: self.scope.source_session_id.clone(),
+                    track_id: self.scope.track_id.clone(),
+                    source_generation: self.scope.source_generation,
+                    sequence_no,
+                    start_ms: self.last_source_end_ms,
+                    end_ms: chunk.start_ms,
+                    kind: crate::meeting_intelligence_schema::SourceCoverageKind::Gap,
+                    audio_chunk_id: None,
+                    file_path: None,
+                    byte_size: None,
+                    checksum: None,
+                    gap_reason: Some("capture_interval_unavailable".to_string()),
+                });
+        }
+        let sequence_no = self.next_sequence_no;
+        self.next_sequence_no += 1;
+        let coverage_id = format!("coverage::{}::{sequence_no}", self.scope.source_session_id);
+        self.pending_sources
+            .push(crate::meeting_intelligence_schema::SourceCoverageInput {
+                id: coverage_id.clone(),
+                source_session_id: self.scope.source_session_id.clone(),
+                track_id: self.scope.track_id.clone(),
+                source_generation: self.scope.source_generation,
+                sequence_no,
+                start_ms: chunk.start_ms,
+                end_ms: chunk.end_ms,
+                kind: crate::meeting_intelligence_schema::SourceCoverageKind::Audio,
+                audio_chunk_id: Some(chunk.chunk_id.clone()),
+                file_path: Some(chunk.file_path.clone()),
+                byte_size: Some(chunk.byte_size),
+                checksum: Some(chunk.checksum.clone()),
+                gap_reason: None,
+            });
+        self.last_source_end_ms = chunk.end_ms;
+        self.pending_chunks.push(chunk);
+        let latest = self
+            .pending_chunks
+            .last()
+            .expect("just appended pending audio chunk");
+        self.scheduler.push(
+            &self.scope.track_id,
+            crate::live_transcript::AudioFragmentRef {
+                id: coverage_id,
+                path: latest.file_path.clone(),
+                sequence_no,
+                start_ms: latest.start_ms,
+                end_ms: latest.end_ms,
+            },
+        )
+    }
+
+    fn add_gap(
+        &mut self,
+        start_ms: i64,
+        end_ms: i64,
+        reason: &str,
+    ) -> Result<(), crate::live_transcript::ScheduleError> {
+        if start_ms < self.last_source_end_ms || end_ms <= start_ms {
+            return Err(crate::live_transcript::ScheduleError::InvalidRange);
+        }
+        let sequence_no = self.next_sequence_no;
+        self.next_sequence_no += 1;
+        self.pending_sources
+            .push(crate::meeting_intelligence_schema::SourceCoverageInput {
+                id: format!("coverage::{}::{sequence_no}", self.scope.source_session_id),
+                source_session_id: self.scope.source_session_id.clone(),
+                track_id: self.scope.track_id.clone(),
+                source_generation: self.scope.source_generation,
+                sequence_no,
+                start_ms,
+                end_ms,
+                kind: crate::meeting_intelligence_schema::SourceCoverageKind::Gap,
+                audio_chunk_id: None,
+                file_path: None,
+                byte_size: None,
+                checksum: None,
+                gap_reason: Some(reason.to_string()),
+            });
+        self.last_source_end_ms = end_ms;
+        self.scheduler.reset();
+        Ok(())
+    }
+
+    fn replay_pending_chunk(
+        &mut self,
+        chunk: &RawChunk,
+    ) -> Result<crate::live_transcript::WindowBatch, crate::live_transcript::ScheduleError> {
+        let Some(source) = self
+            .pending_sources
+            .iter()
+            .find(|source| source.audio_chunk_id.as_deref() == Some(chunk.chunk_id.as_str()))
+        else {
+            return Err(crate::live_transcript::ScheduleError::InvalidRange);
+        };
+        self.scheduler.push(
+            &self.scope.track_id,
+            crate::live_transcript::AudioFragmentRef {
+                id: source.id.clone(),
+                path: chunk.file_path.clone(),
+                sequence_no: source.sequence_no,
+                start_ms: chunk.start_ms,
+                end_ms: chunk.end_ms,
+            },
+        )
+    }
+}
+
+#[derive(Clone)]
+struct RevisionCandidate {
+    utterance_id: String,
+    revision: u64,
+    expected_persisted_revision: i64,
+    hypothesis: crate::live_transcript::TranscriptHypothesis,
+    coverage_ids: Vec<String>,
+}
+
+fn window_coverage_for_range(
+    window: &crate::live_transcript::DecodeWindow,
+    start_ms: i64,
+    end_ms: i64,
+) -> Vec<String> {
+    window
+        .fragments
+        .iter()
+        .filter(|fragment| fragment.clip_start_ms < end_ms && start_ms < fragment.clip_end_ms)
+        .map(|fragment| fragment.id.clone())
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_transcript_event(
+    app: &tauri::AppHandle,
+    context: &RevisionedSessionContext,
+    scope: &crate::meeting_intelligence_schema::MeetingScope,
+    event_type: &str,
+    state: &str,
+    utterance_id: Option<String>,
+    revision: Option<u64>,
+    hypothesis: Option<&crate::live_transcript::TranscriptHypothesis>,
+    audio_refs: Vec<String>,
+    model_run_id: Option<&str>,
+    committed_cursor: Option<i64>,
+    persisted_revision: Option<u64>,
+) {
+    let (label, cluster) = if scope.track_id == CHANNEL_MIC {
+        ("ไมโครโฟน", "mic")
+    } else {
+        ("เสียงระบบ", "system")
+    };
+    let emitted_at = now();
+    let event = crate::live_transcript::LiveTranscriptEvent {
+        schema_version: 2,
+        event_id: Uuid::new_v4().to_string(),
+        event_type: event_type.to_string(),
+        project_id: scope.project_id.clone(),
+        recording_id: scope.recording_id.clone(),
+        meeting_session_id: context.meeting_session_id.clone(),
+        source_session_id: scope.source_session_id.clone(),
+        track_id: scope.track_id.clone(),
+        source_generation: scope.source_generation,
+        utterance_id,
+        revision,
+        supersedes_revision: revision.filter(|value| *value > 1).map(|value| value - 1),
+        persisted_revision,
+        state: state.to_string(),
+        origin: "local_asr".to_string(),
+        start_ms: hypothesis.map(|value| value.start_ms),
+        end_ms: hypothesis.map(|value| value.end_ms),
+        text: hypothesis.map(|value| value.text.clone()),
+        language: hypothesis.and_then(|value| value.language.clone()),
+        confidence: hypothesis.and_then(|value| value.confidence),
+        attribution: crate::live_transcript::TranscriptAttribution {
+            kind: "capture_channel".to_string(),
+            participant_session_id: None,
+            speaker_cluster_id: cluster.to_string(),
+            label_snapshot: label.to_string(),
+            evidence_revision: 0,
+        },
+        audio_refs,
+        model_run_id: model_run_id.map(str::to_string),
+        committed_cursor,
+        emitted_at: emitted_at.clone(),
+        received_at: Some(emitted_at),
+        source_clock_uncertainty_ms: None,
+        review_state: "unreviewed".to_string(),
+        quality_flags: Vec::new(),
+    };
+    let _ = app.emit("live-transcript-v2", event);
+}
+
+fn decode_revision_windows(
+    app: &tauri::AppHandle,
+    context: &RevisionedSessionContext,
+    track: &mut RevisionedTrack,
+    worker: &mut LiveWorker,
+    model_run_id: &str,
+    windows: &[crate::live_transcript::DecodeWindow],
+) -> Result<Vec<RevisionCandidate>, String> {
+    let mut candidates: HashMap<String, RevisionCandidate> = HashMap::new();
+    for window in windows {
+        let response = worker.transcribe_window(window)?;
+        if let Some(error) = response.error {
+            return Err(error);
+        }
+        if response.window_id.as_deref() != Some(window.id.as_str())
+            || response.window_start_ms != Some(window.start_ms)
+            || response.window_end_ms != Some(window.end_ms)
+            || response.final_window != Some(window.is_final)
+        {
+            return Err("live worker returned a mismatched decode-window response".to_string());
+        }
+        let hypotheses = response
+            .segments
+            .into_iter()
+            .map(|segment| crate::live_transcript::TranscriptHypothesis {
+                start_ms: window.start_ms.saturating_add(segment.start_ms),
+                end_ms: window.start_ms.saturating_add(segment.end_ms),
+                text: segment.text,
+                language: response.language.clone(),
+                confidence: segment.confidence,
+            })
+            .collect::<Vec<_>>();
+        for update in track.tracker.observe(window, hypotheses) {
+            match update {
+                crate::live_transcript::TranscriptUpdate::Provisional {
+                    utterance_id,
+                    revision,
+                    hypothesis,
+                } => emit_transcript_event(
+                    app,
+                    context,
+                    &track.scope,
+                    "transcript.provisional",
+                    "provisional",
+                    Some(utterance_id),
+                    Some(revision),
+                    Some(&hypothesis),
+                    window_coverage_for_range(window, hypothesis.start_ms, hypothesis.end_ms),
+                    Some(model_run_id),
+                    None,
+                    None,
+                ),
+                crate::live_transcript::TranscriptUpdate::Discard {
+                    utterance_id,
+                    revision,
+                } => emit_transcript_event(
+                    app,
+                    context,
+                    &track.scope,
+                    "transcript.discarded",
+                    "discarded",
+                    Some(utterance_id),
+                    Some(revision),
+                    None,
+                    Vec::new(),
+                    Some(model_run_id),
+                    None,
+                    None,
+                ),
+                crate::live_transcript::TranscriptUpdate::CommitCandidate {
+                    utterance_id,
+                    revision,
+                    expected_persisted_revision,
+                    hypothesis,
+                } => {
+                    let coverage_ids =
+                        window_coverage_for_range(window, hypothesis.start_ms, hypothesis.end_ms);
+                    if !coverage_ids.is_empty() {
+                        candidates.insert(
+                            utterance_id.clone(),
+                            RevisionCandidate {
+                                utterance_id,
+                                revision,
+                                expected_persisted_revision,
+                                hypothesis,
+                                coverage_ids,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Ok(candidates.into_values().collect())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn commit_revisioned_sources(
+    app: &tauri::AppHandle,
+    storage: &genesis_block_native::Storage,
+    recent: &SharedRecent,
+    context: &RevisionedSessionContext,
+    track: &mut RevisionedTrack,
+    candidates: Vec<RevisionCandidate>,
+    model_run_id: &str,
+    through_sequence: i64,
+) -> Result<(), String> {
+    let (request, candidates) = if let Some(retry) = track.retry_batch.take() {
+        retry
+    } else {
+        let sources = track
+            .pending_sources
+            .iter()
+            .filter(|source| source.sequence_no <= through_sequence)
+            .cloned()
+            .collect::<Vec<_>>();
+        if sources.is_empty() {
+            return Ok(());
+        }
+        if sources.len() > 64 {
+            return Err("revisioned source batch exceeded the 64-source bound".to_string());
+        }
+        let mut candidates = candidates
+            .into_iter()
+            .filter(|candidate| candidate.expected_persisted_revision >= 0)
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| {
+            left.hypothesis
+                .start_ms
+                .cmp(&right.hypothesis.start_ms)
+                .then_with(|| left.utterance_id.cmp(&right.utterance_id))
+        });
+        let revisions = candidates
+            .iter()
+            .map(|candidate| {
+                let revision = candidate.expected_persisted_revision + 1;
+                crate::meeting_intelligence_schema::TranscriptRevisionInput {
+                    id: Uuid::new_v4().to_string(),
+                    utterance_id: candidate.utterance_id.clone(),
+                    revision,
+                    supersedes_revision: (revision > 1).then_some(revision - 1),
+                    expected_revision: Some(candidate.expected_persisted_revision),
+                    origin: crate::meeting_intelligence_schema::TranscriptOrigin::LocalAsr,
+                    raw_text: candidate.hypothesis.text.clone(),
+                    effective_text: candidate.hypothesis.text.clone(),
+                    language: candidate.hypothesis.language.clone(),
+                    confidence: candidate.hypothesis.confidence,
+                    start_ms: candidate.hypothesis.start_ms,
+                    end_ms: candidate.hypothesis.end_ms,
+                    model_run_id: Some(model_run_id.to_string()),
+                    review_state: "unreviewed".to_string(),
+                }
+            })
+            .collect::<Vec<_>>();
+        let revision_coverage = revisions
+            .iter()
+            .zip(candidates.iter())
+            .map(|(revision, candidate)| {
+                crate::meeting_intelligence_schema::RevisionCoverageBinding {
+                    revision_id: revision.id.clone(),
+                    coverage_ids: candidate.coverage_ids.clone(),
+                }
+            })
+            .collect::<Vec<_>>();
+        let request = crate::meeting_intelligence_schema::MeetingIngestBatchRequest {
+            operation_id: Uuid::new_v4().to_string(),
+            scope: track.scope.clone(),
+            sources: sources.clone(),
+            revisions,
+            revision_coverage,
+        };
+        (request, candidates)
+    };
+    let mut result = None;
+    let mut last_error = None;
+    for _ in 0..2 {
+        let attempt = match genesis_adapter::begin_meeting_commit(
+            storage,
+            &Uuid::new_v4().to_string(),
+            &now(),
+        ) {
+            Ok(attempt) => attempt,
+            Err(error) => {
+                last_error = Some(error);
+                continue;
+            }
+        };
+        match genesis_adapter::commit_meeting_ingest_batch(storage, &attempt, &request) {
+            Ok(committed) => {
+                result = Some(committed);
+                break;
+            }
+            Err(error) => last_error = Some(error),
+        }
+    }
+    let result = match result {
+        Some(result) => result,
+        None => {
+            let error =
+                last_error.unwrap_or_else(|| "revisioned source batch did not commit".to_string());
+            track.retry_batch = Some((request, candidates));
+            return Err(error);
+        }
+    };
+
+    let replay_cursor = crate::meeting_intelligence_schema::MeetingReplayCursor {
+        recording_id: track.scope.recording_id.clone(),
+        after_cursor: result.first_cursor.saturating_sub(1),
+    };
+    if let Ok(page) = genesis_adapter::replay_meeting_events(
+        storage,
+        &track.scope.project_id,
+        &track.scope.recording_id,
+        &replay_cursor,
+        64,
+    ) {
+        for event in page.events {
+            let _ = app.emit("meeting-transcript-event", event);
+        }
+    }
+    if !result.revision_ids.is_empty() {
+        crate::observe_committed_meeting_agent_transcript_event(
+            app,
+            &track.scope.project_id,
+            &track.scope.recording_id,
+            result.last_cursor,
+        );
+    }
+
+    for (index, candidate) in candidates.iter().enumerate() {
+        let persisted_revision = candidate.expected_persisted_revision + 1;
+        if let Err(error) = track.tracker.mark_committed(
+            &candidate.utterance_id,
+            persisted_revision,
+            &candidate.hypothesis.text,
+        ) {
+            eprintln!(
+                "[live-transcript] committed revision could not update in-memory tracker: {error}"
+            );
+        }
+        let cursor = result.first_cursor + index as i64;
+        emit_transcript_event(
+            app,
+            context,
+            &track.scope,
+            "transcript.committed",
+            "committed",
+            Some(candidate.utterance_id.clone()),
+            Some(candidate.revision),
+            Some(&candidate.hypothesis),
+            candidate.coverage_ids.clone(),
+            request
+                .revisions
+                .get(index)
+                .and_then(|revision| revision.model_run_id.as_deref())
+                .or(Some(model_run_id)),
+            Some(cursor),
+            Some(persisted_revision as u64),
+        );
+        let (speaker, label) = if track.scope.track_id == CHANNEL_MIC {
+            ("me", "เรา")
+        } else {
+            ("them", "อีกฝ่าย")
+        };
+        let segment = LiveSegmentEvent {
+            recording_id: track.scope.recording_id.clone(),
+            segment_id: candidate.utterance_id.clone(),
+            channel: track.scope.track_id.clone(),
+            speaker: label.to_string(),
+            start_ms: candidate.hypothesis.start_ms,
+            end_ms: candidate.hypothesis.end_ms,
+            text: candidate.hypothesis.text.clone(),
+            confidence: candidate.hypothesis.confidence,
+        };
+        {
+            let mut window = recent.lock().expect("recent buffer mutex poisoned");
+            window.push_back(RecentSegment {
+                speaker: speaker.to_string(),
+                channel: segment.channel.clone(),
+                start_ms: segment.start_ms,
+                end_ms: segment.end_ms,
+                text: segment.text.clone(),
+            });
+            while window.len() > RECENT_SEGMENT_CAP {
+                window.pop_front();
+            }
+        }
+        let _ = app.emit("live-segment", segment);
+    }
+    let committed_ids = request
+        .sources
+        .iter()
+        .map(|source| source.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    track
+        .pending_sources
+        .retain(|source| !committed_ids.contains(source.id.as_str()));
+    let committed_audio_ids = request
+        .sources
+        .iter()
+        .filter_map(|source| source.audio_chunk_id.as_deref())
+        .collect::<std::collections::HashSet<_>>();
+    track
+        .pending_chunks
+        .retain(|chunk| !committed_audio_ids.contains(chunk.chunk_id.as_str()));
+    track.retry_batch = None;
+    Ok(())
+}
+
+fn flush_revisioned_track_before_capture_gap(
+    app: &tauri::AppHandle,
+    storage: &genesis_block_native::Storage,
+    recent: &SharedRecent,
+    context: &RevisionedSessionContext,
+    track: &mut RevisionedTrack,
+    worker: &mut LiveWorker,
+    model_run_id: &str,
+) -> Result<(), String> {
+    let final_window = track
+        .scheduler
+        .flush(&track.scope.track_id)
+        .map_err(|error| format!("revisioned pre-gap flush failed: {error:?}"))?;
+    if let Some(window) = final_window {
+        let through_sequence = track.next_sequence_no.saturating_sub(1);
+        let candidates = decode_revision_windows(
+            app,
+            context,
+            track,
+            worker,
+            model_run_id,
+            std::slice::from_ref(&window),
+        )?;
+        commit_revisioned_sources(
+            app,
+            storage,
+            recent,
+            context,
+            track,
+            candidates,
+            model_run_id,
+            through_sequence,
+        )?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn record_revisioned_capture_gap(
+    app: &tauri::AppHandle,
+    storage: &genesis_block_native::Storage,
+    recent: &SharedRecent,
+    recording_id: &str,
+    context: Option<&RevisionedSessionContext>,
+    model_run_id: &mut Option<String>,
+    worker: &mut Option<LiveWorker>,
+    tracks: &mut HashMap<String, RevisionedTrack>,
+    channel: &str,
+    start_ms: i64,
+    end_ms: i64,
+    reason: &str,
+) {
+    let flush_error = match (
+        context,
+        model_run_id.as_deref(),
+        worker.as_mut(),
+        tracks.get_mut(channel),
+    ) {
+        (Some(context), Some(active_model_run_id), Some(active_worker), Some(track)) => {
+            flush_revisioned_track_before_capture_gap(
+                app,
+                storage,
+                recent,
+                context,
+                track,
+                active_worker,
+                active_model_run_id,
+            )
+            .err()
+        }
+        _ => None,
+    };
+    if let Some(error) = flush_error {
+        emit_status(
+            app,
+            recording_id,
+            "degraded",
+            Some(format!("ปิดหน้าต่างก่อน audio gap ไม่สำเร็จ ({error})")),
+            None,
+            None,
+        );
+        if let Some(dead) = worker.take() {
+            dead.shutdown();
+        }
+        *model_run_id = None;
+    }
+
+    let Some(track) = tracks.get_mut(channel) else {
+        return;
+    };
+    if let Err(error) = track.add_gap(start_ms, end_ms, reason) {
+        emit_status(
+            app,
+            recording_id,
+            "degraded",
+            Some(format!("บันทึกขอบเขต audio gap ไม่สำเร็จ ({error:?})")),
+            None,
+            None,
+        );
+        return;
+    }
+    let discarded = track.tracker.discard_uncommitted();
+    if let Some(context) = context {
+        for update in discarded {
+            if let crate::live_transcript::TranscriptUpdate::Discard {
+                utterance_id,
+                revision,
+            } = update
+            {
+                emit_transcript_event(
+                    app,
+                    context,
+                    &track.scope,
+                    "transcript.discarded",
+                    "discarded",
+                    Some(utterance_id),
+                    Some(revision),
+                    None,
+                    Vec::new(),
+                    model_run_id.as_deref(),
+                    None,
+                    None,
+                );
+            }
+        }
+    }
+}
+
+fn revisioned_uncovered_chunks(
+    storage: &genesis_block_native::Storage,
+    recording_id: &str,
+    context: &RevisionedSessionContext,
+) -> Result<HashMap<String, Vec<RawChunk>>, String> {
+    let source_ids = context
+        .sources
+        .values()
+        .map(|scope| scope.source_session_id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    let coverage = genesis_adapter::query_all(
+        storage,
+        "meeting_source_coverage",
+        &["source_session_id", "audio_chunk_id"],
+        vec![genesis_adapter::eq(
+            "meeting_source_coverage",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+    )?;
+    let covered = coverage
+        .iter()
+        .filter(|row| {
+            row.get("meeting_source_coverage.source_session_id")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|source_id| source_ids.contains(source_id))
+        })
+        .filter_map(|row| {
+            row.get("meeting_source_coverage.audio_chunk_id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .collect::<std::collections::HashSet<_>>();
+    let rows = genesis_adapter::query_all(
+        storage,
+        "audio_chunks",
+        &[
+            "id",
+            "file_path",
+            "start_ms",
+            "end_ms",
+            "byte_size",
+            "checksum",
+        ],
+        vec![genesis_adapter::eq(
+            "audio_chunks",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+    )?;
+    let mut missing: HashMap<String, Vec<RawChunk>> = HashMap::new();
+    for row in rows {
+        let chunk_id = genesis_adapter::string(&row, "audio_chunks.id")?;
+        if covered.contains(&chunk_id) {
+            continue;
+        }
+        let file_path = genesis_adapter::string(&row, "audio_chunks.file_path")?;
+        let channel = Path::new(&file_path)
+            .file_name()
+            .and_then(|value| value.to_str())
+            .and_then(channel_for_file_name);
+        let Some(channel) = channel.filter(|channel| context.sources.contains_key(*channel)) else {
+            continue;
+        };
+        missing
+            .entry(channel.to_string())
+            .or_default()
+            .push(RawChunk {
+                channel,
+                chunk_id,
+                file_path,
+                start_ms: genesis_adapter::integer(&row, "audio_chunks.start_ms")?,
+                end_ms: genesis_adapter::integer(&row, "audio_chunks.end_ms")?,
+                byte_size: genesis_adapter::integer(&row, "audio_chunks.byte_size")?,
+                checksum: genesis_adapter::string(&row, "audio_chunks.checksum")?,
+            });
+    }
+    for chunks in missing.values_mut() {
+        chunks.sort_by_key(|chunk| (chunk.start_ms, chunk.end_ms));
+    }
+    Ok(missing)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn transcribe_revisioned_pending(
+    app: &tauri::AppHandle,
+    storage: &genesis_block_native::Storage,
+    recent: &SharedRecent,
+    runtime: &WhisperRuntime,
+    language: Option<&str>,
+    recording_id: &str,
+    context: &RevisionedSessionContext,
+    tracks: &mut HashMap<String, RevisionedTrack>,
+) -> usize {
+    let pending_by_channel = match revisioned_uncovered_chunks(storage, recording_id, context) {
+        Ok(pending) => pending,
+        Err(error) => {
+            record_capture_fault(
+                app,
+                storage,
+                context
+                    .sources
+                    .values()
+                    .next()
+                    .map(|scope| scope.project_id.as_str())
+                    .unwrap_or_default(),
+                recording_id,
+                "live_meeting.transcript_pending",
+                "session",
+                &error,
+                format!("ตรวจสอบเสียงค้างสำหรับ revisioned catch-up ไม่ได้ ({error})"),
+            );
+            return 1;
+        }
+    };
+    let total = pending_by_channel.values().map(Vec::len).sum::<usize>();
+    if total == 0
+        && tracks
+            .values()
+            .all(|track| track.pending_sources.is_empty())
+    {
+        return 0;
+    }
+    emit_status(
+        app,
+        recording_id,
+        "transcribing",
+        Some(format!(
+            "กำลังถอดและ reconcile เสียง revisioned ที่ค้าง {total} ช่วง"
+        )),
+        None,
+        None,
+    );
+    let mut worker = match LiveWorker::spawn(runtime, language).and_then(|mut worker| {
+        worker.wait_ready()?;
+        Ok(worker)
+    }) {
+        Ok(worker) => worker,
+        Err(error) => {
+            record_capture_fault(
+                app,
+                storage,
+                context
+                    .sources
+                    .values()
+                    .next()
+                    .map(|scope| scope.project_id.as_str())
+                    .unwrap_or_default(),
+                recording_id,
+                "live_meeting.transcript_pending",
+                "session",
+                &error,
+                format!("เปิด worker สำหรับ revisioned catch-up ไม่ได้ ({error}) — เสียงยังอยู่ในเครื่อง"),
+            );
+            return total.max(1);
+        }
+    };
+    let project_id = context
+        .sources
+        .values()
+        .next()
+        .map(|scope| scope.project_id.as_str())
+        .unwrap_or_default();
+    let Some(runtime_info) = worker.runtime_info() else {
+        worker.shutdown();
+        return total.max(1);
+    };
+    let model_run_id = match create_live_model_run(storage, recording_id, runtime_info, language) {
+        Ok(run_id) => run_id,
+        Err(error) => {
+            worker.shutdown();
+            record_capture_fault(
+                app,
+                storage,
+                project_id,
+                recording_id,
+                "live_meeting.transcript_pending",
+                "session",
+                &error,
+                format!("บันทึก provenance ของ worker catch-up ไม่ได้ ({error})"),
+            );
+            return total.max(1);
+        }
+    };
+
+    let mut remaining = total;
+    for (channel, track) in tracks.iter_mut() {
+        let mut queued = track.pending_chunks.clone();
+        let queued_ids = queued
+            .iter()
+            .map(|chunk| chunk.chunk_id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        queued.extend(
+            pending_by_channel
+                .get(channel)
+                .into_iter()
+                .flatten()
+                .filter(|chunk| !queued_ids.contains(&chunk.chunk_id))
+                .cloned(),
+        );
+        queued.sort_by_key(|chunk| (chunk.start_ms, chunk.end_ms));
+        if queued.is_empty() && track.pending_sources.is_empty() {
+            continue;
+        }
+        if track.retry_batch.is_none() {
+            for update in track.tracker.discard_uncommitted() {
+                if let crate::live_transcript::TranscriptUpdate::Discard {
+                    utterance_id,
+                    revision,
+                } = update
+                {
+                    emit_transcript_event(
+                        app,
+                        context,
+                        &track.scope,
+                        "transcript.discarded",
+                        "discarded",
+                        Some(utterance_id),
+                        Some(revision),
+                        None,
+                        Vec::new(),
+                        Some(&model_run_id),
+                        None,
+                        None,
+                    );
+                }
+            }
+        }
+        track.scheduler.reset();
+        for chunk in queued {
+            let existing_pending = track
+                .pending_chunks
+                .iter()
+                .any(|pending| pending.chunk_id == chunk.chunk_id);
+            let batch = if existing_pending {
+                track.replay_pending_chunk(&chunk)
+            } else {
+                track.add_chunk(chunk.clone())
+            };
+            let batch = match batch {
+                Ok(batch) => batch,
+                Err(error) => {
+                    emit_status(
+                        app,
+                        recording_id,
+                        "degraded",
+                        Some(format!("catch-up window schedule failed: {error:?}")),
+                        None,
+                        None,
+                    );
+                    remaining += 1;
+                    continue;
+                }
+            };
+            if batch.gap.is_some() {
+                for update in track.tracker.discard_uncommitted() {
+                    if let crate::live_transcript::TranscriptUpdate::Discard {
+                        utterance_id,
+                        revision,
+                    } = update
+                    {
+                        emit_transcript_event(
+                            app,
+                            context,
+                            &track.scope,
+                            "transcript.discarded",
+                            "discarded",
+                            Some(utterance_id),
+                            Some(revision),
+                            None,
+                            Vec::new(),
+                            Some(&model_run_id),
+                            None,
+                            None,
+                        );
+                    }
+                }
+            }
+            if batch.windows.is_empty() {
+                continue;
+            }
+            let through_sequence = track.next_sequence_no.saturating_sub(1);
+            let candidates = match decode_revision_windows(
+                app,
+                context,
+                track,
+                &mut worker,
+                &model_run_id,
+                &batch.windows,
+            ) {
+                Ok(candidates) => candidates,
+                Err(error) => {
+                    record_capture_fault(
+                        app,
+                        storage,
+                        project_id,
+                        recording_id,
+                        "live_meeting.transcript_pending",
+                        &track.scope.track_id,
+                        &error,
+                        format!("revisioned catch-up หยุดทำงาน ({error})"),
+                    );
+                    remaining += 1;
+                    worker.shutdown();
+                    return remaining;
+                }
+            };
+            match commit_revisioned_sources(
+                app,
+                storage,
+                recent,
+                context,
+                track,
+                candidates,
+                &model_run_id,
+                through_sequence,
+            ) {
+                Ok(()) => remaining = remaining.saturating_sub(1),
+                Err(error) => {
+                    record_capture_fault(
+                        app,
+                        storage,
+                        project_id,
+                        recording_id,
+                        "live_meeting.transcript_pending",
+                        &track.scope.track_id,
+                        &error,
+                        format!("บันทึก revisioned catch-up ไม่สำเร็จ ({error})"),
+                    );
+                    remaining += 1;
+                    worker.shutdown();
+                    return remaining;
+                }
+            }
+        }
+        if let Some(window) = track.scheduler.flush(&track.scope.track_id).ok().flatten() {
+            let through_sequence = track.next_sequence_no.saturating_sub(1);
+            let candidates = match decode_revision_windows(
+                app,
+                context,
+                track,
+                &mut worker,
+                &model_run_id,
+                std::slice::from_ref(&window),
+            ) {
+                Ok(candidates) => candidates,
+                Err(error) => {
+                    record_capture_fault(
+                        app,
+                        storage,
+                        project_id,
+                        recording_id,
+                        "live_meeting.transcript_pending",
+                        &track.scope.track_id,
+                        &error,
+                        format!("revisioned catch-up final window failed ({error})"),
+                    );
+                    remaining += 1;
+                    worker.shutdown();
+                    return remaining;
+                }
+            };
+            if let Err(error) = commit_revisioned_sources(
+                app,
+                storage,
+                recent,
+                context,
+                track,
+                candidates,
+                &model_run_id,
+                through_sequence,
+            ) {
+                record_capture_fault(
+                    app,
+                    storage,
+                    project_id,
+                    recording_id,
+                    "live_meeting.transcript_pending",
+                    &track.scope.track_id,
+                    &error,
+                    format!("revisioned catch-up final commit failed ({error})"),
+                );
+                remaining += 1;
+                worker.shutdown();
+                return remaining;
+            }
+            remaining = remaining.saturating_sub(1);
+        }
+        if !track.pending_sources.is_empty() {
+            let through_sequence = track.next_sequence_no.saturating_sub(1);
+            if commit_revisioned_sources(
+                app,
+                storage,
+                recent,
+                context,
+                track,
+                Vec::new(),
+                &model_run_id,
+                through_sequence,
+            )
+            .is_ok()
+            {
+                remaining = remaining.saturating_sub(1);
+            } else {
+                remaining += 1;
+            }
+        }
+    }
+    worker.shutdown();
+    match revisioned_uncovered_chunks(storage, recording_id, context) {
+        Ok(still_missing) => still_missing.values().map(Vec::len).sum::<usize>(),
+        Err(_) => remaining.max(1),
     }
 }
 
@@ -993,7 +2526,7 @@ pub(crate) fn capture_outcome(
     if lost_chunks > 0 {
         return CaptureOutcome {
             failure_reason: Some(format!(
-                "{lost_chunks} audio chunk(s) could not be written to disk; \
+                "{lost_chunks} audio chunk(s) or media interval(s) were lost; \
                  {stream_faults} audio stream fault(s)"
             )),
             message: format!(
@@ -1024,7 +2557,7 @@ fn record_capture_fault(
     project_id: &str,
     recording_id: &str,
     event_type: &str,
-    channel: &'static str,
+    channel: &str,
     error: &str,
     message: String,
 ) {
@@ -1064,6 +2597,8 @@ fn spawn_coordinator(
     session_dir: PathBuf,
     stop: Arc<AtomicBool>,
     native_capture: Arc<crate::recording_review::NativeCaptureGuard>,
+    transcript_profile: crate::live_transcript::LiveTranscriptProfile,
+    revisioned_context: Option<RevisionedSessionContext>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         let capture_lease = CaptureRuntimeLease {
@@ -1119,10 +2654,56 @@ fn spawn_coordinator(
             }
         };
 
-        // Chunks whose audio is safely on disk but which the live worker never
-        // transcribed. The session-end catch-up pass below is what makes the
-        // degraded-mode promise ("will be transcribed after it ends") true.
-        let mut pending_transcription: Vec<RawChunk> = Vec::new();
+        let mut revisioned_tracks = revisioned_context
+            .as_ref()
+            .map(|context| {
+                context
+                    .sources
+                    .iter()
+                    .map(|(channel, scope)| (channel.clone(), RevisionedTrack::new(scope.clone())))
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or_default();
+        let mut revisioned_model_run_id = None;
+        if transcript_profile == crate::live_transcript::LiveTranscriptProfile::Revisioned {
+            if let Some(active_worker) = worker.as_ref() {
+                if let Some(runtime_info) = active_worker.runtime_info() {
+                    match create_live_model_run(
+                        &storage,
+                        &recording_id,
+                        runtime_info,
+                        language.as_deref(),
+                    ) {
+                        Ok(run_id) => revisioned_model_run_id = Some(run_id),
+                        Err(error) => emit_status(
+                            &app,
+                            &recording_id,
+                            "degraded",
+                            Some(format!("ไม่สามารถบันทึก provenance ของโมเดลได้ ({error})")),
+                            None,
+                            None,
+                        ),
+                    }
+                }
+            }
+            if revisioned_model_run_id.is_none() {
+                if let Some(worker) = worker.take() {
+                    worker.shutdown();
+                }
+                emit_status(
+                    &app,
+                    &recording_id,
+                    "degraded",
+                    Some(
+                        "ถอดสดแบบ revisioned รอ worker ที่มี provenance ครบ; จะลองถอดย้อนหลังหลังจบ"
+                            .to_string(),
+                    ),
+                    None,
+                    None,
+                );
+            }
+        }
+
         // Faults are counted, not just displayed: the totals decide whether
         // this capture may be reported as a clean recording.
         let mut lost_chunks: usize = 0;
@@ -1142,8 +2723,14 @@ fn spawn_coordinator(
         while let Ok(event) = chunk_rx.recv() {
             let chunk = match event {
                 CaptureEvent::Chunk(chunk) => chunk,
-                CaptureEvent::ChunkWriteFailed { channel, error } => {
+                CaptureEvent::ChunkWriteFailed {
+                    channel,
+                    start_ms,
+                    end_ms,
+                    error,
+                } => {
                     lost_chunks += 1;
+                    max_end_ms = max_end_ms.max(end_ms);
                     record_capture_fault(
                         &app,
                         &storage,
@@ -1152,8 +2739,26 @@ fn spawn_coordinator(
                         "live_meeting.chunk_write_failed",
                         channel,
                         &error,
-                        format!("เขียนไฟล์เสียงช่อง {channel} ไม่สำเร็จ ({error}) — เสียงช่วงนี้สูญหาย {lost_chunks} ช่วงแล้ว"),
+                        format!("เขียนไฟล์เสียงช่อง {channel} ไม่สำเร็จ ({error}) — ช่วง {start_ms}–{end_ms} ms สูญหาย; บันทึก gap #{lost_chunks}"),
                     );
+                    if transcript_profile
+                        == crate::live_transcript::LiveTranscriptProfile::Revisioned
+                    {
+                        record_revisioned_capture_gap(
+                            &app,
+                            &storage,
+                            &recent,
+                            &recording_id,
+                            revisioned_context.as_ref(),
+                            &mut revisioned_model_run_id,
+                            &mut worker,
+                            &mut revisioned_tracks,
+                            channel,
+                            start_ms,
+                            end_ms,
+                            "chunk_write_failed",
+                        );
+                    }
                     continue;
                 }
                 CaptureEvent::StreamFailed { channel, error } => {
@@ -1168,6 +2773,44 @@ fn spawn_coordinator(
                         &error,
                         format!("สตรีมเสียงช่อง {channel} ผิดพลาด ({error}) — ตรวจสอบอุปกรณ์เสียง"),
                     );
+                    continue;
+                }
+                CaptureEvent::SourceGap {
+                    channel,
+                    start_ms,
+                    end_ms,
+                    reason,
+                } => {
+                    lost_chunks += 1;
+                    max_end_ms = max_end_ms.max(end_ms);
+                    record_capture_fault(
+                        &app,
+                        &storage,
+                        &project_id,
+                        &recording_id,
+                        "live_meeting.capture_source_gap",
+                        channel,
+                        &format!("missing captured media interval {start_ms}..{end_ms} ms ({reason})"),
+                        format!("ช่อง {channel} เสียงช่วง {start_ms}–{end_ms} ms สูญหาย ({reason}); บันทึก gap #{lost_chunks}"),
+                    );
+                    if transcript_profile
+                        == crate::live_transcript::LiveTranscriptProfile::Revisioned
+                    {
+                        record_revisioned_capture_gap(
+                            &app,
+                            &storage,
+                            &recent,
+                            &recording_id,
+                            revisioned_context.as_ref(),
+                            &mut revisioned_model_run_id,
+                            &mut worker,
+                            &mut revisioned_tracks,
+                            channel,
+                            start_ms,
+                            end_ms,
+                            reason,
+                        );
+                    }
                     continue;
                 }
             };
@@ -1240,8 +2883,146 @@ fn spawn_coordinator(
                 }
             }
 
+            if transcript_profile == crate::live_transcript::LiveTranscriptProfile::Revisioned {
+                let Some(context) = revisioned_context.as_ref() else {
+                    continue;
+                };
+                let Some(track) = revisioned_tracks.get_mut(chunk.channel) else {
+                    emit_status(
+                        &app,
+                        &recording_id,
+                        "degraded",
+                        Some(format!("ไม่มี source scope สำหรับช่อง {}", chunk.channel)),
+                        None,
+                        None,
+                    );
+                    continue;
+                };
+                let batch = match track.add_chunk(chunk) {
+                    Ok(batch) => batch,
+                    Err(error) => {
+                        emit_status(
+                            &app,
+                            &recording_id,
+                            "degraded",
+                            Some(format!("สร้างหน้าต่างถอดความไม่ได้: {error:?}")),
+                            None,
+                            None,
+                        );
+                        continue;
+                    }
+                };
+                if batch.gap.is_some() {
+                    for update in track.tracker.discard_uncommitted() {
+                        if let crate::live_transcript::TranscriptUpdate::Discard {
+                            utterance_id,
+                            revision,
+                        } = update
+                        {
+                            emit_transcript_event(
+                                &app,
+                                context,
+                                &track.scope,
+                                "transcript.discarded",
+                                "discarded",
+                                Some(utterance_id),
+                                Some(revision),
+                                None,
+                                Vec::new(),
+                                revisioned_model_run_id.as_deref(),
+                                None,
+                                None,
+                            );
+                        }
+                    }
+                }
+                let (Some(active_worker), Some(model_run_id)) =
+                    (worker.as_mut(), revisioned_model_run_id.as_deref())
+                else {
+                    continue;
+                };
+                if batch.windows.is_empty() {
+                    continue;
+                }
+                let through_sequence = track.next_sequence_no.saturating_sub(1);
+                let candidates = match decode_revision_windows(
+                    &app,
+                    context,
+                    track,
+                    active_worker,
+                    model_run_id,
+                    &batch.windows,
+                ) {
+                    Ok(candidates) => candidates,
+                    Err(error) => {
+                        for update in track.tracker.discard_uncommitted() {
+                            if let crate::live_transcript::TranscriptUpdate::Discard {
+                                utterance_id,
+                                revision,
+                            } = update
+                            {
+                                emit_transcript_event(
+                                    &app,
+                                    context,
+                                    &track.scope,
+                                    "transcript.discarded",
+                                    "discarded",
+                                    Some(utterance_id),
+                                    Some(revision),
+                                    None,
+                                    Vec::new(),
+                                    Some(model_run_id),
+                                    None,
+                                    None,
+                                );
+                            }
+                        }
+                        emit_status(
+                            &app,
+                            &recording_id,
+                            "degraded",
+                            Some(format!(
+                                "ตัวถอด revisioned หยุดทำงาน ({error}) — เก็บเสียงไว้ถอดย้อนหลัง"
+                            )),
+                            None,
+                            None,
+                        );
+                        if let Some(dead) = worker.take() {
+                            dead.shutdown();
+                        }
+                        revisioned_model_run_id = None;
+                        continue;
+                    }
+                };
+                if let Err(error) = commit_revisioned_sources(
+                    &app,
+                    &storage,
+                    &recent,
+                    context,
+                    track,
+                    candidates,
+                    model_run_id,
+                    through_sequence,
+                ) {
+                    emit_status(
+                        &app,
+                        &recording_id,
+                        "degraded",
+                        Some(format!(
+                            "บันทึก transcript revision ไม่สำเร็จ ({error}) — จะ reconcile หลังจบ"
+                        )),
+                        None,
+                        None,
+                    );
+                    if let Some(dead) = worker.take() {
+                        dead.shutdown();
+                    }
+                    revisioned_model_run_id = None;
+                }
+                continue;
+            }
+
             let Some(active_worker) = worker.as_mut() else {
-                pending_transcription.push(chunk);
                 continue;
             };
             match active_worker.transcribe_chunk(&chunk) {
@@ -1272,11 +3053,114 @@ fn spawn_coordinator(
                     if let Some(dead) = worker.take() {
                         dead.shutdown();
                     }
-                    pending_transcription.push(chunk);
                 }
             }
         }
 
+        if transcript_profile == crate::live_transcript::LiveTranscriptProfile::Revisioned {
+            let mut flush_failed = false;
+            if let (Some(context), Some(model_run_id), Some(active_worker)) = (
+                revisioned_context.as_ref(),
+                revisioned_model_run_id.as_deref(),
+                worker.as_mut(),
+            ) {
+                for track in revisioned_tracks.values_mut() {
+                    let final_window = match track.scheduler.flush(&track.scope.track_id) {
+                        Ok(window) => window,
+                        Err(error) => {
+                            emit_status(
+                                &app,
+                                &recording_id,
+                                "degraded",
+                                Some(format!("ปิดหน้าต่างเสียงสุดท้ายไม่ได้: {error:?}")),
+                                None,
+                                None,
+                            );
+                            flush_failed = true;
+                            break;
+                        }
+                    };
+                    if let Some(window) = final_window {
+                        let through_sequence = track.next_sequence_no.saturating_sub(1);
+                        match decode_revision_windows(
+                            &app,
+                            context,
+                            track,
+                            active_worker,
+                            model_run_id,
+                            std::slice::from_ref(&window),
+                        ) {
+                            Ok(candidates) => {
+                                if let Err(error) = commit_revisioned_sources(
+                                    &app,
+                                    &storage,
+                                    &recent,
+                                    context,
+                                    track,
+                                    candidates,
+                                    model_run_id,
+                                    through_sequence,
+                                ) {
+                                    emit_status(
+                                        &app,
+                                        &recording_id,
+                                        "degraded",
+                                        Some(format!("บันทึกหน้าต่างสุดท้ายไม่สำเร็จ ({error})")),
+                                        None,
+                                        None,
+                                    );
+                                    flush_failed = true;
+                                    break;
+                                }
+                            }
+                            Err(error) => {
+                                emit_status(
+                                    &app,
+                                    &recording_id,
+                                    "degraded",
+                                    Some(format!("ถอดหน้าต่างสุดท้ายไม่ได้ ({error})")),
+                                    None,
+                                    None,
+                                );
+                                flush_failed = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !track.pending_sources.is_empty() {
+                        let through_sequence = track.next_sequence_no.saturating_sub(1);
+                        if let Err(error) = commit_revisioned_sources(
+                            &app,
+                            &storage,
+                            &recent,
+                            context,
+                            track,
+                            Vec::new(),
+                            model_run_id,
+                            through_sequence,
+                        ) {
+                            emit_status(
+                                &app,
+                                &recording_id,
+                                "degraded",
+                                Some(format!("บันทึก source tail ไม่สำเร็จ ({error})")),
+                                None,
+                                None,
+                            );
+                            flush_failed = true;
+                            break;
+                        }
+                    }
+                }
+            } else {
+                flush_failed = true;
+            }
+            if flush_failed {
+                if let Some(active_worker) = worker.take() {
+                    active_worker.shutdown();
+                }
+            }
+        }
         if let Some(active_worker) = worker.take() {
             active_worker.shutdown();
         }
@@ -1294,20 +3178,48 @@ fn spawn_coordinator(
         // chunks were collected into a vector and dropped, so the app stated
         // something it never did. Runs before the summary so recovered text is
         // part of it, not missing from it.
-        let still_pending = if pending_transcription.is_empty() {
-            0
-        } else {
-            transcribe_pending_chunks(
-                &app,
-                &storage,
-                &recent,
-                &runtime,
-                language.as_deref(),
-                &project_id,
-                &recording_id,
-                &pending_transcription,
-            )
-        };
+        let still_pending =
+            if transcript_profile == crate::live_transcript::LiveTranscriptProfile::Revisioned {
+                revisioned_context.as_ref().map_or(1, |context| {
+                    transcribe_revisioned_pending(
+                        &app,
+                        &storage,
+                        &recent,
+                        &runtime,
+                        language.as_deref(),
+                        &recording_id,
+                        context,
+                        &mut revisioned_tracks,
+                    )
+                })
+            } else {
+                match chunks_missing_transcript(&storage, &project_id, &recording_id) {
+                    Ok(pending) if pending.is_empty() => 0,
+                    Ok(pending) => transcribe_pending_chunks(
+                        &app,
+                        &storage,
+                        &recent,
+                        &runtime,
+                        language.as_deref(),
+                        &project_id,
+                        &recording_id,
+                        &pending,
+                    ),
+                    Err(error) => {
+                        record_capture_fault(
+                            &app,
+                            &storage,
+                            &project_id,
+                            &recording_id,
+                            "live_meeting.transcript_pending_lookup_failed",
+                            "session",
+                            &error,
+                            format!("ตรวจรายการเสียงที่ยังไม่ได้ถอดความไม่ได้ ({error})"),
+                        );
+                        1
+                    }
+                }
+            };
 
         // A capture that lost source audio is not a completed capture. The job
         // row is the durable record, so it must say so even if nobody was
@@ -1325,6 +3237,17 @@ fn spawn_coordinator(
             None => {
                 let _ = crate::set_job_status(&storage, &job_id, "completed", Some(100), None);
             }
+        }
+        if let Some(context) = revisioned_context.as_ref() {
+            update_revisioned_session_state(
+                &storage,
+                context,
+                if still_pending > 0 || lost_chunks > 0 {
+                    "degraded"
+                } else {
+                    "completed"
+                },
+            );
         }
         emit_status(
             &app,
@@ -1750,6 +3673,7 @@ pub(crate) struct LiveStartOutput {
     job_id: String,
     mic_device: String,
     system_device: Option<String>,
+    transcript_profile: String,
     warning: Option<String>,
 }
 
@@ -1860,17 +3784,22 @@ pub(crate) fn live_capture_devices(state: State<'_, AppState>) -> AppResult<Live
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub(crate) fn live_meeting_start(
     project_id: Option<String>,
     capture_system: Option<bool>,
     language: Option<String>,
+    transcript_profile: Option<String>,
     mic_device_id: Option<String>,
     system_device_id: Option<String>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<LiveStartOutput> {
     let capture_system = capture_system.unwrap_or(true);
+    let transcript_profile =
+        crate::live_transcript::LiveTranscriptProfile::parse(transcript_profile.as_deref())
+            .map_err(AppError::InvalidInput)?;
     let mic_device_id = normalize_device_id(mic_device_id);
     let system_device_id = normalize_device_id(system_device_id);
 
@@ -2001,23 +3930,49 @@ pub(crate) fn live_meeting_start(
         genesis_adapter::upsert("audit_events", serde_json::json!({"id": Uuid::new_v4().to_string(), "project_id": project_id, "event_type": "live_meeting.started", "actor": "user", "payload_json": {"recordingId": recording_id, "captureSystem": capture_system}, "created_at": timestamp})),
     ]).map_err(AppError::Genesis)?;
 
+    let revisioned_context = if transcript_profile
+        == crate::live_transcript::LiveTranscriptProfile::Revisioned
+    {
+        let mut channels = vec![CHANNEL_MIC];
+        if capture_system {
+            channels.push(CHANNEL_SYSTEM);
+        }
+        match create_revisioned_session(&state.genesis, &project_id, &recording_id, &channels) {
+            Ok(context) => Some(context),
+            Err(error) => {
+                let _ =
+                    crate::set_job_status(&state.genesis, &job_id, "failed", None, Some(&error));
+                if let Ok(record) = genesis_adapter::capture(&state.genesis, &recording_id) {
+                    let _ = genesis_adapter::finish_capture(&state.genesis, &record, &now());
+                }
+                return Err(AppError::Genesis(error));
+            }
+        }
+    } else {
+        None
+    };
+
     let stop = Arc::new(AtomicBool::new(false));
     let recent: SharedRecent = Arc::new(Mutex::new(std::collections::VecDeque::new()));
-    let (chunk_tx, chunk_rx) = mpsc::channel::<CaptureEvent>();
+    let (chunk_tx, chunk_rx) = mpsc::sync_channel::<CaptureEvent>(CAPTURE_EVENT_QUEUE_CAPACITY);
 
     // Microphone is mandatory: without it there is no session.
-    let mic_ready = spawn_capture_thread(
+    let mic_ready = spawn_capture_thread_with_fragment_ms(
         ChannelKind::Mic,
         CHANNEL_MIC,
         mic_device_id.clone(),
         stop.clone(),
         chunk_tx.clone(),
         chunks_dir.clone(),
+        transcript_profile.fragment_ms() as u64,
     );
     let mic_ready = match mic_ready {
         Ok(ready) => ready,
         Err(error) => {
             stop.store(true, Ordering::SeqCst);
+            if let Some(context) = &revisioned_context {
+                update_revisioned_session_state(&state.genesis, context, "failed");
+            }
             let _ = crate::set_job_status(&state.genesis, &job_id, "failed", None, Some(&error));
             if let Ok(record) = genesis_adapter::capture(&state.genesis, &recording_id) {
                 let _ = genesis_adapter::finish_capture(&state.genesis, &record, &now());
@@ -2031,18 +3986,22 @@ pub(crate) fn live_meeting_start(
     // System loopback is best-effort: a failure downgrades to mic-only.
     let mut warning = None;
     let system_device = if capture_system {
-        match spawn_capture_thread(
+        match spawn_capture_thread_with_fragment_ms(
             ChannelKind::SystemLoopback,
             CHANNEL_SYSTEM,
             system_device_id.clone(),
             stop.clone(),
             chunk_tx.clone(),
             chunks_dir.clone(),
+            transcript_profile.fragment_ms() as u64,
         ) {
             Ok(ready) => Some(ready.device_name),
             Err(error) => {
                 if system_device_id.is_some() {
                     stop.store(true, Ordering::SeqCst);
+                    if let Some(context) = &revisioned_context {
+                        update_revisioned_session_state(&state.genesis, context, "failed");
+                    }
                     let _ = crate::set_job_status(
                         &state.genesis,
                         &job_id,
@@ -2064,6 +4023,11 @@ pub(crate) fn live_meeting_start(
     } else {
         None
     };
+    if capture_system && system_device.is_none() {
+        if let Some(context) = &revisioned_context {
+            update_revisioned_source_state(&state.genesis, context, CHANNEL_SYSTEM, "unavailable");
+        }
+    }
     drop(chunk_tx); // coordinator's Disconnected now depends only on channel threads
 
     capture_reservation.commit_active();
@@ -2093,6 +4057,8 @@ pub(crate) fn live_meeting_start(
         session_dir.clone(),
         stop.clone(),
         Arc::clone(&state.native_capture),
+        transcript_profile,
+        revisioned_context,
     );
     let mut cleanup_coordinator = None;
     {
@@ -2142,6 +4108,10 @@ pub(crate) fn live_meeting_start(
         job_id,
         mic_device: mic_ready.device_name,
         system_device,
+        transcript_profile: match transcript_profile {
+            crate::live_transcript::LiveTranscriptProfile::Chunked => "chunked".to_string(),
+            crate::live_transcript::LiveTranscriptProfile::Revisioned => "revisioned".to_string(),
+        },
         warning,
     })
 }
@@ -2250,6 +4220,101 @@ pub(crate) fn live_meeting_status(state: State<'_, AppState>) -> AppResult<LiveS
 mod tests {
     use super::*;
     use genesis_block_native::{OpenOptions, Storage};
+
+    #[test]
+    fn capture_sample_queue_holes_are_emitted_as_ordered_media_gaps() {
+        let temp = tempfile::tempdir().expect("temporary chunk root");
+        let (tx, rx) = mpsc::sync_channel(CAPTURE_EVENT_QUEUE_CAPACITY);
+        let mut accumulator = Vec::new();
+        let mut timeline_samples = 0;
+        let mut expected_sample = 0;
+        let mut sequence = 0;
+
+        process_capture_sample_batch(
+            CaptureSampleBatch {
+                first_sample: 0,
+                samples: vec![1; 8],
+            },
+            CHANNEL_MIC,
+            1_000,
+            4,
+            temp.path(),
+            &tx,
+            &mut accumulator,
+            &mut timeline_samples,
+            &mut expected_sample,
+            &mut sequence,
+        );
+        process_capture_sample_batch(
+            CaptureSampleBatch {
+                first_sample: 12,
+                samples: vec![1; 4],
+            },
+            CHANNEL_MIC,
+            1_000,
+            4,
+            temp.path(),
+            &tx,
+            &mut accumulator,
+            &mut timeline_samples,
+            &mut expected_sample,
+            &mut sequence,
+        );
+
+        let events = rx.try_iter().collect::<Vec<_>>();
+        assert_eq!(events.len(), 4);
+        assert!(
+            matches!(&events[0], CaptureEvent::Chunk(chunk) if (chunk.start_ms, chunk.end_ms) == (0, 4))
+        );
+        assert!(
+            matches!(&events[1], CaptureEvent::Chunk(chunk) if (chunk.start_ms, chunk.end_ms) == (4, 8))
+        );
+        assert!(matches!(
+            &events[2],
+            CaptureEvent::SourceGap {
+                start_ms: 8,
+                end_ms: 12,
+                reason: "sample_queue_overflow",
+                ..
+            }
+        ));
+        assert!(
+            matches!(&events[3], CaptureEvent::Chunk(chunk) if (chunk.start_ms, chunk.end_ms) == (12, 16))
+        );
+        assert_eq!(expected_sample, 16);
+    }
+
+    #[test]
+    fn failed_chunk_write_reports_its_exact_source_interval() {
+        let temp = tempfile::tempdir().expect("temporary chunk root");
+        let not_a_directory = temp.path().join("file");
+        std::fs::write(&not_a_directory, b"x").expect("create non-directory path");
+        let (tx, rx) = mpsc::sync_channel(CAPTURE_EVENT_QUEUE_CAPACITY);
+        let mut timeline_samples = 0;
+        let mut sequence = 0;
+        let mut samples = vec![1; 4];
+
+        cut_capture_chunk(
+            CHANNEL_MIC,
+            1_000,
+            &not_a_directory,
+            &tx,
+            &mut samples,
+            &mut timeline_samples,
+            &mut sequence,
+            4,
+        );
+
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(CaptureEvent::ChunkWriteFailed {
+                channel: CHANNEL_MIC,
+                start_ms: 0,
+                end_ms: 4,
+                ..
+            })
+        ));
+    }
 
     fn open_storage() -> (PathBuf, Storage) {
         let path = std::env::temp_dir().join(format!("fung-live-test-{}", Uuid::new_v4()));
@@ -2630,7 +4695,10 @@ mod tests {
             lossy.failure_reason.is_some(),
             "a capture that lost chunks must fail its job"
         );
-        assert!(lossy.failure_reason.unwrap().contains("3 audio chunk(s)"));
+        assert!(lossy
+            .failure_reason
+            .unwrap()
+            .contains("3 audio chunk(s) or media interval(s) were lost"));
         assert!(lossy.message.contains("เสียงหาย 3 ช่วง"));
 
         let clean = capture_outcome(120_000, 0, 0, 0);

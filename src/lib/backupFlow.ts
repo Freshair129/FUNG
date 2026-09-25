@@ -43,6 +43,7 @@ export type RestoreResult = {
   archiveId: string;
   restoredBundleSha256: string;
   audio: AudioRestoreSummary;
+  privateMeetingAssets?: PrivateMeetingAssetsRestoreSummary | null;
   terminalState: string;
 };
 
@@ -58,6 +59,18 @@ export type AudioBackupSummary = {
 export type BackupRunReport = {
   record: BackupArchiveRecord;
   audio: AudioBackupSummary;
+  privateMeetingAssets: PrivateMeetingAssetsBackupSummary;
+};
+
+export type PrivateMeetingAssetsBackupSummary = {
+  encryptedAssetCount: number;
+  recoveryPackageCreated: boolean;
+};
+
+export type PrivateMeetingAssetsRestoreSummary = {
+  restoredAssetCount: number;
+  recoveryPackageSaved: boolean;
+  ownerKeyVerified: boolean;
 };
 
 export type BackupOverview = {
@@ -140,6 +153,20 @@ export function describeAudioRestore(audio: AudioRestoreSummary): string {
   const restored = `คืนไฟล์เสียง ${audio.restoredFileCount} ไฟล์ (${formatBytes(audio.restoredByteCount)})`;
   if (audio.omittedFileCount === 0) return `${restored} — ครบตามที่ไฟล์สำรองบันทึกไว้`;
   return `${restored} — ไฟล์สำรองระบุว่าขาดไปแล้ว ${audio.omittedFileCount} ไฟล์ตั้งแต่ตอนสำรอง`;
+}
+
+export function describePrivateMeetingAssetsBackup(
+  assets: PrivateMeetingAssetsBackupSummary,
+): string {
+  if (assets.encryptedAssetCount === 0) return "ไม่มี knowledge asset ส่วนตัว";
+  return `knowledge asset เข้ารหัส ${assets.encryptedAssetCount} รายการ · recovery package ${assets.recoveryPackageCreated ? "พร้อม" : "ไม่พร้อม"}`;
+}
+
+export function describePrivateMeetingAssetsRestore(
+  assets: PrivateMeetingAssetsRestoreSummary | null | undefined,
+): string | null {
+  if (!assets || assets.restoredAssetCount === 0) return null;
+  return `คืน knowledge asset แบบ ciphertext ${assets.restoredAssetCount} รายการ · ${assets.ownerKeyVerified ? "ตรวจ key กับ local owner แล้ว" : "เก็บ recovery package เข้ารหัสไว้แล้ว แต่ยังไม่ยืนยัน owner/key ในเครื่องนี้"}`;
 }
 
 /** Restore requires an explicit confirmation from the user because it creates
@@ -245,6 +272,18 @@ export function describeBackupError(raw: unknown): string {
   }
   if (message.includes("audio inventory could not be read")) {
     return "อ่านรายการไฟล์เสียงจาก Genesis ไม่สำเร็จ — ไม่สำรองเพื่อไม่ให้ได้ไฟล์ที่ขาดเสียง";
+  }
+  if (message.includes("LOCAL_OWNER_LOCKED_FOR_PRIVATE_BACKUP")) {
+    return "ปลดล็อก local owner ก่อนสำรอง knowledge asset ส่วนตัว เพื่อรวม ciphertext และ recovery package ให้ครบ";
+  }
+  if (message.includes("PRIVATE_BACKUP_CONTAINS_OTHER_OWNER_ASSETS")) {
+    return "พบ knowledge asset ของ owner อื่น — หยุดสำรองเพื่อไม่สร้างไฟล์ที่กู้คืนได้ไม่ครบ";
+  }
+  if (message.includes("private meeting assets could not be backed up")) {
+    return "เตรียม knowledge asset หรือ recovery package ไม่สำเร็จ — ไม่สร้างไฟล์สำรองที่ไม่ครบ";
+  }
+  if (message.includes("private meeting assets could not be restored")) {
+    return "เขียน knowledge asset เข้ารหัสลงโฟลเดอร์กู้คืนไม่สำเร็จ — ไม่รายงานว่ากู้คืนสำเร็จ";
   }
   if (message.includes("backup payload digest mismatch")) {
     return "ข้อมูลในไฟล์สำรองไม่ตรงกับลายเซ็นที่บันทึกไว้ — ไม่กู้คืนข้อมูลที่อาจผิด";

@@ -1,7 +1,7 @@
 ---
-version: "0.3.7b"
+version: "0.3.8b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-25T05:59:30+07:00,RWANG"
+last_update: "2026-09-26T04:26:38+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -33,6 +33,33 @@ The user selected Google Meet first and accepted API integration to improve spea
 | API feasibility | primary provider docs reviewed; no account, tenant, media, billing, real-room or deployed-gateway test performed |
 
 New specs are candidate and do not close any existing real-capture, model, packaged, provider/device or release gate. The separate R3 AccountCommitFence/native SI-D8 foundation was later integrated in `85c96ed` and merged into `main` in `5809d70`; that bounded result does not activate the broader meeting-intelligence capability.
+
+## General and Detailed transcription modes — 2026-09-26
+
+The Desktop now exposes `ทั่วไป` and `ละเอียด` as distinct post-meeting
+actions. General retains the existing committed-transcript flow and defaults
+to `large-v3-turbo`; the explicit `medium` machine profile remains available.
+Detailed uses a pinned local Transformers Thai candidate, reprocesses only
+custodied audio chunks, and writes aligned text differences as provenance-
+backed review proposals. Ambiguous spans are skipped. Accepting a proposal
+creates a human-reviewed transcript revision after checking the source text,
+timestamp and revision; rejecting it leaves the transcript unchanged. The
+candidate cannot write the committed transcript while drafting and never
+downloads or falls back to another model.
+
+Readiness checks the candidate model files, pinned manifest and importable
+dependencies. It does not load the model or establish Thai meeting accuracy.
+The local candidate artifact/runtime has not been staged. No audio fixture is
+present in this repository, so model-load and same-audio accuracy evidence
+remain **NOT_RUN**. Native Desktop interaction, packaged runtime and release
+evidence also remain **NOT_RUN**. Local validation: frontend production build,
+48 focused Node tests, the candidate worker timeline fixture, formatting and
+diff checks passed. Detailed Rust tests passed **8/8**; the full native suite
+passed **592**, ignored **1**, and failed **1** because this host could not
+create the existing Windows AppContainer profile (`0x80070002`). The Rust
+source tests ran with only the protected `.venv-whisper` bundle resource
+removed from the transient Tauri build config after its ACL blocked resource
+scanning. Release packaging was not run.
 
 ## Current bounded meeting-intelligence R3 foundation — 2026-09-23
 
@@ -1023,6 +1050,12 @@ Screenshot artifacts from the latest UI validation:
 invalidation, consolidated local verification and independent source review;
 native UI/accessibility, provider, device and release gates remain NOT_RUN.
 
+`0.3.7b` → `0.3.8b`: adds General/Detailed post-meeting transcription modes,
+separate candidate proposals and revision-checked human acceptance; source
+checks pass with one existing host-dependent AppContainer test failure, while
+local model-load/Thai-accuracy, native UI, packaged runtime and release
+evidence remain NOT_RUN.
+
 `0.2.38b` → `0.3.0b`: indexed the approved local M1–M5 implementation,
 including untested working-tree state and explicit PDF/People/provider/device
 boundaries; no acceptance gate was promoted.
@@ -1076,6 +1109,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.8b | 2026-09-26 | beta | Added General turbo and Detailed local Thai-candidate draft/review workflow; frontend and focused suites pass, full Rust has one AppContainer host failure, and candidate model/Thai accuracy remain NOT_RUN. | working-tree | RWANG |
 | 0.3.7b | 2026-09-25 | beta | Closed People/metric/draft account-transition races and refresh invalidation gap; final local campaign and independent review passed | working-tree | RWANG |
 | 0.3.5b | 2026-09-25 | beta | Closed four reviewed meeting-intelligence security findings; final local tests and source review pass; native UI/accessibility and product gates remain open | working-tree | RWANG |
 | 0.3.4b | 2026-09-25 | beta | Added pinned PDF parser 7/7 result; interactive UI/accessibility and independent review remain open | working-tree | RWANG |

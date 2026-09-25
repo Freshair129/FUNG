@@ -1,7 +1,7 @@
 ---
-version: "0.3.0b"
+version: "0.4.0b"
 created_at: "2026-09-21T00:00:00+07:00,RWANG"
-last_update: "2026-09-22T21:39:15.4522633+07:00,RWANG"
+last_update: "2026-09-26T04:12:59+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -72,6 +72,31 @@ against the existing profiles. Until that gate passes, the Thai result
 remains user-supplied benchmark evidence and not FUNG runtime or
 production-quality evidence.
 
+## User-facing transcription modes
+
+The Desktop exposes two task modes, separate from the machine execution
+setting (`FUNG_TRANSCRIPTION_PROFILE`):
+
+| User mode | Model route | When it runs | Transcript authority |
+| --- | --- | --- | --- |
+| General (`ทั่วไป`) | `large-v3-turbo` / `turbo` | Default for live and ordinary transcription | Existing committed transcript path |
+| Detailed (`ละเอียด`) | `biodatlab/whisper-th-large-combined` / `thai-large-candidate` | Explicit post-meeting draft pass | Separate candidate proposals; never writes the committed projection |
+
+The detailed mode is a candidate workflow, not a claim that the model is more
+accurate on meetings. The earlier external comparison had no reference
+transcript and did not run through FUNG's Transformers worker, so it cannot
+qualify Thai meeting accuracy. Readiness checks confirm the pinned local model
+files, manifest and importable dependencies; they do not load the model or
+qualify accuracy. A ready candidate can still fail during model load, and
+that job must fail without downloading or falling back to another profile.
+
+Each detailed run records its model/backend/revision and produces separate
+proposals against the current transcript. Proposal review is scoped to the
+same recording and expected transcript revision. Accepting a proposal creates
+a human-reviewed transcript revision; rejecting it leaves the committed
+transcript unchanged. A stale candidate must fail closed and cannot overwrite
+a correction or a newer ASR result.
+
 ## Configuration contract
 
 | Variable | Values | Default | Meaning |
@@ -131,6 +156,15 @@ separate from release readiness.
    qualification run.
 8. `thai-large-candidate` routes only to the Transformers workers and fails
    closed when its separate runtime/model directory is absent.
+9. The General user mode explicitly selects `turbo`; it does not inherit a
+   stale candidate environment override.
+10. Detailed mode is unavailable unless the pinned local model, manifest and
+    required dependencies are present; its readiness result makes no model-load
+    or accuracy claim, and it never downloads, falls back, or edits committed
+    transcript data while producing its draft.
+11. Detailed candidate output is reviewable separately, records model
+    provenance, and only an accepted proposal creates a human-reviewed
+    transcript revision after an expected-revision check.
 
 ## Risk and boundaries
 
@@ -147,6 +181,7 @@ or production-readiness claim.
 
 | Version | Change |
 | --- | --- |
+| 0.3.0b → 0.4.0b | Added approved General/Detailed task modes, fail-closed candidate readiness, separate draft/provenance, and human-review commit gate; no Thai accuracy claim. |
 | 0.3.0b | Added explicit `thai-large-candidate` routing to separate batch/live Transformers workers and release-resource wiring; retained the unstaged runtime and quality-evidence gates. |
 | 0.2.0b | Recorded the Thai Transformers/PyTorch checkpoint compatibility boundary, pinned revision, disk/dependency blocker, and separate opt-in candidate-lane proposal without changing operational profiles. |
 | 0.1.0b | Approved two-level operational model profile design with `large-v3-turbo` default, `medium` low-resource path and `large-v3` qualification boundary. |
@@ -155,6 +190,7 @@ or production-readiness claim.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.4.0b | 2026-09-26 | beta | Added General turbo and Detailed Thai-candidate post-meeting draft mode contract; local staging and Thai meeting accuracy remain unqualified. | working-tree | RWANG |
 | 0.3.0b | 2026-09-22 | beta | Added opt-in candidate backend routing, worker resources, and transactional staging contract; model download and runtime qualification remain NOT_RUN. | working-tree | RWANG |
 | 0.2.0b | 2026-09-22 | beta | Recorded the Thai Transformers candidate compatibility decision and bounded staging blocker; no model artifact or default/profile change. | working-tree | RWANG |
 | 0.1.0b | 2026-09-21 | beta | Added the approved Whisper model-profile contract and qualification boundary. | working-tree | RWANG |

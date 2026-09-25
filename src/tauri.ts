@@ -94,6 +94,21 @@ export type Job = {
   updatedAt: string;
 };
 
+export type DetailedTranscriptionReadiness = {
+  available: boolean;
+  reason: string;
+  accuracyQualified: boolean;
+};
+
+export type DetailedTranscriptProposal = {
+  id: string;
+  transcriptSegmentId: string;
+  originalText: string;
+  proposedText: string;
+  modelName: string;
+  createdAt: string;
+};
+
 export type ModelProvider = {
   id: string;
   label: string;
@@ -264,6 +279,43 @@ export async function createJob(
     jobType,
     projectId: projectId ?? null,
     recordingId: recordingId ?? null,
+  });
+}
+
+export async function detailedTranscriptionReadiness(): Promise<DetailedTranscriptionReadiness> {
+  if (!canInvoke()) {
+    return {
+      available: false,
+      reason: "โหมดละเอียดต้องใช้ runtime ในแอป FUNG Desktop",
+      accuracyQualified: false,
+    };
+  }
+  return invoke<DetailedTranscriptionReadiness>("detailed_transcription_readiness");
+}
+
+export async function listDetailedTranscriptProposals(
+  projectId: string,
+  recordingId: string,
+): Promise<DetailedTranscriptProposal[]> {
+  if (!canInvoke()) return [];
+  return invoke<DetailedTranscriptProposal[]>("list_detailed_transcript_proposals", {
+    projectId,
+    recordingId,
+  });
+}
+
+export async function reviewDetailedTranscriptProposal(
+  projectId: string,
+  recordingId: string,
+  proposalId: string,
+  decision: "accepted" | "rejected",
+): Promise<void> {
+  if (!canInvoke()) throw new Error("การรีวิวโหมดละเอียดต้องใช้ FUNG Desktop");
+  await invoke<void>("review_detailed_transcript_proposal", {
+    projectId,
+    recordingId,
+    proposalId,
+    decision,
   });
 }
 

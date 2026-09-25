@@ -29,6 +29,7 @@
     "test:meeting-intelligence-contract": "node --test --experimental-strip-types tests/meetingIntelligenceContract.test.mjs tests/meetingIntelligenceUi.test.mjs",
     "test:knowledge-extract": "python tests/knowledge_extract.test.py",
     "test:transcribe-live-window": "python tests/transcribeLiveWindow.test.py",
+    "test:transcribe-transformers-candidate": "python tests/transcribeTransformersCandidate.test.py",
     "test:external-tools": "node --test --experimental-strip-types tests/externalMeetingTools.test.mjs",
     "test:traceability": "node --test tests/traceabilityAnnotations.test.mjs",
     "test:job-actions": "node --test --experimental-strip-types tests/jobActions.test.mjs",

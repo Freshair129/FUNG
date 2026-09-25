@@ -128,6 +128,41 @@ pub(crate) enum JobKind {
     ExportRender,
 }
 
+/// The transcript treatment carried independently from the durable job kind.
+/// `transcript.detailed` is an input mode of the existing transcription job,
+/// so it does not expand Genesis' checked job-type vocabulary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum TranscriptionMode {
+    General,
+    Detailed,
+}
+
+impl TranscriptionMode {
+    fn input_ref(self) -> Option<&'static str> {
+        match self {
+            Self::General => None,
+            Self::Detailed => Some("transcription-mode:detailed"),
+        }
+    }
+
+    fn parse(value: Option<&str>) -> Option<Self> {
+        match value {
+            None => Some(Self::General),
+            Some("transcription-mode:detailed") => Some(Self::Detailed),
+            _ => None,
+        }
+    }
+}
+
+pub(crate) fn parse_job_request(raw: &str) -> Result<(JobKind, TranscriptionMode), String> {
+    if raw.trim() == "transcript.detailed" {
+        return Ok((JobKind::TranscriptRetry, TranscriptionMode::Detailed));
+    }
+    JobKind::parse(raw)
+        .map(|kind| (kind, TranscriptionMode::General))
+        .ok_or_else(|| format!("'{}' is not a job this build can run", raw.trim()))
+}
+
 impl JobKind {
     /// Every kind, so callers that need the whole set — `parse`, the
     /// `runnable_job_types` command the UI checks itself against — derive it
@@ -398,6 +433,7 @@ pub(crate) struct JobRow {
     pub(crate) id: String,
     pub(crate) project_id: String,
     pub(crate) kind: JobKind,
+    pub(crate) transcription_mode: TranscriptionMode,
     pub(crate) status: String,
     pub(crate) attempt_no: i64,
     pub(crate) recording_id: Option<String>,
@@ -509,16 +545,39 @@ impl JobEngine {
         project_id: &str,
         recording_id: Option<&str>,
     ) -> Result<String, String> {
+        self.enqueue_with_transcription_mode(
+            kind,
+            project_id,
+            recording_id,
+            TranscriptionMode::General,
+        )
+    }
+
+    pub(crate) fn enqueue_with_transcription_mode(
+        &self,
+        kind: JobKind,
+        project_id: &str,
+        recording_id: Option<&str>,
+        transcription_mode: TranscriptionMode,
+    ) -> Result<String, String> {
+        if transcription_mode == TranscriptionMode::Detailed && kind != JobKind::TranscriptRetry {
+            return Err("detailed transcription mode requires transcript.retry".to_string());
+        }
         if kind.requires_recording() && recording_id.is_none() {
             return Err(format!("{} needs a recording", kind.as_str()));
         }
-        if let Some(existing) = self.find_pending(kind, project_id, recording_id)? {
+        if let Some(existing) =
+            self.find_pending(kind, project_id, recording_id, transcription_mode)?
+        {
             return Ok(existing);
         }
 
         let id = Uuid::new_v4().to_string();
         let timestamp = now();
-        let refs: Vec<String> = recording_id.map(str::to_owned).into_iter().collect();
+        let mut refs: Vec<String> = recording_id.map(str::to_owned).into_iter().collect();
+        if let Some(mode_ref) = transcription_mode.input_ref() {
+            refs.push(mode_ref.to_string());
+        }
         genesis_adapter::commit_rows(
             &self.inner.storage,
             vec![
@@ -597,12 +656,14 @@ impl JobEngine {
         kind: JobKind,
         project_id: &str,
         recording_id: Option<&str>,
+        transcription_mode: TranscriptionMode,
     ) -> Result<Option<String>, String> {
         for status in PENDING_STATUSES {
             for job in self.pending_rows(status)? {
                 if job.kind == kind
                     && job.project_id == project_id
                     && job.recording_id.as_deref() == recording_id
+                    && job.transcription_mode == transcription_mode
                 {
                     return Ok(Some(job.id));
                 }
@@ -671,7 +732,10 @@ impl JobEngine {
         message: Option<&str>,
     ) -> Result<(), String> {
         let timestamp = now();
-        let refs: Vec<String> = job.recording_id.clone().into_iter().collect();
+        let mut refs: Vec<String> = job.recording_id.clone().into_iter().collect();
+        if let Some(mode_ref) = job.transcription_mode.input_ref() {
+            refs.push(mode_ref.to_string());
+        }
         genesis_adapter::commit_rows(
             &self.inner.storage,
             vec![
@@ -702,10 +766,26 @@ impl JobEngine {
 fn job_row_from(row: &serde_json::Value) -> Option<JobRow> {
     let id = row.get("jobs.id")?.as_str()?.to_string();
     let kind = JobKind::parse(row.get("jobs.type")?.as_str()?)?;
+    let input_refs = row.get("jobs.input_refs_json").and_then(|value| {
+        value.as_array().cloned().or_else(|| {
+            value
+                .as_str()
+                .and_then(|raw| serde_json::from_str::<Vec<serde_json::Value>>(raw).ok())
+        })
+    });
+    let mode_ref = input_refs
+        .as_ref()
+        .and_then(|refs| refs.get(1))
+        .and_then(serde_json::Value::as_str);
+    let transcription_mode = TranscriptionMode::parse(mode_ref)?;
+    if transcription_mode == TranscriptionMode::Detailed && kind != JobKind::TranscriptRetry {
+        return None;
+    }
     Some(JobRow {
         id,
         project_id: row.get("jobs.project_id")?.as_str()?.to_string(),
         kind,
+        transcription_mode,
         status: row
             .get("jobs.status")
             .and_then(serde_json::Value::as_str)
@@ -1000,6 +1080,35 @@ fn dispatch(
         }
         JobKind::TranscriptRetry => {
             let runtime = app.state::<crate::AppState>().whisper_runtime_clone();
+            if job.transcription_mode == TranscriptionMode::Detailed {
+                return crate::live_meeting::create_detailed_transcript_draft(
+                    storage,
+                    &runtime,
+                    &job.project_id,
+                    recording_id,
+                    &job.id,
+                )
+                .map(|draft| {
+                    let _ = genesis_adapter::commit_rows(
+                        storage,
+                        vec![genesis_adapter::upsert(
+                            "job_events",
+                            serde_json::json!({
+                                "id": Uuid::new_v4().to_string(),
+                                "job_id": job.id,
+                                "status": "running",
+                                "message": format!(
+                                    "โหมดละเอียดสร้างข้อเสนอ {} รายการ; {} ช่วงที่จับคู่กับ transcript เดิมไม่ได้จะไม่ถูกเสนอ; transcript เดิมยังไม่เปลี่ยน",
+                                    draft.proposals_created,
+                                    draft.unmatched_candidate_segments,
+                                ),
+                                "created_at": now(),
+                            }),
+                        )],
+                    );
+                })
+                .map_err(|error| JobFailure::permanent("detailed_draft_failed", error));
+            }
             // The pass reads the recording's own language from the ledger, so
             // a queued re-run transcribes with the setting the session was
             // captured under rather than re-detecting per chunk.
@@ -1076,6 +1185,32 @@ mod tests {
         ] {
             assert_eq!(JobKind::parse(inert), None, "{inert} must not be runnable");
         }
+    }
+
+    #[test]
+    fn detailed_transcription_is_an_explicit_mode_of_the_existing_job_kind() {
+        assert_eq!(
+            parse_job_request(" transcript.detailed "),
+            Ok((JobKind::TranscriptRetry, TranscriptionMode::Detailed))
+        );
+        assert_eq!(
+            parse_job_request("transcript.retry"),
+            Ok((JobKind::TranscriptRetry, TranscriptionMode::General))
+        );
+        assert!(parse_job_request("transcript.unknown").is_err());
+
+        let row = serde_json::json!({
+            "jobs.id": "detailed-1",
+            "jobs.project_id": "project-1",
+            "jobs.type": "transcript.retry",
+            "jobs.status": "queued",
+            "jobs.attempt_no": 1,
+            "jobs.input_refs_json": ["recording-1", "transcription-mode:detailed"],
+            "jobs.created_at": "2026-09-26T00:00:00Z",
+        });
+        let parsed = job_row_from(&row).expect("detailed job row parses");
+        assert_eq!(parsed.recording_id.as_deref(), Some("recording-1"));
+        assert_eq!(parsed.transcription_mode, TranscriptionMode::Detailed);
     }
 
     #[test]

@@ -54,6 +54,7 @@ jobs:
       - run: npm run test:meeting-intelligence-contract
       - run: npm run test:knowledge-extract
       - run: npm run test:transcribe-live-window
+      - run: npm run test:transcribe-transformers-candidate
       - run: npm run test:external-tools
       - run: npm run test:traceability
       - run: npm run test:recovery

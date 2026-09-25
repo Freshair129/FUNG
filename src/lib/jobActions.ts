@@ -13,10 +13,11 @@
  * agree at runtime rather than trusting this file.
  */
 
-/** Job types the engine has a handler for. Must match `JobKind::as_str`. */
+/** Queueable job names and request aliases; must match native job registration. */
 export const RUNNABLE_JOB_TYPES = [
   "summary.generate",
   "transcript.retry",
+  "transcript.detailed",
   "graph.build",
   "speakers.diarize",
   "export.render",

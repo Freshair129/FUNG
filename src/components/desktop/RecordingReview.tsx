@@ -13,16 +13,21 @@ import {
   controlPlayback as bridgeControlPlayback,
   correctTranscriptSegment,
   createJob,
+  detailedTranscriptionReadiness,
   getPlayback as bridgeGetPlayback,
   getRecording as bridgeGetRecording,
   listExportArtifacts,
   listRecordings,
   listTranscriptSegments,
+  listDetailedTranscriptProposals,
   meetingSummaries,
   openPlayback as bridgeOpenPlayback,
   releaseRecordingList,
+  reviewDetailedTranscriptProposal,
   renameSpeaker,
   type ExportArtifact,
+  type DetailedTranscriptionReadiness,
+  type DetailedTranscriptProposal,
   type Job,
   type TranscriptSegment,
   type TranscriptView,
@@ -68,6 +73,9 @@ export type RecordingReviewBridge = {
   correctTranscriptSegment: typeof correctTranscriptSegment;
   renameSpeaker: typeof renameSpeaker;
   createJob: typeof createJob;
+  detailedTranscriptionReadiness: typeof detailedTranscriptionReadiness;
+  listDetailedTranscriptProposals: typeof listDetailedTranscriptProposals;
+  reviewDetailedTranscriptProposal: typeof reviewDetailedTranscriptProposal;
 };
 
 export const defaultRecordingReviewBridge: RecordingReviewBridge = {
@@ -85,6 +93,9 @@ export const defaultRecordingReviewBridge: RecordingReviewBridge = {
   correctTranscriptSegment,
   renameSpeaker,
   createJob,
+  detailedTranscriptionReadiness,
+  listDetailedTranscriptProposals,
+  reviewDetailedTranscriptProposal,
 };
 
 export type RecordingReviewControllerProps = {
@@ -971,6 +982,43 @@ export class RecordingReviewController {
     return this.startRequest(() =>
       this.bridge.createJob(jobType, selection.projectId, selection.recordingId),
     );
+  }
+
+  public detailedTranscriptionReadiness(): Promise<DetailedTranscriptionReadiness> {
+    return this.startRequest(() => this.bridge.detailedTranscriptionReadiness());
+  }
+
+  public async listDetailedTranscriptProposals(
+    selection: RecordingKey,
+  ): Promise<DetailedTranscriptProposal[]> {
+    if (!sameKey(selection, this.currentSelection)) {
+      throw reviewError("SCOPE_MISMATCH", "ข้อเสนอนี้ไม่ตรงกับการบันทึกที่เลือก");
+    }
+    return this.startRequest(() =>
+      this.bridge.listDetailedTranscriptProposals(
+        selection.projectId,
+        selection.recordingId,
+      ),
+    );
+  }
+
+  public async reviewDetailedTranscriptProposal(
+    selection: RecordingKey,
+    proposalId: string,
+    decision: "accepted" | "rejected",
+  ): Promise<void> {
+    if (!sameKey(selection, this.currentSelection)) {
+      throw reviewError("SCOPE_MISMATCH", "ข้อเสนอนี้ไม่ตรงกับการบันทึกที่เลือก");
+    }
+    await this.startRequest(() =>
+      this.bridge.reviewDetailedTranscriptProposal(
+        selection.projectId,
+        selection.recordingId,
+        proposalId,
+        decision,
+      ),
+    );
+    this.loadTranscript(selection);
   }
 
   public dispose(): void {
@@ -2278,6 +2326,48 @@ function ReviewActionsPanel({
 }) {
   const [pending, setPending] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [detailedReadiness, setDetailedReadiness] =
+    useState<DetailedTranscriptionReadiness | null>(null);
+  const [proposals, setProposals] = useState<DetailedTranscriptProposal[]>([]);
+  const [proposalError, setProposalError] = useState<string | null>(null);
+  const proposalEpoch = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    void actions.detailedTranscriptionReadiness().then((result) => {
+      if (active) setDetailedReadiness(result);
+    }).catch((error: unknown) => {
+      if (active) {
+        setDetailedReadiness({
+          available: false,
+          reason: normalizeReviewError(error).message,
+          accuracyQualified: false,
+        });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [actions]);
+
+  useEffect(() => {
+    proposalEpoch.current += 1;
+    setProposals([]);
+    setProposalError(null);
+  }, [selection.projectId, selection.recordingId]);
+
+  const refreshProposals = async () => {
+    const epoch = ++proposalEpoch.current;
+    setProposalError(null);
+    try {
+      const items = await actions.listDetailedTranscriptProposals(selection);
+      if (epoch === proposalEpoch.current) setProposals(items);
+    } catch (error: unknown) {
+      if (epoch === proposalEpoch.current) {
+        setProposalError(normalizeReviewError(error).message);
+      }
+    }
+  };
 
   const queue = async (jobType: string, label: string) => {
     setPending(jobType);
@@ -2325,7 +2415,16 @@ function ReviewActionsPanel({
           onClick={() => void queue("transcript.retry", "ถอดเสียงใหม่")}
           disabled={pending !== null}
         >
-          ถอดเสียงใหม่
+          ถอดส่วนที่ขาด · ทั่วไป
+        </button>
+        <button
+          type="button"
+          className="recording-review__button"
+          onClick={() => void queue("transcript.detailed", "ถอดละเอียด")}
+          disabled={pending !== null || !detailedReadiness?.available}
+          title={detailedReadiness?.reason ?? "กำลังตรวจสอบ runtime โหมดละเอียด"}
+        >
+          ถอดละเอียด · Thai candidate
         </button>
         <button
           type="button"
@@ -2339,10 +2438,56 @@ function ReviewActionsPanel({
       {pending ? <p className="recording-review__muted" role="status">กำลังส่งคำขอ…</p> : null}
       {notice ? <p className="recording-review__notice" role="status">{notice}</p> : null}
       <p className="recording-review__muted">
-        เครื่องมือภายนอกยังอยู่ในพื้นที่เดิมและต้องผ่านขั้นตอนอนุมัติเดิม
+        โหมดทั่วไปใช้โปรไฟล์ปกติของ FUNG ซึ่งเริ่มต้นที่ large-v3-turbo; โหมดละเอียดสร้างข้อเสนอแยกและยังไม่มีหลักฐานว่าแม่นกว่าเสียงประชุมไทย
       </p>
+      <p className="recording-review__muted" role="status">
+        {detailedReadiness?.reason ?? "กำลังตรวจสอบความพร้อมของ runtime โหมดละเอียด…"}
+      </p>
+      <div className="recording-review__card-heading">
+        <h4>ข้อเสนอจากโหมดละเอียด</h4>
+        <button type="button" className="recording-review__button" onClick={() => void refreshProposals()} disabled={pending !== null}>
+          โหลดข้อเสนอ
+        </button>
+      </div>
+      {proposalError ? <p className="recording-review__notice" role="status">{proposalError}</p> : null}
+      {proposals.length === 0 ? (
+        <p className="recording-review__muted">ยังไม่มีข้อเสนอที่รอรีวิว</p>
+      ) : (
+        <ul className="recording-review__artifact-list" aria-label="ข้อเสนอ transcript จากโหมดละเอียด">
+          {proposals.map((proposal) => (
+            <li key={proposal.id}>
+              <div>
+                <span>{proposal.modelName}</span>
+                <p><strong>เดิม:</strong> {proposal.originalText}</p>
+                <p><strong>ข้อเสนอ:</strong> {proposal.proposedText}</p>
+              </div>
+              <span className="recording-review__action-grid">
+                <button className="recording-review__button" type="button" onClick={() => void reviewProposal(proposal.id, "rejected")} disabled={pending !== null}>ปฏิเสธ</button>
+                <button className="recording-review__button" type="button" onClick={() => void reviewProposal(proposal.id, "accepted")} disabled={pending !== null}>ยอมรับ</button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
+
+  async function reviewProposal(
+    proposalId: string,
+    decision: "accepted" | "rejected",
+  ) {
+    setPending(proposalId);
+    setNotice(null);
+    try {
+      await actions.reviewDetailedTranscriptProposal(selection, proposalId, decision);
+      setNotice(decision === "accepted" ? "ยอมรับข้อเสนอและบันทึก transcript revision แล้ว" : "ปฏิเสธข้อเสนอแล้ว");
+      await refreshProposals();
+    } catch (error: unknown) {
+      setNotice(normalizeReviewError(error).message);
+    } finally {
+      setPending(null);
+    }
+  }
 }
 
 export function RecordingReviewView({
@@ -2654,6 +2799,12 @@ export function RecordingReview({
         controller.renameSpeaker(speakerId, displayName),
       queueExistingJob: (key, jobType) =>
         controller.queueExistingJob(key, jobType),
+      detailedTranscriptionReadiness: () =>
+        controller.detailedTranscriptionReadiness(),
+      listDetailedTranscriptProposals: (key) =>
+        controller.listDetailedTranscriptProposals(key),
+      reviewDetailedTranscriptProposal: (key, proposalId, decision) =>
+        controller.reviewDetailedTranscriptProposal(key, proposalId, decision),
       ask: (key, question, requestId) =>
         controller.ask(key, question, requestId),
       playbackOpen: (key, channel) =>

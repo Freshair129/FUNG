@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import type {
   ExportArtifact,
+  DetailedTranscriptionReadiness,
+  DetailedTranscriptProposal,
   Job,
   LiveCaptureDevices,
   LiveSegmentEvent,
@@ -400,6 +402,13 @@ export type RecordingReviewActions = {
   ) => Promise<void>;
   renameSpeaker: (speakerId: string, displayName: string) => Promise<void>;
   queueExistingJob: (selection: RecordingKey, jobType: string) => Promise<Job>;
+  detailedTranscriptionReadiness: () => Promise<DetailedTranscriptionReadiness>;
+  listDetailedTranscriptProposals: (selection: RecordingKey) => Promise<DetailedTranscriptProposal[]>;
+  reviewDetailedTranscriptProposal: (
+    selection: RecordingKey,
+    proposalId: string,
+    decision: "accepted" | "rejected",
+  ) => Promise<void>;
   ask: (
     selection: RecordingKey,
     question: string,

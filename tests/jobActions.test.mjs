@@ -38,6 +38,7 @@ test("transcribe is the import flow, not a queued job", () => {
 
 test("the transcript catch-up pass and the graph build queue as themselves", () => {
   assert.equal(resolveJobAction("transcript.retry").jobType, "transcript.retry");
+  assert.equal(resolveJobAction("transcript.detailed").jobType, "transcript.detailed");
   assert.equal(resolveJobAction("graph.build").jobType, "graph.build");
 });
 
@@ -100,10 +101,14 @@ test("the runnable set matches the job kinds the engine registers", () => {
   // The Rust enum is the authority. If a kind is added there and not here,
   // the UI silently keeps calling it unsupported.
   const rust = readFileSync("src-tauri/src/job_engine.rs", "utf8");
+  const native = readFileSync("src-tauri/src/lib.rs", "utf8");
   const arm = /JobKind::\w+ => "([a-z.]+)"/g;
   const registered = new Set();
   for (const match of rust.matchAll(arm)) {
     registered.add(match[1]);
+  }
+  if (native.includes('kinds.push("transcript.detailed")')) {
+    registered.add("transcript.detailed");
   }
   assert.deepEqual(
     [...registered].sort(),

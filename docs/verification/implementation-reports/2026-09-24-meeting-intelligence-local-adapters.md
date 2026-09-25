@@ -1,7 +1,7 @@
 ---
-version: "0.1.5b"
+version: "0.1.6b"
 created_at: "2026-09-25T03:13:29+07:00,RWANG"
-last_update: "2026-09-25T06:14:59+07:00,RWANG"
+last_update: "2026-09-25T09:23:18+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -19,12 +19,14 @@ attributes:
 The user approved M1–M5 local implementation with provider-neutral adapters,
 repository audio fixtures, and external provider activation deferred. This
 report records the completed local fixture campaign, account-transition
-remediation, and independent final source review.
+remediation and its independent source review, plus the cursor follow-up. The
+follow-up received local source review; an independent review of that diff is
+NOT_RUN.
 
-**Current outcome: PASS_LOCAL_FIXTURE_CAMPAIGN.** The account-lifecycle
-remediation passed the consolidated local checks and exact post-remediation
-source review. This is not full product, provider, physical-device,
-installed-artifact or release acceptance.
+**Current outcome: PASS_LOCAL_REVIEW_REMEDIATION_WITH_LIMITS.** The native
+observer and stale-cursor fixes passed the consolidated local campaign. This is
+not full product, provider, physical-device, installed-artifact or release
+acceptance.
 
 ## Gap status
 
@@ -32,14 +34,14 @@ installed-artifact or release acceptance.
 | --- | --- | --- |
 | GAP-07 / M1 transcript revisions | PASS — durable revisions, replay/cursor recovery, corrections and queue-gap paths exercised | Thai WER/CER, real audio, target-device latency/soak and capture acceptance are NOT_RUN |
 | GAP-08 / M2 knowledge and People | PASS_LOCAL — selected local corpus, citations, typed metrics, encrypted People lifecycle/recovery and Windows PDF isolation fixtures; People, metric and draft account-transition paths fenced, with refresh-witness event handling | Private real-source UAT, native Tauri flow, cross-logon-session mutex runtime and non-Windows PDF import remain open |
-| GAP-09 / M3–M5 agent/delivery/control | PASS — local observe/draft, exact preview/outbox and bounded policy behavior | Google Meet join/media, external send/receipt, remote enforcement and room reconciliation are NOT_RUN |
+| GAP-09 / M3–M5 agent/delivery/control | PARTIAL_LOCAL — a native observer tracks durable transcript cursors; explicit manual cited drafts and local preview remain available; server boundaries reject stale transcript cursors | Automatic transcript-triggered drafts are blocked because local ASR has no trusted non-self/non-agent attribution; Google Meet join/media, external send/receipt, remote enforcement and room reconciliation are NOT_RUN |
 | GAP-01/02, GAP-03–06, GAP-10–12 | Not closed by this implementation | Runtime quality, provider, clean-install restore, Mobile, release, speaker quality and remaining scope/status gates stay separate |
 
 ## Verification results
 
 | Lane | Result |
 | --- | --- |
-| Rust library | PASS — 576 passed, 0 failed, 1 ignored |
+| Rust library | PASS — 577 passed, 0 failed, 1 ignored; full run used host profile access for the AppContainer case |
 | Meeting-knowledge behavioral integration | PASS — 17/17 |
 | Windows AppContainer probe | PASS — child denied access to a host-only file and loopback when run with per-user AppContainer profile access; restricted sandbox fails closed |
 | Knowledge extractor registered suite | PASS — 7/7 with Python 3.12.14 and pypdf 6.10.0 |
@@ -49,8 +51,12 @@ installed-artifact or release acceptance.
 | Desktop production build | PASS — `npm run build` (TypeScript and Vite) |
 | Mock-browser UI fixture flow | PASS — selected/unlocked local vault, private cited draft, and auth-session transition cleared the draft and reset vault selection |
 | Native Tauri-window and accessibility acceptance | NOT_RUN — fixture browser flow is not the installed/native Desktop surface |
-| Independent final source/security review | PASS — reviewed the exact post-remediation source hashes and found no blocker |
+| Account-transition source/security review | PASS — independently reviewed the exact post-remediation source hashes and found no blocker |
 | Account-lifecycle UI fixture | PASS — fixture verified that auth-session change clears the private draft and vault selection |
+| Follow-up review regressions | PASS — runtime cursor invalidation and current/stale durable cursor guards |
+| Follow-up native-session-custody retry | PASS — 12/12 with isolated Cargo target and Tauri fixture config |
+| Follow-up source review | PASS — reviewed the changed boundaries, race fences and fail-closed trigger status |
+| Independent review of follow-up diff | NOT_RUN — no second independent review after these fixes |
 | Separate-logon-session keyring concurrency | NOT_RUN — separate Windows logon-session mutex behavior was not exercised |
 
 ## Requirement evidence crosswalk
@@ -100,10 +106,35 @@ suite injects a fake module through `PYTHONPATH` and the embedded production
 interpreter isolates that path. See the [People/PDF RCA](../../../.brain/rca/2026-09-25-meeting-intelligence-ui-people-pdf.md)
 and [lifecycle test RCA](../../../.brain/rca/2026-09-25-lifecycle-witness-test-race.md).
 
+## Follow-up review remediation
+
+The follow-up review found that agent start reported `observing` without a
+native consumer for durable transcript commits, and that freshness was checked
+only in the UI before preview and approval. The remediation wires post-commit
+transcript cursors into the process-local runtime, cancels runs whose source
+cursor advances, marks private drafts stale, removes their local in-memory
+previews, and returns the status from drafting to observing.
+The native draft-persistence, preview, and approval boundaries now compare the
+stored draft cursor with the current durable high-water mark under a Genesis
+frontier commit. The panel reports automatic triggering as blocked until a
+trusted participant-attribution source exists; microphone/loopback labels are
+not accepted as speaker identity. Automatic transcript-triggered draft
+generation remains unavailable because trusted attribution and a production
+trigger runner are not implemented. See the [observer RCA](../../../.brain/rca/2026-09-25-meeting-agent-observe-trigger-gap.md)
+and [stale-preview RCA](../../../.brain/rca/2026-09-25-meeting-agent-stale-transcript-preview.md).
+
+The first restricted-sandbox library attempt could not create the AppContainer
+profile (`0x80070002`); it passed on the full rerun with host profile access.
+The first `native-session-custody` run also lacked the local Tauri fixture
+configuration and failed while scanning `.venv-whisper`; the isolated-target
+rerun with bundle resources disabled passed 12/12. These are recorded as
+environment corrections, not product failures.
+
 ## Explicitly NOT_RUN
 
-Thai WER/CER and accuracy, real meeting capture, the three-hour soak, physical
-Android, actual Google Meet admission/media, real external delivery/receipt,
+Thai WER/CER and accuracy, automatic transcript-triggered draft generation
+from authenticated non-self/non-agent speakers, real meeting capture, the
+three-hour soak, physical Android, actual Google Meet admission/media, real external delivery/receipt,
 provider-side cost/rate/leave enforcement, clean-install restore, non-Windows
 PDF sandbox behavior, native Tauri-window interaction, accessibility,
 separate-logon-session keyring concurrency, installed-artifact interaction,
@@ -113,13 +144,15 @@ plumbing and execution only.
 ## Provenance
 
 The working tree is based on `2c2559fdd907cf94a6f38b34bbb2c6650e68a0e1` on
-`codex/gap-closure-runtime-20260923`; the source changes are uncommitted. The
-47 changed implementation/config/test files have source-manifest SHA-256
-`cdb94e9f025b55e6f428026b3674b2a4bdce8f8cc6c4a00959856cce2318dbe4`.
-Per-file hashes and machine-readable results are in the companion
-[evidence JSON](2026-09-24-meeting-intelligence-local-adapters.json).
+`codex/gap-closure-runtime-20260923`; follow-up changes were verified against
+the PR head before commit. The original 47-file implementation manifest and
+its hash remain recorded in the companion [evidence JSON](2026-09-24-meeting-intelligence-local-adapters.json).
 
 ## Version Diff
+
+0.1.5b → 0.1.6b: records native transcript observation, server-side stale
+cursor rejection, the passing follow-up campaign, and the explicit
+trusted-attribution gate for automatic triggers.
 
 0.1.4b → 0.1.5b: records the completed account-transition remediation,
 consolidated local campaign, and independent source review; acceptance limits
@@ -135,6 +168,7 @@ interactive Desktop UI/accessibility acceptance as NOT_RUN.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.1.6b | 2026-09-25 | candidate | Adds native committed-transcript observation and stale-cursor guards; local verification passed with explicit automatic-trigger limit | working-tree | RWANG |
 | 0.1.5b | 2026-09-25 | candidate | Records final local campaign and independent source review after account-transition remediation | working-tree | RWANG |
 | 0.1.4b | 2026-09-25 | candidate | Recorded account-transition plaintext finding and remediation with final test/review pending | working-tree | RWANG |
 | 0.1.2b | 2026-09-25 | candidate | Added full pinned-parser fixture result and refreshed the final Rust lane log | working-tree | RWANG |

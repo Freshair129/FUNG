@@ -50,7 +50,7 @@ let transcript: TranscriptSnapshot = {
   legacySnapshot: false,
 };
 
-const capability = (readiness: "ready" | "unavailable", reasonCode: string | null = null) => ({
+const capability = (readiness: "ready" | "blocked" | "unavailable", reasonCode: string | null = null) => ({
   readiness,
   reasonCode,
 });
@@ -59,6 +59,7 @@ let status: MeetingAgentStatus = {
   projectId,
   recordingId,
   revision: 1,
+  lastObservedTranscriptCursor: 0,
   mode: "off",
   state: "stopped",
   expiresAt: null,
@@ -67,6 +68,7 @@ let status: MeetingAgentStatus = {
   localAgent: capability("ready"),
   transcriptRead: capability("ready"),
   knowledgeRead: capability("ready"),
+  automaticTrigger: capability("blocked", "TRUSTED_PARTICIPANT_ATTRIBUTION_UNAVAILABLE"),
   externalJoin: capability("unavailable", "PROVIDER_UNCONFIGURED"),
   externalMediaRead: capability("unavailable", "PROVIDER_UNCONFIGURED"),
   externalChatSend: capability("unavailable", "PROVIDER_UNCONFIGURED"),

@@ -1806,6 +1806,14 @@ fn commit_revisioned_sources(
             let _ = app.emit("meeting-transcript-event", event);
         }
     }
+    if !result.revision_ids.is_empty() {
+        crate::observe_committed_meeting_agent_transcript_event(
+            app,
+            &track.scope.project_id,
+            &track.scope.recording_id,
+            result.last_cursor,
+        );
+    }
 
     for (index, candidate) in candidates.iter().enumerate() {
         let persisted_revision = candidate.expected_persisted_revision + 1;

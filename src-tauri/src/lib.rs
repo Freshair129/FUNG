@@ -1819,6 +1819,12 @@ fn correct_meeting_utterance(
     .map_err(AppError::Genesis)?;
     let committed = genesis_adapter::revise_meeting_transcript(&state.genesis, &attempt, &request)
         .map_err(AppError::Genesis)?;
+    observe_committed_meeting_agent_transcript_event(
+        &app,
+        &request.scope.project_id,
+        &request.scope.recording_id,
+        committed.cursor,
+    );
     let cursor = meeting_intelligence_schema::MeetingReplayCursor {
         recording_id: request.scope.recording_id.clone(),
         after_cursor: committed.cursor.saturating_sub(1),
@@ -2278,6 +2284,10 @@ fn meeting_agent_status_snapshot(
             })
         });
     let owner_ready = owner_session.is_some();
+    let mut last_observed_transcript_cursor = transcript
+        .as_ref()
+        .map(|snapshot| snapshot.high_watermark)
+        .unwrap_or(-1);
     let mut blockers = Vec::new();
     if !owner_ready {
         blockers.push("LOCAL_OWNER_LOCKED".to_string());
@@ -2354,6 +2364,7 @@ fn meeting_agent_status_snapshot(
             let revision = current.revision.max(persisted_revision);
             expires_at = current.expires_at.clone();
             allowed_topics = current.allowed_topics.clone();
+            last_observed_transcript_cursor = current.last_observed_transcript_cursor;
             blockers.retain(|blocker| blocker != "RESTART_REQUIRES_REENABLE");
             revision
         } else {
@@ -2370,10 +2381,22 @@ fn meeting_agent_status_snapshot(
         blockers.retain(|blocker| blocker != "RESTART_REQUIRES_REENABLE");
         blockers.push("MEETING_AGENT_GRANT_EXPIRED".to_string());
     }
+    let automatic_trigger = if mode == "draft" {
+        meeting_intelligence_schema::MeetingAgentCapability {
+            readiness: "blocked".to_string(),
+            reason_code: Some("TRUSTED_PARTICIPANT_ATTRIBUTION_UNAVAILABLE".to_string()),
+        }
+    } else {
+        meeting_intelligence_schema::MeetingAgentCapability {
+            readiness: "unavailable".to_string(),
+            reason_code: Some("AGENT_MODE_NOT_DRAFT".to_string()),
+        }
+    };
     let status = meeting_intelligence_schema::MeetingAgentStatus {
         project_id: selection.project_id.clone(),
         recording_id: selection.recording_id.clone(),
         revision,
+        last_observed_transcript_cursor,
         mode,
         state: agent_state,
         expires_at,
@@ -2389,6 +2412,7 @@ fn meeting_agent_status_snapshot(
                 "KNOWLEDGE_READ_UNAVAILABLE"
             }),
         ),
+        automatic_trigger,
         external_join: meeting_intelligence_schema::MeetingAgentCapability {
             readiness: "unavailable".to_string(),
             reason_code: Some("PROVIDER_UNCONFIGURED".to_string()),
@@ -2452,6 +2476,47 @@ fn emit_meeting_agent_status(
     }
 }
 
+pub(crate) fn observe_committed_meeting_agent_transcript_event(
+    app: &tauri::AppHandle,
+    project_id: &str,
+    recording_id: &str,
+    cursor: i64,
+) {
+    let state = app.state::<AppState>();
+    let Ok(snapshot) =
+        genesis_adapter::meeting_transcript_snapshot(&state.genesis, project_id, recording_id)
+    else {
+        return;
+    };
+    if cursor < 0 || cursor > snapshot.high_watermark {
+        return;
+    }
+    let changed = {
+        let mut runtime = state
+            .meeting_intelligence
+            .lock()
+            .expect("meeting intelligence mutex poisoned");
+        let Some(session) = runtime
+            .sessions
+            .get_mut(&(project_id.to_string(), recording_id.to_string()))
+        else {
+            return;
+        };
+        session.enabled_this_process
+            && session.mode != "off"
+            && session.observe_committed_cursor(cursor)
+    };
+    if changed {
+        let selection = meeting_intelligence_schema::MeetingAgentSelection {
+            project_id: project_id.to_string(),
+            recording_id: recording_id.to_string(),
+        };
+        if let Ok((status, _, _)) = meeting_agent_status_snapshot(&state, &selection) {
+            emit_meeting_agent_status(app, &status);
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn update_meeting_agent_runtime(
     state: &AppState,
@@ -2468,6 +2533,10 @@ fn update_meeting_agent_runtime(
         .meeting_intelligence
         .lock()
         .expect("meeting intelligence mutex poisoned");
+    let observed_cursor =
+        genesis_adapter::meeting_transcript_snapshot(&state.genesis, project_id, recording_id)
+            .map(|snapshot| snapshot.high_watermark)
+            .unwrap_or(-1);
     let session = runtime.session(project_id, recording_id, revision);
     session.revision = revision;
     session.mode = mode.to_string();
@@ -2476,6 +2545,8 @@ fn update_meeting_agent_runtime(
     session.allowed_topics = allowed_topics;
     session.enabled_this_process = enabled;
     session.active_run_id = None;
+    session.active_run_transcript_cursor = None;
+    session.last_observed_transcript_cursor = observed_cursor;
     if !enabled {
         session.drafts.clear();
         session.deliveries.clear();
@@ -2499,6 +2570,7 @@ impl Drop for MeetingAgentRunLease<'_> {
             {
                 if session.active_run_id.as_deref() == Some(self.run_id.as_str()) {
                     session.active_run_id = None;
+                    session.active_run_transcript_cursor = None;
                 }
             }
         }
@@ -2842,6 +2914,7 @@ fn meeting_agent_ask(
         }
         session.run_times.push(now);
         session.active_run_id = Some(run_id.clone());
+        session.active_run_transcript_cursor = Some(request.transcript_cursor);
     }
     let _run_lease = MeetingAgentRunLease {
         state: state.inner(),
@@ -3045,6 +3118,7 @@ fn meeting_agent_ask(
                 }
                 session.state = "drafting".to_string();
                 session.active_run_id = None;
+                session.active_run_transcript_cursor = None;
                 session.drafts.insert(draft_id, draft.clone());
             }
             use tauri::Emitter;

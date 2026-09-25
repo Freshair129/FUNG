@@ -46,6 +46,9 @@ function failureMessage(error: unknown): string {
   if (/CURSOR_EXPIRED/i.test(message)) {
     return "Transcript history expired. Reload the current snapshot before continuing.";
   }
+  if (/MEETING_TRANSCRIPT_CURSOR_STALE/.test(message)) {
+    return "Transcript changed while preparing this draft. Refresh it and create a new draft before preview or approval.";
+  }
   if (/MEETING_KNOWLEDGE_METRIC_CONFLICT/.test(message)) {
     return "พบตัวเลขจากหลายแหล่งที่ขัดแย้งกัน จึงไม่คำนวณผลให้";
   }
@@ -399,7 +402,7 @@ export function MeetingIntelligencePanel({
               agentRevisionRef.current = event.revision;
               setAgentStatus((current) => current && current.revision > event.revision
                 ? current
-                : { ...event, expiresAt: current?.expiresAt ?? null, localAgent: current?.localAgent ?? { readiness: "unavailable", reasonCode: "NOT_REFRESHED" }, transcriptRead: current?.transcriptRead ?? { readiness: "unavailable", reasonCode: "NOT_REFRESHED" }, knowledgeRead: current?.knowledgeRead ?? { readiness: "unavailable", reasonCode: "NOT_REFRESHED" }, externalJoin: { readiness: "unavailable", reasonCode: "PROVIDER_UNCONFIGURED" }, externalMediaRead: { readiness: "unavailable", reasonCode: "PROVIDER_UNCONFIGURED" }, externalChatSend: { readiness: "unavailable", reasonCode: "PROVIDER_UNCONFIGURED" }, externalLinkSend: { readiness: "unavailable", reasonCode: "PROVIDER_UNCONFIGURED" }, externalFileUpload: { readiness: "unavailable", reasonCode: "PROVIDER_UNCONFIGURED" } });
+                : { ...event, expiresAt: current?.expiresAt ?? null, localAgent: current?.localAgent ?? { readiness: "unavailable", reasonCode: "NOT_REFRESHED" }, transcriptRead: current?.transcriptRead ?? { readiness: "unavailable", reasonCode: "NOT_REFRESHED" }, knowledgeRead: current?.knowledgeRead ?? { readiness: "unavailable", reasonCode: "NOT_REFRESHED" }, automaticTrigger: event.automaticTrigger ?? current?.automaticTrigger ?? { readiness: event.mode === "draft" ? "blocked" : "unavailable", reasonCode: event.mode === "draft" ? "TRUSTED_PARTICIPANT_ATTRIBUTION_UNAVAILABLE" : "AGENT_MODE_NOT_DRAFT" }, externalJoin: { readiness: "unavailable", reasonCode: "PROVIDER_UNCONFIGURED" }, externalMediaRead: { readiness: "unavailable", reasonCode: "PROVIDER_UNCONFIGURED" }, externalChatSend: { readiness: "unavailable", reasonCode: "PROVIDER_UNCONFIGURED" }, externalLinkSend: { readiness: "unavailable", reasonCode: "PROVIDER_UNCONFIGURED" }, externalFileUpload: { readiness: "unavailable", reasonCode: "PROVIDER_UNCONFIGURED" } });
               setMode(event.mode);
             }
           },
@@ -1055,7 +1058,7 @@ export function MeetingIntelligencePanel({
             <div className="meeting-intelligence__card-heading">
               <div>
                 <h3 id="mi-readiness-title">โหมดและความพร้อม</h3>
-                <p>{agentStatus ? stateLabel(agentStatus.state) : loading ? "กำลังตรวจสอบ…" : "ยังไม่ได้เชื่อม native service"}</p>
+                <p>{agentStatus ? `${stateLabel(agentStatus.state)} · transcript cursor ${agentStatus.lastObservedTranscriptCursor}` : loading ? "กำลังตรวจสอบ…" : "ยังไม่ได้เชื่อม native service"}</p>
               </div>
             </div>
             <label className="meeting-intelligence__field">
@@ -1079,6 +1082,7 @@ export function MeetingIntelligencePanel({
               <ReadinessRow label="ผู้ช่วยในเครื่อง" readiness={agentStatus?.localAgent.readiness ?? "unavailable"} />
               <ReadinessRow label="อ่าน transcript" readiness={agentStatus?.transcriptRead.readiness ?? "unavailable"} />
               <ReadinessRow label="ค้น knowledge" readiness={agentStatus?.knowledgeRead.readiness ?? "unavailable"} />
+              <ReadinessRow label="ร่างอัตโนมัติจากผู้พูด" readiness={agentStatus?.automaticTrigger.readiness ?? "unavailable"} reason={agentStatus?.automaticTrigger.reasonCode ?? "AGENT_STATUS_UNAVAILABLE"} />
               {externalReadiness.map(([label, capability]) => (
                 <ReadinessRow key={label} label={label} readiness="unavailable" reason={capability.reasonCode ?? "PROVIDER_UNCONFIGURED"} />
               ))}

@@ -6553,6 +6553,22 @@ pub(crate) fn commit_meeting_agent_policy(
     Ok((next_revision, grant_id, meeting_session_id, expiry))
 }
 
+fn require_current_meeting_transcript_cursor(
+    storage: &Storage,
+    project_id: &str,
+    recording_id: &str,
+    expected_cursor: i64,
+) -> Result<(), String> {
+    if expected_cursor < -1 {
+        return Err("MEETING_TRANSCRIPT_CURSOR_STALE".to_string());
+    }
+    let snapshot = meeting_transcript_snapshot(storage, project_id, recording_id)?;
+    if snapshot.high_watermark != expected_cursor {
+        return Err("MEETING_TRANSCRIPT_CURSOR_STALE".to_string());
+    }
+    Ok(())
+}
+
 pub(crate) fn persist_private_meeting_agent_draft(
     storage: &Storage,
     session: &NativeOwnerUnlockSession,
@@ -6583,6 +6599,12 @@ pub(crate) fn persist_private_meeting_agent_draft(
         storage,
         &format!("meeting-agent-draft::{request_id}"),
         &chrono::Utc::now().to_rfc3339(),
+    )?;
+    require_current_meeting_transcript_cursor(
+        storage,
+        project_id,
+        recording_id,
+        transcript_cursor,
     )?;
     let _owner_fence = session.begin_operation_fence()?;
     revalidate_native_local_owner_session_under_fence(
@@ -7205,7 +7227,13 @@ pub(crate) fn persist_local_meeting_delivery_preview(
     let runs = query_all(
         storage,
         "meeting_agent_runs",
-        &["id", "grant_id", "evidence_ids_json", "state"],
+        &[
+            "id",
+            "grant_id",
+            "evidence_ids_json",
+            "state",
+            "transcript_cursor",
+        ],
         vec![
             eq(
                 "meeting_agent_runs",
@@ -7227,6 +7255,12 @@ pub(crate) fn persist_local_meeting_delivery_preview(
                     == Some(draft_asset_id.as_str())
         })
         .ok_or_else(|| "MEETING_AGENT_DRAFT_EVIDENCE_UNAVAILABLE".to_string())?;
+    require_current_meeting_transcript_cursor(
+        storage,
+        project_id,
+        recording_id,
+        integer(draft_run, "meeting_agent_runs.transcript_cursor")?,
+    )?;
     if draft_run
         .get("meeting_agent_runs.grant_id")
         .and_then(Value::as_str)
@@ -7630,6 +7664,35 @@ pub(crate) fn approve_local_meeting_delivery_preview(
     {
         return Err("MEETING_DELIVERY_APPROVAL_STALE".to_string());
     }
+    let run_id = string(&outbox, "meeting_delivery_outbox.agent_run_id")?;
+    let approval_run = query(
+        storage,
+        "meeting_agent_runs",
+        &[
+            "project_id",
+            "recording_id",
+            "meeting_session_id",
+            "trigger_id",
+            "transcript_cursor",
+        ],
+        vec![eq("meeting_agent_runs", "id", json!(&run_id))],
+        1,
+    )?
+    .into_iter()
+    .next()
+    .ok_or_else(|| "MEETING_DELIVERY_RUN_UNAVAILABLE".to_string())?;
+    if string(&approval_run, "meeting_agent_runs.project_id")? != project_id
+        || string(&approval_run, "meeting_agent_runs.recording_id")? != recording_id
+        || string(&approval_run, "meeting_agent_runs.meeting_session_id")? != meeting_session_id
+    {
+        return Err("MEETING_DELIVERY_APPROVAL_STALE".to_string());
+    }
+    require_current_meeting_transcript_cursor(
+        storage,
+        project_id,
+        recording_id,
+        integer(&approval_run, "meeting_agent_runs.transcript_cursor")?,
+    )?;
     let current_state = string(&outbox, "meeting_delivery_outbox.state")?;
     if current_state == "approved_local_only" {
         return Ok(meeting_delivery_preview_from_row(&outbox));
@@ -7764,18 +7827,7 @@ pub(crate) fn approve_local_meeting_delivery_preview(
         .and_then(Value::as_str)
         .ok_or_else(|| "MEETING_DELIVERY_APPROVAL_STALE".to_string())?
         .to_string();
-    let run_id = string(&outbox, "meeting_delivery_outbox.agent_run_id")?;
-    let preview_run = query(
-        storage,
-        "meeting_agent_runs",
-        &["trigger_id"],
-        vec![eq("meeting_agent_runs", "id", json!(&run_id))],
-        1,
-    )?
-    .into_iter()
-    .next()
-    .ok_or_else(|| "MEETING_DELIVERY_RUN_UNAVAILABLE".to_string())?;
-    let preview_request_id = string(&preview_run, "meeting_agent_runs.trigger_id")?;
+    let preview_request_id = string(&approval_run, "meeting_agent_runs.trigger_id")?;
     let persisted_preview = persist_local_meeting_delivery_preview(
         storage,
         session,
@@ -15964,6 +16016,23 @@ mod tests {
         assert_eq!(snapshot.high_watermark, 4);
         assert_eq!(snapshot.utterances.len(), 2);
         assert_eq!(snapshot.utterances[0]["effective_text"], "สวัสดีครับ");
+        require_current_meeting_transcript_cursor(
+            &storage,
+            &scope.project_id,
+            &scope.recording_id,
+            snapshot.high_watermark,
+        )
+        .unwrap();
+        assert_eq!(
+            require_current_meeting_transcript_cursor(
+                &storage,
+                &scope.project_id,
+                &scope.recording_id,
+                snapshot.high_watermark - 1,
+            )
+            .unwrap_err(),
+            "MEETING_TRANSCRIPT_CURSOR_STALE"
+        );
         assert_eq!(
             meeting_transcript_snapshot(&storage, "another-project", &scope.recording_id)
                 .unwrap_err(),

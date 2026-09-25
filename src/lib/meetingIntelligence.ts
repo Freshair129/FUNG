@@ -336,6 +336,7 @@ export type AgentCapability = {
 
 export type MeetingAgentStatus = MeetingScope & {
   revision: number;
+  lastObservedTranscriptCursor: number;
   mode: AgentMode;
   state: "stopped" | "starting" | "observing" | "drafting" | "paused" | "blocked";
   expiresAt: string | null;
@@ -344,6 +345,7 @@ export type MeetingAgentStatus = MeetingScope & {
   localAgent: AgentCapability;
   transcriptRead: AgentCapability;
   knowledgeRead: AgentCapability;
+  automaticTrigger: AgentCapability;
   externalJoin: AgentCapability;
   externalMediaRead: AgentCapability;
   externalChatSend: AgentCapability;
@@ -408,9 +410,11 @@ export type MeetingHistoryEntry = {
 
 export type MeetingAgentEvent = MeetingScope & {
   revision: number;
+  lastObservedTranscriptCursor: number;
   state: MeetingAgentStatus["state"];
   mode: AgentMode;
   blockers: string[];
+  automaticTrigger?: AgentCapability;
 };
 
 export type MeetingDraftEvent = MeetingScope & {

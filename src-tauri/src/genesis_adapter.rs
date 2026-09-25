@@ -2347,6 +2347,29 @@ pub(crate) fn commit_rows(
         .map_err(|error| error.to_string())
 }
 
+pub(crate) fn commit_rows_with_attempt(
+    storage: &Storage,
+    attempt: &MeetingCommitAttempt,
+    mutations: Vec<RelationalRowMutation>,
+) -> Result<(), String> {
+    storage
+        .commit_transaction(GenesisTransaction {
+            transaction_id: attempt.transaction_id.clone(),
+            expected_frontier: Some(attempt.expected_frontier),
+            relational: vec![RelationalMutationGroup {
+                namespace: NAMESPACE.to_string(),
+                mutations,
+            }],
+            graph: BatchInput {
+                nodes: vec![],
+                edges: vec![],
+            },
+            vectors: vec![],
+        })
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
 fn commit_rows_at_frontier(
     storage: &Storage,
     expected_frontier: u64,

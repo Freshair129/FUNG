@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.2.0b"
 created_at: "2026-09-21T03:36:16+07:00,RWANG,base-b336f33"
-last_update: "2026-09-21T03:58:31+07:00,RWANG"
+last_update: "2026-09-26T04:12:59+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -149,6 +149,21 @@ For room devices/shared mics, retain a parent participant endpoint and anonymous
 
 ## 9. Runtime budgets and performance targets
 
+### User-facing transcription modes
+
+`ทั่วไป` uses `large-v3-turbo` for live and ordinary transcription. `ละเอียด`
+is an explicit post-meeting pass through the pinned Thai Transformers
+candidate. It remains unavailable until its pinned local model, manifest and
+required dependencies are present. Readiness does not load the model or
+qualify accuracy; the candidate can still fail when a job loads it. This
+candidate is not yet proven more accurate on meeting audio. The detailed pass
+creates a separate draft with model provenance; it cannot mutate committed
+transcript revisions. A user must review and accept a proposal against the
+expected current revision before FUNG writes a human-reviewed revision.
+Rejected or stale proposals leave the current transcript intact.
+Mode/readiness checks must not download a model or silently fall back to
+another profile.
+
 These are **proposed acceptance targets**, not benchmarks or promises.
 
 | Metric / scenario | Candidate target and measurement |
@@ -200,6 +215,7 @@ Metrics: input coverage, lost/unmapped durations, inference RTF, pending seconds
 | LT-T10 privacy/revoke | zero unauthorized egress; stopped consumers cannot commit new output |
 | LT-T11 optional pyannote absent | live transcript still works; post-meeting diarization truthful unavailable |
 | LT-T12 backend/frontend compatibility | v1 receives committed-only output; old recordings readable |
+| LT-T13 General/Detailed modes | General selects turbo; Detailed fails closed when candidate is unstaged, stores a separate provenance-backed draft when ready, and only human acceptance commits against the expected revision |
 
 DoD: reviewed spec + migration plan, contract/unit/integration tests, hardware/real-room UAT, accessibility, privacy and rollback evidence. Documentation checks alone close none of these implementation gates.
 
@@ -207,10 +223,12 @@ DoD: reviewed spec + migration plan, contract/unit/integration tests, hardware/r
 
 | Version | Change |
 | --- | --- |
+| 0.1.0b → 0.2.0b | Added General/Detailed mode implementation contract; Detailed requires staged local files/dependencies, remains accuracy-unqualified, and can only produce a separately reviewed draft. |
 | 0.0.0 → 0.1.0b | Added live revision, durability, API speaker attribution, replay, resource budgets and qualification contract. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.2.0b | 2026-09-26 | beta | Added General turbo and Detailed Thai-candidate post-meeting draft semantics, fail-closed local readiness, provenance, and human-review commit gate; model-load and Thai accuracy qualification remain unclaimed. | working-tree | RWANG |
 | 0.1.0b | 2026-09-21 | candidate | Detailed live-transcription requirements; no runtime changes or performance claims. | working-tree; base b336f33 | RWANG |

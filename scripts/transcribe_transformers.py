@@ -106,6 +106,18 @@ def transcribe_audio(asr_pipeline, audio, language: str | None, duration_s: floa
     return segments
 
 
+def apply_recording_offset(segments, start_ms: int):
+    """Move chunk-relative timestamps onto the recording's timeline."""
+    return [
+        {
+            **segment,
+            "startMs": segment["startMs"] + start_ms,
+            "endMs": segment["endMs"] + start_ms,
+        }
+        for segment in segments
+    ]
+
+
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -113,6 +125,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Transcribe with the opt-in Transformers Thai Whisper candidate.")
     parser.add_argument("audio_paths", nargs="*", help="Audio/video paths in one continuous timeline")
     parser.add_argument("--manifest", default=None, help="Newline-delimited audio path manifest")
+    parser.add_argument(
+        "--chunks-manifest",
+        default=None,
+        help="JSON array of recording audio chunks with path and startMs timestamps",
+    )
     parser.add_argument(
         "--model",
         default=os.environ.get("FUNG_WHISPER_MODEL", DEFAULT_MODEL),
@@ -122,15 +139,31 @@ def main() -> int:
     parser.add_argument("--profile", default=os.environ.get("FUNG_TRANSCRIPTION_PROFILE", "cpu"), choices=["cpu", "gpu"])
     args = parser.parse_args()
 
-    if args.manifest:
+    if args.manifest and args.chunks_manifest:
+        parser.error("--manifest and --chunks-manifest cannot be used together")
+    if args.chunks_manifest:
+        with open(args.chunks_manifest, "r", encoding="utf-8") as manifest_file:
+            chunk_specs = json.load(manifest_file)
+        if not isinstance(chunk_specs, list) or not chunk_specs:
+            parser.error("--chunks-manifest must contain a non-empty JSON array")
+        if any(
+            not isinstance(item, dict)
+            or not isinstance(item.get("path"), str)
+            or not isinstance(item.get("startMs"), int)
+            or item["startMs"] < 0
+            for item in chunk_specs
+        ):
+            parser.error("each chunk must have a path and non-negative integer startMs")
+    elif args.manifest:
         with open(args.manifest, "r", encoding="utf-8") as manifest_file:
             audio_paths = [line.strip() for line in manifest_file if line.strip()]
+        chunk_specs = [{"path": path} for path in audio_paths]
     else:
-        audio_paths = args.audio_paths
-    if not audio_paths:
+        chunk_specs = [{"path": path} for path in args.audio_paths]
+    if not chunk_specs:
         parser.error("either --manifest (non-empty) or at least one positional audio path is required")
 
-    missing_paths = [path for path in audio_paths if not os.path.isfile(path)]
+    missing_paths = [item["path"] for item in chunk_specs if not os.path.isfile(item["path"])]
     if missing_paths:
         parser.error(f"audio input not found: {missing_paths[0]}")
 
@@ -143,16 +176,19 @@ def main() -> int:
 
     segments = []
     cumulative_ms = 0
-    total_files = len(audio_paths)
-    for index, audio_path in enumerate(audio_paths):
+    total_files = len(chunk_specs)
+    for index, chunk_spec in enumerate(chunk_specs):
+        audio_path = chunk_spec["path"]
         audio = decode_audio(audio_path)
         duration_s = len(audio) / 16000.0
-        file_offset_ms = cumulative_ms
-        for segment in transcribe_audio(asr_pipeline, audio, args.language, duration_s):
-            segment["startMs"] += file_offset_ms
-            segment["endMs"] += file_offset_ms
-            segments.append(segment)
-        cumulative_ms += round(duration_s * 1000)
+        file_offset_ms = chunk_spec.get("startMs", cumulative_ms)
+        segments.extend(
+            apply_recording_offset(
+                transcribe_audio(asr_pipeline, audio, args.language, duration_s),
+                file_offset_ms,
+            )
+        )
+        cumulative_ms = max(cumulative_ms, file_offset_ms + round(duration_s * 1000))
         report(5 + 93 * ((index + 1) / total_files))
 
     report(100)

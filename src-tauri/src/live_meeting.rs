@@ -942,6 +942,7 @@ pub(crate) struct LiveWorker {
 
 impl LiveWorker {
     pub(crate) fn spawn(runtime: &WhisperRuntime, language: Option<&str>) -> Result<Self, String> {
+        crate::require_general_transcription_profile()?;
         crate::require_bundled_whisper_model(runtime)?;
         let profile = crate::transcription_profile()?;
         let script = crate::whisper_worker_script(runtime, true)?;
@@ -3468,6 +3469,383 @@ pub(crate) fn fill_transcript_gaps(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DetailedDraftOutcome {
+    pub(crate) proposals_created: usize,
+    pub(crate) unmatched_candidate_segments: usize,
+}
+
+pub(crate) fn detailed_proposals_pending(
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+    recording_id: &str,
+) -> Result<bool, String> {
+    let segment_ids = genesis_adapter::query_all(
+        storage,
+        "transcript_segments",
+        &["id"],
+        vec![
+            genesis_adapter::eq(
+                "transcript_segments",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            genesis_adapter::eq(
+                "transcript_segments",
+                "recording_id",
+                serde_json::json!(recording_id),
+            ),
+        ],
+    )?
+    .into_iter()
+    .filter_map(|row| {
+        row.get("transcript_segments.id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    })
+    .collect::<std::collections::HashSet<_>>();
+    if segment_ids.is_empty() {
+        return Ok(false);
+    }
+    let proposals = genesis_adapter::query_all(
+        storage,
+        "transcript_refinement_proposals",
+        &["transcript_segment_id", "policy", "status"],
+        vec![
+            genesis_adapter::eq(
+                "transcript_refinement_proposals",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            genesis_adapter::eq(
+                "transcript_refinement_proposals",
+                "status",
+                serde_json::json!("proposed"),
+            ),
+        ],
+    )?;
+    Ok(proposals.iter().any(|row| {
+        let segment_id = row
+            .get("transcript_refinement_proposals.transcript_segment_id")
+            .and_then(serde_json::Value::as_str);
+        let policy = row
+            .get("transcript_refinement_proposals.policy")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok());
+        segment_id.is_some_and(|id| segment_ids.contains(id))
+            && policy
+                .as_ref()
+                .and_then(|value| value.get("kind"))
+                .and_then(serde_json::Value::as_str)
+                == Some("detailed_asr_candidate")
+    }))
+}
+
+#[derive(Debug)]
+struct DetailedSourceChunk {
+    path: String,
+    start_ms: i64,
+    channel: Option<&'static str>,
+}
+
+#[derive(Debug)]
+struct DetailedSourceSegment {
+    id: String,
+    speaker_id: Option<String>,
+    start_ms: i64,
+    end_ms: i64,
+    text: String,
+    updated_at: String,
+    expected_revision: Option<i64>,
+}
+
+fn unique_detailed_segment_match<'a>(
+    segments: &'a [DetailedSourceSegment],
+    start_ms: i64,
+    end_ms: i64,
+    expected_speaker: Option<&str>,
+) -> Option<&'a DetailedSourceSegment> {
+    let overlapping = segments
+        .iter()
+        .filter(|segment| end_ms.min(segment.end_ms) - start_ms.max(segment.start_ms) > 0)
+        .collect::<Vec<_>>();
+    if let Some(speaker) = expected_speaker {
+        let exact = overlapping
+            .iter()
+            .copied()
+            .filter(|segment| segment.speaker_id.as_deref() == Some(speaker))
+            .collect::<Vec<_>>();
+        if exact.len() == 1 {
+            return exact.first().copied();
+        }
+        if exact.is_empty() && overlapping.len() == 1 && overlapping[0].speaker_id.is_none() {
+            // Revisioned transcripts may retain source attribution outside
+            // the legacy speaker column. Accept only a sole time match;
+            // overlapping speech remains unmatched.
+            return overlapping.first().copied();
+        }
+        return None;
+    }
+    (overlapping.len() == 1).then(|| overlapping[0])
+}
+
+fn join_detailed_candidate_texts(candidates: impl IntoIterator<Item = String>) -> String {
+    let mut joined = String::new();
+    for candidate in candidates {
+        let candidate = candidate.trim();
+        let first = candidate.chars().next();
+        if candidate.is_empty() {
+            continue;
+        }
+        let previous = joined.chars().last();
+        let both_are_word_characters = previous
+            .is_some_and(|character| character.is_alphanumeric())
+            && first.is_some_and(|character| character.is_alphanumeric());
+        let boundary_contains_ascii = previous.is_some_and(|character| character.is_ascii())
+            || first.is_some_and(|character| character.is_ascii());
+        if both_are_word_characters && boundary_contains_ascii {
+            joined.push(' ');
+        }
+        joined.push_str(candidate);
+    }
+    joined
+}
+
+/// Re-runs all locally custodied audio through the pinned Thai model and
+/// records only transcript differences as reviewable proposals. This path
+/// intentionally never writes `transcript_segments` or the transcript
+/// projection; acceptance happens through the desktop review command.
+pub(crate) fn create_detailed_transcript_draft(
+    storage: &genesis_block_native::Storage,
+    runtime: &WhisperRuntime,
+    project_id: &str,
+    recording_id: &str,
+    job_id: &str,
+) -> Result<DetailedDraftOutcome, String> {
+    if detailed_proposals_pending(storage, project_id, recording_id)? {
+        return Err("รีวิวหรือปฏิเสธข้อเสนอจากโหมดละเอียดที่ค้างอยู่ก่อนเริ่มรอบใหม่".to_string());
+    }
+    let readiness = crate::detailed_transcription_readiness_for_job(runtime);
+    if !readiness.available {
+        return Err(readiness.reason);
+    }
+
+    let source_rows = genesis_adapter::query_all(
+        storage,
+        "audio_chunks",
+        &["file_path", "start_ms"],
+        vec![genesis_adapter::eq(
+            "audio_chunks",
+            "recording_id",
+            serde_json::json!(recording_id),
+        )],
+    )?;
+    if source_rows.is_empty() {
+        return Err("การบันทึกนี้ไม่มีช่วงเสียงที่เก็บไว้ในเครื่องสำหรับถอดละเอียด".to_string());
+    }
+    let mut groups: std::collections::BTreeMap<String, Vec<DetailedSourceChunk>> =
+        std::collections::BTreeMap::new();
+    for (index, row) in source_rows.iter().enumerate() {
+        let path = genesis_adapter::string(row, "audio_chunks.file_path")?;
+        if !std::path::Path::new(&path).is_file() {
+            return Err(format!(
+                "ไม่พบไฟล์เสียงในคลังของ FUNG: {}",
+                std::path::Path::new(&path)
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+            ));
+        }
+        let file_name = std::path::Path::new(&path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        let channel = channel_for_file_name(file_name);
+        let group_key = channel
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("unknown-{index}"));
+        groups
+            .entry(group_key)
+            .or_default()
+            .push(DetailedSourceChunk {
+                path,
+                start_ms: genesis_adapter::integer(row, "audio_chunks.start_ms")?,
+                channel,
+            });
+    }
+
+    let projections = genesis_adapter::query_all(
+        storage,
+        "transcript_projection",
+        &["utterance_id", "revision"],
+        vec![
+            genesis_adapter::eq(
+                "transcript_projection",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            genesis_adapter::eq(
+                "transcript_projection",
+                "recording_id",
+                serde_json::json!(recording_id),
+            ),
+        ],
+    )?
+    .into_iter()
+    .filter_map(|row| {
+        Some((
+            row.get("transcript_projection.utterance_id")?
+                .as_str()?
+                .to_string(),
+            row.get("transcript_projection.revision")?.as_i64()?,
+        ))
+    })
+    .collect::<std::collections::HashMap<_, _>>();
+    let segments = genesis_adapter::query_all(
+        storage,
+        "transcript_segments",
+        &[
+            "id",
+            "speaker_id",
+            "start_ms",
+            "end_ms",
+            "text",
+            "updated_at",
+        ],
+        vec![
+            genesis_adapter::eq(
+                "transcript_segments",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            genesis_adapter::eq(
+                "transcript_segments",
+                "recording_id",
+                serde_json::json!(recording_id),
+            ),
+        ],
+    )?
+    .into_iter()
+    .map(|row| {
+        let id = genesis_adapter::string(&row, "transcript_segments.id")?;
+        Ok(DetailedSourceSegment {
+            expected_revision: projections.get(&id).copied(),
+            id,
+            speaker_id: genesis_adapter::optional_string(&row, "transcript_segments.speaker_id"),
+            start_ms: genesis_adapter::integer(&row, "transcript_segments.start_ms")?,
+            end_ms: genesis_adapter::integer(&row, "transcript_segments.end_ms")?,
+            text: genesis_adapter::string(&row, "transcript_segments.text")?,
+            updated_at: genesis_adapter::string(&row, "transcript_segments.updated_at")?,
+        })
+    })
+    .collect::<Result<Vec<_>, String>>()?;
+    if segments.is_empty() {
+        return Err(
+            "ยังไม่มี transcript เดิมให้เปรียบเทียบ; โหมดละเอียดทำงานได้หลังถอดโหมดทั่วไปแล้ว".to_string(),
+        );
+    }
+
+    let language = genesis_adapter::recording_language(storage, recording_id);
+    let mut candidate_by_segment: std::collections::HashMap<String, Vec<(i64, String)>> =
+        std::collections::HashMap::new();
+    let mut unmatched_candidate_segments = 0usize;
+    for (_channel_key, mut chunks) in groups {
+        chunks.sort_by_key(|chunk| chunk.start_ms);
+        let specs = chunks
+            .iter()
+            .map(|chunk| {
+                serde_json::json!({
+                    "path": chunk.path,
+                    "startMs": chunk.start_ms.max(0),
+                })
+            })
+            .collect::<Vec<_>>();
+        let manifest_path =
+            std::env::temp_dir().join(format!("fung-detailed-transcript-{}.json", Uuid::new_v4()));
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_vec(&specs).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| format!("สร้างรายการเสียงชั่วคราวไม่สำเร็จ: {error}"))?;
+        let result =
+            crate::run_detailed_candidate_worker(runtime, &manifest_path, language.as_deref());
+        let _ = std::fs::remove_file(&manifest_path);
+        let output = result?;
+
+        let expected_speaker = chunks.first().and_then(|chunk| {
+            chunk.channel.map(|channel| {
+                let key = if channel == CHANNEL_MIC { "me" } else { "them" };
+                speaker_id_for(project_id, key)
+            })
+        });
+        for candidate in output.segments {
+            let start_ms = candidate.start_ms.max(0);
+            let end_ms = candidate.end_ms.max(start_ms + 1);
+            if let Some(segment) = unique_detailed_segment_match(
+                &segments,
+                start_ms,
+                end_ms,
+                expected_speaker.as_deref(),
+            ) {
+                candidate_by_segment
+                    .entry(segment.id.clone())
+                    .or_default()
+                    .push((start_ms, candidate.text));
+            } else {
+                unmatched_candidate_segments += 1;
+            }
+        }
+    }
+
+    let mut mutations = Vec::new();
+    for segment in &segments {
+        let Some(mut candidates) = candidate_by_segment.remove(&segment.id) else {
+            continue;
+        };
+        candidates.sort_by_key(|(start_ms, _)| *start_ms);
+        let proposed_text =
+            join_detailed_candidate_texts(candidates.into_iter().map(|(_, text)| text));
+        if proposed_text.is_empty() || proposed_text == segment.text.trim() {
+            continue;
+        }
+        let policy = serde_json::json!({
+            "kind": "detailed_asr_candidate",
+            "jobId": job_id,
+            "backend": "transformers",
+            "model": crate::THAI_CANDIDATE_MODEL,
+            "revision": crate::THAI_CANDIDATE_MODEL_REVISION,
+            "expectedUpdatedAt": segment.updated_at,
+            "expectedRevision": segment.expected_revision,
+        })
+        .to_string();
+        let timestamp = now();
+        mutations.push(genesis_adapter::upsert(
+            "transcript_refinement_proposals",
+            serde_json::json!({
+                "id": Uuid::new_v4().to_string(),
+                "project_id": project_id,
+                "transcript_segment_id": segment.id,
+                "original_text": segment.text,
+                "proposed_text": proposed_text,
+                "policy": policy,
+                "model_run_id": null,
+                "status": "proposed",
+                "reviewed_at": null,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }),
+        ));
+    }
+    let proposals_created = mutations.len();
+    if !mutations.is_empty() {
+        genesis_adapter::commit_rows(storage, mutations)?;
+    }
+    Ok(DetailedDraftOutcome {
+        proposals_created,
+        unmatched_candidate_segments,
+    })
+}
+
 // Every argument is a distinct collaborator the pass genuinely needs; a
 // context struct here would just move the same list behind one name.
 #[allow(clippy::too_many_arguments)]
@@ -4822,5 +5200,72 @@ mod tests {
 
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn detailed_candidate_alignment_requires_unambiguous_time_or_speaker_evidence() {
+        let source = vec![
+            DetailedSourceSegment {
+                id: "mic".to_string(),
+                speaker_id: Some("speaker-mic".to_string()),
+                start_ms: 100,
+                end_ms: 300,
+                text: "ไมค์เดิม".to_string(),
+                updated_at: "u1".to_string(),
+                expected_revision: None,
+            },
+            DetailedSourceSegment {
+                id: "system".to_string(),
+                speaker_id: Some("speaker-system".to_string()),
+                start_ms: 120,
+                end_ms: 280,
+                text: "เสียงระบบเดิม".to_string(),
+                updated_at: "u2".to_string(),
+                expected_revision: None,
+            },
+        ];
+
+        assert_eq!(
+            unique_detailed_segment_match(&source, 140, 220, Some("speaker-mic"))
+                .map(|segment| segment.id.as_str()),
+            Some("mic")
+        );
+        assert!(unique_detailed_segment_match(&source, 140, 220, None).is_none());
+        assert!(unique_detailed_segment_match(&source, 400, 500, Some("speaker-mic")).is_none());
+    }
+
+    #[test]
+    fn detailed_candidate_can_align_a_single_legacy_segment_without_speaker_metadata() {
+        let source = vec![DetailedSourceSegment {
+            id: "legacy".to_string(),
+            speaker_id: None,
+            start_ms: 100,
+            end_ms: 300,
+            text: "ข้อความเดิม".to_string(),
+            updated_at: "u1".to_string(),
+            expected_revision: None,
+        }];
+
+        assert_eq!(
+            unique_detailed_segment_match(&source, 120, 240, Some("speaker-mic"))
+                .map(|segment| segment.id.as_str()),
+            Some("legacy")
+        );
+    }
+
+    #[test]
+    fn detailed_candidate_join_preserves_english_boundaries_without_splitting_thai() {
+        assert_eq!(
+            join_detailed_candidate_texts(["Hello".to_string(), "world".to_string()]),
+            "Hello world"
+        );
+        assert_eq!(
+            join_detailed_candidate_texts(["สวัสดี".to_string(), "ครับ".to_string()]),
+            "สวัสดีครับ"
+        );
+        assert_eq!(
+            join_detailed_candidate_texts(["Hello".to_string(), "ไทย".to_string()]),
+            "Hello ไทย"
+        );
     }
 }

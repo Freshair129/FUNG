@@ -83,8 +83,10 @@ pub(crate) const DEFAULT_VLLM_ENDPOINT: &str = "http://127.0.0.1:8000";
 /// a `model_providers` row's `config_json` has no `model` key.
 pub(crate) const DEFAULT_OLLAMA_MODEL: &str = "llama3.1:8b";
 
-const THAI_CANDIDATE_PROFILE: &str = "thai-large-candidate";
-const THAI_CANDIDATE_MODEL: &str = "whisper-th-large-combined";
+pub(crate) const THAI_CANDIDATE_PROFILE: &str = "thai-large-candidate";
+pub(crate) const THAI_CANDIDATE_MODEL: &str = "whisper-th-large-combined";
+pub(crate) const THAI_CANDIDATE_REPOSITORY: &str = "biodatlab/whisper-th-large-combined";
+pub(crate) const THAI_CANDIDATE_MODEL_REVISION: &str = "b751db1e8dbfee6561de22ca99fe070282fcf459";
 const THAI_CANDIDATE_RUNTIME: &str = ".venv-whisper-transformers-candidate";
 
 #[derive(Clone)]
@@ -207,6 +209,123 @@ pub(crate) fn transcription_profile() -> Result<String, String> {
     transcription_profile_from(configured.as_deref())
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DetailedTranscriptionReadiness {
+    pub(crate) available: bool,
+    pub(crate) reason: String,
+    pub(crate) accuracy_qualified: bool,
+}
+
+fn candidate_manifest_is_pinned(manifest: &serde_json::Value) -> bool {
+    manifest.get("backend").and_then(serde_json::Value::as_str) == Some("transformers")
+        && manifest
+            .get("candidateProfile")
+            .and_then(serde_json::Value::as_str)
+            == Some(THAI_CANDIDATE_PROFILE)
+        && manifest
+            .pointer("/model/name")
+            .and_then(serde_json::Value::as_str)
+            == Some(THAI_CANDIDATE_MODEL)
+        && manifest
+            .pointer("/model/repository")
+            .and_then(serde_json::Value::as_str)
+            == Some(THAI_CANDIDATE_REPOSITORY)
+        && manifest
+            .pointer("/model/revision")
+            .and_then(serde_json::Value::as_str)
+            == Some(THAI_CANDIDATE_MODEL_REVISION)
+        && manifest
+            .pointer("/model/license")
+            .and_then(serde_json::Value::as_str)
+            == Some("Apache-2.0")
+}
+
+pub(crate) fn detailed_transcription_readiness_for_job(
+    runtime: &WhisperRuntime,
+) -> DetailedTranscriptionReadiness {
+    let unavailable = |reason: String| DetailedTranscriptionReadiness {
+        available: false,
+        reason,
+        accuracy_qualified: false,
+    };
+    let Some(model_path) = bundled_whisper_model_for_profile(runtime, THAI_CANDIDATE_PROFILE)
+    else {
+        return unavailable("ไม่พบตำแหน่ง runtime สำหรับโมเดลละเอียด".to_string());
+    };
+    if !runtime.python.is_file() {
+        return unavailable(format!(
+            "ไม่พบ Python runtime ของ FUNG ที่ {}",
+            runtime.python.display()
+        ));
+    }
+    let required_model_files = [
+        "config.json",
+        "generation_config.json",
+        "preprocessor_config.json",
+        "pytorch_model.bin",
+        "tokenizer_config.json",
+        "vocab.json",
+    ];
+    if let Some(missing) = required_model_files
+        .iter()
+        .find(|name| !model_path.join(name).is_file())
+    {
+        return unavailable(format!(
+            "โมเดลละเอียดที่ {} ขาดไฟล์ {missing}",
+            model_path.display(),
+        ));
+    }
+    let Some(candidate_root) = model_path.parent().and_then(std::path::Path::parent) else {
+        return unavailable("layout ของโมเดลละเอียดไม่ถูกต้อง".to_string());
+    };
+    let manifest_path = candidate_root.join("manifest.json");
+    let manifest = match std::fs::read_to_string(&manifest_path)
+        .ok()
+        .and_then(|text| {
+            serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}')).ok()
+        }) {
+        Some(manifest) => manifest,
+        None => {
+            return unavailable(format!(
+                "ไม่พบ manifest ที่ตรวจสอบได้: {}",
+                manifest_path.display()
+            ));
+        }
+    };
+    if !candidate_manifest_is_pinned(&manifest) {
+        return unavailable(format!(
+            "manifest ไม่ตรงกับโมเดลละเอียด revision ที่กำหนด: {}",
+            manifest_path.display()
+        ));
+    }
+    let dependencies = Command::new(&runtime.python)
+        .args([
+            "-c",
+            "import torch, transformers; import faster_whisper.audio",
+        ])
+        .output();
+    let Ok(dependencies) = dependencies else {
+        return unavailable("ตรวจสอบ Transformers/PyTorch runtime ไม่สำเร็จ".to_string());
+    };
+    if !dependencies.status.success() {
+        return unavailable(
+            "FUNG Python runtime ยังไม่มี PyTorch, Transformers และ faster-whisper audio decoder ที่โหมดละเอียดต้องใช้".to_string(),
+        );
+    }
+    DetailedTranscriptionReadiness {
+        available: true,
+        reason: "runtime และโมเดลละเอียดพร้อมใช้เป็นฉบับร่าง; ยังไม่มีหลักฐานว่าแม่นกว่าเสียงประชุมไทย"
+            .to_string(),
+        accuracy_qualified: false,
+    }
+}
+
+#[tauri::command]
+fn detailed_transcription_readiness(state: State<'_, AppState>) -> DetailedTranscriptionReadiness {
+    detailed_transcription_readiness_for_job(&state.whisper_runtime)
+}
+
 fn transcription_profile_from(configured: Option<&str>) -> Result<String, String> {
     let profile = configured.unwrap_or("cpu").to_string();
     match profile.as_str() {
@@ -252,6 +371,27 @@ fn whisper_model_backend_from(configured: Option<&str>) -> Result<&'static str, 
     }
 }
 
+pub(crate) fn require_general_transcription_profile() -> Result<(), String> {
+    let configured = env::var("FUNG_WHISPER_MODEL_PROFILE").ok();
+    general_transcription_profile_from(configured.as_deref()).map(|_| ())
+}
+
+fn general_transcription_profile_from(configured: Option<&str>) -> Result<&'static str, String> {
+    if configured == Some(THAI_CANDIDATE_PROFILE) {
+        return Err(
+            "thai-large-candidate creates a separate reviewed draft; use Detailed mode instead of routing it into the committed transcript".to_string(),
+        );
+    }
+    match configured.unwrap_or("turbo") {
+        "turbo" => Ok("turbo"),
+        "medium" => Ok("medium"),
+        profile => {
+            whisper_model_backend_from(Some(profile))?;
+            unreachable!("only supported operational profiles reach this arm")
+        }
+    }
+}
+
 fn whisper_worker_script_for_profile(
     runtime: &WhisperRuntime,
     profile: &str,
@@ -288,7 +428,10 @@ pub(crate) fn whisper_worker_script(
     whisper_worker_script_for_profile(runtime, profile, live)
 }
 
-fn bundled_whisper_model_for_profile(runtime: &WhisperRuntime, profile: &str) -> Option<PathBuf> {
+pub(crate) fn bundled_whisper_model_for_profile(
+    runtime: &WhisperRuntime,
+    profile: &str,
+) -> Option<PathBuf> {
     let runtime_root = runtime.python.parent()?.parent()?;
     let model = whisper_model_name_from(Some(profile)).ok()?;
     let model_root = if profile == THAI_CANDIDATE_PROFILE {
@@ -1176,20 +1319,50 @@ fn create_job(
     recording_id: Option<String>,
     state: State<'_, AppState>,
 ) -> AppResult<Job> {
-    let kind = job_engine::JobKind::parse(&job_type).ok_or_else(|| {
-        AppError::InvalidInput(format!(
-            "'{}' is not a job this build can run",
-            job_type.trim()
-        ))
-    })?;
+    let (kind, transcription_mode) =
+        job_engine::parse_job_request(&job_type).map_err(AppError::InvalidInput)?;
     let project_id =
         project_id.ok_or_else(|| AppError::InvalidInput("job needs a project".to_string()))?;
     let recording_id = recording_id.filter(|value| !value.trim().is_empty());
+    if transcription_mode == job_engine::TranscriptionMode::Detailed {
+        let recording_id = recording_id.as_deref().ok_or_else(|| {
+            AppError::InvalidInput("transcript.detailed needs a recording".to_string())
+        })?;
+        let readiness = detailed_transcription_readiness_for_job(&state.whisper_runtime);
+        if !readiness.available {
+            return Err(AppError::InvalidInput(readiness.reason));
+        }
+        if live_meeting::detailed_proposals_pending(&state.genesis, &project_id, recording_id)
+            .map_err(AppError::Genesis)?
+        {
+            return Err(AppError::InvalidInput(
+                "รีวิวหรือปฏิเสธข้อเสนอจากโหมดละเอียดที่ค้างอยู่ก่อนเริ่มรอบใหม่".to_string(),
+            ));
+        }
+    }
     let id = state
         .jobs
-        .enqueue(kind, &project_id, recording_id.as_deref())
+        .enqueue_with_transcription_mode(
+            kind,
+            &project_id,
+            recording_id.as_deref(),
+            transcription_mode,
+        )
         .map_err(AppError::Genesis)?;
     job_by_id(&state.genesis, &id)
+}
+
+/// The job types this build can actually run, plus the `transcript.detailed`
+/// request alias which is persisted as `transcript.retry` with explicit
+/// detailed-mode metadata to preserve Genesis' checked type enum.
+#[tauri::command]
+fn runnable_job_types() -> Vec<&'static str> {
+    let mut kinds = job_engine::JobKind::ALL
+        .into_iter()
+        .map(job_engine::JobKind::as_str)
+        .collect::<Vec<_>>();
+    kinds.push("transcript.detailed");
+    kinds
 }
 
 /// Asks the engine to stop a job. The outcome distinguishes "it will not
@@ -1198,16 +1371,6 @@ fn create_job(
 #[tauri::command]
 fn cancel_job(job_id: String, state: State<'_, AppState>) -> AppResult<job_engine::CancelOutcome> {
     Ok(state.jobs.cancel(&job_id))
-}
-
-/// The job types this build can actually run, for a UI that would otherwise
-/// have to hard-code the list and drift from it.
-#[tauri::command]
-fn runnable_job_types() -> Vec<&'static str> {
-    job_engine::JobKind::ALL
-        .into_iter()
-        .map(job_engine::JobKind::as_str)
-        .collect()
 }
 
 fn job_by_id(storage: &genesis_block_native::Storage, job_id: &str) -> AppResult<Job> {
@@ -3580,6 +3743,286 @@ fn meeting_agent_history(
     .map_err(AppError::Genesis)
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DetailedTranscriptProposal {
+    id: String,
+    transcript_segment_id: String,
+    original_text: String,
+    proposed_text: String,
+    model_name: String,
+    created_at: String,
+}
+
+#[tauri::command]
+fn list_detailed_transcript_proposals(
+    project_id: String,
+    recording_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<DetailedTranscriptProposal>> {
+    let segments = genesis_adapter::query_all(
+        &state.genesis,
+        "transcript_segments",
+        &["id"],
+        vec![
+            genesis_adapter::eq(
+                "transcript_segments",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            genesis_adapter::eq(
+                "transcript_segments",
+                "recording_id",
+                serde_json::json!(recording_id),
+            ),
+        ],
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .filter_map(|row| {
+        row.get("transcript_segments.id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+    })
+    .collect::<std::collections::HashSet<_>>();
+    if segments.is_empty() {
+        return Ok(Vec::new());
+    }
+    let proposals = genesis_adapter::query_all(
+        &state.genesis,
+        "transcript_refinement_proposals",
+        &[
+            "id",
+            "transcript_segment_id",
+            "original_text",
+            "proposed_text",
+            "policy",
+            "status",
+            "created_at",
+        ],
+        vec![
+            genesis_adapter::eq(
+                "transcript_refinement_proposals",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            genesis_adapter::eq(
+                "transcript_refinement_proposals",
+                "status",
+                serde_json::json!("proposed"),
+            ),
+        ],
+    )
+    .map_err(AppError::Genesis)?;
+    let mut items = Vec::new();
+    for row in proposals {
+        let Some(segment_id) = row
+            .get("transcript_refinement_proposals.transcript_segment_id")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        if !segments.contains(segment_id) {
+            continue;
+        }
+        let Some(policy) = row
+            .get("transcript_refinement_proposals.policy")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
+        else {
+            continue;
+        };
+        if policy.get("kind").and_then(serde_json::Value::as_str) != Some("detailed_asr_candidate")
+        {
+            continue;
+        }
+        items.push(DetailedTranscriptProposal {
+            id: genesis_adapter::string(&row, "transcript_refinement_proposals.id")
+                .map_err(AppError::Genesis)?,
+            transcript_segment_id: segment_id.to_string(),
+            original_text: genesis_adapter::string(
+                &row,
+                "transcript_refinement_proposals.original_text",
+            )
+            .map_err(AppError::Genesis)?,
+            proposed_text: genesis_adapter::string(
+                &row,
+                "transcript_refinement_proposals.proposed_text",
+            )
+            .map_err(AppError::Genesis)?,
+            model_name: policy
+                .get("model")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(crate::THAI_CANDIDATE_MODEL)
+                .to_string(),
+            created_at: genesis_adapter::string(&row, "transcript_refinement_proposals.created_at")
+                .map_err(AppError::Genesis)?,
+        });
+    }
+    Ok(items)
+}
+
+#[tauri::command]
+fn review_detailed_transcript_proposal(
+    project_id: String,
+    recording_id: String,
+    proposal_id: String,
+    decision: String,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    if decision != "accepted" && decision != "rejected" {
+        return Err(AppError::InvalidInput(
+            "decision must be accepted or rejected".to_string(),
+        ));
+    }
+    let proposal = genesis_adapter::query(
+        &state.genesis,
+        "transcript_refinement_proposals",
+        &[
+            "project_id",
+            "transcript_segment_id",
+            "original_text",
+            "proposed_text",
+            "policy",
+            "model_run_id",
+            "status",
+            "reviewed_at",
+            "created_at",
+        ],
+        vec![
+            genesis_adapter::eq(
+                "transcript_refinement_proposals",
+                "id",
+                serde_json::json!(proposal_id),
+            ),
+            genesis_adapter::eq(
+                "transcript_refinement_proposals",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+        ],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::InvalidInput("detailed proposal not found".to_string()))?;
+    if genesis_adapter::string(&proposal, "transcript_refinement_proposals.status")
+        .map_err(AppError::Genesis)?
+        != "proposed"
+    {
+        return Err(AppError::InvalidInput(
+            "detailed proposal was already reviewed".to_string(),
+        ));
+    }
+    let policy_text = genesis_adapter::string(&proposal, "transcript_refinement_proposals.policy")
+        .map_err(AppError::Genesis)?;
+    let policy: serde_json::Value = serde_json::from_str(&policy_text).map_err(|_| {
+        AppError::InvalidInput("detailed proposal provenance is invalid".to_string())
+    })?;
+    if policy.get("kind").and_then(serde_json::Value::as_str) != Some("detailed_asr_candidate") {
+        return Err(AppError::InvalidInput(
+            "proposal is not from detailed transcription".to_string(),
+        ));
+    }
+    let segment_id = genesis_adapter::optional_string(
+        &proposal,
+        "transcript_refinement_proposals.transcript_segment_id",
+    )
+    .ok_or_else(|| AppError::InvalidInput("detailed proposal has no source segment".to_string()))?;
+    let segment = genesis_adapter::query(
+        &state.genesis,
+        "transcript_segments",
+        &["project_id", "recording_id", "text", "updated_at"],
+        vec![
+            genesis_adapter::eq("transcript_segments", "id", serde_json::json!(segment_id)),
+            genesis_adapter::eq(
+                "transcript_segments",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            genesis_adapter::eq(
+                "transcript_segments",
+                "recording_id",
+                serde_json::json!(recording_id),
+            ),
+        ],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| {
+        AppError::InvalidInput("proposal no longer belongs to this recording".to_string())
+    })?;
+    let original_text =
+        genesis_adapter::string(&proposal, "transcript_refinement_proposals.original_text")
+            .map_err(AppError::Genesis)?;
+    let proposed_text =
+        genesis_adapter::string(&proposal, "transcript_refinement_proposals.proposed_text")
+            .map_err(AppError::Genesis)?;
+    if decision == "accepted" {
+        let current_text = genesis_adapter::string(&segment, "transcript_segments.text")
+            .map_err(AppError::Genesis)?;
+        if current_text.trim() != proposed_text.trim() {
+            let current_updated_at =
+                genesis_adapter::string(&segment, "transcript_segments.updated_at")
+                    .map_err(AppError::Genesis)?;
+            let expected_updated_at = policy
+                .get("expectedUpdatedAt")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| {
+                    AppError::InvalidInput("proposal revision precondition is missing".to_string())
+                })?;
+            let expected_revision = policy
+                .get("expectedRevision")
+                .map(serde_json::Value::as_i64)
+                .ok_or_else(|| {
+                    AppError::InvalidInput("proposal revision precondition is missing".to_string())
+                })?;
+            if current_text != original_text || current_updated_at != expected_updated_at {
+                return Err(AppError::InvalidInput(
+                    "transcript changed since this detailed proposal; refresh and review the current version".to_string(),
+                ));
+            }
+            correct_transcript_segment_with_precondition(
+                &state.genesis,
+                &project_id,
+                &recording_id,
+                &segment_id,
+                &proposed_text,
+                Some(TranscriptCorrectionPrecondition {
+                    expected_text: &original_text,
+                    expected_updated_at,
+                    expected_revision,
+                }),
+            )?;
+        }
+    }
+    let timestamp = now();
+    genesis_adapter::commit_rows(
+        &state.genesis,
+        vec![genesis_adapter::upsert(
+            "transcript_refinement_proposals",
+            serde_json::json!({
+                "id": proposal_id,
+                "project_id": project_id,
+                "transcript_segment_id": segment_id,
+                "original_text": original_text,
+                "proposed_text": proposed_text,
+                "policy": policy_text,
+                "model_run_id": proposal.get("transcript_refinement_proposals.model_run_id"),
+                "status": decision,
+                "reviewed_at": timestamp.clone(),
+                "created_at": proposal.get("transcript_refinement_proposals.created_at"),
+                "updated_at": timestamp,
+            }),
+        )],
+    )
+    .map_err(AppError::Genesis)?;
+    Ok(())
+}
+
 #[tauri::command]
 fn correct_transcript_segment(
     project_id: String,
@@ -3611,6 +4054,31 @@ fn correct_transcript_segment_in_storage(
     segment_id: &str,
     corrected_text: &str,
 ) -> AppResult<()> {
+    correct_transcript_segment_with_precondition(
+        genesis,
+        project_id,
+        recording_id,
+        segment_id,
+        corrected_text,
+        None,
+    )
+}
+
+#[derive(Clone, Copy)]
+struct TranscriptCorrectionPrecondition<'a> {
+    expected_text: &'a str,
+    expected_updated_at: &'a str,
+    expected_revision: Option<i64>,
+}
+
+fn correct_transcript_segment_with_precondition(
+    genesis: &genesis_block_native::Storage,
+    project_id: &str,
+    recording_id: &str,
+    segment_id: &str,
+    corrected_text: &str,
+    precondition: Option<TranscriptCorrectionPrecondition<'_>>,
+) -> AppResult<()> {
     let corrected_text = corrected_text.trim();
     if corrected_text.is_empty() {
         return Err(AppError::InvalidInput(
@@ -3638,6 +4106,7 @@ fn correct_transcript_segment_in_storage(
             "text",
             "confidence",
             "created_at",
+            "updated_at",
         ],
         vec![
             genesis_adapter::eq(
@@ -3665,6 +4134,17 @@ fn correct_transcript_segment_in_storage(
 
     let original_text =
         genesis_adapter::string(&row, "transcript_segments.text").map_err(AppError::Genesis)?;
+    if let Some(precondition) = precondition {
+        let current_updated_at = genesis_adapter::string(&row, "transcript_segments.updated_at")
+            .map_err(AppError::Genesis)?;
+        if original_text != precondition.expected_text
+            || current_updated_at != precondition.expected_updated_at
+        {
+            return Err(AppError::InvalidInput(
+                "transcript changed since this detailed proposal; refresh and review the current version".to_string(),
+            ));
+        }
+    }
     if original_text == corrected_text {
         return Ok(());
     }
@@ -3677,6 +4157,7 @@ fn correct_transcript_segment_in_storage(
         corrected_text,
         &revision_id,
         &attempt,
+        precondition.map(|value| value.expected_revision),
     )? {
         return Ok(());
     }
@@ -3734,7 +4215,11 @@ fn correct_transcript_segment_in_storage(
         ),
     ];
 
-    genesis_adapter::commit_rows(genesis, mutations).map_err(AppError::Genesis)
+    match precondition {
+        Some(_) => genesis_adapter::commit_rows_with_attempt(genesis, &attempt, mutations),
+        None => genesis_adapter::commit_rows(genesis, mutations),
+    }
+    .map_err(AppError::Genesis)
 }
 
 fn correct_v2_utterance_in_storage(
@@ -3745,6 +4230,7 @@ fn correct_v2_utterance_in_storage(
     corrected_text: &str,
     revision_id: &str,
     attempt: &meeting_intelligence_schema::MeetingCommitAttempt,
+    expected_revision: Option<Option<i64>>,
 ) -> AppResult<bool> {
     let projection = genesis_adapter::query(
         genesis,
@@ -3771,6 +4257,11 @@ fn correct_v2_utterance_in_storage(
     )
     .map_err(AppError::Genesis)?;
     let Some(projection) = projection.into_iter().next() else {
+        if expected_revision.is_some_and(|expected| expected.is_some()) {
+            return Err(AppError::InvalidInput(
+                "transcript revision changed since this detailed proposal".to_string(),
+            ));
+        }
         return Ok(false);
     };
     let current_revision_id =
@@ -3834,6 +4325,11 @@ fn correct_v2_utterance_in_storage(
     }
     let current_revision = genesis_adapter::integer(&current, "transcript_revisions.revision")
         .map_err(AppError::Genesis)?;
+    if expected_revision.is_some_and(|expected| expected != Some(current_revision)) {
+        return Err(AppError::InvalidInput(
+            "transcript revision changed since this detailed proposal".to_string(),
+        ));
+    }
     let next_revision = current_revision
         .checked_add(1)
         .ok_or_else(|| AppError::Genesis("transcript revision is exhausted".to_string()))?;
@@ -4885,6 +5381,41 @@ pub(crate) fn run_python_worker(
     Ok(raw_output)
 }
 
+pub(crate) fn run_detailed_candidate_worker(
+    runtime: &WhisperRuntime,
+    chunks_manifest: &std::path::Path,
+    language: Option<&str>,
+) -> Result<WhisperOutput, String> {
+    let model_path = bundled_whisper_model_for_profile(runtime, THAI_CANDIDATE_PROFILE)
+        .ok_or_else(|| "ตำแหน่งโมเดลละเอียดไม่ถูกต้อง".to_string())?;
+    if !model_path.is_dir() {
+        return Err(format!("ไม่พบโมเดลละเอียดในเครื่องที่ {}", model_path.display()));
+    }
+    let scripts_dir = runtime
+        .script
+        .parent()
+        .ok_or_else(|| "ไม่พบโฟลเดอร์ worker scripts".to_string())?;
+    let worker_script = scripts_dir.join("transcribe_transformers.py");
+    let model_path = model_path.to_string_lossy().into_owned();
+    let manifest_path = chunks_manifest.to_string_lossy().into_owned();
+    let mut args = vec![
+        "--chunks-manifest".to_string(),
+        manifest_path,
+        "--model".to_string(),
+        model_path,
+        "--profile".to_string(),
+        "cpu".to_string(),
+    ];
+    if let Some(language) = language {
+        args.push("--language".to_string());
+        args.push(language.to_string());
+    }
+    let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    let raw = run_python_worker(runtime, &worker_script, &arg_refs, None, None, |_| {})?;
+    serde_json::from_str::<WhisperOutput>(raw.trim())
+        .map_err(|error| format!("แปลผลโหมดละเอียดไม่สำเร็จ: {error}"))
+}
+
 /// Runs the faster-whisper worker script and blocks until it exits,
 /// reporting `PROGRESS <pct>` lines from stderr via `on_progress` as they
 /// arrive. Intended to run off the main thread (see `import_and_transcribe`).
@@ -4895,6 +5426,7 @@ pub(crate) fn run_transcription(
     file_path: &str,
     on_progress: impl Fn(i64) + Send + 'static,
 ) -> Result<WhisperOutput, String> {
+    require_general_transcription_profile()?;
     require_bundled_whisper_model(runtime)?;
     let profile = transcription_profile()?;
     let worker_script = whisper_worker_script(runtime, false)?;
@@ -5594,6 +6126,9 @@ pub fn run() {
             correct_transcript_segment,
             import_and_transcribe,
             fetch_and_transcribe,
+            detailed_transcription_readiness,
+            list_detailed_transcript_proposals,
+            review_detailed_transcript_proposal,
             media_fetch_status,
             media_fetch_consent_set,
             transcript_export::list_export_artifacts,
@@ -5890,6 +6425,41 @@ mod worker_tests {
         );
         assert!(whisper_model_name_from(Some("reference")).is_err());
         assert!(whisper_model_name_from(Some("small")).is_err());
+    }
+
+    #[test]
+    fn general_mode_never_routes_the_detailed_candidate_into_committed_transcription() {
+        assert_eq!(general_transcription_profile_from(None).unwrap(), "turbo");
+        assert_eq!(
+            general_transcription_profile_from(Some("medium")).unwrap(),
+            "medium"
+        );
+        assert!(general_transcription_profile_from(Some(THAI_CANDIDATE_PROFILE)).is_err());
+    }
+
+    #[test]
+    fn detailed_readiness_requires_the_pinned_transformers_manifest() {
+        let manifest = serde_json::json!({
+            "backend": "transformers",
+            "candidateProfile": THAI_CANDIDATE_PROFILE,
+            "model": {
+                "name": THAI_CANDIDATE_MODEL,
+                "repository": THAI_CANDIDATE_REPOSITORY,
+                "revision": THAI_CANDIDATE_MODEL_REVISION,
+                "license": "Apache-2.0",
+            },
+        });
+        assert!(candidate_manifest_is_pinned(&manifest));
+        assert!(!candidate_manifest_is_pinned(&serde_json::json!({
+            "backend": "transformers",
+            "candidateProfile": THAI_CANDIDATE_PROFILE,
+            "model": {
+                "name": THAI_CANDIDATE_MODEL,
+                "repository": THAI_CANDIDATE_REPOSITORY,
+                "revision": "0",
+                "license": "Apache-2.0",
+            },
+        })));
     }
 
     #[test]
@@ -6417,6 +6987,85 @@ mod transcript_correction_tests {
         assert!(wrong_recording
             .to_string()
             .contains("ไม่พบ transcript segment"));
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn detailed_proposal_rejects_a_stale_legacy_transcript_precondition() {
+        let (path, storage) = open_storage();
+        seed_segment(&storage);
+
+        let error = correct_transcript_segment_with_precondition(
+            &storage,
+            "p1",
+            "r1",
+            "s1",
+            "ข้อเสนอใหม่",
+            Some(TranscriptCorrectionPrecondition {
+                expected_text: "ข้อความเก่า",
+                expected_updated_at: "segment-updated",
+                expected_revision: None,
+            }),
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("transcript changed"));
+        let segment = genesis_adapter::query(
+            &storage,
+            "transcript_segments",
+            &["text"],
+            vec![genesis_adapter::eq(
+                "transcript_segments",
+                "id",
+                serde_json::json!("s1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
+        assert_eq!(segment["transcript_segments.text"], "ข้อความเดิม");
+
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn detailed_proposal_acceptance_commits_with_the_expected_legacy_revision() {
+        let (path, storage) = open_storage();
+        seed_segment(&storage);
+
+        correct_transcript_segment_with_precondition(
+            &storage,
+            "p1",
+            "r1",
+            "s1",
+            "ข้อเสนอที่ตรวจแล้ว",
+            Some(TranscriptCorrectionPrecondition {
+                expected_text: "ข้อความเดิม",
+                expected_updated_at: "segment-updated",
+                expected_revision: None,
+            }),
+        )
+        .unwrap();
+
+        let segment = genesis_adapter::query(
+            &storage,
+            "transcript_segments",
+            &["text"],
+            vec![genesis_adapter::eq(
+                "transcript_segments",
+                "id",
+                serde_json::json!("s1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
+        assert_eq!(segment["transcript_segments.text"], "ข้อเสนอที่ตรวจแล้ว");
 
         drop(storage);
         let _ = std::fs::remove_dir_all(path);

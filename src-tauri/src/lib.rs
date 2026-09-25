@@ -4222,6 +4222,9 @@ fn correct_transcript_segment_with_precondition(
     .map_err(AppError::Genesis)
 }
 
+// These values are independent transcript scope/revision and Genesis commit
+// facts; a single-use context struct would only obscure the write contract.
+#[allow(clippy::too_many_arguments)]
 fn correct_v2_utterance_in_storage(
     genesis: &genesis_block_native::Storage,
     project_id: &str,

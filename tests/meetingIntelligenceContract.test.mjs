@@ -11,6 +11,7 @@ const escapeRegex = (value) =>
   value.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
 
 const contract = read("contracts/meeting-intelligence-v1.yaml");
+const contractV2 = read("contracts/meeting-intelligence-v2.yaml");
 const schema = read("src-tauri/src/meeting_intelligence_schema.rs");
 const adapter = read("src-tauri/src/genesis_adapter.rs");
 
@@ -62,8 +63,20 @@ test("supplemental source-shape checks show relationship plaintext is not in typ
   assert.match(adapter, /unlock_native_local_owner/);
   assert.match(adapter, /revalidate_native_local_owner_session_under_fence/);
   assert.match(adapter, /reopens_and_replays_durable_transaction_identity/);
-  assert.match(adapter, /with_account_commit_fence/);
+  assert.match(adapter, /with_account_lifecycle_fence/);
   assert.match(adapter, /native account operation is unavailable/);
+  const metricComputeStart = adapter.indexOf(
+    "pub(crate) fn compute_meeting_knowledge_metric(",
+  );
+  const metricComputeEnd = adapter.indexOf(
+    "\nstruct NativeKnowledgeReadBoundary",
+    metricComputeStart,
+  );
+  const metricCompute = adapter.slice(metricComputeStart, metricComputeEnd);
+  assert.match(
+    metricCompute,
+    /account_guard\.with_account_lifecycle_fence\(&session\.account_witness,\s*\|\|\s*\{[\s\S]*open_metric_observation_value\([\s\S]*MeetingKnowledgeMetricComputeResult[\s\S]*\}\)\s*\}\s*$/,
+  );
   assert.match(
     adapter,
     /r3_contender_first_switch_before_broker_fence_rejects_without_partial_effects/,
@@ -91,4 +104,25 @@ test("contract keeps bounded G1 acceptance and deferred evidence explicit", () =
   ]) {
     assert.match(contract, new RegExp(escapeRegex(marker)));
   }
+});
+
+test("local M1-M5 contract keeps provider activation and platform sandbox boundaries explicit", () => {
+  for (const marker of [
+    'status: "beta"',
+    "people_metadata",
+    "people_profile_revisioned_lifecycle",
+    "distinct_people_and_knowledge_recovery_keys",
+    "windows_appcontainer_file_and_network_denial",
+    "bounded_stdin_pipe",
+    "selected_path_passed_to_child: false",
+    "parser_network_access: false",
+    "external_provider: NOT_RUN_UNTIL_SEPARATELY_APPROVED",
+  ]) {
+    assert.ok(contractV2.includes(marker), `missing local contract marker: ${marker}`);
+  }
+
+  const base = JSON.parse(read("src-tauri/tauri.conf.json"));
+  const windows = JSON.parse(read("src-tauri/tauri.windows.conf.json"));
+  assert.equal(base.bundle.resources["../.knowledge-parser-runtime"], undefined);
+  assert.equal(windows.bundle.resources["../.knowledge-parser-runtime"], "knowledge-parser-runtime");
 });

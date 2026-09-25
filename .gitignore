@@ -3,6 +3,7 @@ dist/
 .target-mobile/
 .toolchains/
 .venv-whisper/
+.knowledge-parser-runtime/
 .venv-whisper-transformers-candidate/
 .runtime-cache/
 .playwright-cli/
@@ -34,6 +35,7 @@ attic/
 
 # Large build artifacts
 public/*.apk
+.knowledge-parser-runtime/
 
 # Local tooling config
 .claude/

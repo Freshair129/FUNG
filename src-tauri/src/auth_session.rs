@@ -21,6 +21,7 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tauri::Emitter;
 use tauri::Manager;
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
@@ -120,13 +121,11 @@ pub(crate) struct LifecycleOutcome {
 pub(crate) trait RegisteredBrokerPort: Send + Sync {
     fn check_account_operation(&self, ticket: LifecycleTicket) -> Result<(), String>;
     fn finish_account_operation(&self, ticket: LifecycleTicket);
-    // R3 foundation API: production meeting wiring is intentionally deferred.
-    #[allow(dead_code)]
-    fn with_account_commit_fence(
+    fn with_account_lifecycle_fence(
         &self,
         expected_witness: &LifecycleWitness,
         ticket: LifecycleTicket,
-        commit: &mut dyn FnMut() -> Result<(), String>,
+        operation: &mut dyn FnMut() -> Result<(), String>,
     ) -> Result<(), String>;
 }
 
@@ -206,17 +205,28 @@ impl AccountOperationGuard {
         self.broker.check_account_operation(self.ticket)
     }
 
-    // R3 foundation API: production meeting wiring is intentionally deferred.
-    #[allow(dead_code)]
-    pub(crate) fn with_account_commit_fence(
+    pub(crate) fn with_account_lifecycle_fence<T>(
         &self,
         expected_witness: &LifecycleWitness,
-        commit: &mut dyn FnMut() -> Result<(), String>,
-    ) -> Result<(), String> {
+        operation: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
         // The guard retains the exact trait object that admitted its ticket.
         // This cannot be replaced by a shadow lifecycle lock from the caller.
-        self.broker
-            .with_account_commit_fence(expected_witness, self.ticket, commit)
+        let mut operation = Some(operation);
+        let mut result = None;
+        let mut fenced_operation = || {
+            let operation = operation
+                .take()
+                .ok_or_else(|| public_error("auth_transition_in_progress"))?;
+            result = Some(operation()?);
+            Ok(())
+        };
+        self.broker.with_account_lifecycle_fence(
+            expected_witness,
+            self.ticket,
+            &mut fenced_operation,
+        )?;
+        result.ok_or_else(|| public_error("auth_transition_in_progress"))
     }
 }
 
@@ -441,9 +451,7 @@ where
         self.ensure_account_ticket(ticket)
     }
 
-    // R3 foundation API: production meeting wiring is intentionally deferred.
-    #[allow(dead_code)]
-    fn validate_account_commit_fence(
+    fn validate_account_lifecycle_fence(
         &self,
         expected_witness: &LifecycleWitness,
         ticket: LifecycleTicket,
@@ -937,22 +945,21 @@ where
         }
     }
 
-    fn with_account_commit_fence(
+    fn with_account_lifecycle_fence(
         &self,
         expected_witness: &LifecycleWitness,
         ticket: LifecycleTicket,
-        commit: &mut dyn FnMut() -> Result<(), String>,
+        operation: &mut dyn FnMut() -> Result<(), String>,
     ) -> Result<(), String> {
         // This mutex is the registered broker's lifecycle critical section.
         // Do not call lifecycle_source.read(), check_account_operation(), or
-        // any broker entry while it is held: the validation is direct and the
-        // The durable commit is the only operation performed under this fence.
+        // any broker entry while it is held; validation happens directly.
         let lifecycle = self
             .lifecycle
             .lock()
             .map_err(|_| public_error("auth_transition_in_progress"))?;
-        lifecycle.validate_account_commit_fence(expected_witness, ticket)?;
-        commit()
+        lifecycle.validate_account_lifecycle_fence(expected_witness, ticket)?;
+        operation()
     }
 }
 
@@ -1966,9 +1973,10 @@ async fn ensure_startup() -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) async fn ensure_access_token() -> Result<Zeroizing<String>, String> {
+pub(crate) async fn ensure_access_token(app: &AppHandle) -> Result<Zeroizing<String>, String> {
     ensure_startup().await?;
     loop {
+        let witness_before_refresh = read_lifecycle_witness().ok();
         let admission = production_lifecycle().begin_refresh()?;
         let (ticket, refresh, provider) = match admission {
             RefreshAdmission::Ready(token) => return Ok(token),
@@ -2004,6 +2012,10 @@ pub(crate) async fn ensure_access_token() -> Result<Zeroizing<String>, String> {
                 signal.notify_all();
             }
         }
+        let witness_after_refresh = read_lifecycle_witness().ok();
+        if witness_before_refresh != witness_after_refresh {
+            emit_account_lifecycle_changed(app);
+        }
         return result;
     }
 }
@@ -2014,7 +2026,19 @@ pub(crate) fn native_user_id() -> Option<String> {
         .and_then(|witness| witness.native_user_id)
 }
 
-async fn finish_login(_app: AppHandle, request_id: String, generation: u64) {
+fn emit_account_lifecycle_changed(app: &AppHandle) {
+    if let Ok(witness) = read_lifecycle_witness() {
+        let _ = app.emit(
+            "auth-session-changed",
+            serde_json::json!({
+                "state": witness.state,
+                "accountGeneration": witness.account_generation,
+            }),
+        );
+    }
+}
+
+async fn finish_login(app: AppHandle, request_id: String, generation: u64) {
     loop {
         if !production_lifecycle().login_is_current(&request_id, generation) {
             return;
@@ -2037,12 +2061,14 @@ async fn finish_login(_app: AppHandle, request_id: String, generation: u64) {
                     Err(error) => Err(error),
                 };
                 let _ = production_lifecycle().registered_login_complete(ticket, result);
+                emit_account_lifecycle_changed(&app);
             }
             return;
         }
         let expired = production_lifecycle().login_expired();
         if expired {
             production_lifecycle().expire_login(generation);
+            emit_account_lifecycle_changed(&app);
             return;
         }
         let _ =
@@ -2075,6 +2101,7 @@ pub(crate) async fn broker_session_login_begin(app: AppHandle) -> Result<LoginSt
         callback: callback.clone(),
         cancelled: cancelled.clone(),
     })?;
+    emit_account_lifecycle_changed(&app);
     spawn_listener(listener, port, callback, cancelled);
     let mut redirect_to = Zeroizing::new(String::with_capacity(64));
     redirect_to.push_str("http://127.0.0.1:");
@@ -2099,6 +2126,7 @@ pub(crate) async fn broker_session_login_begin(app: AppHandle) -> Result<LoginSt
     url.push_str(pkce_method.1);
     if app.opener().open_url(url.as_str(), None::<&str>).is_err() {
         production_lifecycle().expire_login(generation);
+        emit_account_lifecycle_changed(&app);
         return Err(public_error("auth_url_open_failed"));
     }
     tauri::async_runtime::spawn(finish_login(app, request_id.clone(), generation));
@@ -2109,8 +2137,12 @@ pub(crate) async fn broker_session_login_begin(app: AppHandle) -> Result<LoginSt
 }
 
 #[tauri::command]
-pub(crate) async fn broker_session_login_cancel(request_id: String) -> Result<Cancelled, String> {
+pub(crate) async fn broker_session_login_cancel(
+    app: AppHandle,
+    request_id: String,
+) -> Result<Cancelled, String> {
     production_lifecycle().registered_cancel_login(&request_id)?;
+    emit_account_lifecycle_changed(&app);
     Ok(Cancelled {
         request_id,
         status: "cancelled",
@@ -2118,12 +2150,12 @@ pub(crate) async fn broker_session_login_cancel(request_id: String) -> Result<Ca
 }
 
 #[tauri::command]
-pub(crate) async fn broker_session_status() -> Result<SessionStatus, String> {
+pub(crate) async fn broker_session_status(app: AppHandle) -> Result<SessionStatus, String> {
     let has_keyring = production_lifecycle().account_startup_checked()?
         || production_lifecycle().has_committed_account()?;
     let _ = ensure_startup().await;
     if has_keyring {
-        let _ = ensure_access_token().await;
+        let _ = ensure_access_token(&app).await;
     }
     let (state, user_id, email, access_expires_at_ms) =
         production_lifecycle().session_snapshot()?;
@@ -2136,7 +2168,7 @@ pub(crate) async fn broker_session_status() -> Result<SessionStatus, String> {
 }
 
 #[tauri::command]
-pub(crate) async fn broker_session_logout() -> Result<SessionStatus, String> {
+pub(crate) async fn broker_session_logout(app: AppHandle) -> Result<SessionStatus, String> {
     if production_lifecycle().session_snapshot()?.0 == "shutdown" {
         return Ok(SessionStatus {
             state: "shutdown",
@@ -2145,9 +2177,9 @@ pub(crate) async fn broker_session_logout() -> Result<SessionStatus, String> {
             access_expires_at_ms: None,
         });
     }
-    production_lifecycle()
-        .logout()
-        .map_err(|_| public_error("auth_logout_incomplete"))?;
+    let logout_result = production_lifecycle().logout();
+    emit_account_lifecycle_changed(&app);
+    logout_result.map_err(|_| public_error("auth_logout_incomplete"))?;
     Ok(SessionStatus {
         state: "signed_out",
         user_id: None,
@@ -2195,11 +2227,12 @@ fn allowed_native_error(code: &str) -> bool {
 }
 
 async fn native_post<T: for<'de> Deserialize<'de>>(
+    app: &AppHandle,
     path: &str,
     body: impl Serialize,
 ) -> Result<T, String> {
     let operation = account_begin_operation()?;
-    let access = ensure_access_token().await?;
+    let access = ensure_access_token(app).await?;
     let mut url = native_auth::configured_supabase_origin()?;
     url.set_path(path);
     let response = Client::builder()
@@ -2240,6 +2273,7 @@ pub(crate) async fn broker_enrollment_request(
 ) -> Result<EnrollmentResult, String> {
     let proof = native_auth::native_device_enrollment_proof(&app, &input.device_label).await?;
     let response: EnrollmentResponse = native_post(
+        &app,
         "/functions/v1/device-enrollment",
         EnrollmentRequest {
             native_proof: &proof,
@@ -2268,9 +2302,9 @@ struct DeviceWire {
     lan_endpoint: Option<String>,
     public_key_fingerprint: Option<String>,
 }
-async fn device_rows() -> Result<Vec<DeviceWire>, String> {
+async fn device_rows(app: &AppHandle) -> Result<Vec<DeviceWire>, String> {
     let operation = account_begin_operation()?;
-    let access = ensure_access_token().await?;
+    let access = ensure_access_token(app).await?;
     let mut url = native_auth::configured_supabase_origin()?;
     url.set_path("/rest/v1/devices");
     url.set_query(Some("select=id,device_label,platform,authority_state,registered_at,revoked_at,lan_endpoint,public_key_fingerprint&order=registered_at.desc"));
@@ -2298,7 +2332,7 @@ async fn device_rows() -> Result<Vec<DeviceWire>, String> {
 #[tauri::command]
 pub(crate) async fn broker_enrollment_status(app: AppHandle) -> Result<EnrollmentStatus, String> {
     let (_, fingerprint) = current_identity(&app)?;
-    let row = device_rows().await?.into_iter().find(|row| {
+    let row = device_rows(&app).await?.into_iter().find(|row| {
         row.public_key_fingerprint
             .as_deref()
             .is_some_and(|value| value.eq_ignore_ascii_case(&fingerprint))
@@ -2315,8 +2349,8 @@ pub(crate) async fn broker_enrollment_status(app: AppHandle) -> Result<Enrollmen
     })
 }
 #[tauri::command]
-pub(crate) async fn broker_device_list() -> Result<Vec<DeviceRow>, String> {
-    Ok(device_rows()
+pub(crate) async fn broker_device_list(app: AppHandle) -> Result<Vec<DeviceRow>, String> {
+    Ok(device_rows(&app)
         .await?
         .into_iter()
         .map(|row| DeviceRow {
@@ -2356,7 +2390,7 @@ pub(crate) async fn broker_device_endpoint_publish(
         });
     };
     let (_, fingerprint) = current_identity(&app)?;
-    let device = device_rows()
+    let device = device_rows(&app)
         .await?
         .into_iter()
         .find(|row| {
@@ -2366,7 +2400,7 @@ pub(crate) async fn broker_device_endpoint_publish(
         })
         .ok_or_else(|| public_error("device_not_enrolled"))?;
     let operation = account_begin_operation()?;
-    let access = ensure_access_token().await?;
+    let access = ensure_access_token(&app).await?;
     let mut url = native_auth::configured_supabase_origin()?;
     url.set_path("/rest/v1/rpc/publish_device_endpoint");
     let response = Client::builder()
@@ -2428,9 +2462,13 @@ struct PairingSessionWire {
     responder_device_id: Option<String>,
 }
 
-async fn rpc<T: for<'de> Deserialize<'de>>(name: &str, body: impl Serialize) -> Result<T, String> {
+async fn rpc<T: for<'de> Deserialize<'de>>(
+    app: &AppHandle,
+    name: &str,
+    body: impl Serialize,
+) -> Result<T, String> {
     let operation = account_begin_operation()?;
-    let access = ensure_access_token().await?;
+    let access = ensure_access_token(app).await?;
     let mut url = native_auth::configured_supabase_origin()?;
     url.set_path(&format!("/rest/v1/rpc/{name}"));
     let response = Client::builder()
@@ -2468,7 +2506,7 @@ pub(crate) async fn broker_pairing_create(
     {
         return Err(public_error("invalid_input"));
     }
-    let devices = device_rows().await?;
+    let devices = device_rows(&app).await?;
     let (_, fingerprint) = current_identity(&app)?;
     let device = devices
         .into_iter()
@@ -2488,6 +2526,7 @@ pub(crate) async fn broker_pairing_create(
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
     let _: Option<String> = rpc(
+        &app,
         "create_pairing_session",
         PairingRpc {
             p_session_id: &session_id,
@@ -2504,12 +2543,12 @@ pub(crate) async fn broker_pairing_create(
     })
 }
 
-async fn pairing_row(pairing_id: &str) -> Result<PairingSessionWire, String> {
+async fn pairing_row(app: &AppHandle, pairing_id: &str) -> Result<PairingSessionWire, String> {
     if Uuid::parse_str(pairing_id).is_err() {
         return Err(public_error("pairing_not_found"));
     }
     let operation = account_begin_operation()?;
-    let access = ensure_access_token().await?;
+    let access = ensure_access_token(app).await?;
     let mut url = native_auth::configured_supabase_origin()?;
     url.set_path("/rest/v1/pairing_sessions");
     url.set_query(Some(&format!(
@@ -2541,10 +2580,13 @@ async fn pairing_row(pairing_id: &str) -> Result<PairingSessionWire, String> {
 }
 
 #[tauri::command]
-pub(crate) async fn broker_pairing_poll(pairing_id: String) -> Result<PairingPoll, String> {
-    let row = pairing_row(&pairing_id).await?;
+pub(crate) async fn broker_pairing_poll(
+    app: AppHandle,
+    pairing_id: String,
+) -> Result<PairingPoll, String> {
+    let row = pairing_row(&app, &pairing_id).await?;
     let peer = if let Some(device_id) = row.responder_device_id {
-        device_rows()
+        device_rows(&app)
             .await?
             .into_iter()
             .find(|device| device.id == device_id)
@@ -2564,7 +2606,7 @@ pub(crate) async fn broker_pairing_poll(pairing_id: String) -> Result<PairingPol
 }
 #[tauri::command]
 pub(crate) async fn broker_pairing_reconcile(app: AppHandle) -> Result<ReconcileStatus, String> {
-    let devices = device_rows().await?;
+    let devices = device_rows(&app).await?;
     let (_, fingerprint) = current_identity(&app)?;
     let device_id = devices
         .into_iter()
@@ -2593,11 +2635,15 @@ struct RevokeWire {
     authority_state: String,
 }
 #[tauri::command]
-pub(crate) async fn broker_device_revoke(device_id: String) -> Result<RevokeResult, String> {
+pub(crate) async fn broker_device_revoke(
+    app: AppHandle,
+    device_id: String,
+) -> Result<RevokeResult, String> {
     if Uuid::parse_str(&device_id).is_err() {
         return Err(public_error("device_not_found"));
     }
     let response: RevokeWire = native_post(
+        &app,
         "/functions/v1/device-enrollment",
         RevokeRequest {
             action: "revoke",
@@ -2623,9 +2669,9 @@ struct AuditWire {
     device_id: Option<String>,
 }
 #[tauri::command]
-pub(crate) async fn broker_device_audit_list() -> Result<Vec<AuditRow>, String> {
+pub(crate) async fn broker_device_audit_list(app: AppHandle) -> Result<Vec<AuditRow>, String> {
     let operation = account_begin_operation()?;
-    let access = ensure_access_token().await?;
+    let access = ensure_access_token(&app).await?;
     let mut url = native_auth::configured_supabase_origin()?;
     url.set_path("/rest/v1/device_audit_events");
     url.set_query(Some(
@@ -3316,7 +3362,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn account_commit_fence_rejects_stale_ticket_under_current_witness() {
+    fn account_lifecycle_fence_rejects_stale_ticket_under_current_witness() {
         let broker = make_broker();
         let guard = broker.begin_account_operation().unwrap();
         let expected_witness = broker.lifecycle_witness().unwrap();
@@ -3326,19 +3372,20 @@ pub(crate) mod tests {
         };
         let commit_called = Arc::new(AtomicBool::new(false));
         let commit_called_by_callback = commit_called.clone();
-        let mut commit = || {
+        let mut commit = || -> Result<(), String> {
             commit_called_by_callback.store(true, Ordering::Release);
             Ok(())
         };
 
-        let result = broker.with_account_commit_fence(&expected_witness, stale_ticket, &mut commit);
+        let result =
+            broker.with_account_lifecycle_fence(&expected_witness, stale_ticket, &mut commit);
 
         assert_eq!(result, Err("auth_transition_in_progress".to_string()));
         assert!(!commit_called.load(Ordering::Acquire));
     }
 
     #[test]
-    fn account_commit_fence_releases_before_caller_guard_drop() {
+    fn account_lifecycle_fence_serializes_publication_before_account_switch() {
         let mut harness = TestAccountOperationHarness::new();
         harness.switch_account_for_test("account-a").unwrap();
         let guard = harness.take_guard();
@@ -3353,7 +3400,7 @@ pub(crate) mod tests {
         let hook_error = Arc::new(Mutex::new(None::<String>));
         let contender_slot_for_hook = contender_slot.clone();
         let hook_error_for_hook = hook_error.clone();
-        let mut commit = || {
+        let commit = || -> Result<(), String> {
             let handle = harness.spawn_account_switch_contender(
                 "account-b",
                 attempted_tx.clone(),
@@ -3394,7 +3441,10 @@ pub(crate) mod tests {
             Ok(())
         };
 
-        let fence_result = guard.with_account_commit_fence(&expected_witness, &mut commit);
+        let fence_result = guard.with_account_lifecycle_fence(&expected_witness, || {
+            commit()?;
+            Ok("private-result".to_string())
+        });
         let completion = completed_rx.recv_timeout(Duration::from_secs(1));
         let handle = contender_slot.lock().unwrap().take();
         let joined = if let Some(handle) = handle {
@@ -3413,7 +3463,7 @@ pub(crate) mod tests {
         let linearized = linearized_rx.recv_timeout(Duration::from_secs(1));
         let hook_error = hook_error.lock().unwrap().clone();
 
-        assert_eq!(fence_result, Ok(()));
+        assert_eq!(fence_result, Ok("private-result".to_string()));
         assert!(completion.is_ok(), "contender did not complete before join");
         assert!(hook_error.is_none(), "{hook_error:?}");
         assert!(matches!(
@@ -3454,12 +3504,14 @@ pub(crate) mod tests {
         let barrier = Arc::new(std::sync::Barrier::new(2));
         let stop = Arc::new(AtomicBool::new(false));
         let reader_ready = Arc::new(AtomicBool::new(false));
+        let logout_pending_seen = Arc::new(AtomicBool::new(false));
         let signed_out_seen = Arc::new(AtomicBool::new(false));
         let samples = Arc::new(Mutex::new(Vec::<LifecycleWitness>::new()));
         let reader_broker = broker.clone();
         let reader_barrier = barrier.clone();
         let reader_stop = stop.clone();
         let reader_ready_flag = reader_ready.clone();
+        let reader_logout_pending = logout_pending_seen.clone();
         let reader_signed_out = signed_out_seen.clone();
         let reader_samples = samples.clone();
         let reader = std::thread::spawn(move || {
@@ -3474,7 +3526,11 @@ pub(crate) mod tests {
                 if witness.state == "signed_out" {
                     reader_signed_out.store(true, Ordering::Release);
                 }
+                let observed_logout_pending = witness.state == "logout_pending";
                 reader_samples.lock().unwrap().push(witness);
+                if observed_logout_pending {
+                    reader_logout_pending.store(true, Ordering::Release);
+                }
                 std::thread::yield_now();
             }
         });
@@ -3501,6 +3557,14 @@ pub(crate) mod tests {
             std::thread::yield_now();
         }
         assert!(logout_started.load(Ordering::Acquire));
+        let pending_seen_deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while !logout_pending_seen.load(Ordering::Acquire) {
+            assert!(
+                std::time::Instant::now() < pending_seen_deadline,
+                "reader did not observe the pending lifecycle witness"
+            );
+            std::thread::yield_now();
+        }
         drop(guard);
         assert_eq!(logout.join().unwrap().unwrap().state, "signed_out");
 

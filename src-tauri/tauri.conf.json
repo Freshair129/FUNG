@@ -64,6 +64,8 @@
       "../scripts/transcribe_transformers_live.py": "scripts/transcribe_transformers_live.py",
       "../scripts/transcode_audio.py": "scripts/transcode_audio.py",
       "../scripts/diarize.py": "scripts/diarize.py",
+      "../scripts/extract_knowledge.py": "scripts/extract_knowledge.py",
+      "../scripts/knowledge-extraction-requirements.txt": "scripts/knowledge-extraction-requirements.txt",
       "../scripts/fetch_media.py": "scripts/fetch_media.py"
     },
     "android": {

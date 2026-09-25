@@ -1,7 +1,7 @@
 ---
-version: "0.2.36b"
+version: "0.3.7b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-23T01:22:19+07:00,RWANG"
+last_update: "2026-09-25T05:59:30+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -19,7 +19,7 @@ provenance, not current runtime or deployment evidence.
 
 ## Candidate live transcript / Google Meet Agent docs — 2026-09-21
 
-**Full M1–M5 capability remains documentation only; bounded R3 foundation is implemented and independently accepted locally.**
+As of 2026-09-21, full M1–M5 capability was documentation only; the bounded R3 foundation was implemented and independently accepted locally.
 
 The user selected Google Meet first and accepted API integration to improve speaker-source attribution. The proposal is indexed in [Meeting Intelligence Domains](../architecture/MEETING_INTELLIGENCE_DOMAINS.md), with detailed [live transcript](../specs/2026-09-21-live-meeting-transcription-spec.md), [knowledge evidence](../specs/2026-09-21-meeting-knowledge-evidence-spec.md), [Meeting Agent](../specs/2026-09-21-meeting-agent-participation-spec.md) and [API strategy](../decisions/2026-09-21-google-meet-agent-api-strategy.md) contracts.
 
@@ -46,7 +46,73 @@ The report's temporary R3/R2 absolute paths are historical custody references;
 those worktrees were deleted after integration. The current root source hashes
 match the R3 review-set hashes. This is not full meeting-intelligence
 acceptance: M1–M5, the workflow package's own G1/G2, provider/native/real-room,
-CI, portable, release and production gates remain **NOT_RUN** or open.
+portable, release and production gates remain **NOT_RUN** or open. Integrated
+source CI is now independently visible as passing run `35783285300` on
+`2c2559fdd907cf94a6f38b34bbb2c6650e68a0e1`; this does not close M1–M5 gates.
+
+## Current acceptance index — 2026-09-24
+
+The [gap closure ledger](../verification/implementation-reports/2026-09-24-gap-closure-runtime.md)
+records the approved GAP-12/GAP-01 follow-up with current runtime evidence.
+Its dated results supersede older environment snapshots below. Historical
+test counts, missing-runtime claims and packaged attempts are retained for
+provenance; they are not acceptance of the current artifact. The architecture
+continues to use one GenesisBlockDB operational boundary.
+
+The approved operational live-worker routing correction now selects
+`transcribe_live.py` for turbo/medium live requests while preserving batch
+and candidate paths. Worker/profile tests passed 13/13, packaging/release
+contracts 16/16, and fmt/clippy passed. Native zero-second inject probes with
+turbo GPU and medium CPU each reached readiness and persisted one 1000 ms
+silent chunk. Summary/export remained unavailable because there was no
+transcript. This closes the bounded routing regression, not real capture,
+speech accuracy, packaged click-through or release acceptance.
+
+## Approved local meeting-intelligence implementation — 2026-09-24
+
+The user approved implementation of M1–M5 with local behavior and
+provider-neutral adapters, and explicitly deferred provider activation. The
+[approved implementation plan](../plans/2026-09-24-meeting-intelligence-local-adapters.md)
+records the integrated scope, verification campaign and remaining gates. The
+source-frozen working tree contains v12 transcript/replay integration, bounded
+live capture, local selected-knowledge operations, People profile/review,
+Windows-isolated PDF parsing, local agent and persistent preview/outbox flow.
+The final consolidated local campaign passed after remediation of the account-
+transition races in People reads, metric computation and draft publication,
+plus a refresh-failure UI invalidation gap. The independent final source review
+found no remaining blocker in the examined M2 protected-plaintext paths.
+Results and source hashes are recorded in the
+[implementation report](../verification/implementation-reports/2026-09-24-meeting-intelligence-local-adapters.md).
+The mock-browser account-lifecycle fixture also passed by clearing a cited
+private draft and locking the selected vault after an auth-session change.
+Native Tauri-window/accessibility and product-level external/device/release
+acceptance remain open.
+
+| Area | Current state | Boundary |
+| --- | --- | --- |
+| M1 revisioned transcript | Implemented in the working tree, including queue-loss intervals and catch-up from durable audio records | Native capture/device and speech-quality evidence are NOT_RUN |
+| M2 local knowledge and People | TXT/Markdown plus Windows sandboxed text-PDF import, selected retrieval, exact locators, encrypted typed Actual/Budget, profile lifecycle and reviewed links are wired | Final local campaign and source review passed for protected reads/publications and refresh invalidation; Android/macOS/Linux PDF import remains fail-closed; see [completion amendment](../plans/2026-09-24-meeting-intelligence-m2-completion-amendment.md) |
+| M3 local agent | Off/observe/draft flow and evidence-bound private drafts are wired | No external model/service activation |
+| M4 delivery | Exact local preview/outbox and local approval are wired | No real provider send or receipt; preview approval is not dispatch |
+| M5 controls | Local policy, expiry, budget and revoke controls are wired | Provider-side rate/cost/leave enforcement remains unqualified |
+
+P0–P6 source implementation reached freeze on 2026-09-25. The consolidated
+local campaign passed, including 576 Rust library tests, 17 meeting-knowledge
+integration tests, all 32 registered Desktop/worker suites, TypeScript/Vite
+build, all-target Rust checks, clippy and Cargo build. Knowledge extraction
+passed 7/7 on Python 3.12.14/pypdf 6.10.0 and staged parser fixtures passed
+7/7 under CPython 3.11.9. The mock-browser fixture verified account-change
+clearing and vault locking. One Docker-backed W1 PostgreSQL case was skipped
+because Docker is unavailable. Native Tauri UI/accessibility, external, device,
+installed-artifact and release gates remain separate and NOT_RUN.
+
+`0.3.6b` → `0.3.7b`: records final People/metric/draft account-lifecycle fixes,
+refresh-failure UI invalidation, the passing consolidated campaign and final
+independent source review; native and product-level gates remain open.
+
+`0.3.4b` → `0.3.5b`: records the four reviewed security remediations, local
+campaign, mock-browser flow and earlier source review; native UI, accessibility
+and product-level acceptance remain open.
 
 ## Current Desktop shell truth — 2026-09-20
 
@@ -75,7 +141,7 @@ native custody test and WebView Home → Appearance → Live → Review → prof
 click-through passed. Exact native executable click-through, installer,
 clean-install and production readiness remain separate gates.
 
-## Current Whisper model-profile slice — 2026-09-21
+## Current Whisper model-profile qualification — 2026-09-24
 
 The approved model-profile contract now defines `large-v3-turbo` as the
 default operational model (`turbo`) and `medium` as the lower-resource
@@ -84,13 +150,15 @@ operational model. `FUNG_TRANSCRIPTION_PROFILE` remains the execution choice
 `medium` model defaults to CTranslate2 `int8_float16`; on CPU it defaults to
 `int8`. `large-v3` remains qualification-only and is not a desktop profile.
 
-The staging script now preserves the existing Python runtime and model
-directories so the operational models can be staged separately, and records
-all staged model revisions in the runtime manifest. The code and focused unit
-tests are updated, but the new model downloads, GPU turbo smoke, CPU medium
-smoke, Thai qualification comparison and packaged acceptance are **NOT_RUN**
-in this workspace. The current staged runtime still contains the earlier
-`small` model until the new pinned model artifacts are staged.
+The staging script preserves the existing Python runtime and model
+directories and records staged model revisions in the runtime manifest. The
+approved 2026-09-24 closure staged pinned `large-v3-turbo` and `medium` while
+retaining `small`. Real batch/live workers and VAD-disabled decoder probes
+passed for turbo GPU/float16, medium CPU/int8 and medium GPU/int8_float16 with
+the repository's silent WAV fixture. This proves local runtime execution;
+Thai speech qualification, native real capture and packaged acceptance remain
+**NOT_RUN**. Revisions, hashes and evidence boundaries are recorded in the
+[closure ledger](../verification/implementation-reports/2026-09-24-gap-closure-runtime.md).
 
 ## Current FUNG meeting-transcript pipeline adaptation — 2026-09-21
 
@@ -167,7 +235,7 @@ visual gate evidence only.
 
 ## Current Status
 
-FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The host `py -3` interpreter cannot import `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the earlier pinned `small` model, and uses the staged CUDA 12/cuDNN 9 bundle. The new `large-v3-turbo` default is not runnable from this staged directory until its model artifact is installed; turbo/medium smoke and qualification remain open. Live Meeting real-capture, device, connector, and visual UAT remain open. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
+FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The host `py -3` interpreter cannot import `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the earlier pinned `small` model, and uses the staged CUDA 12/cuDNN 9 bundle. Pinned turbo/medium models and standalone worker/decoder probes now pass as recorded in the 2026-09-24 closure ledger. The shared live-worker routing regression found by native inject testing is now corrected and passes turbo GPU/medium CPU fixture probes. Thai speech qualification and complete application acceptance remain open. Live Meeting real-capture, device, connector, and visual UAT remain open. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
 
 This document separates implemented truth from planned capability.
 
@@ -841,13 +909,13 @@ overlay does not promote Phase 3 to fully release-ready.
 | Area | Current Truth | Gap |
 | --- | --- | --- |
 | Project CRUD | Backend commands exist for project creation/listing. | Needs full UI workflows and persistence QA. |
-| Job model | Basic create/list commands exist. | Needs execution engine, retries, pause/resume, failure recovery. |
+| Job model | `job_engine.rs` implements a durable serial queue, registered handlers, retries, startup adoption and explicit cancellation semantics. | Running-handler cancellation is deferred until the handler returns; current packaged interruption/reopen acceptance remains open. |
 | Model providers | Seed local providers exist. | Needs provider diagnostics and real adapter execution. |
 | Transcript read completeness | Closed at the source: GenesisBlockDB commit `1ff6862` adds `RelationalQuery::offset` (offset pages are ordered by the base table's primary key, so consecutive pages partition the result set), and FUNG pins that rev. `genesis_adapter::query_all` reads length-driven tables whole in `ROW_CAP`-sized pages, and every reader that used to refuse or truncate at the ceiling now reads whole: transcript view, `meeting_intel::load_segments`/`meeting_ask`/`meeting_summaries`, subtitle export, `fungwire_client::gather_segments`, audio integrity, backup inventory, recovery, diarization, graph build, and gap fill. Rust regression 419/419 includes tests proving a ROW_CAP+N recording is read whole, ordered, and unduplicated. | `capped`/`searchedRowsCapped`/`unread_recordings` fields stay in the serialized contracts for frontend stability but are truthfully never set any more; removing them (and their dormant UI notices) is cleanup, not correctness. Reads that genuinely want at most one page (single row by id, top-N) still use the single-read path. |
 | Export UI | Subtitle export is real: `export.render` is a job the engine runs, `transcript_export` writes `.srt` and `.vtt` beside the recording, both are recorded in `export_artifacts`, and `list_export_artifacts` lets the shell tell the user where they landed. The same durable job now writes a deterministic `.wav` for live WAV chunks or copies an imported MP3 as `.mp3`, with typed audio artifacts; other project-owned audio routes through the bundled PyAV worker to explicit WAV/MP3 output and fails closed if decoding/encoding is unavailable. Formatting is unit-tested against the ways transcript text corrupts each format (blank lines, `<`, `-->`, zero-length cues). Segment reads page past the engine ceiling, so a long recording exports whole, cues sorted by start time. | Capped at one recording per run. The packaged app's own click-to-file round trip remains untested/open. |
 | Summary/intent UI | Summary/action output pipeline and display surface exist. | Intent-specific UI and complete evidence-span review remain incomplete. |
 | Live speaker attribution | Source channels map to editable `เรา`/`อีกฝ่าย` labels. | This is capture provenance, not arbitrary live multi-speaker diarization. |
-| Live intelligence runtime | Topic and summary routes exist; capture can degrade without the worker. | Current machine has no bundled Whisper interpreter/model and `faster_whisper` is unavailable, so live transcription requires runtime installation plus UAT. |
+| Live intelligence runtime | Topic and summary routes exist; staged Python 3.11.9 / faster-whisper 1.2.1 import succeeds outside the restricted sandbox. | Operational model staging/qualification is tracked in the current closure ledger; native capture, speech accuracy and packaged UAT remain separate gates. |
 | Live Meeting entry | The fixed microphone rail now opens the real panel and its regression passes. | Current packaged-app interaction/UAT remains to be rerun after the prior bootstrap incident. |
 | Audio import | `import_and_transcribe` is implemented, registered, and reachable from the desktop UI; custody copies the picked file into project storage, records checksum/byte metadata, finalizes the imported chunk, activates the project recording pointer, and persists transcript segments. | Packaged/local-runtime click-through remains open; imported transcription still needs runtime/provider evidence and does not by itself close the full model-run provenance or release gates. |
 | External meeting retrieval | Backend plus operator workflow, stdio fixture transport, zero-process-before-approval, document/CRM reads, connector lifecycle, sanitized result rendering, recording-row isolation, and bounded relaunch persistence smoke are tested at unit/source/integration level. | Automated keyboard/1200×780 visual UAT, detailed connector health, artifact-wide secret scan, real-device capture-isolation UAT, summary/export review after restart, and real-connector UAT remain. |
@@ -914,7 +982,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | Rebuilt Desktop runtime | The debug `fung.exe` launched with title `FUNG`; a close/relaunch smoke observed PID 37720 then PID 9088 and non-zero window handles, with Genesis counts unchanged (`projects=1`, `recordings=1`, `transcript_segments=13`, `audit_events=1`). Windows Graphics Capture, browser screenshot, and keyboard automation remain unavailable, so visual/keyboard UAT is still open. |
 | Real connector/device diagnostics | Claude Desktop MCP registry is empty, no approved vendor endpoint/credential is configured, and `adb`/`scrcpy` are absent. The real-connector and physical-device gates remain blocked, not waived. |
 | Python worker syntax | `py_compile scripts/transcribe.py` passed. |
-| Current Whisper runtime availability | `py -3` reports no `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the earlier pinned `small` model, and passes the historical standalone GPU smoke with the staged CUDA 12/cuDNN 9 bundle. The new `large-v3-turbo`/`medium` artifacts and smokes are NOT_RUN; Live Meeting real-capture, device, visual, and connector UAT remain open. |
+| Current Whisper runtime availability | `py -3` reports no `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the earlier pinned `small` model, and passes the historical standalone GPU smoke with the staged CUDA 12/cuDNN 9 bundle. The 2026-09-24 closure supersedes this historical environment snapshot: turbo/medium artifacts and standalone smoke are verified, and the native live-worker routing regression is corrected with bounded fixture proof; full application acceptance remains open. Real-capture, device, visual and connector UAT remain open. |
 | D-MVP-02 correction/audit slice (2026-09-16) | Native recording-scoped correction and accepted refinement/audit provenance passed targeted Rust `2/2`; full `cargo test --manifest-path src-tauri/Cargo.toml --lib` passed `452`, with `1` ignored; `npm run test:job-actions` `16/16`, `test:summary-scoping` `6/6`, `test:desktop-bootstrap` `10/10`, and `npm run build` passed. This is local source/test/build evidence; packaged, restart, provider, device, and release gates remain open. |
 | D-MVP-05 source-audio export (2026-09-16) | Existing durable `export.render` emits source WAV/MP3 artifacts and uses the bundled PyAV worker for other project-owned formats. Output is temp-file + atomic-replace so failed retries preserve the previous artifact. Targeted Rust audio tests `3/3`; full Rust `455 passed / 1 ignored`; clippy and scoped fmt passed; Node job actions `17/17`, summary scoping `6/6`, desktop bootstrap `10/10`, CI coverage `2/2`, traceability `1/1`, Vite build passed, real local WAV/MP3 codec smoke passed, release EXE build passed, host-level MSI build passed, NSIS build incomplete, release launch smoke passed outside the sandbox, and opt-in import/runtime route passed. This is local source/test/build/runtime-worker/package evidence; packaged click-through, restart, provider, device, and release gates remain open. |
 | D-MVP-04-L1 export-artifact inventory (2026-09-17) | `list_export_artifacts` now reads through Genesis `query_all`, preserving project scope, newest-first ordering, command signature, and JSON shape. Focused Rust `transcript_export` tests passed `16/16`; `ROW_CAP + 5` regression and cross-project isolation passed. Full Rust is environment-partial at `450 passed / 6 failed / 1 ignored` because the actual `.venv-whisper\\Scripts\\python.exe` is absent for six FUNGWIRE transcription tests. `npm run build` and relevant Node suites passed. Runtime/provider/device/release gates remain open. |
@@ -951,8 +1019,24 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+`0.3.6b` → `0.3.7b`: records final account-transition remediation, refresh
+invalidation, consolidated local verification and independent source review;
+native UI/accessibility, provider, device and release gates remain NOT_RUN.
+
+`0.2.38b` → `0.3.0b`: indexed the approved local M1–M5 implementation,
+including untested working-tree state and explicit PDF/People/provider/device
+boundaries; no acceptance gate was promoted.
+
+`0.2.37b` → `0.2.38b`: recorded the approved resolver correction and bounded
+native fixture verification; full Desktop acceptance remains open.
+
+`0.2.36b` → `0.2.37b`: reconciled exact-HEAD CI, durable job engine and runtime
+environment evidence; linked current closure ledger without promoting
+native/device/release acceptance.
+
 | Version | Change |
 | --- | --- |
+| 0.3.1b → 0.3.2b | Source-froze local M1–M5 integration, People profile/review lifecycle and Windows AppContainer/Job Object PDF parser; integrated campaign and independent review remain pending. |
 | 0.2.36b | Synced current `main` with the bounded R3 foundation integration and independent bounded N4/G1 evidence; historical worktree paths are identified as custody references and broader gates remain open. |
 | 0.2.35b | Recorded candidate live/knowledge/Google Meet agent documentation separately from existing runtime and unrun provider/deployment proof. |
 | 0.2.34b | Clarified that the local-capture stop path alone adds speaker diarization; manual summary retry remains summary-only. |
@@ -992,6 +1076,15 @@ Screenshot artifacts from the latest UI validation:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.7b | 2026-09-25 | beta | Closed People/metric/draft account-transition races and refresh invalidation gap; final local campaign and independent review passed | working-tree | RWANG |
+| 0.3.5b | 2026-09-25 | beta | Closed four reviewed meeting-intelligence security findings; final local tests and source review pass; native UI/accessibility and product gates remain open | working-tree | RWANG |
+| 0.3.4b | 2026-09-25 | beta | Added pinned PDF parser 7/7 result; interactive UI/accessibility and independent review remain open | working-tree | RWANG |
+| 0.3.3b | 2026-09-25 | beta | Consolidated local M1–M5, People, recovery, AppContainer, native and Desktop checks passed; independent and product acceptance remain open | working-tree | RWANG |
+| 0.3.2b | 2026-09-25 | beta | Source-froze approved local M1–M5, People and Windows PDF sandbox implementation; full local campaign and independent review remain pending | working-tree | RWANG |
+| 0.3.1b | 2026-09-24 | beta | Recorded encrypted typed metric persistence and bounded metric selection; consolidated tests remain deferred | working-tree | RWANG |
+| 0.3.0b | 2026-09-24 | beta | Indexed approved M1–M5 local implementation in progress; tests, People/PDF paths, provider/device/release gates remain open | working-tree | RWANG |
+| 0.2.38b | 2026-09-24 | beta | Approved native live-worker resolver corrected and verified with focused tests and real-worker silent fixture probes | base 2c2559f; working-tree | RWANG |
+| 0.2.37b | 2026-09-24 | beta | Reconciled current source/CI/runtime status and retained historical evidence boundaries. | base 2c2559f; working-tree | RWANG |
 | 0.2.36b | 2026-09-23 | beta | Synced the current bounded R3 foundation and independent bounded N4/G1 evidence while preserving the broader meeting-intelligence and release boundaries. | working-tree | RWANG |
 | 0.2.35b | 2026-09-21 | beta | Recorded candidate live/knowledge/Google Meet agent documentation separately from existing runtime and unrun provider/deployment proof. | working-tree | RWANG |
 | 0.2.34b | 2026-09-21 | beta | Clarified local-capture-only speaker-pass enqueue and preserved summary-only manual retry behavior. | working-tree | RWANG |

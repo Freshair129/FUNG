@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use std::{
     env,
     io::{BufRead, BufReader, Read},
@@ -9,6 +10,8 @@ use std::{
     thread,
 };
 use tauri::{Manager, State};
+#[cfg(desktop)]
+use tauri_plugin_dialog::DialogExt;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -35,10 +38,17 @@ mod genesis_adapter;
 mod graph_build;
 mod job_engine;
 mod live_meeting;
+mod live_transcript;
 mod local_api;
 mod local_diarization;
 mod media_fetch;
+mod meeting_adapter;
+mod meeting_agent;
+mod meeting_delivery;
 mod meeting_intel;
+mod meeting_intelligence_runtime;
+mod meeting_intelligence_schema;
+mod meeting_knowledge;
 mod mobile;
 #[rustfmt::skip]
 mod native_auth;
@@ -257,6 +267,13 @@ fn whisper_worker_script_for_profile(
             "transcribe_transformers.py"
         }));
     }
+    if live {
+        let scripts_dir = runtime
+            .script
+            .parent()
+            .ok_or_else(|| "scripts directory not found".to_string())?;
+        return Ok(scripts_dir.join("transcribe_live.py"));
+    }
     Ok(runtime.script.clone())
 }
 
@@ -419,6 +436,9 @@ pub(crate) struct AppState {
     pub(crate) recording_output: Arc<Mutex<recording_output::RecordingOutputManager>>,
     pub(crate) genesis: Arc<genesis_block_native::Storage>,
     pub(crate) genesis_path: PathBuf,
+    pub(crate) meeting_owner_session: Mutex<Option<genesis_adapter::NativeOwnerUnlockSession>>,
+    pub(crate) meeting_intelligence:
+        Mutex<meeting_intelligence_runtime::MeetingIntelligenceRuntime>,
     pub(crate) local_api: Mutex<Option<local_api::LocalApiControl>>,
     whisper_runtime: WhisperRuntime,
     pub(crate) mobile_gateway: Mutex<Option<mobile::MobileGatewayControl>>,
@@ -1013,6 +1033,10 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         jobs: job_engine::JobEngine::new(Arc::clone(&genesis)),
         genesis,
         genesis_path,
+        meeting_owner_session: Mutex::new(None),
+        meeting_intelligence: Mutex::new(
+            meeting_intelligence_runtime::MeetingIntelligenceRuntime::default(),
+        ),
         local_api: Mutex::new(None),
         whisper_runtime: whisper_runtime(app),
         mobile_gateway: Mutex::new(None),
@@ -1755,6 +1779,1640 @@ fn list_transcript_segments(
 }
 
 #[tauri::command]
+fn meeting_transcript_snapshot(
+    project_id: String,
+    recording_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingTranscriptSnapshot> {
+    genesis_adapter::meeting_transcript_snapshot(&state.genesis, &project_id, &recording_id)
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn replay_meeting_events(
+    project_id: String,
+    cursor: meeting_intelligence_schema::MeetingReplayCursor,
+    limit: u32,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingReplayPage> {
+    genesis_adapter::replay_meeting_events(
+        &state.genesis,
+        &project_id,
+        &cursor.recording_id,
+        &cursor,
+        limit,
+    )
+    .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn correct_meeting_utterance(
+    app: tauri::AppHandle,
+    request: meeting_intelligence_schema::MeetingRevisionRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::CommittedMeetingEvent> {
+    let attempt = genesis_adapter::begin_meeting_commit(
+        &state.genesis,
+        &format!("meeting-correction::{}", request.revision.id),
+        &now(),
+    )
+    .map_err(AppError::Genesis)?;
+    let committed = genesis_adapter::revise_meeting_transcript(&state.genesis, &attempt, &request)
+        .map_err(AppError::Genesis)?;
+    let cursor = meeting_intelligence_schema::MeetingReplayCursor {
+        recording_id: request.scope.recording_id.clone(),
+        after_cursor: committed.cursor.saturating_sub(1),
+    };
+    if let Ok(page) = genesis_adapter::replay_meeting_events(
+        &state.genesis,
+        &request.scope.project_id,
+        &request.scope.recording_id,
+        &cursor,
+        8,
+    ) {
+        use tauri::Emitter;
+        for event in page.events {
+            let _ = app.emit("meeting-transcript-event", event);
+        }
+    }
+    Ok(committed)
+}
+
+#[tauri::command]
+fn meeting_adapter_capabilities() -> meeting_adapter::CapabilityReport {
+    meeting_adapter::MeetingTransport::probe_capabilities(
+        &meeting_adapter::UnconfiguredMeetingTransport,
+    )
+}
+
+#[tauri::command]
+fn meeting_local_owner_provision(state: State<'_, AppState>) -> AppResult<String> {
+    genesis_adapter::provision_native_local_owner_vault(&state.genesis).map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_local_owner_vault_options(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<serde_json::Value>> {
+    genesis_adapter::native_local_owner_vault_options(&state.genesis).map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_local_owner_unlock(
+    vault_id: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let session =
+        genesis_adapter::unlock_native_local_owner_selected(&state.genesis, vault_id.as_deref())
+            .map_err(AppError::Genesis)?;
+    let mut current = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    if let Some(previous) = current.take() {
+        previous.lock();
+    }
+    state
+        .meeting_intelligence
+        .lock()
+        .expect("meeting intelligence mutex poisoned")
+        .clear_sensitive();
+    *current = Some(session);
+    Ok(())
+}
+
+#[tauri::command]
+fn meeting_local_owner_lock(state: State<'_, AppState>) -> AppResult<()> {
+    let mut current = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    if let Some(session) = current.take() {
+        session.lock();
+    }
+    state
+        .meeting_intelligence
+        .lock()
+        .expect("meeting intelligence mutex poisoned")
+        .clear_sensitive();
+    Ok(())
+}
+
+#[tauri::command]
+fn meeting_knowledge_collection_create(
+    request: meeting_intelligence_schema::MeetingKnowledgeCollectionCreateRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingKnowledgeCollectionCreateResult> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::create_meeting_knowledge_collection(&state.genesis, session, &request)
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_knowledge_collections_list(
+    project_id: String,
+    recording_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<meeting_intelligence_schema::MeetingKnowledgeCollectionSummary>> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::list_meeting_knowledge_collections(
+        &state.genesis,
+        session,
+        &project_id,
+        &recording_id,
+    )
+    .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_knowledge_set_selection(
+    request: meeting_intelligence_schema::MeetingKnowledgeSelectionCommand,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingKnowledgeSelectionReceipt> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::set_meeting_knowledge_selection(&state.genesis, session, &request)
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+async fn meeting_knowledge_import_selected(
+    app: tauri::AppHandle,
+    collection_id: String,
+    project_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingKnowledgeImportResult> {
+    let session = {
+        let owner = state
+            .meeting_owner_session
+            .lock()
+            .expect("meeting owner session mutex poisoned");
+        owner
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?
+    };
+    let storage = Arc::clone(&state.genesis);
+    let python = state.whisper_runtime.python.clone();
+    let scripts = state
+        .whisper_runtime
+        .script
+        .parent()
+        .map(PathBuf::from)
+        .ok_or_else(|| AppError::Genesis("KNOWLEDGE_PARSER_RUNTIME_UNAVAILABLE".to_string()))?;
+    #[cfg(not(debug_assertions))]
+    let pdf_parser_runtime = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|resource_dir| resource_dir.join("knowledge-parser-runtime"));
+    #[cfg(debug_assertions)]
+    let pdf_parser_runtime =
+        Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.knowledge-parser-runtime"));
+    #[cfg(desktop)]
+    let selected = {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        app.dialog()
+            .file()
+            .add_filter("Text, Markdown and PDF", &["txt", "md", "pdf"])
+            .pick_file(move |selection| {
+                let path = selection.and_then(|value| value.into_path().ok());
+                let _ = sender.send(path);
+            });
+        tauri::async_runtime::spawn_blocking(move || {
+            receiver
+                .recv_timeout(std::time::Duration::from_secs(300))
+                .ok()
+                .flatten()
+        })
+        .await
+        .ok()
+        .flatten()
+    };
+    #[cfg(mobile)]
+    let selected: Option<PathBuf> = {
+        let _ = &app;
+        None
+    };
+    let selected = selected
+        .ok_or_else(|| AppError::Genesis("KNOWLEDGE_FILE_SELECTION_CANCELLED".to_string()))?;
+    genesis_adapter::import_selected_knowledge_document(
+        &storage,
+        &session,
+        &collection_id,
+        &project_id,
+        &selected,
+        &python,
+        &scripts.join("extract_knowledge.py"),
+        pdf_parser_runtime.as_deref(),
+    )
+    .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_knowledge_metric_save(
+    request: meeting_intelligence_schema::MeetingKnowledgeMetricSaveRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingKnowledgeMetricSaveResult> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::save_meeting_knowledge_metric(&state.genesis, session, &request)
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_knowledge_metric_compute(
+    request: meeting_intelligence_schema::MeetingKnowledgeMetricComputeRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingKnowledgeMetricComputeResult> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::compute_meeting_knowledge_metric(&state.genesis, session, &request)
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_people_list(
+    request: meeting_intelligence_schema::MeetingPeopleListRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingPeopleSnapshot> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::list_meeting_people(&state.genesis, session, &request)
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_people_profile_create(
+    request: meeting_intelligence_schema::MeetingPeopleProfileCreateRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingPeopleProfile> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::create_meeting_people_profile(&state.genesis, session, &request)
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_people_profile_update(
+    request: meeting_intelligence_schema::MeetingPeopleProfileUpdateRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingPeopleProfile> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::update_meeting_people_profile(&state.genesis, session, &request)
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_people_profile_archive(
+    request: meeting_intelligence_schema::MeetingPeopleProfileArchiveRequest,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::archive_meeting_people_profile(&state.genesis, session, &request)
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_people_link_propose(
+    request: meeting_intelligence_schema::MeetingPeopleLinkProposalRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingPeopleLink> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::propose_meeting_people_link(&state.genesis, session, &request)
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_people_link_confirm(
+    request: meeting_intelligence_schema::MeetingPeopleLinkMutationRequest,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::mutate_meeting_people_link(&state.genesis, session, &request, "confirm")
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_people_link_reject(
+    request: meeting_intelligence_schema::MeetingPeopleLinkMutationRequest,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::mutate_meeting_people_link(&state.genesis, session, &request, "reject")
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_people_link_unlink(
+    request: meeting_intelligence_schema::MeetingPeopleLinkMutationRequest,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let session = owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::mutate_meeting_people_link(&state.genesis, session, &request, "unlink")
+        .map_err(AppError::Genesis)
+}
+
+fn meeting_agent_capability(
+    ready: bool,
+    reason: Option<&str>,
+) -> meeting_intelligence_schema::MeetingAgentCapability {
+    meeting_intelligence_schema::MeetingAgentCapability {
+        readiness: if ready { "ready" } else { "blocked" }.to_string(),
+        reason_code: if ready {
+            None
+        } else {
+            reason.map(ToOwned::to_owned)
+        },
+    }
+}
+
+fn meeting_agent_status_snapshot(
+    state: &AppState,
+    selection: &meeting_intelligence_schema::MeetingAgentSelection,
+) -> AppResult<(
+    meeting_intelligence_schema::MeetingAgentStatus,
+    i64,
+    Vec<String>,
+)> {
+    let transcript = genesis_adapter::meeting_transcript_snapshot(
+        &state.genesis,
+        &selection.project_id,
+        &selection.recording_id,
+    )
+    .ok();
+    let owner_session = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned")
+        .as_ref()
+        .cloned();
+    let policy = if let Some(session) = owner_session.as_ref() {
+        genesis_adapter::meeting_agent_policy_snapshot(
+            &state.genesis,
+            &selection.project_id,
+            &selection.recording_id,
+            Some(&session.owner_scope()),
+        )
+        .map_err(AppError::Genesis)?
+    } else {
+        None
+    };
+    let persisted_revision = policy
+        .as_ref()
+        .and_then(|row| row.get("meeting_agent_grants.expected_revision"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let selected_state = if let Some(session) = owner_session.as_ref() {
+        genesis_adapter::meeting_knowledge_selection_state(
+            &state.genesis,
+            session,
+            &selection.project_id,
+            &selection.recording_id,
+        )
+        .ok()
+    } else {
+        None
+    };
+    let (collection_revision, selected_collection_ids) = selected_state.unwrap_or((0, Vec::new()));
+    let transcript_ready = transcript
+        .as_ref()
+        .is_some_and(|snapshot| !snapshot.utterances.is_empty());
+    let collections = if let Some(session) = owner_session.as_ref() {
+        genesis_adapter::list_meeting_knowledge_collections(
+            &state.genesis,
+            session,
+            &selection.project_id,
+            &selection.recording_id,
+        )
+        .ok()
+    } else {
+        None
+    };
+    let readable_selected = !selected_collection_ids.is_empty()
+        && collections.as_ref().is_some_and(|items| {
+            items.iter().any(|item| {
+                item.selected
+                    && item.readable
+                    && selected_collection_ids.contains(&item.collection_id)
+            })
+        })
+        && collections.as_ref().is_some_and(|items| {
+            selected_collection_ids.iter().all(|collection_id| {
+                items
+                    .iter()
+                    .any(|item| item.collection_id == *collection_id && item.readable)
+            })
+        });
+    let owner_ready = owner_session.is_some();
+    let mut blockers = Vec::new();
+    if !owner_ready {
+        blockers.push("LOCAL_OWNER_LOCKED".to_string());
+    }
+    if !transcript_ready {
+        blockers.push("TRANSCRIPT_UNAVAILABLE".to_string());
+    }
+    if !readable_selected {
+        blockers.push(if selected_collection_ids.is_empty() {
+            "KNOWLEDGE_SELECTION_REQUIRED".to_string()
+        } else {
+            "KNOWLEDGE_READ_UNAVAILABLE".to_string()
+        });
+    }
+    let mut mode = "off".to_string();
+    let mut agent_state = "stopped".to_string();
+    let mut expires_at = None;
+    let mut allowed_topics = Vec::new();
+    if let Some(row) = policy.as_ref() {
+        mode = row
+            .get("meeting_agent_grants.mode")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("off")
+            .to_string();
+        if let Some(expiry) = row
+            .get("meeting_agent_grants.expires_at")
+            .and_then(serde_json::Value::as_str)
+        {
+            expires_at = Some(expiry.to_string());
+        }
+        if let Some(topics) = row
+            .get("meeting_agent_grants.capabilities_json")
+            .and_then(|value| value.get("allowedTopics"))
+            .and_then(serde_json::Value::as_array)
+        {
+            allowed_topics = topics
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(ToOwned::to_owned)
+                .collect();
+        }
+        if row
+            .get("meeting_agent_grants.state")
+            .and_then(serde_json::Value::as_str)
+            == Some("active")
+        {
+            agent_state = "paused".to_string();
+            blockers.push("RESTART_REQUIRES_REENABLE".to_string());
+        } else {
+            agent_state = match row
+                .get("meeting_agent_grants.state")
+                .and_then(serde_json::Value::as_str)
+            {
+                Some("paused") => "paused",
+                Some("revoked") => "blocked",
+                _ => "stopped",
+            }
+            .to_string();
+        }
+    }
+    let revision = {
+        let mut runtime = state
+            .meeting_intelligence
+            .lock()
+            .expect("meeting intelligence mutex poisoned");
+        let current = runtime.session(
+            &selection.project_id,
+            &selection.recording_id,
+            persisted_revision,
+        );
+        if current.enabled_this_process {
+            mode = current.mode.clone();
+            agent_state = current.state.clone();
+            let revision = current.revision.max(persisted_revision);
+            expires_at = current.expires_at.clone();
+            allowed_topics = current.allowed_topics.clone();
+            blockers.retain(|blocker| blocker != "RESTART_REQUIRES_REENABLE");
+            revision
+        } else {
+            persisted_revision
+        }
+    };
+    if expires_at.as_deref().is_some_and(|expiry| {
+        chrono::DateTime::parse_from_rfc3339(expiry)
+            .map(|parsed| parsed.with_timezone(&chrono::Utc) <= chrono::Utc::now())
+            .unwrap_or(true)
+    }) {
+        mode = "off".to_string();
+        agent_state = "expired".to_string();
+        blockers.retain(|blocker| blocker != "RESTART_REQUIRES_REENABLE");
+        blockers.push("MEETING_AGENT_GRANT_EXPIRED".to_string());
+    }
+    let status = meeting_intelligence_schema::MeetingAgentStatus {
+        project_id: selection.project_id.clone(),
+        recording_id: selection.recording_id.clone(),
+        revision,
+        mode,
+        state: agent_state,
+        expires_at,
+        blockers,
+        allowed_topics,
+        local_agent: meeting_agent_capability(owner_ready, Some("LOCAL_OWNER_LOCKED")),
+        transcript_read: meeting_agent_capability(transcript_ready, Some("TRANSCRIPT_UNAVAILABLE")),
+        knowledge_read: meeting_agent_capability(
+            readable_selected,
+            Some(if selected_collection_ids.is_empty() {
+                "KNOWLEDGE_SELECTION_REQUIRED"
+            } else {
+                "KNOWLEDGE_READ_UNAVAILABLE"
+            }),
+        ),
+        external_join: meeting_intelligence_schema::MeetingAgentCapability {
+            readiness: "unavailable".to_string(),
+            reason_code: Some("PROVIDER_UNCONFIGURED".to_string()),
+        },
+        external_media_read: meeting_intelligence_schema::MeetingAgentCapability {
+            readiness: "unavailable".to_string(),
+            reason_code: Some("PROVIDER_UNCONFIGURED".to_string()),
+        },
+        external_chat_send: meeting_intelligence_schema::MeetingAgentCapability {
+            readiness: "unavailable".to_string(),
+            reason_code: Some("PROVIDER_UNCONFIGURED".to_string()),
+        },
+        external_link_send: meeting_intelligence_schema::MeetingAgentCapability {
+            readiness: "unavailable".to_string(),
+            reason_code: Some("PROVIDER_UNCONFIGURED".to_string()),
+        },
+        external_file_upload: meeting_intelligence_schema::MeetingAgentCapability {
+            readiness: "unavailable".to_string(),
+            reason_code: Some("PROVIDER_UNCONFIGURED".to_string()),
+        },
+    };
+    Ok((status, collection_revision, selected_collection_ids))
+}
+
+#[tauri::command]
+fn meeting_agent_preflight(
+    selection: meeting_intelligence_schema::MeetingAgentSelection,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingAgentPreflight> {
+    let (status, collection_revision, selected_collection_ids) =
+        meeting_agent_status_snapshot(&state, &selection)?;
+    Ok(meeting_intelligence_schema::MeetingAgentPreflight {
+        status,
+        collection_revision,
+        selected_collection_ids,
+        local_limits: meeting_intelligence_schema::MeetingAgentLocalLimits {
+            max_active_runs: 1,
+            max_retrieval_attempts: 3,
+            trigger_expiry_ms: 30_000,
+            max_runs_per_minute: 2,
+            max_runs_per_hour: 20,
+        },
+    })
+}
+
+#[tauri::command]
+fn meeting_agent_status(
+    selection: meeting_intelligence_schema::MeetingAgentSelection,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingAgentStatus> {
+    meeting_agent_status_snapshot(&state, &selection).map(|(status, _, _)| status)
+}
+
+fn emit_meeting_agent_status(
+    app: &tauri::AppHandle,
+    status: &meeting_intelligence_schema::MeetingAgentStatus,
+) {
+    if let Ok(payload) = serde_json::to_value(status) {
+        use tauri::Emitter;
+        let _ = app.emit("meeting-agent-status", payload);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn update_meeting_agent_runtime(
+    state: &AppState,
+    project_id: &str,
+    recording_id: &str,
+    revision: u64,
+    mode: &str,
+    agent_state: &str,
+    expires_at: Option<String>,
+    allowed_topics: Vec<String>,
+    enabled: bool,
+) {
+    let mut runtime = state
+        .meeting_intelligence
+        .lock()
+        .expect("meeting intelligence mutex poisoned");
+    let session = runtime.session(project_id, recording_id, revision);
+    session.revision = revision;
+    session.mode = mode.to_string();
+    session.state = agent_state.to_string();
+    session.expires_at = expires_at;
+    session.allowed_topics = allowed_topics;
+    session.enabled_this_process = enabled;
+    session.active_run_id = None;
+    if !enabled {
+        session.drafts.clear();
+        session.deliveries.clear();
+        session.run_times.clear();
+    }
+}
+
+struct MeetingAgentRunLease<'a> {
+    state: &'a AppState,
+    project_id: String,
+    recording_id: String,
+    run_id: String,
+}
+
+impl Drop for MeetingAgentRunLease<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut runtime) = self.state.meeting_intelligence.lock() {
+            if let Some(session) = runtime
+                .sessions
+                .get_mut(&(self.project_id.clone(), self.recording_id.clone()))
+            {
+                if session.active_run_id.as_deref() == Some(self.run_id.as_str()) {
+                    session.active_run_id = None;
+                }
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn meeting_agent_start(
+    app: tauri::AppHandle,
+    request: meeting_intelligence_schema::MeetingAgentStartRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingAgentStatus> {
+    if !matches!(request.mode.as_str(), "observe" | "draft") {
+        return Err(AppError::InvalidInput(
+            "MEETING_AGENT_MODE_INVALID".to_string(),
+        ));
+    }
+    let selection = meeting_intelligence_schema::MeetingAgentSelection {
+        project_id: request.project_id.clone(),
+        recording_id: request.recording_id.clone(),
+    };
+    let (before, _, selected) = meeting_agent_status_snapshot(&state, &selection)?;
+    if request.expected_revision != before.revision {
+        return Err(AppError::Genesis(
+            "STALE_MEETING_AGENT_REVISION".to_string(),
+        ));
+    }
+    if before.blockers.iter().any(|blocker| {
+        blocker != "RESTART_REQUIRES_REENABLE" && blocker != "MEETING_AGENT_GRANT_EXPIRED"
+    }) || (request.mode == "draft"
+        && (before.local_agent.readiness != "ready"
+            || before.transcript_read.readiness != "ready"
+            || before.knowledge_read.readiness != "ready"))
+    {
+        return Err(AppError::Genesis(
+            "MEETING_AGENT_PREFLIGHT_BLOCKED".to_string(),
+        ));
+    }
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned")
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    let (revision, _, _, expires_at) = genesis_adapter::commit_meeting_agent_policy(
+        &state.genesis,
+        &owner,
+        &request.project_id,
+        &request.recording_id,
+        &request.request_id,
+        request.expected_revision,
+        &request.mode,
+        "active",
+        &[],
+        None,
+    )
+    .map_err(AppError::Genesis)?;
+    let mode = request.mode.clone();
+    let agent_state = if mode == "observe" {
+        "observing"
+    } else {
+        "drafting"
+    };
+    update_meeting_agent_runtime(
+        &state,
+        &request.project_id,
+        &request.recording_id,
+        revision,
+        &mode,
+        agent_state,
+        expires_at,
+        Vec::new(),
+        true,
+    );
+    let _ = selected;
+    let (status, _, _) = meeting_agent_status_snapshot(&state, &selection)?;
+    emit_meeting_agent_status(&app, &status);
+    Ok(status)
+}
+
+#[tauri::command]
+fn meeting_agent_set_policy(
+    app: tauri::AppHandle,
+    request: meeting_intelligence_schema::MeetingAgentPolicyRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingAgentStatus> {
+    if !matches!(request.mode.as_str(), "off" | "observe" | "draft") {
+        return Err(AppError::InvalidInput(
+            "MEETING_AGENT_MODE_INVALID".to_string(),
+        ));
+    }
+    let selection = meeting_intelligence_schema::MeetingAgentSelection {
+        project_id: request.project_id.clone(),
+        recording_id: request.recording_id.clone(),
+    };
+    let (before, _, _) = meeting_agent_status_snapshot(&state, &selection)?;
+    if request.expected_revision != before.revision {
+        return Err(AppError::Genesis(
+            "STALE_MEETING_AGENT_REVISION".to_string(),
+        ));
+    }
+    if request.mode == "draft"
+        && (before.local_agent.readiness != "ready"
+            || before.transcript_read.readiness != "ready"
+            || before.knowledge_read.readiness != "ready")
+    {
+        return Err(AppError::Genesis(
+            "MEETING_AGENT_PREFLIGHT_BLOCKED".to_string(),
+        ));
+    }
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned")
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    let next_state = if request.mode == "off" {
+        "stopped"
+    } else {
+        "active"
+    };
+    let (revision, _, _, expires_at) = genesis_adapter::commit_meeting_agent_policy(
+        &state.genesis,
+        &owner,
+        &request.project_id,
+        &request.recording_id,
+        &request.request_id,
+        request.expected_revision,
+        &request.mode,
+        next_state,
+        &request.allowed_topics,
+        request.expires_at.as_deref(),
+    )
+    .map_err(AppError::Genesis)?;
+    let agent_state = match request.mode.as_str() {
+        "observe" => "observing",
+        "draft" => "drafting",
+        _ => "stopped",
+    };
+    let enabled = request.mode != "off";
+    update_meeting_agent_runtime(
+        &state,
+        &request.project_id,
+        &request.recording_id,
+        revision,
+        &request.mode,
+        agent_state,
+        expires_at,
+        request.allowed_topics,
+        enabled,
+    );
+    let (status, _, _) = meeting_agent_status_snapshot(&state, &selection)?;
+    emit_meeting_agent_status(&app, &status);
+    Ok(status)
+}
+
+#[tauri::command]
+fn meeting_agent_pause(
+    app: tauri::AppHandle,
+    request: meeting_intelligence_schema::MeetingAgentMutationRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingAgentStatus> {
+    meeting_agent_set_running_state(app, request, &state, "paused")
+}
+
+#[tauri::command]
+fn meeting_agent_stop(
+    app: tauri::AppHandle,
+    request: meeting_intelligence_schema::MeetingAgentMutationRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingAgentStatus> {
+    meeting_agent_set_running_state(app, request, &state, "stopped")
+}
+
+fn meeting_agent_set_running_state(
+    app: tauri::AppHandle,
+    request: meeting_intelligence_schema::MeetingAgentMutationRequest,
+    state: &AppState,
+    next_state: &str,
+) -> AppResult<meeting_intelligence_schema::MeetingAgentStatus> {
+    let selection = meeting_intelligence_schema::MeetingAgentSelection {
+        project_id: request.project_id.clone(),
+        recording_id: request.recording_id.clone(),
+    };
+    let (before, _, _) = meeting_agent_status_snapshot(state, &selection)?;
+    if request.expected_revision != before.revision {
+        return Err(AppError::Genesis(
+            "STALE_MEETING_AGENT_REVISION".to_string(),
+        ));
+    }
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned")
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    let mode = if next_state == "stopped" {
+        "off".to_string()
+    } else {
+        before.mode.clone()
+    };
+    let topics = before.allowed_topics.clone();
+    let expiry = before.expires_at.clone();
+    let (revision, _, _, next_expiry) = genesis_adapter::commit_meeting_agent_policy(
+        &state.genesis,
+        &owner,
+        &request.project_id,
+        &request.recording_id,
+        &request.request_id,
+        request.expected_revision,
+        &mode,
+        next_state,
+        &topics,
+        expiry.as_deref(),
+    )
+    .map_err(AppError::Genesis)?;
+    update_meeting_agent_runtime(
+        state,
+        &request.project_id,
+        &request.recording_id,
+        revision,
+        &mode,
+        next_state,
+        next_expiry,
+        topics,
+        next_state == "paused",
+    );
+    let (status, _, _) = meeting_agent_status_snapshot(state, &selection)?;
+    emit_meeting_agent_status(&app, &status);
+    Ok(status)
+}
+
+#[tauri::command]
+fn meeting_agent_ask(
+    app: tauri::AppHandle,
+    request: meeting_intelligence_schema::MeetingAgentAskRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingAgentPrivateDraft> {
+    let selection = meeting_intelligence_schema::MeetingAgentSelection {
+        project_id: request.project_id.clone(),
+        recording_id: request.recording_id.clone(),
+    };
+    let (before, _, selected) = meeting_agent_status_snapshot(&state, &selection)?;
+    if request.expected_revision != before.revision {
+        return Err(AppError::Genesis(
+            "STALE_MEETING_AGENT_REVISION".to_string(),
+        ));
+    }
+    if before.mode != "draft"
+        || !matches!(before.state.as_str(), "drafting" | "observing")
+        || before.local_agent.readiness != "ready"
+        || before.transcript_read.readiness != "ready"
+        || before.knowledge_read.readiness != "ready"
+    {
+        return Err(AppError::Genesis(
+            "MEETING_AGENT_DRAFT_NOT_AUTHORIZED".to_string(),
+        ));
+    }
+    if request.question.trim().is_empty()
+        || request.question.chars().count() > 2_000
+        || request.transcript_cursor < 0
+        || selected.is_empty()
+        || request.collection_ids.len() != selected.len()
+        || request
+            .collection_ids
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != request.collection_ids.len()
+        || selected
+            .iter()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>()
+            != request.collection_ids.iter().cloned().collect()
+    {
+        return Err(AppError::InvalidInput(
+            "MEETING_AGENT_ASK_INVALID".to_string(),
+        ));
+    }
+    if before.expires_at.as_deref().is_some_and(|expiry| {
+        chrono::DateTime::parse_from_rfc3339(expiry)
+            .map(|parsed| parsed.with_timezone(&chrono::Utc) <= chrono::Utc::now())
+            .unwrap_or(true)
+    }) {
+        return Err(AppError::Genesis("MEETING_AGENT_GRANT_EXPIRED".to_string()));
+    }
+    let transcript = genesis_adapter::meeting_transcript_snapshot(
+        &state.genesis,
+        &request.project_id,
+        &request.recording_id,
+    )
+    .map_err(AppError::Genesis)?;
+    if transcript.high_watermark != request.transcript_cursor {
+        return Err(AppError::Genesis(
+            "MEETING_TRANSCRIPT_CURSOR_STALE".to_string(),
+        ));
+    }
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned")
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    let account_guard = auth_session::account_begin_operation().map_err(AppError::Genesis)?;
+    let run_id = uuid::Uuid::new_v4().to_string();
+    {
+        let mut runtime = state
+            .meeting_intelligence
+            .lock()
+            .expect("meeting intelligence mutex poisoned");
+        let session = runtime.session(&request.project_id, &request.recording_id, before.revision);
+        if !session.enabled_this_process || session.mode != "draft" || session.state == "paused" {
+            return Err(AppError::Genesis(
+                "MEETING_AGENT_RESTART_REQUIRES_REENABLE".to_string(),
+            ));
+        }
+        if session.active_run_id.is_some() {
+            return Err(AppError::Genesis(
+                "MEETING_AGENT_RUN_ALREADY_ACTIVE".to_string(),
+            ));
+        }
+        let now = std::time::Instant::now();
+        session.run_times.retain(|started| {
+            now.saturating_duration_since(*started) < std::time::Duration::from_secs(3600)
+        });
+        let runs_last_minute = session
+            .run_times
+            .iter()
+            .filter(|started| {
+                now.saturating_duration_since(**started) < std::time::Duration::from_secs(60)
+            })
+            .count();
+        if runs_last_minute >= 2 || session.run_times.len() >= 20 {
+            return Err(AppError::Genesis(
+                "MEETING_AGENT_LOCAL_RATE_LIMIT".to_string(),
+            ));
+        }
+        session.run_times.push(now);
+        session.active_run_id = Some(run_id.clone());
+    }
+    let _run_lease = MeetingAgentRunLease {
+        state: state.inner(),
+        project_id: request.project_id.clone(),
+        recording_id: request.recording_id.clone(),
+        run_id: run_id.clone(),
+    };
+    let search = genesis_adapter::search_selected_meeting_knowledge(
+        &state.genesis,
+        &owner,
+        &request.project_id,
+        &request.recording_id,
+        &request.collection_ids,
+        &request.question,
+    )
+    .map_err(AppError::Genesis)?;
+    if search.evidence.is_empty() {
+        use tauri::Emitter;
+        let _ = app.emit(
+            "meeting-agent-policy-blocked",
+            serde_json::json!({
+                "projectId": request.project_id,
+                "recordingId": request.recording_id,
+                "code": "MEETING_KNOWLEDGE_NO_EVIDENCE",
+                "reason": "No selected source contains a matching excerpt.",
+                "sourceCursor": request.transcript_cursor,
+            }),
+        );
+        let _ = genesis_adapter::commit_meeting_agent_run_event(
+            &state.genesis,
+            &owner,
+            &request.project_id,
+            &request.recording_id,
+            &request.request_id,
+            "draft_blocked",
+            request.transcript_cursor,
+            serde_json::json!({"evidence": []}),
+        );
+        return Err(AppError::Genesis(
+            "MEETING_KNOWLEDGE_NO_EVIDENCE".to_string(),
+        ));
+    }
+    let mut draft_text = String::from("จากเอกสารที่เลือก พบข้อความที่เกี่ยวข้อง:\n\n");
+    let mut citations = Vec::new();
+    let mut evidence_refs = Vec::new();
+    for hit in search.evidence.iter().take(8) {
+        let excerpt = hit.excerpt.trim();
+        if excerpt.is_empty() {
+            continue;
+        }
+        draft_text.push('“');
+        draft_text.push_str(excerpt);
+        draft_text.push_str("”\n\n");
+        let locator = match &hit.citation.locator {
+            crate::meeting_knowledge::CitationLocator::TextSpan {
+                start_line,
+                end_line,
+                start_char,
+                end_char,
+            } => format!("บรรทัด {start_line}-{end_line} · อักขระ {start_char}-{end_char}"),
+            crate::meeting_knowledge::CitationLocator::PdfPage {
+                page_number,
+                start_char,
+                end_char,
+            } => format!("หน้า {page_number} · อักขระ {start_char}-{end_char}"),
+            crate::meeting_knowledge::CitationLocator::SpreadsheetCellRange {
+                sheet_ref,
+                range,
+            } => {
+                format!("ชีต {sheet_ref} · {range}")
+            }
+            crate::meeting_knowledge::CitationLocator::TranscriptRange {
+                recording_id,
+                start_ms,
+                end_ms,
+                ..
+            } => format!("{recording_id} · {start_ms}-{end_ms} ms"),
+        };
+        citations.push(meeting_intelligence_schema::MeetingAgentCitation {
+            document_id: hit.citation.document_id.clone(),
+            version_id: hit.citation.document_version_id.clone(),
+            locator: locator.clone(),
+            label: format!(
+                "เอกสาร {}",
+                hit.citation.document_id.chars().take(8).collect::<String>()
+            ),
+        });
+        evidence_refs.push(serde_json::json!({
+            "collectionId": hit.citation.collection_id,
+            "documentId": hit.citation.document_id,
+            "versionId": hit.citation.document_version_id,
+            "documentVersionNumber": hit.citation.document_version_number,
+            "sourceVersion": hit.citation.source_version,
+            "contentSha256": hit.citation.content_sha256,
+            "aclRevision": hit.citation.acl_revision,
+            "readGrantId": hit.citation.read_grant_id,
+            "locator": locator,
+            "locatorData": serde_json::to_value(&hit.citation.locator).unwrap_or(serde_json::Value::Null),
+        }));
+    }
+    if citations.is_empty() || draft_text.chars().count() > 12_000 {
+        return Err(AppError::Genesis(
+            "MEETING_AGENT_DRAFT_SIZE_INVALID".to_string(),
+        ));
+    }
+    let (latest_status, _, _) = meeting_agent_status_snapshot(&state, &selection)?;
+    if latest_status.revision != before.revision
+        || latest_status.mode != "draft"
+        || latest_status.state == "paused"
+    {
+        return Err(AppError::Genesis("MEETING_AGENT_RUN_CANCELLED".to_string()));
+    }
+    let latest_transcript = genesis_adapter::meeting_transcript_snapshot(
+        &state.genesis,
+        &request.project_id,
+        &request.recording_id,
+    )
+    .map_err(AppError::Genesis)?;
+    if latest_transcript.high_watermark != request.transcript_cursor {
+        return Err(AppError::Genesis(
+            "MEETING_TRANSCRIPT_CURSOR_STALE".to_string(),
+        ));
+    }
+    {
+        let runtime = state
+            .meeting_intelligence
+            .lock()
+            .expect("meeting intelligence mutex poisoned");
+        let still_active = runtime
+            .sessions
+            .get(&(request.project_id.clone(), request.recording_id.clone()))
+            .is_some_and(|session| session.active_run_id.as_deref() == Some(run_id.as_str()));
+        if !still_active {
+            return Err(AppError::Genesis("MEETING_AGENT_RUN_CANCELLED".to_string()));
+        }
+    }
+    let draft_hash = format!("{:x}", sha2::Sha256::digest(request.request_id.as_bytes()));
+    let draft_id = format!("draft-{}", &draft_hash[..32]);
+    let timestamp = chrono::Utc::now();
+    let draft = meeting_intelligence_schema::MeetingAgentPrivateDraft {
+        draft_id: draft_id.clone(),
+        revision: 1,
+        text: draft_text.clone(),
+        citations,
+        based_on_transcript_cursor: request.transcript_cursor,
+        expires_at: (timestamp + chrono::Duration::minutes(10)).to_rfc3339(),
+        state: "private".to_string(),
+    };
+    let revisions = transcript
+        .utterances
+        .iter()
+        .filter_map(|row| {
+            Some(serde_json::json!({
+                "utteranceId": row.get("utterance_id")?,
+                "revisionId": row.get("revision_id"),
+                "revision": row.get("revision")?,
+            }))
+        })
+        .collect::<Vec<_>>();
+    genesis_adapter::persist_private_meeting_agent_draft(
+        &state.genesis,
+        &owner,
+        &request.project_id,
+        &request.recording_id,
+        before.revision,
+        &request.collection_ids,
+        &request.request_id,
+        &draft_id,
+        &draft_text,
+        &draft.expires_at,
+        request.transcript_cursor,
+        serde_json::json!(revisions),
+        serde_json::json!(evidence_refs),
+    )
+    .map_err(AppError::Genesis)?;
+    let current_owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned");
+    let active_owner = current_owner
+        .as_ref()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    let _publication_fence = active_owner
+        .fence_sensitive_publication(&state.genesis, &owner)
+        .map_err(AppError::Genesis)?;
+    account_guard
+        .with_account_lifecycle_fence(owner.account_lifecycle_witness(), || {
+            {
+                let mut runtime = state
+                    .meeting_intelligence
+                    .lock()
+                    .expect("meeting intelligence mutex poisoned");
+                let session =
+                    runtime.session(&request.project_id, &request.recording_id, before.revision);
+                if !session.enabled_this_process
+                    || session.mode != "draft"
+                    || session.state == "paused"
+                    || session.active_run_id.as_deref() != Some(run_id.as_str())
+                {
+                    return Err("MEETING_AGENT_RUN_CANCELLED".to_string());
+                }
+                session.state = "drafting".to_string();
+                session.active_run_id = None;
+                session.drafts.insert(draft_id, draft.clone());
+            }
+            use tauri::Emitter;
+            let _ = app.emit(
+                "meeting-agent-draft",
+                serde_json::json!({
+                    "projectId": request.project_id,
+                    "recordingId": request.recording_id,
+                    "draft": draft,
+                }),
+            );
+            Ok(draft)
+        })
+        .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
+fn meeting_agent_preview_delivery(
+    app: tauri::AppHandle,
+    request: meeting_intelligence_schema::MeetingAgentDeliveryPreviewRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingAgentDeliveryPreview> {
+    if request.scope != "local_preview_only" {
+        return Err(AppError::InvalidInput(
+            "MEETING_DELIVERY_SCOPE_INVALID".to_string(),
+        ));
+    }
+    let selection = meeting_intelligence_schema::MeetingAgentSelection {
+        project_id: request.project_id.clone(),
+        recording_id: request.recording_id.clone(),
+    };
+    let (status, _, _) = meeting_agent_status_snapshot(&state, &selection)?;
+    if request.expected_revision != status.revision
+        || status.mode != "draft"
+        || !status.blockers.is_empty()
+    {
+        return Err(AppError::Genesis(
+            "MEETING_DELIVERY_PREFLIGHT_BLOCKED".to_string(),
+        ));
+    }
+    let (payload, draft_expires_at) = {
+        let runtime = state
+            .meeting_intelligence
+            .lock()
+            .expect("meeting intelligence mutex poisoned");
+        let session = runtime
+            .sessions
+            .get(&(request.project_id.clone(), request.recording_id.clone()))
+            .ok_or_else(|| AppError::Genesis("MEETING_AGENT_DRAFT_UNAVAILABLE".to_string()))?;
+        if !session.enabled_this_process {
+            return Err(AppError::Genesis(
+                "MEETING_AGENT_RESTART_REQUIRES_REENABLE".to_string(),
+            ));
+        }
+        let draft = session
+            .drafts
+            .get(&request.draft_id)
+            .filter(|draft| draft.revision == request.draft_revision && draft.state == "private")
+            .filter(|draft| {
+                chrono::DateTime::parse_from_rfc3339(&draft.expires_at)
+                    .map(|expiry| expiry.with_timezone(&chrono::Utc) > chrono::Utc::now())
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| AppError::Genesis("MEETING_AGENT_DRAFT_STALE".to_string()))?;
+        (
+            serde_json::json!({"text": draft.text, "citations": draft.citations}),
+            draft.expires_at.clone(),
+        )
+    };
+    let payload_bytes = serde_json::to_vec(&payload)
+        .map_err(|_| AppError::Genesis("MEETING_DELIVERY_PAYLOAD_INVALID".to_string()))?;
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned")
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    let preview = genesis_adapter::persist_local_meeting_delivery_preview(
+        &state.genesis,
+        &owner,
+        &request.project_id,
+        &request.recording_id,
+        &request.request_id,
+        status.revision,
+        &request.draft_id,
+        request.draft_revision,
+        &draft_expires_at,
+        &payload_bytes,
+    )
+    .map_err(AppError::Genesis)?;
+    {
+        let mut runtime = state
+            .meeting_intelligence
+            .lock()
+            .expect("meeting intelligence mutex poisoned");
+        let session = runtime.session(&request.project_id, &request.recording_id, status.revision);
+        if !session.enabled_this_process
+            || session.mode != "draft"
+            || session.state == "paused"
+            || session.revision != status.revision
+        {
+            return Err(AppError::Genesis(
+                "MEETING_DELIVERY_PREVIEW_CANCELLED".to_string(),
+            ));
+        }
+        let draft = session
+            .drafts
+            .get(&request.draft_id)
+            .filter(|draft| draft.revision == request.draft_revision && draft.state == "private")
+            .filter(|draft| {
+                chrono::DateTime::parse_from_rfc3339(&draft.expires_at)
+                    .map(|expiry| expiry.with_timezone(&chrono::Utc) > chrono::Utc::now())
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| AppError::Genesis("MEETING_AGENT_DRAFT_STALE".to_string()))?;
+        let _ = draft;
+        session.deliveries.insert(
+            preview.intent_id.clone(),
+            meeting_intelligence_runtime::RuntimeDelivery {
+                preview: preview.clone(),
+                draft_id: request.draft_id,
+                draft_revision: request.draft_revision,
+                expires_at: std::time::Instant::now() + std::time::Duration::from_secs(300),
+            },
+        );
+    }
+    use tauri::Emitter;
+    let _ = app.emit(
+        "meeting-delivery-status",
+        serde_json::json!({
+            "projectId": request.project_id,
+            "recordingId": request.recording_id,
+            "intentId": preview.intent_id,
+            "state": preview.state,
+            "revision": status.revision,
+            "externalDispatchAvailable": false,
+        }),
+    );
+    Ok(preview)
+}
+
+#[tauri::command]
+fn meeting_agent_approve_delivery(
+    app: tauri::AppHandle,
+    request: meeting_intelligence_schema::MeetingAgentDeliveryApprovalRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingAgentDeliveryPreview> {
+    if request.scope != "local_preview_only" {
+        return Err(AppError::InvalidInput(
+            "MEETING_DELIVERY_SCOPE_INVALID".to_string(),
+        ));
+    }
+    let selection = meeting_intelligence_schema::MeetingAgentSelection {
+        project_id: request.project_id.clone(),
+        recording_id: request.recording_id.clone(),
+    };
+    let (status, _, _) = meeting_agent_status_snapshot(&state, &selection)?;
+    if request.expected_revision != status.revision || status.mode != "draft" {
+        return Err(AppError::Genesis(
+            "MEETING_DELIVERY_APPROVAL_STALE".to_string(),
+        ));
+    }
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned")
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    let preview = {
+        let runtime = state
+            .meeting_intelligence
+            .lock()
+            .expect("meeting intelligence mutex poisoned");
+        let session = runtime
+            .sessions
+            .get(&(request.project_id.clone(), request.recording_id.clone()))
+            .ok_or_else(|| AppError::Genesis("MEETING_DELIVERY_PREVIEW_UNAVAILABLE".to_string()))?;
+        if !session.enabled_this_process
+            || session.mode != "draft"
+            || session.state == "paused"
+            || session.revision != status.revision
+        {
+            return Err(AppError::Genesis(
+                "MEETING_DELIVERY_APPROVAL_STALE".to_string(),
+            ));
+        }
+        let delivery = session
+            .deliveries
+            .get(&request.intent_id)
+            .filter(|delivery| delivery.preview.payload_hash == request.approved_payload_hash)
+            .filter(|delivery| delivery.preview.state == "awaiting_approval")
+            .filter(|delivery| delivery.expires_at > std::time::Instant::now())
+            .ok_or_else(|| AppError::Genesis("MEETING_DELIVERY_APPROVAL_STALE".to_string()))?;
+        let draft = session
+            .drafts
+            .get(&delivery.draft_id)
+            .filter(|draft| draft.revision == delivery.draft_revision && draft.state == "private")
+            .filter(|draft| {
+                chrono::DateTime::parse_from_rfc3339(&draft.expires_at)
+                    .map(|expiry| expiry.with_timezone(&chrono::Utc) > chrono::Utc::now())
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| AppError::Genesis("MEETING_DELIVERY_DRAFT_CHANGED".to_string()))?;
+        let _ = draft;
+        delivery.preview.clone()
+    };
+    let persisted_approved = genesis_adapter::approve_local_meeting_delivery_preview(
+        &state.genesis,
+        &owner,
+        &request.project_id,
+        &request.recording_id,
+        &request.request_id,
+        status.revision,
+        &preview.intent_id,
+        &request.approved_payload_hash,
+    )
+    .map_err(AppError::Genesis)?;
+    let runtime_approved = {
+        let mut runtime = state
+            .meeting_intelligence
+            .lock()
+            .expect("meeting intelligence mutex poisoned");
+        let session = runtime.session(&request.project_id, &request.recording_id, status.revision);
+        if !session.enabled_this_process
+            || session.mode != "draft"
+            || session.state == "paused"
+            || session.revision != status.revision
+            || session.expires_at.as_deref().is_some_and(|expiry| {
+                chrono::DateTime::parse_from_rfc3339(expiry)
+                    .map(|parsed| parsed.with_timezone(&chrono::Utc) <= chrono::Utc::now())
+                    .unwrap_or(true)
+            })
+        {
+            return Err(AppError::Genesis(
+                "MEETING_DELIVERY_APPROVAL_STALE".to_string(),
+            ));
+        }
+        let delivery = session
+            .deliveries
+            .get_mut(&request.intent_id)
+            .ok_or_else(|| AppError::Genesis("MEETING_DELIVERY_PREVIEW_UNAVAILABLE".to_string()))?;
+        if delivery.preview.payload_hash != request.approved_payload_hash
+            || delivery.expires_at <= std::time::Instant::now()
+        {
+            return Err(AppError::Genesis(
+                "MEETING_DELIVERY_APPROVAL_STALE".to_string(),
+            ));
+        }
+        delivery.preview.state = "approved_local_only".to_string();
+        delivery.preview.clone()
+    };
+    if persisted_approved.intent_id != runtime_approved.intent_id
+        || persisted_approved.payload_hash != runtime_approved.payload_hash
+        || persisted_approved.state != runtime_approved.state
+    {
+        return Err(AppError::Genesis(
+            "MEETING_DELIVERY_APPROVAL_STATE_MISMATCH".to_string(),
+        ));
+    }
+    use tauri::Emitter;
+    let _ = app.emit(
+        "meeting-delivery-status",
+        serde_json::json!({
+            "projectId": request.project_id,
+            "recordingId": request.recording_id,
+            "intentId": persisted_approved.intent_id,
+            "state": persisted_approved.state,
+            "revision": status.revision,
+            "externalDispatchAvailable": false,
+        }),
+    );
+    Ok(persisted_approved)
+}
+
+#[tauri::command]
+fn meeting_agent_revoke(
+    app: tauri::AppHandle,
+    request: meeting_intelligence_schema::MeetingAgentRevokeRequest,
+    state: State<'_, AppState>,
+) -> AppResult<meeting_intelligence_schema::MeetingAgentStatus> {
+    if request.reason.trim().is_empty() || request.reason.len() > 256 {
+        return Err(AppError::InvalidInput(
+            "MEETING_AGENT_REVOKE_REASON_INVALID".to_string(),
+        ));
+    }
+    let selection = meeting_intelligence_schema::MeetingAgentSelection {
+        project_id: request.project_id.clone(),
+        recording_id: request.recording_id.clone(),
+    };
+    let (before, _, _) = meeting_agent_status_snapshot(&state, &selection)?;
+    if request.expected_revision != before.revision {
+        return Err(AppError::Genesis(
+            "STALE_MEETING_AGENT_REVISION".to_string(),
+        ));
+    }
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned")
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    let (revision, _, _, _) = genesis_adapter::commit_meeting_agent_policy(
+        &state.genesis,
+        &owner,
+        &request.project_id,
+        &request.recording_id,
+        &request.request_id,
+        request.expected_revision,
+        "off",
+        "revoked",
+        &[],
+        None,
+    )
+    .map_err(AppError::Genesis)?;
+    genesis_adapter::commit_meeting_agent_run_event(
+        &state.genesis,
+        &owner,
+        &request.project_id,
+        &request.recording_id,
+        &request.request_id,
+        "revoked",
+        -1,
+        serde_json::json!({"reason": request.reason}),
+    )
+    .map_err(AppError::Genesis)?;
+    update_meeting_agent_runtime(
+        &state,
+        &request.project_id,
+        &request.recording_id,
+        revision,
+        "off",
+        "blocked",
+        None,
+        Vec::new(),
+        false,
+    );
+    let (status, _, _) = meeting_agent_status_snapshot(&state, &selection)?;
+    emit_meeting_agent_status(&app, &status);
+    Ok(status)
+}
+
+#[tauri::command]
+fn meeting_agent_history(
+    selection: meeting_intelligence_schema::MeetingAgentSelection,
+    limit: u32,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<meeting_intelligence_schema::MeetingAgentHistoryEntry>> {
+    let owner = state
+        .meeting_owner_session
+        .lock()
+        .expect("meeting owner session mutex poisoned")
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
+    genesis_adapter::list_meeting_agent_runs(
+        &state.genesis,
+        &owner,
+        &selection.project_id,
+        &selection.recording_id,
+        limit,
+    )
+    .map_err(AppError::Genesis)
+}
+
+#[tauri::command]
 fn correct_transcript_segment(
     project_id: String,
     recording_id: String,
@@ -1791,6 +3449,13 @@ fn correct_transcript_segment_in_storage(
             "ข้อความ transcript ต้องไม่ว่าง".to_string(),
         ));
     }
+    let revision_id = Uuid::new_v4().to_string();
+    let attempt = genesis_adapter::begin_meeting_commit(
+        genesis,
+        &format!("meeting-correction::{revision_id}"),
+        &now(),
+    )
+    .map_err(AppError::Genesis)?;
 
     let row = genesis_adapter::query(
         genesis,
@@ -1833,6 +3498,18 @@ fn correct_transcript_segment_in_storage(
     let original_text =
         genesis_adapter::string(&row, "transcript_segments.text").map_err(AppError::Genesis)?;
     if original_text == corrected_text {
+        return Ok(());
+    }
+
+    if correct_v2_utterance_in_storage(
+        genesis,
+        project_id,
+        recording_id,
+        segment_id,
+        corrected_text,
+        &revision_id,
+        &attempt,
+    )? {
         return Ok(());
     }
 
@@ -1890,6 +3567,139 @@ fn correct_transcript_segment_in_storage(
     ];
 
     genesis_adapter::commit_rows(genesis, mutations).map_err(AppError::Genesis)
+}
+
+fn correct_v2_utterance_in_storage(
+    genesis: &genesis_block_native::Storage,
+    project_id: &str,
+    recording_id: &str,
+    utterance_id: &str,
+    corrected_text: &str,
+    revision_id: &str,
+    attempt: &meeting_intelligence_schema::MeetingCommitAttempt,
+) -> AppResult<bool> {
+    let projection = genesis_adapter::query(
+        genesis,
+        "transcript_projection",
+        &["revision_id"],
+        vec![
+            genesis_adapter::eq(
+                "transcript_projection",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            genesis_adapter::eq(
+                "transcript_projection",
+                "recording_id",
+                serde_json::json!(recording_id),
+            ),
+            genesis_adapter::eq(
+                "transcript_projection",
+                "utterance_id",
+                serde_json::json!(utterance_id),
+            ),
+        ],
+        1,
+    )
+    .map_err(AppError::Genesis)?;
+    let Some(projection) = projection.into_iter().next() else {
+        return Ok(false);
+    };
+    let current_revision_id =
+        genesis_adapter::string(&projection, "transcript_projection.revision_id")
+            .map_err(AppError::Genesis)?;
+    let current = genesis_adapter::query(
+        genesis,
+        "transcript_revisions",
+        &[
+            "id",
+            "revision",
+            "raw_text",
+            "effective_text",
+            "language",
+            "confidence",
+            "start_ms",
+            "end_ms",
+            "model_run_id",
+        ],
+        vec![genesis_adapter::eq(
+            "transcript_revisions",
+            "id",
+            serde_json::json!(&current_revision_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::Genesis("current transcript revision is missing".to_string()))?;
+    let event = genesis_adapter::query(
+        genesis,
+        "transcript_event_log",
+        &["payload_json"],
+        vec![genesis_adapter::eq(
+            "transcript_event_log",
+            "revision_id",
+            serde_json::json!(&current_revision_id),
+        )],
+        1,
+    )
+    .map_err(AppError::Genesis)?
+    .into_iter()
+    .next()
+    .ok_or_else(|| AppError::Genesis("current transcript revision event is missing".to_string()))?;
+    let payload = event
+        .get("transcript_event_log.payload_json")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let scope_value = payload.get("scope").cloned().ok_or_else(|| {
+        AppError::Genesis("current transcript revision scope is missing".to_string())
+    })?;
+    let scope: meeting_intelligence_schema::MeetingScope = serde_json::from_value(scope_value)
+        .map_err(|_| {
+            AppError::Genesis("current transcript revision scope is invalid".to_string())
+        })?;
+    if scope.project_id != project_id || scope.recording_id != recording_id {
+        return Err(AppError::Genesis(
+            "current transcript revision scope does not match selection".to_string(),
+        ));
+    }
+    let current_revision = genesis_adapter::integer(&current, "transcript_revisions.revision")
+        .map_err(AppError::Genesis)?;
+    let next_revision = current_revision
+        .checked_add(1)
+        .ok_or_else(|| AppError::Genesis("transcript revision is exhausted".to_string()))?;
+    let revision = meeting_intelligence_schema::TranscriptRevisionInput {
+        id: revision_id.to_string(),
+        utterance_id: utterance_id.to_string(),
+        revision: next_revision,
+        supersedes_revision: Some(current_revision),
+        expected_revision: Some(current_revision),
+        origin: meeting_intelligence_schema::TranscriptOrigin::Human,
+        raw_text: genesis_adapter::string(&current, "transcript_revisions.raw_text")
+            .map_err(AppError::Genesis)?,
+        effective_text: corrected_text.to_string(),
+        language: current
+            .get("transcript_revisions.language")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+        confidence: current
+            .get("transcript_revisions.confidence")
+            .and_then(serde_json::Value::as_f64),
+        start_ms: genesis_adapter::integer(&current, "transcript_revisions.start_ms")
+            .map_err(AppError::Genesis)?,
+        end_ms: genesis_adapter::integer(&current, "transcript_revisions.end_ms")
+            .map_err(AppError::Genesis)?,
+        model_run_id: current
+            .get("transcript_revisions.model_run_id")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+        review_state: "reviewed".to_string(),
+    };
+    let request = meeting_intelligence_schema::MeetingRevisionRequest { scope, revision };
+    genesis_adapter::revise_meeting_transcript(genesis, attempt, &request)
+        .map_err(AppError::Genesis)?;
+    Ok(true)
 }
 
 /// The body of [`list_transcript_segments`], taking the storage handle rather
@@ -3179,7 +4989,7 @@ pub fn __debug_live_smoke(
     note(&mut report, "whisper live worker: ready");
 
     let stop = Arc::new(AtomicBool::new(false));
-    let (chunk_tx, chunk_rx) = std::sync::mpsc::channel();
+    let (chunk_tx, chunk_rx) = std::sync::mpsc::sync_channel(16);
 
     if capture_secs == 0 {
         // Inject mode: treat prepared WAV files in {work_dir}/inject as mic
@@ -3263,9 +5073,28 @@ pub fn __debug_live_smoke(
     while let Ok(event) = chunk_rx.recv() {
         let chunk = match event {
             CaptureEvent::Chunk(chunk) => chunk,
-            CaptureEvent::ChunkWriteFailed { channel, error } => {
+            CaptureEvent::ChunkWriteFailed {
+                channel,
+                start_ms,
+                end_ms,
+                error,
+            } => {
+                max_end_ms = max_end_ms.max(end_ms);
                 report.push_str(&format!(
-                    "chunk write failed on {channel}: {error}
+                    "chunk write failed on {channel} {start_ms}..{end_ms} ms: {error}
+"
+                ));
+                continue;
+            }
+            CaptureEvent::SourceGap {
+                channel,
+                start_ms,
+                end_ms,
+                reason,
+            } => {
+                max_end_ms = max_end_ms.max(end_ms);
+                report.push_str(&format!(
+                    "capture gap on {channel} {start_ms}..{end_ms} ms ({reason})
 "
                 ));
                 continue;
@@ -3560,6 +5389,39 @@ pub fn run() {
             list_jobs,
             list_model_providers,
             list_transcript_segments,
+            meeting_transcript_snapshot,
+            replay_meeting_events,
+            correct_meeting_utterance,
+            meeting_adapter_capabilities,
+            meeting_local_owner_provision,
+            meeting_local_owner_vault_options,
+            meeting_local_owner_unlock,
+            meeting_local_owner_lock,
+            meeting_knowledge_collection_create,
+            meeting_knowledge_collections_list,
+            meeting_knowledge_set_selection,
+            meeting_knowledge_import_selected,
+            meeting_knowledge_metric_save,
+            meeting_knowledge_metric_compute,
+            meeting_people_list,
+            meeting_people_profile_create,
+            meeting_people_profile_update,
+            meeting_people_profile_archive,
+            meeting_people_link_propose,
+            meeting_people_link_confirm,
+            meeting_people_link_reject,
+            meeting_people_link_unlink,
+            meeting_agent_preflight,
+            meeting_agent_start,
+            meeting_agent_pause,
+            meeting_agent_stop,
+            meeting_agent_set_policy,
+            meeting_agent_ask,
+            meeting_agent_preview_delivery,
+            meeting_agent_approve_delivery,
+            meeting_agent_revoke,
+            meeting_agent_status,
+            meeting_agent_history,
             correct_transcript_segment,
             import_and_transcribe,
             fetch_and_transcribe,
@@ -3859,6 +5721,39 @@ mod worker_tests {
         );
         assert!(whisper_model_name_from(Some("reference")).is_err());
         assert!(whisper_model_name_from(Some("small")).is_err());
+    }
+
+    #[test]
+    fn operational_profiles_select_persistent_live_worker() {
+        let runtime = WhisperRuntime {
+            python: PathBuf::new(),
+            script: PathBuf::from("scripts").join("transcribe.py"),
+            cuda_bin: PathBuf::new(),
+        };
+
+        let live_scripts: Vec<_> = ["turbo", "medium"]
+            .map(|profile| whisper_worker_script_for_profile(&runtime, profile, true).unwrap())
+            .into();
+        assert_eq!(
+            live_scripts,
+            vec![PathBuf::from("scripts").join("transcribe_live.py"); 2]
+        );
+    }
+
+    #[test]
+    fn operational_profiles_preserve_injected_batch_script() {
+        let runtime = WhisperRuntime {
+            python: PathBuf::new(),
+            script: PathBuf::from("fixtures").join("fake_transcribe.py"),
+            cuda_bin: PathBuf::new(),
+        };
+
+        for profile in ["turbo", "medium"] {
+            assert_eq!(
+                whisper_worker_script_for_profile(&runtime, profile, false).unwrap(),
+                runtime.script
+            );
+        }
     }
 
     #[test]

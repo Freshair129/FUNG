@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "baseCommit": "2c2559fdd907cf94a6f38b34bbb2c6650e68a0e1",
+  "runtimeManifestSha256": "df5cecfdebc9267aa0418125b462879ead1d4b885c391e391aa13796a788dc50",
+  "runtimeManifestFilesVerified": 43267,
+  "mismatches": [],
+  "models": [
+    {
+      "name": "large-v3-turbo",
+      "repository": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+      "revision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
+      "license": "MIT",
+      "binaryBytes": 1617884929,
+      "sha256": "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da",
+      "upstreamLfsSha256": "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da",
+      "matchesUpstream": true
+    },
+    {
+      "name": "medium",
+      "repository": "Systran/faster-whisper-medium",
+      "revision": "08e178d48790749d25932bbc082711ddcfdfbc4f",
+      "license": "MIT",
+      "binaryBytes": 1527906378,
+      "sha256": "9b45e1009dcc4ab601eff815b61d80e60ce3fd8c74c1a14f4a282258286b51ae",
+      "upstreamLfsSha256": "9b45e1009dcc4ab601eff815b61d80e60ce3fd8c74c1a14f4a282258286b51ae",
+      "matchesUpstream": true
+    }
+  ],
+  "probe": {
+    "fixture": "tests/transcribeConcatOnly.test.py::write_silent_wav(16000)",
+    "fixtureSha256": "643f8a8dc8bd9c19225afffad2becfec5426180b3749cb208abdf1a6c8354efc",
+    "cudaDllsVerified": 11,
+    "speechQuality": "NOT_RUN - silence fixture",
+    "profiles": [
+      {
+        "model": "large-v3-turbo",
+        "profile": "gpu",
+        "device": "cuda",
+        "computeType": "float16",
+        "batch": {
+          "status": "PASS",
+          "elapsedSeconds": 3.396
+        },
+        "live": {
+          "status": "PASS",
+          "elapsedSeconds": 2.859
+        },
+        "decoderWithoutVad": {
+          "status": "PASS",
+          "elapsedSeconds": 17.529,
+          "segmentCount": 1,
+          "qualityClaim": false
+        }
+      },
+      {
+        "model": "medium",
+        "profile": "cpu",
+        "device": "cpu",
+        "computeType": "int8",
+        "batch": {
+          "status": "PASS",
+          "elapsedSeconds": 3.899
+        },
+        "live": {
+          "status": "PASS",
+          "elapsedSeconds": 3.53
+        },
+        "decoderWithoutVad": {
+          "status": "PASS",
+          "elapsedSeconds": 66.598,
+          "segmentCount": 0,
+          "qualityClaim": false
+        }
+      },
+      {
+        "model": "medium",
+        "profile": "gpu",
+        "device": "cuda",
+        "computeType": "int8_float16",
+        "batch": {
+          "status": "PASS",
+          "elapsedSeconds": 4.257
+        },
+        "live": {
+          "status": "PASS",
+          "elapsedSeconds": 4.008
+        },
+        "decoderWithoutVad": {
+          "status": "PASS",
+          "elapsedSeconds": 15.641,
+          "segmentCount": 1,
+          "qualityClaim": false
+        }
+      }
+    ]
+  },
+  "nativeInject": {
+    "status": "FAIL_BEFORE_READY",
+    "captureSeconds": 0,
+    "fixtureOnly": true,
+    "binarySha256": "87908999b502a8377d926a0fd9f2831b45e481555cfd77157489faa0c2126c83",
+    "logSha256": "0b0f73281c2eea1786d5be79392257f5e5e613039f61fc6b359e01f02d4d2b29",
+    "reason": "Operational live resolver returns batch transcribe.py",
+    "productionSourceChanged": false
+  },
+  "pythonFixtureSuite": {
+    "interpreter": "Python 3.12.14 ordinary test runtime",
+    "passed": 6,
+    "failed": 0,
+    "offline": true,
+    "earlierEmbeddedAttempt": "5 passed, 1 failed: PYTHONPATH mock ignored"
+  },
+  "generatedAt": "2026-09-24T00:23:48.5759513+07:00",
+  "routingRemediation": {
+    "approved": true,
+    "status": "PASS_BOUNDED_ROUTING_FIX",
+    "sourceFile": "src-tauri/src/lib.rs",
+    "sourceSha256": "a0eec9c517ca9af2d608cc789d9f1c50e2fa24a5ea077a3d46001a99afb8db15",
+    "binarySha256": "9f5b13f84d9612844525671f590f9b28106157a264acdbabbc82191638baff31",
+    "red": {
+      "passed": 1,
+      "failed": 1,
+      "exitCode": 101,
+      "observedLivePaths": [
+        "scripts/transcribe.py",
+        "scripts/transcribe.py"
+      ]
+    },
+    "green": {
+      "workerProfileTestsPassed": 13,
+      "packagingReleaseTestsPassed": 16,
+      "fmt": "PASS",
+      "clippyAllTargetsWarningsAsErrors": "PASS",
+      "fullLibraryRerun": "NOT_RUN"
+    },
+    "nativeAfterFix": [
+      {
+        "model": "turbo",
+        "profile": "gpu",
+        "captureSeconds": 0,
+        "ready": true,
+        "chunks": 1,
+        "ledgerDurationMs": 1000,
+        "segments": 0,
+        "summaryExport": "UNAVAILABLE_NO_TRANSCRIPT_FIXTURE"
+      },
+      {
+        "model": "medium",
+        "profile": "cpu",
+        "captureSeconds": 0,
+        "ready": true,
+        "chunks": 1,
+        "ledgerDurationMs": 1000,
+        "segments": 0,
+        "summaryExport": "UNAVAILABLE_NO_TRANSCRIPT_FIXTURE"
+      }
+    ],
+    "evidenceLogs": [
+      {
+        "path": "routing-red.log",
+        "sha256": "8563ad886352217b0b92005c90eb81453d6c5f919efba2290ee5a0ef2f4c5ade"
+      },
+      {
+        "path": "routing-green.log",
+        "sha256": "dfa0b3552eb72757425029a12e81661a36439f1ec02520757a51eb8b98c0c97d"
+      },
+      {
+        "path": "routing-clippy.log",
+        "sha256": "030c90fd4d67ed9e1dc12e9eaa85140214d8d80fdca7ac9d1449b221bceeb978"
+      },
+      {
+        "path": "routing-contracts.log",
+        "sha256": "624cc5d53aa76ed7dcab0c12e5763956c29cb3e5fb9b5dd141ffc6a59747654d"
+      },
+      {
+        "path": "routing-native-build.log",
+        "sha256": "a9c056ee8678db3072476e132a8c2438b012c93d9fec04435b10a1c6d92d1ca1"
+      },
+      {
+        "path": "native-fixed-turbo/execution.log",
+        "sha256": "34fa6ae52ef0187adb2837aa647812e343d58da01082c922b7666dab86da7f8c"
+      },
+      {
+        "path": "native-fixed-medium/execution.log",
+        "sha256": "71167d95add25cbfddbafc7bc9481ea85e9b5915c56cf3680dfd4b9c2c01ecb3"
+      }
+    ],
+    "remainingGates": [
+      "Thai speech quality",
+      "native real capture",
+      "GUI/output/restart",
+      "packaged acceptance",
+      "new branch CI",
+      "release"
+    ]
+  },
+  "updatedAt": "2026-09-24T00:34:49.6835674+07:00"
+}

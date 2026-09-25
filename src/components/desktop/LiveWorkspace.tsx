@@ -263,6 +263,7 @@ export function LiveWorkspace({
   const [micDeviceId, setMicDeviceId] = useState("");
   const [systemDeviceId, setSystemDeviceId] = useState("");
   const [language, setLanguage] = useState("auto");
+  const [transcriptProfile, setTranscriptProfile] = useState<"chunked" | "revisioned">("chunked");
   const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
   const [question, setQuestion] = useState("");
   const [leavePrompt, setLeavePrompt] = useState(false);
@@ -341,9 +342,10 @@ export function LiveWorkspace({
         {
           captureSystem,
           language: language === "auto" ? undefined : language,
+          transcriptProfile,
           micDeviceId: micDeviceId || undefined,
           systemDeviceId: systemDeviceId || undefined,
-        },
+      },
         closeReviewPlayer ?? (async () => ({ closed: false })),
       );
     } catch {
@@ -553,6 +555,21 @@ export function LiveWorkspace({
                   <option value="en">อังกฤษ</option>
                 </select>
               </label>
+              <label className="live-workspace__field">
+                <span>รูปแบบ transcript สด</span>
+                <select
+                  value={transcriptProfile}
+                  onChange={(event) => setTranscriptProfile(event.target.value as "chunked" | "revisioned")}
+                >
+                  <option value="chunked">ช่วงเสียงเดิม (เสถียร)</option>
+                  <option value="revisioned">แสดงข้อความระหว่างพูด (revisioned)</option>
+                </select>
+              </label>
+              {transcriptProfile === "revisioned" ? (
+                <p className="live-workspace__device-issue" role="note">
+                  ข้อความระหว่างพูดอาจเปลี่ยนได้ · ข้อความยืนยันจะแสดงหลังบันทึกสำเร็จ
+                </p>
+              ) : null}
               <button
                 type="button"
                 className="live-btn live-btn-primary"

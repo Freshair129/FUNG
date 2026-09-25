@@ -31,6 +31,8 @@ pub(crate) const ARCHIVE_CHUNK_SIZE: usize = 64 * 1024;
 /// persisted manifest must restore it before decryption.
 pub(crate) const ENCRYPTED_TERMINAL_STATE: &str = "encrypted_pending_transport";
 const MAGIC: &[u8; 8] = b"FUNGBK01";
+const NATIVE_RECOVERY_MAGIC: &[u8; 8] = b"FNGKEY01";
+const NATIVE_RECOVERY_VERSION: u16 = 1;
 const STREAM_NONCE_SIZE: usize = 20;
 const SALT_SIZE: usize = 16;
 const WRAP_NONCE_SIZE: usize = 24;
@@ -342,6 +344,134 @@ pub(crate) fn decrypt_archive(
         return Err(ArchiveError::AuthenticationFailed);
     }
     Ok(plaintext)
+}
+
+/// Wraps a native 32-byte vault key under the archive recovery phrase. The
+/// package is separately authenticated to its archive, vault, key reference,
+/// and local owner binding so it cannot be transplanted between restores.
+pub(crate) fn encrypt_native_recovery_package(
+    recovery_phrase: &str,
+    archive_id: &str,
+    package_ref: &str,
+    vault_id: &str,
+    account_binding: &str,
+    key_bytes: &[u8],
+) -> Result<Vec<u8>, ArchiveError> {
+    validate_recovery_binding(archive_id, package_ref, vault_id, account_binding)?;
+    if key_bytes.len() != DATA_KEY_SIZE {
+        return Err(ArchiveError::InvalidInput);
+    }
+    let phrase_password = normalized_phrase_password(recovery_phrase)?;
+    let aad = recovery_package_aad(archive_id, package_ref, vault_id, account_binding)?;
+    let mut salt = [0u8; SALT_SIZE];
+    let mut nonce = [0u8; WRAP_NONCE_SIZE];
+    OsRng.fill_bytes(&mut salt);
+    OsRng.fill_bytes(&mut nonce);
+    let mut wrapping_key = derive_wrap_key(&phrase_password, &salt)?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&*wrapping_key)
+        .map_err(|_| ArchiveError::KeyDerivationFailed)?;
+    let encrypted = cipher
+        .encrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: key_bytes,
+                aad: &aad,
+            },
+        )
+        .map_err(|_| ArchiveError::AuthenticationFailed)?;
+    wrapping_key.zeroize();
+
+    let mut package = Vec::with_capacity(
+        NATIVE_RECOVERY_MAGIC.len() + 2 + SALT_SIZE + WRAP_NONCE_SIZE + 4 + encrypted.len(),
+    );
+    package.extend_from_slice(NATIVE_RECOVERY_MAGIC);
+    package.extend_from_slice(&NATIVE_RECOVERY_VERSION.to_le_bytes());
+    package.extend_from_slice(&salt);
+    package.extend_from_slice(&nonce);
+    package.extend_from_slice(&(encrypted.len() as u32).to_le_bytes());
+    package.extend_from_slice(&encrypted);
+    Ok(package)
+}
+
+pub(crate) fn decrypt_native_recovery_package(
+    package: &[u8],
+    recovery_phrase: &str,
+    archive_id: &str,
+    package_ref: &str,
+    vault_id: &str,
+    account_binding: &str,
+) -> Result<Zeroizing<[u8; DATA_KEY_SIZE]>, ArchiveError> {
+    validate_recovery_binding(archive_id, package_ref, vault_id, account_binding)?;
+    let mut offset = 0usize;
+    if take(package, &mut offset, NATIVE_RECOVERY_MAGIC.len())? != NATIVE_RECOVERY_MAGIC
+        || read_u16(package, &mut offset)? != NATIVE_RECOVERY_VERSION
+    {
+        return Err(ArchiveError::InvalidFormat);
+    }
+    let salt = read_array::<SALT_SIZE>(package, &mut offset)?;
+    let nonce = read_array::<WRAP_NONCE_SIZE>(package, &mut offset)?;
+    let encrypted_len = read_u32(package, &mut offset)? as usize;
+    if encrypted_len != DATA_KEY_SIZE + AUTH_TAG_SIZE
+        || offset.checked_add(encrypted_len) != Some(package.len())
+    {
+        return Err(ArchiveError::InvalidFormat);
+    }
+    let encrypted = take(package, &mut offset, encrypted_len)?;
+    let phrase_password = normalized_phrase_password(recovery_phrase)?;
+    let aad = recovery_package_aad(archive_id, package_ref, vault_id, account_binding)?;
+    let mut wrapping_key = derive_wrap_key(&phrase_password, &salt)?;
+    let cipher = XChaCha20Poly1305::new_from_slice(&*wrapping_key)
+        .map_err(|_| ArchiveError::KeyDerivationFailed)?;
+    let mut plaintext = Zeroizing::new(
+        cipher
+            .decrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: encrypted,
+                    aad: &aad,
+                },
+            )
+            .map_err(|_| ArchiveError::AuthenticationFailed)?,
+    );
+    wrapping_key.zeroize();
+    if plaintext.len() != DATA_KEY_SIZE {
+        return Err(ArchiveError::AuthenticationFailed);
+    }
+    let mut key = Zeroizing::new([0u8; DATA_KEY_SIZE]);
+    key.copy_from_slice(&plaintext);
+    plaintext.zeroize();
+    Ok(key)
+}
+
+fn validate_recovery_binding(
+    archive_id: &str,
+    package_ref: &str,
+    vault_id: &str,
+    account_binding: &str,
+) -> Result<(), ArchiveError> {
+    if [archive_id, package_ref, vault_id, account_binding]
+        .iter()
+        .any(|value| value.trim().is_empty() || value.len() > 256 || value.contains(".."))
+    {
+        return Err(ArchiveError::InvalidInput);
+    }
+    Ok(())
+}
+
+fn recovery_package_aad(
+    archive_id: &str,
+    package_ref: &str,
+    vault_id: &str,
+    account_binding: &str,
+) -> Result<Vec<u8>, ArchiveError> {
+    serde_json::to_vec(&(
+        NATIVE_RECOVERY_VERSION,
+        archive_id,
+        package_ref,
+        vault_id,
+        account_binding,
+    ))
+    .map_err(|_| ArchiveError::SerializationFailed)
 }
 
 fn validate_identity(
@@ -682,5 +812,42 @@ mod tests {
         assert!(!serialized.contains("recoverySecret"));
         assert!(!serialized.contains("dataKey"));
         assert!(!serialized.contains("providerToken"));
+    }
+
+    #[test]
+    fn native_recovery_package_is_phrase_wrapped_and_identity_bound() {
+        let phrase = test_phrase();
+        let key = [0x2au8; DATA_KEY_SIZE];
+        let package = encrypt_native_recovery_package(
+            &phrase,
+            "archive-test",
+            "knowledge:vault-test",
+            "vault-test",
+            "principal:device-test",
+            &key,
+        )
+        .unwrap();
+        let recovered = decrypt_native_recovery_package(
+            &package,
+            &phrase,
+            "archive-test",
+            "knowledge:vault-test",
+            "vault-test",
+            "principal:device-test",
+        )
+        .unwrap();
+        assert_eq!(recovered.as_ref(), &key);
+        assert_eq!(
+            decrypt_native_recovery_package(
+                &package,
+                &phrase,
+                "archive-other",
+                "knowledge:vault-test",
+                "vault-test",
+                "principal:device-test",
+            )
+            .unwrap_err(),
+            ArchiveError::AuthenticationFailed,
+        );
     }
 }

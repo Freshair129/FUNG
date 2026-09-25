@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "../.knowledge-parser-runtime": "knowledge-parser-runtime"
+    }
+  }
+}

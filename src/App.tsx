@@ -22,6 +22,7 @@ import {
   cancelJob,
   closeWindow,
   correctTranscriptSegment,
+  createTauriMeetingIntelligenceService,
   createJob,
   diarizationStatus,
   createProject,
@@ -54,6 +55,7 @@ import {
   type LiveControllerSnapshot,
   type LiveMeetingController,
 } from "./components/LiveMeetingPanel";
+import { MeetingIntelligencePanel } from "./components/MeetingIntelligencePanel";
 import type { SettingsTab } from "./components/SettingsPanel";
 import { DesktopShell, getCaptureLifecycle } from "./components/desktop/DesktopShell";
 import { RecordingReview, type RecoveryRefresh } from "./components/desktop/RecordingReview";
@@ -646,6 +648,7 @@ function TranscriptActivityEntry({
 }
 
 export function App() {
+  const meetingIntelligenceService = useMemo(createTauriMeetingIntelligenceService, []);
   const [health, setHealth] = useState<Health | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -1655,6 +1658,14 @@ export function App() {
               registerClosePlayer={registerClosePlayer}
               registerRecoveryRefresh={registerRecoveryRefresh}
             />
+            {activeSurface === "review" && reviewSelection && meetingIntelligenceService ? (
+              <MeetingIntelligencePanel
+                projectId={reviewSelection.projectId}
+                recordingId={reviewSelection.recordingId}
+                service={meetingIntelligenceService}
+                onClose={() => setReviewSelection(null)}
+              />
+            ) : null}
           </div>
         </div>
       )}

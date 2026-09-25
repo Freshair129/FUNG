@@ -976,6 +976,7 @@ export function LiveMeetingPanel({
       projectId?: string;
       captureSystem?: boolean;
       language?: string;
+      transcriptProfile?: "chunked" | "revisioned";
       micDeviceId?: string;
       systemDeviceId?: string;
     },
@@ -989,6 +990,7 @@ export function LiveMeetingPanel({
           projectId: options.projectId ?? projectId ?? undefined,
           captureSystem: options.captureSystem ?? true,
           language: options.language,
+          transcriptProfile: options.transcriptProfile,
           micDeviceId: options.micDeviceId,
           systemDeviceId: options.systemDeviceId,
         }),

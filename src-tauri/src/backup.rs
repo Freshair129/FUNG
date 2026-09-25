@@ -63,8 +63,14 @@ pub(crate) enum BackupJobError {
     AudioInventoryFailed(String),
     #[error("backup payload failed: {0}")]
     PayloadFailed(PayloadError),
+    #[error("private meeting assets could not be backed up: {0}")]
+    PrivateAssetInventoryFailed(String),
     #[error("audio could not be restored into the target: {0}")]
     AudioRestoreFailed(PayloadError),
+    #[error("private meeting assets could not be restored into the target: {0}")]
+    PrivateAssetRestoreFailed(PayloadError),
+    #[error("restored private meeting asset metadata could not be verified: {0}")]
+    PrivateAssetVerificationFailed(String),
 }
 
 /// Guard that serializes backup/restore jobs and always releases the flag.
@@ -206,6 +212,7 @@ pub(crate) struct RestoreResult {
     /// only reads `terminal_state` would present an audio-less restore as a
     /// whole project.
     audio: AudioRestoreSummary,
+    private_meeting_assets: Option<PrivateMeetingAssetsRestoreSummary>,
     terminal_state: String,
 }
 
@@ -221,7 +228,17 @@ pub(crate) struct RestoreResult {
 pub(crate) struct BackupRunReport {
     pub(crate) record: FilesystemArchiveRecord,
     pub(crate) audio: AudioBackupSummary,
+    pub(crate) private_meeting_assets: PrivateMeetingAssetsBackupSummary,
 }
+
+#[derive(Debug, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PrivateMeetingAssetsBackupSummary {
+    pub(crate) encrypted_asset_count: usize,
+    pub(crate) recovery_package_created: bool,
+}
+
+use crate::backup_payload::PrivateMeetingAssetsRestoreSummary;
 
 #[derive(Debug, Default, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -349,6 +366,7 @@ fn collect_audio_inventory(storage: &Storage) -> Result<AudioInventory, BackupJo
 /// encrypted payload is now a container, so the post-restore identity check in
 /// [`run_restore_job`] keeps comparing like with like across archive
 /// generations.
+#[allow(dead_code)] // Compatibility entry point for local backups without an owner session.
 pub(crate) fn run_backup_job(
     storage: &Storage,
     root: &FilesystemRoot,
@@ -356,6 +374,26 @@ pub(crate) fn run_backup_job(
     archive_id: &str,
     created_at: &str,
     recovery_phrase: &str,
+) -> Result<BackupRunReport, BackupJobError> {
+    run_backup_job_with_owner(
+        storage,
+        root,
+        work_dir,
+        archive_id,
+        created_at,
+        recovery_phrase,
+        None,
+    )
+}
+
+pub(crate) fn run_backup_job_with_owner(
+    storage: &Storage,
+    root: &FilesystemRoot,
+    work_dir: &Path,
+    archive_id: &str,
+    created_at: &str,
+    recovery_phrase: &str,
+    owner_session: Option<&crate::genesis_adapter::NativeOwnerUnlockSession>,
 ) -> Result<BackupRunReport, BackupJobError> {
     if work_dir.starts_with(root.owned_root()) {
         return Err(BackupJobError::StagingFailed);
@@ -380,9 +418,27 @@ pub(crate) fn run_backup_job(
             stored_byte_count: inventory.stored_bytes(),
             omitted_file_count: inventory.omitted_count(),
         };
+        let private_assets = crate::genesis_adapter::export_private_meeting_assets_for_backup(
+            storage,
+            owner_session,
+            archive_id,
+            recovery_phrase,
+        )
+        .map_err(BackupJobError::PrivateAssetInventoryFailed)?;
+        let private_summary = PrivateMeetingAssetsBackupSummary {
+            encrypted_asset_count: private_assets
+                .as_ref()
+                .map(|bundle| bundle.assets.len())
+                .unwrap_or_default(),
+            recovery_package_created: private_assets.is_some(),
+        };
         let plaintext = Zeroizing::new(
-            backup_payload::pack(&bundle_bytes, &inventory)
-                .map_err(BackupJobError::PayloadFailed)?,
+            backup_payload::pack_with_private_meeting_assets(
+                &bundle_bytes,
+                &inventory,
+                private_assets.as_ref(),
+            )
+            .map_err(BackupJobError::PayloadFailed)?,
         );
         drop(inventory);
         let envelope = backup_archive::encrypt_archive(
@@ -398,7 +454,11 @@ pub(crate) fn run_backup_job(
         })?;
         let record = filesystem_backup::write_encrypted_archive_at_root(root, &envelope)
             .map_err(BackupJobError::WriteFailed)?;
-        Ok(BackupRunReport { record, audio })
+        Ok(BackupRunReport {
+            record,
+            audio,
+            private_meeting_assets: private_summary,
+        })
     });
     // Always remove the plaintext bundle, success or failure.
     let _ = fs::remove_file(&bundle_path);
@@ -410,12 +470,33 @@ pub(crate) fn run_backup_job(
 /// The restored bundle digest must match the source manifest digest recorded
 /// at backup time; on any failure the current local state is untouched and a
 /// partially created target is removed rather than reported as restored.
+#[allow(dead_code)] // Compatibility entry point for local restores without an owner session.
 pub(crate) fn run_restore_job(
     root: &FilesystemRoot,
     restore_parent: &Path,
     work_dir: &Path,
     archive_id: &str,
     recovery_phrase: &str,
+) -> Result<RestoreResult, BackupJobError> {
+    run_restore_job_with_owner(
+        root,
+        restore_parent,
+        work_dir,
+        archive_id,
+        recovery_phrase,
+        None,
+        None,
+    )
+}
+
+pub(crate) fn run_restore_job_with_owner(
+    root: &FilesystemRoot,
+    restore_parent: &Path,
+    work_dir: &Path,
+    archive_id: &str,
+    recovery_phrase: &str,
+    current_storage: Option<&Storage>,
+    owner_session: Option<&crate::genesis_adapter::NativeOwnerUnlockSession>,
 ) -> Result<RestoreResult, BackupJobError> {
     let parent_metadata = fs::symlink_metadata(restore_parent)
         .map_err(|_| BackupJobError::RestoreParentUnavailable)?;
@@ -431,18 +512,44 @@ pub(crate) fn run_restore_job(
 
     let envelope = filesystem_backup::read_archive_envelope_at_root(root, archive_id)
         .map_err(BackupJobError::ArchiveUnavailable)?;
-    run_restore_job_from_envelope(envelope, &restore_parent, work_dir, recovery_phrase)
+    run_restore_job_from_envelope_with_owner(
+        envelope,
+        &restore_parent,
+        work_dir,
+        recovery_phrase,
+        current_storage,
+        owner_session,
+    )
 }
 
 /// Restore an already authenticated transport envelope into the selected
 /// clean target. External transports must validate the archive manifest and
 /// digest before calling this function; this boundary only accepts the
 /// decrypted payload and keeps the existing restore-side safety checks.
+#[allow(dead_code)] // External envelope ingress stays dormant until a transport is configured.
 pub(crate) fn run_restore_job_from_envelope(
     envelope: backup_archive::ArchiveEnvelope,
     restore_parent: &Path,
     work_dir: &Path,
     recovery_phrase: &str,
+) -> Result<RestoreResult, BackupJobError> {
+    run_restore_job_from_envelope_with_owner(
+        envelope,
+        restore_parent,
+        work_dir,
+        recovery_phrase,
+        None,
+        None,
+    )
+}
+
+pub(crate) fn run_restore_job_from_envelope_with_owner(
+    envelope: backup_archive::ArchiveEnvelope,
+    restore_parent: &Path,
+    work_dir: &Path,
+    recovery_phrase: &str,
+    current_storage: Option<&Storage>,
+    owner_session: Option<&crate::genesis_adapter::NativeOwnerUnlockSession>,
 ) -> Result<RestoreResult, BackupJobError> {
     let parent_metadata = fs::symlink_metadata(restore_parent)
         .map_err(|_| BackupJobError::RestoreParentUnavailable)?;
@@ -502,17 +609,65 @@ pub(crate) fn run_restore_job_from_envelope(
             if restored.sha256 != expected_bundle_digest {
                 return Err(BackupJobError::VerificationFailed);
             }
+            let restored_private_storage = if payload.private_meeting_assets.is_some() {
+                Some(
+                    Storage::open(genesis_block_native::OpenOptions {
+                        path: target_root.display().to_string(),
+                        page_cache_mb: None,
+                        read_only: None,
+                        vector_dim: None,
+                        retention: None,
+                    })
+                    .map_err(|_| BackupJobError::VerificationFailed)?,
+                )
+            } else {
+                None
+            };
+            if let (Some(storage), Some(bundle)) = (
+                restored_private_storage.as_ref(),
+                payload.private_meeting_assets.as_ref(),
+            ) {
+                crate::genesis_adapter::validate_restored_private_meeting_assets(storage, bundle)
+                    .map_err(BackupJobError::PrivateAssetVerificationFailed)?;
+            }
             // Audio lands only after the ledger it belongs to has been
             // restored and proven identical, so a half-written target is
             // never reported as a restore.
             let audio = backup_payload::extract_audio(&target_root, &payload)
                 .map_err(BackupJobError::AudioRestoreFailed)?;
+            let private_meeting_assets = if payload.private_meeting_assets.is_some() {
+                let mut summary =
+                    backup_payload::extract_private_meeting_assets(&target_root, &payload)
+                        .map_err(BackupJobError::PrivateAssetRestoreFailed)?;
+                if let (Some(storage), Some(session), Some(bundle)) = (
+                    current_storage,
+                    owner_session,
+                    payload.private_meeting_assets.as_ref(),
+                ) {
+                    summary.owner_key_verified =
+                        crate::genesis_adapter::verify_recovered_private_meeting_key(
+                            storage,
+                            restored_private_storage
+                                .as_ref()
+                                .ok_or(BackupJobError::VerificationFailed)?,
+                            session,
+                            archive_id,
+                            recovery_phrase,
+                            bundle,
+                        )
+                        .map_err(BackupJobError::PrivateAssetInventoryFailed)?;
+                }
+                Some(summary)
+            } else {
+                None
+            };
             backup_payload::write_audio_manifest(&target_root, &payload)
                 .map_err(BackupJobError::AudioRestoreFailed)?;
             Ok(RestoreResult {
                 archive_id: archive_id.to_owned(),
                 restored_bundle_sha256: restored.sha256,
                 audio,
+                private_meeting_assets,
                 terminal_state: "restored".to_owned(),
             })
         });
@@ -586,17 +741,24 @@ pub(crate) async fn backup_run(
         .current_root()
         .ok_or_else(|| BackupJobError::RootUnavailable.to_string())?;
     let storage = Arc::clone(&app_state.genesis);
+    let owner_session = app_state
+        .meeting_owner_session
+        .lock()
+        .map_err(|_| "local owner session is unavailable".to_string())?
+        .as_ref()
+        .cloned();
     let work_dir = app_state.data_root.join("backup-staging");
     let archive_id = new_archive_id();
     let created_at = crate::now();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let record = run_backup_job(
+        let record = run_backup_job_with_owner(
             &storage,
             &root,
             &work_dir,
             &archive_id,
             &created_at,
             &recovery_phrase,
+            owner_session.as_ref(),
         );
         drop(guard);
         record
@@ -622,14 +784,23 @@ pub(crate) async fn backup_restore(
     let restore_parent = job_state
         .restore_parent()
         .ok_or_else(|| BackupJobError::RestoreParentUnavailable.to_string())?;
+    let owner_session = app_state
+        .meeting_owner_session
+        .lock()
+        .map_err(|_| "local owner session is unavailable".to_string())?
+        .as_ref()
+        .cloned();
+    let storage = Arc::clone(&app_state.genesis);
     let work_dir = app_state.data_root.join("backup-staging");
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let outcome = run_restore_job(
+        let outcome = run_restore_job_with_owner(
             &root,
             &restore_parent,
             &work_dir,
             &archive_id,
             &recovery_phrase,
+            Some(&storage),
+            owner_session.as_ref(),
         );
         drop(guard);
         outcome

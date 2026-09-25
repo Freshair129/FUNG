@@ -8,6 +8,8 @@ import {
   runRestore,
   describeAudioBackup,
   describeAudioRestore,
+  describePrivateMeetingAssetsBackup,
+  describePrivateMeetingAssetsRestore,
   describeAudioIntegrity,
   checkAudioIntegrity,
   describeBackupError,
@@ -83,7 +85,11 @@ test("restore target selection mirrors the opaque picker contract", async () => 
 });
 
 const completeAudio = { storedFileCount: 7, storedByteCount: 2048, omittedFileCount: 0 };
-const runReport = { record, audio: completeAudio };
+const runReport = {
+  record,
+  audio: completeAudio,
+  privateMeetingAssets: { encryptedAssetCount: 3, recoveryPackageCreated: true },
+};
 
 test("backup requires a recovery phrase and passes it through once", async () => {
   const { invoke, calls } = fakeInvoke({ backup_run: runReport });
@@ -154,6 +160,21 @@ test("a restore report states how much audio actually landed on disk", () => {
   assert.match(
     describeAudioRestore({ restoredFileCount: 5, restoredByteCount: 512, omittedFileCount: 2 }),
     /ขาดไปแล้ว 2 ไฟล์/,
+  );
+});
+
+test("private backup and restore reports distinguish ciphertext from owner readiness", () => {
+  assert.match(
+    describePrivateMeetingAssetsBackup({ encryptedAssetCount: 3, recoveryPackageCreated: true }),
+    /knowledge asset เข้ารหัส 3 รายการ/,
+  );
+  assert.equal(
+    describePrivateMeetingAssetsRestore({
+      restoredAssetCount: 3,
+      recoveryPackageSaved: true,
+      ownerKeyVerified: false,
+    }),
+    "คืน knowledge asset แบบ ciphertext 3 รายการ · เก็บ recovery package เข้ารหัสไว้แล้ว แต่ยังไม่ยืนยัน owner/key ในเครื่องนี้",
   );
 });
 

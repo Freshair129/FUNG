@@ -15,6 +15,8 @@ import {
   describeAudioIntegrity,
   describeAudioRestore,
   describeBackupError,
+  describePrivateMeetingAssetsBackup,
+  describePrivateMeetingAssetsRestore,
   formatBytes,
   generateRecoveryPhrase,
   loadBackupOverview,
@@ -130,7 +132,7 @@ export function BackupPanel({ invoke, projectId = null }: BackupPanelProps) {
       const report = await runBackup(invoke, backupPhrase);
       setMessage({
         type: report.audio.omittedFileCount > 0 ? "error" : "success",
-        text: `สำรองสำเร็จ (${report.record.archiveId}) — ${describeAudioBackup(report.audio)}`,
+        text: `สำรองสำเร็จ (${report.record.archiveId}) — ${describeAudioBackup(report.audio)} · ${describePrivateMeetingAssetsBackup(report.privateMeetingAssets)}`,
       });
     } catch (err) {
       setMessage({ type: "error", text: describeBackupError(err) });
@@ -147,9 +149,15 @@ export function BackupPanel({ invoke, projectId = null }: BackupPanelProps) {
     setMessage(null);
     try {
       const result = await runRestore(invoke, restoreArchiveId, restorePhrase, restoreConfirmed);
+      const privateAssets = describePrivateMeetingAssetsRestore(result.privateMeetingAssets);
       setMessage({
-        type: result.audio.omittedFileCount > 0 ? "error" : "success",
-        text: `กู้คืนสู่โฟลเดอร์ใหม่สำเร็จ (${result.archiveId}) — ${describeAudioRestore(result.audio)}`,
+        type:
+          result.audio.omittedFileCount > 0 ||
+          (result.privateMeetingAssets?.restoredAssetCount ?? 0) > 0 &&
+            !result.privateMeetingAssets?.ownerKeyVerified
+            ? "error"
+            : "success",
+        text: `กู้คืนสู่โฟลเดอร์ใหม่สำเร็จ (${result.archiveId}) — ${describeAudioRestore(result.audio)}${privateAssets ? ` · ${privateAssets}` : ""}`,
       });
     } catch (err) {
       setMessage({ type: "error", text: describeBackupError(err) });

@@ -21,7 +21,7 @@ const MAX_IDENTITY_ENVELOPE_CIPHERTEXT_BYTES: usize = 4096;
 /// only. Genesis transaction construction stays in `genesis_adapter` so later
 /// consumers cannot bypass the single persistence boundary.
 pub(crate) const CONTRACT_VERSION: i64 = 1;
-pub(crate) const SCHEMA_VERSION: i64 = 11;
+pub(crate) const SCHEMA_VERSION: i64 = 12;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct MeetingScope {
@@ -189,6 +189,461 @@ pub(crate) struct AtomicMeetingRequest {
     pub knowledge: Option<KnowledgeEvidenceInput>,
 }
 
+/// One durable, replay-safe unit of source processing. Input sequence numbers
+/// advance once for the entire finalized chunk; transcript revisions are
+/// append-only events inside that same Genesis transaction.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub(crate) struct MeetingIngestBatchRequest {
+    pub operation_id: String,
+    pub scope: MeetingScope,
+    pub sources: Vec<SourceCoverageInput>,
+    pub revisions: Vec<TranscriptRevisionInput>,
+    pub revision_coverage: Vec<RevisionCoverageBinding>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub(crate) struct RevisionCoverageBinding {
+    pub revision_id: String,
+    pub coverage_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub(crate) struct MeetingIngestBatchResult {
+    pub contract_version: i64,
+    pub operation_id: String,
+    pub transaction_id: String,
+    pub payload_hash: String,
+    pub first_cursor: i64,
+    pub last_cursor: i64,
+    pub event_ids: Vec<String>,
+    pub revision_ids: Vec<String>,
+    pub idempotent: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub(crate) struct MeetingReplayCursor {
+    pub recording_id: String,
+    pub after_cursor: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingReplayPage {
+    pub recording_id: String,
+    pub high_watermark: i64,
+    pub next_cursor: i64,
+    pub has_more: bool,
+    pub events: Vec<Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub(crate) struct MeetingTranscriptSnapshot {
+    pub recording_id: String,
+    pub high_watermark: i64,
+    pub utterances: Vec<Value>,
+    pub legacy_snapshot: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub(crate) struct MeetingRevisionRequest {
+    pub scope: MeetingScope,
+    pub revision: TranscriptRevisionInput,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeCollectionSummary {
+    pub collection_id: String,
+    pub label: String,
+    pub readable: bool,
+    pub selected: bool,
+    pub classification: String,
+    pub revision: i64,
+    pub document_count: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeSelectionCommand {
+    pub project_id: String,
+    pub recording_id: String,
+    pub collection_ids: Vec<String>,
+    pub expected_revision: i64,
+    pub request_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeSelectionReceipt {
+    pub revision: i64,
+    pub selected_collection_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeCollectionCreateRequest {
+    pub project_id: Option<String>,
+    pub classification: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeCollectionCreateResult {
+    pub collection_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeSelectionRequest {
+    pub project_id: String,
+    pub recording_id: String,
+    pub meeting_session_id: String,
+    pub collection_ids: Vec<String>,
+    pub meeting_date: Option<String>,
+    pub timezone: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeImportResult {
+    pub collection_id: String,
+    pub document_id: String,
+    pub version_id: String,
+    pub chunk_count: u32,
+    pub content_sha256: String,
+    pub parser_version: String,
+    pub warnings: Vec<String>,
+    pub citation_locators: Vec<MeetingKnowledgeCitationLocator>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeCitationLocator {
+    pub chunk_id: String,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeMetricSaveRequest {
+    pub request_id: String,
+    pub project_id: String,
+    pub recording_id: String,
+    pub collection_ids: Vec<String>,
+    pub document_version_id: String,
+    pub chunk_id: String,
+    pub metric_key: String,
+    pub organization_ref: String,
+    pub period_start: String,
+    pub period_end: String,
+    pub calendar: String,
+    pub unit: String,
+    pub currency: Option<String>,
+    pub scale: String,
+    pub basis: crate::meeting_knowledge::MetricBasis,
+    pub value: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeMetricSaveResult {
+    pub observation_id: String,
+    pub basis: crate::meeting_knowledge::MetricBasis,
+    pub value: crate::meeting_knowledge::Decimal,
+    pub citation: crate::meeting_knowledge::EvidenceCitation,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeMetricComputeRequest {
+    pub project_id: String,
+    pub recording_id: String,
+    pub collection_ids: Vec<String>,
+    pub metric_key: String,
+    pub organization_ref: String,
+    pub period_start: String,
+    pub period_end: String,
+    pub calendar: String,
+    pub unit: String,
+    pub currency: Option<String>,
+    pub scale: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeMetricComputeResult {
+    pub metric_key: String,
+    pub organization_ref: String,
+    pub period_start: String,
+    pub period_end: String,
+    pub percentage: crate::meeting_knowledge::Decimal,
+    pub citations: Vec<crate::meeting_knowledge::EvidenceCitation>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingKnowledgeSearchRequest {
+    pub meeting_session_id: String,
+    pub query: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingPeopleListRequest {
+    pub scope: MeetingScope,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingPeopleProfileCreateRequest {
+    pub project_id: String,
+    pub display_name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingPeopleProfileUpdateRequest {
+    pub project_id: String,
+    pub profile_id: String,
+    pub expected_revision: i64,
+    pub display_name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingPeopleProfileArchiveRequest {
+    pub profile_id: String,
+    pub expected_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingPeopleLinkProposalRequest {
+    pub scope: MeetingScope,
+    pub speaker_id: String,
+    pub profile_id: String,
+    pub expected_evidence_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingPeopleLinkMutationRequest {
+    pub scope: MeetingScope,
+    pub link_id: String,
+    pub expected_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingPeopleProfile {
+    pub profile_id: String,
+    pub display_name: String,
+    pub revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingPeopleSpeaker {
+    pub speaker_id: String,
+    pub display_label: String,
+    pub evidence_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingPeopleLink {
+    pub link_id: String,
+    pub speaker_id: String,
+    pub profile_id: String,
+    pub display_name: String,
+    pub status: String,
+    pub revision: i64,
+    pub evidence_revision: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingPeopleSnapshot {
+    pub vault_id: String,
+    pub profiles: Vec<MeetingPeopleProfile>,
+    pub speakers: Vec<MeetingPeopleSpeaker>,
+    pub links: Vec<MeetingPeopleLink>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentSelection {
+    pub project_id: String,
+    pub recording_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentMutationRequest {
+    pub project_id: String,
+    pub recording_id: String,
+    pub request_id: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentStartRequest {
+    pub project_id: String,
+    pub recording_id: String,
+    pub request_id: String,
+    pub expected_revision: u64,
+    pub mode: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentPolicyRequest {
+    pub project_id: String,
+    pub recording_id: String,
+    pub request_id: String,
+    pub expected_revision: u64,
+    pub mode: String,
+    pub allowed_topics: Vec<String>,
+    pub expires_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentAskRequest {
+    pub project_id: String,
+    pub recording_id: String,
+    pub request_id: String,
+    pub expected_revision: u64,
+    pub question: String,
+    pub collection_ids: Vec<String>,
+    pub transcript_cursor: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentDeliveryPreviewRequest {
+    pub project_id: String,
+    pub recording_id: String,
+    pub request_id: String,
+    pub expected_revision: u64,
+    pub draft_id: String,
+    pub draft_revision: u64,
+    pub scope: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentDeliveryApprovalRequest {
+    pub project_id: String,
+    pub recording_id: String,
+    pub request_id: String,
+    pub expected_revision: u64,
+    pub intent_id: String,
+    pub approved_payload_hash: String,
+    pub scope: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentRevokeRequest {
+    pub project_id: String,
+    pub recording_id: String,
+    pub request_id: String,
+    pub expected_revision: u64,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentCapability {
+    pub readiness: String,
+    pub reason_code: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentStatus {
+    pub project_id: String,
+    pub recording_id: String,
+    pub revision: u64,
+    pub mode: String,
+    pub state: String,
+    pub expires_at: Option<String>,
+    pub blockers: Vec<String>,
+    pub allowed_topics: Vec<String>,
+    pub local_agent: MeetingAgentCapability,
+    pub transcript_read: MeetingAgentCapability,
+    pub knowledge_read: MeetingAgentCapability,
+    pub external_join: MeetingAgentCapability,
+    pub external_media_read: MeetingAgentCapability,
+    pub external_chat_send: MeetingAgentCapability,
+    pub external_link_send: MeetingAgentCapability,
+    pub external_file_upload: MeetingAgentCapability,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentPreflight {
+    pub status: MeetingAgentStatus,
+    pub collection_revision: i64,
+    pub selected_collection_ids: Vec<String>,
+    pub local_limits: MeetingAgentLocalLimits,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentLocalLimits {
+    pub max_active_runs: u32,
+    pub max_retrieval_attempts: u32,
+    pub trigger_expiry_ms: u64,
+    pub max_runs_per_minute: u32,
+    pub max_runs_per_hour: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentCitation {
+    pub document_id: String,
+    pub version_id: String,
+    pub locator: String,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentPrivateDraft {
+    pub draft_id: String,
+    pub revision: u64,
+    pub text: String,
+    pub citations: Vec<MeetingAgentCitation>,
+    pub based_on_transcript_cursor: i64,
+    pub expires_at: String,
+    pub state: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentDeliveryPreview {
+    pub intent_id: String,
+    pub payload_hash: String,
+    pub destination_summary: String,
+    pub state: String,
+    pub approval_scope: String,
+    pub external_dispatch_available: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MeetingAgentHistoryEntry {
+    pub id: String,
+    pub kind: String,
+    pub state: String,
+    pub created_at: String,
+    pub transcript_cursor: Option<i64>,
+    pub evidence_count: u32,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub(crate) struct MeetingCommitAttempt {
     pub transaction_id: String,
@@ -246,6 +701,48 @@ pub(crate) struct PersonIdentityPayload {
     pub profile_revision: i64,
 }
 
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PersonProfilePayload {
+    pub profile_id: String,
+    pub person_id: String,
+    pub display_name: String,
+    pub vault_id: String,
+    pub revision: i64,
+}
+
+impl Zeroize for PersonProfilePayload {
+    fn zeroize(&mut self) {
+        self.profile_id.zeroize();
+        self.person_id.zeroize();
+        self.display_name.zeroize();
+        self.vault_id.zeroize();
+        self.revision.zeroize();
+    }
+}
+
+impl Drop for PersonProfilePayload {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl PersonProfilePayload {
+    fn validate(&self) -> Result<(), String> {
+        valid_id(&self.profile_id, "opaque profile id")?;
+        if !self.profile_id.starts_with("profile:") {
+            return Err("identity profile id must be an opaque native reference".to_string());
+        }
+        valid_id(&self.person_id, "decrypted person id")?;
+        valid_id(&self.display_name, "decrypted person display name")?;
+        valid_id(&self.vault_id, "identity vault id")?;
+        if self.revision < 1 {
+            return Err("identity profile revision must be positive".to_string());
+        }
+        Ok(())
+    }
+}
+
 impl Zeroize for PersonIdentityPayload {
     fn zeroize(&mut self) {
         self.link_id.zeroize();
@@ -293,6 +790,85 @@ pub(crate) trait IdentityKeyBackend {
 
 pub(crate) struct OsPeopleMetadataKeyBackend;
 
+impl OsPeopleMetadataKeyBackend {
+    pub(crate) fn ensure_key(&self, key_ref: &str) -> Result<Vec<u8>, String> {
+        use std::sync::Mutex;
+        static KEY_CREATION: Mutex<()> = Mutex::new(());
+
+        validate_key_ref(key_ref)?;
+        let suffix = key_ref
+            .strip_prefix("people_metadata:")
+            .ok_or_else(|| "identity key namespace is invalid".to_string())?;
+        let account = format!("people_metadata::{suffix}");
+        let entry = keyring::Entry::new("FUNG", &account)
+            .map_err(|_| "identity keyring unavailable".to_string())?;
+        let _guard = KEY_CREATION
+            .lock()
+            .map_err(|_| "identity keyring unavailable".to_string())?;
+        match entry.get_secret() {
+            Ok(secret) => return Ok(secret),
+            Err(keyring::Error::NoEntry) => {}
+            Err(_) => return Err("identity keyring unavailable".to_string()),
+        }
+        let mut key = Zeroizing::new([0u8; 32]);
+        OsRng.fill_bytes(&mut *key);
+        entry
+            .set_secret(&*key)
+            .map_err(|_| "identity keyring unavailable".to_string())?;
+        let read_back = Zeroizing::new(
+            entry
+                .get_secret()
+                .map_err(|_| "identity keyring unavailable".to_string())?,
+        );
+        if read_back.as_slice() != &key[..] {
+            return Err("identity keyring verification failed".to_string());
+        }
+        Ok(read_back.to_vec())
+    }
+
+    /// Restores a key only after the caller has verified the owner recovery
+    /// flow. Existing values are accepted only when they match byte-for-byte.
+    pub(crate) fn restore_key(&self, key_ref: &str, recovered: &[u8]) -> Result<(), String> {
+        use std::sync::Mutex;
+        static KEY_RESTORE: Mutex<()> = Mutex::new(());
+
+        validate_key_ref(key_ref)?;
+        if recovered.len() != 32 {
+            return Err("identity key has invalid length".to_string());
+        }
+        let suffix = key_ref
+            .strip_prefix("people_metadata:")
+            .ok_or_else(|| "identity key namespace is invalid".to_string())?;
+        let account = format!("people_metadata::{suffix}");
+        let entry = keyring::Entry::new("FUNG", &account)
+            .map_err(|_| "identity keyring unavailable".to_string())?;
+        let _guard = KEY_RESTORE
+            .lock()
+            .map_err(|_| "identity keyring unavailable".to_string())?;
+        match entry.get_secret() {
+            Ok(existing) if existing.as_slice() == recovered => return Ok(()),
+            Ok(existing) => {
+                let _existing = Zeroizing::new(existing);
+                return Err("KEY_REF_COLLISION".to_string());
+            }
+            Err(keyring::Error::NoEntry) => {}
+            Err(_) => return Err("identity keyring unavailable".to_string()),
+        }
+        entry
+            .set_secret(recovered)
+            .map_err(|_| "identity keyring unavailable".to_string())?;
+        let read_back = Zeroizing::new(
+            entry
+                .get_secret()
+                .map_err(|_| "identity keyring unavailable".to_string())?,
+        );
+        if read_back.as_slice() != recovered {
+            return Err("identity keyring verification failed".to_string());
+        }
+        Ok(())
+    }
+}
+
 impl IdentityKeyBackend for OsPeopleMetadataKeyBackend {
     fn get_key(&self, key_ref: &str) -> Result<Option<Vec<u8>>, String> {
         validate_key_ref(key_ref)?;
@@ -308,6 +884,134 @@ impl IdentityKeyBackend for OsPeopleMetadataKeyBackend {
             Err(_) => Err("identity keyring unavailable".to_string()),
         }
     }
+}
+
+pub(crate) fn seal_person_profile(
+    payload: &PersonProfilePayload,
+    context: &IdentityAadContext,
+    key_ref: &str,
+    backend: &dyn IdentityKeyBackend,
+) -> Result<PrivateIdentityReference, String> {
+    validate_key_ref(key_ref)?;
+    payload.validate()?;
+    if context.revision != payload.revision
+        || context.entity_id != payload.profile_id
+        || context.vault_id != payload.vault_id
+        || context.model_context != "people_profile"
+    {
+        return Err("identity profile AAD scope mismatch".to_string());
+    }
+    let key = backend
+        .get_key(key_ref)?
+        .ok_or_else(|| "identity key is unavailable".to_string())?;
+    let key = Zeroizing::new(key);
+    if key.len() != 32 {
+        return Err("identity key has invalid length".to_string());
+    }
+    let cipher = XChaCha20Poly1305::new_from_slice(&key)
+        .map_err(|_| "identity cipher initialization failed".to_string())?;
+    let aad =
+        serde_json::to_vec(context).map_err(|_| "identity AAD serialization failed".to_string())?;
+    let plaintext = Zeroizing::new(
+        serde_json::to_vec(payload)
+            .map_err(|_| "identity profile serialization failed".to_string())?,
+    );
+    let mut nonce = [0u8; 24];
+    OsRng.fill_bytes(&mut nonce);
+    let ciphertext = cipher
+        .encrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: plaintext.as_slice(),
+                aad: &aad,
+            },
+        )
+        .map_err(|_| "identity profile encryption failed".to_string())?;
+    let reference = PrivateIdentityReference {
+        encrypted_blob_ref: format!("identity-envelope:{}", Uuid::new_v4().simple()),
+        ciphertext_sha256: sha256_hex(&ciphertext),
+        envelope: IdentityEnvelope {
+            version: 1,
+            key_ref: key_ref.to_string(),
+            nonce: nonce.to_vec(),
+            aad_sha256: sha256_hex(&aad),
+            ciphertext,
+        },
+    };
+    validate_private_identity_reference(&reference)?;
+    Ok(reference)
+}
+
+pub(crate) fn open_person_profile(
+    reference: &PrivateIdentityReference,
+    context: &IdentityAadContext,
+    expected_profile_id: &str,
+    expected_revision: i64,
+    backend: &dyn IdentityKeyBackend,
+) -> Result<PersonProfilePayload, String> {
+    let key = backend
+        .get_key(&reference.envelope.key_ref)?
+        .ok_or_else(|| "identity key is unavailable".to_string())?;
+    let key = Zeroizing::new(key);
+    open_person_profile_with_key(
+        reference,
+        context,
+        expected_profile_id,
+        expected_revision,
+        &key,
+    )
+}
+
+pub(crate) fn open_person_profile_with_key(
+    reference: &PrivateIdentityReference,
+    context: &IdentityAadContext,
+    expected_profile_id: &str,
+    expected_revision: i64,
+    key: &[u8],
+) -> Result<PersonProfilePayload, String> {
+    validate_private_identity_reference(reference)?;
+    let expected_key_ref = Uuid::parse_str(&context.vault_id)
+        .map(|vault| format!("people_metadata:{}", vault.simple()))
+        .unwrap_or_else(|_| format!("people_metadata:{}", context.vault_id));
+    if context.revision != expected_revision
+        || context.entity_id != expected_profile_id
+        || context.model_context != "people_profile"
+        || reference.envelope.key_ref != expected_key_ref
+    {
+        return Err("identity profile AAD context mismatch".to_string());
+    }
+    if key.len() != 32 {
+        return Err("identity key has invalid length".to_string());
+    }
+    let cipher = XChaCha20Poly1305::new_from_slice(key)
+        .map_err(|_| "identity cipher initialization failed".to_string())?;
+    let aad =
+        serde_json::to_vec(context).map_err(|_| "identity AAD serialization failed".to_string())?;
+    if sha256_hex(&aad) != reference.envelope.aad_sha256 {
+        return Err("identity AAD context mismatch".to_string());
+    }
+    let plaintext = Zeroizing::new(
+        cipher
+            .decrypt(
+                XNonce::from_slice(&reference.envelope.nonce),
+                Payload {
+                    msg: &reference.envelope.ciphertext,
+                    aad: &aad,
+                },
+            )
+            .map_err(|_| "identity profile authentication failed".to_string())?,
+    );
+    let mut payload: PersonProfilePayload = serde_json::from_slice(&plaintext)
+        .map_err(|_| "identity profile payload is malformed".to_string())?;
+    payload.validate()?;
+    if payload.profile_id != expected_profile_id
+        || payload.revision != expected_revision
+        || payload.vault_id != context.vault_id
+    {
+        payload.zeroize();
+        return Err("identity profile semantic scope mismatch".to_string());
+    }
+    Ok(payload)
 }
 
 #[cfg(test)]
@@ -620,6 +1324,108 @@ impl AtomicMeetingRequest {
     }
 }
 
+impl MeetingIngestBatchRequest {
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        valid_id(&self.operation_id, "operation_id")?;
+        self.scope.validate()?;
+        if self.sources.is_empty() || self.sources.len() > 64 || self.revisions.len() > 64 {
+            return Err("meeting input batch exceeds bounded source/revision limits".to_string());
+        }
+        for source in &self.sources {
+            source.validate(&self.scope)?;
+        }
+        let mut sequences = self
+            .sources
+            .iter()
+            .map(|source| source.sequence_no)
+            .collect::<Vec<_>>();
+        sequences.sort_unstable();
+        if sequences
+            .windows(2)
+            .any(|pair| pair[1] != pair[0].saturating_add(1))
+        {
+            return Err("meeting input batch source sequences are not contiguous".to_string());
+        }
+        for (index, source) in self.sources.iter().enumerate() {
+            if self
+                .sources
+                .iter()
+                .skip(index + 1)
+                .any(|other| source.start_ms < other.end_ms && other.start_ms < source.end_ms)
+            {
+                return Err("meeting input batch source ranges overlap".to_string());
+            }
+        }
+        let mut utterance_ids = std::collections::HashSet::new();
+        let mut revision_ids = std::collections::HashSet::new();
+        for revision in &self.revisions {
+            valid_id(&revision.id, "transcript revision id")?;
+            valid_id(&revision.utterance_id, "utterance_id")?;
+            if !utterance_ids.insert(&revision.utterance_id) || !revision_ids.insert(&revision.id) {
+                return Err(
+                    "meeting input batch repeats an utterance or revision identity".to_string(),
+                );
+            }
+            if revision.revision < 1
+                || revision.start_ms < 0
+                || revision.end_ms <= revision.start_ms
+                || revision.raw_text.trim().is_empty()
+                || revision.effective_text.trim().is_empty()
+                || revision.raw_text.len() > 12_000
+                || revision.effective_text.len() > 12_000
+                || revision
+                    .confidence
+                    .is_some_and(|value| !(0.0..=1.0).contains(&value))
+                || revision.review_state != "unreviewed"
+                || revision.origin != TranscriptOrigin::LocalAsr
+            {
+                return Err(
+                    "input batch revisions must be bounded, unreviewed ASR output".to_string(),
+                );
+            }
+        }
+        let mut bound_revisions = std::collections::HashSet::new();
+        for binding in &self.revision_coverage {
+            valid_id(&binding.revision_id, "coverage binding revision id")?;
+            if binding.coverage_ids.is_empty()
+                || binding.coverage_ids.len() > 64
+                || !bound_revisions.insert(&binding.revision_id)
+            {
+                return Err(
+                    "revision coverage binding is empty, duplicated, or too large".to_string(),
+                );
+            }
+            let mut seen_coverage = std::collections::HashSet::new();
+            for coverage_id in &binding.coverage_ids {
+                valid_id(coverage_id, "revision coverage id")?;
+                if !seen_coverage.insert(coverage_id) {
+                    return Err("revision coverage binding repeats a source ID".to_string());
+                }
+            }
+        }
+        if bound_revisions.len() != self.revisions.len()
+            || self
+                .revisions
+                .iter()
+                .any(|revision| !bound_revisions.contains(&revision.id))
+            || self.revision_coverage.iter().any(|binding| {
+                self.revisions
+                    .iter()
+                    .all(|revision| revision.id != binding.revision_id)
+            })
+        {
+            return Err(
+                "each transcript revision must bind exact durable source coverage".to_string(),
+            );
+        }
+        let encoded = serde_json::to_vec(self).map_err(|error| error.to_string())?;
+        if encoded.len() > 1_048_576 {
+            return Err("meeting input batch payload exceeds 1 MiB".to_string());
+        }
+        Ok(())
+    }
+}
+
 pub(crate) fn audio_range_is_covered(spans: &[(i64, i64)], start_ms: i64, end_ms: i64) -> bool {
     if start_ms < 0 || end_ms <= start_ms {
         return false;
@@ -642,7 +1448,7 @@ pub(crate) fn audio_range_is_covered(spans: &[(i64, i64)], start_ms: i64, end_ms
     false
 }
 
-pub(crate) fn canonical_sha256<T: Serialize>(value: &T) -> Result<String, String> {
+pub(crate) fn canonical_sha256<T: Serialize + ?Sized>(value: &T) -> Result<String, String> {
     let encoded = serde_json::to_vec(value).map_err(|error| error.to_string())?;
     Ok(format!("{:x}", Sha256::digest(encoded)))
 }
@@ -965,5 +1771,42 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("bounded payload limit"));
+    }
+
+    #[test]
+    fn recovered_people_key_can_verify_profile_before_keyring_restore() {
+        let vault_id = "00000000-0000-0000-0000-000000000001";
+        let key_ref = format!(
+            "people_metadata:{}",
+            Uuid::parse_str(vault_id).unwrap().simple()
+        );
+        let key = Zeroizing::new([7u8; 32]);
+        let mut backend = InMemoryIdentityKeyBackend::default();
+        backend.insert(&key_ref, key.to_vec());
+        let context = IdentityAadContext {
+            account_ref: Some("account:local".to_string()),
+            scope: "local_owner_vault:00000000-0000-0000-0000-000000000001".to_string(),
+            vault_id: vault_id.to_string(),
+            entity_id: "profile:123".to_string(),
+            revision: 1,
+            model_context: "people_profile".to_string(),
+        };
+        let profile = PersonProfilePayload {
+            profile_id: "profile:123".to_string(),
+            person_id: "person:123".to_string(),
+            display_name: "Alice".to_string(),
+            vault_id: vault_id.to_string(),
+            revision: 1,
+        };
+        let reference = seal_person_profile(&profile, &context, &key_ref, &backend).unwrap();
+        let opened =
+            open_person_profile_with_key(&reference, &context, "profile:123", 1, &key[..]).unwrap();
+        assert!(opened == profile);
+
+        let wrong_key = [8u8; 32];
+        assert!(
+            open_person_profile_with_key(&reference, &context, "profile:123", 1, &wrong_key,)
+                .is_err()
+        );
     }
 }

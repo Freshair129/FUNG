@@ -281,6 +281,7 @@ export type LiveStartOptions = {
   projectId?: string;
   captureSystem?: boolean;
   language?: string;
+  transcriptProfile?: "chunked" | "revisioned";
   micDeviceId?: string;
   systemDeviceId?: string;
 };

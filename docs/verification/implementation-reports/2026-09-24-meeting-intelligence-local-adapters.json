@@ -1,0 +1,294 @@
+{
+  "schemaVersion": 1,
+  "reportVersion": "0.1.3b",
+  "generatedAt": "2026-09-25T06:14:59+07:00",
+  "baseCommit": "2c2559fdd907cf94a6f38b34bbb2c6650e68a0e1",
+  "branch": "codex/gap-closure-runtime-20260923",
+  "workingTree": "dirty-uncommitted",
+  "scope": "Approved local M1-M5 implementation and provider-neutral adapters; external activation deferred",
+  "result": "PASS_LOCAL_FIXTURE_CAMPAIGN",
+  "sourceManifest": {
+    "fileCount": 47,
+    "sha256": "cdb94e9f025b55e6f428026b3674b2a4bdce8f8cc6c4a00959856cce2318dbe4",
+    "files": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "sha256": "3a201568dad61d93c40c6e0c7d6c7c763a6afe03fbf0219902c719c0cbb3f778"
+      },
+      {
+        "path": ".gitignore",
+        "sha256": "bf0d6365e42254ff38f25c77e1ae7fc209079455760e3f35f1cd7cf5e7e92bbc"
+      },
+      {
+        "path": "contracts/meeting-intelligence-v2.yaml",
+        "sha256": "1e2b80519d3dfb146c8643ec1853bb1035cf016d03b513d0ec1b4a1fa8593758"
+      },
+      {
+        "path": "package.json",
+        "sha256": "6a8959687676488854dde629317653f19504649978316ee84d38e3bc6802ed54"
+      },
+      {
+        "path": "scripts/extract_knowledge.py",
+        "sha256": "d7b174a5e473c38b2a69b413c703894d0e291e37ac9ea5091b044d91c63ef5d5"
+      },
+      {
+        "path": "scripts/knowledge-extraction-requirements.txt",
+        "sha256": "7ab9ab70c16f8267b856acf8069980a5f2a95bd6b5a1f77f548294e55e77844b"
+      },
+      {
+        "path": "scripts/meeting-intelligence-test-runtime.ps1",
+        "sha256": "4a5c2d9e93d17e0857d661421f4431c369e514147d538ff23a8796dddb7a125d"
+      },
+      {
+        "path": "scripts/stage_knowledge_parser_runtime.ps1",
+        "sha256": "e2e342606e7c61e85532c16302895a9dc8f2ca98c2cd2e1f2f888b407045bc1d"
+      },
+      {
+        "path": "scripts/transcribe_live.py",
+        "sha256": "fb163ef23798fa64e1ffecc60b4cba9bf7a909b596a0ba9938eb8393b2cbb1fd"
+      },
+      {
+        "path": "src-tauri/Cargo.toml",
+        "sha256": "c6c543101a68cf9e50e65366a07d04eb259b13921498d11791f027f04268fc37"
+      },
+      {
+        "path": "src-tauri/src/auth_session.rs",
+        "sha256": "f6142100518643c591e46af66576fbc46ea865e4e46eb1d4d135bfc1c95ae713"
+      },
+      {
+        "path": "src-tauri/src/backup.rs",
+        "sha256": "b48c1ac39001688c7ca23692f2e07716a0981803657e40810f183c450535afc0"
+      },
+      {
+        "path": "src-tauri/src/backup_archive.rs",
+        "sha256": "ce1cc1a90c2496f4c2d6e088355f5c19a87bee52491c7f7e4e1262018dc7be97"
+      },
+      {
+        "path": "src-tauri/src/backup_payload.rs",
+        "sha256": "326ac18ac688a40a4dd3af21f1534da6bad3e963131b8844e6bdbbadaca2e0bd"
+      },
+      {
+        "path": "src-tauri/src/genesis_adapter.rs",
+        "sha256": "da32a5013457fc78cf008c23fa628046d51e38db42a9a5408fed34dc24eef35c"
+      },
+      {
+        "path": "src-tauri/src/lib.rs",
+        "sha256": "50c59388c65a8ebc0f3dfc99a46d1311ce36e9e973aec6d983f9b211de4044e2"
+      },
+      {
+        "path": "src-tauri/src/live_meeting.rs",
+        "sha256": "c33c82e171ed9bf4a723fe54f2f89eaa56c2c9d40f7235981d89ab08a5519735"
+      },
+      {
+        "path": "src-tauri/src/live_transcript.rs",
+        "sha256": "944ae26debdac172779a0d76b3bfea40cc47b95e7275c477f39c3568e3ef65eb"
+      },
+      {
+        "path": "src-tauri/src/meeting_adapter.rs",
+        "sha256": "4314498502bc63277f41fa894f96df555d85af4daa13b0116d00f4bec8643ed6"
+      },
+      {
+        "path": "src-tauri/src/meeting_agent.rs",
+        "sha256": "e7f8f45d24f9fae5477cb14e3d6bd38a082f2ffde7289459f6d3aac6f63460f0"
+      },
+      {
+        "path": "src-tauri/src/meeting_delivery.rs",
+        "sha256": "f3bb6d9b30e03987217be5f3563c598ee164d37f47ea8df85fed136c7ffddd66"
+      },
+      {
+        "path": "src-tauri/src/meeting_intelligence_runtime.rs",
+        "sha256": "9f0ffbf71d1d41db9a6d4184125276b43543958372aaf639b5ef82a03ba5cad7"
+      },
+      {
+        "path": "src-tauri/src/meeting_intelligence_schema.rs",
+        "sha256": "049a23c611e17dfcb15235dfc81b35eb78d478f68afcf176cbd8251d14ecdaf8"
+      },
+      {
+        "path": "src-tauri/src/meeting_knowledge.rs",
+        "sha256": "713c67c03775a7fd655150e4d24f96bfb2d188135955f5f928ee4a28ee66968b"
+      },
+      {
+        "path": "src-tauri/src/meeting_knowledge_windows.rs",
+        "sha256": "c54dc746492f46c344715c9210f788538ac833b6a83a8127b731292e317fd059"
+      },
+      {
+        "path": "src-tauri/tauri.conf.json",
+        "sha256": "90d3e0cf66673346e4ab6a832704d2079429bb5bb6dfb082f6b6f5644e4102e1"
+      },
+      {
+        "path": "src-tauri/tauri.windows.conf.json",
+        "sha256": "ed856b9bb9598723677e55f5fe5e23c0e49124892166db05c6c79311935a742a"
+      },
+      {
+        "path": "src-tauri/tests/meeting_knowledge.rs",
+        "sha256": "144d584672f8bc830164968148c7146cb6881a28c1d9691592b8e670b76f4c0d"
+      },
+      {
+        "path": "src/App.tsx",
+        "sha256": "51764c8770c2a866f0892392e4b4fc5a8bb04bac55f43e39b1d065b3a940e776"
+      },
+      {
+        "path": "src/components/BackupPanel.tsx",
+        "sha256": "256f8f8317e0893dd6ec94bc1ed0693436bd4a7cecce2495fde3f1642477d6d9"
+      },
+      {
+        "path": "src/components/LiveMeetingPanel.tsx",
+        "sha256": "6ee769003ce54e983f1dbf8f0a8c357f9bb77211c32f0804bff3350f2f0d3970"
+      },
+      {
+        "path": "src/components/MeetingIntelligencePanel.css",
+        "sha256": "a3928adc9a949a1fd27b9bd0a12f9f832de5df528605d3abe89004249029e4b5"
+      },
+      {
+        "path": "src/components/MeetingIntelligencePanel.tsx",
+        "sha256": "765f1a7875b8688f6624c0891c18403548b2e961b4ff8a651a0418abb0cb6931"
+      },
+      {
+        "path": "src/components/MeetingPeoplePanel.tsx",
+        "sha256": "1b1ebafa5f3ce253a33236ce48bf03d50b92732e7d0aa4fcc31b01fd576e3785"
+      },
+      {
+        "path": "src/components/desktop/LiveWorkspace.tsx",
+        "sha256": "9987e5e0770c91e0a7b44775ac88aadb67a2b9eb9ea81253644e0f9cf4a1999a"
+      },
+      {
+        "path": "src/components/desktop/contracts.ts",
+        "sha256": "1f1b334f8a9545138de42aad5f4fad93b50fff80eb05b2aeb9c2c004c116b707"
+      },
+      {
+        "path": "src/lib/backupFlow.ts",
+        "sha256": "45b7eeedaf62bb0db370a8894494544ce3ad9299d4f468899d6aa506c12cd808"
+      },
+      {
+        "path": "src/lib/meetingIntelligence.ts",
+        "sha256": "9c03a5988e0656a6e31ce2ff2088689c6be52e3a8d2014c09fdc51995cdda57e"
+      },
+      {
+        "path": "src/tauri.ts",
+        "sha256": "61e7518e22c00f6db1b12596a8f315d14825fc8d69075375fda8406a90a853da"
+      },
+      {
+        "path": "tests/backupFlow.test.mjs",
+        "sha256": "883034e1e820ede3338728be6892907b687d459079c81708cecef026483a784a"
+      },
+      {
+        "path": "tests/knowledge_extract.test.py",
+        "sha256": "69808398e0f09d56f76cebcad37daa28715b4091b55a5c815c048a8536ea2c1d"
+      },
+      {
+        "path": "tests/meetingIntelligenceContract.test.mjs",
+        "sha256": "69a9bda3b0db1b08505a769b31df236abae5f927689f5cdf236ccbf023a2fea8"
+      },
+      {
+        "path": "tests/meetingIntelligenceUi.test.mjs",
+        "sha256": "c10b8af4d476daebd66bc872540e824e670680ef6869676d7e94e82d4d7d9ba8"
+      },
+      {
+        "path": "tests/meetingIntelligenceUiFixture.html",
+        "sha256": "35fe1b7ca2b097e6f8b02b639682ab9b5b69ae7f71640ed788a602f34c78baa6"
+      },
+      {
+        "path": "tests/meetingIntelligenceUiFixture.tsx",
+        "sha256": "37ebb357390fdcde6597c78f6fab2b1aa5ec6806b4eb358e1ffc20c67ce02724"
+      },
+      {
+        "path": "tests/nativeSessionCustody.test.mjs",
+        "sha256": "7d61b769f6f73d6509caafd290d6bf6f04d9681bca6a06094c88d5406a8e8ffb"
+      },
+      {
+        "path": "tests/transcribeLiveWindow.test.py",
+        "sha256": "c1c10800b0fe1a7dffcdaa720d86c0fa5d4be8ae717b65aeba6efaf98dfe78eb"
+      }
+    ]
+  },
+  "checks": {
+    "rustLibrary": {
+      "status": "PASS",
+      "passed": 576,
+      "failed": 0,
+      "ignored": 1
+    },
+    "meetingKnowledgeIntegration": {
+      "status": "PASS",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 0
+    },
+    "appContainerProbe": {
+      "status": "PASS",
+      "hostFileAccess": "DENIED",
+      "loopback": "DENIED",
+      "note": "Passed with access to the per-user Windows AppContainer profile store; restricted sandbox fails closed on ERROR_FILE_NOT_FOUND"
+    },
+    "cargoFormat": "PASS",
+    "gitDiffCheck": "PASS",
+    "cargoCheckAllTargets": "PASS",
+    "cargoClippyAllTargetsWarningsAsErrors": "PASS",
+    "cargoBuild": "PASS",
+    "registeredTestSuites": {
+      "status": "PASS",
+      "passed": 32,
+      "failed": 0,
+      "note": "One Docker-backed W1 test skipped because Docker was unavailable (spawnSync docker EPERM)."
+    },
+    "knowledgeExtractorRegisteredSuite": {
+      "status": "PASS",
+      "passed": 7,
+      "skipped": 0,
+      "failed": 0,
+      "interpreter": "Python 3.12.14",
+      "dependency": "pypdf 6.10.0"
+    },
+    "stagedKnowledgeParserRuntimeFixtures": {
+      "status": "PASS",
+      "passed": 7,
+      "skipped": 0,
+      "failed": 0,
+      "interpreter": "CPython 3.11.9",
+      "dependency": "pypdf 6.10.0"
+    },
+    "desktopTypeScriptViteBuild": "PASS",
+    "interactiveDesktopUiAndAccessibility": {
+      "status": "NOT_RUN",
+      "note": "Mock-browser lifecycle fixture passed; native Tauri-window interaction and accessibility audit were not run."
+    },
+    "independentFinalSourceSecurityReview": {
+      "status": "PASS",
+      "note": "Reviewed the exact post-remediation source hashes; no blocker found. Separate-logon-session mutex runtime was not exercised."
+    },
+    "pythonMockImportSuite": {
+      "status": "PASS",
+      "interpreter": "Python 3.12.14",
+      "passed": 6,
+      "failed": 0,
+      "huggingFaceOffline": true,
+      "reason": "PYTHONPATH mock injection is not supported by the embedded production interpreter."
+    },
+    "accountLifecycleUiFixture": {
+      "status": "PASS",
+      "note": "Mock-browser fixture confirmed auth-session change clears private draft and local-vault selection."
+    },
+    "separateLogonSessionConcurrency": {
+      "status": "NOT_RUN",
+      "note": "Source and same-session concurrency coverage do not establish separate Windows logon-session mutex behavior."
+    }
+  },
+  "notRun": [
+    "Thai WER/CER and Thai accuracy acceptance",
+    "real meeting capture and three-hour soak",
+    "physical Android acceptance",
+    "Google Meet join/media and external provider send/receipt",
+    "provider-side rate/cost/leave enforcement",
+    "clean-install restore",
+    "non-Windows PDF sandbox behavior",
+    "native Tauri-window interaction and accessibility audit",
+    "separate-logon-session keyring mutex runtime",
+    "installed-artifact interaction",
+    "deployment",
+    "release"
+  ],
+  "limits": [
+    "Repository fixtures prove local execution, not product-level acceptance.",
+    "The source changes are uncommitted; no CI run, PR, merge, deployment or release is claimed."
+  ]
+}

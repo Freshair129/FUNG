@@ -1,7 +1,7 @@
 ---
-version: "0.2.2b"
+version: "0.2.3b"
 created_at: "2026-09-25T10:29:26+07:00,RWANG,base-227bef9"
-last_update: "2026-09-25T10:59:32+07:00,RWANG"
+last_update: "2026-09-25T19:42:11+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -157,7 +157,8 @@ Native ตรวจได้ว่า citation ID มีอยู่และย
 - `meeting_intelligence_schema.rs` และ `src/lib/meetingIntelligence.ts` เพิ่ม
   `draftKind`, `modelName`, `modelRunId` โดยคำขอเก่ายัง default เป็น `extractive`
 - `meeting_agent_model.rs` ตรวจ provider/model แบบตรงชื่อ, ใช้ Ollama loopback
-  และจำกัดเวลา/ขนาด/token; รับ JSON `answer` กับ `refs` ที่ตรวจ ID แบบ native
+  และจำกัดเวลา/ขนาด/token; ส่ง `think:false` สำหรับคำตอบที่ต้องอ่านจาก
+  `message.content`; รับ JSON `answer` กับ `refs` ที่ตรวจ ID แบบ native
 - `lib.rs` เลือก evidence ที่โมเดลอ้างจริงและใช้ policy/session/cursor gate เดิม
 - `genesis_adapter.rs` ตรวจ selected collection, ACL, source version, grant,
   cursor, owner และ provider config อีกครั้งก่อน commit; `model_runs`,
@@ -183,13 +184,23 @@ Native ตรวจได้ว่า citation ID มีอยู่และย
   AppContainer probe 1 ตัวถูกข้ามเพราะ restricted sandbox ไม่สร้าง profile ได้
 - `meeting_knowledge` integration: 16/16 ผ่านเมื่อข้าม AppContainer probe;
   การรัน probe ตรงใน sandbox ล้มที่ `CreateAppContainerProfile 0x80070002`
-- โมเดลจริง, ความแม่นยำภาษาไทย, native UI บนเครื่องผู้ใช้, real meeting,
+- local Ollama smoke ด้วย `qwen3.5:9b` และ synthetic UI fixture ผ่านสัญญา
+  `answer`/`refs` เมื่อปิด thinking; คำตอบระบุ `42 ล้านบาท`, citation `e0`,
+  ใช้เวลา 0.5 วินาที. ค่าเริ่มต้นของโมเดลคืน `message.content` ว่างและใส่
+  reasoning ใน `message.thinking`; adapter จึงส่ง `think:false`
+- `qwen2.5:0.5b` ตอบภาษาไทยแต่คืน citation ที่ไม่ถูกต้อง จึงไม่ผ่านสัญญา
+  native และยังไม่ถือว่าเป็นโมเดลที่ผ่านการรับรอง
+- ความแม่นยำภาษาไทยโดยรวม, native UI บนเครื่องผู้ใช้, real meeting,
   external provider และ release acceptance: **NOT_RUN**
+- Rust `meeting_agent_model::tests`: 5/5 ผ่าน; `cargo fmt --check` และ
+  Clippy `--all-targets -D warnings` ผ่าน. Local Cargo build ใช้ process-scoped
+  `TAURI_CONFIG` ปิด resource staging เพราะ ACL ของ `.venv-whisper` บล็อก
+  build script; ไม่ได้แก้ package resources ใน source tree
 
 ## Version Diff
 
-`0.2.1b → 0.2.2b`: บันทึก full model-input freshness gate และผล Rust
-regression ล่าสุด; ไม่มีการยกระดับ fixture เป็น acceptance ของโมเดลจริง
+`0.2.2b → 0.2.3b`: ปิด thinking output ใน local Ollama answer request และ
+บันทึก smoke จาก fixture โดยยังแยกออกจากการรับรองคุณภาพภาษาไทยจริง
 
 ## CHANGELOG
 
@@ -199,3 +210,4 @@ regression ล่าสุด; ไม่มีการยกระดับ fix
 | 0.2.0b | 2026-09-25 | beta | Approved local implementation mapping and bounded Ollama adapter | working-tree | RWANG |
 | 0.2.1b | 2026-09-25 | beta | Local verification results and AppContainer limitation | working-tree | RWANG |
 | 0.2.2b | 2026-09-25 | beta | Validate every model input source at draft and preview boundaries; final local counts | working-tree | RWANG |
+| 0.2.3b | 2026-09-25 | beta | Disable Ollama thinking output for answer-only proposals; record local fixture smoke and remaining quality gates | working-tree | RWANG |

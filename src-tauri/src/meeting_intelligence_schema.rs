@@ -518,6 +518,18 @@ pub(crate) struct MeetingAgentAskRequest {
     pub question: String,
     pub collection_ids: Vec<String>,
     pub transcript_cursor: i64,
+    #[serde(default)]
+    pub draft_kind: MeetingAgentDraftKind,
+    #[serde(default)]
+    pub model_name: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum MeetingAgentDraftKind {
+    #[default]
+    Extractive,
+    ModelProposal,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -622,6 +634,10 @@ pub(crate) struct MeetingAgentPrivateDraft {
     pub based_on_transcript_cursor: i64,
     pub expires_at: String,
     pub state: String,
+    #[serde(default)]
+    pub draft_kind: MeetingAgentDraftKind,
+    #[serde(default)]
+    pub model_run_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -1673,6 +1689,25 @@ fn reject_sensitive_json_keys(value: &Value, field: &str) -> Result<(), String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_agent_ask_defaults_to_extractive() {
+        let request: MeetingAgentAskRequest = serde_json::from_value(serde_json::json!({
+            "projectId": "p", "recordingId": "r", "requestId": "ask-1",
+            "expectedRevision": 1, "question": "what", "collectionIds": ["c"],
+            "transcriptCursor": 4
+        }))
+        .unwrap();
+        assert_eq!(request.draft_kind, MeetingAgentDraftKind::Extractive);
+        assert_eq!(request.model_name, None);
+        let old_draft: MeetingAgentPrivateDraft = serde_json::from_value(serde_json::json!({
+            "draftId": "draft-a", "revision": 1, "text": "old answer", "citations": [],
+            "basedOnTranscriptCursor": 4, "expiresAt": "2026-09-25T00:00:00Z", "state": "private"
+        }))
+        .unwrap();
+        assert_eq!(old_draft.draft_kind, MeetingAgentDraftKind::Extractive);
+        assert_eq!(old_draft.model_run_id, None);
+    }
 
     #[test]
     fn repeated_text_is_not_an_identity_key() {

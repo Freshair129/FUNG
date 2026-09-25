@@ -1722,7 +1722,23 @@ fn schema_v11() -> RelationalSchemaPackage {
 }
 
 pub(crate) fn schema() -> RelationalSchemaPackage {
-    schema_v12()
+    schema_v13()
+}
+
+/// Link an optional model run to a proposal draft while preserving v1–v12.
+fn schema_v13() -> RelationalSchemaPackage {
+    let mut package = schema_v12();
+    package.schema_version = 13;
+    package.previous_version = Some(12);
+    package.package_id = "9f2465d6-ec66-4fef-b77e-2547c5a576ab".to_string();
+    let runs = package
+        .tables
+        .iter_mut()
+        .find(|table| table.name == "meeting_agent_runs")
+        .expect("v12 meeting_agent_runs schema");
+    runs.columns
+        .push(nullable("model_run_id", RelationalColumnType::Text));
+    package
 }
 
 /// Add recording-wide transcript order and opaque encrypted-asset metadata.
@@ -1913,6 +1929,7 @@ pub(crate) fn install(storage: &Storage) -> Result<(), String> {
         schema_v9(),
         schema_v10(),
         schema_v11(),
+        schema_v12(),
         schema(),
     ];
     let last_index = packages.len() - 1;
@@ -6569,6 +6586,55 @@ fn require_current_meeting_transcript_cursor(
     Ok(())
 }
 
+pub(crate) struct MeetingAgentModelProvenance {
+    pub id: String,
+    pub model_name: String,
+    pub input_hash: String,
+    pub output_hash: String,
+    pub provider_config_hash: String,
+}
+
+pub(crate) fn ensure_meeting_agent_request_unused(
+    storage: &Storage,
+    request_id: &str,
+) -> Result<(), String> {
+    validate_meeting_agent_request_id(request_id)?;
+    if !query(
+        storage,
+        "meeting_agent_runs",
+        &["id"],
+        vec![eq("meeting_agent_runs", "trigger_id", json!(request_id))],
+        1,
+    )?
+    .is_empty()
+    {
+        return Err("MEETING_AGENT_REQUEST_DUPLICATE".to_string());
+    }
+    Ok(())
+}
+
+fn validate_model_reference_set(
+    model_input_refs: Option<&Value>,
+    model: Option<&MeetingAgentModelProvenance>,
+    cited_refs: &Value,
+) -> Result<(), String> {
+    if model.is_some() != model_input_refs.is_some() {
+        return Err("MEETING_AGENT_MODEL_INPUT_INVALID".to_string());
+    }
+    if let Some(input_refs) = model_input_refs {
+        let all = input_refs
+            .as_array()
+            .ok_or_else(|| "MEETING_AGENT_MODEL_INPUT_INVALID".to_string())?;
+        let cited = cited_refs
+            .as_array()
+            .ok_or_else(|| "MEETING_AGENT_MODEL_REFS_INVALID".to_string())?;
+        if cited.is_empty() || cited.iter().any(|item| !all.contains(item)) {
+            return Err("MEETING_AGENT_MODEL_REFS_INVALID".to_string());
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn persist_private_meeting_agent_draft(
     storage: &Storage,
     session: &NativeOwnerUnlockSession,
@@ -6583,8 +6649,11 @@ pub(crate) fn persist_private_meeting_agent_draft(
     transcript_cursor: i64,
     transcript_revisions: Value,
     evidence_refs: Value,
+    model_input_refs: Option<&Value>,
+    model: Option<&MeetingAgentModelProvenance>,
 ) -> Result<String, String> {
     validate_meeting_agent_request_id(request_id)?;
+    validate_model_reference_set(model_input_refs, model, &evidence_refs)?;
     if draft_text.is_empty() || draft_text.chars().count() > 12_000 {
         return Err("MEETING_AGENT_DRAFT_SIZE_INVALID".to_string());
     }
@@ -6667,9 +6736,15 @@ pub(crate) fn persist_private_meeting_agent_draft(
         &trusted.vault_id,
         &owner_scope,
         &expected_selected,
-        &evidence_refs,
+        model_input_refs.unwrap_or(&evidence_refs),
         &session.data_root,
     )?;
+    if let Some(model) = model {
+        if crate::meeting_agent_model::provider_config_hash(storage)? != model.provider_config_hash
+        {
+            return Err("MEETING_AGENT_MODEL_CONFIG_STALE".to_string());
+        }
+    }
     let key_ref =
         crate::meeting_knowledge::KnowledgeKeyRef::new(format!("knowledge:{}", trusted.vault_id))?;
     let key = crate::meeting_knowledge::OsKnowledgeKeyBackend.read(&key_ref)?;
@@ -6715,24 +6790,33 @@ pub(crate) fn persist_private_meeting_agent_draft(
         "recording_id": recording_id,
         "meeting_session_id": meeting_session_id,
         "grant_id": grant.get("meeting_agent_grants.id"),
+        "model_run_id": model.map(|model| &model.id),
         "trigger_id": request_id,
         "transcript_cursor": transcript_cursor,
         "transcript_revision_set_json": transcript_revisions,
-        "evidence_ids_json": {"privateAssetId": asset_id, "evidence": evidence_refs},
+        "evidence_ids_json": {"privateAssetId": asset_id, "evidence": evidence_refs, "modelInputEvidence": model_input_refs},
         "policy_version": "meeting-local/1",
         "state": "draft_created",
         "contract_version": meeting_intelligence_schema::CONTRACT_VERSION,
         "created_at": timestamp,
     });
-    commit_native_owner_mutations(
-        storage,
-        session,
-        &attempt,
-        vec![
-            upsert("meeting_private_assets", asset_row),
-            upsert("meeting_agent_runs", run_row),
-        ],
-    )?;
+    let mut mutations = vec![upsert("meeting_private_assets", asset_row)];
+    if let Some(model) = model {
+        mutations.push(upsert("model_runs", json!({
+            "id": model.id,
+            "recording_id": recording_id,
+            "provider_id": "ollama-summary-intent",
+            "model_name": model.model_name,
+            "task_kind": "meeting_agent_proposal",
+            "runtime_location": "local",
+            "input_ref": format!("sha256:{}", model.input_hash),
+            "output_ref": format!("sha256:{}", model.output_hash),
+            "parameters_json": {"inputSha256": model.input_hash, "outputSha256": model.output_hash, "maxOutputTokens": 768},
+            "created_at": timestamp,
+        })));
+    }
+    mutations.push(upsert("meeting_agent_runs", run_row));
+    commit_native_owner_mutations(storage, session, &attempt, mutations)?;
     Ok(asset_id)
 }
 
@@ -7230,6 +7314,7 @@ pub(crate) fn persist_local_meeting_delivery_preview(
         &[
             "id",
             "grant_id",
+            "model_run_id",
             "evidence_ids_json",
             "state",
             "transcript_cursor",
@@ -7280,6 +7365,26 @@ pub(crate) fn persist_local_meeting_delivery_preview(
     let selected = selected_collections_from_context(context.as_ref())?
         .into_iter()
         .collect::<std::collections::BTreeSet<_>>();
+    if draft_run
+        .get("meeting_agent_runs.model_run_id")
+        .and_then(Value::as_str)
+        .is_some()
+    {
+        let model_inputs = draft_run
+            .get("meeting_agent_runs.evidence_ids_json")
+            .and_then(|value| value.get("modelInputEvidence"))
+            .ok_or_else(|| "MEETING_DELIVERY_EVIDENCE_STALE".to_string())?;
+        validate_current_meeting_agent_evidence(
+            storage,
+            project_id,
+            &trusted.vault_id,
+            &owner_scope,
+            &selected,
+            model_inputs,
+            &session.data_root,
+        )
+        .map_err(|_| "MEETING_DELIVERY_EVIDENCE_STALE".to_string())?;
+    }
     for citation in citations {
         let document_id = citation
             .get("documentId")
@@ -14678,6 +14783,7 @@ mod tests {
             schema_v9(),
             schema_v10(),
             schema_v11(),
+            schema_v12(),
             schema(),
         ];
         for (index, package) in chain.iter().enumerate() {
@@ -15028,7 +15134,26 @@ mod tests {
         assert_eq!(legacy[0]["projects.name"], "legacy");
         assert_eq!(schema_v10().schema_version, 10);
         assert_eq!(schema_v11().schema_version, 11);
-        assert_eq!(schema().schema_version, 12);
+        assert_eq!(schema_v12().schema_version, 12);
+        assert_eq!(schema().schema_version, 13);
+        let old_runs = schema_v12()
+            .tables
+            .into_iter()
+            .find(|table| table.name == "meeting_agent_runs")
+            .unwrap();
+        assert!(!old_runs
+            .columns
+            .iter()
+            .any(|column| column.name == "model_run_id"));
+        let current_runs = schema()
+            .tables
+            .into_iter()
+            .find(|table| table.name == "meeting_agent_runs")
+            .unwrap();
+        assert!(current_runs
+            .columns
+            .iter()
+            .any(|column| column.name == "model_run_id" && column.nullable));
         for table_name in [
             "knowledge_collections",
             "knowledge_documents",
@@ -15076,6 +15201,77 @@ mod tests {
         assert_eq!(preserved.len(), 1);
         drop(reopened);
         let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn model_proposal_link_and_duplicate_request_survive_v13_migration() {
+        let (path, storage) = open_at_v10();
+        install(&storage).unwrap();
+        let (scope, _) = seed_meeting(&storage, &path);
+        let timestamp = "2026-09-25T10:00:00Z";
+        assert!(ensure_meeting_agent_request_unused(&storage, "model-ask-a").is_ok());
+        commit_rows(&storage, vec![
+            upsert("model_providers", json!({
+                "id": "ollama-summary-intent", "label": "Ollama", "runtime_location": "local",
+                "kind": "summary_intent", "enabled": true, "config_json": {"endpoint":"http://127.0.0.1:11434"},
+                "created_at": timestamp, "updated_at": timestamp
+            })),
+            upsert("model_runs", json!({
+                "id": "agent-model-a", "recording_id": scope.recording_id,
+                "provider_id": "ollama-summary-intent", "model_name": "llama3.1:8b",
+                "task_kind": "meeting_agent_proposal", "runtime_location": "local",
+                "input_ref": "sha256:input", "output_ref": "sha256:output",
+                "parameters_json": {"maxOutputTokens": 768}, "created_at": timestamp
+            })),
+            upsert("meeting_agent_runs", json!({
+                "id": "agent-run-model-ask-a", "project_id": scope.project_id,
+                "recording_id": scope.recording_id, "meeting_session_id": scope.meeting_session_id,
+                "grant_id": null, "model_run_id": "agent-model-a", "trigger_id": "model-ask-a",
+                "transcript_cursor": 0, "transcript_revision_set_json": [], "evidence_ids_json": [],
+                "policy_version": "meeting-local/1", "state": "draft_created",
+                "contract_version": meeting_intelligence_schema::CONTRACT_VERSION,
+                "created_at": timestamp
+            })),
+        ]).unwrap();
+        let rows = query(
+            &storage,
+            "meeting_agent_runs",
+            &["model_run_id"],
+            vec![eq("meeting_agent_runs", "trigger_id", json!("model-ask-a"))],
+            1,
+        )
+        .unwrap();
+        assert_eq!(rows[0]["meeting_agent_runs.model_run_id"], "agent-model-a");
+        assert_eq!(
+            ensure_meeting_agent_request_unused(&storage, "model-ask-a").unwrap_err(),
+            "MEETING_AGENT_REQUEST_DUPLICATE"
+        );
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn model_citations_must_be_drawn_from_all_supplied_evidence() {
+        let model = MeetingAgentModelProvenance {
+            id: "run-a".into(),
+            model_name: "llama3.1:8b".into(),
+            input_hash: "input".into(),
+            output_hash: "output".into(),
+            provider_config_hash: "config".into(),
+        };
+        let all = json!([{"id":"e0"}, {"id":"e1"}]);
+        assert!(
+            validate_model_reference_set(Some(&all), Some(&model), &json!([{"id":"e1"}])).is_ok()
+        );
+        assert_eq!(
+            validate_model_reference_set(Some(&all), Some(&model), &json!([{"id":"e2"}]))
+                .unwrap_err(),
+            "MEETING_AGENT_MODEL_REFS_INVALID"
+        );
+        assert_eq!(
+            validate_model_reference_set(None, Some(&model), &json!([{"id":"e1"}])).unwrap_err(),
+            "MEETING_AGENT_MODEL_INPUT_INVALID"
+        );
     }
 
     #[test]

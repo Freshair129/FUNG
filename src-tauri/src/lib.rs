@@ -44,6 +44,7 @@ mod local_diarization;
 mod media_fetch;
 mod meeting_adapter;
 mod meeting_agent;
+mod meeting_agent_model;
 mod meeting_delivery;
 mod meeting_intel;
 mod meeting_intelligence_runtime;
@@ -2807,6 +2808,66 @@ fn meeting_agent_set_running_state(
 }
 
 #[tauri::command]
+fn meeting_agent_model_readiness(
+    model_name: String,
+    state: State<'_, AppState>,
+) -> meeting_intelligence_schema::MeetingAgentCapability {
+    meeting_agent_model::readiness(&state.genesis, &model_name)
+}
+
+fn meeting_agent_hit_reference(
+    hit: &meeting_knowledge::KnowledgeSearchHit,
+) -> (
+    meeting_intelligence_schema::MeetingAgentCitation,
+    serde_json::Value,
+) {
+    let locator = match &hit.citation.locator {
+        meeting_knowledge::CitationLocator::TextSpan {
+            start_line,
+            end_line,
+            start_char,
+            end_char,
+        } => format!("บรรทัด {start_line}-{end_line} · อักขระ {start_char}-{end_char}"),
+        meeting_knowledge::CitationLocator::PdfPage {
+            page_number,
+            start_char,
+            end_char,
+        } => format!("หน้า {page_number} · อักขระ {start_char}-{end_char}"),
+        meeting_knowledge::CitationLocator::SpreadsheetCellRange { sheet_ref, range } => {
+            format!("ชีต {sheet_ref} · {range}")
+        }
+        meeting_knowledge::CitationLocator::TranscriptRange {
+            recording_id,
+            start_ms,
+            end_ms,
+            ..
+        } => format!("{recording_id} · {start_ms}-{end_ms} ms"),
+    };
+    let citation = meeting_intelligence_schema::MeetingAgentCitation {
+        document_id: hit.citation.document_id.clone(),
+        version_id: hit.citation.document_version_id.clone(),
+        locator: locator.clone(),
+        label: format!(
+            "เอกสาร {}",
+            hit.citation.document_id.chars().take(8).collect::<String>()
+        ),
+    };
+    let reference = serde_json::json!({
+        "collectionId": hit.citation.collection_id,
+        "documentId": hit.citation.document_id,
+        "versionId": hit.citation.document_version_id,
+        "documentVersionNumber": hit.citation.document_version_number,
+        "sourceVersion": hit.citation.source_version,
+        "contentSha256": hit.citation.content_sha256,
+        "aclRevision": hit.citation.acl_revision,
+        "readGrantId": hit.citation.read_grant_id,
+        "locator": locator,
+        "locatorData": serde_json::to_value(&hit.citation.locator).unwrap_or(serde_json::Value::Null),
+    });
+    (citation, reference)
+}
+
+#[tauri::command]
 fn meeting_agent_ask(
     app: tauri::AppHandle,
     request: meeting_intelligence_schema::MeetingAgentAskRequest,
@@ -2879,6 +2940,8 @@ fn meeting_agent_ask(
         .cloned()
         .ok_or_else(|| AppError::Genesis("LOCAL_OWNER_LOCKED".to_string()))?;
     let account_guard = auth_session::account_begin_operation().map_err(AppError::Genesis)?;
+    genesis_adapter::ensure_meeting_agent_request_unused(&state.genesis, &request.request_id)
+        .map_err(AppError::Genesis)?;
     let run_id = uuid::Uuid::new_v4().to_string();
     {
         let mut runtime = state
@@ -2957,64 +3020,78 @@ fn meeting_agent_ask(
             "MEETING_KNOWLEDGE_NO_EVIDENCE".to_string(),
         ));
     }
-    let mut draft_text = String::from("จากเอกสารที่เลือก พบข้อความที่เกี่ยวข้อง:\n\n");
+    let proposal = match request.draft_kind {
+        meeting_intelligence_schema::MeetingAgentDraftKind::Extractive => {
+            if request.model_name.is_some() {
+                return Err(AppError::InvalidInput(
+                    "MEETING_AGENT_ASK_INVALID".to_string(),
+                ));
+            }
+            None
+        }
+        meeting_intelligence_schema::MeetingAgentDraftKind::ModelProposal => {
+            if search
+                .evidence
+                .iter()
+                .take(8)
+                .any(|hit| hit.excerpt.trim().is_empty())
+            {
+                return Err(AppError::Genesis(
+                    "MEETING_AGENT_MODEL_INPUT_INVALID".to_string(),
+                ));
+            }
+            let model_name = request.model_name.as_deref().ok_or_else(|| {
+                AppError::InvalidInput("MEETING_AGENT_MODEL_NAME_INVALID".to_string())
+            })?;
+            Some(
+                meeting_agent_model::generate(
+                    &state.genesis,
+                    model_name,
+                    &request.question,
+                    &search.evidence[..search.evidence.len().min(8)],
+                )
+                .map_err(AppError::Genesis)?,
+            )
+        }
+    };
+    let mut draft_text = proposal
+        .as_ref()
+        .map(|proposal| proposal.answer.clone())
+        .unwrap_or_else(|| String::from("จากเอกสารที่เลือก พบข้อความที่เกี่ยวข้อง:\n\n"));
     let mut citations = Vec::new();
     let mut evidence_refs = Vec::new();
-    for hit in search.evidence.iter().take(8) {
+    let selected_indexes = proposal
+        .as_ref()
+        .map(|proposal| proposal.evidence_indexes.clone())
+        .unwrap_or_else(|| (0..search.evidence.len().min(8)).collect());
+    for index in selected_indexes {
+        let hit = &search.evidence[index];
         let excerpt = hit.excerpt.trim();
         if excerpt.is_empty() {
+            if proposal.is_some() {
+                return Err(AppError::Genesis(
+                    "MEETING_AGENT_MODEL_REFS_INVALID".to_string(),
+                ));
+            }
             continue;
         }
-        draft_text.push('“');
-        draft_text.push_str(excerpt);
-        draft_text.push_str("”\n\n");
-        let locator = match &hit.citation.locator {
-            crate::meeting_knowledge::CitationLocator::TextSpan {
-                start_line,
-                end_line,
-                start_char,
-                end_char,
-            } => format!("บรรทัด {start_line}-{end_line} · อักขระ {start_char}-{end_char}"),
-            crate::meeting_knowledge::CitationLocator::PdfPage {
-                page_number,
-                start_char,
-                end_char,
-            } => format!("หน้า {page_number} · อักขระ {start_char}-{end_char}"),
-            crate::meeting_knowledge::CitationLocator::SpreadsheetCellRange {
-                sheet_ref,
-                range,
-            } => {
-                format!("ชีต {sheet_ref} · {range}")
-            }
-            crate::meeting_knowledge::CitationLocator::TranscriptRange {
-                recording_id,
-                start_ms,
-                end_ms,
-                ..
-            } => format!("{recording_id} · {start_ms}-{end_ms} ms"),
-        };
-        citations.push(meeting_intelligence_schema::MeetingAgentCitation {
-            document_id: hit.citation.document_id.clone(),
-            version_id: hit.citation.document_version_id.clone(),
-            locator: locator.clone(),
-            label: format!(
-                "เอกสาร {}",
-                hit.citation.document_id.chars().take(8).collect::<String>()
-            ),
-        });
-        evidence_refs.push(serde_json::json!({
-            "collectionId": hit.citation.collection_id,
-            "documentId": hit.citation.document_id,
-            "versionId": hit.citation.document_version_id,
-            "documentVersionNumber": hit.citation.document_version_number,
-            "sourceVersion": hit.citation.source_version,
-            "contentSha256": hit.citation.content_sha256,
-            "aclRevision": hit.citation.acl_revision,
-            "readGrantId": hit.citation.read_grant_id,
-            "locator": locator,
-            "locatorData": serde_json::to_value(&hit.citation.locator).unwrap_or(serde_json::Value::Null),
-        }));
+        if proposal.is_none() {
+            draft_text.push('“');
+            draft_text.push_str(excerpt);
+            draft_text.push_str("”\n\n");
+        }
+        let (citation, reference) = meeting_agent_hit_reference(hit);
+        citations.push(citation);
+        evidence_refs.push(reference);
     }
+    let model_input_refs = proposal.as_ref().map(|_| {
+        serde_json::json!(search
+            .evidence
+            .iter()
+            .take(8)
+            .map(|hit| meeting_agent_hit_reference(hit).1)
+            .collect::<Vec<_>>())
+    });
     if citations.is_empty() || draft_text.chars().count() > 12_000 {
         return Err(AppError::Genesis(
             "MEETING_AGENT_DRAFT_SIZE_INVALID".to_string(),
@@ -3054,6 +3131,7 @@ fn meeting_agent_ask(
     let draft_hash = format!("{:x}", sha2::Sha256::digest(request.request_id.as_bytes()));
     let draft_id = format!("draft-{}", &draft_hash[..32]);
     let timestamp = chrono::Utc::now();
+    let model_run_id = proposal.as_ref().map(|_| format!("agent-model-{run_id}"));
     let draft = meeting_intelligence_schema::MeetingAgentPrivateDraft {
         draft_id: draft_id.clone(),
         revision: 1,
@@ -3062,6 +3140,8 @@ fn meeting_agent_ask(
         based_on_transcript_cursor: request.transcript_cursor,
         expires_at: (timestamp + chrono::Duration::minutes(10)).to_rfc3339(),
         state: "private".to_string(),
+        draft_kind: request.draft_kind,
+        model_run_id: model_run_id.clone(),
     };
     let revisions = transcript
         .utterances
@@ -3088,6 +3168,20 @@ fn meeting_agent_ask(
         request.transcript_cursor,
         serde_json::json!(revisions),
         serde_json::json!(evidence_refs),
+        model_input_refs.as_ref(),
+        proposal
+            .as_ref()
+            .zip(model_run_id.as_ref())
+            .map(
+                |(proposal, id)| genesis_adapter::MeetingAgentModelProvenance {
+                    id: id.clone(),
+                    model_name: proposal.model_name.clone(),
+                    input_hash: proposal.input_hash.clone(),
+                    output_hash: proposal.output_hash.clone(),
+                    provider_config_hash: proposal.provider_config_hash.clone(),
+                },
+            )
+            .as_ref(),
     )
     .map_err(AppError::Genesis)?;
     let current_owner = state
@@ -5490,6 +5584,7 @@ pub fn run() {
             meeting_agent_pause,
             meeting_agent_stop,
             meeting_agent_set_policy,
+            meeting_agent_model_readiness,
             meeting_agent_ask,
             meeting_agent_preview_delivery,
             meeting_agent_approve_delivery,

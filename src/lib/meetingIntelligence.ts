@@ -381,6 +381,8 @@ export type PrivateDraft = {
   basedOnTranscriptCursor: number;
   expiresAt: string;
   state: "private" | "stale" | "blocked";
+  draftKind?: "extractive" | "model_proposal";
+  modelRunId?: string | null;
 };
 
 export type LocalDeliveryPreview = {
@@ -462,6 +464,8 @@ export type AgentAskRequest = AgentMutationRequest & {
   question: string;
   collectionIds: string[];
   transcriptCursor: number;
+  draftKind?: "extractive" | "model_proposal";
+  modelName?: string | null;
 };
 
 export type DeliveryPreviewRequest = AgentMutationRequest & {
@@ -504,6 +508,7 @@ export type MeetingNativeCommandArgs = {
   meeting_agent_stop: { request: AgentMutationRequest };
   meeting_agent_set_policy: { request: AgentPolicyRequest };
   meeting_agent_ask: { request: AgentAskRequest };
+  meeting_agent_model_readiness: { modelName: string };
   meeting_agent_preview_delivery: { request: DeliveryPreviewRequest };
   meeting_agent_approve_delivery: { request: DeliveryApprovalRequest };
   meeting_agent_revoke: { request: AgentMutationRequest & { reason: string } };
@@ -539,6 +544,7 @@ export type MeetingNativeCommandResult = {
   meeting_agent_stop: MeetingAgentStatus;
   meeting_agent_set_policy: MeetingAgentStatus;
   meeting_agent_ask: PrivateDraft;
+  meeting_agent_model_readiness: AgentCapability;
   meeting_agent_preview_delivery: LocalDeliveryPreview;
   meeting_agent_approve_delivery: LocalDeliveryPreview;
   meeting_agent_revoke: MeetingAgentStatus;
@@ -594,6 +600,7 @@ export type MeetingIntelligenceService = {
   stop: (request: AgentMutationRequest) => Promise<MeetingAgentStatus>;
   setPolicy: (request: AgentPolicyRequest) => Promise<MeetingAgentStatus>;
   ask: (request: AgentAskRequest) => Promise<PrivateDraft>;
+  modelReadiness: (modelName: string) => Promise<AgentCapability>;
   previewDelivery: (request: DeliveryPreviewRequest) => Promise<LocalDeliveryPreview>;
   approveDelivery: (request: DeliveryApprovalRequest) => Promise<LocalDeliveryPreview>;
   revoke: (request: AgentMutationRequest & { reason: string }) => Promise<MeetingAgentStatus>;
@@ -653,6 +660,7 @@ export function createMeetingIntelligenceService(port: MeetingNativePort): Meeti
     stop: (request) => port.invoke("meeting_agent_stop", { request }),
     setPolicy: (request) => port.invoke("meeting_agent_set_policy", { request }),
     ask: (request) => port.invoke("meeting_agent_ask", { request }),
+    modelReadiness: (modelName) => port.invoke("meeting_agent_model_readiness", { modelName }),
     previewDelivery: (request) => port.invoke("meeting_agent_preview_delivery", { request }),
     approveDelivery: (request) => port.invoke("meeting_agent_approve_delivery", { request }),
     revoke: (request) => port.invoke("meeting_agent_revoke", { request }),

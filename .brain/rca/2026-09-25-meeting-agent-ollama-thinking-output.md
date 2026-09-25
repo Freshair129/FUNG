@@ -55,4 +55,3 @@ bundle resource staging because the sandbox could not read a directory under
 the existing `.venv-whisper` runtime. No project resource configuration was
 changed. Broad Thai answer quality, native UI, real meeting and release
 acceptance remain unverified.
-

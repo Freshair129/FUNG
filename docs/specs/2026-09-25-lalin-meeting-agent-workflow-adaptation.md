@@ -211,4 +211,3 @@ Native ตรวจได้ว่า citation ID มีอยู่และย
 | 0.2.1b | 2026-09-25 | beta | Local verification results and AppContainer limitation | working-tree | RWANG |
 | 0.2.2b | 2026-09-25 | beta | Validate every model input source at draft and preview boundaries; final local counts | working-tree | RWANG |
 | 0.2.3b | 2026-09-25 | beta | Disable Ollama thinking output for answer-only proposals; record local fixture smoke and remaining quality gates | working-tree | RWANG |
-

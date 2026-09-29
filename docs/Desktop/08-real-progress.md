@@ -1,7 +1,7 @@
 ---
-version: "0.3.11b"
+version: "0.3.12b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-29T23:14:00+07:00,RWANG"
+last_update: "2026-09-29T23:25:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -83,6 +83,11 @@ seconds versus Turbo CPU int8 at 57.7 seconds. The candidate output looked more
 continuous in this single clip; Turbo had several mixed-script fragments. No
 reference transcript is available, so there is no Thai WER/CER or accuracy
 claim.
+
+The first hosted frontend run found that the egress source test still sliced
+the old worker wrapper after the offline branch moved into the shared helper.
+The runtime remained offline; the test now verifies both offline flags in the
+shared helper and passes 8/8 locally. The updated PR CI rerun is pending.
 
 ## Current bounded meeting-intelligence R3 foundation — 2026-09-23
 
@@ -1068,6 +1073,12 @@ Screenshot artifacts from the latest UI validation:
 | CUDA redistribution | High | Treat NVIDIA redistribution terms as a release gate; stage only from an approved, version-pinned source. |
 
 ## Version Diff
+
+### `0.3.11b` → `0.3.12b`
+
+- Recorded and corrected the stale egress-test source slice exposed by the
+  first hosted frontend run; the focused local suite passes 8/8, with the PR CI
+  rerun pending.
 
 ### `0.3.10b` → `0.3.11b`
 

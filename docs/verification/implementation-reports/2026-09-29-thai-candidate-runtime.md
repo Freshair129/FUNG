@@ -1,8 +1,8 @@
 ---
-version: "0.2.0b"
+version: "0.2.1b"
 created_at: "2026-09-29T22:55:00+07:00,RWANG"
-last_update: "2026-09-29T23:14:00+07:00,RWANG"
-status: "local runtime qualification passed; Thai accuracy not qualified"
+last_update: "2026-09-29T23:25:00+07:00,RWANG"
+status: "local runtime qualification passed; egress test fixed; hosted CI rerun pending"
 superseded_by: null
 attributes:
   domain: "local-first-audio-ai"
@@ -51,6 +51,7 @@ out-of-scope issue.
 |---|---|
 | `tests/transcribeTransformersCandidate.test.py` | 2 passed |
 | `tests/releaseDistribution.test.mjs` | 8 passed |
+| `tests/egressRegister.test.mjs` | 8 passed after updating its source slice to the shared worker helper |
 | `npm run build` | TypeScript and Vite production build passed |
 | `cargo test --lib` | 594 passed, 0 failed, 2 ignored |
 | `cargo fmt -- --check` | passed |
@@ -63,6 +64,12 @@ worktree. No tracked Tauri configuration was changed. One ignored test,
 `staged_thai_candidate_runtime_smoke_when_audio_is_configured`, runs Detailed
 readiness and the Rust-to-Python candidate worker against an explicitly
 provided local clip.
+
+The first hosted frontend run failed only because the egress test still looked
+for the offline branch in the pre-refactor wrapper. The runtime itself remained
+offline. The test now checks the shared worker helper and both offline flags;
+the targeted suite passes 8/8 locally, and the updated commit's hosted rerun is
+pending.
 
 That ignored test passed on the staged model: readiness returned available
 with `accuracyQualified=false`, and the worker returned valid `WhisperOutput`
@@ -98,4 +105,5 @@ changed because that runtime is outside the approved scope.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.0b → 0.2.1b | 2026-09-29 | local qualification passed; hosted CI rerun pending | Recorded candidate staging, worker smoke, same-audio comparison, source tests and correction of the stale egress assertion. | working-tree | RWANG |
 | 0.1.0b → 0.2.0b | 2026-09-29 | local runtime qualification passed; Thai accuracy not qualified | Recorded candidate staging, Rust-worker model load, source tests and one same-audio Turbo CPU comparison with explicit evidence limits. | working-tree | RWANG |

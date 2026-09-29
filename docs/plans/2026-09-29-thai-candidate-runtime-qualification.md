@@ -1,8 +1,8 @@
 ---
-version: "0.2.2b"
+version: "0.2.3b"
 created_at: "2026-09-29T21:39:00+07:00,RWANG"
-last_update: "2026-09-29T23:14:00+07:00,RWANG"
-status: "local runtime qualification passed; Thai accuracy not qualified"
+last_update: "2026-09-29T23:25:00+07:00,RWANG"
+status: "local runtime qualification passed; hosted CI rerun pending; Thai accuracy not qualified"
 superseded_by: null
 attributes:
   domain: "local-first-audio-ai"
@@ -100,13 +100,17 @@ work items and local staging are complete. Staging, the consolidated source
 suite and the ignored Rust candidate smoke are complete. The Rust suite
 required a transient `TAURI_CONFIG` override setting bundle resources to an
 empty list because `.knowledge-parser-runtime` is absent from this isolated
-worktree; no tracked Tauri config was changed. The one-clip comparison has no
-reference transcript and does not qualify Thai accuracy.
+worktree; no tracked Tauri config was changed. The first hosted frontend run
+found a stale egress assertion after the worker-helper refactor; the assertion
+now checks the shared helper and both offline flags and passes 8/8 locally.
+Hosted CI rerun is pending. The one-clip comparison has no reference transcript
+and does not qualify Thai accuracy.
 
 ## Version Diff / CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.2b → 0.2.3b | 2026-09-29 | stale egress assertion fixed; hosted CI pending | Updated the offline source contract to check the shared worker helper and both offline flags. | working-tree | RWANG |
 | 0.2.1b → 0.2.2b | 2026-09-29 | local runtime qualification passed; Thai accuracy not qualified | Rust readiness and candidate worker passed on the staged model; one same-audio Turbo comparison and consolidated source checks passed. | working-tree | RWANG |
 | 0.2.0b → 0.2.1b | 2026-09-29 | source validation complete; model load pending | Candidate runtime and model staged; pinned imports and source suites pass; the actual worker load and same-audio comparison await sufficient RAM. | working-tree | RWANG |
 | 0.1.0b → 0.2.0b | 2026-09-29 | implementation complete; verification pending | Added the separate embedded runtime and hashed CPU lock, candidate interpreter routing, manifest checks and low-memory offline loading; the requested consolidated qualification remains open. | working-tree | RWANG |

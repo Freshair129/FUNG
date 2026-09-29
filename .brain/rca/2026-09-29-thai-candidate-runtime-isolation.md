@@ -1,8 +1,8 @@
 ---
-version: "0.2.2b"
+version: "0.2.3b"
 created_at: "2026-09-29T21:39:00+07:00,RWANG"
-last_update: "2026-09-29T23:14:00+07:00,RWANG"
-status: "isolated runtime and Rust-worker model load passed; Thai accuracy unqualified"
+last_update: "2026-09-29T23:25:00+07:00,RWANG"
+status: "runtime qualification passed; stale egress test corrected; hosted CI rerun pending"
 superseded_by: null
 attributes:
   domain: "local-first-audio-ai"
@@ -47,6 +47,10 @@ to it.
   matched the official [Python 3.11.9 release page](https://www.python.org/downloads/release/python-3119/).
   The candidate-only SHA-256 pin was corrected to the computed archive digest;
   the operational staging script remains unchanged and out of scope.
+- The first hosted frontend CI run failed at the offline-transcription source
+  assertion. The shared Rust worker runner still sets both
+  `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` in its `None` cache arm;
+  local `npm run test:egress` reproduced the test failure before correction.
 - The Tauri bundle currently includes `.venv-whisper` and the candidate worker
   scripts, but not a candidate Python environment or candidate model directory.
 - The pinned model checkpoint is 6,173,655,480 bytes. The temporary GPU
@@ -62,6 +66,10 @@ made available to the candidate worker without changing the shared runtime.
 The temporary benchmark bypassed this boundary with its own dependency/loading
 harness, so it proves comparative local inference only, not FUNG runtime
 readiness.
+The subsequent CI failure had a separate, test-only root cause: the offline
+`match hf_home` branch had moved from `run_python_worker` into
+`run_python_worker_with_interpreter`, but the egress test still sliced source
+around the old location and therefore inspected an empty branch.
 
 ## Why the issue escaped detection
 
@@ -71,7 +79,8 @@ not launch the candidate worker with a fully staged interpreter and model. The
 A/B harness loaded the model with temporary dependencies and a low-memory shim.
 The first stage attempt also did not have an archive-hash test against the
 Python.org artifact, so the copied malformed pin was discovered only when
-staging executed.
+staging executed. The first hosted frontend run exposed that the egress source
+test had not been updated with the shared-worker refactor.
 
 ## Implemented fix and prevention
 
@@ -97,11 +106,14 @@ Prevention now includes an executable staging-time archive digest check and a
 release contract test that pins the candidate archive digest in both the
 staging script and Rust readiness. Keep the operational runtime pin separate
 until that runtime is reviewed under its own scope.
+The egress test now inspects the shared worker helper and verifies both offline
+flags; its focused local suite passes 8/8. Hosted CI is being rerun.
 
 ## Version Diff / CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.2b → 0.2.3b | 2026-09-29 | stale egress assertion fixed; hosted CI pending | Updated the source contract to inspect the shared worker helper and verify both offline flags after the Rust refactor. | working-tree | RWANG |
 | 0.2.1b → 0.2.2b | 2026-09-29 | Rust-worker runtime passed; accuracy unqualified | Verified pinned readiness, offline candidate inference, valid worker output and one same-audio Turbo CPU comparison. | working-tree | RWANG |
 | 0.2.0b → 0.2.1b | 2026-09-29 | staged; source validation passed; model load pending | Corrected the candidate-only Python archive pin, staged the hash-locked runtime/model and passed source tests; production model load and same-audio comparison remain open. | working-tree | RWANG |
 | 0.1.0b → 0.2.0b | 2026-09-29 | fix implemented; validation pending | Added the isolated candidate runtime, lock/manifest checks and candidate-only Detailed batch interpreter; full local qualification remains pending. | working-tree | RWANG |

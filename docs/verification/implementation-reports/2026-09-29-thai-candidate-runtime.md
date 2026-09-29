@@ -1,8 +1,8 @@
 ---
-version: "0.2.1b"
+version: "0.2.2b"
 created_at: "2026-09-29T22:55:00+07:00,RWANG"
-last_update: "2026-09-29T23:25:00+07:00,RWANG"
-status: "local runtime qualification passed; egress test fixed; hosted CI rerun pending"
+last_update: "2026-09-29T23:43:00+07:00,RWANG"
+status: "local and hosted source/runtime verification passed; Thai accuracy not qualified"
 superseded_by: null
 attributes:
   domain: "local-first-audio-ai"
@@ -68,8 +68,8 @@ provided local clip.
 The first hosted frontend run failed only because the egress test still looked
 for the offline branch in the pre-refactor wrapper. The runtime itself remained
 offline. The test now checks the shared worker helper and both offline flags;
-the targeted suite passes 8/8 locally, and the updated commit's hosted rerun is
-pending.
+the targeted suite passes 8/8 locally. Hosted CI run 36598286801 passed both
+frontend and Rust jobs on commit 63767258.
 
 That ignored test passed on the staged model: readiness returned available
 with `accuracyQualified=false`, and the worker returned valid `WhisperOutput`
@@ -105,5 +105,6 @@ changed because that runtime is outside the approved scope.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.1b → 0.2.2b | 2026-09-29 | hosted frontend and Rust CI passed; Thai accuracy not qualified | Recorded CI run 36598286801 after correcting the stale egress assertion. | working-tree | RWANG |
 | 0.2.0b → 0.2.1b | 2026-09-29 | local qualification passed; hosted CI rerun pending | Recorded candidate staging, worker smoke, same-audio comparison, source tests and correction of the stale egress assertion. | working-tree | RWANG |
 | 0.1.0b → 0.2.0b | 2026-09-29 | local runtime qualification passed; Thai accuracy not qualified | Recorded candidate staging, Rust-worker model load, source tests and one same-audio Turbo CPU comparison with explicit evidence limits. | working-tree | RWANG |

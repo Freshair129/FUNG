@@ -1,7 +1,7 @@
 ---
-version: "0.3.12b"
+version: "0.3.13b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-29T23:25:00+07:00,RWANG"
+last_update: "2026-09-29T23:43:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -87,7 +87,8 @@ claim.
 The first hosted frontend run found that the egress source test still sliced
 the old worker wrapper after the offline branch moved into the shared helper.
 The runtime remained offline; the test now verifies both offline flags in the
-shared helper and passes 8/8 locally. The updated PR CI rerun is pending.
+shared helper and passes 8/8 locally. PR CI run 36598286801 passed frontend
+and Rust jobs.
 
 ## Current bounded meeting-intelligence R3 foundation — 2026-09-23
 
@@ -1073,6 +1074,11 @@ Screenshot artifacts from the latest UI validation:
 | CUDA redistribution | High | Treat NVIDIA redistribution terms as a release gate; stage only from an approved, version-pinned source. |
 
 ## Version Diff
+
+### `0.3.12b` → `0.3.13b`
+
+- Recorded passing hosted frontend and Rust CI run 36598286801 after the
+  egress-test correction; Thai accuracy remains unqualified.
 
 ### `0.3.11b` → `0.3.12b`
 

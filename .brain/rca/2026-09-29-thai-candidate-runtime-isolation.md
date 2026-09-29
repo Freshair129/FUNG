@@ -1,8 +1,8 @@
 ---
-version: "0.2.3b"
+version: "0.2.4b"
 created_at: "2026-09-29T21:39:00+07:00,RWANG"
-last_update: "2026-09-29T23:25:00+07:00,RWANG"
-status: "runtime qualification passed; stale egress test corrected; hosted CI rerun pending"
+last_update: "2026-09-29T23:43:00+07:00,RWANG"
+status: "runtime qualification passed; hosted CI passed; Thai accuracy unqualified"
 superseded_by: null
 attributes:
   domain: "local-first-audio-ai"
@@ -107,12 +107,14 @@ release contract test that pins the candidate archive digest in both the
 staging script and Rust readiness. Keep the operational runtime pin separate
 until that runtime is reviewed under its own scope.
 The egress test now inspects the shared worker helper and verifies both offline
-flags; its focused local suite passes 8/8. Hosted CI is being rerun.
+flags; its focused local suite passes 8/8. Hosted CI run 36598286801 passed
+both frontend and Rust jobs.
 
 ## Version Diff / CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.3b → 0.2.4b | 2026-09-29 | frontend and Rust hosted CI passed | Recorded successful CI run 36598286801 after correcting the stale egress assertion; Thai accuracy remains unqualified. | working-tree | RWANG |
 | 0.2.2b → 0.2.3b | 2026-09-29 | stale egress assertion fixed; hosted CI pending | Updated the source contract to inspect the shared worker helper and verify both offline flags after the Rust refactor. | working-tree | RWANG |
 | 0.2.1b → 0.2.2b | 2026-09-29 | Rust-worker runtime passed; accuracy unqualified | Verified pinned readiness, offline candidate inference, valid worker output and one same-audio Turbo CPU comparison. | working-tree | RWANG |
 | 0.2.0b → 0.2.1b | 2026-09-29 | staged; source validation passed; model load pending | Corrected the candidate-only Python archive pin, staged the hash-locked runtime/model and passed source tests; production model load and same-audio comparison remain open. | working-tree | RWANG |

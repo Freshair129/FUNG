@@ -218,13 +218,18 @@ test("the transcription worker is pinned offline, not merely expected to be", ()
   // huggingface.co, so "it loads a bundled model" has to be enforced by the
   // environment rather than by a comment.
   const lib = productionRust("src-tauri/src/lib.rs");
-  assert.match(lib, /HF_HUB_OFFLINE/, "a worker given no HF cache must be told it has none");
-  const branch = lib.slice(lib.indexOf("match hf_home {"), lib.indexOf("HF_HUB_OFFLINE"));
+  const runnerStart = lib.indexOf("fn run_python_worker_with_interpreter(");
+  assert.notEqual(runnerStart, -1, "the shared worker runner must remain present");
+  const branchStart = lib.indexOf("match hf_home {", runnerStart);
+  const branchEnd = lib.indexOf("if let Some(prefix)", branchStart);
+  const branch = lib.slice(branchStart, branchEnd);
   assert.match(
     branch,
     /None =>/,
     "the offline pin must be the None arm — the diarization worker legitimately needs the hub",
   );
+  assert.match(branch, /command\.env\("HF_HUB_OFFLINE", "1"\)/);
+  assert.match(branch, /command\.env\("TRANSFORMERS_OFFLINE", "1"\)/);
 });
 
 test("the Zoom bearer is never sent to a host from a response body", () => {

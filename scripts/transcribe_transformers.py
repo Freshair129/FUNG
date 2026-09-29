@@ -41,6 +41,7 @@ def load_pipeline(model_path: str, profile: str):
     model = AutoModelForSpeechSeq2Seq.from_pretrained(
         model_path,
         local_files_only=True,
+        low_cpu_mem_usage=True,
         torch_dtype=dtype,
     )
     model.to(device)

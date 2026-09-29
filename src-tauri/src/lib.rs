@@ -87,6 +87,16 @@ pub(crate) const THAI_CANDIDATE_PROFILE: &str = "thai-large-candidate";
 pub(crate) const THAI_CANDIDATE_MODEL: &str = "whisper-th-large-combined";
 pub(crate) const THAI_CANDIDATE_REPOSITORY: &str = "biodatlab/whisper-th-large-combined";
 pub(crate) const THAI_CANDIDATE_MODEL_REVISION: &str = "b751db1e8dbfee6561de22ca99fe070282fcf459";
+const THAI_CANDIDATE_CHECKPOINT_BYTES: u64 = 6_173_655_480;
+const THAI_CANDIDATE_CHECKPOINT_SHA256: &str =
+    "e1e0b5b4c9a89d7d60fb795448c3102e07af87fa73c5fce7c0206c6bd99a7e7b";
+const THAI_CANDIDATE_TORCH_VERSION: &str = "2.14.0+cpu";
+const THAI_CANDIDATE_TRANSFORMERS_VERSION: &str = "4.57.1";
+const THAI_CANDIDATE_ACCELERATE_VERSION: &str = "1.10.1";
+const THAI_CANDIDATE_FASTER_WHISPER_VERSION: &str = "1.2.1";
+const THAI_CANDIDATE_AV_VERSION: &str = "18.1.0";
+const THAI_CANDIDATE_DEPENDENCY_LOCK_SHA256: &str =
+    "e32755cf7e634075a4a7abe3edf8bf7e4e73b006e114e0d309e1235a86e33aba";
 const THAI_CANDIDATE_RUNTIME: &str = ".venv-whisper-transformers-candidate";
 
 #[derive(Clone)]
@@ -197,6 +207,31 @@ fn whisper_runtime(app: &tauri::App) -> WhisperRuntime {
     }
 }
 
+fn whisper_resource_root(runtime: &WhisperRuntime) -> Option<&std::path::Path> {
+    runtime.script.parent()?.parent()
+}
+
+fn thai_candidate_python(runtime: &WhisperRuntime) -> Option<PathBuf> {
+    Some(
+        whisper_resource_root(runtime)?
+            .join(THAI_CANDIDATE_RUNTIME)
+            .join("Scripts")
+            .join("python.exe"),
+    )
+}
+
+pub(crate) fn whisper_worker_interpreter_for_profile(
+    runtime: &WhisperRuntime,
+    profile: &str,
+) -> Result<PathBuf, String> {
+    if profile == THAI_CANDIDATE_PROFILE {
+        return thai_candidate_python(runtime)
+            .ok_or_else(|| "ตำแหน่ง Python runtime ของโหมดละเอียดไม่ถูกต้อง".to_string());
+    }
+    whisper_model_backend_from(Some(profile))?;
+    Ok(runtime.python.clone())
+}
+
 pub(crate) const REQUIRED_CUDA_DLLS: [&str; 4] = [
     "cudart64_12.dll",
     "cublas64_12.dll",
@@ -218,11 +253,49 @@ pub(crate) struct DetailedTranscriptionReadiness {
 }
 
 fn candidate_manifest_is_pinned(manifest: &serde_json::Value) -> bool {
+    let lockfile_hash_is_valid = manifest
+        .pointer("/dependencies/lockfileSha256")
+        .and_then(serde_json::Value::as_str)
+        == Some(THAI_CANDIDATE_DEPENDENCY_LOCK_SHA256);
+
     manifest.get("backend").and_then(serde_json::Value::as_str) == Some("transformers")
         && manifest
             .get("candidateProfile")
             .and_then(serde_json::Value::as_str)
             == Some(THAI_CANDIDATE_PROFILE)
+        && manifest
+            .pointer("/python/interpreter")
+            .and_then(serde_json::Value::as_str)
+            == Some("Scripts/python.exe")
+        && manifest
+            .pointer("/python/version")
+            .and_then(serde_json::Value::as_str)
+            == Some("3.11.9")
+        && manifest
+            .pointer("/python/sha256")
+            .and_then(serde_json::Value::as_str)
+            == Some("009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b")
+        && manifest
+            .pointer("/dependencies/torch")
+            .and_then(serde_json::Value::as_str)
+            == Some(THAI_CANDIDATE_TORCH_VERSION)
+        && manifest
+            .pointer("/dependencies/transformers")
+            .and_then(serde_json::Value::as_str)
+            == Some(THAI_CANDIDATE_TRANSFORMERS_VERSION)
+        && manifest
+            .pointer("/dependencies/accelerate")
+            .and_then(serde_json::Value::as_str)
+            == Some(THAI_CANDIDATE_ACCELERATE_VERSION)
+        && manifest
+            .pointer("/dependencies/fasterWhisper")
+            .and_then(serde_json::Value::as_str)
+            == Some(THAI_CANDIDATE_FASTER_WHISPER_VERSION)
+        && manifest
+            .pointer("/dependencies/av")
+            .and_then(serde_json::Value::as_str)
+            == Some(THAI_CANDIDATE_AV_VERSION)
+        && lockfile_hash_is_valid
         && manifest
             .pointer("/model/name")
             .and_then(serde_json::Value::as_str)
@@ -239,6 +312,14 @@ fn candidate_manifest_is_pinned(manifest: &serde_json::Value) -> bool {
             .pointer("/model/license")
             .and_then(serde_json::Value::as_str)
             == Some("Apache-2.0")
+        && manifest
+            .pointer("/model/checkpoint/bytes")
+            .and_then(serde_json::Value::as_u64)
+            == Some(THAI_CANDIDATE_CHECKPOINT_BYTES)
+        && manifest
+            .pointer("/model/checkpoint/sha256")
+            .and_then(serde_json::Value::as_str)
+            == Some(THAI_CANDIDATE_CHECKPOINT_SHA256)
 }
 
 pub(crate) fn detailed_transcription_readiness_for_job(
@@ -253,10 +334,13 @@ pub(crate) fn detailed_transcription_readiness_for_job(
     else {
         return unavailable("ไม่พบตำแหน่ง runtime สำหรับโมเดลละเอียด".to_string());
     };
-    if !runtime.python.is_file() {
+    let Some(candidate_python) = thai_candidate_python(runtime) else {
+        return unavailable("ตำแหน่ง Python runtime ของโหมดละเอียดไม่ถูกต้อง".to_string());
+    };
+    if !candidate_python.is_file() {
         return unavailable(format!(
-            "ไม่พบ Python runtime ของ FUNG ที่ {}",
-            runtime.python.display()
+            "ไม่พบ Python runtime เฉพาะของโหมดละเอียดที่ {}. รัน scripts/stage_whisper_transformers_candidate.ps1",
+            candidate_python.display()
         ));
     }
     let required_model_files = [
@@ -274,6 +358,18 @@ pub(crate) fn detailed_transcription_readiness_for_job(
         return unavailable(format!(
             "โมเดลละเอียดที่ {} ขาดไฟล์ {missing}",
             model_path.display(),
+        ));
+    }
+    let checkpoint_metadata = match std::fs::metadata(model_path.join("pytorch_model.bin")) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return unavailable(format!("อ่านไฟล์ checkpoint ของโหมดละเอียดไม่สำเร็จ: {error}"));
+        }
+    };
+    if checkpoint_metadata.len() != THAI_CANDIDATE_CHECKPOINT_BYTES {
+        return unavailable(format!(
+            "ขนาด checkpoint ของโหมดละเอียดไม่ตรงกับ revision ที่กำหนด: คาดว่า {THAI_CANDIDATE_CHECKPOINT_BYTES} bytes แต่พบ {}",
+            checkpoint_metadata.len()
         ));
     }
     let Some(candidate_root) = model_path.parent().and_then(std::path::Path::parent) else {
@@ -299,18 +395,62 @@ pub(crate) fn detailed_transcription_readiness_for_job(
             manifest_path.display()
         ));
     }
-    let dependencies = Command::new(&runtime.python)
-        .args([
-            "-c",
-            "import torch, transformers; import faster_whisper.audio",
-        ])
+    let dependency_probe = r#"
+import importlib.metadata
+import json
+import torch
+import transformers
+import accelerate
+import faster_whisper.audio
+import av
+print(json.dumps({
+    'torch': torch.__version__,
+    'transformers': transformers.__version__,
+    'accelerate': accelerate.__version__,
+    'fasterWhisper': importlib.metadata.version('faster-whisper'),
+    'av': av.__version__,
+}))
+"#;
+    let dependencies = Command::new(&candidate_python)
+        .args(["-c", dependency_probe])
+        .env("HF_HUB_OFFLINE", "1")
+        .env("TRANSFORMERS_OFFLINE", "1")
         .output();
     let Ok(dependencies) = dependencies else {
         return unavailable("ตรวจสอบ Transformers/PyTorch runtime ไม่สำเร็จ".to_string());
     };
     if !dependencies.status.success() {
         return unavailable(
-            "FUNG Python runtime ยังไม่มี PyTorch, Transformers และ faster-whisper audio decoder ที่โหมดละเอียดต้องใช้".to_string(),
+            "Python runtime ของโหมดละเอียดยังไม่มี dependency ตาม lock ที่ต้องใช้".to_string(),
+        );
+    }
+    let dependency_versions =
+        match serde_json::from_slice::<serde_json::Value>(&dependencies.stdout) {
+            Ok(versions) => versions,
+            Err(_) => {
+                return unavailable(
+                    "อ่านผลตรวจ dependency ของ Python runtime โหมดละเอียดไม่สำเร็จ".to_string(),
+                );
+            }
+        };
+    let dependency_versions_match = [
+        ("torch", THAI_CANDIDATE_TORCH_VERSION),
+        ("transformers", THAI_CANDIDATE_TRANSFORMERS_VERSION),
+        ("accelerate", THAI_CANDIDATE_ACCELERATE_VERSION),
+        ("fasterWhisper", THAI_CANDIDATE_FASTER_WHISPER_VERSION),
+        ("av", THAI_CANDIDATE_AV_VERSION),
+    ]
+    .into_iter()
+    .all(|(key, expected)| {
+        dependency_versions
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            == Some(expected)
+    });
+    if !dependency_versions_match {
+        return unavailable(
+            "dependency versions ของ Python runtime โหมดละเอียดไม่ตรงกับ manifest/lock ที่อนุมัติ"
+                .to_string(),
         );
     }
     DetailedTranscriptionReadiness {
@@ -432,12 +572,11 @@ pub(crate) fn bundled_whisper_model_for_profile(
     runtime: &WhisperRuntime,
     profile: &str,
 ) -> Option<PathBuf> {
-    let runtime_root = runtime.python.parent()?.parent()?;
     let model = whisper_model_name_from(Some(profile)).ok()?;
     let model_root = if profile == THAI_CANDIDATE_PROFILE {
-        runtime_root.parent()?.join(THAI_CANDIDATE_RUNTIME)
+        whisper_resource_root(runtime)?.join(THAI_CANDIDATE_RUNTIME)
     } else {
-        runtime_root.to_path_buf()
+        runtime.python.parent()?.parent()?.to_path_buf()
     };
     Some(model_root.join("models").join(model))
 }
@@ -5298,10 +5437,32 @@ pub(crate) fn run_python_worker(
     hf_home: Option<&std::path::Path>,
     on_progress: impl Fn(i64) + Send + 'static,
 ) -> Result<String, String> {
-    if !runtime.python.exists() {
+    run_python_worker_with_interpreter(
+        runtime,
+        &runtime.python,
+        script,
+        args,
+        path_prefix,
+        hf_home,
+        on_progress,
+    )
+}
+
+/// Runs a worker with an explicitly selected interpreter while preserving the
+/// operational subprocess environment, progress and stderr handling.
+fn run_python_worker_with_interpreter(
+    runtime: &WhisperRuntime,
+    interpreter: &std::path::Path,
+    script: &std::path::Path,
+    args: &[&str],
+    path_prefix: Option<&std::path::Path>,
+    hf_home: Option<&std::path::Path>,
+    on_progress: impl Fn(i64) + Send + 'static,
+) -> Result<String, String> {
+    if !interpreter.exists() {
         return Err(format!(
-            "FUNG Python runtime is missing at {}. Reinstall the FUNG application bundle.",
-            runtime.python.display(),
+            "FUNG Python runtime is missing at {}.",
+            interpreter.display(),
         ));
     }
     if !script.exists() {
@@ -5311,7 +5472,7 @@ pub(crate) fn run_python_worker(
         ));
     }
 
-    let mut command = Command::new(&runtime.python);
+    let mut command = Command::new(interpreter);
     command.arg(script).args(args);
     if let Some(model) = worker_whisper_model_env_path(runtime) {
         command.env("FUNG_WHISPER_MODEL", model);
@@ -5334,6 +5495,7 @@ pub(crate) fn run_python_worker(
         // not leave it. Offline makes the same condition a legible error.
         None => {
             command.env("HF_HUB_OFFLINE", "1");
+            command.env("TRANSFORMERS_OFFLINE", "1");
         }
     }
 
@@ -5414,7 +5576,16 @@ pub(crate) fn run_detailed_candidate_worker(
         args.push(language.to_string());
     }
     let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-    let raw = run_python_worker(runtime, &worker_script, &arg_refs, None, None, |_| {})?;
+    let interpreter = whisper_worker_interpreter_for_profile(runtime, THAI_CANDIDATE_PROFILE)?;
+    let raw = run_python_worker_with_interpreter(
+        runtime,
+        &interpreter,
+        &worker_script,
+        &arg_refs,
+        None,
+        None,
+        |_| {},
+    )?;
     serde_json::from_str::<WhisperOutput>(raw.trim())
         .map_err(|error| format!("แปลผลโหมดละเอียดไม่สำเร็จ: {error}"))
 }
@@ -6445,24 +6616,95 @@ mod worker_tests {
         let manifest = serde_json::json!({
             "backend": "transformers",
             "candidateProfile": THAI_CANDIDATE_PROFILE,
+            "python": {
+                "interpreter": "Scripts/python.exe",
+                "version": "3.11.9",
+                "sha256": "009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b",
+            },
+            "dependencies": {
+                "lockfileSha256": THAI_CANDIDATE_DEPENDENCY_LOCK_SHA256,
+                "torch": THAI_CANDIDATE_TORCH_VERSION,
+                "transformers": THAI_CANDIDATE_TRANSFORMERS_VERSION,
+                "accelerate": THAI_CANDIDATE_ACCELERATE_VERSION,
+                "fasterWhisper": THAI_CANDIDATE_FASTER_WHISPER_VERSION,
+                "av": THAI_CANDIDATE_AV_VERSION,
+            },
             "model": {
                 "name": THAI_CANDIDATE_MODEL,
                 "repository": THAI_CANDIDATE_REPOSITORY,
                 "revision": THAI_CANDIDATE_MODEL_REVISION,
                 "license": "Apache-2.0",
+                "checkpoint": {
+                    "bytes": THAI_CANDIDATE_CHECKPOINT_BYTES,
+                    "sha256": THAI_CANDIDATE_CHECKPOINT_SHA256,
+                },
             },
         });
         assert!(candidate_manifest_is_pinned(&manifest));
-        assert!(!candidate_manifest_is_pinned(&serde_json::json!({
-            "backend": "transformers",
-            "candidateProfile": THAI_CANDIDATE_PROFILE,
-            "model": {
-                "name": THAI_CANDIDATE_MODEL,
-                "repository": THAI_CANDIDATE_REPOSITORY,
-                "revision": "0",
-                "license": "Apache-2.0",
-            },
-        })));
+        let mut wrong_revision = manifest.clone();
+        wrong_revision["model"]["revision"] = serde_json::Value::String("0".to_string());
+        assert!(!candidate_manifest_is_pinned(&wrong_revision));
+        let mut wrong_lock = manifest;
+        wrong_lock["dependencies"]["lockfileSha256"] = serde_json::Value::String("0".repeat(64));
+        assert!(!candidate_manifest_is_pinned(&wrong_lock));
+    }
+
+    #[test]
+    fn detailed_readiness_fails_closed_without_candidate_interpreter() {
+        let runtime = WhisperRuntime {
+            python: PathBuf::from(r"C:\Program Files\FUNG\.venv-whisper\Scripts\python.exe"),
+            script: PathBuf::from(r"C:\Program Files\FUNG\scripts\transcribe.py"),
+            cuda_bin: PathBuf::new(),
+        };
+
+        let readiness = detailed_transcription_readiness_for_job(&runtime);
+        assert!(!readiness.available);
+        assert!(!readiness.accuracy_qualified);
+        assert!(readiness
+            .reason
+            .contains("Python runtime เฉพาะของโหมดละเอียด"));
+    }
+
+    #[test]
+    #[ignore = "requires the staged Thai candidate model and FUNG_TEST_THAI_CANDIDATE_AUDIO"]
+    fn staged_thai_candidate_runtime_smoke_when_audio_is_configured() {
+        let audio_path = env::var("FUNG_TEST_THAI_CANDIDATE_AUDIO")
+            .expect("set FUNG_TEST_THAI_CANDIDATE_AUDIO to a local short audio clip");
+        let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("Cargo manifest must be under the repository root")
+            .to_path_buf();
+        let runtime = WhisperRuntime {
+            python: repo_root
+                .join(THAI_CANDIDATE_RUNTIME)
+                .join("Scripts")
+                .join("python.exe"),
+            script: repo_root.join("scripts").join("transcribe.py"),
+            cuda_bin: PathBuf::new(),
+        };
+
+        let readiness = detailed_transcription_readiness_for_job(&runtime);
+        assert!(readiness.available, "{}", readiness.reason);
+        assert!(!readiness.accuracy_qualified);
+
+        let chunks_manifest =
+            std::env::temp_dir().join(format!("fung-thai-candidate-smoke-{}.json", Uuid::new_v4()));
+        let manifest = serde_json::json!([{ "path": audio_path, "startMs": 0 }]);
+        std::fs::write(
+            &chunks_manifest,
+            serde_json::to_vec(&manifest).expect("serialize audio chunks manifest"),
+        )
+        .expect("write audio chunks manifest");
+        let result = run_detailed_candidate_worker(&runtime, &chunks_manifest, Some("th"));
+        let _ = std::fs::remove_file(&chunks_manifest);
+        let output = result.expect("run Detailed through the staged candidate interpreter");
+
+        assert!(output.duration_ms > 0);
+        println!(
+            "THAI_CANDIDATE_SMOKE durationMs={} segments={}",
+            output.duration_ms,
+            output.segments.len()
+        );
     }
 
     #[test]
@@ -6520,6 +6762,17 @@ mod worker_tests {
             whisper_worker_script_for_profile(&runtime, THAI_CANDIDATE_PROFILE, true).unwrap(),
             PathBuf::from(r"C:\Program Files\FUNG\scripts\transcribe_transformers_live.py")
         );
+        assert_eq!(
+            whisper_worker_interpreter_for_profile(&runtime, THAI_CANDIDATE_PROFILE).unwrap(),
+            PathBuf::from(
+                r"C:\Program Files\FUNG\.venv-whisper-transformers-candidate\Scripts\python.exe"
+            )
+        );
+        assert_eq!(
+            whisper_worker_interpreter_for_profile(&runtime, "turbo").unwrap(),
+            runtime.python
+        );
+        assert!(whisper_worker_interpreter_for_profile(&runtime, "small").is_err());
         assert_eq!(
             whisper_worker_script_for_profile(&runtime, "turbo", false).unwrap(),
             runtime.script

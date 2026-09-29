@@ -1,7 +1,7 @@
 ---
-version: "1.9.3b"
+version: "1.9.6b"
 created_at: "2026-09-21T03:45:30+07:00,RWANG,base-b336f33"
-last_update: "2026-09-25T03:13:29+07:00,RWANG"
+last_update: "2026-09-29T23:14:00+07:00,RWANG"
 status: "need review"
 superseded_by: null
 attributes:
@@ -18,9 +18,9 @@ attributes:
 
 | Field | Value |
 |---|---|
-| Version | 1.9.3b |
+| Version | 1.9.6b |
 | Date | 2026-09-21 |
-| Status | need review — local M1–M5 campaign passed; independent review, Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
+| Status | need review — local M1–M5 campaign passed; isolated Detailed candidate runtime and bounded local worker comparison passed, while Thai accuracy, independent review, Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
 | Author | Claude (Fable 5) + Boss |
 | Supersedes | none (first master plan) |
 | Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.3b, `docs/Desktop/08-real-progress.md` v0.2.36b, `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`, Sub-project B brainstorm decisions (2026-08-09) |
@@ -170,6 +170,24 @@ records its boundaries and implementation status.
 Independent final source/security review, real Meet join, provider send,
 provider receipt, room reconciliation, physical-device, installed-artifact and
 release gates remain open; this local work does not promote them.
+
+## 0.6 Detailed Thai candidate runtime isolation — 2026-09-29
+
+The user approved the candidate-runtime isolation spec and task plan after
+readiness and Detailed batch execution were found to share the embedded
+operational Python interpreter. The isolated Python 3.11.9 candidate runtime,
+hash-locked CPU dependency set, transactional model/runtime stage and
+candidate-specific Detailed batch routing are implemented and staged. Pinned
+imports, the consolidated source test campaign, the offline Rust-worker model
+load, and one same-audio Turbo comparison pass. This is a single clip without
+a reference transcript, so Thai accuracy remains unqualified. The candidate
+stays outside Tauri bundle resources;
+General/live meeting transcription continues through `.venv-whisper` because
+it writes to the committed transcript stream. This follow-up does not change
+Phase 0–5 completion or M1–M5/provider/release acceptance.
+See the [approved profile contract](../specs/2026-09-21-whisper-model-profiles.md),
+[task plan](2026-09-29-thai-candidate-runtime-qualification.md), and
+[RCA](../../.brain/rca/2026-09-29-thai-candidate-runtime-isolation.md).
 
 ## 0. Historical Delivery Overlay (2026-08-13; superseded)
 
@@ -641,6 +659,9 @@ Per phase:
 
 | Version | Change |
 | --- | --- |
+| 1.9.5b → 1.9.6b | Recorded candidate staging, consolidated source-test results, offline Rust-worker model load and one qualitative same-audio comparison; Thai accuracy and release acceptance remain open. |
+| 1.9.4b → 1.9.5b | Recorded successful candidate staging, pinned dependency imports and consolidated source verification; Rust-worker model load and same-audio comparison remain pending. |
+| 1.9.3b → 1.9.4b | Recorded the Detailed candidate runtime isolation implementation and its pending model-load, same-audio and consolidated test gates; Phase 0–5 and external acceptance remain unchanged. |
 | 1.9.2b → 1.9.3b | Recorded passing consolidated local M1–M5 checks and source-hash report while retaining independent, provider, device and release gates. |
 | 1.9.1b → 1.9.2b | Recorded source-frozen local M1–M5 implementation including People and Windows PDF sandbox; consolidated validation and all external/device/release gates remain open. |
 | 1.9.0b → 1.9.1b | Recorded authenticated vault-bound metric operand storage and dimension-bounded computation; retained open People/PDF and external acceptance gates. |
@@ -657,6 +678,9 @@ Per phase:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 1.9.6b | 2026-09-29 | need review | Recorded successful isolated candidate staging, source verification, offline Rust-worker model load and one qualitative Turbo comparison; Thai accuracy and release acceptance remain open. | working-tree | RWANG |
+| 1.9.5b | 2026-09-29 | need review | Recorded candidate staging, pinned dependency imports and consolidated source validation; worker model load and same-audio comparison remained pending. | working-tree | RWANG |
+| 1.9.4b | 2026-09-29 | need review | Recorded candidate Detailed runtime isolation implementation; runtime qualification and consolidated verification remain pending; no M1–M5 or Phase 0–5 acceptance promoted. | working-tree | RWANG |
 | 1.9.3b | 2026-09-25 | need review | Consolidated local M1–M5 campaign passed; independent review, real provider/device and release gates remain open | working-tree | RWANG |
 | 1.9.2b | 2026-09-25 | need review | Recorded source-frozen local M1–M5, People and Windows PDF implementation; final campaign and independent review remain open | working-tree | RWANG |
 | 1.9.1b | 2026-09-24 | need review | Recorded encrypted metric operands and dimension-bounded computation; People/PDF and full campaign remain open | working-tree | RWANG |

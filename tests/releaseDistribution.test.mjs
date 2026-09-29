@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -24,6 +25,8 @@ test("Tauri release resources include the live worker and portable runtime", asy
   const resources = config.bundle.resources;
 
   assert.equal(resources["../.venv-whisper"], ".venv-whisper");
+  assert.equal(resources["../.venv-whisper-transformers-candidate"], undefined);
+  assert.equal(resources["../scripts/transformers-candidate-requirements.txt"], undefined);
   assert.equal(resources["../scripts/transcribe.py"], "scripts/transcribe.py");
   assert.equal(resources["../scripts/transcribe_live.py"], "scripts/transcribe_live.py");
   assert.equal(
@@ -92,9 +95,43 @@ test("Thai Transformers candidate staging is pinned, transactional, and space-aw
   assert.match(source, /b751db1e8dbfee6561de22ca99fe070282fcf459/);
   assert.match(source, /pytorch_model\.bin/);
   assert.match(source, /e1e0b5b4c9a89d7d60fb795448c3102e07af87fa73c5fce7c0206c6bd99a7e7b/);
+  assert.match(source, /pythonVersion\s*=\s*'3\.11\.9'/);
+  assert.match(source, /python311\._pth/);
+  assert.match(source, /transformers-candidate-requirements\.txt/);
+  assert.match(source, /--require-hashes/);
   assert.match(source, /SafetyMarginBytes/);
   assert.match(source, /Move-Item -LiteralPath \$stagingRoot/);
-  assert.match(source, /Remove-Item -LiteralPath \$stagingRoot -Recurse -Force/);
-  assert.match(source, /transformers/);
+  assert.match(source, /Remove-Item -LiteralPath \$resolvedStagingRoot -Recurse -Force/);
+  assert.match(source, /torch = \$dependencyInfo\.torch/);
+  assert.match(source, /runtimePackages = \$dependencyInfo\.packages/);
+  assert.match(source, /lockfileSha256/);
   assert.match(source, /ConvertTo-Json/);
+
+  const worker = await readFile(
+    new URL("../scripts/transcribe_transformers.py", import.meta.url),
+    "utf8",
+  );
+  assert.match(worker, /low_cpu_mem_usage=True/);
+
+  const requirements = await readFile(
+    new URL("../scripts/transformers-candidate-requirements.txt", import.meta.url),
+    "utf8",
+  );
+  const rust = await readFile(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const pythonArchiveSha256 =
+    "009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b";
+  const lockHash = createHash("sha256").update(requirements).digest("hex");
+  assert.ok(
+    source.includes(`$pythonSha256 = '${pythonArchiveSha256}'`),
+    "candidate staging must retain the verified embedded-Python archive digest",
+  );
+  assert.ok(
+    rust.includes(pythonArchiveSha256),
+    "Rust readiness must pin the staged embedded-Python archive digest",
+  );
+  assert.match(requirements, /torch==2\.14\.0\+cpu/);
+  assert.match(requirements, /transformers==4\.57\.1/);
+  assert.match(requirements, /accelerate==1\.10\.1/);
+  assert.match(requirements, /--hash=sha256:/);
+  assert.ok(rust.includes(lockHash), "Rust readiness must pin the candidate dependency lock hash");
 });

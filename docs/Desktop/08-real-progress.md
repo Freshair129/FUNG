@@ -1,7 +1,7 @@
 ---
-version: "0.3.8b"
+version: "0.3.11b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-26T04:26:38+07:00,RWANG"
+last_update: "2026-09-29T23:14:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -60,6 +60,29 @@ create the existing Windows AppContainer profile (`0x80070002`). The Rust
 source tests ran with only the protected `.venv-whisper` bundle resource
 removed from the transient Tauri build config after its ACL blocked resource
 scanning. Release packaging was not run.
+
+## Isolated Thai candidate runtime — 2026-09-29
+
+The Detailed source path now resolves an isolated Python 3.11.9 runtime with
+hash-locked CPU dependencies, a transactional candidate model/manifest stage,
+manifest-bound readiness checks, and low-memory offline loading through the
+candidate batch worker. General/medium and live-meeting transcript workers
+remain on `.venv-whisper`; the candidate runtime is excluded from Tauri
+resources and Detailed remains a post-meeting draft. Candidate runtime/model
+staging and exact dependency imports passed; the candidate-only Python archive
+hash pin was corrected after its first fail-closed staging attempt. Source
+validation passed: Python 2/2, release/resource Node 8/8, frontend build, Rust
+594 passed/0 failed/2 ignored, dependency consistency, formatting and diff
+checks. Rust tests used a transient empty bundle-resource override because the
+isolated worktree does not contain `.knowledge-parser-runtime`; tracked Tauri
+configuration was not changed. The production model load through Rust and the
+approved F:\meeting same-audio comparison passed. The Rust readiness reported
+available with `accuracyQualified=false`; the candidate worker returned valid
+output in 106 seconds including readiness, and direct worker timing was 76.4
+seconds versus Turbo CPU int8 at 57.7 seconds. The candidate output looked more
+continuous in this single clip; Turbo had several mixed-script fragments. No
+reference transcript is available, so there is no Thai WER/CER or accuracy
+claim.
 
 ## Current bounded meeting-intelligence R3 foundation — 2026-09-23
 
@@ -1046,6 +1069,25 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.10b` → `0.3.11b`
+
+- Passed the staged candidate model through Detailed readiness and the Rust
+  worker, then compared one 30-second F:\meeting clip with Turbo CPU int8.
+  Candidate was more continuous by qualitative inspection and slower; no Thai
+  accuracy claim is made without a reference transcript.
+
+### `0.3.9b` → `0.3.10b`
+
+- Added and staged the isolated candidate Python runtime and hash-locked CPU
+  dependencies; pinned imports and source validation passed. Production model
+  load and same-audio comparison remain pending on sufficient free RAM.
+
+### `0.3.8b` → `0.3.9b`
+
+- Added the isolated candidate Python runtime and hash-locked CPU dependency
+  stage for Detailed batch transcription; model load, same-audio comparison,
+  and consolidated validation remain pending.
+
 `0.3.6b` → `0.3.7b`: records final account-transition remediation, refresh
 invalidation, consolidated local verification and independent source review;
 native UI/accessibility, provider, device and release gates remain NOT_RUN.
@@ -1109,6 +1151,9 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.11b | 2026-09-29 | beta | Passed offline Rust-worker model load and one same-audio Turbo comparison; source tests pass; Thai accuracy remains unqualified. | working-tree | RWANG |
+| 0.3.10b | 2026-09-29 | beta | Staged isolated Detailed runtime/model; pinned imports and consolidated source checks passed; production worker model load and same-audio comparison await sufficient RAM. | working-tree | RWANG |
+| 0.3.9b | 2026-09-29 | beta | Implemented isolated Detailed candidate runtime, pinned CPU dependencies, transactional staging and fail-closed readiness; runtime/model qualification and final tests remain pending. | working-tree | RWANG |
 | 0.3.8b | 2026-09-26 | beta | Added General turbo and Detailed local Thai-candidate draft/review workflow; frontend and focused suites pass, full Rust has one AppContainer host failure, and candidate model/Thai accuracy remain NOT_RUN. | working-tree | RWANG |
 | 0.3.7b | 2026-09-25 | beta | Closed People/metric/draft account-transition races and refresh invalidation gap; final local campaign and independent review passed | working-tree | RWANG |
 | 0.3.5b | 2026-09-25 | beta | Closed four reviewed meeting-intelligence security findings; final local tests and source review pass; native UI/accessibility and product gates remain open | working-tree | RWANG |

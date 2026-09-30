@@ -50,6 +50,7 @@ mod meeting_intel;
 mod meeting_intelligence_runtime;
 mod meeting_intelligence_schema;
 mod meeting_knowledge;
+mod meeting_task_manager;
 mod mobile;
 #[rustfmt::skip]
 mod native_auth;

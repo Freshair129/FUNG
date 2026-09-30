@@ -135,7 +135,7 @@ fn parse_answer(raw: &str, evidence_count: usize) -> Result<(String, Vec<usize>)
     Ok((answer.trim().to_string(), indexes))
 }
 
-fn bounded_json(response: reqwest::blocking::Response) -> Result<Value, String> {
+pub(crate) fn bounded_json(response: reqwest::blocking::Response) -> Result<Value, String> {
     if !response.status().is_success() {
         return Err("MEETING_AGENT_MODEL_UNAVAILABLE".to_string());
     }
@@ -156,7 +156,10 @@ fn bounded_json(response: reqwest::blocking::Response) -> Result<Value, String> 
     serde_json::from_slice(&bytes).map_err(|_| "MEETING_AGENT_MODEL_OUTPUT_INVALID".to_string())
 }
 
-fn configured_model_endpoint(storage: &Storage, model_name: &str) -> Result<String, String> {
+pub(crate) fn configured_model_endpoint(
+    storage: &Storage,
+    model_name: &str,
+) -> Result<String, String> {
     validate_model_name(model_name)?;
     let endpoint = local_config(storage)?;
     let client = reqwest::blocking::Client::builder()

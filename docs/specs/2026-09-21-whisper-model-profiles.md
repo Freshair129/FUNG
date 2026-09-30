@@ -1,5 +1,5 @@
 ---
-version: "0.4.5b"
+version: "0.4.10b"
 created_at: "2026-09-21T00:00:00+07:00,RWANG"
 last_update: "2026-10-01T01:42:00+07:00,RWANG"
 status: "beta"
@@ -135,15 +135,15 @@ setting (`FUNG_TRANSCRIPTION_PROFILE`):
 | User mode | Model route | When it runs | Transcript authority |
 | --- | --- | --- | --- |
 | General (`ทั่วไป`) | `large-v3-turbo` / `turbo` | Default for live and ordinary transcription | Existing committed transcript path |
-| Detailed (`ละเอียด`) | `biodatlab/whisper-th-large-combined` / `thai-large-candidate` | Explicit post-meeting draft pass | Separate candidate proposals; never writes the committed projection |
+| Detailed (`ละเอียด`) | Qwen3-ASR 1.7B / `qwen-thai-candidate`, after all qualification gates pass | Explicit post-meeting draft pass | Separate candidate proposals; never writes the committed projection |
 
 The detailed mode is a candidate workflow, not a claim that the model is more
-accurate on meetings. Readiness checks confirm the pinned local model files,
-manifest and candidate-specific importable dependencies; they do not load the
-model or qualify accuracy. The local Rust-worker smoke loaded the model and
-emitted valid output, but a single clip without a reference transcript cannot
-qualify Thai meeting accuracy. A later model-load failure must still fail
-without downloading or falling back to another profile.
+accurate on meetings. The Qwen route stays unavailable until its pinned local
+runtime, the 55-clip FUNG-worker WER/CER gate, Thai CTC alignment feasibility,
+five microphone audio spot checks, and an explicit route flag all pass.
+Readiness and worker failures are fail-closed; the app does not download or
+fall back to another model. The earlier `thai-large-candidate` remains a
+separate Biodatlab runtime and is not silently substituted for Qwen.
 
 Each detailed run records its model/backend/revision and produces separate
 proposals against the current transcript. Proposal review is scoped to the
@@ -152,11 +152,28 @@ a human-reviewed transcript revision; rejecting it leaves the committed
 transcript unchanged. A stale candidate must fail closed and cannot overwrite
 a correction or a newer ASR result.
 
+### Qwen low-clarity candidate experiment — 2026-10-01
+
+The candidate-only qualification worker accepts `raw`, `afftdn`, and
+`speechnorm` through `/audio/preprocessingProfile` in its local manifest.
+Newly staged manifests default to `raw`; an older manifest without this field
+also resolves to `raw`. A selected transform is applied to a copied 16 kHz
+mono signal for Qwen ASR. Thai CTC continues to use the original decoded
+source audio so timestamps remain on the source timeline. The result records
+the selected profile, and Rust rejects a result whose provenance does not
+match the manifest. This option is for the bounded qualification experiment;
+General/live routes are unchanged. The 2026-10-01 five-clip experiment
+completed: raw reproduced the baseline, `afftdn` worsened the score, and
+`speechnorm` did not correct the bt10m/bt3m errors. No transform was selected
+and Detailed remains disabled. Filter qualification failed; word-level timing
+review, the route gates, and full-corpus acceptance remain open. See the
+[qualification report](../verification/implementation-reports/2026-09-30-qwen-thai-candidate.md).
+
 ## Configuration contract
 
 | Variable | Values | Default | Meaning |
 | --- | --- | --- | --- |
-| `FUNG_WHISPER_MODEL_PROFILE` | `turbo`, `medium`; `thai-large-candidate` (candidate only) | `turbo` | Selects an operational model directory or the separate opt-in Transformers candidate |
+| `FUNG_WHISPER_MODEL_PROFILE` | `turbo`, `medium`; `thai-large-candidate`, `qwen-thai-candidate` (candidate only) | `turbo` | Selects an operational model directory or a separate opt-in Transformers candidate |
 | `FUNG_TRANSCRIPTION_PROFILE` | `cpu`, `gpu` | `cpu` | Selects the execution device and CUDA DLL path |
 | `FUNG_TRANSCRIPTION_COMPUTE_TYPE` | faster-whisper compute type | profile-derived | Optional override; `int8_float16` is the low-VRAM CUDA setting |
 
@@ -181,14 +198,25 @@ The staged runtime uses one canonical directory per model:
   models/
     whisper-th-large-combined/
   manifest.json
+
+.venv-whisper-qwen-candidate/
+  Scripts/python.exe
+  Lib/site-packages/         # separately hash-locked CUDA candidate dependencies
+  models/
+    qwen3-asr-1.7b/
+    thai-wav2vec2-ctc/
+  manifest.json
 ```
 
 The operational CTranslate2 staging script records the model repository,
 resolved revision, license, file sizes and SHA-256 digests in
-`.venv-whisper/manifest.json`. The Transformers candidate stage records its
-Python archive, dependency lock, package versions and model file digests in
-`.venv-whisper-transformers-candidate/manifest.json`. The candidate stage must
-not modify the operational runtime.
+`.venv-whisper/manifest.json`. The Biodatlab Transformers candidate stage
+records its Python archive, dependency lock, package versions and model file
+digests in `.venv-whisper-transformers-candidate/manifest.json`. The Qwen
+candidate stage records the same information plus both model revisions,
+licenses and checkpoint hashes in `.venv-whisper-qwen-candidate/manifest.json`.
+Each candidate stage must not modify the operational runtime or the other
+candidate runtime.
 
 The accepted CTranslate2 repository for `large-v3-turbo` and the exact
 revision for every model must be recorded in the manifest before a runtime
@@ -245,10 +273,30 @@ accuracy until the approved Thai qualification fixture produces comparable
 evidence. It also does not make a GPU, VRAM capacity, installer, clean-machine
 or production-readiness claim.
 
+### 2026-09-30 Qwen candidate implementation
+
+The local-only Qwen lane adds pinned Qwen3-ASR 1.7B and Thai CTC artifacts in
+an isolated Python 3.12.10 runtime. General `turbo`/`medium` routing, the
+Biodatlab `thai-large-candidate` identity, live transcription, Genesis schema,
+and installer contents remain unchanged. The FUNG worker completed all 55
+LOTUSDIS clips and passed the approved aggregate and per-microphone WER/CER
+comparison against Turbo GPU. Structural CTC checks passed. User listening
+found Qwen transcription errors for bt10m and bt3m and a difference between
+the heard phrase and the current LOTUSDIS reference; a separate sensitivity
+score is documented without changing the official reference. Word-level CTC
+timing review and remediation remain open, so Qwen Detailed stays disabled.
+The exact results and local test evidence are recorded in the linked [Qwen
+qualification report](../verification/implementation-reports/2026-09-30-qwen-thai-candidate.md).
+
 ## Version diff
 
 | Version | Change |
 | --- | --- |
+| 0.4.9b → 0.4.10b | Recorded the negative five-clip filter result; no preprocessing profile qualified and Detailed remains disabled. |
+| 0.4.8b → 0.4.9b | Added the bounded Qwen low-clarity preprocessing contract with raw default, source-audio CTC alignment, provenance matching, and an open qualification gate. |
+| 0.4.7b → 0.4.8b | Recorded user listening feedback identifying bt10m/bt3m transcription misses and an official-reference discrepancy; Detailed remains disabled pending timing review and remediation. |
+| 0.4.6b → 0.4.7b | Recorded the passing 55-clip FUNG Qwen worker and LOTUSDIS WER/CER gate; five human microphone audio reviews remain pending and Detailed routing stays disabled. |
+| 0.4.5b → 0.4.6b | Added the separate Qwen3-ASR plus Thai CTC candidate runtime contract and fail-closed Detailed qualification gates; results are in the Qwen qualification report. |
 | 0.4.4b → 0.4.5b | Updated the isolated Thai candidate to Transformers 5.17.0 / Accelerate 1.15.0, rejected sharded checkpoint inputs, and corrected the verified operational Python 3.11.9 archive digest; full model-weight inference remains unrun. |
 | 0.4.3b → 0.4.4b | Recorded successful offline Rust-worker model load and one same-audio Turbo CPU comparison; Thai accuracy remains unqualified without a reference transcript. |
 | 0.4.2b → 0.4.3b | Staged the pinned candidate runtime/model and verified exact dependency imports plus consolidated source checks; production worker model load and same-audio comparison remain pending. |
@@ -263,6 +311,11 @@ or production-readiness claim.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.4.10b | 2026-10-01 | beta | Tested raw, PyAV afftdn and speechnorm; neither transform met the reviewed-error gate, so Qwen Detailed remains disabled. | working-tree | RWANG |
+| 0.4.9b | 2026-10-01 | beta | Added candidate-only PyAV preprocessing modes and a fail-closed provenance gate; filter quality and timing remain unqualified. | working-tree | RWANG |
+| 0.4.8b | 2026-09-30 | beta | Recorded human listening misses on bt10m/bt3m and separate reference sensitivity; word-level timing and remediation remain open. | working-tree | RWANG |
+| 0.4.7b | 2026-09-30 | beta | Passed the 55-clip FUNG Qwen worker and WER/CER selection gates; human audio review remains pending and Detailed routing stays fail-closed. | working-tree | RWANG |
+| 0.4.6b | 2026-09-30 | beta | Added isolated Qwen3-ASR and Thai CTC candidate route with LOTUSDIS worker qualification and audio-review gates; Detailed stays fail-closed until all gates pass. | working-tree | RWANG |
 | 0.4.5b | 2026-10-01 | candidate | Updated the candidate lane to Transformers 5.17.0 / Accelerate 1.15.0, rejected sharded checkpoint inputs, corrected the operational embedded-Python archive digest, and passed local processor/config loading; model-weight inference remains unrun. | pending | RWANG |
 | 0.4.4b | 2026-09-29 | beta | Passed offline candidate Rust-worker smoke and same-audio Turbo comparison; Thai accuracy remains unqualified. | working-tree | RWANG |
 | 0.4.3b | 2026-09-29 | beta | Staged the candidate runtime/model and passed source validation; production worker model load and same-audio comparison remain pending. | working-tree | RWANG |

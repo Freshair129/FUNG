@@ -5,6 +5,7 @@ dist/
 .venv-whisper/
 .knowledge-parser-runtime/
 .venv-whisper-transformers-candidate/
+.venv-whisper-qwen-candidate/
 .runtime-cache/
 .playwright-cli/
 .codex/

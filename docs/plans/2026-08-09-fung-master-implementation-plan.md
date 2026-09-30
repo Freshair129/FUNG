@@ -1,7 +1,7 @@
 ---
-version: "1.9.6b"
+version: "1.9.7b"
 created_at: "2026-09-21T03:45:30+07:00,RWANG,base-b336f33"
-last_update: "2026-09-29T23:14:00+07:00,RWANG"
+last_update: "2026-10-01T00:15:00+07:00,RWANG"
 status: "need review"
 superseded_by: null
 attributes:
@@ -18,9 +18,9 @@ attributes:
 
 | Field | Value |
 |---|---|
-| Version | 1.9.6b |
-| Date | 2026-09-21 |
-| Status | need review — local M1–M5 campaign passed; isolated Detailed candidate runtime and bounded local worker comparison passed, while Thai accuracy, independent review, Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
+| Version | 1.9.7b |
+| Date | 2026-10-01 |
+| Status | need review — local M1–M5 campaign and bounded Qwen 55-clip relative comparison passed; user-reviewed bt10m/bt3m errors remain, and neither low-clarity filter qualified; independent review, Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
 | Author | Claude (Fable 5) + Boss |
 | Supersedes | none (first master plan) |
 | Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.3b, `docs/Desktop/08-real-progress.md` v0.2.36b, `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`, Sub-project B brainstorm decisions (2026-08-09) |
@@ -188,6 +188,25 @@ Phase 0–5 completion or M1–M5/provider/release acceptance.
 See the [approved profile contract](../specs/2026-09-21-whisper-model-profiles.md),
 [task plan](2026-09-29-thai-candidate-runtime-qualification.md), and
 [RCA](../../.brain/rca/2026-09-29-thai-candidate-runtime-isolation.md).
+
+## 0.7 Qwen low-clarity candidate follow-up — 2026-10-01
+
+The user confirmed that the five microphone examples contain the same utterance
+and identified Qwen errors on bt10m and bt3m. The official LOTUSDIS reference
+remains unchanged. A bounded local comparison tested the raw signal and the
+pinned candidate runtime's PyAV `afftdn` and `speechnorm` filters on those five
+source WAVs. Raw reproduced the previous outputs; `afftdn` worsened the
+five-clip score, and `speechnorm` left both target errors unresolved. No filter
+was selected and the filtered 55-clip Rust pilot was not run because the
+five-clip gate failed. The candidate remains raw and `detailedRouting=false`.
+
+The before/after source hashes matched and structural CTC checks remained
+source-bounded and ordered; user word-level timing approval is still open.
+This negative result does not change General/live transcription, the prior
+raw-Qwen 55-clip relative WER/CER comparison, or any Phase 0–5, M1–M5,
+provider, device, packaging, or release acceptance. See the
+[Qwen qualification report](../verification/implementation-reports/2026-09-30-qwen-thai-candidate.md)
+and the [approved remediation plan](2026-09-30-qwen-low-clarity-remediation.md).
 
 ## 0. Historical Delivery Overlay (2026-08-13; superseded)
 
@@ -659,6 +678,7 @@ Per phase:
 
 | Version | Change |
 | --- | --- |
+| 1.9.6b → 1.9.7b | Recorded the negative five-clip Qwen preprocessing result; raw remains the candidate baseline, the Detailed gate stays closed, and broader programme gates are unchanged. |
 | 1.9.5b → 1.9.6b | Recorded candidate staging, consolidated source-test results, offline Rust-worker model load and one qualitative same-audio comparison; Thai accuracy and release acceptance remain open. |
 | 1.9.4b → 1.9.5b | Recorded successful candidate staging, pinned dependency imports and consolidated source verification; Rust-worker model load and same-audio comparison remain pending. |
 | 1.9.3b → 1.9.4b | Recorded the Detailed candidate runtime isolation implementation and its pending model-load, same-audio and consolidated test gates; Phase 0–5 and external acceptance remain unchanged. |
@@ -678,6 +698,7 @@ Per phase:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 1.9.7b | 2026-10-01 | need review | Recorded the failed low-clarity filter experiment while preserving raw-Qwen comparison evidence and all broader acceptance boundaries. | working-tree | RWANG |
 | 1.9.6b | 2026-09-29 | need review | Recorded successful isolated candidate staging, source verification, offline Rust-worker model load and one qualitative Turbo comparison; Thai accuracy and release acceptance remain open. | working-tree | RWANG |
 | 1.9.5b | 2026-09-29 | need review | Recorded candidate staging, pinned dependency imports and consolidated source validation; worker model load and same-audio comparison remained pending. | working-tree | RWANG |
 | 1.9.4b | 2026-09-29 | need review | Recorded candidate Detailed runtime isolation implementation; runtime qualification and consolidated verification remain pending; no M1–M5 or Phase 0–5 acceptance promoted. | working-tree | RWANG |

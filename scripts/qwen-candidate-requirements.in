@@ -1,0 +1,6 @@
+accelerate==1.10.1
+av==18.1.0
+faster-whisper==1.2.1
+pythainlp==5.3.8
+torch==2.14.0+cu130
+transformers==5.16.1

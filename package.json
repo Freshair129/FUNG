@@ -30,6 +30,8 @@
     "test:knowledge-extract": "python tests/knowledge_extract.test.py",
     "test:transcribe-live-window": "python tests/transcribeLiveWindow.test.py",
     "test:transcribe-transformers-candidate": "python tests/transcribeTransformersCandidate.test.py",
+    "test:transcribe-qwen-candidate": "python tests/transcribeQwenCandidate.test.py",
+    "test:thai-ctc-alignment": "python tests/thaiCtcAlignment.test.py",
     "test:external-tools": "node --test --experimental-strip-types tests/externalMeetingTools.test.mjs",
     "test:traceability": "node --test tests/traceabilityAnnotations.test.mjs",
     "test:job-actions": "node --test --experimental-strip-types tests/jobActions.test.mjs",

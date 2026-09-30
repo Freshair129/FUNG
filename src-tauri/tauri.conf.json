@@ -62,6 +62,8 @@
       "../scripts/transcribe_live.py": "scripts/transcribe_live.py",
       "../scripts/transcribe_transformers.py": "scripts/transcribe_transformers.py",
       "../scripts/transcribe_transformers_live.py": "scripts/transcribe_transformers_live.py",
+      "../scripts/transcribe_qwen_detailed.py": "scripts/transcribe_qwen_detailed.py",
+      "../scripts/thai_ctc_alignment.py": "scripts/thai_ctc_alignment.py",
       "../scripts/transcode_audio.py": "scripts/transcode_audio.py",
       "../scripts/diarize.py": "scripts/diarize.py",
       "../scripts/extract_knowledge.py": "scripts/extract_knowledge.py",

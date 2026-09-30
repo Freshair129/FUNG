@@ -43,3 +43,4 @@ public/*.apk
 
 # Superpowers brainstorming session files (local mockups, not project artifacts)
 .superpowers/
+.candidate-*/

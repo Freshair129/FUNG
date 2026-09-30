@@ -86,9 +86,20 @@ test("the staging script installs from the reviewed hash-pinned lockfile", () =>
   const lockPath = "scripts/diarization-runtime-requirements.txt";
   assert.equal(existsSync(lockPath), true, "the reviewed lockfile must ship with the staging contract");
   const lock = readFileSync(lockPath, "utf8");
-  assert.match(lock, /pyannote_audio==3\.4\.0\s+--hash=sha256:/);
-  assert.match(lock, /torch==2\.4\.1\s+--hash=sha256:/);
-  assert.match(lock, /torchaudio==2\.4\.1\s+--hash=sha256:/);
+  assert.match(lock, /pyannote_audio==4\.0\.7\s+--hash=sha256:/);
+  assert.match(lock, /torch==2\.14\.0\s+--hash=sha256:/);
+  assert.match(lock, /torchaudio==2\.11\.0\s+--hash=sha256:/);
+  assert.match(staging, /\$PyannoteVersion = '4\.0\.7'/);
+  assert.match(staging, /\$TorchVersion = '2\.14\.0'/);
+  assert.match(staging, /\$TorchaudioVersion = '2\.11\.0'/);
+  const installCommand = staging.slice(
+    staging.indexOf('& $HostPython -m pip install'),
+    staging.indexOf('if ($LASTEXITCODE -ne 0) { throw "Diarization dependency install failed', staging.indexOf('& $HostPython -m pip install')),
+  );
+  assert.match(installCommand, /@targetArgs @indexArgs -r \$lockfile/);
+  const lockGeneration = staging.indexOf("if ($GenerateLock) {");
+  const runtimeGuard = staging.indexOf("if (-not (Test-Path -LiteralPath $python -PathType Leaf))");
+  assert.ok(lockGeneration < runtimeGuard, "lock generation must work from a clean checkout without a staged runtime");
 
   const entries = lock
     .split(/\r?\n/)

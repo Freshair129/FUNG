@@ -200,7 +200,7 @@ fn validate_runtime(root: &Path) -> Result<(), String> {
         .map_err(|_| "PDF_PARSER_SANDBOX_UNAVAILABLE".to_string())?;
     if manifest.contract_version != 1
         || manifest.python_version != "3.11.9"
-        || manifest.pypdf_version != "6.10.0"
+        || manifest.pypdf_version != "6.16.1"
         || manifest.pypdf_license != "BSD-3-Clause"
         || !root.join("python.exe").is_file()
         || !root.join("python311.dll").is_file()

@@ -134,8 +134,8 @@ print(json.dumps({
     }
     if ($dependencyInfo.python -ne $pythonVersion -or
         $dependencyInfo.torch -ne '2.14.0+cpu' -or
-        $dependencyInfo.transformers -ne '4.57.1' -or
-        $dependencyInfo.accelerate -ne '1.10.1' -or
+        $dependencyInfo.transformers -ne '5.17.0' -or
+        $dependencyInfo.accelerate -ne '1.15.0' -or
         $dependencyInfo.fasterWhisper -ne '1.2.1' -or
         $dependencyInfo.av -ne '18.1.0') {
         throw "Candidate runtime versions do not match the approved lock: $($dependencyOutput -join ' ')"

@@ -67,14 +67,18 @@ pwsh -File .\scripts\stage_diarization_runtime.ps1 -TorchVariant cpu
 ```
 
 `-GenerateLock` needs network access and only writes the reviewable,
-hash-pinned lockfile; do not hand-edit the generated dependency list. Use
-`-TorchVariant cu121` instead of `cpu` only when the machine has the matching
+hash-pinned lockfile; it works from a clean checkout without a previously
+staged runtime. Do not hand-edit the generated dependency list. Use
+`-TorchVariant cu130` instead of `cpu` only when the machine has the matching
 GPU runtime and CUDA wheels are intentionally wanted.
 
-The staging script pins `torch==2.4.1` with `torchaudio==2.4.1` because
-`pyannote.audio==3.4.0` still uses torchaudio's `AudioMetaData` API. Do not
-silently replace either pin with the latest Torch release without rerunning
-the import probe.
+The staging script pins `pyannote.audio==4.0.7`, `torch==2.14.0`, and
+`torchaudio==2.11.0` as one hash-locked set. The worker decodes the input with
+the staged faster-whisper/PyAV decoder and passes a 16 kHz waveform to
+pyannote, so this flow does not rely on the removed `AudioMetaData` API or
+TorchCodec's external FFmpeg libraries. Run the import probe after staging;
+model compatibility still needs a real inference smoke with the user's gated
+cache.
 
 The staged app Python is an embedded CPython runtime and does not contain
 `pip`. The script therefore uses a separate host Python/uv interpreter to

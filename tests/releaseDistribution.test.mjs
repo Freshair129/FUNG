@@ -79,6 +79,11 @@ test("portable runtime staging is pinned and bundles a local model", async () =>
   const source = await readFile(new URL("../scripts/stage_whisper_runtime.ps1", import.meta.url), "utf8");
 
   assert.match(source, /PythonVersion\s*=\s*'3\.11\.9'/);
+  assert.match(
+    source,
+    /\$pythonSha256 = '009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b'/,
+    "operational staging must pin the verified Python 3.11.9 embedded archive",
+  );
   assert.match(source, /FasterWhisperVersion\s*=\s*'1\.2\.1'/);
   assert.match(source, /\[string\]\$Model\s*=\s*'large-v3-turbo'/);
   assert.match(source, /\[ValidateSet\(\s*'small'\s*,\s*'large-v3-turbo'\s*,\s*'medium'\s*,\s*'large-v3'\s*\)\]/);
@@ -130,8 +135,19 @@ test("Thai Transformers candidate staging is pinned, transactional, and space-aw
     "Rust readiness must pin the staged embedded-Python archive digest",
   );
   assert.match(requirements, /torch==2\.14\.0\+cpu/);
-  assert.match(requirements, /transformers==4\.57\.1/);
-  assert.match(requirements, /accelerate==1\.10\.1/);
+  assert.match(requirements, /transformers==5\.17\.0/);
+  assert.match(requirements, /accelerate==1\.15\.0/);
   assert.match(requirements, /--hash=sha256:/);
   assert.ok(rust.includes(lockHash), "Rust readiness must pin the candidate dependency lock hash");
+});
+
+test("the isolated PDF parser installs the fixed wheel from its SHA-256 pin", async () => {
+  const requirements = await readFile("scripts/knowledge-extraction-requirements.txt", "utf8");
+  const staging = await readFile("scripts/stage_knowledge_parser_runtime.ps1", "utf8");
+  const rust = await readFile("src-tauri/src/meeting_knowledge_windows.rs", "utf8");
+
+  assert.match(requirements, /^pypdf==6\.16\.1 --hash=sha256:[0-9a-f]{64}$/m);
+  assert.match(staging, /--require-hashes/);
+  assert.match(staging, /pypdfVersion = "6\.16\.1"/);
+  assert.match(rust, /manifest\.pypdf_version != "6\.16\.1"/);
 });

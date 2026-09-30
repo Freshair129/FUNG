@@ -1,7 +1,7 @@
 ---
-version: "0.1.3b"
+version: "0.1.4b"
 created_at: "2026-09-17T09:11:00+07:00,Codex,376ef30db13670e4dea816ceff440f44ce73fffd"
-last_update: "2026-09-17T12:36:00+07:00,Codex"
+last_update: "2026-09-17T20:56:22+07:00,Codex"
 status: "under review"
 superseded_by: null
 attributes:
@@ -11,16 +11,59 @@ attributes:
 
 # Browser re-verification after integrated lifecycle RCA
 
-CURRENT RESULT: contrast FIX3 source implemented; fresh visual verification
-BLOCKED_BROWSER_ATTACH before any page could be observed. The latest explicit
-Boss `Approve` authorized the exact three-file correction and new browser cycle.
-Full acceptance remains BLOCKED on browser and separate native/CI gates.
-The prior-turn pause and failures below are retained as historical evidence.
+CURRENT RESULT: scoped FIX3 browser re-verification PASS on CI144 merged source;
+the earlier browser-attach failure is no longer the current observation. Native,
+packaged persistence/audio and broader keyboard/device acceptance remain open.
+Prior pauses/failures below are retained as historical evidence, not current CI
+results. CI144 separately passed; it does not constitute native runtime proof.
 
 Story: desktop Home/Live/History renders truthful capture state and preserves one
 Live owner plus recording-scoped review; native transport remains a separate gate.
 Verification skills require actual UI evidence and stopping at a broken boundary.
 Agent-browser CLI was unavailable; CUA used without installing dependencies.
+
+## Pinned package-checkout browser recheck — 2026-09-17 20:51-20:56 ICT
+
+Observed by main orchestrator, not inferred from worker text. Source is clean
+detached merge `3aafe1e5efe1cbfe2852cb73cf20140f12841f90`, tree
+`5ddbc23f9fa3484e7b9351d7f1981219ed9d2775`, under
+`output/callmd-desktop-ci144-3aafe1e`. Original source/test pins below are
+unchanged. No implementation, test, config, bridge or native state was edited.
+
+- The existing Live fixture ran from that checkout at127.0.0.1:5173, session93322.
+  Actual AX text and screenshot showed FIXTURE_COMPLETE and all seven PASS rows:
+  hidden0x0/displaynone; one visible owner1280x800; three light labels
+  rgb48,56,51; three dark labels rgb244,241,234; StrictMode ready/inactive with
+  two registrations; honest NATIVE_UNAVAILABLE; unmounted controller rejection
+  LEGACY_COMMAND_FAILED. Console warn/error list was empty.
+- Actual App used unchanged Vite through installed dependencies at
+  127.0.0.1:15475/app?surface=desktop, session34714. No optional env file was
+  copied; no Tauri internals were injected. Home -> Live -> History -> Live ->
+  Home navigation worked; focus moved to the corresponding main heading.
+- Home disclosed native project inventory unavailable, not fabricated rows.
+  Live disclosed NATIVE_UNAVAILABLE, kept capture/Q&A/summary disabled, and
+  History required a project/recording without starting capture/playback.
+- Both History themes were observed in screenshots. Live's three form labels
+  measured rgb48,56,51 in light and rgb244,241,234 in dark, opacity1 and a dark
+  ancestor present. App's first new tab defaulted to1280x720 despite the earlier
+  fixture override; the override was reapplied and final Live light/dark and
+  History observations explicitly measured1280x800. No full all-state clipping
+  or broad keyboard acceptance is implied.
+- Returning Home hid Live with hidden=true, displaynone and0x0. Captured App
+  console warn/error list was empty. A getByLabel theme locator had no matches;
+  fresh DOM grounded the working combobox-role locator. This was an automation
+  locator correction, not a source defect or a silently retried UI failure.
+- Both owned tabs closed, original light restored, viewport override reset;
+  both owned server sessions stopped. No listeners remained on5173/15475.
+  Only task-generated Temp/fung-callmd-live-fixture-ksDaNF was deleted after
+  exact canonical immediate-child and root/descendant reparse checks; absence
+  verified. Other user tabs/processes/files were untouched.
+
+This closes the bounded FIX3 contrast/navigation re-observation only. Native
+boot/capture/playback, real persisted History, restart, provider, OS-theme
+transition and complete keyboard/retained-surface journeys remain NOT_RUN.
+Package preparation has a separate missing Python3.11+pip prerequisite and an
+unspecified credential-isolated Windows account/VM; neither is bypassed.
 
 ## Approved FIX3 browser attempt — 2026-09-17 12:34-12:36 ICT
 
@@ -129,15 +172,17 @@ reviewer must verify fixture logic unchanged underfda7 before carrying it forwar
 
 ## Open gates
 
-Native cold boot/device/audio/persistence restart, packaged runtime/provider and
-hostedCI NOT_RUN. No safe data-and-credential isolated native environment selected.
-Browser cannot close those gates. Existing fullRust Whisper6 failures and strict
-Clippy auth/backup failures are retained by the pinned verification report.
+Native cold boot/device/audio/persistence restart and packaged runtime/provider
+remain NOT_RUN. No safe data-and-credential isolated native environment selected.
+Browser cannot close those gates. The prior fullRust Whisper6 failures and strict
+Clippy failures below belong to the old local snapshot; current hosted CI144 on
+3aafe1e passed471/0/1, custody11 and strictClippy. No new packaged artifact exists.
 
 ## Version Diff / CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.1.4b | 2026-09-17 | under review | Main observed Live fixture7/7 and scoped App theme/navigation PASS on exact CI144 tree; native/package gates retained | Local; tested3aafe1e | Codex orchestrator |
 | 0.1.2b | 2026-09-17 | under review | Theme ancestry fixed; pause on actual Live dark-label contrast after two retries | UNCOMMITTED; base376ef30 | Codex orchestrator |
 | 0.1.1b | 2026-09-17 | under review | Lifecycle/nav pass, theme boundary fails; strict History fixture6PASS | UNCOMMITTED; base376ef30 | Codex orchestrator |
 | 0.1.0b | 2026-09-17 | under review | Main Live fixture proof; integrated and exact-count reproof pending | UNCOMMITTED; base376ef30 | Codex orchestrator |

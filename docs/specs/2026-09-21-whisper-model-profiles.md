@@ -1,7 +1,7 @@
 ---
-version: "0.4.10b"
+version: "0.4.11b"
 created_at: "2026-09-21T00:00:00+07:00,RWANG"
-last_update: "2026-10-01T01:42:00+07:00,RWANG"
+last_update: "2026-10-01T15:00:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -19,12 +19,28 @@ FUNG has two operational transcription profiles:
 
 | Profile | Model | Default execution | Intended machine | Distribution |
 | --- | --- | --- | --- | --- |
-| `turbo` | `large-v3-turbo` | CUDA `float16` when GPU is selected; CPU `int8` remains an explicit compatibility path | Default quality/speed balance on a CUDA-capable desktop | Bundled when the runtime is staged |
-| `medium` | `medium` | CPU `int8`; CUDA `int8_float16` is available for low-VRAM GPUs | Lower VRAM or CPU-only machines | Bundled as the alternate operational model |
+| `turbo` | `large-v3-turbo` | CUDA `float16` when GPU is selected; CPU `int8` remains an explicit compatibility path | Default quality/speed balance on a CUDA-capable desktop | The only model in the Windows installer |
+| `medium` | `medium` | CPU `int8`; CUDA `int8_float16` is available for low-VRAM GPUs | Lower VRAM or CPU-only machines | Optional; staged separately, not in the Windows installer |
 
 `turbo` is the default model profile. The existing execution setting
 `FUNG_TRANSCRIPTION_PROFILE` remains `cpu` or `gpu`; model selection is kept
 separate so existing device behavior is not silently redefined.
+
+## Windows installer distribution
+
+The Windows installer bundles `large-v3-turbo` only. NSIS and WiX/MSI both
+cap a single installer's data at 2 GB. `large-v3-turbo` and `medium` model
+files total about 3.1 GB, so an installer carrying both cannot be built:
+NSIS fails with `Internal compiler error #12345: error mmapping file ... is out
+of range` and WiX `light.exe` fails at the same size. With `turbo` alone the
+installer is about 1.4 GB.
+
+`medium` stays an operational profile. It is selected only through
+`FUNG_WHISPER_MODEL_PROFILE=medium`, not through the normal user interface.
+On an installed build without the model it fails closed per acceptance
+criterion 4; the error currently names `scripts/stage_whisper_runtime.ps1`,
+a developer staging path. An end-user `medium` model pack is not specified
+here and would need its own distribution and provenance design.
 
 The `large-v3` model is a qualification-only reference. It is never selected
 by the normal desktop profile, is not required in the normal bundle, and is
@@ -188,8 +204,8 @@ The staged runtime uses one canonical directory per model:
 ```text
 .venv-whisper/
   models/
-    large-v3-turbo/
-    medium/
+    large-v3-turbo/       # the only model in the Windows installer
+    medium/               # optional; excluded from installer staging
     large-v3/             # optional qualification-only staging
 
 .venv-whisper-transformers-candidate/
@@ -259,6 +275,10 @@ separate from release readiness.
     audio spans against the general profile. Without reference transcripts,
     report timing and qualitative output only; do not claim WER/CER or improved
     Thai accuracy.
+13. A Windows installer is built from a `.venv-whisper` staged with
+    `large-v3-turbo` only, and its manifest lists no other model. Staging
+    `medium` into the same directory before bundling pushes the installer
+    past the 2 GB limit.
 
 ## Risk and boundaries
 
@@ -292,6 +312,7 @@ qualification report](../verification/implementation-reports/2026-09-30-qwen-tha
 
 | Version | Change |
 | --- | --- |
+| 0.4.10b → 0.4.11b | Made `large-v3-turbo` the only model in the Windows installer after NSIS/WiX hit their 2 GB data limit with `medium`; `medium` stays an optional, separately staged profile. |
 | 0.4.9b → 0.4.10b | Recorded the negative five-clip filter result; no preprocessing profile qualified and Detailed remains disabled. |
 | 0.4.8b → 0.4.9b | Added the bounded Qwen low-clarity preprocessing contract with raw default, source-audio CTC alignment, provenance matching, and an open qualification gate. |
 | 0.4.7b → 0.4.8b | Recorded user listening feedback identifying bt10m/bt3m transcription misses and an official-reference discrepancy; Detailed remains disabled pending timing review and remediation. |
@@ -311,6 +332,7 @@ qualification report](../verification/implementation-reports/2026-09-30-qwen-tha
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.4.11b | 2026-10-01 | beta | Turbo-only Windows installer: both-model NSIS build failed at 2 GB; turbo-only NSIS built at 1,496,776,231 bytes from main `d7fb184d`, not yet installed or UAT-tested. | working-tree | RWANG |
 | 0.4.10b | 2026-10-01 | beta | Tested raw, PyAV afftdn and speechnorm; neither transform met the reviewed-error gate, so Qwen Detailed remains disabled. | working-tree | RWANG |
 | 0.4.9b | 2026-10-01 | beta | Added candidate-only PyAV preprocessing modes and a fail-closed provenance gate; filter quality and timing remain unqualified. | working-tree | RWANG |
 | 0.4.8b | 2026-09-30 | beta | Recorded human listening misses on bt10m/bt3m and separate reference sensitivity; word-level timing and remediation remain open. | working-tree | RWANG |

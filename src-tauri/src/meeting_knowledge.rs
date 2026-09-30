@@ -320,7 +320,7 @@ fn validate_parsed_document(document: &ParsedDocument, source_bytes: u64) -> Res
         || document.parser_version != "fung-knowledge-extractor/0.1.0"
         || (document.mime_type == "application/pdf"
             && (document.dependency.name != "pypdf"
-                || document.dependency.version != "6.10.0"
+                || document.dependency.version != "6.16.1"
                 || document.dependency.license != "BSD-3-Clause"))
         || (document.mime_type != "application/pdf"
             && (document.dependency.name != "python-stdlib"

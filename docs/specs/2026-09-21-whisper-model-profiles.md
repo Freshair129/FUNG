@@ -1,7 +1,7 @@
 ---
-version: "0.4.4b"
+version: "0.4.5b"
 created_at: "2026-09-21T00:00:00+07:00,RWANG"
-last_update: "2026-09-29T23:14:00+07:00,RWANG"
+last_update: "2026-10-01T01:42:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -113,6 +113,21 @@ looked more continuous in this clip and was slower. This is one qualitative
 sample without a reference transcript, so Thai accuracy remains unqualified.
 
 ## User-facing transcription modes
+
+### 2026-10-01 candidate runtime security update
+
+The isolated candidate dependency contract now pins Transformers `5.17.0`
+and Accelerate `1.15.0`. The worker rejects checkpoint indexes and sharded
+weight files before importing Transformers, and requires the staged local
+`pytorch_model.bin`; offline mode and low-memory loading remain in force.
+Accelerate has no declared upstream patched version for its sharded-index
+advisory, so this application guard protects only FUNG's approved single-file
+model path. Future sharded or externally supplied models need a separate
+security review.
+
+This dependency update does not qualify Thai transcription accuracy. The
+existing model-load and same-clip evidence applies to the previous dependency
+set until a local 5.17.0 worker smoke passes.
 
 The Desktop exposes two task modes, separate from the machine execution
 setting (`FUNG_TRANSCRIPTION_PROFILE`):
@@ -234,6 +249,7 @@ or production-readiness claim.
 
 | Version | Change |
 | --- | --- |
+| 0.4.4b → 0.4.5b | Updated the isolated Thai candidate to Transformers 5.17.0 / Accelerate 1.15.0, rejected sharded checkpoint inputs, and corrected the verified operational Python 3.11.9 archive digest; full model-weight inference remains unrun. |
 | 0.4.3b → 0.4.4b | Recorded successful offline Rust-worker model load and one same-audio Turbo CPU comparison; Thai accuracy remains unqualified without a reference transcript. |
 | 0.4.2b → 0.4.3b | Staged the pinned candidate runtime/model and verified exact dependency imports plus consolidated source checks; production worker model load and same-audio comparison remain pending. |
 | 0.4.1b → 0.4.2b | Implemented the isolated Python 3.11.9 candidate runtime, hash-locked CPU dependencies, transactional staging, fail-closed readiness and low-memory offline batch loading; consolidated runtime qualification is pending. |
@@ -247,6 +263,7 @@ or production-readiness claim.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.4.5b | 2026-10-01 | candidate | Updated the candidate lane to Transformers 5.17.0 / Accelerate 1.15.0, rejected sharded checkpoint inputs, corrected the operational embedded-Python archive digest, and passed local processor/config loading; model-weight inference remains unrun. | pending | RWANG |
 | 0.4.4b | 2026-09-29 | beta | Passed offline candidate Rust-worker smoke and same-audio Turbo comparison; Thai accuracy remains unqualified. | working-tree | RWANG |
 | 0.4.3b | 2026-09-29 | beta | Staged the candidate runtime/model and passed source validation; production worker model load and same-audio comparison remain pending. | working-tree | RWANG |
 | 0.4.2b | 2026-09-29 | beta | Implemented the isolated candidate runtime and hash-locked CPU dependencies; staging, model-load, same-audio and consolidated test evidence remain pending. | working-tree | RWANG |

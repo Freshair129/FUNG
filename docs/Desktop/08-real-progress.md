@@ -1,7 +1,7 @@
 ---
-version: "0.3.13b"
+version: "0.3.14b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-29T23:43:00+07:00,RWANG"
+last_update: "2026-10-01T01:42:00+07:00,RWANG"
 status: "beta"
 superseded_by: null
 attributes:
@@ -11,6 +11,40 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Python runtime Dependabot remediation — 2026-10-01
+
+The default branch had 37 open runtime alerts across the PDF parser,
+Transformers candidate and optional diarization locks. This candidate raises
+the parser to pypdf 6.16.1, the Detailed candidate to Transformers 5.17.0 and
+Accelerate 1.15.0, and diarization to pyannote.audio 4.0.7 / Torch 2.14.0 /
+TorchAudio 2.11.0. The candidate worker rejects sharded checkpoint indexes
+before loading; the diarization worker passes a locally decoded 16 kHz
+waveform to pyannote 4.
+
+Local evidence: pypdf tests passed 7/7 on the target CPython 3.11.9 with its
+hash-pinned wheel; the official embedded CPython 3.11.9 parser runtime staged
+successfully with pypdf 6.16.1 and passed its import probe. Candidate
+dependencies and ASR classes imported on CPython 3.11.9, and the local Whisper
+config/processor loaded offline; the diarization runtime installed and passed
+its dependency probe on CPython 3.11.9; a synthetic WAV passed through the
+existing PyAV decoder into pyannote 4's waveform validation. Candidate tests
+passed 4/4, diarization tests 8/8 Node and 3/3 Python, release contracts 9/9,
+knowledge parser tests 7/7, and Rust tests 594 passed / 0 failed / 2 ignored.
+`npm run build`, `cargo fmt --check`, and `git diff --check` passed. `pip-audit`
+reported no known issues for the pypdf, Transformers/Accelerate and diarization
+requirement locks. Its PyPI service skipped the local build
+`torch==2.14.0+cpu`, which is outside the current GitHub advisory ranges.
+The cu130 PyTorch index is now carried into both lock resolution and install;
+the CUDA wheel install and GPU inference remain **NOT_RUN** on this CPU-only
+verification host.
+
+Full Transformers weight loading and transcription were **NOT_RUN** because
+free physical memory was 4.3 GiB, below the 12 GiB qualification threshold.
+The gated `pyannote/speaker-diarization-3.1` weights were absent from the
+accessible Hugging Face cache, so real inference was also **NOT_RUN**. These
+checks remain separate from the passing dependency/fixture probes; candidate
+Thai accuracy and diarization/model acceptance are not claimed.
 
 Google Drive is canceled and its active implementation was removed on
 2026-09-17. Phase 4 backup truth below means the local encrypted filesystem
@@ -1074,6 +1108,12 @@ Screenshot artifacts from the latest UI validation:
 | CUDA redistribution | High | Treat NVIDIA redistribution terms as a release gate; stage only from an approved, version-pinned source. |
 
 ## Version Diff
+
+### `0.3.13b` → `0.3.14b`
+
+- Recorded the 37-alert Python runtime remediation, staged dependency and
+  waveform evidence, corrected the operational embedded-Python archive digest,
+  and recorded the unrun model-weight acceptance gates.
 
 ### `0.3.12b` → `0.3.13b`
 

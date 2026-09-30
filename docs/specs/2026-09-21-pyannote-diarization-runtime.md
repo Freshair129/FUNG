@@ -1,8 +1,8 @@
 ---
-version: "0.1.0"
+version: "0.2.0"
 created_at: "2026-09-21T00:00:00+07:00,RWANG"
-last_update: "2026-09-21T00:00:00+07:00,RWANG"
-status: "beta"
+last_update: "2026-10-01T01:42:00+07:00,RWANG"
+status: "candidate"
 superseded_by: null
 attributes:
   domain: "local-first-audio-ai"
@@ -45,10 +45,11 @@ wheel ที่ build ซ้ำบนแต่ละเครื่อง
 | --- | --- |
 | Pipeline | `pyannote/speaker-diarization-3.1` |
 | Python runtime | FUNG `.venv-whisper` เดียวกับ Whisper |
-| Default dependency variant | CPU wheels; ใช้ `-TorchVariant cu121` เมื่อ staging GPU ที่รองรับ |
-| Torch compatibility pin | `torch==2.4.1`, `torchaudio==2.4.1`; pin คู่เพื่อคง `AudioMetaData` API ที่ pyannote 3.4.0 ใช้ |
+| Default dependency variant | CPU wheels; ใช้ `-TorchVariant cu130` เมื่อ staging GPU ที่รองรับ |
+| Torch compatibility pin | `pyannote.audio==4.0.7`, `torch==2.14.0`, `torchaudio==2.11.0`; hash-lock the resolved set |
+| Audio input | decode with the already-staged faster-whisper/PyAV decoder; pass a 16 kHz in-memory waveform to pyannote |
 | Staging interpreter | Host Python/uv ที่มี pip; embedded app Python ไม่มี pip โดยเจตนา |
-| Worker | `scripts/diarize.py` — `PROGRESS` ทาง stderr, JSON เดียวทาง stdout |
+| Worker | `scripts/diarize.py` — pyannote 4 output wrapper normalized to the existing annotation and FUNG JSON; `PROGRESS` on stderr, one JSON on stdout |
 | Output | anonymous `Speaker 1`, `Speaker 2`, … พร้อม `startMs`, `endMs`, `confidence` ที่ nullable |
 | Cache | FUNG-owned Hugging Face cache; `FUNG_HF_HOME` override ได้เพื่อ share cache เดียว |
 | First fetch | ต้อง accept license ของ pipeline และ `pyannote/segmentation-3.0` พร้อม `FUNG_HF_TOKEN` หรือ `HF_TOKEN` |
@@ -62,8 +63,7 @@ wheel ที่ build ซ้ำบนแต่ละเครื่อง
 - ผลลัพธ์เริ่มเป็น anonymous/model-proposed data ตาม provenance เดิมของ FUNG
 - หาก dependency, model, token หรือ inference ไม่พร้อม transcript ต้องยังถูก
   persist และ job ต้องจบได้ โดยบันทึกเหตุผลว่า diarization unavailable
-- Token อ่านเฉพาะใน process environment ไม่เขียนลง GenesisBlockDB, manifest,
-  logs หรือ job event
+- Token อ่านเฉพาะใน process environment และส่งด้วย pyannote 4 `token=` argument; ไม่เขียนลง GenesisBlockDB, manifest, logs หรือ job event
 - ไม่ bundle gated model weights ใน installer และไม่ redistribute น้ำหนักโมเดล
   ที่ผู้ใช้ดาวน์โหลดภายใต้บัญชีของตนเอง
 
@@ -72,9 +72,11 @@ wheel ที่ build ซ้ำบนแต่ละเครื่อง
 ### In scope
 
 - สร้างและ review hash-pinned dependency lockfile สำหรับ CPU runtime
-- รองรับ optional CUDA dependency staging ผ่าน script เดิม
+- รองรับ optional CUDA dependency staging ผ่าน script เดิมและ CUDA 13.0 wheel index
 - stage dependency เข้า `.venv-whisper` โดยไม่สร้าง Python runtime ซ้ำ
 - resolve/install wheels สำหรับ CPython 3.11 ด้วย host interpreter ที่มี pip
+- ให้ `-GenerateLock` ทำงานได้จาก clean checkout โดยไม่ต้องมี runtime ที่ stage แล้ว
+- ใช้ worker decoder ส่ง waveform เข้า pyannote เพื่อไม่พึ่ง TorchAudio `AudioMetaData` หรือ TorchCodec file decoding
 - ใช้ readiness probe เดิมเพื่อแยก `dependencies_missing` กับ `model_not_fetched`
 - ปรับ setup documentation ให้ใช้ staging flow ที่ reproducible
 - ตรวจ Python worker, Rust readiness/runner และ graceful transcript fallback
@@ -89,12 +91,13 @@ wheel ที่ build ซ้ำบนแต่ละเครื่อง
 
 ## 6. Acceptance criteria
 
-- `scripts/diarization-runtime-requirements.txt` มี dependency versions และ
+- `scripts/diarization-runtime-requirements.txt` มี pyannote 4.0.7, Torch 2.14.0, TorchAudio 2.11.0 dependency versions และ
   SHA-256 hashes ครบจากการ resolve จริง และติดตั้งด้วย `--require-hashes` ได้
 - `stage_diarization_runtime.ps1` ผ่าน PowerShell parser และ dependency probe
   แสดง `diarization-deps-ready`
 - `diarization_status` รายงานสถานะและ blocker ที่ถูกต้องโดยไม่เรียก network
-- worker compile/import ได้ และ output schema parse ได้เมื่อใช้ model cache จริง
+- worker tests prove local 16 kHz waveform handoff, pyannote 4 output normalization, and existing anonymous-turn JSON schema
+- a real gated model inference smoke is required before claiming end-to-end model compatibility
 - model fetch ใช้ FUNG cache และ token ไม่ปรากฏใน output
 - เมื่อ diarization ไม่พร้อมหรือ inference ล้มเหลว transcript ยังอยู่และ job
   event ระบุสาเหตุ
@@ -111,9 +114,11 @@ labelled multi-speaker qualification set และรายงาน DER/JER แ
 | Version | Change |
 | --- | --- |
 | 0.1.0 | Approved runtime contract for optional local pyannote diarization. |
+| 0.2.0 | Migrated away from the vulnerable Torch 2.4.1 pair to a hash-locked pyannote 4 runtime and a predecoded waveform input contract; passes the selected cu130 index through hash-locked installation. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
 | 0.1.0 | 2026-09-21 | beta | Added approved runtime, privacy, staging and verification contract for `pyannote/speaker-diarization-3.1`. | pending | RWANG |
+| 0.2.0 | 2026-10-01 | candidate | Updated runtime security pins and audio/API contract; real gated-model inference remains a separate acceptance gate. | pending | RWANG |

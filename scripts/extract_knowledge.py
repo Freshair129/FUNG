@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 PARSER_VERSION = "fung-knowledge-extractor/0.1.0"
-PYPDF_VERSION = "6.10.0"
+PYPDF_VERSION = "6.16.1"
 MAX_INPUT_BYTES = 25 * 1024 * 1024
 MAX_PAGES = 500
 MAX_TEXT_CHARS = 4 * 1024 * 1024

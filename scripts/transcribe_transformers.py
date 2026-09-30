@@ -13,19 +13,42 @@ downloading during transcription.
 import argparse
 import json
 import os
+import re
 import sys
 
 
 DEFAULT_MODEL = "whisper-th-large-combined"
 
 
-def load_pipeline(model_path: str, profile: str):
-    """Load the Transformers ASR pipeline once for a batch or live session."""
+def validate_candidate_checkpoint(model_path: str) -> None:
+    """Accept only the approved local full-checkpoint layout, never shards."""
     if not os.path.isdir(model_path):
         raise RuntimeError(
             f"Transformers candidate model directory is missing: {model_path}. "
             "Run scripts/stage_whisper_transformers_candidate.ps1 first."
         )
+
+    filenames = os.listdir(model_path)
+    has_index = any(name.endswith(".index.json") for name in filenames)
+    has_shards = any(
+        re.fullmatch(r"(?:pytorch_model|model)-\d+-of-\d+\.(?:bin|safetensors)", name)
+        for name in filenames
+    )
+    if has_index or has_shards:
+        raise RuntimeError(
+            "Transformers candidate sharded checkpoints are not allowed; "
+            "stage the approved single-file model."
+        )
+    if not os.path.isfile(os.path.join(model_path, "pytorch_model.bin")):
+        raise RuntimeError(
+            "Transformers candidate pinned pytorch_model.bin is missing; "
+            "stage the approved single-file model."
+        )
+
+
+def load_pipeline(model_path: str, profile: str):
+    """Load the Transformers ASR pipeline once for a batch or live session."""
+    validate_candidate_checkpoint(model_path)
 
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     import torch

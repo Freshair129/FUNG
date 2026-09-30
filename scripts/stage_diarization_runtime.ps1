@@ -63,8 +63,8 @@
     TorchaudioVersion unless the import probe and model smoke are rerun.
 
 .PARAMETER TorchaudioVersion
-    Torchaudio version paired with TorchVersion. pyannote.audio 3.4.0 uses
-    the AudioMetaData API retained by the reviewed 2.4.1 pair.
+    Torchaudio version paired with TorchVersion for the reviewed pyannote 4
+    runtime. The worker decodes audio before passing a waveform to pyannote.
 
 .EXAMPLE
     # One-time, on a machine with network access:
@@ -74,10 +74,10 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$PyannoteVersion = '3.4.0',
-    [string]$TorchVersion = '2.4.1',
-    [string]$TorchaudioVersion = '2.4.1',
-    [ValidateSet('cpu', 'cu121')]
+    [string]$PyannoteVersion = '4.0.7',
+    [string]$TorchVersion = '2.14.0',
+    [string]$TorchaudioVersion = '2.11.0',
+    [ValidateSet('cpu', 'cu130')]
     [string]$TorchVariant = 'cpu',
     [string]$HostPython,
     [string]$CacheRoot,
@@ -93,10 +93,6 @@ $sitePackages = Join-Path $venv 'Lib\site-packages'
 $lockfile = Join-Path $PSScriptRoot 'diarization-runtime-requirements.txt'
 $licensesDir = Join-Path $venv 'LICENSES'
 $model = 'pyannote/speaker-diarization-3.1'
-
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
-    throw "No staged FUNG runtime at $venv. Run scripts/stage_whisper_runtime.ps1 first."
-}
 
 if (-not $HostPython) {
     $uv = Get-Command uv -ErrorAction SilentlyContinue
@@ -218,6 +214,10 @@ if ($GenerateLock) {
     exit 0
 }
 
+if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+    throw "No staged FUNG runtime at $venv. Run scripts/stage_whisper_runtime.ps1 first."
+}
+
 if (-not (Test-Path -LiteralPath $lockfile -PathType Leaf)) {
     throw @"
 No pinned lockfile at $lockfile.
@@ -257,7 +257,7 @@ foreach ($metadata in (Get-ChildItem -LiteralPath $sitePackages -Directory -Filt
 
 Write-Host "Installing diarization dependencies from $lockfile ..."
 & $HostPython -m pip install --disable-pip-version-check --upgrade --no-deps `
-    --require-hashes --target $sitePackages @targetArgs -r $lockfile
+    --require-hashes --target $sitePackages @targetArgs @indexArgs -r $lockfile
 if ($LASTEXITCODE -ne 0) { throw "Diarization dependency install failed with exit code $LASTEXITCODE" }
 
 New-Item -ItemType Directory -Path $licensesDir -Force | Out-Null
@@ -307,8 +307,9 @@ Write-Host "Fetching $model into $CacheRoot ..."
 
 $env:HF_HOME = $CacheRoot
 $fetch = @"
+import os
 from pyannote.audio import Pipeline
-Pipeline.from_pretrained('$model', use_auth_token='$token')
+Pipeline.from_pretrained('$model', token=os.environ.get('FUNG_HF_TOKEN') or os.environ.get('HF_TOKEN'))
 print('diarization-model-ready')
 "@
 $fetchOutput = & $python -c $fetch

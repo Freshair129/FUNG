@@ -156,9 +156,14 @@ print(json.dumps({
         throw "Qwen candidate runtime versions do not match the approved lock: $($dependencyOutput -join ' ')"
     }
 
+    # Build Python list literals with single quotes only: Windows PowerShell
+    # 5.1 strips embedded double quotes from native command arguments, which
+    # turned a JSON list into invalid Python.
+    $asrAllowPatterns = '[' + (($asrPatterns | ForEach-Object { "'$_'" }) -join ', ') + ']'
+    $alignerAllowPatterns = '[' + (($alignerPatterns | ForEach-Object { "'$_'" }) -join ', ') + ']'
     $downloadAsr = @"
 from huggingface_hub import snapshot_download
-snapshot_download(repo_id='$asrRepo', revision='$asrRevision', local_dir=r'$asrDir', allow_patterns=$(ConvertTo-Json -Compress -InputObject $asrPatterns))
+snapshot_download(repo_id='$asrRepo', revision='$asrRevision', local_dir=r'$asrDir', allow_patterns=$asrAllowPatterns)
 "@
     $asrOutput = & $pythonPath -c $downloadAsr 2>&1
     if ($LASTEXITCODE -ne 0) {
@@ -166,7 +171,7 @@ snapshot_download(repo_id='$asrRepo', revision='$asrRevision', local_dir=r'$asrD
     }
     $downloadAligner = @"
 from huggingface_hub import snapshot_download
-snapshot_download(repo_id='$alignerRepo', revision='$alignerRevision', local_dir=r'$alignerDir', allow_patterns=$(ConvertTo-Json -Compress -InputObject $alignerPatterns))
+snapshot_download(repo_id='$alignerRepo', revision='$alignerRevision', local_dir=r'$alignerDir', allow_patterns=$alignerAllowPatterns)
 "@
     $alignerOutput = & $pythonPath -c $downloadAligner 2>&1
     if ($LASTEXITCODE -ne 0) {

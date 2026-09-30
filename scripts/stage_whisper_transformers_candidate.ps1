@@ -141,7 +141,10 @@ print(json.dumps({
         throw "Candidate runtime versions do not match the approved lock: $($dependencyOutput -join ' ')"
     }
 
-    $allowPatternsJson = $modelPatterns | ConvertTo-Json -Compress
+    # Build a Python list literal with single quotes only: Windows PowerShell
+    # 5.1 strips embedded double quotes from native command arguments, which
+    # turned a JSON list into invalid Python.
+    $allowPatterns = '[' + (($modelPatterns | ForEach-Object { "'$_'" }) -join ', ') + ']'
     $modelPathForPython = $modelDir
     $downloadCode = @"
 from huggingface_hub import snapshot_download
@@ -149,7 +152,7 @@ snapshot_download(
     repo_id='$modelRepo',
     revision='$ModelRevision',
     local_dir=r'$modelPathForPython',
-    allow_patterns=$allowPatternsJson,
+    allow_patterns=$allowPatterns,
 )
 "@
     $downloadOutput = & $pythonPath -c $downloadCode 2>&1

@@ -1,7 +1,7 @@
 ---
-version: "0.2.1b"
+version: "0.2.2b"
 created_at: "2026-09-17T13:09:50+07:00,Codex,053d2c5024033d4eed0ec6bd057ce45b0ef112d1"
-last_update: "2026-09-17T17:22:20+07:00,Codex orchestrator"
+last_update: "2026-09-17T17:50:29+07:00,Codex orchestrator"
 status: "beta"
 superseded_by: null
 attributes:
@@ -14,11 +14,10 @@ attributes:
 
 # RCA — hosted Windows playback custody failures
 
-The initial investigation and diagnostic publication are complete. CI143 confirms
-a test-fixture root representation mismatch. Boss's latest `approve` authorizes
-the four-fixture-only correction specified below, with independent Terra review,
-exact commit/push and fresh hosted CI. Production behavior and deployment are
-not authorized by that approval. The active execution record is
+The investigation, approved fixture correction, independent review and scoped
+publication are complete. CI144 now verifies all four former failures resolved
+on hosted Windows. Production behavior is unchanged. Native/package deployment
+is a separate open gate; hosted CI does not close it. The execution record is
 `docs/plans/2026-09-17-callmd-playback-fixture-fix-orchestration.md`.
 
 ## Pinned scope and evidence boundary
@@ -225,7 +224,8 @@ preimage SHA remains unchanged; no source/test files were modified.
 
 ## Status
 
-`FIXTURE_CORRECTION_APPROVED / ROOT CAUSE CONFIRMED / VERIFICATION PENDING`.
+`FIXTURE_CORRECTION_VERIFIED / ROOT CAUSE CONFIRMED / HOSTED_CI_PASS`.
+Earlier approval checkpoints below are historical snapshots.
 
 ## Fresh post-repair hosted evidence and next approval boundary
 
@@ -370,6 +370,33 @@ not waive CI/acceptance or authorize unrelated credential/user-data changes.
 
 ## Version diff / CHANGELOG
 
+### Hosted closure — 2026-09-17 17:50 ICT
+
+- Commit/push: `1e3e693ce2dc995ed99f61f09d6f1c176dddfd7d` on the existing branch;
+  exactly the reviewed source file and four RCA/review/execution documents.
+  The worker report preserves three intentional Markdown hard-break trailing
+  spaces; source and the other documents pass staged whitespace checks.
+- [CI144](https://github.com/Freshair129/FUNG/actions/runs/35211972064): completed,
+  success. Actual checkout was `3aafe1e5efe1cbfe2852cb73cf20140f12841f90`, merging
+  the published head into main `05ed107a2233e8785b95d2ba7dc282c47aee35a7`.
+  PR59 remains open/unmerged. Do not equate branch-head bytes with all merged
+  tree bytes when preparing a build.
+- Published/merged playback Git blob: `b15bf1fe9810314c2c79b9430bed3b0fc720490e`,
+  matching the reviewed file. SHA-256 is
+  `efed4fbe4b6746a09e8f88b0c7ec9fed81a8da35684dd8cfd7a29061b327dbaf`;
+  the protected 65,854-byte production prefix stayed unchanged.
+- Rust job `105171365462`: formatting, custody **11/11**, strict Clippy and
+  full Cargo PASS. Cargo reports **471 passed, 0 failed, 1 ignored**. All four
+  named playback tests explicitly report `ok` at 10:47:54-58 UTC; full result
+  at 10:49:05 UTC. No assertions, skips or security comparator were weakened.
+- Frontend job `105171365092`: build and all registered frontend gates PASS;
+  CallMD suites are **13 + 8 + 12 + 11 + 6 = 50/50**, CI inventory **4/4**.
+- This closes only the four-fixture hosted failure. Browser/native capture,
+  playback, restart/persistence, credential-isolated profile and exact packaged
+  artifact remain separate acceptance gates. No installation or native launch
+  occurred. Post-publication RCA/preflight evidence remains local, outside the
+  five-file published packet.
+
 New -> `0.1.0b`: bounded read-only hosted/local playback investigation; local
 short-8.3 hypothesis did not reproduce on the available fixture; hosted path
 identity remains unavailable; minimal future approval scope recorded; no
@@ -385,9 +412,12 @@ commit/push after independent review. No behavior fix or deployment authorized.
 short/long path mismatch, and propose a separate fixture-only correction.
 `0.2.0b` -> `0.2.1b`: record Boss approval for the exact four-fixture correction,
 independent review and scoped publication; runtime/deployment boundaries retained.
+`0.2.1b` -> `0.2.2b`: record exact published/merged revisions and successful CI144;
+close fixture failure without promoting native/package readiness.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.2b | 2026-09-17 | beta | Four original failures resolved; CI144 success, deployment separate | Local evidence; published1e3e693 / tested3aafe1e | Codex orchestrator |
 | 0.2.1b | 2026-09-17 | beta | Four-fixture correction approved after confirmed RCA | UNCOMMITTED; base343f6ea | Codex orchestrator |
 | 0.2.0b | 2026-09-17 | candidate | Diagnostic task complete; confirmed fixture root cause; correction awaits approval | UNCOMMITTED; observed343f6ea/371d915 | Codex orchestrator |
 | 0.1.3b | 2026-09-17 | under review | Diagnostic-only execution approved; RCA remains unknown | UNCOMMITTED; base76b14c5 | Codex orchestrator |

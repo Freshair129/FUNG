@@ -86,19 +86,59 @@ pub(crate) const DEFAULT_OLLAMA_MODEL: &str = "llama3.1:8b";
 
 pub(crate) const THAI_CANDIDATE_PROFILE: &str = "thai-large-candidate";
 pub(crate) const THAI_CANDIDATE_MODEL: &str = "whisper-th-large-combined";
+// Pins for the earlier Transformers Thai candidate. Detailed readiness now
+// routes to the Qwen candidate, so these are asserted only by tests.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const THAI_CANDIDATE_REPOSITORY: &str = "biodatlab/whisper-th-large-combined";
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const THAI_CANDIDATE_MODEL_REVISION: &str = "b751db1e8dbfee6561de22ca99fe070282fcf459";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_CHECKPOINT_BYTES: u64 = 6_173_655_480;
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_CHECKPOINT_SHA256: &str =
     "e1e0b5b4c9a89d7d60fb795448c3102e07af87fa73c5fce7c0206c6bd99a7e7b";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_TORCH_VERSION: &str = "2.14.0+cpu";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_TRANSFORMERS_VERSION: &str = "5.17.0";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_ACCELERATE_VERSION: &str = "1.15.0";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_FASTER_WHISPER_VERSION: &str = "1.2.1";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_AV_VERSION: &str = "18.1.0";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_DEPENDENCY_LOCK_SHA256: &str =
     "14383cd949155e1bdb025a3e58ff84149acba82188729556c68ee671322c6a99";
 const THAI_CANDIDATE_RUNTIME: &str = ".venv-whisper-transformers-candidate";
+
+pub(crate) const QWEN_CANDIDATE_PROFILE: &str = "qwen-thai-candidate";
+pub(crate) const QWEN_CANDIDATE_MODEL: &str = "qwen3-asr-1.7b";
+pub(crate) const QWEN_CANDIDATE_REPOSITORY: &str = "Qwen/Qwen3-ASR-1.7B-hf";
+pub(crate) const QWEN_CANDIDATE_MODEL_REVISION: &str = "bcd2b5b7f32b480ab5790554cfa8347f246a14f3";
+pub(crate) const QWEN_CANDIDATE_ALIGNER_MODEL: &str = "thai-wav2vec2-ctc";
+pub(crate) const QWEN_CANDIDATE_ALIGNER_REPOSITORY: &str =
+    "wannaphong/wav2vec2-large-xlsr-53-th-cv8-newmm";
+pub(crate) const QWEN_CANDIDATE_ALIGNER_REVISION: &str = "18381b4cfbe8b2e7462827f2c6dea681a31ef5b9";
+const QWEN_CANDIDATE_ASR_CHECKPOINT_BYTES: u64 = 4_076_193_080;
+const QWEN_CANDIDATE_ASR_CHECKPOINT_SHA256: &str =
+    "2db53c7d81bd9b8cbc6a074e89be2c968a0d373fb4ee68bb1b1e14f7042dfee1";
+const QWEN_CANDIDATE_ALIGNER_CHECKPOINT_BYTES: u64 = 1_262_102_632;
+const QWEN_CANDIDATE_ALIGNER_CHECKPOINT_SHA256: &str =
+    "f0135130a25f0f16a59cc376f886f9e54e0c1736f1b85c4c01e93b9f4cc4b090";
+const QWEN_CANDIDATE_PYTHON_VERSION: &str = "3.12.10";
+const QWEN_CANDIDATE_PYTHON_SHA256: &str =
+    "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3";
+const QWEN_CANDIDATE_TORCH_VERSION: &str = "2.14.0+cu130";
+const QWEN_CANDIDATE_TRANSFORMERS_VERSION: &str = "5.16.1";
+const QWEN_CANDIDATE_ACCELERATE_VERSION: &str = "1.10.1";
+const QWEN_CANDIDATE_FASTER_WHISPER_VERSION: &str = "1.2.1";
+const QWEN_CANDIDATE_AV_VERSION: &str = "18.1.0";
+const QWEN_CANDIDATE_PYTHAINLP_VERSION: &str = "5.3.8";
+const QWEN_CANDIDATE_CUDA_VERSION: &str = "13.0";
+const QWEN_CANDIDATE_DEPENDENCY_LOCK_SHA256: &str =
+    "719504fc1f81edeb16a95c8640736ddab08e8885b30e850557471ffd853a72dc";
+const QWEN_CANDIDATE_RUNTIME: &str = ".venv-whisper-qwen-candidate";
 
 #[derive(Clone)]
 pub(crate) struct WhisperRuntime {
@@ -221,6 +261,22 @@ fn thai_candidate_python(runtime: &WhisperRuntime) -> Option<PathBuf> {
     )
 }
 
+fn qwen_candidate_root(runtime: &WhisperRuntime) -> Option<PathBuf> {
+    Some(whisper_resource_root(runtime)?.join(QWEN_CANDIDATE_RUNTIME))
+}
+
+fn qwen_candidate_python(runtime: &WhisperRuntime) -> Option<PathBuf> {
+    Some(
+        qwen_candidate_root(runtime)?
+            .join("Scripts")
+            .join("python.exe"),
+    )
+}
+
+fn qwen_candidate_model(runtime: &WhisperRuntime, model: &str) -> Option<PathBuf> {
+    Some(qwen_candidate_root(runtime)?.join("models").join(model))
+}
+
 pub(crate) fn whisper_worker_interpreter_for_profile(
     runtime: &WhisperRuntime,
     profile: &str,
@@ -228,6 +284,10 @@ pub(crate) fn whisper_worker_interpreter_for_profile(
     if profile == THAI_CANDIDATE_PROFILE {
         return thai_candidate_python(runtime)
             .ok_or_else(|| "ตำแหน่ง Python runtime ของโหมดละเอียดไม่ถูกต้อง".to_string());
+    }
+    if profile == QWEN_CANDIDATE_PROFILE {
+        return qwen_candidate_python(runtime)
+            .ok_or_else(|| "ตำแหน่ง Python runtime ของ Qwen Detailed ไม่ถูกต้อง".to_string());
     }
     whisper_model_backend_from(Some(profile))?;
     Ok(runtime.python.clone())
@@ -253,6 +313,7 @@ pub(crate) struct DetailedTranscriptionReadiness {
     pub(crate) accuracy_qualified: bool,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn candidate_manifest_is_pinned(manifest: &serde_json::Value) -> bool {
     let lockfile_hash_is_valid = manifest
         .pointer("/dependencies/lockfileSha256")
@@ -323,6 +384,159 @@ fn candidate_manifest_is_pinned(manifest: &serde_json::Value) -> bool {
             == Some(THAI_CANDIDATE_CHECKPOINT_SHA256)
 }
 
+fn qwen_candidate_audio_preprocessing_profile(
+    manifest: &serde_json::Value,
+) -> Result<&'static str, &'static str> {
+    match manifest.pointer("/audio/preprocessingProfile") {
+        None => Ok("raw"),
+        Some(serde_json::Value::String(profile)) => match profile.as_str() {
+            "raw" => Ok("raw"),
+            "afftdn" => Ok("afftdn"),
+            "speechnorm" => Ok("speechnorm"),
+            _ => Err("unsupported Qwen audio preprocessing profile"),
+        },
+        Some(_) => Err("invalid Qwen audio preprocessing profile"),
+    }
+}
+
+fn qwen_candidate_manifest_is_pinned(manifest: &serde_json::Value) -> bool {
+    manifest.get("backend").and_then(serde_json::Value::as_str) == Some("transformers")
+        && manifest
+            .get("candidateProfile")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_PROFILE)
+        && manifest
+            .pointer("/python/interpreter")
+            .and_then(serde_json::Value::as_str)
+            == Some("Scripts/python.exe")
+        && manifest
+            .pointer("/python/version")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_PYTHON_VERSION)
+        && manifest
+            .pointer("/python/sha256")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_PYTHON_SHA256)
+        && manifest
+            .pointer("/dependencies/lockfileSha256")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_DEPENDENCY_LOCK_SHA256)
+        && manifest
+            .pointer("/dependencies/torch")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_TORCH_VERSION)
+        && manifest
+            .pointer("/dependencies/transformers")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_TRANSFORMERS_VERSION)
+        && manifest
+            .pointer("/dependencies/accelerate")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_ACCELERATE_VERSION)
+        && manifest
+            .pointer("/dependencies/fasterWhisper")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_FASTER_WHISPER_VERSION)
+        && manifest
+            .pointer("/dependencies/av")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_AV_VERSION)
+        && manifest
+            .pointer("/dependencies/pythainlp")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_PYTHAINLP_VERSION)
+        && manifest
+            .pointer("/dependencies/cudaVersion")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_CUDA_VERSION)
+        && manifest
+            .pointer("/models/asr/name")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_MODEL)
+        && manifest
+            .pointer("/models/asr/repository")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_REPOSITORY)
+        && manifest
+            .pointer("/models/asr/revision")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_MODEL_REVISION)
+        && manifest
+            .pointer("/models/asr/license")
+            .and_then(serde_json::Value::as_str)
+            == Some("Apache-2.0")
+        && manifest
+            .pointer("/models/asr/checkpoint/bytes")
+            .and_then(serde_json::Value::as_u64)
+            == Some(QWEN_CANDIDATE_ASR_CHECKPOINT_BYTES)
+        && manifest
+            .pointer("/models/asr/checkpoint/sha256")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_ASR_CHECKPOINT_SHA256)
+        && manifest
+            .pointer("/models/aligner/name")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_ALIGNER_MODEL)
+        && manifest
+            .pointer("/models/aligner/repository")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_ALIGNER_REPOSITORY)
+        && manifest
+            .pointer("/models/aligner/revision")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_ALIGNER_REVISION)
+        && manifest
+            .pointer("/models/aligner/license")
+            .and_then(serde_json::Value::as_str)
+            == Some("Apache-2.0")
+        && manifest
+            .pointer("/models/aligner/checkpoint/bytes")
+            .and_then(serde_json::Value::as_u64)
+            == Some(QWEN_CANDIDATE_ALIGNER_CHECKPOINT_BYTES)
+        && manifest
+            .pointer("/models/aligner/checkpoint/sha256")
+            .and_then(serde_json::Value::as_str)
+            == Some(QWEN_CANDIDATE_ALIGNER_CHECKPOINT_SHA256)
+        && qwen_candidate_audio_preprocessing_profile(manifest).is_ok()
+}
+
+fn qwen_candidate_detailed_route_gaps(manifest: &serde_json::Value) -> Vec<&'static str> {
+    let mut gaps = Vec::new();
+    if manifest
+        .pointer("/qualification/ctcFeasibility")
+        .and_then(serde_json::Value::as_str)
+        != Some("passed")
+    {
+        gaps.push("Thai CTC 55-clip feasibility");
+    }
+    if manifest
+        .pointer("/qualification/pilotQuality")
+        .and_then(serde_json::Value::as_str)
+        != Some("passed")
+    {
+        gaps.push("FUNG 55-clip WER/CER pilot");
+    }
+    if manifest
+        .pointer("/qualification/microphoneSpotChecks")
+        .and_then(serde_json::Value::as_str)
+        != Some("passed")
+    {
+        gaps.push("five microphone source-audio spot checks");
+    }
+    if manifest
+        .pointer("/qualification/detailedRouting")
+        .and_then(serde_json::Value::as_bool)
+        != Some(true)
+    {
+        gaps.push("Detailed route qualification");
+    }
+    gaps
+}
+
+fn qwen_candidate_detailed_route_is_qualified(manifest: &serde_json::Value) -> bool {
+    qwen_candidate_detailed_route_gaps(manifest).is_empty()
+}
+
 pub(crate) fn detailed_transcription_readiness_for_job(
     runtime: &WhisperRuntime,
 ) -> DetailedTranscriptionReadiness {
@@ -331,51 +545,70 @@ pub(crate) fn detailed_transcription_readiness_for_job(
         reason,
         accuracy_qualified: false,
     };
-    let Some(model_path) = bundled_whisper_model_for_profile(runtime, THAI_CANDIDATE_PROFILE)
-    else {
-        return unavailable("ไม่พบตำแหน่ง runtime สำหรับโมเดลละเอียด".to_string());
+    let Some(candidate_root) = qwen_candidate_root(runtime) else {
+        return unavailable("ไม่พบตำแหน่ง runtime สำหรับ Qwen Detailed".to_string());
     };
-    let Some(candidate_python) = thai_candidate_python(runtime) else {
-        return unavailable("ตำแหน่ง Python runtime ของโหมดละเอียดไม่ถูกต้อง".to_string());
+    let Some(candidate_python) = qwen_candidate_python(runtime) else {
+        return unavailable("ตำแหน่ง Python runtime ของ Qwen Detailed ไม่ถูกต้อง".to_string());
     };
     if !candidate_python.is_file() {
         return unavailable(format!(
-            "ไม่พบ Python runtime เฉพาะของโหมดละเอียดที่ {}. รัน scripts/stage_whisper_transformers_candidate.ps1",
+            "ไม่พบ Python runtime แยกของ Qwen Detailed ที่ {}. รัน scripts/stage_whisper_qwen_candidate.ps1",
             candidate_python.display()
         ));
     }
-    let required_model_files = [
-        "config.json",
-        "generation_config.json",
-        "preprocessor_config.json",
-        "pytorch_model.bin",
-        "tokenizer_config.json",
-        "vocab.json",
+    let model_paths = [
+        (
+            qwen_candidate_model(runtime, QWEN_CANDIDATE_MODEL),
+            &[
+                "config.json",
+                "generation_config.json",
+                "model.safetensors",
+                "processor_config.json",
+                "tokenizer.json",
+                "tokenizer_config.json",
+            ][..],
+            QWEN_CANDIDATE_ASR_CHECKPOINT_BYTES,
+            "ASR",
+        ),
+        (
+            qwen_candidate_model(runtime, QWEN_CANDIDATE_ALIGNER_MODEL),
+            &[
+                "config.json",
+                "model.safetensors",
+                "preprocessor_config.json",
+                "tokenizer_config.json",
+                "vocab.json",
+            ][..],
+            QWEN_CANDIDATE_ALIGNER_CHECKPOINT_BYTES,
+            "Thai CTC",
+        ),
     ];
-    if let Some(missing) = required_model_files
-        .iter()
-        .find(|name| !model_path.join(name).is_file())
-    {
-        return unavailable(format!(
-            "โมเดลละเอียดที่ {} ขาดไฟล์ {missing}",
-            model_path.display(),
-        ));
-    }
-    let checkpoint_metadata = match std::fs::metadata(model_path.join("pytorch_model.bin")) {
-        Ok(metadata) => metadata,
-        Err(error) => {
-            return unavailable(format!("อ่านไฟล์ checkpoint ของโหมดละเอียดไม่สำเร็จ: {error}"));
+    for (model_path, required_files, expected_bytes, model_name) in model_paths {
+        let Some(model_path) = model_path else {
+            return unavailable(format!("layout ของโมเดล {model_name} ไม่ถูกต้อง"));
+        };
+        if let Some(missing) = required_files
+            .iter()
+            .find(|name| !model_path.join(name).is_file())
+        {
+            return unavailable(format!("โมเดล Qwen Detailed ขาดไฟล์ {missing}"));
         }
-    };
-    if checkpoint_metadata.len() != THAI_CANDIDATE_CHECKPOINT_BYTES {
-        return unavailable(format!(
-            "ขนาด checkpoint ของโหมดละเอียดไม่ตรงกับ revision ที่กำหนด: คาดว่า {THAI_CANDIDATE_CHECKPOINT_BYTES} bytes แต่พบ {}",
-            checkpoint_metadata.len()
-        ));
+        let checkpoint = match std::fs::metadata(model_path.join("model.safetensors")) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                return unavailable(format!(
+                    "อ่าน checkpoint ของโมเดล {model_name} ไม่สำเร็จ: {error}"
+                ));
+            }
+        };
+        if checkpoint.len() != expected_bytes {
+            return unavailable(format!(
+                "ขนาด checkpoint ของโมเดล {model_name} ไม่ตรงกับ revision ที่ pin ไว้"
+            ));
+        }
     }
-    let Some(candidate_root) = model_path.parent().and_then(std::path::Path::parent) else {
-        return unavailable("layout ของโมเดลละเอียดไม่ถูกต้อง".to_string());
-    };
+
     let manifest_path = candidate_root.join("manifest.json");
     let manifest = match std::fs::read_to_string(&manifest_path)
         .ok()
@@ -385,14 +618,14 @@ pub(crate) fn detailed_transcription_readiness_for_job(
         Some(manifest) => manifest,
         None => {
             return unavailable(format!(
-                "ไม่พบ manifest ที่ตรวจสอบได้: {}",
+                "ไม่พบ manifest Qwen ที่ตรวจสอบได้: {}",
                 manifest_path.display()
             ));
         }
     };
-    if !candidate_manifest_is_pinned(&manifest) {
+    if !qwen_candidate_manifest_is_pinned(&manifest) {
         return unavailable(format!(
-            "manifest ไม่ตรงกับโมเดลละเอียด revision ที่กำหนด: {}",
+            "manifest ไม่ตรงกับ runtime และ revision ของ Qwen Detailed: {}",
             manifest_path.display()
         ));
     }
@@ -404,12 +637,16 @@ import transformers
 import accelerate
 import faster_whisper.audio
 import av
+import pythainlp
 print(json.dumps({
+    'python': __import__('sys').version.split()[0],
     'torch': torch.__version__,
     'transformers': transformers.__version__,
     'accelerate': accelerate.__version__,
     'fasterWhisper': importlib.metadata.version('faster-whisper'),
     'av': av.__version__,
+    'pythainlp': pythainlp.__version__,
+    'cudaVersion': torch.version.cuda,
 }))
 "#;
     let dependencies = Command::new(&candidate_python)
@@ -422,7 +659,7 @@ print(json.dumps({
     };
     if !dependencies.status.success() {
         return unavailable(
-            "Python runtime ของโหมดละเอียดยังไม่มี dependency ตาม lock ที่ต้องใช้".to_string(),
+            "Python runtime ของ Qwen Detailed ยังไม่มี dependency ตาม lock ที่ต้องใช้".to_string(),
         );
     }
     let dependency_versions =
@@ -430,16 +667,19 @@ print(json.dumps({
             Ok(versions) => versions,
             Err(_) => {
                 return unavailable(
-                    "อ่านผลตรวจ dependency ของ Python runtime โหมดละเอียดไม่สำเร็จ".to_string(),
+                    "อ่านผลตรวจ dependency ของ Python runtime Qwen Detailed ไม่สำเร็จ".to_string(),
                 );
             }
         };
     let dependency_versions_match = [
-        ("torch", THAI_CANDIDATE_TORCH_VERSION),
-        ("transformers", THAI_CANDIDATE_TRANSFORMERS_VERSION),
-        ("accelerate", THAI_CANDIDATE_ACCELERATE_VERSION),
-        ("fasterWhisper", THAI_CANDIDATE_FASTER_WHISPER_VERSION),
-        ("av", THAI_CANDIDATE_AV_VERSION),
+        ("python", QWEN_CANDIDATE_PYTHON_VERSION),
+        ("torch", QWEN_CANDIDATE_TORCH_VERSION),
+        ("transformers", QWEN_CANDIDATE_TRANSFORMERS_VERSION),
+        ("accelerate", QWEN_CANDIDATE_ACCELERATE_VERSION),
+        ("fasterWhisper", QWEN_CANDIDATE_FASTER_WHISPER_VERSION),
+        ("av", QWEN_CANDIDATE_AV_VERSION),
+        ("pythainlp", QWEN_CANDIDATE_PYTHAINLP_VERSION),
+        ("cudaVersion", QWEN_CANDIDATE_CUDA_VERSION),
     ]
     .into_iter()
     .all(|(key, expected)| {
@@ -450,15 +690,22 @@ print(json.dumps({
     });
     if !dependency_versions_match {
         return unavailable(
-            "dependency versions ของ Python runtime โหมดละเอียดไม่ตรงกับ manifest/lock ที่อนุมัติ"
+            "dependency versions ของ Python runtime Qwen ไม่ตรงกับ manifest/lock ที่ pin ไว้"
                 .to_string(),
         );
     }
+    if !qwen_candidate_detailed_route_is_qualified(&manifest) {
+        return unavailable(format!(
+            "Qwen Detailed ยังไม่พร้อม: รอ {}",
+            qwen_candidate_detailed_route_gaps(&manifest).join(", ")
+        ));
+    }
     DetailedTranscriptionReadiness {
         available: true,
-        reason: "runtime และโมเดลละเอียดพร้อมใช้เป็นฉบับร่าง; ยังไม่มีหลักฐานว่าแม่นกว่าเสียงประชุมไทย"
-            .to_string(),
-        accuracy_qualified: false,
+        reason:
+            "Qwen Detailed ผ่าน gate สำหรับ LOTUSDIS 55-clip pilot; ผลนี้จำกัดอยู่กับชุด qualification นี้"
+                .to_string(),
+        accuracy_qualified: true,
     }
 }
 
@@ -490,11 +737,12 @@ fn whisper_model_name_from(configured: Option<&str>) -> Result<&'static str, Str
         "turbo" => Ok("large-v3-turbo"),
         "medium" => Ok("medium"),
         THAI_CANDIDATE_PROFILE => Ok(THAI_CANDIDATE_MODEL),
+        QWEN_CANDIDATE_PROFILE => Ok(QWEN_CANDIDATE_MODEL),
         "large-v3" | "reference" => Err(
             "large-v3 is qualification-only; run the reference worker explicitly instead of selecting it in the desktop profile".to_string(),
         ),
         profile => Err(format!(
-            "invalid FUNG_WHISPER_MODEL_PROFILE '{profile}'; use 'turbo', 'medium', or '{THAI_CANDIDATE_PROFILE}'"
+            "invalid FUNG_WHISPER_MODEL_PROFILE '{profile}'; use 'turbo', 'medium', '{THAI_CANDIDATE_PROFILE}', or '{QWEN_CANDIDATE_PROFILE}'"
         )),
     }
 }
@@ -502,12 +750,13 @@ fn whisper_model_name_from(configured: Option<&str>) -> Result<&'static str, Str
 fn whisper_model_backend_from(configured: Option<&str>) -> Result<&'static str, String> {
     match configured.unwrap_or("turbo") {
         THAI_CANDIDATE_PROFILE => Ok("transformers"),
+        QWEN_CANDIDATE_PROFILE => Ok("transformers"),
         "turbo" | "medium" => Ok("faster-whisper"),
         "large-v3" | "reference" => Err(
             "large-v3 is qualification-only; run the reference worker explicitly instead of selecting it in the desktop profile".to_string(),
         ),
         profile => Err(format!(
-            "invalid FUNG_WHISPER_MODEL_PROFILE '{profile}'; use 'turbo', 'medium', or '{THAI_CANDIDATE_PROFILE}'"
+            "invalid FUNG_WHISPER_MODEL_PROFILE '{profile}'; use 'turbo', 'medium', '{THAI_CANDIDATE_PROFILE}', or '{QWEN_CANDIDATE_PROFILE}'"
         )),
     }
 }
@@ -518,9 +767,12 @@ pub(crate) fn require_general_transcription_profile() -> Result<(), String> {
 }
 
 fn general_transcription_profile_from(configured: Option<&str>) -> Result<&'static str, String> {
-    if configured == Some(THAI_CANDIDATE_PROFILE) {
+    if matches!(
+        configured,
+        Some(THAI_CANDIDATE_PROFILE | QWEN_CANDIDATE_PROFILE)
+    ) {
         return Err(
-            "thai-large-candidate creates a separate reviewed draft; use Detailed mode instead of routing it into the committed transcript".to_string(),
+            "Thai Detailed candidates create a separate reviewed draft; they cannot be routed into the committed transcript".to_string(),
         );
     }
     match configured.unwrap_or("turbo") {
@@ -549,6 +801,18 @@ fn whisper_worker_script_for_profile(
             "transcribe_transformers.py"
         }));
     }
+    if profile == QWEN_CANDIDATE_PROFILE {
+        if live {
+            return Err(
+                "Qwen Thai candidate is restricted to post-meeting Detailed mode".to_string(),
+            );
+        }
+        let scripts_dir = runtime
+            .script
+            .parent()
+            .ok_or_else(|| "scripts directory not found".to_string())?;
+        return Ok(scripts_dir.join("transcribe_qwen_detailed.py"));
+    }
     if live {
         let scripts_dir = runtime
             .script
@@ -574,12 +838,25 @@ pub(crate) fn bundled_whisper_model_for_profile(
     profile: &str,
 ) -> Option<PathBuf> {
     let model = whisper_model_name_from(Some(profile)).ok()?;
-    let model_root = if profile == THAI_CANDIDATE_PROFILE {
-        whisper_resource_root(runtime)?.join(THAI_CANDIDATE_RUNTIME)
-    } else {
-        runtime.python.parent()?.parent()?.to_path_buf()
-    };
-    Some(model_root.join("models").join(model))
+    if profile == THAI_CANDIDATE_PROFILE {
+        return Some(
+            whisper_resource_root(runtime)?
+                .join(THAI_CANDIDATE_RUNTIME)
+                .join("models")
+                .join(model),
+        );
+    }
+    if profile == QWEN_CANDIDATE_PROFILE {
+        return qwen_candidate_model(runtime, model);
+    }
+    Some(
+        runtime
+            .python
+            .parent()?
+            .parent()?
+            .join("models")
+            .join(model),
+    )
 }
 
 fn bundled_whisper_model(runtime: &WhisperRuntime) -> Option<PathBuf> {
@@ -595,10 +872,10 @@ pub(crate) fn require_bundled_whisper_model(runtime: &WhisperRuntime) -> Result<
             .to_string()
     })?;
     if !model_path.is_dir() {
-        let staging_hint = if configured.as_deref() == Some(THAI_CANDIDATE_PROFILE) {
-            "scripts/stage_whisper_transformers_candidate.ps1"
-        } else {
-            "scripts/stage_whisper_runtime.ps1"
+        let staging_hint = match configured.as_deref() {
+            Some(THAI_CANDIDATE_PROFILE) => "scripts/stage_whisper_transformers_candidate.ps1",
+            Some(QWEN_CANDIDATE_PROFILE) => "scripts/stage_whisper_qwen_candidate.ps1",
+            _ => "scripts/stage_whisper_runtime.ps1",
         };
         return Err(format!(
             "FUNG Whisper model '{model}' is missing at {}. Stage it with {staging_hint}.",
@@ -817,7 +1094,7 @@ struct TranscriptSegment {
     created_at: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WhisperSegment {
     pub(crate) start_ms: i64,
@@ -831,6 +1108,42 @@ pub(crate) struct WhisperSegment {
 pub(crate) struct WhisperOutput {
     pub(crate) duration_ms: i64,
     pub(crate) segments: Vec<WhisperSegment>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct QwenCandidateProvenance {
+    pub(crate) backend: String,
+    pub(crate) asr_model: String,
+    pub(crate) asr_revision: String,
+    pub(crate) aligner_model: String,
+    pub(crate) aligner_revision: String,
+    pub(crate) audio_preprocessing_profile: String,
+    pub(crate) device: String,
+    pub(crate) dtype: String,
+    pub(crate) frame_stride_samples: u64,
+    pub(crate) sampling_rate: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct QwenCandidateChunkResult {
+    pub(crate) id: Option<String>,
+    pub(crate) mic: Option<String>,
+    pub(crate) reference: Option<String>,
+    pub(crate) text: String,
+    pub(crate) duration_ms: i64,
+    pub(crate) start_ms: i64,
+    pub(crate) segments: Vec<WhisperSegment>,
+}
+
+#[derive(Debug)]
+pub(crate) struct DetailedCandidateOutput {
+    pub(crate) output: WhisperOutput,
+    pub(crate) provenance: QwenCandidateProvenance,
+    // Per-clip results for pilot qualification tests; production uses `output`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) chunks: Vec<QwenCandidateChunkResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -5551,33 +5864,72 @@ pub(crate) fn run_detailed_candidate_worker(
     runtime: &WhisperRuntime,
     chunks_manifest: &std::path::Path,
     language: Option<&str>,
-) -> Result<WhisperOutput, String> {
-    let model_path = bundled_whisper_model_for_profile(runtime, THAI_CANDIDATE_PROFILE)
-        .ok_or_else(|| "ตำแหน่งโมเดลละเอียดไม่ถูกต้อง".to_string())?;
-    if !model_path.is_dir() {
-        return Err(format!("ไม่พบโมเดลละเอียดในเครื่องที่ {}", model_path.display()));
+) -> Result<DetailedCandidateOutput, String> {
+    let readiness = detailed_transcription_readiness_for_job(runtime);
+    if !readiness.available {
+        return Err(readiness.reason);
+    }
+    let profile = transcription_profile()?;
+    run_detailed_qwen_candidate_worker(runtime, chunks_manifest, language, &profile)
+}
+
+fn run_detailed_qwen_candidate_worker(
+    runtime: &WhisperRuntime,
+    chunks_manifest: &std::path::Path,
+    language: Option<&str>,
+    profile: &str,
+) -> Result<DetailedCandidateOutput, String> {
+    if !matches!(profile, "cpu" | "gpu") {
+        return Err(format!(
+            "invalid Qwen candidate execution profile '{profile}'"
+        ));
+    }
+    let root = qwen_candidate_root(runtime)
+        .ok_or_else(|| "ตำแหน่ง Qwen candidate runtime ไม่ถูกต้อง".to_string())?;
+    let manifest_path = root.join("manifest.json");
+    let manifest = std::fs::read_to_string(&manifest_path)
+        .ok()
+        .and_then(|text| {
+            serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}')).ok()
+        })
+        .ok_or_else(|| format!("ไม่พบ manifest Qwen ที่ตรวจสอบได้: {}", manifest_path.display()))?;
+    if !qwen_candidate_manifest_is_pinned(&manifest) {
+        return Err(
+            "manifest ของ Qwen candidate ไม่ตรงกับ revision และ dependency ที่ pin ไว้".to_string(),
+        );
+    }
+    let audio_preprocessing_profile =
+        qwen_candidate_audio_preprocessing_profile(&manifest).map_err(|error| error.to_string())?;
+    let asr_model_path = qwen_candidate_model(runtime, QWEN_CANDIDATE_MODEL)
+        .ok_or_else(|| "ตำแหน่ง Qwen ASR model ไม่ถูกต้อง".to_string())?;
+    let aligner_model_path = qwen_candidate_model(runtime, QWEN_CANDIDATE_ALIGNER_MODEL)
+        .ok_or_else(|| "ตำแหน่ง Thai CTC model ไม่ถูกต้อง".to_string())?;
+    if !asr_model_path.is_dir() || !aligner_model_path.is_dir() {
+        return Err("ไม่พบ local Qwen ASR หรือ Thai CTC model ที่ stage ไว้".to_string());
     }
     let scripts_dir = runtime
         .script
         .parent()
         .ok_or_else(|| "ไม่พบโฟลเดอร์ worker scripts".to_string())?;
-    let worker_script = scripts_dir.join("transcribe_transformers.py");
-    let model_path = model_path.to_string_lossy().into_owned();
-    let manifest_path = chunks_manifest.to_string_lossy().into_owned();
+    let worker_script = scripts_dir.join("transcribe_qwen_detailed.py");
     let mut args = vec![
         "--chunks-manifest".to_string(),
-        manifest_path,
-        "--model".to_string(),
-        model_path,
+        chunks_manifest.to_string_lossy().into_owned(),
+        "--asr-model".to_string(),
+        asr_model_path.to_string_lossy().into_owned(),
+        "--aligner-model".to_string(),
+        aligner_model_path.to_string_lossy().into_owned(),
         "--profile".to_string(),
-        "cpu".to_string(),
+        profile.to_string(),
+        "--audio-preprocessing-profile".to_string(),
+        audio_preprocessing_profile.to_string(),
     ];
     if let Some(language) = language {
         args.push("--language".to_string());
         args.push(language.to_string());
     }
     let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-    let interpreter = whisper_worker_interpreter_for_profile(runtime, THAI_CANDIDATE_PROFILE)?;
+    let interpreter = whisper_worker_interpreter_for_profile(runtime, QWEN_CANDIDATE_PROFILE)?;
     let raw = run_python_worker_with_interpreter(
         runtime,
         &interpreter,
@@ -5587,8 +5939,148 @@ pub(crate) fn run_detailed_candidate_worker(
         None,
         |_| {},
     )?;
-    serde_json::from_str::<WhisperOutput>(raw.trim())
-        .map_err(|error| format!("แปลผลโหมดละเอียดไม่สำเร็จ: {error}"))
+    let value = serde_json::from_str::<serde_json::Value>(raw.trim())
+        .map_err(|error| format!("แปลผล Qwen Detailed ไม่สำเร็จ: {error}"))?;
+    let output = serde_json::from_value::<WhisperOutput>(value.clone())
+        .map_err(|error| format!("แปลผล WhisperOutput จาก Qwen ไม่สำเร็จ: {error}"))?;
+    let provenance = value
+        .get("candidateProvenance")
+        .cloned()
+        .ok_or_else(|| "Qwen worker output is missing candidate provenance".to_string())
+        .and_then(|value| {
+            serde_json::from_value::<QwenCandidateProvenance>(value)
+                .map_err(|error| format!("แปลผล Qwen provenance ไม่สำเร็จ: {error}"))
+        })?;
+    let chunks = value
+        .get("chunkResults")
+        .cloned()
+        .ok_or_else(|| "Qwen worker output is missing per-chunk results".to_string())
+        .and_then(|value| {
+            serde_json::from_value::<Vec<QwenCandidateChunkResult>>(value)
+                .map_err(|error| format!("แปลผล Qwen chunk results ไม่สำเร็จ: {error}"))
+        })?;
+    validate_qwen_candidate_output(
+        &output,
+        &chunks,
+        &provenance,
+        profile,
+        audio_preprocessing_profile,
+    )?;
+    Ok(DetailedCandidateOutput {
+        output,
+        provenance,
+        chunks,
+    })
+}
+
+fn validate_qwen_candidate_output(
+    output: &WhisperOutput,
+    chunks: &[QwenCandidateChunkResult],
+    provenance: &QwenCandidateProvenance,
+    profile: &str,
+    audio_preprocessing_profile: &str,
+) -> Result<(), String> {
+    if output.duration_ms <= 0 || output.segments.is_empty() || chunks.is_empty() {
+        return Err(
+            "Qwen worker returned an empty transcript or non-positive duration".to_string(),
+        );
+    }
+    let mut previous_start = -1i64;
+    let mut previous_end = -1i64;
+    for segment in &output.segments {
+        if segment.text.trim().is_empty()
+            || segment.start_ms < 0
+            || segment.end_ms <= segment.start_ms
+            || segment.end_ms > output.duration_ms
+            || segment.start_ms < previous_start
+            || segment.end_ms < previous_end
+            || segment.confidence.is_some_and(|confidence| {
+                !confidence.is_finite() || !(0.0..=1.0).contains(&confidence)
+            })
+        {
+            return Err(
+                "Qwen worker returned malformed, unordered, or out-of-range WhisperOutput spans"
+                    .to_string(),
+            );
+        }
+        previous_start = segment.start_ms;
+        previous_end = segment.end_ms;
+    }
+    let mut flattened = Vec::new();
+    let mut expected_duration_ms = 0i64;
+    for chunk in chunks {
+        if chunk.text.trim().is_empty()
+            || chunk.duration_ms <= 0
+            || chunk.start_ms < 0
+            || chunk.segments.is_empty()
+            || chunk
+                .segments
+                .iter()
+                .map(|segment| segment.text.as_str())
+                .collect::<Vec<_>>()
+                .concat()
+                != chunk.text
+        {
+            return Err("Qwen worker returned invalid per-chunk text or duration".to_string());
+        }
+        let mut chunk_previous_start = chunk.start_ms;
+        let mut chunk_previous_end = chunk.start_ms;
+        let Some(chunk_end_ms) = chunk.start_ms.checked_add(chunk.duration_ms) else {
+            return Err("Qwen worker returned an overflowing chunk duration".to_string());
+        };
+        for segment in &chunk.segments {
+            if segment.text.trim().is_empty()
+                || segment.start_ms < chunk.start_ms
+                || segment.end_ms <= segment.start_ms
+                || segment.end_ms > chunk_end_ms
+                || segment.start_ms < chunk_previous_start
+                || segment.end_ms < chunk_previous_end
+            {
+                return Err("Qwen worker returned invalid per-chunk timestamp spans".to_string());
+            }
+            chunk_previous_start = segment.start_ms;
+            chunk_previous_end = segment.end_ms;
+            flattened.push(segment);
+        }
+        expected_duration_ms = expected_duration_ms.max(chunk_end_ms);
+    }
+    if expected_duration_ms != output.duration_ms
+        || flattened.len() != output.segments.len()
+        || flattened
+            .iter()
+            .zip(&output.segments)
+            .any(|(chunk_segment, segment)| {
+                chunk_segment.start_ms != segment.start_ms
+                    || chunk_segment.end_ms != segment.end_ms
+                    || chunk_segment.text != segment.text
+                    || chunk_segment.confidence != segment.confidence
+            })
+    {
+        return Err(
+            "Qwen worker aggregate output does not match its per-chunk results".to_string(),
+        );
+    }
+    if provenance.backend
+        != format!(
+            "Transformers {} / PyTorch {}",
+            QWEN_CANDIDATE_TRANSFORMERS_VERSION, QWEN_CANDIDATE_TORCH_VERSION
+        )
+        || provenance.asr_model != QWEN_CANDIDATE_REPOSITORY
+        || provenance.asr_revision != QWEN_CANDIDATE_MODEL_REVISION
+        || provenance.aligner_model != QWEN_CANDIDATE_ALIGNER_REPOSITORY
+        || provenance.aligner_revision != QWEN_CANDIDATE_ALIGNER_REVISION
+        || provenance.audio_preprocessing_profile != audio_preprocessing_profile
+        || provenance.device.trim().is_empty()
+        || provenance.frame_stride_samples != 320
+        || provenance.sampling_rate != 16_000
+        || (profile == "gpu" && (provenance.device == "cpu" || provenance.dtype != "torch.float16"))
+        || (profile == "cpu" && (provenance.device != "cpu" || provenance.dtype != "torch.float32"))
+    {
+        return Err(
+            "Qwen worker provenance does not match the pinned candidate runtime".to_string(),
+        );
+    }
+    Ok(())
 }
 
 /// Runs the faster-whisper worker script and blocks until it exits,
@@ -6598,6 +7090,14 @@ mod worker_tests {
             whisper_model_backend_from(Some(THAI_CANDIDATE_PROFILE)).unwrap(),
             "transformers"
         );
+        assert_eq!(
+            whisper_model_name_from(Some(QWEN_CANDIDATE_PROFILE)).unwrap(),
+            QWEN_CANDIDATE_MODEL
+        );
+        assert_eq!(
+            whisper_model_backend_from(Some(QWEN_CANDIDATE_PROFILE)).unwrap(),
+            "transformers"
+        );
         assert!(whisper_model_name_from(Some("reference")).is_err());
         assert!(whisper_model_name_from(Some("small")).is_err());
     }
@@ -6610,6 +7110,7 @@ mod worker_tests {
             "medium"
         );
         assert!(general_transcription_profile_from(Some(THAI_CANDIDATE_PROFILE)).is_err());
+        assert!(general_transcription_profile_from(Some(QWEN_CANDIDATE_PROFILE)).is_err());
     }
 
     #[test]
@@ -6663,48 +7164,251 @@ mod worker_tests {
         assert!(!readiness.accuracy_qualified);
         assert!(readiness
             .reason
-            .contains("Python runtime เฉพาะของโหมดละเอียด"));
+            .contains("Python runtime แยกของ Qwen Detailed"));
     }
 
     #[test]
-    #[ignore = "requires the staged Thai candidate model and FUNG_TEST_THAI_CANDIDATE_AUDIO"]
-    fn staged_thai_candidate_runtime_smoke_when_audio_is_configured() {
-        let audio_path = env::var("FUNG_TEST_THAI_CANDIDATE_AUDIO")
-            .expect("set FUNG_TEST_THAI_CANDIDATE_AUDIO to a local short audio clip");
+    fn qwen_candidate_manifest_and_detailed_gate_require_pinned_evidence() {
+        let manifest = serde_json::json!({
+            "backend": "transformers",
+            "candidateProfile": QWEN_CANDIDATE_PROFILE,
+            "python": {
+                "interpreter": "Scripts/python.exe",
+                "version": QWEN_CANDIDATE_PYTHON_VERSION,
+                "sha256": QWEN_CANDIDATE_PYTHON_SHA256,
+            },
+            "dependencies": {
+                "lockfileSha256": QWEN_CANDIDATE_DEPENDENCY_LOCK_SHA256,
+                "torch": QWEN_CANDIDATE_TORCH_VERSION,
+                "transformers": QWEN_CANDIDATE_TRANSFORMERS_VERSION,
+                "accelerate": QWEN_CANDIDATE_ACCELERATE_VERSION,
+                "fasterWhisper": QWEN_CANDIDATE_FASTER_WHISPER_VERSION,
+                "av": QWEN_CANDIDATE_AV_VERSION,
+                "pythainlp": QWEN_CANDIDATE_PYTHAINLP_VERSION,
+                "cudaVersion": QWEN_CANDIDATE_CUDA_VERSION,
+            },
+            "audio": {
+                "preprocessingProfile": "raw",
+            },
+            "models": {
+                "asr": {
+                    "name": QWEN_CANDIDATE_MODEL,
+                    "repository": QWEN_CANDIDATE_REPOSITORY,
+                    "revision": QWEN_CANDIDATE_MODEL_REVISION,
+                    "license": "Apache-2.0",
+                    "checkpoint": {
+                        "bytes": QWEN_CANDIDATE_ASR_CHECKPOINT_BYTES,
+                        "sha256": QWEN_CANDIDATE_ASR_CHECKPOINT_SHA256,
+                    },
+                },
+                "aligner": {
+                    "name": QWEN_CANDIDATE_ALIGNER_MODEL,
+                    "repository": QWEN_CANDIDATE_ALIGNER_REPOSITORY,
+                    "revision": QWEN_CANDIDATE_ALIGNER_REVISION,
+                    "license": "Apache-2.0",
+                    "checkpoint": {
+                        "bytes": QWEN_CANDIDATE_ALIGNER_CHECKPOINT_BYTES,
+                        "sha256": QWEN_CANDIDATE_ALIGNER_CHECKPOINT_SHA256,
+                    },
+                },
+            },
+            "qualification": {
+                "ctcFeasibility": "pending-fung-worker-pilot",
+                "pilotQuality": "pending",
+                "microphoneSpotChecks": "pending-human-review",
+                "detailedRouting": false,
+            },
+        });
+        assert!(qwen_candidate_manifest_is_pinned(&manifest));
+        let mut legacy_manifest = manifest.clone();
+        legacy_manifest
+            .as_object_mut()
+            .expect("manifest is an object")
+            .remove("audio");
+        assert_eq!(
+            qwen_candidate_audio_preprocessing_profile(&legacy_manifest),
+            Ok("raw")
+        );
+        assert!(!qwen_candidate_detailed_route_is_qualified(&manifest));
+        assert_eq!(
+            qwen_candidate_detailed_route_gaps(&manifest),
+            vec![
+                "Thai CTC 55-clip feasibility",
+                "FUNG 55-clip WER/CER pilot",
+                "five microphone source-audio spot checks",
+                "Detailed route qualification",
+            ]
+        );
+
+        let mut wrong_revision = manifest.clone();
+        wrong_revision["models"]["aligner"]["revision"] =
+            serde_json::Value::String("0".to_string());
+        assert!(!qwen_candidate_manifest_is_pinned(&wrong_revision));
+
+        let mut wrong_audio_profile = manifest.clone();
+        wrong_audio_profile["audio"]["preprocessingProfile"] =
+            serde_json::Value::String("unknown".to_string());
+        assert!(!qwen_candidate_manifest_is_pinned(&wrong_audio_profile));
+
+        let mut qualified = manifest;
+        qualified["qualification"]["ctcFeasibility"] =
+            serde_json::Value::String("passed".to_string());
+        qualified["qualification"]["pilotQuality"] =
+            serde_json::Value::String("passed".to_string());
+        qualified["qualification"]["microphoneSpotChecks"] =
+            serde_json::Value::String("passed".to_string());
+        qualified["qualification"]["detailedRouting"] = serde_json::Value::Bool(true);
+        assert!(qwen_candidate_detailed_route_is_qualified(&qualified));
+        assert!(qwen_candidate_detailed_route_gaps(&qualified).is_empty());
+    }
+
+    #[test]
+    fn qwen_candidate_output_rejects_bad_spans_and_text_drift() {
+        let provenance = QwenCandidateProvenance {
+            backend: format!(
+                "Transformers {} / PyTorch {}",
+                QWEN_CANDIDATE_TRANSFORMERS_VERSION, QWEN_CANDIDATE_TORCH_VERSION
+            ),
+            asr_model: QWEN_CANDIDATE_REPOSITORY.to_string(),
+            asr_revision: QWEN_CANDIDATE_MODEL_REVISION.to_string(),
+            aligner_model: QWEN_CANDIDATE_ALIGNER_REPOSITORY.to_string(),
+            aligner_revision: QWEN_CANDIDATE_ALIGNER_REVISION.to_string(),
+            audio_preprocessing_profile: "raw".to_string(),
+            device: "NVIDIA test GPU".to_string(),
+            dtype: "torch.float16".to_string(),
+            frame_stride_samples: 320,
+            sampling_rate: 16_000,
+        };
+        let segment = |end_ms| WhisperSegment {
+            start_ms: 10,
+            end_ms,
+            text: "x".to_string(),
+            confidence: None,
+        };
+        let output = |end_ms| WhisperOutput {
+            duration_ms: 100,
+            segments: vec![segment(end_ms)],
+        };
+        let chunk = |text: &str, end_ms| QwenCandidateChunkResult {
+            id: Some("clip-1".to_string()),
+            mic: Some("con123".to_string()),
+            reference: Some("x".to_string()),
+            text: text.to_string(),
+            duration_ms: 100,
+            start_ms: 0,
+            segments: vec![segment(end_ms)],
+        };
+
+        assert!(validate_qwen_candidate_output(
+            &output(20),
+            &[chunk("x", 20)],
+            &provenance,
+            "gpu",
+            "raw",
+        )
+        .is_ok());
+        assert!(validate_qwen_candidate_output(
+            &output(101),
+            &[chunk("x", 101)],
+            &provenance,
+            "gpu",
+            "raw",
+        )
+        .is_err());
+        assert!(validate_qwen_candidate_output(
+            &output(20),
+            &[chunk("y", 20)],
+            &provenance,
+            "gpu",
+            "raw",
+        )
+        .is_err());
+        let mut wrong_audio_profile = provenance.clone();
+        wrong_audio_profile.audio_preprocessing_profile = "afftdn".to_string();
+        assert!(validate_qwen_candidate_output(
+            &output(20),
+            &[chunk("x", 20)],
+            &wrong_audio_profile,
+            "gpu",
+            "raw",
+        )
+        .is_err());
+    }
+
+    #[test]
+    #[ignore = "requires staged Qwen runtime and FUNG_TEST_QWEN_CANDIDATE_CHUNKS_MANIFEST"]
+    fn staged_qwen_candidate_lotusdis_pilot_when_configured() {
+        let chunks_manifest = env::var("FUNG_TEST_QWEN_CANDIDATE_CHUNKS_MANIFEST").expect(
+            "set FUNG_TEST_QWEN_CANDIDATE_CHUNKS_MANIFEST to the local LOTUSDIS chunks JSON",
+        );
+        let output_path = env::var("FUNG_TEST_QWEN_CANDIDATE_OUTPUT")
+            .expect("set FUNG_TEST_QWEN_CANDIDATE_OUTPUT to the pilot result JSON path");
+        let profile =
+            env::var("FUNG_TEST_QWEN_CANDIDATE_PROFILE").unwrap_or_else(|_| "gpu".to_string());
         let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("Cargo manifest must be under the repository root")
             .to_path_buf();
         let runtime = WhisperRuntime {
             python: repo_root
-                .join(THAI_CANDIDATE_RUNTIME)
+                .join(".venv-whisper")
                 .join("Scripts")
                 .join("python.exe"),
             script: repo_root.join("scripts").join("transcribe.py"),
             cuda_bin: PathBuf::new(),
         };
-
-        let readiness = detailed_transcription_readiness_for_job(&runtime);
-        assert!(readiness.available, "{}", readiness.reason);
-        assert!(!readiness.accuracy_qualified);
-
-        let chunks_manifest =
-            std::env::temp_dir().join(format!("fung-thai-candidate-smoke-{}.json", Uuid::new_v4()));
-        let manifest = serde_json::json!([{ "path": audio_path, "startMs": 0 }]);
-        std::fs::write(
-            &chunks_manifest,
-            serde_json::to_vec(&manifest).expect("serialize audio chunks manifest"),
+        let detailed = run_detailed_qwen_candidate_worker(
+            &runtime,
+            std::path::Path::new(&chunks_manifest),
+            Some("th"),
+            &profile,
         )
-        .expect("write audio chunks manifest");
-        let result = run_detailed_candidate_worker(&runtime, &chunks_manifest, Some("th"));
-        let _ = std::fs::remove_file(&chunks_manifest);
-        let output = result.expect("run Detailed through the staged candidate interpreter");
-
-        assert!(output.duration_ms > 0);
+        .expect("run the production Qwen Detailed worker over LOTUSDIS");
+        assert_eq!(detailed.chunks.len(), 55);
+        let input_manifest =
+            std::fs::read_to_string(&chunks_manifest).expect("read the LOTUSDIS chunk manifest");
+        let expected_ids = serde_json::from_str::<Vec<serde_json::Value>>(&input_manifest)
+            .expect("parse the LOTUSDIS chunk manifest")
+            .into_iter()
+            .filter_map(|chunk| {
+                chunk
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let actual_ids = detailed
+            .chunks
+            .iter()
+            .filter_map(|chunk| chunk.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(expected_ids.len(), 55);
+        assert_eq!(actual_ids.len(), 55);
+        assert_eq!(actual_ids, expected_ids);
+        assert!(detailed
+            .chunks
+            .iter()
+            .all(|chunk| !chunk.text.trim().is_empty()));
+        assert!(detailed.output.duration_ms > 0);
+        assert_eq!(
+            detailed.provenance.asr_revision,
+            QWEN_CANDIDATE_MODEL_REVISION
+        );
+        std::fs::write(
+            output_path,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "provenance": detailed.provenance,
+                "chunks": detailed.chunks,
+            }))
+            .expect("serialize FUNG worker LOTUSDIS output"),
+        )
+        .expect("write FUNG worker LOTUSDIS output");
         println!(
-            "THAI_CANDIDATE_SMOKE durationMs={} segments={}",
-            output.duration_ms,
-            output.segments.len()
+            "QWEN_LOTUSDIS_PILOT clips={} durationMs={} segments={} device={}",
+            detailed.chunks.len(),
+            detailed.output.duration_ms,
+            detailed.output.segments.len(),
+            detailed.provenance.device,
         );
     }
 
@@ -6777,6 +7481,21 @@ mod worker_tests {
         assert_eq!(
             whisper_worker_script_for_profile(&runtime, "turbo", false).unwrap(),
             runtime.script
+        );
+        assert_eq!(
+            bundled_whisper_model_for_profile(&runtime, QWEN_CANDIDATE_PROFILE),
+            Some(PathBuf::from(
+                r"C:\Program Files\FUNG\.venv-whisper-qwen-candidate\models\qwen3-asr-1.7b"
+            ))
+        );
+        assert_eq!(
+            whisper_worker_script_for_profile(&runtime, QWEN_CANDIDATE_PROFILE, false).unwrap(),
+            PathBuf::from(r"C:\Program Files\FUNG\scripts\transcribe_qwen_detailed.py")
+        );
+        assert!(whisper_worker_script_for_profile(&runtime, QWEN_CANDIDATE_PROFILE, true).is_err());
+        assert_eq!(
+            whisper_worker_interpreter_for_profile(&runtime, QWEN_CANDIDATE_PROFILE).unwrap(),
+            PathBuf::from(r"C:\Program Files\FUNG\.venv-whisper-qwen-candidate\Scripts\python.exe")
         );
     }
 

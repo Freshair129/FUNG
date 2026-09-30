@@ -3748,6 +3748,7 @@ pub(crate) fn create_detailed_transcript_draft(
     let language = genesis_adapter::recording_language(storage, recording_id);
     let mut candidate_by_segment: std::collections::HashMap<String, Vec<(i64, String)>> =
         std::collections::HashMap::new();
+    let mut candidate_provenance: Option<crate::QwenCandidateProvenance> = None;
     let mut unmatched_candidate_segments = 0usize;
     for (_channel_key, mut chunks) in groups {
         chunks.sort_by_key(|chunk| chunk.start_ms);
@@ -3770,7 +3771,14 @@ pub(crate) fn create_detailed_transcript_draft(
         let result =
             crate::run_detailed_candidate_worker(runtime, &manifest_path, language.as_deref());
         let _ = std::fs::remove_file(&manifest_path);
-        let output = result?;
+        let detailed_output = result?;
+        if let Some(existing) = &candidate_provenance {
+            if existing != &detailed_output.provenance {
+                return Err("Qwen Detailed provenance changed within one draft run".to_string());
+            }
+        } else {
+            candidate_provenance = Some(detailed_output.provenance.clone());
+        }
 
         let expected_speaker = chunks.first().and_then(|chunk| {
             chunk.channel.map(|channel| {
@@ -3778,9 +3786,9 @@ pub(crate) fn create_detailed_transcript_draft(
                 speaker_id_for(project_id, key)
             })
         });
-        for candidate in output.segments {
-            let start_ms = candidate.start_ms.max(0);
-            let end_ms = candidate.end_ms.max(start_ms + 1);
+        for candidate in detailed_output.output.segments {
+            let start_ms = candidate.start_ms;
+            let end_ms = candidate.end_ms;
             if let Some(segment) = unique_detailed_segment_match(
                 &segments,
                 start_ms,
@@ -3808,12 +3816,16 @@ pub(crate) fn create_detailed_transcript_draft(
         if proposed_text.is_empty() || proposed_text == segment.text.trim() {
             continue;
         }
+        let provenance = candidate_provenance.as_ref().ok_or_else(|| {
+            "Qwen Detailed proposal is missing the worker's pinned model provenance".to_string()
+        })?;
         let policy = serde_json::json!({
             "kind": "detailed_asr_candidate",
             "jobId": job_id,
-            "backend": "transformers",
-            "model": crate::THAI_CANDIDATE_MODEL,
-            "revision": crate::THAI_CANDIDATE_MODEL_REVISION,
+            "backend": provenance.backend,
+            "model": provenance.asr_model,
+            "revision": provenance.asr_revision,
+            "candidateProvenance": provenance,
             "expectedUpdatedAt": segment.updated_at,
             "expectedRevision": segment.expected_revision,
         })

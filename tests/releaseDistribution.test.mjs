@@ -37,6 +37,13 @@ test("Tauri release resources include the live worker and portable runtime", asy
     resources["../scripts/transcribe_transformers_live.py"],
     "scripts/transcribe_transformers_live.py",
   );
+  assert.equal(resources["../.venv-whisper-qwen-candidate"], undefined);
+  assert.equal(resources["../scripts/qwen-candidate-requirements.txt"], undefined);
+  assert.equal(
+    resources["../scripts/transcribe_qwen_detailed.py"],
+    "scripts/transcribe_qwen_detailed.py",
+  );
+  assert.equal(resources["../scripts/thai_ctc_alignment.py"], "scripts/thai_ctc_alignment.py");
 });
 
 test("package and Tauri versions agree with the public release", async () => {

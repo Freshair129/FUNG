@@ -1,5 +1,5 @@
 ---
-version: "0.3.14b"
+version: "0.3.17b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-01T01:42:00+07:00,RWANG"
 status: "beta"
@@ -50,6 +50,38 @@ Google Drive is canceled and its active implementation was removed on
 2026-09-17. Phase 4 backup truth below means the local encrypted filesystem
 path only; retained Drive migration/report references are historical
 provenance, not current runtime or deployment evidence.
+
+## Qwen Thai candidate qualification — 2026-09-30
+
+The pinned local FUNG Qwen worker processed 55/55 LOTUSDIS clips with no blank
+outputs and 364 source-bounded, ordered, nonzero CTC segments. Its output
+scored 48.04% WER / 40.00% CER against 72.83% / 59.55% for the same FUNG
+Turbo GPU baseline; Qwen was lower on both metrics for every microphone
+stratum. The consolidated local Rust suite (596 passed), Qwen worker tests
+(7), Thai CTC tests (9), and Desktop production build passed. The detailed
+commands and artifact hashes are in the [qualification report](../verification/implementation-reports/2026-09-30-qwen-thai-candidate.md).
+
+Structural CTC checks passed, but the user reported transcription misses on
+bt10m/bt3m and has not confirmed word-level timing placement. The local
+candidate manifest records
+`microphoneSpotChecks=partial-human-review` and `detailedRouting=false`, so the
+Detailed route is unavailable. This is bounded local pilot evidence; it does
+not qualify full-corpus accuracy, package inclusion, or release readiness.
+
+User listening later confirmed that the five sampled mic recordings contain
+the same utterance, heard as `ทาครีมแล้วก็ไปเรียนเลยอะไรเงี้ย`, and identified
+Qwen transcription errors on bt10m and bt3m due to unclear audio. The official
+LOTUSDIS manifest uses `อะไรอย่างนี้`; it remains unchanged. A separate
+five-row sensitivity score is recorded in the qualification report. The
+2026-10-01 `afftdn`/`speechnorm` experiment did not correct both misses:
+`afftdn` worsened the five-clip WER/CER, while `speechnorm` tied raw and kept
+both target errors. Raw remains the candidate baseline; the filtered 55-clip
+Rust pilot was not run because neither transform passed the five-clip gate.
+Structural timestamp checks passed, but human word-level timing approval and a
+qualifying remediation remain open, so Detailed stays disabled. The updated
+tests include 9 Qwen worker tests, 9 CTC tests, one PyAV integration test, 596
+Rust tests, and a passing Desktop build. See the
+[qualification report](../verification/implementation-reports/2026-09-30-qwen-thai-candidate.md).
 
 ## Candidate live transcript / Google Meet Agent docs — 2026-09-21
 
@@ -1109,6 +1141,24 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.16b` → `0.3.17b`
+
+- Recorded the failed five-clip Qwen preprocessing experiment, preserved raw as
+  the baseline, and kept Detailed disabled because both low-clarity misses and
+  word-level timing review remain open.
+
+### `0.3.15b` → `0.3.16b`
+
+- Recorded the user's same-utterance listening correction, Qwen text misses on
+  bt10m/bt3m, and non-authoritative five-row reference sensitivity; timing
+  review and remediation remain open.
+
+### `0.3.14b` → `0.3.15b`
+
+- Recorded the passing 55-clip FUNG Qwen worker, its LOTUSDIS WER/CER results,
+  and consolidated local verification; five source-audio reviews remain open
+  and Detailed routing stays disabled.
+
 ### `0.3.13b` → `0.3.14b`
 
 - Recorded the 37-alert Python runtime remediation, staged dependency and
@@ -1208,6 +1258,9 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.16b | 2026-10-01 | beta | Tested raw, afftdn and speechnorm on five mic clips; neither filter corrected both misses, so Detailed remains disabled. | working-tree | RWANG |
+| 0.3.15b | 2026-09-30 | beta | Recorded user-reported bt10m/bt3m transcript errors and separate reference sensitivity; Detailed routing remains disabled pending timing review and remediation. | working-tree | RWANG |
+| 0.3.14b | 2026-09-30 | beta | Passed the 55-clip FUNG Qwen worker and LOTUSDIS WER/CER comparison; five human audio checks remain pending, so Detailed routing stays disabled. | working-tree | RWANG |
 | 0.3.11b | 2026-09-29 | beta | Passed offline Rust-worker model load and one same-audio Turbo comparison; source tests pass; Thai accuracy remains unqualified. | working-tree | RWANG |
 | 0.3.10b | 2026-09-29 | beta | Staged isolated Detailed runtime/model; pinned imports and consolidated source checks passed; production worker model load and same-audio comparison await sufficient RAM. | working-tree | RWANG |
 | 0.3.9b | 2026-09-29 | beta | Implemented isolated Detailed candidate runtime, pinned CPU dependencies, transactional staging and fail-closed readiness; runtime/model qualification and final tests remain pending. | working-tree | RWANG |

@@ -85,16 +85,28 @@ pub(crate) const DEFAULT_OLLAMA_MODEL: &str = "llama3.1:8b";
 
 pub(crate) const THAI_CANDIDATE_PROFILE: &str = "thai-large-candidate";
 pub(crate) const THAI_CANDIDATE_MODEL: &str = "whisper-th-large-combined";
+// Pins for the earlier Transformers Thai candidate. Detailed readiness now
+// routes to the Qwen candidate, so these are asserted only by tests.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const THAI_CANDIDATE_REPOSITORY: &str = "biodatlab/whisper-th-large-combined";
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const THAI_CANDIDATE_MODEL_REVISION: &str = "b751db1e8dbfee6561de22ca99fe070282fcf459";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_CHECKPOINT_BYTES: u64 = 6_173_655_480;
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_CHECKPOINT_SHA256: &str =
     "e1e0b5b4c9a89d7d60fb795448c3102e07af87fa73c5fce7c0206c6bd99a7e7b";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_TORCH_VERSION: &str = "2.14.0+cpu";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_TRANSFORMERS_VERSION: &str = "5.17.0";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_ACCELERATE_VERSION: &str = "1.15.0";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_FASTER_WHISPER_VERSION: &str = "1.2.1";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_AV_VERSION: &str = "18.1.0";
+#[cfg_attr(not(test), allow(dead_code))]
 const THAI_CANDIDATE_DEPENDENCY_LOCK_SHA256: &str =
     "14383cd949155e1bdb025a3e58ff84149acba82188729556c68ee671322c6a99";
 const THAI_CANDIDATE_RUNTIME: &str = ".venv-whisper-transformers-candidate";
@@ -300,6 +312,7 @@ pub(crate) struct DetailedTranscriptionReadiness {
     pub(crate) accuracy_qualified: bool,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn candidate_manifest_is_pinned(manifest: &serde_json::Value) -> bool {
     let lockfile_hash_is_valid = manifest
         .pointer("/dependencies/lockfileSha256")
@@ -1127,6 +1140,8 @@ pub(crate) struct QwenCandidateChunkResult {
 pub(crate) struct DetailedCandidateOutput {
     pub(crate) output: WhisperOutput,
     pub(crate) provenance: QwenCandidateProvenance,
+    // Per-clip results for pilot qualification tests; production uses `output`.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) chunks: Vec<QwenCandidateChunkResult>,
 }
 

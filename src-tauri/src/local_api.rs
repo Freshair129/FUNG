@@ -302,7 +302,7 @@ pub(crate) struct Request {
 }
 
 impl Request {
-    fn header(&self, name: &str) -> Option<&str> {
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers.get(name).map(String::as_str)
     }
 }
@@ -316,7 +316,7 @@ pub(crate) struct Response {
 }
 
 impl Response {
-    fn json(status: &'static str, value: Value) -> Self {
+    pub(crate) fn json(status: &'static str, value: Value) -> Self {
         Response {
             status,
             content_type: "application/json",
@@ -373,10 +373,18 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, Response> {
         .ok_or_else(|| {
             Response::json("411 Length Required", json!({"error": "LENGTH_REQUIRED"}))
         })?;
-    if length > MAX_UPLOAD_BYTES {
+    let max_body = if request
+        .path
+        .starts_with(crate::meeting_task_manager::PREFIX)
+    {
+        crate::meeting_task_manager::MAX_REQUEST_BYTES
+    } else {
+        MAX_UPLOAD_BYTES
+    };
+    if length > max_body {
         return Err(Response::json(
             "413 Payload Too Large",
-            json!({"error": "PAYLOAD_TOO_LARGE", "maxBytes": MAX_UPLOAD_BYTES}),
+            json!({"error": "PAYLOAD_TOO_LARGE", "maxBytes": max_body}),
         ));
     }
     let mut body = buffer[end + 4..].to_vec();
@@ -500,8 +508,20 @@ fn handle_stream(
     };
     let origin = request.header("origin").map(str::to_string);
     let cors = origin.as_deref().filter(|origin| origin_allowed(origin));
-    let response = route(&request, storage, genesis_path, control, host);
+    let response = if request
+        .path
+        .starts_with(crate::meeting_task_manager::PREFIX)
+        && !integration_loopback(stream.local_addr().ok())
+    {
+        Response::json("403 Forbidden", json!({"error":"LOOPBACK_REQUIRED"}))
+    } else {
+        route(&request, storage, genesis_path, control, host)
+    };
     write_response(&mut stream, response, cors);
+}
+
+fn integration_loopback(address: Option<std::net::SocketAddr>) -> bool {
+    address.is_some_and(|address| address.ip().is_loopback())
 }
 
 // ---------------------------------------------------------------------------
@@ -567,6 +587,19 @@ pub(crate) fn route(
 ) -> Response {
     if request.method == "OPTIONS" {
         return Response::empty("204 No Content");
+    }
+    if request
+        .path
+        .starts_with(crate::meeting_task_manager::PREFIX)
+    {
+        // The new connector uses a bearer header; credentials never belong in its URLs.
+        let header = request
+            .header("authorization")
+            .and_then(|v| v.strip_prefix("Bearer "));
+        if !header.is_some_and(|v| constant_time_eq(v.trim(), &control.token)) {
+            return Response::json("401 Unauthorized", json!({"error":"AUTH_REQUIRED"}));
+        }
+        return crate::meeting_task_manager::route(request, storage, genesis_path);
     }
     if request.method == "POST" {
         if request.path != "/recordings/import" {
@@ -1769,6 +1802,154 @@ mod tests {
             !head.contains("Access-Control-Allow-Origin"),
             "no Origin on the request, no CORS grant on the response"
         );
+    }
+
+    #[test]
+    fn meeting_task_integration_remains_loopback_only() {
+        assert!(integration_loopback(Some(
+            "127.0.0.1:4319".parse().unwrap()
+        )));
+        assert!(integration_loopback(Some("[::1]:4319".parse().unwrap())));
+        assert!(!integration_loopback(Some(
+            "192.168.1.20:4319".parse().unwrap()
+        )));
+        assert!(!integration_loopback(Some("0.0.0.0:4319".parse().unwrap())));
+        assert!(!integration_loopback(None));
+    }
+
+    #[test]
+    fn meeting_task_integration_snapshot_and_body_bound_over_socket() {
+        let (dir, storage) = open_genesis();
+        seed(&storage, &dir);
+        let bind = spawn_once(Arc::new(storage), dir, control());
+        let response=raw_request(&bind,"GET /integrations/meeting-task-manager/v1/recordings/rec-live/snapshot HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer secret-token\r\nOrigin: http://127.0.0.1:4319\r\n\r\n");
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
+        assert!(response.contains("Access-Control-Allow-Origin: http://127.0.0.1:4319\r\n"));
+        let body: Value = serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(body["sourceMode"], "legacy");
+        assert_eq!(body["coverage"]["speech"], "empty");
+
+        let (dir, storage) = open_genesis();
+        let bind = spawn_once(Arc::new(storage), dir, control());
+        let response=raw_request(&bind,&format!("POST /integrations/meeting-task-manager/v1/action-drafts HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer secret-token\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",crate::meeting_task_manager::MAX_REQUEST_BYTES+1));
+        assert!(
+            response.starts_with("HTTP/1.1 413 Payload Too Large\r\n"),
+            "{response}"
+        );
+    }
+
+    /// Explicit QA-only harness. Production HTTP routing is exercised against a
+    /// disposable ledger and an obviously synthetic Ollama-shaped fixture.
+    /// No production runtime/provider/source is opened or modified.
+    #[test]
+    #[ignore = "manual browser fixture; 15-minute bounded lifetime"]
+    fn meeting_task_browser_fixture() {
+        let port: u16 = std::env::var("FUNG_MEETING_TASK_QA_PORT")
+            .expect("set FUNG_MEETING_TASK_QA_PORT explicitly")
+            .parse()
+            .unwrap();
+        let stop_file = std::path::PathBuf::from(
+            std::env::var("FUNG_MEETING_TASK_QA_STOP_FILE")
+                .expect("set FUNG_MEETING_TASK_QA_STOP_FILE explicitly"),
+        );
+        assert!(!stop_file.exists(), "fixture stop file already exists");
+        let (dir, storage) = open_genesis();
+        seed(&storage, &dir);
+        let model_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", model_listener.local_addr().unwrap());
+        genesis_adapter::commit_rows(&storage,vec![
+            genesis_adapter::upsert("model_providers",json!({"id":"ollama-summary-intent","label":"QA fixture — no real model",
+                "runtime_location":"local","kind":"summary_intent","enabled":true,
+                "config_json":{"endpoint":endpoint,"model":"qa-fixture:not-real"},"created_at":"t","updated_at":"t"})),
+            genesis_adapter::upsert("transcript_segments",json!({"id":"qa-s1","project_id":"p1","recording_id":"rec-live",
+                "speaker_id":null,"start_ms":0,"end_ms":1000,"text":"Chef รับหน้าที่เลือกแบบเว็บไซต์ MUJEEN ภายในวันศุกร์",
+                "confidence":null,"created_at":"t","updated_at":"t"})),
+        ]).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let model_stop = stop.clone();
+        let active_model_socket = Arc::new(Mutex::new(None::<TcpStream>));
+        let model_socket = active_model_socket.clone();
+        model_listener.set_nonblocking(true).unwrap();
+        let model_thread = thread::spawn(move || {
+            while !model_stop.load(Ordering::SeqCst) {
+                let (mut stream, _) = match model_listener.accept() {
+                    Ok(value) => value,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(40));
+                        continue;
+                    }
+                    Err(_) => break,
+                };
+                stream.set_nonblocking(false).unwrap();
+                {
+                    let mut active = model_socket.lock().unwrap();
+                    if model_stop.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    *active = Some(stream.try_clone().unwrap());
+                }
+                let response = match read_request(&mut stream) {
+                    Ok(request) if request.path == "/api/tags" => Response::json(
+                        "200 OK",
+                        json!({"models":[{"name":"qa-fixture:not-real","capabilities":["completion"]}]}),
+                    ),
+                    Ok(request) if request.path == "/api/chat" => {
+                        let envelope: Value = serde_json::from_slice(&request.body).unwrap();
+                        let input: Value = serde_json::from_str(
+                            envelope["messages"][1]["content"].as_str().unwrap(),
+                        )
+                        .unwrap();
+                        let segment = &input["segments"][0];
+                        let quote = segment["text"]
+                            .as_str()
+                            .unwrap()
+                            .chars()
+                            .take(200)
+                            .collect::<String>();
+                        let output = json!({"items":[{"kind":"task","title":"QA fixture task — not real AI","deliverable":null,
+                            "suggestedResponsibleLabel":null,"suggestedDueText":null,
+                            "evidence":[{"segmentId":segment["segmentId"],"quote":quote}]}]});
+                        Response::json(
+                            "200 OK",
+                            json!({"message":{"role":"assistant","content":output.to_string()}}),
+                        )
+                    }
+                    _ => Response::json("404 Not Found", json!({"error":"QA_FIXTURE_ONLY"})),
+                };
+                write_response(&mut stream, response, None);
+                *model_socket.lock().unwrap() = None;
+            }
+        });
+        let bind = format!("127.0.0.1:{port}");
+        let listener = TcpListener::bind(&bind).unwrap();
+        let control = LocalApiControl {
+            bind: bind.clone(),
+            token: "meeting-task-qa-fixture-token".into(),
+            lan: None,
+        };
+        let storage = Arc::new(storage);
+        spawn_listener(
+            listener,
+            storage.clone(),
+            dir.clone(),
+            Arc::new(control),
+            None,
+            stop.clone(),
+        )
+        .unwrap();
+        println!("QA_FIXTURE_READY http://{bind}/#meeting-task-qa-fixture-token model=qa-fixture:not-real modelEndpoint={endpoint} recording=rec-live upload=unavailable");
+        let deadline = std::time::Instant::now() + Duration::from_secs(15 * 60);
+        while std::time::Instant::now() < deadline && !stop_file.exists() {
+            thread::sleep(Duration::from_millis(100));
+        }
+        stop.store(true, Ordering::SeqCst);
+        if let Some(socket) = active_model_socket.lock().unwrap().as_ref() {
+            let _ = socket.shutdown(std::net::Shutdown::Both);
+        }
+        model_thread.join().unwrap();
+        println!("QA_FIXTURE_STOPPED");
+        // Listener owns a storage Arc until its next poll; its temporary fixture
+        // directory remains an identifiable test artifact, never user data.
     }
 
     #[test]

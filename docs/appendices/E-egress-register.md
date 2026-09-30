@@ -1,7 +1,7 @@
 ---
-version: "0.2.0b"
+version: "0.2.1b"
 created_at: "2026-09-21T03:45:30+07:00,RWANG,base-b336f33"
-last_update: "2026-09-25T11:04:53+07:00,RWANG"
+last_update: "2026-10-01T09:00:00+07:00,RWANG"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -114,6 +114,24 @@ fallback. The outbound question/excerpts are not logged in plaintext; the
 Source/ACL freshness is checked again for every excerpt supplied to the model
 before draft commit and local preview. This source review and fixture suite do
 not constitute a packet capture or real-model quality test.
+
+### 1.3b Meeting & Task Manager action drafts — reviewed transcript text leaves the process
+
+| | |
+|---|---|
+| **Payload** | The request `locale` and the caller-supplied `reviewedSegments` (segment IDs, start/end ms, reviewed text, optional speaker label), capped at 200 segments and 96,000 UTF-8 text bytes, plus a fixed system prompt; `/api/tags` receives no meeting content |
+| **Destination** | The same `ollama-summary-intent` endpoint as §1.3a, restricted by `meeting_agent_model::configured_model_endpoint` to `http://127.0.0.1` or `http://[::1]` with an optional port |
+| **Evidence** | `src-tauri/src/meeting_task_manager.rs::local_model` (`/api/chat`); readiness via `meeting_agent_model::readiness` (`/api/tags`) |
+| **Consent gate** | An authenticated `POST /integrations/meeting-task-manager/v1/action-drafts` carrying the local API bearer secret, from a loopback address and an allowed origin, with a review hash matching the current source revision; without a configured model the route reports unavailable and makes no call |
+| **Reached from** | `local_api.rs` dispatch → `meeting_task_manager::route` only |
+
+The request reuses §1.3a's transport restrictions: loopback-only endpoint, no
+HTTP proxy, no redirects, a 45-second timeout, bounded response parsing and no
+cloud fallback. Source freshness and model configuration are re-checked after
+inference, and every proposal's evidence must quote the reviewed text; output
+remains a review-only proposal and no task or transcript is written. This
+entry is from source review and fixture tests, not a packet capture or
+real-model quality test.
 
 ### 1.4 TTS — synthesis text leaves the machine
 
@@ -437,6 +455,7 @@ Required negative verification: local-only zero new egress; no bytes before appl
 | --- | --- |
 | unversioned → 0.1.0b | Added metadata and a separately labelled candidate meeting-media/gateway/publication register; historical audit is unchanged. |
 | 0.1.0b → 0.2.0b | Registered the implemented local Ollama Meeting Agent path separately from proposed external paths. |
+| 0.2.0b → 0.2.1b | Registered the local Meeting & Task Manager action-draft model path (§1.3b). |
 
 ## CHANGELOG
 
@@ -444,3 +463,4 @@ Required negative verification: local-only zero new egress; no bytes before appl
 | --- | --- | --- | --- | --- | --- |
 | 0.1.0b | 2026-09-21 | candidate | Registered proposed Meet/API/agent data flows without claiming runtime or packet-capture verification. | working-tree; base b336f33 | RWANG |
 | 0.2.0b | 2026-09-25 | candidate | Registered bounded local Meeting Agent model proposal egress and consent gate. | working-tree | RWANG |
+| 0.2.1b | 2026-10-01 | candidate | Registered the bearer-gated, loopback-only Meeting & Task Manager action-draft egress. | working-tree | RWANG |

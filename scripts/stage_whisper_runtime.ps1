@@ -121,7 +121,10 @@ print(HfApi().model_info('$modelRepo').sha)
 $modelFiles = @('config.json', 'preprocessor_config.json', 'model.bin', 'tokenizer.json', 'vocabulary.*')
 $modelReady = Test-Path -LiteralPath (Join-Path $modelDir 'model.bin') -PathType Leaf
 if (-not $modelReady) {
-    $allowPatterns = $modelFiles | ConvertTo-Json -Compress
+    # Build a Python list literal with single quotes only: Windows PowerShell
+    # 5.1 strips embedded double quotes from native command arguments, which
+    # turned a JSON list into invalid Python.
+    $allowPatterns = '[' + (($modelFiles | ForEach-Object { "'$_'" }) -join ', ') + ']'
     $downloadCode = @"
 from huggingface_hub import snapshot_download
 snapshot_download(

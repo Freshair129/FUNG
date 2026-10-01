@@ -158,3 +158,36 @@ test("the isolated PDF parser installs the fixed wheel from its SHA-256 pin", as
   assert.match(staging, /pypdfVersion = "6\.16\.1"/);
   assert.match(rust, /manifest\.pypdf_version != "6\.16\.1"/);
 });
+
+test("an upgrade replaces every installer-owned resource directory", async () => {
+  // NSIS only overwrites the files it installs, so without this hook an
+  // upgrade kept the previous version's resources (a whole retired Whisper
+  // model). Derived from both configs so a new resource directory fails here
+  // until the hook also replaces it.
+  const config = await readJson(new URL("../src-tauri/tauri.conf.json", import.meta.url));
+  const windowsConfig = await readJson(new URL("../src-tauri/tauri.windows.conf.json", import.meta.url));
+  assert.equal(config.bundle.windows?.nsis?.installerHooks, "./windows/installer-hooks.nsh");
+
+  const destinations = [
+    ...Object.values(config.bundle.resources),
+    ...Object.values(windowsConfig.bundle?.resources ?? {}),
+  ];
+  const ownedDirectories = [
+    ...new Set(destinations.map((destination) => destination.split("/")[0])),
+  ].sort();
+  assert.deepEqual(ownedDirectories, [".venv-whisper", "knowledge-parser-runtime", "scripts"]);
+
+  const hooks = await readFile(new URL("../src-tauri/windows/installer-hooks.nsh", import.meta.url), "utf8");
+  const preinstall = hooks.match(/!macro NSIS_HOOK_PREINSTALL([\s\S]*?)!macroend/)?.[1] ?? "";
+  const removed = [...preinstall.matchAll(/^\s*RMDir \/r "\$INSTDIR\\([^"\\]+)"\s*$/gm)].map((m) => m[1]).sort();
+  assert.deepEqual(removed, ownedDirectories);
+
+  // Never the install root itself, only after the running-app check, and only
+  // over an existing FUNG install.
+  assert.doesNotMatch(preinstall, /RMDir \/r "\$INSTDIR"/);
+  assert.ok(
+    preinstall.indexOf("CheckIfAppIsRunning") !== -1 &&
+      preinstall.indexOf("CheckIfAppIsRunning") < preinstall.indexOf("RMDir"),
+  );
+  assert.match(preinstall, /\$\{FileExists\} "\$INSTDIR\\\$\{MAINBINARYNAME\}\.exe"/);
+});

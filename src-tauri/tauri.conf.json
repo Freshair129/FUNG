@@ -56,6 +56,11 @@
       "icons/icon.ico",
       "icons/icon.png"
     ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "./windows/installer-hooks.nsh"
+      }
+    },
     "resources": {
       "../.venv-whisper": ".venv-whisper",
       "../scripts/transcribe.py": "scripts/transcribe.py",

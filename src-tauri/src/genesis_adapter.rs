@@ -12214,7 +12214,8 @@ mod tests {
             read_only: Some(false),
             vector_dim: Some(384),
             retention: None,
-        }).expect("existing profile: Storage::open");
+        })
+        .expect("existing profile: Storage::open");
         install(&storage).expect("existing profile: schema install");
         storage.save_state().expect("existing profile: checkpoint");
     }

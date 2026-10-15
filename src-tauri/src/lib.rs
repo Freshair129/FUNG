@@ -1605,7 +1605,11 @@ fn seed_default_model_providers(
             storage,
             "model_providers",
             &["id"],
-            vec![genesis_adapter::eq("model_providers", "id", provider["id"].clone())],
+            vec![genesis_adapter::eq(
+                "model_providers",
+                "id",
+                provider["id"].clone(),
+            )],
             1,
         )?;
         if existing.is_empty() {
@@ -7931,12 +7935,28 @@ mod transcript_correction_tests {
             "config_json":{"endpoint":"http://127.0.0.1:19999"},
             "created_at":"original-created", "updated_at":"original-updated"
         });
-        genesis_adapter::commit_rows(&storage, vec![genesis_adapter::upsert("model_providers", custom)]).unwrap();
-        let rows = || genesis_adapter::query(
-            &storage, "model_providers",
-            &["id", "label", "enabled", "config_json", "created_at", "updated_at"],
-            vec![], 10,
-        ).unwrap();
+        genesis_adapter::commit_rows(
+            &storage,
+            vec![genesis_adapter::upsert("model_providers", custom)],
+        )
+        .unwrap();
+        let rows = || {
+            genesis_adapter::query(
+                &storage,
+                "model_providers",
+                &[
+                    "id",
+                    "label",
+                    "enabled",
+                    "config_json",
+                    "created_at",
+                    "updated_at",
+                ],
+                vec![],
+                10,
+            )
+            .unwrap()
+        };
         let original = rows().pop().unwrap();
         seed_default_model_providers(&storage, "first-boot").unwrap();
         let first_boot = rows();
@@ -8047,8 +8067,13 @@ mod transcript_correction_tests {
         seed_segment(&storage);
         if std::env::var("FUNG_TEST_CHECKPOINT_MODE").as_deref() == Ok("uncheckpointed-schema") {
             correct_transcript_segment_in_storage(
-                &storage, "p1", "r1", "s1", "ข้อความไทยที่แก้ไขและต้องอยู่หลังเปิดใหม่",
-            ).unwrap();
+                &storage,
+                "p1",
+                "r1",
+                "s1",
+                "ข้อความไทยที่แก้ไขและต้องอยู่หลังเปิดใหม่",
+            )
+            .unwrap();
             // Keep the full v1–v13 schema journal and current projection, as
             // in issue #41. Bypass Drop and the normal close checkpoint.
             std::process::exit(0);
@@ -8093,33 +8118,77 @@ mod transcript_correction_tests {
             .arg("transcript_correction_tests::checkpoint_child_writes_and_exits_without_drop")
             .env("FUNG_TEST_CHECKPOINT_CHILD_PATH", &path)
             .env("FUNG_TEST_CHECKPOINT_MODE", "uncheckpointed-schema")
-            .output().unwrap();
-        assert!(output.status.success(), "child failed: {}", String::from_utf8_lossy(&output.stderr));
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "child failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
 
         for _ in 0..3 {
             let storage = open_storage_at(&path);
-            let project = genesis_adapter::query(&storage, "projects",
-                &["id", "name", "storage_path", "active_recording_id", "created_at"], vec![], 10).unwrap();
-            assert_eq!(project, vec![serde_json::json!({
-                "projects.id":"p1", "projects.name":"Meeting",
-                "projects.storage_path":"C:/fung/projects/p1",
-                "projects.active_recording_id":"r1", "projects.created_at":"project-created",
-            })]);
-            let recording = genesis_adapter::query(&storage, "recordings",
-                &["id", "project_id", "input_path", "canonical_audio_path", "duration_ms"], vec![], 10).unwrap();
-            assert_eq!(recording, vec![serde_json::json!({
-                "recordings.id":"r1", "recordings.project_id":"p1",
-                "recordings.input_path":"D:/incoming/meeting.wav",
-                "recordings.canonical_audio_path":"C:/fung/projects/p1/r1/meeting.wav",
-                "recordings.duration_ms":1000,
-            })]);
-            let segment = genesis_adapter::query(&storage, "transcript_segments",
-                &["id", "text", "start_ms", "end_ms"], vec![], 10).unwrap();
-            assert_eq!(segment, vec![serde_json::json!({
-                "transcript_segments.id":"s1",
-                "transcript_segments.text":"ข้อความไทยที่แก้ไขและต้องอยู่หลังเปิดใหม่",
-                "transcript_segments.start_ms":100, "transcript_segments.end_ms":900,
-            })]);
+            let project = genesis_adapter::query(
+                &storage,
+                "projects",
+                &[
+                    "id",
+                    "name",
+                    "storage_path",
+                    "active_recording_id",
+                    "created_at",
+                ],
+                vec![],
+                10,
+            )
+            .unwrap();
+            assert_eq!(
+                project,
+                vec![serde_json::json!({
+                    "projects.id":"p1", "projects.name":"Meeting",
+                    "projects.storage_path":"C:/fung/projects/p1",
+                    "projects.active_recording_id":"r1", "projects.created_at":"project-created",
+                })]
+            );
+            let recording = genesis_adapter::query(
+                &storage,
+                "recordings",
+                &[
+                    "id",
+                    "project_id",
+                    "input_path",
+                    "canonical_audio_path",
+                    "duration_ms",
+                ],
+                vec![],
+                10,
+            )
+            .unwrap();
+            assert_eq!(
+                recording,
+                vec![serde_json::json!({
+                    "recordings.id":"r1", "recordings.project_id":"p1",
+                    "recordings.input_path":"D:/incoming/meeting.wav",
+                    "recordings.canonical_audio_path":"C:/fung/projects/p1/r1/meeting.wav",
+                    "recordings.duration_ms":1000,
+                })]
+            );
+            let segment = genesis_adapter::query(
+                &storage,
+                "transcript_segments",
+                &["id", "text", "start_ms", "end_ms"],
+                vec![],
+                10,
+            )
+            .unwrap();
+            assert_eq!(
+                segment,
+                vec![serde_json::json!({
+                    "transcript_segments.id":"s1",
+                    "transcript_segments.text":"ข้อความไทยที่แก้ไขและต้องอยู่หลังเปิดใหม่",
+                    "transcript_segments.start_ms":100, "transcript_segments.end_ms":900,
+                })]
+            );
             storage.save_state().unwrap();
         }
     }

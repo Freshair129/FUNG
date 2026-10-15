@@ -1,7 +1,7 @@
 ---
-version: "0.3.17b"
+version: "0.3.18b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-01T01:42:00+07:00,RWANG"
+last_update: "2026-10-15T00:00:00+07:00,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -11,6 +11,35 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Existing-profile schema recovery — candidate validation pending (2026-10-15)
+
+FUNG issue [#41](https://github.com/Freshair129/FUNG/issues/41) reports that a
+normal second desktop boot panicked with
+`REL_SCHEMA_VERSION_CONFLICT` against the same persisted Genesis profile. The
+earlier September diagnosis below called this fail-closed behavior for an
+incompatible old database; that conclusion was superseded by the later
+copied-profile reproduction and GenesisBlock recovery investigation. See the
+[RCA and evidence ledger](../verification/implementation-reports/2026-10-15-issue-41-recovery-rca.md).
+
+This focused candidate pins `genesis-block-native` to the exact head of
+[GenesisBlock PR #233](https://github.com/Freshair129/GenesisBlock/pull/233),
+`df33a989aeefde1507376941985c91caf01ff94c`. That upstream change rebuilds a
+Windows relational projection off to the side and publishes it through SQLite's
+backup transaction instead of deleting an open projection. FUNG startup also
+inserts default model-provider rows only when their IDs are absent, preserving
+the existing provider configuration and timestamps.
+
+The new `existing_profile_second_open_preserves_schema_data_and_provider_configuration`
+regression opens a disposable persisted profile, installs the schema, commits
+project/recording/transcript rows and a customized provider, checkpoints, drops
+the handle, then repeats open/install/startup seeding and compares those rows.
+It is source-only evidence in this candidate: Cargo and Rust builds were not run
+for this preparation. GenesisBlock PR #233 CI and the owner's exact local tests
+must pass before this repair is accepted. The actual-profile lifecycle receipts
+from the separate [FUNG PR #80](https://github.com/Freshair129/FUNG/pull/80)
+used the earlier `ddfc6e9` candidate and do not qualify this new pinned revision.
+Packaged startup, arbitrary crash recovery and issue closure remain open.
 
 ## Python runtime Dependabot remediation — 2026-10-01
 
@@ -774,16 +803,13 @@ Two follow-ups from 0.2.18b are now corrected rather than left as open bugs:
   `dataDir` recorder bug (fixed in PR #42) reporting `available:false` at that
   moment, so capture fell to web. On a real Android device native is always
   tried first.
-- **Issue #41 is fail-closed on incompatible state, not an install-idempotency
-  bug.** `genesis_adapter::install` registers v1..v10 stepwise, skips
-  `REL_SCHEMA_VERSION_CONFLICT` on already-registered steps, and re-registering
-  the current version is idempotent (proven by
-  `schema_v4_adds_external_tables_and_upgrade_is_idempotent`, which re-runs
-  `install` on a v10 store). Normal reboots therefore do not crash. The crash
-  was a genuinely incompatible pre-September genesisdb (written by an older
-  GenesisBlockDB) — the right behavior is to refuse rather than proceed on
-  mismatched state. A friendlier recovery/error is a product decision, not a
-  latent correctness bug; left for the owner to direct.
+- **Historical Issue #41 diagnosis, superseded 2026-10-15.** The test cited here
+  proves that `genesis_adapter::install` tolerates an already-current schema;
+  it did not exercise Windows projection recovery after the prior process had
+  persisted and closed the profile. The later disposable-profile reproduction
+  and upstream GenesisBlock investigation identified a Windows projection
+  replacement/replay defect. The current candidate and its still-open validation
+  gates are recorded at the top of this file and in the linked RCA report.
 
 ## Current truth sync (2026-09-04)
 
@@ -872,11 +898,10 @@ when no real reading exists.
 Two operational discoveries: (1) the desktop panicked on second boot against
 the pre-September `%APPDATA%\dev.fung.local` state with
 `REL_SCHEMA_VERSION_CONFLICT` (issue #41); the data root held no projects and
-was reset, after which repeated boots are clean. See the 2026-09-13 sync below
-for the corrected characterization — `genesis_adapter::install` is idempotent
-across same-version reboots (test-proven), so this was fail-closed on an
-incompatible pre-September genesisdb, not an install-idempotency bug. (2) The
-Supabase project (`nqnrvqnijzovkrhxslfp`) had been
+was reset, after which repeated boots were clean. The 2026-09-13 note below
+records the then-current install-idempotency hypothesis; the later copied-profile
+reproduction and GenesisBlock recovery investigation supersede it as described
+at the top of this file. (2) The Supabase project (`nqnrvqnijzovkrhxslfp`) had been
 auto-paused by the free tier, which removes its DNS entirely — every auth
 surface fails with NXDOMAIN until it is restored; at the time of this sync the
 restore itself is blocked by a Supabase-wide "Project Lifecycle Actions"

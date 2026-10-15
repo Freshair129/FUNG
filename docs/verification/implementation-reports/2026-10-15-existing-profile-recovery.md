@@ -58,6 +58,14 @@ Local evidence root: `G:\AI-Studio\verification\2026-10-15-fung-issue41`.
   qualification. Full repository, microphone, GPU and installer tests are not
   claimed by these bounded checks.
 
+CI follow-up: formatting was corrected in `8e95434`; the same eight focused
+FUNG tests passed again (`fung-formatted-recovery-tests.log`). Windows CI then
+hit the existing custody wrapper's 300-second timeout while compiling the cold
+dependency graph, before behavioral tests executed. CI now explicitly compiles
+the same test targets in a separate bounded step before the custody wrapper;
+its runtime timeout and assertions remain unchanged. CI success is recorded
+separately from the completed local/native evidence.
+
 ## Native lifecycle
 
 `tauri build --debug --no-bundle` passed, including TypeScript/Vite. Normal

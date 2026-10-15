@@ -2633,7 +2633,7 @@ mod tests {
             .iter()
             .filter(|word| recognized_words.contains(word.as_str()))
             .count();
-        let required_key_word_matches = (expected_key_words.len() * 65 + 99) / 100;
+        let required_key_word_matches = (expected_key_words.len() * 65).div_ceil(100);
         assert!(
             matched_key_words >= required_key_word_matches,
             "actual Whisper transcript matched only {matched_key_words}/{} fixture key words: {}",

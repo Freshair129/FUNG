@@ -14665,7 +14665,10 @@ mod tests {
             10,
         )
         .unwrap();
-        assert_eq!(restored.stable_frontier(), source_frontier);
+        assert!(
+            restored.stable_frontier() >= source_frontier,
+            "restore may append a local generation-publication frame"
+        );
         assert!(restored.node_view("backup-note-a").is_some());
         assert!(restored.node_view("backup-note-b").is_some());
         assert_eq!(edges.len(), 1);

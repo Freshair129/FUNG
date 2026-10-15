@@ -35,12 +35,41 @@ function resolveRuntimeImports(source) {
     .replaceAll('from "lucide-react"', `from "${lucideModuleUrl}"`);
 }
 
-const [shellSource, contractsSource, brandAssetSource, shellCssSource] = await Promise.all([
+const [shellSource, contractsSource, brandAssetSource, shellCssSource, glassCssSource, reviewCssSource, appCssSource] = await Promise.all([
   readFile(path.join(worktreeRoot, "src/components/desktop/DesktopShell.tsx"), "utf8"),
   readFile(path.join(worktreeRoot, "src/components/desktop/contracts.ts"), "utf8"),
   readFile(path.join(worktreeRoot, "docs/brand-kit/logo/fung-mark.svg"), "utf8"),
   readFile(path.join(worktreeRoot, "src/components/desktop/DesktopShell.css"), "utf8"),
+  readFile(path.join(worktreeRoot, "src/components/desktop/LiquidGlass.css"), "utf8"),
+  readFile(path.join(worktreeRoot, "src/components/desktop/RecordingReview.css"), "utf8"),
+  readFile(path.join(worktreeRoot, "src/styles.css"), "utf8"),
 ]);
+
+test("shell rows are assigned by region rather than optional child count", () => {
+  assert.match(shellCssSource, /grid-template-areas:\s*"header"\s*"capture"\s*"body"/);
+  for (const [className, area] of [["header", "header"], ["capture-strip", "capture"], ["body", "body"]]) {
+    assert.match(shellCssSource, new RegExp(`\\.desktop-shell__${className}\\s*\\{[^}]*grid-area:\\s*${area}`));
+  }
+  const main = shellCssSource.match(/\.desktop-shell\[data-fung-root\] \.desktop-shell__main\s*\{([^}]+)\}/)?.[1];
+  assert.match(main ?? "", /display:\s*flex/);
+  assert.match(main ?? "", /overflow-y:\s*auto/);
+  assert.doesNotMatch(main ?? "", /grid-template-rows/);
+});
+
+test("glass stacking cannot turn skip links or fixed overlays into grid rows", () => {
+  assert.doesNotMatch(glassCssSource, /\.desktop-shell\[data-material="glass"\]\s*>\s*\*\s*\{/);
+  assert.match(glassCssSource, />\s*:is\(\.desktop-shell__header, \.desktop-shell__capture-strip, \.desktop-shell__body\)/);
+  assert.match(shellCssSource, /\.desktop-shell > #fung-companion-panel\s*\{\s*display:\s*contents/);
+  assert.match(shellSource, /<details className="desktop-shell__sidebar-context">/);
+  assert.match(shellSource, /<summary className="desktop-shell__project-toggle">/);
+});
+
+test("hosted review and live pages defer page scrolling to main", () => {
+  assert.match(shellCssSource, /\.desktop-shell__surface-content\s*\{[^}]*overflow:\s*visible/);
+  assert.match(reviewCssSource, /\.desktop-shell \.recording-review\s*\{[^}]*max-height:\s*none;[^}]*overflow:\s*visible/);
+  assert.match(appCssSource, /\.desktop-shell \.callmd-surface-stack \.live-panel\s*\{[^}]*min-width:\s*0;[^}]*overflow:\s*visible/);
+  assert.match(appCssSource, /\.desktop-shell \.callmd-surface-stack\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+});
 
 await writeFile(path.join(runtimeDir, "contracts.mjs"), resolveRuntimeImports(transpile(contractsSource)), "utf8");
 await writeFile(

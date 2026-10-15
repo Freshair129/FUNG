@@ -22,7 +22,7 @@
   --fung-glass-muted: #505a54;
   position: relative;
   isolation: isolate;
-  overflow: hidden;
+  overflow: clip;
   background:
     radial-gradient(circle at 12% 18%, rgba(141, 162, 150, 0.42), transparent 34%),
     radial-gradient(circle at 88% 82%, rgba(207, 215, 221, 0.42), transparent 36%),
@@ -99,7 +99,7 @@
   }
 }
 
-.desktop-shell[data-material="glass"] > * {
+.desktop-shell[data-material="glass"] > :is(.desktop-shell__header, .desktop-shell__capture-strip, .desktop-shell__body) {
   position: relative;
   z-index: 1;
 }
@@ -132,7 +132,6 @@
 
 .desktop-shell[data-material="glass"] .desktop-shell__nav-link,
 .desktop-shell[data-material="glass"] .desktop-shell__theme-choice select {
-  min-height: 40px;
   border-color: var(--fung-glass-edge);
   border-radius: var(--fung-glass-radius-control);
   background: var(--fung-glass-control);
@@ -141,7 +140,6 @@
 }
 
 .desktop-shell[data-material="glass"] .desktop-shell__nav-link {
-  padding: 9px 16px;
   color: var(--fung-glass-muted);
 }
 
@@ -172,12 +170,10 @@
 }
 
 .desktop-shell[data-material="glass"] .desktop-shell__sidebar {
-  padding: 22px 18px;
   border-right: 1px solid color-mix(in srgb, var(--fung-glass-edge) 62%, transparent);
 }
 
 .desktop-shell[data-material="glass"] .desktop-shell__main {
-  padding: 32px clamp(24px, 4vw, 60px) 52px;
   background: transparent;
 }
 

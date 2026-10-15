@@ -1102,20 +1102,26 @@ export function DesktopShell({
             onToggleCompanion={() => setCompanionOpen((current) => !current)}
             companionTriggerRef={companionTriggerRef}
           />
-          <div className="desktop-shell__sidebar-context">
-            <ProjectPanel
-              project={project}
-              selectedProjectId={selectedProjectId}
-              selection={selection}
-              onSelectProject={requestProject}
-            />
-            <div className="desktop-shell__sidebar-note">
-              <span>สถานะพื้นที่</span>
-              <strong>{captureLifecycle === "inactive" ? "พร้อมตรวจสอบ" : "มีเซสชันบันทึกอยู่"}</strong>
-              <p>การเปลี่ยนธีมไม่เปลี่ยนโครงการหรือสถานะการบันทึก</p>
+          <details className="desktop-shell__sidebar-context">
+            <summary className="desktop-shell__project-toggle">
+              <FolderOpen size={17} aria-hidden="true" />
+              <span>{project.data?.find((item) => item.id === selectedProjectId)?.name ?? "โครงการในเครื่อง"}</span>
+            </summary>
+            <div className="desktop-shell__project-details">
+              <ProjectPanel
+                project={project}
+                selectedProjectId={selectedProjectId}
+                selection={selection}
+                onSelectProject={requestProject}
+              />
+              <div className="desktop-shell__sidebar-note">
+                <span>สถานะพื้นที่</span>
+                <strong>{captureLifecycle === "inactive" ? "พร้อมตรวจสอบ" : "มีเซสชันบันทึกอยู่"}</strong>
+                <p>การเปลี่ยนธีมไม่เปลี่ยนโครงการหรือสถานะการบันทึก</p>
+              </div>
+              {recoverySlot ? <div className="desktop-shell__owned-slot">{recoverySlot}</div> : null}
             </div>
-            {recoverySlot ? <div className="desktop-shell__owned-slot">{recoverySlot}</div> : null}
-          </div>
+          </details>
         </aside>
 
         <main id="desktop-shell-main" className="desktop-shell__main" tabIndex={-1}>

@@ -1,7 +1,7 @@
 ---
-version: "0.3.18b"
+version: "0.3.19b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-15T07:02:49+07:00,Codex"
+last_update: "2026-10-15T08:02:52+07:00,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -11,6 +11,23 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Desktop shell viewport and scroll correction — 2026-10-15
+
+[Issue #81](https://github.com/Freshair129/FUNG/issues/81) reproduced an extra
+58px row above the titlebar: glass styling changed the absolute skip link into
+a grid item and also affected fixed overlay wrappers. Named header/capture/body
+regions and scoped glass stacking now keep the header at y=0 and the body within
+the viewport. Main owns page scrolling; embedded review/live pages do not add a
+second page scroller. Project context is a keyboard-operable disclosure, closed
+initially, so rail actions fit a normal laptop window. Short windows and opened
+long project details can still scroll. Narrow navigation shows all four tabs.
+
+Shell tests passed 14/14 and the production frontend build passed. Chrome checks
+covered five viewport sizes, glass/solid materials, Companion, and isolated
+capture/modal fixtures. This UI patch has not replaced or qualified an installed
+native app. See the [layout report](../verification/implementation-reports/2026-10-15-desktop-shell-layout.md)
+for measurements, reproduction and remaining limits. Ollama/GPU were untouched.
 
 ## Standalone import, playback channel, and shutdown durability — 2026-10-15
 
@@ -1215,6 +1232,14 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.18b` → `0.3.19b`
+
+- Corrected skip-link/overlay placement, optional shell rows and nested page
+  scroll ownership; constrained the live grid at narrow widths.
+- Added compact rail spacing, collapsible project context and four-tab narrow
+  navigation; recorded 14 shell checks, frontend build and bounded browser
+  evidence without promoting native/installer acceptance.
+
 ### `0.3.17b` → `0.3.18b`
 
 - Recorded the production 48 kHz loopback import → CPU Whisper → completed
@@ -1353,6 +1378,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.19b | 2026-10-15 | beta | Corrected desktop viewport/scroll layout (#81), fixed glass skip-link/overlay stacking and made project context collapsible; 14 shell checks, frontend build and bounded browser layout inspection passed. Installed native UI and release acceptance remain open. | working-tree | Codex |
 | 0.3.18b | 2026-10-15 | beta | Closed the #79 standalone import path with real CPU Whisper loopback transcription, edit/export/reopen, and native normal-close persistence; added a single Genesis checkpoint after managed writers drain. Native playback output configuration remains unsupported on this host; enabled API/in-flight and forced-crash shutdown are unverified. | working-tree | Codex |
 | 0.3.17b | 2026-10-15 | beta | Recorded [issue #79](https://github.com/Freshair129/FUNG/issues/79), passed the frontend build and 26 focused tests, and prepared pinned large-v3-turbo, loopback, and isolated native acceptance evidence; actual transcription, Cargo run, and native UI acceptance remain open. | working-tree | Codex |
 | 0.3.16b | 2026-10-01 | beta | Tested raw, afftdn and speechnorm on five mic clips; neither filter corrected both misses, so Detailed remains disabled. | working-tree | RWANG |

@@ -16,12 +16,14 @@
   --shell-danger-soft: #faece7;
   --shell-focus: #4a5b8b;
   --shell-shadow: 0 12px 28px rgba(23, 25, 24, 0.07);
+  position: relative;
   display: grid;
+  grid-template-areas: "header" "capture" "body";
   grid-template-rows: auto auto minmax(0, 1fr);
   min-width: 0;
   min-height: 100%;
   height: 100%;
-  overflow: hidden;
+  overflow: clip;
   background: var(--shell-bg);
   color: var(--shell-ink);
   color-scheme: light;
@@ -129,6 +131,7 @@
 }
 
 .desktop-shell__header {
+  grid-area: header;
   display: grid;
   grid-template-columns: minmax(190px, 0.85fr) minmax(300px, 1.3fr) minmax(300px, 1fr);
   gap: 24px;
@@ -315,6 +318,7 @@
 }
 
 .desktop-shell__capture-strip {
+  grid-area: capture;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 12px;
@@ -409,9 +413,12 @@
 }
 
 .desktop-shell__body {
+  grid-area: body;
   display: grid;
   grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .desktop-shell__sidebar {
@@ -640,6 +647,11 @@
   pointer-events: auto;
 }
 
+/* The fixed companion layer must not create an implicit shell grid row. */
+.desktop-shell > #fung-companion-panel {
+  display: contents;
+}
+
 .desktop-shell__modal-layer {
   position: fixed;
   z-index: 50;
@@ -860,7 +872,7 @@
 /* v0.4 shell: one slim titlebar, one hover/focus rail, one active surface. */
 .desktop-shell[data-fung-root] {
   grid-template-rows: 58px auto minmax(0, 1fr);
-  overflow: hidden;
+  overflow: clip;
 }
 
 .desktop-shell[data-fung-root] .desktop-shell__header {
@@ -982,6 +994,13 @@
   .desktop-shell[data-fung-root]:has(.desktop-shell__sidebar:hover, .desktop-shell__sidebar:focus-within) .desktop-shell__body {
     grid-template-columns: 248px minmax(0, 1fr);
   }
+
+  .desktop-shell[data-fung-root] .desktop-shell__sidebar:hover,
+  .desktop-shell[data-fung-root] .desktop-shell__sidebar:focus-within {
+    width: 248px;
+    background: color-mix(in srgb, var(--shell-surface) 72%, transparent);
+    box-shadow: 14px 0 32px rgba(23, 25, 24, 0.12);
+  }
 }
 
 .desktop-shell[data-fung-root] .desktop-shell__sidebar {
@@ -995,16 +1014,10 @@
   padding: 12px 10px;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   border-right: 1px solid var(--shell-line);
   background: color-mix(in srgb, var(--shell-surface) 44%, transparent);
   transition: width 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
-}
-
-.desktop-shell[data-fung-root] .desktop-shell__sidebar:hover,
-.desktop-shell[data-fung-root] .desktop-shell__sidebar:focus-within {
-  width: 248px;
-  background: color-mix(in srgb, var(--shell-surface) 72%, transparent);
-  box-shadow: 14px 0 32px rgba(23, 25, 24, 0.12);
 }
 
 .desktop-shell__sidebar-menu,
@@ -1016,16 +1029,57 @@
 
 .desktop-shell__sidebar-menu {
   flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
 }
 
 .desktop-shell__sidebar-context {
+  display: block;
+  flex: 0 0 auto;
   min-height: 0;
-  overflow: hidden;
   transition: opacity 120ms ease, max-height 180ms ease;
+}
+
+.desktop-shell__project-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid var(--shell-line);
+  border-radius: 12px;
+  background: var(--shell-surface-muted);
+  color: var(--shell-ink);
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.desktop-shell__project-toggle::after {
+  content: "+";
+  margin-left: auto;
+}
+
+.desktop-shell__sidebar-context[open] > .desktop-shell__project-toggle::after {
+  content: "−";
+}
+
+.desktop-shell__project-toggle span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-shell__project-details {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
 }
 
 .desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__sidebar-context {
   max-height: 0;
+  overflow: hidden;
   opacity: 0;
   pointer-events: none;
 }
@@ -1043,7 +1097,7 @@
   text-transform: uppercase;
 }
 
-.desktop-shell[data-fung-root] .desktop-shell:not(:hover) .desktop-shell__sidebar-hint span {
+.desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__sidebar-hint {
   display: none;
 }
 
@@ -1085,11 +1139,18 @@
   transition: opacity 120ms ease;
 }
 
-.desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__nav-label,
-.desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__sidebar-action-label,
-.desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__profile-copy {
-  width: 0;
-  opacity: 0;
+@media (min-width: 721px) {
+  .desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__nav-label,
+  .desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) .desktop-shell__sidebar-action-label {
+    width: 0;
+    opacity: 0;
+  }
+
+  .desktop-shell[data-fung-root] .desktop-shell__sidebar:not(:hover):not(:focus-within) :is(.desktop-shell__nav-link, .desktop-shell__sidebar-action) {
+    justify-content: center;
+    gap: 0;
+    padding-inline: 6px;
+  }
 }
 
 .desktop-shell__sidebar-divider {
@@ -1138,23 +1199,30 @@
 }
 
 .desktop-shell[data-fung-root] .desktop-shell__main {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  overflow: hidden;
-  padding: 24px clamp(20px, 3.5vw, 52px) 24px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px clamp(18px, 3vw, 40px) 24px;
+}
+
+.desktop-shell__main > * {
+  flex: 0 0 auto;
 }
 
 .desktop-shell__surface-content {
+  flex: 1 0 auto;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
   padding-top: 22px;
   scroll-behavior: smooth;
 }
 
 .desktop-shell__surface-content--output {
-  overflow: hidden;
+  overflow: visible;
 }
 
 .desktop-shell__surface-content--output > .callmd-desktop-content {
@@ -1167,7 +1235,7 @@
 
 .desktop-shell__surface-content .callmd-desktop-content,
 .desktop-shell__surface-content .callmd-surface-stack {
-  min-height: 100%;
+  min-height: 0;
 }
 
 .desktop-shell__surface-content .callmd-surface-stack {
@@ -1177,15 +1245,46 @@
 }
 
 @media (max-width: 1023px) {
-  .desktop-shell[data-fung-root] .desktop-shell__sidebar:hover,
-  .desktop-shell[data-fung-root] .desktop-shell__sidebar:focus-within {
-    width: 72px;
-  }
-
   .desktop-shell[data-fung-root] .desktop-shell__sidebar-context {
+    display: none;
     max-height: 0;
+    overflow: hidden;
     opacity: 0;
     pointer-events: none;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 1023px) {
+  .desktop-shell[data-fung-root] .desktop-shell__sidebar :is(.desktop-shell__nav-label, .desktop-shell__sidebar-action-label, .desktop-shell__sidebar-hint) {
+    display: none;
+  }
+
+  .desktop-shell[data-fung-root] .desktop-shell__sidebar :is(.desktop-shell__nav-link, .desktop-shell__sidebar-action) {
+    justify-content: center;
+    gap: 0;
+    padding-inline: 6px;
+  }
+}
+
+/* Keep every rail action reachable on laptop-height windows. */
+@media (min-width: 721px) and (max-height: 800px) {
+  .desktop-shell__sidebar-menu {
+    gap: 4px;
+  }
+
+  .desktop-shell__nav,
+  .desktop-shell__sidebar-actions {
+    gap: 3px;
+  }
+
+  .desktop-shell__sidebar-hint {
+    min-height: 20px;
+  }
+
+  .desktop-shell__nav-link,
+  .desktop-shell__sidebar-action {
+    min-height: 36px;
+    padding: 5px 8px;
   }
 }
 
@@ -1235,28 +1334,35 @@
 
   .desktop-shell__sidebar-menu {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 42px 42px;
     gap: 7px;
+    overflow: visible;
   }
 
   .desktop-shell__nav {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow: visible;
   }
 
   .desktop-shell__nav-link {
+    flex-direction: column;
     justify-content: center;
-    gap: 7px;
-    min-height: 42px;
-    padding: 8px 6px;
+    gap: 4px;
+    min-width: 0;
+    min-height: 56px;
+    padding: 6px 4px;
   }
 
   .desktop-shell__nav-label {
     width: auto;
+    max-width: 100%;
+    font-size: 11px;
     opacity: 1;
   }
 
   .desktop-shell__sidebar-actions {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 5px;
   }
 
@@ -1266,6 +1372,7 @@
 
   .desktop-shell__sidebar-action {
     justify-content: center;
+    gap: 0;
     min-height: 42px;
     padding: 8px 5px;
   }

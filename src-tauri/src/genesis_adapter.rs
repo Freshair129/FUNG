@@ -12204,6 +12204,22 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an explicitly copied profile in FUNG_SCHEMA_REOPEN_PROBE"]
+    fn schema_reopen_existing_profile_probe() {
+        let path = std::env::var("FUNG_SCHEMA_REOPEN_PROBE")
+            .expect("set FUNG_SCHEMA_REOPEN_PROBE to a disposable COPY of genesisdb");
+        let storage = Storage::open(OpenOptions {
+            path,
+            page_cache_mb: Some(64),
+            read_only: Some(false),
+            vector_dim: Some(384),
+            retention: None,
+        }).expect("existing profile: Storage::open");
+        install(&storage).expect("existing profile: schema install");
+        storage.save_state().expect("existing profile: checkpoint");
+    }
+
+    #[test]
     fn private_asset_reader_stops_at_the_declared_byte_bound() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("asset.enc");

@@ -1,7 +1,7 @@
 ---
-version: "0.3.21b"
+version: "0.3.22b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-15T08:48:00+07:00,Codex"
+last_update: "2026-10-15T09:40:00+07:00,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -11,6 +11,26 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Existing-profile database recovery — 2026-10-15
+
+[Issue #41](https://github.com/Freshair129/FUNG/issues/41) is repaired in this
+branch by pinning GenesisBlock `ddfc6e9` (upstream draft PR #233). The engine
+rebuilds schema projections transactionally without deleting an open SQLite
+file. Startup now preserves existing provider configuration and timestamps.
+
+The original profile was hash-backed up. Its disposable copy reproduces the
+old error and opens with the repair. Native debug build passed; two orderly
+close/reopen cycles preserve all 71 application tables, identity and output
+settings, with integrity `ok`; a third boot is left open. The original profile
+contains two provider rows and no projects/recordings/transcripts. Populated
+Thai-data preservation is separately covered by automated child-process and
+three-reopen regressions (8 FUNG tests passed, 1 diagnostic ignored).
+
+[Recovery report](../verification/implementation-reports/2026-10-15-existing-profile-recovery.md)
+records the backup, upstream tests, binary hash and WAL-aware comparisons.
+This is idle native lifecycle evidence, not installer, active-job shutdown or
+arbitrary-crash qualification. Earlier startup failures below are historical.
 
 ## Reference dashboard composition — 2026-10-15
 
@@ -1258,6 +1278,12 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.21b` → `0.3.22b`
+
+- Pin the bounded upstream Windows projection-recovery repair for #41.
+- Preserve existing model provider defaults and verify original-profile
+  close/reopen without resetting data; record populated synthetic coverage.
+
 ### `0.3.20b` → `0.3.21b`
 
 - Adapted supplied dashboard reference with real activity states, generated
@@ -1417,6 +1443,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.22b | 2026-10-15 | beta | Windows original-profile schema recovery (#41), preserved provider settings and verified native close/reopen. | See PR #80 recovery commit; GenesisBlock PR #233 | Codex |
 | 0.3.21b | 2026-10-15 | beta | Reference dashboard with real project activity, bottom dock, responsive scrolling and bounded browser QA (#82). | See PR #80 dashboard commit | Codex |
 | 0.3.20b | 2026-10-15 | beta | Built and opened a native preview with the corrected frontend on user request; window startup confirmed, native visual/feature and installer acceptance pending. | 46f6c78 (preview source) | Codex |
 | 0.3.19b | 2026-10-15 | beta | Corrected desktop viewport/scroll layout (#81), fixed glass skip-link/overlay stacking and made project context collapsible; 14 shell checks, frontend build and bounded browser layout inspection passed. Installed native UI and release acceptance remain open. | working-tree | Codex |

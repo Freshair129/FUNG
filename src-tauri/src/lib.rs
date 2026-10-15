@@ -1591,6 +1591,34 @@ fn init_database(db_path: PathBuf) -> AppResult<Connection> {
     Ok(conn)
 }
 
+fn seed_default_model_providers(
+    storage: &genesis_block_native::Storage,
+    timestamp: &str,
+) -> Result<(), String> {
+    let defaults = [
+        serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":DEFAULT_OLLAMA_ENDPOINT},"created_at":timestamp,"updated_at":timestamp}),
+        serde_json::json!({"id":"vllm-summary-intent","label":"vLLM","runtime_location":"local","kind":"summary_intent","enabled":false,"config_json":{"endpoint":DEFAULT_VLLM_ENDPOINT},"created_at":timestamp,"updated_at":timestamp}),
+    ];
+    let mut missing = Vec::new();
+    for provider in defaults {
+        let existing = genesis_adapter::query(
+            storage,
+            "model_providers",
+            &["id"],
+            vec![genesis_adapter::eq("model_providers", "id", provider["id"].clone())],
+            1,
+        )?;
+        if existing.is_empty() {
+            missing.push(genesis_adapter::upsert("model_providers", provider));
+        }
+    }
+    // Startup is single-writer here; preserve existing configuration and timestamps.
+    if !missing.is_empty() {
+        genesis_adapter::commit_rows(storage, missing)?;
+    }
+    Ok(())
+}
+
 fn app_state(app: &tauri::App) -> AppResult<AppState> {
     let app_data_dir = app
         .path()
@@ -1621,11 +1649,7 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
             .map_err(AppError::Genesis)?;
         std::fs::write(&legacy_marker, now())?;
     }
-    let seeded_at = now();
-    genesis_adapter::commit_rows(&genesis, vec![
-        genesis_adapter::upsert("model_providers", serde_json::json!({"id":"ollama-summary-intent","label":"Ollama / llama.cpp","runtime_location":"local","kind":"summary_intent","enabled":true,"config_json":{"endpoint":DEFAULT_OLLAMA_ENDPOINT},"created_at":seeded_at,"updated_at":seeded_at})),
-        genesis_adapter::upsert("model_providers", serde_json::json!({"id":"vllm-summary-intent","label":"vLLM","runtime_location":"local","kind":"summary_intent","enabled":false,"config_json":{"endpoint":DEFAULT_VLLM_ENDPOINT},"created_at":seeded_at,"updated_at":seeded_at})),
-    ]).map_err(AppError::Genesis)?;
+    seed_default_model_providers(&genesis, &now()).map_err(AppError::Genesis)?;
     let genesis = Arc::new(genesis);
     Ok(AppState {
         data_root: app_data_dir,
@@ -7899,6 +7923,36 @@ mod transcript_correction_tests {
     }
 
     #[test]
+    fn startup_provider_defaults_preserve_existing_configuration() {
+        let (path, storage) = open_storage();
+        let custom = serde_json::json!({
+            "id":"ollama-summary-intent", "label":"ผู้ให้บริการของฉัน",
+            "runtime_location":"local", "kind":"summary_intent", "enabled":false,
+            "config_json":{"endpoint":"http://127.0.0.1:19999"},
+            "created_at":"original-created", "updated_at":"original-updated"
+        });
+        genesis_adapter::commit_rows(&storage, vec![genesis_adapter::upsert("model_providers", custom)]).unwrap();
+        let rows = || genesis_adapter::query(
+            &storage, "model_providers",
+            &["id", "label", "enabled", "config_json", "created_at", "updated_at"],
+            vec![], 10,
+        ).unwrap();
+        let original = rows().pop().unwrap();
+        seed_default_model_providers(&storage, "first-boot").unwrap();
+        let first_boot = rows();
+        assert_eq!(first_boot.len(), 2);
+        assert!(first_boot.contains(&original));
+        seed_default_model_providers(&storage, "second-boot").unwrap();
+        let second_boot = rows();
+        assert_eq!(second_boot.len(), 2);
+        for provider in first_boot {
+            assert!(second_boot.contains(&provider));
+        }
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
     fn manual_correction_updates_segment_and_records_provenance() {
         let (path, storage) = open_storage();
         seed_segment(&storage);
@@ -7991,6 +8045,14 @@ mod transcript_correction_tests {
         };
         let storage = open_storage_at(std::path::Path::new(&path));
         seed_segment(&storage);
+        if std::env::var("FUNG_TEST_CHECKPOINT_MODE").as_deref() == Ok("uncheckpointed-schema") {
+            correct_transcript_segment_in_storage(
+                &storage, "p1", "r1", "s1", "ข้อความไทยที่แก้ไขและต้องอยู่หลังเปิดใหม่",
+            ).unwrap();
+            // Keep the full v1–v13 schema journal and current projection, as
+            // in issue #41. Bypass Drop and the normal close checkpoint.
+            std::process::exit(0);
+        }
         storage.save_state().expect("persist the pre-edit baseline");
         correct_transcript_segment_in_storage(
             &storage,
@@ -8020,6 +8082,46 @@ mod transcript_correction_tests {
         // This intentionally bypasses Storage::drop so recovery proves the
         // explicit checkpoint, rather than the destructor, persisted rows.
         std::process::exit(0);
+    }
+
+    #[test]
+    fn schema_history_reopens_after_process_exit_without_checkpoint() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("genesisdb");
+        let output = Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("transcript_correction_tests::checkpoint_child_writes_and_exits_without_drop")
+            .env("FUNG_TEST_CHECKPOINT_CHILD_PATH", &path)
+            .env("FUNG_TEST_CHECKPOINT_MODE", "uncheckpointed-schema")
+            .output().unwrap();
+        assert!(output.status.success(), "child failed: {}", String::from_utf8_lossy(&output.stderr));
+
+        for _ in 0..3 {
+            let storage = open_storage_at(&path);
+            let project = genesis_adapter::query(&storage, "projects",
+                &["id", "name", "storage_path", "active_recording_id", "created_at"], vec![], 10).unwrap();
+            assert_eq!(project, vec![serde_json::json!({
+                "projects.id":"p1", "projects.name":"Meeting",
+                "projects.storage_path":"C:/fung/projects/p1",
+                "projects.active_recording_id":"r1", "projects.created_at":"project-created",
+            })]);
+            let recording = genesis_adapter::query(&storage, "recordings",
+                &["id", "project_id", "input_path", "canonical_audio_path", "duration_ms"], vec![], 10).unwrap();
+            assert_eq!(recording, vec![serde_json::json!({
+                "recordings.id":"r1", "recordings.project_id":"p1",
+                "recordings.input_path":"D:/incoming/meeting.wav",
+                "recordings.canonical_audio_path":"C:/fung/projects/p1/r1/meeting.wav",
+                "recordings.duration_ms":1000,
+            })]);
+            let segment = genesis_adapter::query(&storage, "transcript_segments",
+                &["id", "text", "start_ms", "end_ms"], vec![], 10).unwrap();
+            assert_eq!(segment, vec![serde_json::json!({
+                "transcript_segments.id":"s1",
+                "transcript_segments.text":"ข้อความไทยที่แก้ไขและต้องอยู่หลังเปิดใหม่",
+                "transcript_segments.start_ms":100, "transcript_segments.end_ms":900,
+            })]);
+            storage.save_state().unwrap();
+        }
     }
 
     #[test]

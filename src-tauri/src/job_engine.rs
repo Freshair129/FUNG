@@ -34,6 +34,7 @@
 
 use std::collections::HashSet;
 use std::sync::{Arc, Condvar, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use tauri::{Emitter, Manager};
@@ -419,6 +420,7 @@ struct Inner {
     storage: Arc<genesis_block_native::Storage>,
     state: Mutex<EngineState>,
     wake: Condvar,
+    worker: Mutex<Option<JoinHandle<()>>>,
 }
 
 /// Handle to the running engine, held in `AppState`.
@@ -475,6 +477,7 @@ impl JobEngine {
                 storage,
                 state: Mutex::new(EngineState::default()),
                 wake: Condvar::new(),
+                worker: Mutex::new(None),
             }),
         }
     }
@@ -482,10 +485,17 @@ impl JobEngine {
     /// Starts the worker thread. Call once, after the app state is managed.
     pub(crate) fn start_worker(&self, app: tauri::AppHandle) {
         let worker = self.clone();
-        std::thread::Builder::new()
+        let handle = std::thread::Builder::new()
             .name("fung-job-engine".into())
             .spawn(move || worker_loop(worker, app))
             .expect("job engine worker thread must spawn");
+        let mut stored = self
+            .inner
+            .worker
+            .lock()
+            .expect("job worker handle mutex poisoned");
+        assert!(stored.is_none(), "job engine worker can start only once");
+        *stored = Some(handle);
     }
 
     /// Rebuilds the in-memory queue from the ledger.
@@ -649,6 +659,23 @@ impl JobEngine {
         state.shutdown = true;
         drop(state);
         self.inner.wake.notify_all();
+    }
+
+    /// Stops new work and waits for the current handler to finish before its
+    /// Genesis storage can be checkpointed by application shutdown.
+    pub(crate) fn shutdown_and_wait(&self) {
+        self.shutdown();
+        let worker = self
+            .inner
+            .worker
+            .lock()
+            .expect("job worker handle mutex poisoned")
+            .take();
+        if let Some(worker) = worker {
+            if worker.join().is_err() {
+                eprintln!("job engine worker panicked during shutdown");
+            }
+        }
     }
 
     fn find_pending(

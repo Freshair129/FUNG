@@ -543,6 +543,8 @@ struct OpenSource {
     reader: AudioReader,
     channels: u16,
     sample_rate: u32,
+    frame_count: u64,
+    next_frame: u64,
 }
 
 fn playback_error(code: &str, message: &str, retryable: bool) -> ReviewError {
@@ -676,8 +678,15 @@ fn ms_for_frames(frames: u64, sample_rate: u32) -> u64 {
     (u128::from(frames) * 1_000 / u128::from(sample_rate.max(1))) as u64
 }
 
-fn within_one_frame(left: u64, right: u64) -> bool {
-    left.abs_diff(right) <= 1
+fn within_millisecond_precision(
+    actual_frames: u64,
+    timestamped_duration_ms: u64,
+    sample_rate: u32,
+) -> bool {
+    let rate = u128::from(sample_rate);
+    let actual_duration_scaled = u128::from(actual_frames) * 1_000;
+    let timestamped_duration_scaled = u128::from(timestamped_duration_ms) * rate;
+    actual_duration_scaled.abs_diff(timestamped_duration_scaled) * 2 <= rate
 }
 
 fn reject_untrusted_path(raw: &str) -> Result<(), ReviewError> {
@@ -904,9 +913,10 @@ fn open_source(
     }
     let frames = u64::from(reader.duration());
     if frames == 0
-        || !within_one_frame(
+        || !within_millisecond_precision(
             frames,
-            frames_for_ms(descriptor.end_ms - descriptor.start_ms, spec.sample_rate),
+            descriptor.end_ms - descriptor.start_ms,
+            spec.sample_rate,
         )
     {
         return Err(playback_error(
@@ -919,6 +929,8 @@ fn open_source(
         reader,
         channels: spec.channels,
         sample_rate: spec.sample_rate,
+        frame_count: frames,
+        next_frame: 0,
     }))
 }
 
@@ -1097,8 +1109,11 @@ fn prepare_playback(
         if let Some(wave) = wave {
             let rate = wave.spec.sample_rate;
             let channels = wave.spec.channels;
-            let expected_frames = frames_for_ms(descriptor.end_ms - descriptor.start_ms, rate);
-            if !within_one_frame(wave.frames, expected_frames) {
+            if !within_millisecond_precision(
+                wave.frames,
+                descriptor.end_ms - descriptor.start_ms,
+                rate,
+            ) {
                 return Err(playback_error(
                     "PLAYBACK_TIMELINE_INVALID",
                     "The playback timeline is invalid.",
@@ -1322,6 +1337,17 @@ fn read_frame(
     }
 }
 
+fn read_source_frame(source: &mut OpenSource) -> Result<[i16; OUTPUT_CHANNELS], ReviewError> {
+    if source.next_frame >= source.frame_count {
+        // Millisecond timestamps can round a source duration up by at most
+        // half a millisecond. Keep playback on its ledger timeline with silence.
+        return Ok([0, 0]);
+    }
+    let frame = read_frame(&mut source.reader, source.channels)?;
+    source.next_frame += 1;
+    Ok(frame)
+}
+
 fn queue_len(runtime: &PlaybackRuntime) -> usize {
     runtime
         .queue
@@ -1393,16 +1419,19 @@ fn fill_queue(
                     if let Some(reader) = source.as_mut() {
                         let local_frame =
                             cursor.saturating_sub(prepared.descriptors[index].frame_start);
-                        reader
-                            .reader
-                            .seek(local_frame as u32)
-                            .map_err(|_| safe_storage_error())?;
+                        reader.next_frame = local_frame;
+                        if local_frame < reader.frame_count {
+                            reader
+                                .reader
+                                .seek(local_frame as u32)
+                                .map_err(|_| safe_storage_error())?;
+                        }
                     }
                 }
             }
         }
         let frame = if let Some(reader) = source.as_mut() {
-            read_frame(&mut reader.reader, reader.channels)?
+            read_source_frame(reader)?
         } else {
             [0, 0]
         };
@@ -2272,11 +2301,91 @@ mod tests {
     }
 
     #[test]
-    fn frame_math_aligns_seek_down_without_resampling() {
+    fn frame_math_respects_millisecond_timestamp_precision() {
         assert_eq!(frames_for_ms(999, 48_000), 47_952);
         assert_eq!(ms_for_frames(frames_for_ms(999, 48_000), 48_000), 999);
-        assert!(within_one_frame(48_000, 48_001));
-        assert!(!within_one_frame(48_000, 48_002));
+        assert!(within_millisecond_precision(48_001, 1_000, 48_000));
+        assert!(within_millisecond_precision(231_722, 14_483, 16_000));
+        assert!(within_millisecond_precision(231_720, 14_483, 16_000));
+        assert!(!within_millisecond_precision(231_719, 14_483, 16_000));
+    }
+
+    #[test]
+    fn imported_pcm16_duration_rounding_is_validated_at_millisecond_precision() {
+        let frames = 231_722_u32;
+        let (directory, path) = temp_wave(
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+            &vec![1_i16; frames as usize],
+        );
+        let project_root =
+            std::fs::canonicalize(directory.path()).expect("fixture project root canonicalization");
+        let descriptor = ChunkDescriptor {
+            id: "rounded-import".to_string(),
+            path: path.display().to_string(),
+            sequence_no: 1,
+            start_ms: 0,
+            end_ms: 14_483,
+            byte_size: std::fs::metadata(&path).unwrap().len(),
+            frame_start: 0,
+            frame_end: frames_for_ms(14_483, 16_000),
+            available: true,
+        };
+
+        let wave = validate_wave(&project_root, &descriptor)
+            .unwrap()
+            .expect("rounded whole-file import is a valid source");
+        assert_eq!(wave.frames, u64::from(frames));
+        let source = open_source(&project_root, &descriptor)
+            .unwrap()
+            .expect("rounded whole-file import can be opened");
+        assert_eq!(source.frame_count, u64::from(frames));
+        assert_eq!(source.frame_count, 231_722);
+        assert_eq!(frames_for_ms(descriptor.end_ms, 16_000), 231_728);
+    }
+
+    #[test]
+    fn rounded_import_reader_pads_after_last_pcm_frame_without_reading_past_end() {
+        let frames = 231_722_u32;
+        let (directory, path) = temp_wave(
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+            &vec![17_i16; frames as usize],
+        );
+        let project_root =
+            std::fs::canonicalize(directory.path()).expect("fixture project root canonicalization");
+        let descriptor = ChunkDescriptor {
+            id: "rounded-import-tail".to_string(),
+            path: path.display().to_string(),
+            sequence_no: 1,
+            start_ms: 0,
+            end_ms: 14_483,
+            byte_size: std::fs::metadata(&path).unwrap().len(),
+            frame_start: 0,
+            frame_end: frames_for_ms(14_483, 16_000),
+            available: true,
+        };
+        let mut source = open_source(&project_root, &descriptor)
+            .unwrap()
+            .expect("rounded whole-file import can be opened");
+
+        source
+            .reader
+            .seek(frames - 1)
+            .expect("seek to final PCM frame");
+        source.next_frame = u64::from(frames - 1);
+        assert_eq!(read_source_frame(&mut source).unwrap(), [17, 17]);
+        assert_eq!(source.next_frame, u64::from(frames));
+        assert_eq!(read_source_frame(&mut source).unwrap(), [0, 0]);
+        assert_eq!(source.next_frame, u64::from(frames));
     }
 
     #[test]

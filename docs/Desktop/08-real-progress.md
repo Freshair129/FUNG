@@ -1,7 +1,7 @@
 ---
-version: "0.3.17b"
+version: "0.3.18b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-01T01:42:00+07:00,RWANG"
+last_update: "2026-10-15T07:02:49+07:00,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -11,6 +11,41 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Standalone import, playback channel, and shutdown durability — 2026-10-15
+
+The pinned local CPU runtime completed a real 48 kHz fixture import through
+FUNG's loopback API and production Whisper worker. The terminal job, transcript,
+file-channel audio readback, edit, SRT/VTT/WAV export, and orderly Genesis
+reopen passed; the English fixture matched 12/12 expected keywords. A native
+debug app then completed the same edit/export flow through the UI, closed via
+`CloseMainWindow`, and showed the edited transcript and completed exports on
+the second boot.
+
+That native restart reproduced a durability defect before the fix: a UI edit
+was visible and exported, but a normal window close followed by reopen read
+the older transcript. Shutdown now joins the managed job worker, joins the
+owned live-capture cleanup thread when available, guards duplicate exit
+callbacks, and calls the pinned Genesis `Storage::save_state()` checkpoint
+once. A required child
+process regression exits without Rust destructors and verifies the edited
+segment, accepted proposal, and audit event after reopen. An ignored manual
+negative-control run without the final checkpoint observed the durable
+pre-edit baseline; this is diagnostic evidence, not a required durability
+contract for future Genesis versions.
+
+Evidence and limits: [standalone readiness report](../verification/implementation-reports/2026-10-15-standalone-readiness.md),
+[issue #79](https://github.com/Freshair129/FUNG/issues/79), route receipt
+`standalone-acceptance-20261015-04.json`, and native receipt
+`native-first-second-boot-20261015-18/receipt.json`. Native playback opened the
+review flow but the selected output configuration was unsupported by the
+current exact-rate/stereo/sample-format requirements; the typed error was
+shown and no sound started. The error does not isolate sample rate as the only
+cause. Both native boots had `localApi.running=false` and no pending jobs, so
+enabled local API requests and active-job shutdown are outside this acceptance.
+This does not prove forced-crash recovery, close issue #41, qualify Thai
+accuracy, or establish packaged/release readiness. Genesis remains pinned to
+`77e07f7b127f65a1f92cfc688ef15f322115d5f8`.
 
 ## Python runtime Dependabot remediation — 2026-10-01
 
@@ -357,9 +392,48 @@ visual gate evidence only.
 
 ## Current Status
 
-FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The host `py -3` interpreter cannot import `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the earlier pinned `small` model, and uses the staged CUDA 12/cuDNN 9 bundle. Pinned turbo/medium models and standalone worker/decoder probes now pass as recorded in the 2026-09-24 closure ledger. The shared live-worker routing regression found by native inject testing is now corrected and passes turbo GPU/medium CPU fixture probes. Thai speech qualification and complete application acceptance remain open. Live Meeting real-capture, device, connector, and visual UAT remain open. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
+FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. The 2026-10-15 standalone campaign completed real CPU/int8 Whisper transcription through the production loopback import route using the pinned `large-v3-turbo` model, followed by transcript correction, SRT/VTT/WAV export and orderly storage reopen. Native run 18 also passed history, manual edit, export, normal window close and second-boot readback after the shutdown checkpoint fix. Native audio playback remains unsuccessful with `PLAYBACK_OUTPUT_UNSUPPORTED`; no sound started. The native shutdown evidence covers an idle app with the local API disabled. Thai speech quality, enabled-API/in-flight writes, active-capture shutdown, forced-crash recovery, summary review and packaged application acceptance remain open. Live Meeting real-capture, device, connector and broader visual UAT remain open. The [standalone readiness report](../verification/implementation-reports/2026-10-15-standalone-readiness.md) records exact commands, artifact identities and remaining limits.
 
 This document separates implemented truth from planned capability.
+
+## Initial standalone staging snapshot — 2026-10-15 (superseded)
+
+This subsection preserves the initial staging state before production-route
+and native acceptance ran. Its pending statements are historical; use the
+current status above and the standalone readiness report for the final result.
+
+The portable FUNG runtime staged CPython 3.11.9, faster-whisper 1.2.1, and
+`mobiuslabsgmbh/faster-whisper-large-v3-turbo` at revision
+`0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf`. The staging script exited 0 after
+loading the model on CPU with `int8`. This confirms the pinned runtime and
+model load locally; it does not prove a transcript can be produced.
+
+Using the repository lockfile, `npm ci --no-audit --no-fund` completed under
+Node 24.19.0/npm 11.17.0. `npm run build` passed, and four focused suites
+passed 26/26: `test:recording-output` (3), `test:local-api-client` (8),
+`test:web-recordings` (4), and `test:callmd-history` (11). The command logs
+and exit-code summary are under
+`G:\AI-Studio\verification\2026-10-15-readiness-fixes\FUNG`.
+
+An opt-in ignored Rust test now describes the production loopback upload → job
+poll → transcript/playback read path, production transcript correction and
+SRT/VTT/WAV exports, and orderly reopen readback against a disposable Genesis
+store. It is **implemented but not yet compiled or run**. A profile-preparation
+helper and native WebDriver first/second-boot harness are prepared. The native
+profile validates its Tauri identifier and confines the resolved app-data path
+under Roaming. Before native launch, `preserve-route-exports.ps1` snapshots and
+hashes route-produced SRT/VTT/WAV files because native re-export may rewrite
+their recorded paths. The native Tauri build/UI pass and actual CPU
+transcription remain open. Evidence, fixture hashes, and the exact test
+contract are in the
+[standalone readiness report](../verification/implementation-reports/2026-10-15-standalone-readiness.md).
+
+This work is tracked by [issue #79](https://github.com/Freshair129/FUNG/issues/79).
+It leaves the lockfile's GenesisBlockDB commit
+`77e07f7b127f65a1f92cfc688ef15f322115d5f8` (v0.2.6) unchanged. The separate
+[issue #41](https://github.com/Freshair129/FUNG/issues/41) crash-style schema
+startup concern is not claimed as fixed; only a fresh disposable store with
+orderly handle drain/reopen is in the pending test scope.
 
 ## Current truth sync (2026-09-17)
 
@@ -1141,11 +1215,32 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.17b` → `0.3.18b`
+
+- Recorded the production 48 kHz loopback import → CPU Whisper → completed
+  transcript → edit/export/reopen pass and the eight-check native first/second
+  boot flow. Native playback surfaced an unsupported output configuration;
+  no sound started.
+- Fixed normal-close transcript durability by joining the managed job worker
+  and live-capture cleanup coordinator, then checkpointing Genesis once behind
+  a duplicate-exit guard. The required child-process regression validates
+  edited segment, proposal and audit readback after explicit checkpoint and
+  process exit. Enabled API/in-flight and active-job shutdown, forced-crash
+  recovery, issue #41, Thai accuracy and packaging remain open.
+- Recorded Rust focused results, the debug/native artifact hash and exact
+  restart evidence in the standalone readiness report; local API was disabled
+  in the native profile and Ollama/GPU were untouched.
+
 ### `0.3.16b` → `0.3.17b`
 
 - Recorded the failed five-clip Qwen preprocessing experiment, preserved raw as
   the baseline, and kept Detailed disabled because both low-clarity misses and
   word-level timing review remain open.
+- Passed the frontend production build and 26 focused import/playback/editor
+  tests; added the standalone CPU runtime probe evidence and an opt-in loopback
+  import/transcript/playback/edit/export/reopen acceptance test contract;
+  added isolated first/second-boot harnesses and pre-native export snapshots;
+  actual transcription, test compilation, and native UI acceptance remain open.
 
 ### `0.3.15b` → `0.3.16b`
 
@@ -1258,6 +1353,8 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.18b | 2026-10-15 | beta | Closed the #79 standalone import path with real CPU Whisper loopback transcription, edit/export/reopen, and native normal-close persistence; added a single Genesis checkpoint after managed writers drain. Native playback output configuration remains unsupported on this host; enabled API/in-flight and forced-crash shutdown are unverified. | working-tree | Codex |
+| 0.3.17b | 2026-10-15 | beta | Recorded [issue #79](https://github.com/Freshair129/FUNG/issues/79), passed the frontend build and 26 focused tests, and prepared pinned large-v3-turbo, loopback, and isolated native acceptance evidence; actual transcription, Cargo run, and native UI acceptance remain open. | working-tree | Codex |
 | 0.3.16b | 2026-10-01 | beta | Tested raw, afftdn and speechnorm on five mic clips; neither filter corrected both misses, so Detailed remains disabled. | working-tree | RWANG |
 | 0.3.15b | 2026-09-30 | beta | Recorded user-reported bt10m/bt3m transcript errors and separate reference sensitivity; Detailed routing remains disabled pending timing review and remediation. | working-tree | RWANG |
 | 0.3.14b | 2026-09-30 | beta | Passed the 55-clip FUNG Qwen worker and LOTUSDIS WER/CER comparison; five human audio checks remain pending, so Detailed routing stays disabled. | working-tree | RWANG |

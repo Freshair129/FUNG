@@ -743,7 +743,10 @@ pub(crate) fn channel_for_path(path: &str, source: &str) -> Option<&'static str>
             return Some("system");
         }
     }
-    if source.eq_ignore_ascii_case("import") || source.eq_ignore_ascii_case("file") {
+    if ["import", "file", "web-import", "url"]
+        .iter()
+        .any(|candidate| source.eq_ignore_ascii_case(candidate))
+    {
         return Some("file");
     }
     None
@@ -1032,6 +1035,27 @@ mod tests {
         );
         assert!(validate_opaque_id("a/b", "id").is_err());
         assert!(validate_opaque_id(&"x".repeat(257), "id").is_err());
+    }
+
+    #[test]
+    fn whole_file_import_sources_expose_the_file_playback_channel() {
+        let stored_path = r"C:\recordings\imports\whole-file.wav";
+        for source in ["import", "file", "web-import", "url"] {
+            assert_eq!(
+                channel_for_path(stored_path, source),
+                Some("file"),
+                "whole-file source {source} must expose its stored audio chunk"
+            );
+        }
+        assert_eq!(
+            channel_for_path(r"C:\recordings\mic-00001.wav", "web-import"),
+            Some("mic")
+        );
+        assert_eq!(
+            channel_for_path(r"C:\recordings\system-00001.wav", "url"),
+            Some("system")
+        );
+        assert_eq!(channel_for_path(stored_path, "unknown-source"), None);
     }
 
     #[test]

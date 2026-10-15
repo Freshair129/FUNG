@@ -6,6 +6,7 @@ use std::{
     io::{BufRead, BufReader, Read},
     path::PathBuf,
     process::{Command, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Mutex},
     thread,
 };
@@ -997,6 +998,8 @@ pub(crate) struct AppState {
     pub(crate) recording_output: Arc<Mutex<recording_output::RecordingOutputManager>>,
     pub(crate) genesis: Arc<genesis_block_native::Storage>,
     pub(crate) genesis_path: PathBuf,
+    shutdown_started: AtomicBool,
+    genesis_checkpoint_started: AtomicBool,
     pub(crate) meeting_owner_session: Mutex<Option<genesis_adapter::NativeOwnerUnlockSession>>,
     pub(crate) meeting_intelligence:
         Mutex<meeting_intelligence_runtime::MeetingIntelligenceRuntime>,
@@ -1630,6 +1633,8 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         jobs: job_engine::JobEngine::new(Arc::clone(&genesis)),
         genesis,
         genesis_path,
+        shutdown_started: AtomicBool::new(false),
+        genesis_checkpoint_started: AtomicBool::new(false),
         meeting_owner_session: Mutex::new(None),
         meeting_intelligence: Mutex::new(
             meeting_intelligence_runtime::MeetingIntelligenceRuntime::default(),
@@ -6683,7 +6688,25 @@ mod dotenv_tests {
     }
 }
 
+fn checkpoint_genesis_once(
+    genesis: &genesis_block_native::Storage,
+    checkpoint_started: &AtomicBool,
+) -> Result<bool, String> {
+    if checkpoint_started.swap(true, Ordering::AcqRel) {
+        return Ok(false);
+    }
+    genesis
+        .save_state()
+        .map(|()| true)
+        .map_err(|error| error.to_string())
+}
+
 fn shutdown_native_state(state: &AppState) {
+    // Both ExitRequested and main-window Destroyed may arrive for one close.
+    // Quiesce writers and checkpoint Genesis only once.
+    if state.shutdown_started.swap(true, Ordering::AcqRel) {
+        return;
+    }
     live_meeting::shutdown(state);
     state.playback.shutdown();
     state
@@ -6691,7 +6714,15 @@ fn shutdown_native_state(state: &AppState) {
         .lock()
         .expect("review registry mutex poisoned")
         .clear();
-    state.jobs.shutdown();
+    state.jobs.shutdown_and_wait();
+    match checkpoint_genesis_once(&state.genesis, &state.genesis_checkpoint_started) {
+        Ok(true) => eprintln!(
+            "[storage] Genesis shutdown checkpoint completed at frontier {}",
+            state.genesis.stable_frontier()
+        ),
+        Ok(false) => {}
+        Err(error) => eprintln!("[storage] Genesis shutdown checkpoint failed: {error}"),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -7796,11 +7827,7 @@ mod import_handoff_tests {
 mod transcript_correction_tests {
     use super::*;
 
-    fn open_storage() -> (PathBuf, genesis_block_native::Storage) {
-        let path = std::env::temp_dir().join(format!(
-            "fung-transcript-correction-test-{}",
-            Uuid::new_v4()
-        ));
+    fn open_storage_at(path: &std::path::Path) -> genesis_block_native::Storage {
         let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
             path: path.display().to_string(),
             page_cache_mb: Some(16),
@@ -7810,6 +7837,15 @@ mod transcript_correction_tests {
         })
         .unwrap();
         genesis_adapter::install(&storage).unwrap();
+        storage
+    }
+
+    fn open_storage() -> (PathBuf, genesis_block_native::Storage) {
+        let path = std::env::temp_dir().join(format!(
+            "fung-transcript-correction-test-{}",
+            Uuid::new_v4()
+        ));
+        let storage = open_storage_at(&path);
         (path, storage)
     }
 
@@ -7946,6 +7982,171 @@ mod transcript_correction_tests {
 
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn checkpoint_child_writes_and_exits_without_drop() {
+        let Ok(path) = std::env::var("FUNG_TEST_CHECKPOINT_CHILD_PATH") else {
+            return;
+        };
+        let storage = open_storage_at(std::path::Path::new(&path));
+        seed_segment(&storage);
+        storage.save_state().expect("persist the pre-edit baseline");
+        correct_transcript_segment_in_storage(
+            &storage,
+            "p1",
+            "r1",
+            "s1",
+            "checkpointed native edit",
+        )
+        .unwrap();
+
+        if std::env::var("FUNG_TEST_CHECKPOINT_MODE").as_deref() == Ok("no-final-checkpoint") {
+            // Negative control: the seeded baseline is durable, but the edit
+            // is followed by process exit without the shutdown checkpoint.
+            std::process::exit(0);
+        }
+
+        let checkpoint_started = AtomicBool::new(false);
+        assert_eq!(
+            checkpoint_genesis_once(&storage, &checkpoint_started),
+            Ok(true)
+        );
+        assert_eq!(
+            checkpoint_genesis_once(&storage, &checkpoint_started),
+            Ok(false)
+        );
+
+        // This intentionally bypasses Storage::drop so recovery proves the
+        // explicit checkpoint, rather than the destructor, persisted rows.
+        std::process::exit(0);
+    }
+
+    #[test]
+    fn manual_correction_survives_shutdown_checkpoint_and_process_exit() {
+        let directory = tempfile::tempdir().expect("create isolated Genesis directory");
+        let path = directory.path().join("genesisdb");
+        let test_executable = std::env::current_exe().expect("test executable path");
+        let output = Command::new(&test_executable)
+            .arg("--exact")
+            .arg("transcript_correction_tests::checkpoint_child_writes_and_exits_without_drop")
+            .env("FUNG_TEST_CHECKPOINT_CHILD_PATH", &path)
+            .env("FUNG_TEST_CHECKPOINT_MODE", "checkpoint")
+            .output()
+            .expect("run checkpoint child process");
+        assert!(
+            output.status.success(),
+            "checkpoint child failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let storage = open_storage_at(&path);
+        let segment = genesis_adapter::query(
+            &storage,
+            "transcript_segments",
+            &["text"],
+            vec![genesis_adapter::eq(
+                "transcript_segments",
+                "id",
+                serde_json::json!("s1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .expect("corrected transcript survives process exit");
+        assert_eq!(
+            segment["transcript_segments.text"],
+            "checkpointed native edit"
+        );
+
+        let proposal = genesis_adapter::query(
+            &storage,
+            "transcript_refinement_proposals",
+            &["original_text", "proposed_text", "status"],
+            vec![genesis_adapter::eq(
+                "transcript_refinement_proposals",
+                "transcript_segment_id",
+                serde_json::json!("s1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .expect("accepted correction proposal survives process exit");
+        assert_eq!(
+            proposal["transcript_refinement_proposals.original_text"],
+            "ข้อความเดิม"
+        );
+        assert_eq!(
+            proposal["transcript_refinement_proposals.proposed_text"],
+            "checkpointed native edit"
+        );
+        assert_eq!(
+            proposal["transcript_refinement_proposals.status"],
+            "accepted"
+        );
+
+        let audit = genesis_adapter::query(
+            &storage,
+            "audit_events",
+            &["event_type", "payload_json"],
+            vec![genesis_adapter::eq(
+                "audit_events",
+                "event_type",
+                serde_json::json!("transcript.segment.corrected"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .expect("correction audit event survives process exit");
+        assert_eq!(audit["audit_events.payload_json"]["recordingId"], "r1");
+        assert_eq!(audit["audit_events.payload_json"]["segmentId"], "s1");
+
+        drop(storage);
+    }
+
+    #[test]
+    #[ignore = "manual negative control for process exit without the shutdown checkpoint"]
+    fn diagnostic_process_exit_without_final_checkpoint() {
+        let directory = tempfile::tempdir().expect("create isolated Genesis directory");
+        let path = directory.path().join("genesisdb");
+        let output = Command::new(std::env::current_exe().expect("test executable path"))
+            .arg("--exact")
+            .arg("transcript_correction_tests::checkpoint_child_writes_and_exits_without_drop")
+            .env("FUNG_TEST_CHECKPOINT_CHILD_PATH", &path)
+            .env("FUNG_TEST_CHECKPOINT_MODE", "no-final-checkpoint")
+            .output()
+            .expect("run negative-control child process");
+        assert!(
+            output.status.success(),
+            "negative-control child failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let storage = open_storage_at(&path);
+        let segment = genesis_adapter::query(
+            &storage,
+            "transcript_segments",
+            &["text"],
+            vec![genesis_adapter::eq(
+                "transcript_segments",
+                "id",
+                serde_json::json!("s1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .expect("baseline transcript survives process exit");
+        println!(
+            "negative_control_final_segment_text={}",
+            segment["transcript_segments.text"]
+        );
+        drop(storage);
     }
 
     #[test]

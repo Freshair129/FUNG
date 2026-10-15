@@ -1,7 +1,7 @@
 ---
-version: "0.3.19b"
+version: "0.3.20b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-15T08:02:52+07:00,Codex"
+last_update: "2026-10-15T08:15:00+07:00,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -28,6 +28,12 @@ covered five viewport sizes, glass/solid materials, Companion, and isolated
 capture/modal fixtures. This UI patch has not replaced or qualified an installed
 native app. See the [layout report](../verification/implementation-reports/2026-10-15-desktop-shell-layout.md)
 for measurements, reproduction and remaining limits. Ollama/GPU were untouched.
+
+On the user's subsequent request, a standalone native preview at `46f6c78` was
+built with the current embedded frontend and opened successfully (window title
+`FUNG`, nonzero handle, responding process). This is build/launch evidence; native
+visual/feature and installer acceptance remain pending. The prior native7 binary
+was preserved before reusing the build cache. See the layout report for receipts.
 
 ## Standalone import, playback channel, and shutdown durability — 2026-10-15
 
@@ -1232,6 +1238,12 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.19b` → `0.3.20b`
+
+- Recorded the user's native preview launch request and successful standalone
+  build/window startup at `46f6c78`, without promoting native visual, feature or
+  installer acceptance from browser-only evidence.
+
 ### `0.3.18b` → `0.3.19b`
 
 - Corrected skip-link/overlay placement, optional shell rows and nested page
@@ -1378,6 +1390,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.20b | 2026-10-15 | beta | Built and opened a native preview with the corrected frontend on user request; window startup confirmed, native visual/feature and installer acceptance pending. | 46f6c78 (preview source) | Codex |
 | 0.3.19b | 2026-10-15 | beta | Corrected desktop viewport/scroll layout (#81), fixed glass skip-link/overlay stacking and made project context collapsible; 14 shell checks, frontend build and bounded browser layout inspection passed. Installed native UI and release acceptance remain open. | working-tree | Codex |
 | 0.3.18b | 2026-10-15 | beta | Closed the #79 standalone import path with real CPU Whisper loopback transcription, edit/export/reopen, and native normal-close persistence; added a single Genesis checkpoint after managed writers drain. Native playback output configuration remains unsupported on this host; enabled API/in-flight and forced-crash shutdown are unverified. | working-tree | Codex |
 | 0.3.17b | 2026-10-15 | beta | Recorded [issue #79](https://github.com/Freshair129/FUNG/issues/79), passed the frontend build and 26 focused tests, and prepared pinned large-v3-turbo, loopback, and isolated native acceptance evidence; actual transcription, Cargo run, and native UI acceptance remain open. | working-tree | Codex |

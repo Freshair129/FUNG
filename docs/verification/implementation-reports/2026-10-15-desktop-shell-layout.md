@@ -1,7 +1,7 @@
 ---
-version: "1.0.0b"
+version: "1.0.1b"
 created_at: "2026-10-15T08:08:05+07:00,Codex"
-last_update: "2026-10-15T08:08:05+07:00,Codex"
+last_update: "2026-10-15T08:15:00+07:00,Codex"
 status: "candidate"
 attributes:
   domain: "desktop-ui"
@@ -82,12 +82,29 @@ Local evidence is in `G:\AI-Studio\verification\2026-10-15-fung-layout`:
 `shell-tests-final.log` and `frontend-build-final.log`. The receipt retains the
 earlier narrow live failure alongside its corrected result.
 
+### User-requested native preview
+
+After publishing the frontend correction at `46f6c78`, the user requested opening
+FUNG. `tauri build --debug --no-bundle` completed successfully with the current
+embedded frontend, normal `dev.fung.local` identity and a temporary build overlay
+omitting bundled runtime resources. The executable was copied to
+`G:\AI-Studio\development\FUNG\.codex\desktop-preview\fung.exe` and launched.
+Process 29076 reported the window title `FUNG`, a nonzero main window handle and
+`Responding: True`. This proves build/launch, not native visual or feature acceptance.
+
+Receipts: `native-ui-build-receipt.json`, `native-app-launch-receipt.json` and
+`native-ui-build.log` in the evidence directory above. The prior native7 executable
+was preserved as `previous-native7.exe` with its recorded SHA-256 before reusing
+the build cache. No model inference was requested. The preview uses normal local
+app data; opening the app initialized its store. No installer was built or replaced.
+
 ## Limits
 
 The rendered checks used Chrome and the production desktop frontend with native
 commands unavailable. Capture/modal cases were component fixtures. No audio,
-Ollama/GPU inference, user database write or installed-native-app replacement
-was performed. Native WebView/installer acceptance remains separate. Long pages
+Ollama/GPU inference or installed-native-app replacement was performed during
+the layout checks. The later user-requested native launch is scoped above;
+native WebView visual/feature acceptance and installer acceptance remain separate. Long pages
 and explicitly opened project details still scroll when their contents exceed
 the viewport; scrolling is not hidden to make the check appear successful.
 
@@ -95,4 +112,5 @@ the viewport; scrolling is not hidden to make the check appear successful.
 
 | Version | Date | Summary |
 | --- | --- | --- |
+| 1.0.1b | 2026-10-15 | Record native preview build and user-requested launch separately from browser layout acceptance. |
 | 1.0.0b | 2026-10-15 | Record issue #81, viewport/scroll root causes, scoped correction and browser/build evidence. |

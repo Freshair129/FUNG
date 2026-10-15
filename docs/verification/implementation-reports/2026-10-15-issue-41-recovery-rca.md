@@ -1,5 +1,5 @@
 ---
-status: candidate
+status: validation
 created_at: "2026-10-15,Codex"
 related_issue: 41
 scope: Existing FUNG desktop profile recovery and startup preservation
@@ -9,13 +9,14 @@ scope: Existing FUNG desktop profile recovery and startup preservation
 
 ## Status
 
-This branch is a focused remediation candidate based on FUNG `main` at
-`2bf21a06aad9b4be38e567ae6738897fa702e79f`. It pins GenesisBlock PR #233 head
-`df33a989aeefde1507376941985c91caf01ff94c`, makes startup provider seeding
-insert-only for existing IDs, and adds a disposable-profile reopen regression.
-The Rust regression has **not been run in this preparation**. Keep FUNG issue
-#41 open until GenesisBlock PR #233 is green and the owner completes the exact
-local acceptance tests.
+This remediation is based on FUNG `main` at
+`2bf21a06aad9b4be38e567ae6738897fa702e79f`. It pins the merged GenesisBlock
+PR #233 fix at `2cf485573d48d0e5e2ae76db647ec4c4dee543c3`, makes startup
+provider seeding insert-only for existing IDs, and adds a disposable-profile
+reopen regression. The regression passed locally on Windows (1/1) against that
+exact pin; locked `cargo check` and `cargo build` also passed. Exact-head PR CI
+will run after these changes are pushed. Keep FUNG issue #41 open until that CI
+passes and the PR is merged.
 
 ## Symptom
 
@@ -38,7 +39,7 @@ That conclusion was incomplete: the existing FUNG test re-registers schemas in
 one open store and did not exercise a persisted profile whose relational
 projection needed recovery during the next `Storage::open`.
 
-GenesisBlock's [Windows projection replay RCA](https://github.com/Freshair129/GenesisBlock/blob/df33a989aeefde1507376941985c91caf01ff94c/.brain/rca/RCA--ISSUE-230-WINDOWS-PROJECTION-REPLAY.md)
+GenesisBlock's [Windows projection replay RCA](https://github.com/Freshair129/GenesisBlock/blob/2cf485573d48d0e5e2ae76db647ec4c4dee543c3/.brain/rca/RCA--ISSUE-230-WINDOWS-PROJECTION-REPLAY.md)
 traces the conflict to `projection_reopen_fresh`: it attempted to remove the
 SQLite projection while its connection was still open, then ignored the
 removal error. Windows kept the file locked, so the recovery path could reopen
@@ -55,9 +56,9 @@ only missing rows.
 
 ## Remediation and regression
 
-- `src-tauri/Cargo.toml` pins `genesis-block-native` to the exact GenesisBlock
-  PR #233 candidate SHA. `src-tauri/Cargo.lock` carries the matching Git source
-  revision; the package version and dependency list are unchanged.
+- `src-tauri/Cargo.toml` pins `genesis-block-native` to the exact merged
+  GenesisBlock PR #233 commit `2cf485573d48d0e5e2ae76db647ec4c4dee543c3`.
+  `src-tauri/Cargo.lock` carries the matching Git source revision.
 - `app_state` calls `seed_default_model_providers`, which preserves an existing
   provider row and its configuration while still adding a missing default.
 - `existing_profile_second_open_preserves_schema_data_and_provider_configuration`
@@ -66,25 +67,39 @@ only missing rows.
   provider rows, checkpoints and drops the handle, then reopens the same path,
   reapplies the schema and default seeding, and compares persisted rows.
 
-This is a test definition and source review, not a passing test result. It must
-run against the exact pin after GenesisBlock PR #233 validation is complete.
+The regression passed on Windows against the exact pin:
+
+```text
+cargo test --manifest-path src-tauri/Cargo.toml --locked --jobs 1 --lib transcript_correction_tests::existing_profile_second_open_preserves_schema_data_and_provider_configuration -- --exact
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 614 filtered out
+```
+
+Both locked local build commands passed on Windows:
+
+```text
+cargo check --manifest-path src-tauri/Cargo.toml --locked --jobs 1
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 8m 20s
+
+cargo build --manifest-path src-tauri/Cargo.toml --locked --jobs 1
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 53s
+```
+
+PR #83 must receive fresh exact-head CI after this pin and report update are
+pushed.
 
 ## Evidence and limits
 
-- The pinned upstream candidate is PR #233's exact head
-  `df33a989aeefde1507376941985c91caf01ff94c`, which adds a wrapper fix for the
-  non-exhaustive `StepResult` match. Its fresh CI matrix was queued/in progress
-  when rechecked for this update; no green result is claimed. An earlier check
-  set on the previous `1d2c2bbb` candidate had failed the scientific performance
-  audit and MCP `package-contract`, so recheck the
-  [live PR checks](https://github.com/Freshair129/GenesisBlock/pull/233) before
-  accepting the pin.
+- GenesisBlock PR #233 was merged at
+  `2cf485573d48d0e5e2ae76db647ec4c4dee543c3`. Its exact merge-head checks
+  completed with 53 successes, 5 skips, and 0 failures, including the Windows
+  projection rebuild regressions. See the [merged PR and checks](https://github.com/Freshair129/GenesisBlock/pull/233).
 - A separate open FUNG PR #80 contains a copied-profile and idle native
   lifecycle report for an earlier GenesisBlock candidate, `ddfc6e9`. That
   evidence is supporting history only; it does not validate this branch's
-  `df33a989` dependency revision. See the [PR #80 report at its recorded
+  `2cf4855` dependency revision. See the [PR #80 report at its recorded
   head](https://github.com/Freshair129/FUNG/blob/0faa78dc3aa4ae6b5c9ab2b0c31249122e8bb3db/docs/verification/implementation-reports/2026-10-15-existing-profile-recovery.md).
-- This preparation was limited to static review. No Cargo command, Rust build,
-  test, package launch, or modification of a real user profile was performed.
+- The disposable-profile test exercises a second open and compares persisted
+  schema data and provider configuration. It does not modify or inspect a real
+  user profile.
 - Packaged startup, a successful picker interaction, arbitrary crash recovery,
   and final issue closure remain unverified by this branch.

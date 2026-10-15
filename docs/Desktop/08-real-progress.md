@@ -12,7 +12,7 @@ attributes:
 
 # 08 - Real Progress
 
-## Existing-profile schema recovery — candidate validation pending (2026-10-15)
+## Existing-profile schema recovery — upstream merged, FUNG validation in progress (2026-10-15)
 
 FUNG issue [#41](https://github.com/Freshair129/FUNG/issues/41) reports that a
 normal second desktop boot panicked with
@@ -22,9 +22,9 @@ incompatible old database; that conclusion was superseded by the later
 copied-profile reproduction and GenesisBlock recovery investigation. See the
 [RCA and evidence ledger](../verification/implementation-reports/2026-10-15-issue-41-recovery-rca.md).
 
-This focused candidate pins `genesis-block-native` to the exact head of
+This focused fix pins `genesis-block-native` to the merged commit of
 [GenesisBlock PR #233](https://github.com/Freshair129/GenesisBlock/pull/233),
-`df33a989aeefde1507376941985c91caf01ff94c`. That upstream change rebuilds a
+`2cf485573d48d0e5e2ae76db647ec4c4dee543c3`. That upstream change rebuilds a
 Windows relational projection off to the side and publishes it through SQLite's
 backup transaction instead of deleting an open projection. FUNG startup also
 inserts default model-provider rows only when their IDs are absent, preserving
@@ -34,12 +34,13 @@ The new `existing_profile_second_open_preserves_schema_data_and_provider_configu
 regression opens a disposable persisted profile, installs the schema, commits
 project/recording/transcript rows and a customized provider, checkpoints, drops
 the handle, then repeats open/install/startup seeding and compares those rows.
-It is source-only evidence in this candidate: Cargo and Rust builds were not run
-for this preparation. GenesisBlock PR #233 CI and the owner's exact local tests
-must pass before this repair is accepted. The actual-profile lifecycle receipts
-from the separate [FUNG PR #80](https://github.com/Freshair129/FUNG/pull/80)
-used the earlier `ddfc6e9` candidate and do not qualify this new pinned revision.
-Packaged startup, arbitrary crash recovery and issue closure remain open.
+The focused Windows regression passed 1/1 against the merged pin; both locked
+`cargo check` and `cargo build` passed. Fresh exact-head CI for
+[FUNG PR #83](https://github.com/Freshair129/FUNG/pull/83) will run after the
+change is pushed. The actual-profile lifecycle receipts from the separate
+[FUNG PR #80](https://github.com/Freshair129/FUNG/pull/80) used the earlier
+`ddfc6e9` candidate and do not qualify this new pinned revision. Packaged startup,
+arbitrary crash recovery and issue closure remain open.
 
 ## Python runtime Dependabot remediation — 2026-10-01
 

@@ -14,8 +14,14 @@ This remediation is based on FUNG `main` at
 PR #233 fix at `2cf485573d48d0e5e2ae76db647ec4c4dee543c3`, makes startup
 provider seeding insert-only for existing IDs, and adds a disposable-profile
 reopen regression. The regression passed locally on Windows (1/1) against that
-exact pin; locked `cargo check` and `cargo build` also passed. Exact-head PR CI
-will run after these changes are pushed. Keep FUNG issue #41 open until that CI
+exact pin; locked `cargo check` and `cargo build` also passed. The first full
+PR run found two stale restore-frontier equality assertions. GenesisBlock's
+own restore contract allows a local generation-publication frame, so those
+FUNG tests now assert the restored frontier is at least the source frontier
+while continuing to verify restored data. Both focused restore tests pass.
+The latest local full-suite run passed 611 tests, with one unrelated two-second
+stdio timing assertion failing under parallel load (it passed in isolation in
+0.17s); updated exact-head PR CI is pending. Keep FUNG issue #41 open until CI
 passes and the PR is merged.
 
 ## Symptom
@@ -87,12 +93,26 @@ Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 53s
 PR #83 must receive fresh exact-head CI after this pin and report update are
 pushed.
 
+GenesisBlock's `backup_restore_u9_tests` contract says a restored frontier may
+include a local generation-publication frame and asserts
+`restored.stable_frontier() >= bundle.stable_frontier`. FUNG's two older
+restore tests asserted equality after reopening the restored target. They now
+use the same lower-bound contract and still check restored notes, relations,
+and audio metadata. Each focused restore test passed locally (1/1).
+
 ## Evidence and limits
 
 - GenesisBlock PR #233 was merged at
   `2cf485573d48d0e5e2ae76db647ec4c4dee543c3`. Its exact merge-head checks
   completed with 53 successes, 5 skips, and 0 failures, including the Windows
   projection rebuild regressions. See the [merged PR and checks](https://github.com/Freshair129/GenesisBlock/pull/233).
+- The first FUNG full suite against the new pin reported 610 passed, 2 failed,
+  and 3 ignored; both failures were equality checks against the documented
+  restore frontier contract. After updating those assertions, the local full
+  suite reported 611 passed, 1 failed, and 3 ignored. The remaining failure
+  was `stdio_adapter_timeout_and_cancel_are_bounded_and_cleanup_the_child`,
+  whose `<2s` timing assertion failed under suite load; an isolated rerun passed
+  in 0.17s. Updated exact-head CI remains the full-suite gate.
 - A separate open FUNG PR #80 contains a copied-profile and idle native
   lifecycle report for an earlier GenesisBlock candidate, `ddfc6e9`. That
   evidence is supporting history only; it does not validate this branch's

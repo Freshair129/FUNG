@@ -35,9 +35,15 @@ regression opens a disposable persisted profile, installs the schema, commits
 project/recording/transcript rows and a customized provider, checkpoints, drops
 the handle, then repeats open/install/startup seeding and compares those rows.
 The focused Windows regression passed 1/1 against the merged pin; both locked
-`cargo check` and `cargo build` passed. Fresh exact-head CI for
-[FUNG PR #83](https://github.com/Freshair129/FUNG/pull/83) will run after the
-change is pushed. The actual-profile lifecycle receipts from the separate
+`cargo check` and `cargo build` passed. The first exact-pin PR suite exposed two
+old tests that expected backup restore to preserve an identical frontier.
+GenesisBlock's native restore test allows the local generation-publication
+frame (`restored frontier >= source frontier`), so FUNG's restore tests now use
+that bound and retain their data-integrity assertions; both pass when run alone.
+The latest local full suite had 611 passes, 1 unrelated stdio timeout threshold
+failure under parallel load, and 3 ignored tests; the isolated timing test passes
+in 0.17s. Fresh exact-head CI for [FUNG PR #83](https://github.com/Freshair129/FUNG/pull/83)
+will rerun the full suite. The actual-profile lifecycle receipts from the separate
 [FUNG PR #80](https://github.com/Freshair129/FUNG/pull/80) used the earlier
 `ddfc6e9` candidate and do not qualify this new pinned revision. Packaged startup,
 arbitrary crash recovery and issue closure remain open.

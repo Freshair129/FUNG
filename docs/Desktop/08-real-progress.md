@@ -1,7 +1,7 @@
 ---
-version: "0.3.20b"
+version: "0.3.21b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-15T08:15:00+07:00,Codex"
+last_update: "2026-10-15T08:48:00+07:00,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -11,6 +11,26 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Reference dashboard composition — 2026-10-15
+
+[Issue #82](https://github.com/Freshair129/FUNG/issues/82) adapts the supplied
+reference into FUNG: blue/lavender hero, assistant and local project cards,
+dated activity and a black bottom navigation dock. The sidebar moves into dock
+disclosures. Existing actions and capture owners remain; the main CTA opens the
+meeting workspace before recording starts.
+
+Project counts use actual metadata with explicit unknown/empty/error states.
+The document stays inside the viewport; main scrolls when cards stack on narrow
+windows. Shell 15/15, integration 6/6 and frontend build passed. Browser design QA
+covered reference/responsive sizes, navigation, settings, Companion and synthetic
+capture guards. See the [dashboard report](../verification/implementation-reports/2026-10-15-studio-dashboard-layout.md)
+for evidence and native/release limits. Ollama/GPU were untouched.
+
+Native debug build passed. Normal-profile startup reproduced the open #41
+schema-version conflict; an isolated `dev.fung.studio-preview-20261015` preview
+opened successfully for user review. Existing database was not reset. Native
+visual/feature acceptance and second-boot acceptance remain unverified.
 
 ## Desktop shell viewport and scroll correction — 2026-10-15
 
@@ -1238,6 +1258,13 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.20b` → `0.3.21b`
+
+- Adapted supplied dashboard reference with real activity states, generated
+  assets and fixed bottom navigation.
+- Recorded responsive browser QA, focus restoration, 15 shell checks and six
+  integration checks without promoting native audio/model or release acceptance.
+
 ### `0.3.19b` → `0.3.20b`
 
 - Recorded the user's native preview launch request and successful standalone
@@ -1390,6 +1417,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.21b | 2026-10-15 | beta | Reference dashboard with real project activity, bottom dock, responsive scrolling and bounded browser QA (#82). | See PR #80 dashboard commit | Codex |
 | 0.3.20b | 2026-10-15 | beta | Built and opened a native preview with the corrected frontend on user request; window startup confirmed, native visual/feature and installer acceptance pending. | 46f6c78 (preview source) | Codex |
 | 0.3.19b | 2026-10-15 | beta | Corrected desktop viewport/scroll layout (#81), fixed glass skip-link/overlay stacking and made project context collapsible; 14 shell checks, frontend build and bounded browser layout inspection passed. Installed native UI and release acceptance remain open. | working-tree | Codex |
 | 0.3.18b | 2026-10-15 | beta | Closed the #79 standalone import path with real CPU Whisper loopback transcription, edit/export/reopen, and native normal-close persistence; added a single Genesis checkpoint after managed writers drain. Native playback output configuration remains unsupported on this host; enabled API/in-flight and forced-crash shutdown are unverified. | working-tree | Codex |

@@ -153,10 +153,22 @@ test("the isolated PDF parser installs the fixed wheel from its SHA-256 pin", as
   const staging = await readFile("scripts/stage_knowledge_parser_runtime.ps1", "utf8");
   const rust = await readFile("src-tauri/src/meeting_knowledge_windows.rs", "utf8");
 
-  assert.match(requirements, /^pypdf==6\.16\.1 --hash=sha256:[0-9a-f]{64}$/m);
+  assert.match(requirements, /^pypdf==6\.19\.0 --hash=sha256:[0-9a-f]{64}$/m);
   assert.match(staging, /--require-hashes/);
-  assert.match(staging, /pypdfVersion = "6\.16\.1"/);
-  assert.match(rust, /manifest\.pypdf_version != "6\.16\.1"/);
+  assert.match(staging, /pypdfVersion = "6\.19\.0"/);
+  assert.match(rust, /manifest\.pypdf_version != "6\.19\.0"/);
+});
+
+test("the Qwen candidate lock and Rust readiness pin resolve to the same Accelerate runtime", async () => {
+  const requirements = await readFile("scripts/qwen-candidate-requirements.txt", "utf8");
+  const staging = await readFile("scripts/stage_whisper_qwen_candidate.ps1", "utf8");
+  const rust = await readFile("src-tauri/src/lib.rs", "utf8");
+  const lockHash = createHash("sha256").update(requirements).digest("hex");
+
+  assert.match(requirements, /^accelerate==1\.15\.0 \\$/m);
+  assert.match(staging, /accelerate -ne '1\.15\.0'/);
+  assert.match(rust, /QWEN_CANDIDATE_ACCELERATE_VERSION: &str = "1\.15\.0"/);
+  assert.ok(rust.includes(lockHash), "Rust readiness must pin the Qwen dependency lock hash");
 });
 
 test("an upgrade replaces every installer-owned resource directory", async () => {

@@ -5,7 +5,7 @@ import tempfile
 import types
 import unittest
 from argparse import Namespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 SCRIPTS = pathlib.Path(__file__).parents[1] / "scripts"
@@ -46,6 +46,93 @@ with patch.dict(
 
 
 class QwenCandidateContractTests(unittest.TestCase):
+    def test_approved_single_safetensors_checkpoint_remains_supported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model_path = pathlib.Path(directory)
+            (model_path / "model.safetensors").write_bytes(b"fixture")
+
+            worker.validate_qwen_single_checkpoint(model_path, "ASR")
+
+    def test_sharded_index_is_rejected_before_either_qwen_loader_runs(self):
+        attack_indexes = (
+            (
+                "model.safetensors.index.json",
+                '{"weight_map":{"weight":"../outside/payload.safetensors"}}',
+            ),
+            (
+                "model.safetensors.index.json",
+                '{"weight_map":{"weight":"C:\\\\outside\\\\payload.safetensors"}}',
+            ),
+            (
+                "MODEL.SAFETENSORS.INDEX.JSON",
+                '{"weight_map":{"weight":"..\\\\outside\\\\payload.safetensors"}}',
+            ),
+        )
+        for index_name, index_contents in attack_indexes:
+            with (
+                self.subTest(index_name=index_name, index_contents=index_contents),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                model_path = pathlib.Path(directory)
+                (model_path / "model.safetensors").write_bytes(b"fixture")
+                (model_path / index_name).write_text(
+                    index_contents, encoding="utf-8"
+                )
+
+                processor_load = Mock()
+                asr_model_load = Mock()
+                with (
+                    patch.object(
+                        worker,
+                        "AutoProcessor",
+                        types.SimpleNamespace(from_pretrained=processor_load),
+                    ),
+                    patch.object(
+                        worker,
+                        "AutoModelForMultimodalLM",
+                        types.SimpleNamespace(from_pretrained=asr_model_load),
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        RuntimeError, "sharded checkpoints are not allowed"
+                    ):
+                        worker.transcribe_qwen([], model_path, "cpu", "raw")
+                processor_load.assert_not_called()
+                asr_model_load.assert_not_called()
+
+                feature_load = Mock()
+                tokenizer_load = Mock()
+                aligner_model_load = Mock()
+                with (
+                    patch.object(
+                        worker,
+                        "AutoFeatureExtractor",
+                        types.SimpleNamespace(from_pretrained=feature_load),
+                    ),
+                    patch.object(
+                        worker,
+                        "AutoTokenizer",
+                        types.SimpleNamespace(from_pretrained=tokenizer_load),
+                    ),
+                    patch.object(
+                        worker,
+                        "AutoModelForCTC",
+                        types.SimpleNamespace(from_pretrained=aligner_model_load),
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        RuntimeError, "sharded checkpoints are not allowed"
+                    ):
+                        worker.align_qwen_texts([], [], model_path, "cpu")
+                feature_load.assert_not_called()
+                tokenizer_load.assert_not_called()
+                aligner_model_load.assert_not_called()
+
+    def test_requires_the_approved_single_safetensors_checkpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError, "pinned model.safetensors is missing"):
+                worker.validate_qwen_single_checkpoint(pathlib.Path(directory), "ASR")
+
     def test_accepts_ordered_source_bounded_segments_that_preserve_candidate_text(self):
         worker.validate_aligned_segments(
             "สวัสดีครับ",

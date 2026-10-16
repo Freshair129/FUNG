@@ -18,7 +18,7 @@
 | [render_design_system.mjs](../../scripts/render_design_system.mjs) | สร้าง board และ brand presentation; ห้ามแก้ HTML output โดยตรง |
 | [CONTRAST_REPORT.md](qa/CONTRAST_REPORT.md) | ผลตรวจคู่สีทึบ 58 คู่ตามเป้าหมายภายในโครงการ |
 | [COMPONENT_COVERAGE.md](qa/COMPONENT_COVERAGE.md) | Generated source inventory ของการอ้าง canonical token ใน stylesheet ของแอป |
-| [ACCESSIBILITY_REVIEW.md](qa/ACCESSIBILITY_REVIEW.md) | หลักฐาน keyboard/accessibility tree ของ Desktop Home และรายการตรวจที่ยังเปิด |
+| [ACCESSIBILITY_REVIEW.md](qa/ACCESSIBILITY_REVIEW.md) | รายงาน combined UX/accessibility ของ Desktop Home พร้อมภาพ production preview, keyboard focus, skip-link activation และข้อจำกัด |
 | [PACKAGE_CHECK.md](qa/PACKAGE_CHECK.md) | รายงานตรวจความครบของแพ็กและข้อจำกัดที่ยังไม่ได้ทดสอบ |
 | [CHANGELOG.md](CHANGELOG.md) | ประวัติฉบับเอกสาร |
 | `references/` | Brief ต้นทาง, logo concept และ mock ล่าสุดสองภาพ |
@@ -40,7 +40,7 @@
 - Token CSS integration — verified in repository; generator currently validates 202 tokens and 58 declared solid-color contrast pairs.
 - Stylesheet token integration — source-audited; all 24/24 application CSS files reference canonical tokens, no active flat single-color declaration remains, and canonical token fallbacks no longer duplicate the source values. Embedded colors remain in layered effects and illustrations; stylesheet references do not prove every component/property has full semantic mapping or rendered parity. See [coverage inventory](qa/COMPONENT_COVERAGE.md).
 - Component implementation status — still partial; token presence and direct-color migration do not prove complete component contracts or accessibility acceptance. `implementation_verified: false` remains accurate.
-- Accessibility certification — not completed; only the Desktop Home accessibility tree and 14 sequential keyboard focus moves were observed. See [review evidence](qa/ACCESSIBILITY_REVIEW.md).
+- Accessibility certification — not completed; current evidence covers one 1280×720 production-preview Home route, visible focus, keyboard reachability and skip-link activation. See the [review and screenshots](qa/ACCESSIBILITY_REVIEW.md).
 - Figma/Penpot and complete per-screen exports — not included; the local HTML board is the available review/handoff artifact.
 - Native desktop, installer/clean-install, physical-device UAT and production gates remain separate; see [package checks](qa/PACKAGE_CHECK.md) and the [Liquid Glass evidence](LIQUID_GLASS_DESKTOP_ADAPTATION.md).
 

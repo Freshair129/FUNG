@@ -169,7 +169,7 @@ Porcelain เป็นความรู้สึกของวัสดุ ไ
 | `tokens/fung.tokens.css` | CSS ที่ generate แล้ว ใช้ prefix `--fung-` และ scope `[data-fung-root]` |
 | `qa/CONTRAST_REPORT.md` | ผลตรวจคู่สีทึบเท่านั้น ไม่ใช่ใบรับรอง accessibility ของแอป |
 | [`qa/COMPONENT_COVERAGE.md`](qa/COMPONENT_COVERAGE.md) | Generated source inventory ของ CSS ที่อ้าง canonical token |
-| [`qa/ACCESSIBILITY_REVIEW.md`](qa/ACCESSIBILITY_REVIEW.md) | ขอบเขตและหลักฐาน partial ของ Desktop Home; ไม่ใช่ conformance audit |
+| [`qa/ACCESSIBILITY_REVIEW.md`](qa/ACCESSIBILITY_REVIEW.md) | Combined UX/accessibility sample ของ Desktop Home พร้อมภาพ, keyboard focus และ skip-link activation; ไม่ใช่ conformance audit |
 | [`scripts/render_design_system.mjs`](../../scripts/render_design_system.mjs) | สร้าง board และ brand presentation จาก DTCG JSON เดียวกัน |
 | [`docs/design-system/index.html`](../design-system/index.html) | Interactive cross-surface board ที่ generate แล้ว; ห้ามแก้ HTML โดยตรง |
 

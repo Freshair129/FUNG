@@ -8,6 +8,8 @@ Added theme-aware component specimens to the board, a generated CSS token-covera
 
 Migrated remaining direct semantic color declarations across Desktop, Mobile, Web and Landing styles to canonical tokens. Removed 116 duplicate canonical-token fallback values from five application stylesheets. The source inventory now finds token references in 24/24 application CSS files and zero active flat single-color declarations; embedded material, shadow, gradient and illustration colors remain inventoried for visual review. Component-level rendered parity and full accessibility are still open.
 
+Captured a current production-preview Desktop Home review at 1280×720. The report now includes Home, skip-link focus and skip-link activation screenshots; keyboard navigation reached the skip link and Enter moved focus to the main container. The preview shows separate sidebar/main scroll regions and does not expose native project state. Full route, theme, assistive-technology, zoom and native acceptance remain open.
+
 ## 1.0.0b — 2026-09-20 — Beta
 
 อัปเดต current DesktopShell ให้ตรงกับ implementation: recording อยู่บน Home/Live surface, Appearance เป็นหน้าแยก, sidebar ไม่มี controls ของ theme/material/transparency, header ไม่มีปุ่มย่อ/ปิด และมี profile/login state; commit `285566b` พร้อม build, tests และ WebView evidence แล้ว

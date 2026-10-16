@@ -21,8 +21,8 @@ This report separates repository/token verification from component, native, rele
 | Production component implementation | PARTIAL — all 24/24 stylesheets reference canonical tokens and direct flat color declarations are tokenized, but the source inventory does not prove every property/component contract or rendered theme parity. See [source inventory](COMPONENT_COVERAGE.md). |
 | Native desktop / installer / clean install | NOT ACCEPTED HERE — native click-through was previously `BLOCKED_ENVIRONMENT`; installer and clean-install gates remain separate. |
 | Physical-device UAT / production | NOT RUN — outside the token/board verification scope. |
-| Desktop Home accessibility sample | PARTIAL PASS — [review evidence](ACCESSIBILITY_REVIEW.md) records the current accessibility tree and 14 sequential Tab moves. |
-| Full accessibility audit | NOT COMPLETE — one production-preview Home screenshot confirms visible rendering and a focus outline, but full focus/contrast, other routes, zoom, reduced motion, forced colors, assistive technology, mobile and native behavior remain unverified. |
+| Desktop Home accessibility sample | PARTIAL PASS — [review evidence](ACCESSIBILITY_REVIEW.md) includes three current-run screenshots, named controls, visible focus, keyboard reachability and successful skip-link activation. |
+| Full accessibility audit | NOT COMPLETE — evidence is limited to one light-theme Home route at 1280×720; translucent contrast, other routes, dialogs, zoom, reduced motion, forced colors, assistive technology, mobile and native behavior remain unverified. |
 | Figma/Penpot source and complete screen exports | NOT INCLUDED — local HTML board is the current review/handoff artifact; Figma connector is not available in this session. |
 | External `Downloads\fung-new-ui` source | DOCUMENTED ONLY — provenance hashes are retained in `LIQUID_GLASS_DESKTOP_ADAPTATION.md`; source assets remain external. |
 

@@ -1,5 +1,5 @@
 ---
-version: "0.3.25b"
+version: "0.3.26b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-16,Codex"
 
@@ -498,6 +498,14 @@ restart persistence, and old AppData playback) is **NOT_RUN**. Screenshots are
 visual gate evidence only.
 
 ## Current Status
+
+The 2026-10-16 native debug screen UAT on PR #80 opened all five primary
+Desktop surfaces, the Project/More/Companion/Pairing/Settings overlays and all
+seven Settings sections in an isolated app-data profile; the Genesis shutdown
+checkpoint passed. Focused UI/recording checks, TypeScript/Vite build and PR
+frontend/Rust CI passed. Pairing read, URL fetch, providers, actual capture,
+populated Review, output writes and package/installer acceptance remain blocked
+or NOT_RUN. See the [native screen UAT report](../verification/implementation-reports/2026-10-16-desktop-native-uat.md).
 
 FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. The 2026-10-15 standalone campaign completed real CPU/int8 Whisper transcription through the production loopback import route using the pinned `large-v3-turbo` model, followed by transcript correction, SRT/VTT/WAV export and orderly storage reopen. Native run 18 also passed history, manual edit, export, normal window close and second-boot readback after the shutdown checkpoint fix. On 2026-10-16 the native playback worker passed an isolated local-fixture smoke on the default Scarlett Solo output: the device exposes 44.1 kHz stereo only, and a 16 kHz WAV played through resampling, paused and resumed from its current position, then reached the source duration. The smoke does not qualify playback through the native UI, a user recording, or an installed package. Native shutdown evidence covers an idle app with the local API disabled. Thai speech quality, enabled-API/in-flight writes, active-capture shutdown, forced-crash recovery, summary review and packaged application acceptance remain open. Live Meeting real-capture, device, connector and broader visual UAT remain open. The [standalone readiness report](../verification/implementation-reports/2026-10-15-standalone-readiness.md) records the earlier commands and limits; current playback evidence is the ignored hardware test in `src-tauri/src/desktop_playback.rs`.
 
@@ -1318,6 +1326,20 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.25b` → `0.3.26b`
+
+- Re-ran native screen UAT on PR #80 head `61940cd` in an isolated
+  `dev.fung.uat.local` profile. All five primary surfaces and the Project,
+  More, Companion, Pairing and Settings overlays were opened; all seven Settings
+  sections rendered. The isolated profile shut down with a successful Genesis
+  checkpoint.
+- Focused Desktop/recording CPU checks passed `89/89`; TypeScript and Vite
+  production build passed; GitHub frontend and Rust checks passed on this head.
+- Pairing device read, URL-fetch dependency, provider connections, capture,
+  populated Review, output writes and package/installer acceptance remain
+  blocked or not run. Keep release gates open; see the [native screen UAT
+  report](../verification/implementation-reports/2026-10-16-desktop-native-uat.md).
+
 ### `0.3.24b` → `0.3.25b`
 
 - Select a stereo output rate supported by the active device and linearly
@@ -1512,6 +1534,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.26b | 2026-10-16 | beta | Re-ran native Desktop screen UAT on PR #80 in an isolated app-data profile; five core surfaces and seven Settings sections rendered, but device/provider, recording, populated Review and package gates remain open. | working-tree | Codex |
 | 0.3.25b | 2026-10-16 | beta | Added device-rate negotiation and source-timeline resampling; local native 16 kHz-to-44.1 kHz playback plus pause/resume passed, while native UI, package and full-suite timing gates remain open. | working-tree | Codex |
 | 0.3.24b | 2026-10-16 | beta | Reconciled PR #80 with main and the merged GenesisBlock pin; focused profile/persistence regressions and Desktop/design-system checks passed, full CI and native/release gates remain open. | working-tree | Codex |
 | 0.3.23b | 2026-10-16 | beta | Current Studio flow/index reconciliation, citation semantics and bounded UI repairs; frontend build and 89 CPU checks passed, native/provider/device gates retained. | working-tree | Codex |

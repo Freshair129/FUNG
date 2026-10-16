@@ -1,6 +1,6 @@
 # FUNG Desktop routes — combined UX and accessibility review
 
-Date: 2026-10-16  
+Date: 2026-10-16
 Status: **Partial review; not an accessibility conformance audit.**
 
 ## 1. Audit scope

@@ -663,10 +663,14 @@ test("visibility changes do not stop the lifecycle or remove listeners", async (
   assert.equal(unlistenCalls.length, 4);
 });
 
-test("live form labels preserve light color and use workspace ink in dark mode", () => {
+test("live form labels use semantic ink tokens with a dark workspace override", () => {
   assert.match(
     liveWorkspaceCss,
-    /\.live-workspace__check,\s*\.live-workspace__field\s*\{[^}]*color:\s*#303833;/s,
+    /\.live-workspace\s*\{[^}]*--workspace-ink:\s*var\(--fung-text-primary\);/s,
+  );
+  assert.match(
+    liveWorkspaceCss,
+    /\.live-workspace__check,\s*\.live-workspace__field\s*\{[^}]*color:\s*var\(--fung-text-primary\);/s,
   );
 
   const darkLabelRule = liveWorkspaceCss.match(

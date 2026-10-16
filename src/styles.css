@@ -15,30 +15,41 @@
     "Yu Gothic UI",
     "Segoe UI",
     sans-serif;
-  --bg-porcelain: #f4f1ea;
-  --porcelain-top: #fffaf0;
-  --porcelain-mid: #eee5d6;
-  --porcelain-low: #d8ccba;
-  --bevel-light: rgba(255, 255, 255, 0.92);
-  --bevel-dark: rgba(119, 104, 84, 0.22);
-  --pressed-shadow: inset 4px 4px 10px rgba(128, 112, 92, 0.18), inset -4px -4px 10px rgba(255, 255, 255, 0.74);
-  --bg-warm: rgba(255, 251, 245, 0.78);
-  --bg-warm-strong: rgba(255, 249, 241, 0.92);
-  --bg-panel: rgba(255, 255, 255, 0.28);
-  --bg-panel-strong: rgba(255, 255, 255, 0.58);
-  --ink: #191a1d;
-  --graphite: #5f6268;
-  --graphite-soft: #848990;
-  --sage: #6e897d;
-  --sage-soft: rgba(110, 137, 125, 0.16);
-  --indigo: #3d4f82;
-  --indigo-soft: rgba(61, 79, 130, 0.14);
-  --metal: #9a8260;
-  --metal-soft: rgba(154, 130, 96, 0.16);
-  --signal: #b34b4b;
-  --line-soft: rgba(32, 35, 40, 0.08);
-  --line-strong: rgba(28, 30, 34, 0.16);
-  --shadow: 8px 12px 24px rgba(92, 78, 58, 0.2), -5px -5px 14px rgba(255, 255, 255, 0.68);
+}
+
+/* Compatibility bridge for legacy component names. Keep these aliases scoped
+   to the token root so Light, Dark, and System all resolve from one authority. */
+[data-fung-root] {
+  --bg-porcelain: var(--fung-bg-canvas);
+  --porcelain: var(--fung-bg-canvas);
+  --porcelain-top: var(--fung-bg-surface);
+  --porcelain-mid: var(--fung-bg-inset);
+  --porcelain-low: var(--fung-border-subtle);
+  --bevel-light: var(--fung-glass-highlight);
+  --bevel-dark: var(--fung-glass-shade);
+  --pressed-shadow: var(--fung-shadow-inset);
+  --bg-warm: var(--fung-glass-reader);
+  --bg-warm-strong: var(--fung-glass-sheet);
+  --bg-panel: var(--fung-glass-control);
+  --bg-panel-strong: var(--fung-glass-reader);
+  --ink: var(--fung-text-primary);
+  --graphite: var(--fung-text-secondary);
+  --graphite-soft: var(--fung-text-tertiary);
+  --sage: var(--fung-brand-sage);
+  --sage-soft: var(--fung-state-local-bg);
+  --indigo: var(--fung-link);
+  --indigo-soft: var(--fung-state-inferred-bg);
+  --metal: var(--fung-brand-metal);
+  --metal-soft: color-mix(in srgb, var(--fung-brand-metal) 16%, transparent);
+  --signal: var(--fung-state-danger-fg);
+  --line: var(--fung-border-subtle);
+  --line-soft: var(--fung-border-subtle);
+  --line-strong: var(--fung-border-strong);
+  --shadow: var(--fung-shadow-elevated);
+  --evidence-indigo: var(--fung-action-primary-bg);
+  --local-sage: var(--fung-state-local-fg);
+  --destructive-signal: var(--fung-state-danger-fg);
+  --provenance-metal: var(--fung-brand-metal);
 }
 
 * {

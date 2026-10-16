@@ -1,5 +1,19 @@
 # Changelog
 
+## Implementation update — 2026-10-16
+
+Established `tokens/fung.tokens.json` as the shared DTCG 2025.10 token authority; generated runtime/Brand Kit CSS, contrast evidence and a cross-surface HTML board from it; redirected former Mobile board URLs; and reconciled Mobile, Desktop, Brand Kit, design brief and docs indexes. Token integration is verified in-repository, while component coverage remains partial and native Figma/full-screen exports remain open.
+
+Added theme-aware component specimens to the board, a generated CSS token-coverage inventory checked by `design-system:check`, and a scoped Desktop Home accessibility evidence report. At that review point the production stylesheet migration and full visual/assistive-technology audit remained open.
+
+Migrated remaining direct semantic color declarations across Desktop, Mobile, Web and Landing styles to canonical tokens. Removed 116 duplicate canonical-token fallback values from five application stylesheets. The source inventory now finds token references in 24/24 application CSS files and zero active flat single-color declarations; embedded material, shadow, gradient and illustration colors remain inventoried for visual review. Component-level rendered parity and full accessibility are still open.
+
+Captured a current production-preview Desktop Home review at 1280×720. The report now includes Home, skip-link focus and skip-link activation screenshots; keyboard navigation reached the skip link and Enter moved focus to the main container. The preview shows separate sidebar/main scroll regions and does not expose native project state. Full route, theme, assistive-technology, zoom and native acceptance remain open.
+
+Extended the production-preview review to the Live, History, Files and Appearance routes at the same viewport. Recorded the Home-to-Live setup transition, native-unavailable and empty states, and two independent scroll regions. Corrected the Live task-card label from “Pause or resume” to “Open live capture” to match its handler. Appearance selector tab order was also observed without changing settings. The added route snapshots do not close theme, keyboard-path, native, screen-reader, zoom or full-screen export acceptance.
+
+Reconciled the design handoff inventory: local Desktop P1–P4 wireframes and SVG/PNG boards exist, while the repository has no native `.fig`/`.penpot` project or connected design-tool integration and full per-surface exports remain incomplete.
+
 ## 1.0.0b — 2026-09-20 — Beta
 
 อัปเดต current DesktopShell ให้ตรงกับ implementation: recording อยู่บน Home/Live surface, Appearance เป็นหน้าแยก, sidebar ไม่มี controls ของ theme/material/transparency, header ไม่มีปุ่มย่อ/ปิด และมี profile/login state; commit `285566b` พร้อม build, tests และ WebView evidence แล้ว

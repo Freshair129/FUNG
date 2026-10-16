@@ -28,11 +28,11 @@ copy, Drive commands, or Drive deployment assumptions.
 | โลโก้หลัก (SVG, `currentColor`) | `docs/brand-kit/logo/fung-mark.svg` |
 | ชุด mark "Quiet Archive" (ink / white / app-icon) | `docs/Mobile/design-system/assets/quiet-archive-mark.svg`, `-ink.svg`, `-white.svg`, `quiet-archive-app-icon.svg` |
 | Concept sheet โลโก้ | `docs/brand-kit/logo/Quiet Archive.png` |
-| Brand tokens ของจริง | `docs/brand-kit/tokens.css`, `docs/brand-kit/README.md` |
+| Canonical shared tokens | `docs/FUNG_Design_System_v0.1.0/tokens/fung.tokens.json`; `docs/brand-kit/tokens.css` is a generated compatibility export |
 | โลโก้ที่ render ในแอปตอนนี้ (React) | `src/components/FungLogo.tsx` |
 | ไอคอนแอป (Windows/Android) | `src-tauri/icons/` — **ยังเป็นตัวอักษร "F" placeholder** ไม่ใช่ mark |
 | Favicon เว็บ | `index.html:14-17` — inline SVG คนละแบบกับ FungLogo |
-| Mobile design system (source of truth + generator) | `docs/Mobile/DESIGN_SYSTEM.md`, `npm run design-system:render` |
+| Shared design system and generated board | `docs/FUNG_Design_System_v0.1.0/DESIGN_SYSTEM.md`, `docs/design-system/index.html`, `node scripts/design_system.mjs render` |
 | Desktop wireframes P1–P4 | `docs/Desktop/wireframes/` |
 
 ## 1. ผลิตภัณฑ์ใน 1 หน้า
@@ -55,18 +55,7 @@ FUNG คือแอปบันทึกการประชุม/เสี�
 
 **กฎโลโก้** (`docs/brand-kit/README.md`): mark ใช้ `currentColor` — ink `#171918` บนพื้นสว่าง, porcelain `#FAF8F3` บนพื้นมืด; ไม่ใส่กล่องพื้นหลัง (ยกเว้น OS app icon บน tile ink); clearspace ≥ 25% ของความกว้าง; ขั้นต่ำ 24px ใน UI / 16px favicon; ห้ามย้อมสีอื่น/ยืด/บิด Wordmark `FUNG` DM Sans Medium, uppercase, tracking `0.34em`, sage บนสว่าง / porcelain บนมืด
 
-**Brand tokens** (`docs/brand-kit/tokens.css`):
-
-| Token | Hex | บทบาท |
-| --- | --- | --- |
-| porcelain | `#FAF8F3` | พื้น/วัสดุหลัก |
-| ink | `#171918` | ตัวอักษร, พื้นมืด, tile ไอคอน |
-| sage | `#6F897E` | accent, wordmark, สถานะ local/ยืนยัน |
-| slate | `#4A5B8B` | interactive: ปุ่มหลัก, ลิงก์, focus |
-| metal | `#9A8260` | caution / pending (semantic) |
-| clay | `#B0553F` | error / destructive เท่านั้น |
-
-Type: Fraunces (display), **IBM Plex Sans Thai** (UI ไทย นำ), DM Sans (Latin + wordmark), IBM Plex Mono (ตัวเลข/timer/token) · Spacing ฐาน 4px (4·8·12·16·24·32) · Radius 8/12/16/pill · Elevation: soft shadow (mobile/web), beveled porcelain (desktop)
+**Brand token authority:** `docs/FUNG_Design_System_v0.1.0/tokens/fung.tokens.json`. The file uses typed DTCG 2025.10 tokens; FUNG metadata and contrast checks live under its namespaced extension. `docs/brand-kit/tokens.css` is generated from the same source and must not be edited independently. The palette, type, spacing and radius values are visible in the [shared token catalog](../design-system/index.html).
 
 **ปัญหาที่ redesign ควรแก้ (ข้อเท็จจริงจากโค้ด):**
 - 4 stylesheet ไม่แชร์ token กัน และ **ค่าสีไม่ตรงกัน**: sage desktop `#6e897d` / landing `#71847c` / brand `#6f897e`; porcelain desktop `#f4f1ea` / web+landing `#f5f2eb` / brand `#faf8f3`; **mobile ทิ้ง palette ไปใช้ navy `#28374c` + ส้ม `#fe6a3c`** (ตัวแปรชื่อ `--m-indigo` แต่ค่าเป็นส้ม) — `src/styles.css`, `src/mobile/mobile.css`, `src/web/Dashboard.css`, `src/landing/landing.css`

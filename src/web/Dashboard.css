@@ -1,6 +1,6 @@
 .dashboard {
   min-height: 100vh;
-  background: #f5f2eb;
+  background: var(--fung-bg-inset);
   font-family: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
 }
 
@@ -10,7 +10,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 28px;
-  border-bottom: 1px solid rgba(32, 35, 40, 0.08);
+  border-bottom: 1px solid var(--fung-border-subtle);
 }
 
 .dashboard-topbar-left {
@@ -24,8 +24,8 @@
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: #5f6268;
-  background: rgba(111, 137, 126, 0.1);
+  color: var(--fung-text-secondary);
+  background: var(--fung-state-local-bg);
   padding: 2px 8px;
   border-radius: 10px;
 }
@@ -42,7 +42,7 @@
   align-items: center;
   gap: 8px;
   background: none;
-  border: 1px solid rgba(32, 35, 40, 0.12);
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 20px;
   padding: 4px 12px 4px 4px;
   cursor: pointer;
@@ -60,8 +60,8 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #6f897e;
-  color: #fff;
+  background: var(--fung-state-local-fg);
+  color: var(--fung-action-primary-fg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -74,10 +74,10 @@
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  background: #fffdf8;
-  border: 1px solid rgba(32, 35, 40, 0.1);
+  background: var(--fung-bg-surface);
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 10px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--fung-shadow-elevated);
   padding: 6px 0;
   min-width: 180px;
   z-index: 800;
@@ -94,12 +94,12 @@
   cursor: pointer;
   font-family: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
   font-size: 13px;
-  color: #191a1d;
+  color: var(--fung-text-primary);
   text-align: left;
 }
 
 .dashboard-avatar-dropdown button:hover {
-  background: rgba(111, 137, 126, 0.08);
+  background: var(--fung-bg-hover);
 }
 
 /* Main content */
@@ -113,13 +113,13 @@
 .dashboard-welcome h1 {
   font-size: 24px;
   font-weight: 600;
-  color: #191a1d;
+  color: var(--fung-text-primary);
   margin: 0 0 8px;
 }
 
 .dashboard-welcome p {
   font-size: 15px;
-  color: #5f6268;
+  color: var(--fung-text-secondary);
   margin: 0 0 40px;
 }
 
@@ -130,8 +130,8 @@
 }
 
 .dashboard-tile {
-  background: #fffdf8;
-  border: 1px solid rgba(32, 35, 40, 0.08);
+  background: var(--fung-bg-surface);
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 12px;
   padding: 24px;
   text-align: left;
@@ -147,13 +147,13 @@
 .dashboard-tile h3 {
   font-size: 15px;
   font-weight: 600;
-  color: #191a1d;
+  color: var(--fung-text-primary);
   margin: 0 0 4px;
 }
 
 .dashboard-tile p {
   font-size: 12px;
-  color: #5f6268;
+  color: var(--fung-text-secondary);
   margin: 0;
 }
 
@@ -176,7 +176,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 10px 0;
-  border-bottom: 1px solid rgba(32, 35, 40, 0.08);
+  border-bottom: 1px solid var(--fung-border-subtle);
 }
 
 .dashboard-device-item:last-child {
@@ -193,12 +193,12 @@
 .dashboard-device-info strong {
   font-size: 13px;
   font-weight: 600;
-  color: #191a1d;
+  color: var(--fung-text-primary);
 }
 
 .dashboard-device-info small {
   font-size: 11px;
-  color: #5f6268;
+  color: var(--fung-text-secondary);
 }
 
 .dashboard-device-revoke {
@@ -206,22 +206,22 @@
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
-  color: #b3453e;
-  background: rgba(179, 69, 62, 0.08);
-  border: 1px solid rgba(179, 69, 62, 0.2);
+  color: var(--fung-state-danger-fg);
+  background: var(--fung-state-danger-bg);
+  border: 1px solid var(--fung-state-danger-fg);
   border-radius: 8px;
   padding: 5px 12px;
   cursor: pointer;
 }
 
 .dashboard-device-revoke:hover {
-  background: rgba(179, 69, 62, 0.15);
+  background: var(--fung-action-danger-bg);
 }
 
 .dashboard-device-error {
   margin: 8px 0 0;
   font-size: 12px;
-  color: #b3453e;
+  color: var(--fung-state-danger-fg);
 }
 
 /* Recordings tile (live, reads the desktop's loopback API) */
@@ -236,7 +236,7 @@
 }
 
 .dashboard-connect-hint {
-  color: #7a7d84;
+  color: var(--fung-text-tertiary);
 }
 
 .dashboard-connect-row {
@@ -249,17 +249,17 @@
   flex: 1;
   min-width: 0;
   padding: 8px 12px;
-  border: 1px solid rgba(32, 35, 40, 0.12);
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 8px;
   font-family: inherit;
   font-size: 13px;
-  color: #191a1d;
-  background: #fffdf8;
+  color: var(--fung-text-primary);
+  background: var(--fung-bg-surface);
 }
 
 .dashboard-connect-input:focus {
   outline: none;
-  border-color: #3d4f82;
+  border-color: var(--fung-focus);
 }
 
 .dashboard-connect-btn {
@@ -267,8 +267,8 @@
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
-  background: #3d4f82;
+  color: var(--fung-action-primary-fg);
+  background: var(--fung-action-primary-bg);
   border: none;
   border-radius: 8px;
   padding: 8px 16px;
@@ -276,7 +276,7 @@
 }
 
 .dashboard-connect-btn:hover {
-  background: #2e3d66;
+  background: var(--fung-action-primary-hover);
 }
 
 .dashboard-connect-actions {
@@ -288,7 +288,7 @@
 .dashboard-link-btn {
   font-family: inherit;
   font-size: 12px;
-  color: #5f6268;
+  color: var(--fung-text-secondary);
   background: none;
   border: none;
   padding: 5px 8px;
@@ -301,7 +301,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px 0;
-  border-bottom: 1px solid rgba(32, 35, 40, 0.08);
+  border-bottom: 1px solid var(--fung-border-subtle);
 }
 
 .dashboard-recording-item:last-child {
@@ -316,18 +316,18 @@
 .dashboard-channel-btn {
   font-family: inherit;
   font-size: 11px;
-  color: #5f6268;
+  color: var(--fung-text-secondary);
   background: none;
-  border: 1px solid rgba(32, 35, 40, 0.12);
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 999px;
   padding: 3px 10px;
   cursor: pointer;
 }
 
 .dashboard-channel-btn.is-active {
-  color: #fff;
-  background: #6f897e;
-  border-color: #6f897e;
+  color: var(--fung-action-primary-fg);
+  background: var(--fung-state-local-fg);
+  border-color: var(--fung-brand-sage);
 }
 
 .dashboard-audio {
@@ -341,87 +341,87 @@
   gap: 6px;
   margin: 12px 0 0;
   font-size: 11px;
-  color: #7a7d84;
+  color: var(--fung-text-tertiary);
   word-break: break-all;
 }
 
 /* Dark theme */
 .theme-dark .dashboard {
-  background: #171918;
+  background: var(--fung-bg-canvas);
 }
 
 .theme-dark .dashboard-topbar {
-  border-bottom-color: rgba(255, 255, 255, 0.06);
+  border-bottom-color: var(--fung-border-subtle);
 }
 
 .theme-dark .dashboard-topbar-left .web-badge {
-  color: #9b9386;
-  background: rgba(163, 179, 170, 0.1);
+  color: var(--fung-text-secondary);
+  background: var(--fung-state-local-bg);
 }
 
 .theme-dark .dashboard-avatar-btn {
-  border-color: rgba(255, 255, 255, 0.1);
+  border-color: var(--fung-border-subtle);
 }
 
 .theme-dark .dashboard-avatar-dropdown {
-  background: #1e2120;
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  background: var(--fung-bg-canvas);
+  border-color: var(--fung-border-subtle);
+  box-shadow: var(--fung-shadow-elevated);
 }
 
 .theme-dark .dashboard-avatar-dropdown button {
-  color: #f3efe7;
+  color: var(--fung-text-primary);
 }
 
 .theme-dark .dashboard-avatar-dropdown button:hover {
-  background: rgba(163, 179, 170, 0.08);
+  background: var(--fung-bg-hover);
 }
 
 .theme-dark .dashboard-welcome h1 {
-  color: #f3efe7;
+  color: var(--fung-text-primary);
 }
 
 .theme-dark .dashboard-welcome p {
-  color: #9b9386;
+  color: var(--fung-text-secondary);
 }
 
 .theme-dark .dashboard-tile {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.06);
+  background: var(--fung-glass-control);
+  border-color: var(--fung-border-subtle);
 }
 
 .theme-dark .dashboard-tile h3 {
-  color: #f3efe7;
+  color: var(--fung-text-primary);
 }
 
 .theme-dark .dashboard-tile p {
-  color: #9b9386;
+  color: var(--fung-text-secondary);
 }
 
 .theme-dark .dashboard-device-item {
-  border-bottom-color: rgba(255, 255, 255, 0.06);
+  border-bottom-color: var(--fung-border-subtle);
 }
 
 .theme-dark .dashboard-device-info strong {
-  color: #f3efe7;
+  color: var(--fung-text-primary);
 }
 
 .theme-dark .dashboard-device-info small {
-  color: #9b9386;
+  color: var(--fung-text-secondary);
 }
 
 .theme-dark .dashboard-device-revoke {
-  color: #e07a72;
-  background: rgba(224, 122, 114, 0.1);
-  border-color: rgba(224, 122, 114, 0.25);
+  color: var(--fung-state-danger-fg);
+  background: var(--fung-state-danger-bg);
+  border-color: var(--fung-state-danger-fg);
 }
 
 .theme-dark .dashboard-device-revoke:hover {
-  background: rgba(224, 122, 114, 0.18);
+  background: var(--fung-action-danger-bg);
 }
 
 .theme-dark .dashboard-device-error {
-  color: #e07a72;
+  color: var(--fung-state-danger-fg);
 }
 
 /* Recorder tile (live: records in this browser, keeps files in IndexedDB) */
@@ -449,8 +449,8 @@
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
-  background: #3d4f82;
+  color: var(--fung-action-primary-fg);
+  background: var(--fung-action-primary-bg);
   border: none;
   border-radius: 999px;
   padding: 9px 18px;
@@ -458,7 +458,7 @@
 }
 
 .dashboard-rec-btn:hover {
-  background: #2e3d66;
+  background: var(--fung-action-primary-hover);
 }
 
 .dashboard-rec-btn:disabled {
@@ -467,11 +467,11 @@
 }
 
 .dashboard-rec-btn.is-stop {
-  background: #b3453e;
+  background: var(--fung-action-danger-bg);
 }
 
 .dashboard-rec-btn.is-stop:hover {
-  background: #93362f;
+  background: var(--fung-action-danger-bg);
 }
 
 .dashboard-rec-live {
@@ -486,7 +486,7 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #b3453e;
+  background: var(--fung-action-danger-bg);
   animation: dashboard-rec-pulse 1.2s ease-in-out infinite;
 }
 
@@ -504,7 +504,7 @@
   font-variant-numeric: tabular-nums;
   font-size: 14px;
   font-weight: 600;
-  color: #191a1d;
+  color: var(--fung-text-primary);
   min-width: 44px;
 }
 
@@ -512,13 +512,13 @@
   flex: 1;
   height: 8px;
   border-radius: 999px;
-  background: rgba(32, 35, 40, 0.1);
+  background: var(--fung-bg-inset);
   overflow: hidden;
 }
 
 .dashboard-level-fill {
   height: 100%;
-  background: #6f897e;
+  background: var(--fung-state-local-fg);
   transition: width 80ms linear;
 }
 
@@ -546,9 +546,9 @@
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
-  color: #3d4f82;
-  background: rgba(61, 79, 130, 0.08);
-  border: 1px solid rgba(61, 79, 130, 0.2);
+  color: var(--fung-link);
+  background: var(--fung-state-inferred-bg);
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 8px;
   padding: 5px 10px;
   cursor: pointer;
@@ -556,17 +556,17 @@
 }
 
 .dashboard-rec-action:hover {
-  background: rgba(61, 79, 130, 0.15);
+  background: var(--fung-bg-selected);
 }
 
 .dashboard-rec-action.is-danger {
-  color: #b3453e;
-  background: rgba(179, 69, 62, 0.08);
-  border-color: rgba(179, 69, 62, 0.2);
+  color: var(--fung-state-danger-fg);
+  background: var(--fung-state-danger-bg);
+  border-color: var(--fung-state-danger-fg);
 }
 
 .dashboard-rec-action.is-danger:hover {
-  background: rgba(179, 69, 62, 0.15);
+  background: var(--fung-action-danger-bg);
 }
 
 /* Phone-width browsers land on this dashboard too (bootstrap.ts routes
@@ -595,34 +595,34 @@
 }
 
 .theme-dark .dashboard-rec-timer {
-  color: #f3efe7;
+  color: var(--fung-text-primary);
 }
 
 .theme-dark .dashboard-level {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--fung-glass-control);
 }
 
 .theme-dark .dashboard-rec-action {
-  color: #9fb0e0;
-  background: rgba(159, 176, 224, 0.1);
-  border-color: rgba(159, 176, 224, 0.25);
+  color: var(--fung-link);
+  background: var(--fung-state-inferred-bg);
+  border-color: var(--fung-border-strong);
 }
 
 .theme-dark .dashboard-rec-action.is-danger {
-  color: #e07a72;
-  background: rgba(224, 122, 114, 0.1);
-  border-color: rgba(224, 122, 114, 0.25);
+  color: var(--fung-state-danger-fg);
+  background: var(--fung-state-danger-bg);
+  border-color: var(--fung-state-danger-fg);
 }
 
 /* Hand-off to the desktop (upload → job → transcript) */
 .dashboard-rec-action.is-primary {
-  color: #fff;
-  background: #3d4f82;
-  border-color: #3d4f82;
+  color: var(--fung-action-primary-fg);
+  background: var(--fung-action-primary-bg);
+  border-color: var(--fung-focus);
 }
 
 .dashboard-rec-action.is-primary:hover {
-  background: #2e3d66;
+  background: var(--fung-action-primary-hover);
 }
 
 .dashboard-rec-action:disabled {
@@ -633,12 +633,12 @@
 .dashboard-transcript {
   margin-top: 4px;
   font-size: 12px;
-  color: #191a1d;
+  color: var(--fung-text-primary);
 }
 
 .dashboard-transcript summary {
   cursor: pointer;
-  color: #5f6268;
+  color: var(--fung-text-secondary);
   font-weight: 600;
 }
 
@@ -661,14 +661,14 @@
 .dashboard-transcript-time {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
-  color: #7a7d84;
+  color: var(--fung-text-tertiary);
   min-width: 36px;
 }
 
 .dashboard-transcript-speaker {
   flex-shrink: 0;
   font-weight: 600;
-  color: #6f897e;
+  color: var(--fung-state-local-fg);
 }
 
 .dashboard-transcript-progress {
@@ -676,34 +676,34 @@
 }
 
 .theme-dark .dashboard-transcript {
-  color: #f3efe7;
+  color: var(--fung-text-primary);
 }
 
 .theme-dark .dashboard-transcript summary {
-  color: #9b9386;
+  color: var(--fung-text-secondary);
 }
 
 .theme-dark .dashboard-rec-action.is-primary {
-  color: #171918;
-  background: #9fb0e0;
-  border-color: #9fb0e0;
+  color: var(--fung-action-primary-fg);
+  background: var(--fung-action-primary-pressed);
+  border-color: var(--fung-focus);
 }
 
 /* Shared Quiet Archive surface tokens. Data fetching, auth and the existing
  * recording hand-off controls remain owned by Dashboard.tsx. */
 .dashboard {
-  --dashboard-canvas: var(--fung-bg-canvas, #FAF8F3);
-  --dashboard-surface: var(--fung-bg-surface, #FFFEFA);
-  --dashboard-elevated: var(--fung-bg-elevated, #FFFFFF);
-  --dashboard-ink: var(--fung-text-primary, #171918);
-  --dashboard-muted: var(--fung-text-secondary, #505A54);
-  --dashboard-line: var(--fung-border-subtle, #D6D9D1);
-  --dashboard-slate: var(--fung-brand-slate, #4A5B8B);
-  --dashboard-sage: var(--fung-brand-sage, #6F897E);
+  --dashboard-canvas: var(--fung-bg-canvas);
+  --dashboard-surface: var(--fung-bg-surface);
+  --dashboard-elevated: var(--fung-bg-elevated);
+  --dashboard-ink: var(--fung-text-primary);
+  --dashboard-muted: var(--fung-text-secondary);
+  --dashboard-line: var(--fung-border-subtle);
+  --dashboard-slate: var(--fung-brand-slate);
+  --dashboard-sage: var(--fung-brand-sage);
   min-height: 100vh;
   color: var(--dashboard-ink);
   background: var(--dashboard-canvas);
-  font-family: var(--fung-font-ui, "IBM Plex Sans Thai", system-ui, sans-serif);
+  font-family: var(--fung-font-ui);
 }
 
 .dashboard-topbar {
@@ -737,16 +737,16 @@
 
 .dashboard-tiles {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--fung-space-16, 16px);
+  gap: var(--fung-space-16);
 }
 
 .dashboard-tile {
   min-height: 180px;
   padding: 20px;
   border: 1px solid var(--dashboard-line);
-  border-radius: var(--fung-radius-md, 12px);
+  border-radius: var(--fung-radius-md);
   background: var(--dashboard-surface);
-  box-shadow: var(--fung-shadow-surface, 0 1px 2px rgba(23, 25, 24, 0.05));
+  box-shadow: var(--fung-shadow-surface);
   opacity: 1;
 }
 
@@ -777,7 +777,7 @@
 .dashboard-avatar-dropdown {
   border-color: var(--dashboard-line);
   background: var(--dashboard-elevated);
-  box-shadow: var(--fung-shadow-elevated, 0 8px 28px rgba(23, 25, 24, 0.12));
+  box-shadow: var(--fung-shadow-elevated);
 }
 
 .dashboard-avatar-dropdown button {
@@ -787,29 +787,29 @@
 .dashboard-rec-btn,
 .dashboard-connect-btn,
 .dashboard-rec-action.is-primary {
-  background: var(--fung-action-primary-bg, #4A5B8B);
-  border-color: var(--fung-action-primary-bg, #4A5B8B);
-  color: var(--fung-action-primary-fg, #FAF8F3);
+  background: var(--fung-action-primary-bg);
+  border-color: var(--fung-action-primary-bg);
+  color: var(--fung-action-primary-fg);
 }
 
 .dashboard-rec-btn:hover,
 .dashboard-connect-btn:hover,
 .dashboard-rec-action.is-primary:hover {
-  background: var(--fung-action-primary-hover, #3F4E77);
+  background: var(--fung-action-primary-hover);
 }
 
 .dashboard :where(button, input, select, textarea):focus-visible {
-  outline: var(--fung-focus-width, 2px) solid var(--fung-focus, var(--dashboard-slate));
-  outline-offset: var(--fung-focus-offset, 3px);
+  outline: var(--fung-focus-width) solid var(--fung-focus);
+  outline-offset: var(--fung-focus-offset);
 }
 
 .theme-dark .dashboard {
-  --dashboard-canvas: var(--fung-bg-canvas, #171918);
-  --dashboard-surface: var(--fung-bg-surface, #202521);
-  --dashboard-elevated: var(--fung-bg-elevated, #292F2A);
-  --dashboard-ink: var(--fung-text-primary, #FAF8F3);
-  --dashboard-muted: var(--fung-text-secondary, #CAD1C9);
-  --dashboard-line: var(--fung-border-subtle, #384239);
+  --dashboard-canvas: var(--fung-bg-canvas);
+  --dashboard-surface: var(--fung-bg-surface);
+  --dashboard-elevated: var(--fung-bg-elevated);
+  --dashboard-ink: var(--fung-text-primary);
+  --dashboard-muted: var(--fung-text-secondary);
+  --dashboard-line: var(--fung-border-subtle);
 }
 
 @media (max-width: 760px) {

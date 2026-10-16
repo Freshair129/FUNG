@@ -68,8 +68,8 @@ This palette replaces the previous indigo/sage/metal visual accent set for the s
 ## Implemented identity boundary
 
 1. Editable SVG masters now live in `docs/Mobile/design-system/assets/` as the Deep Blue, Total White and Android icon variants.
-2. `DESIGN_SYSTEM.md` is the selected-beta source of truth for the master assets and palette mapping.
-3. The interactive design-system and brand pages are regenerated from that Markdown SOT before each export.
+2. The shared DTCG token file is the source of truth for palette values; selected-beta master assets remain in `docs/Mobile/design-system/assets/`.
+3. The interactive shared design-system and brand pages are regenerated from that token source before each export.
 4. Mobile CSS consumes the palette only through the selected CI tokens; runtime, GenesisBlockDB, recording behaviour, model packaging and MCP permission logic remain unchanged.
 
 ## Acceptance criteria

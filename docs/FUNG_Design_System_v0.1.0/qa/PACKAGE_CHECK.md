@@ -1,40 +1,34 @@
-# FUNG — Package checks
+# FUNG — Design system verification
 
-Version: 0.1.0 · Status: Beta · Date: 2026-09-19
+Version: 0.1.0 · Status: Beta · Evidence date: 2026-10-16
 
-This report documents checks performed on the supplied document/token package only. It is not a report of tests run against the FUNG application.
+This report separates repository/token verification from component, native, release and accessibility evidence. A passing token build does not imply full design-system implementation.
 
 | Check | Result |
 | --- | --- |
-| UTF-8 and document structure | PASS — numbered sections 0–26; no replacement characters or unfilled palette marker. |
-| Relative document/reference links | PASS — referenced files exist in this package. |
-| JSON and theme key parity | PASS — light and dark define identical semantic keys. |
-| Token rebuild consistency | PASS — build_tokens.py --check matches generated CSS and contrast report. |
-| Solid-color contrast targets | PASS — all 58 declared pairs pass their project target using unrounded values. |
-| CSS syntax | PASS — CSS stylesheet and declaration blocks parsed with tinycss2. |
-| Python build script | PASS — script compiled and executed successfully in this environment. |
-| Desktop layout arithmetic | PASS — proposed 1304px stage allocation leaves 736px main content. |
-| Reference asset integrity | PASS — copied originals are present; originals were not edited. |
-| Liquid Glass desktop adaptation document | PASS — approved beta scope, provenance hashes, surface mapping, non-goals, implementation evidence and explicit native/release gaps are documented. |
-| External `Downloads\fung-new-ui` source | DOCUMENTED ONLY — source remains outside this package; hashes are recorded in `LIQUID_GLASS_DESKTOP_ADAPTATION.md` and assets are not treated as production inputs. |
-| App integration / browser/native rendering | PASS WITH LIMITATIONS — integration patch, production build, local browser smoke and bounded native click-through on the exact current executable are recorded; installer/clean-install, production and full accessibility remain open. |
-| Local release executable build | PASS WITH LIMITATIONS — `src-tauri/target/release/fung.exe` rebuilt with `npx tauri build --no-bundle`; installer click-through, device rendering and full accessibility remain open. |
-| Full accessibility audit | NOT RUN — keyboard, assistive technology, zoom, focus, alpha colors and native overlay behavior require runtime tests. |
-| Figma/Penpot source and complete screen mockups | NOT INCLUDED — only the supplied logo concept and latest two mock references. |
-
-## Contrast minimum observed by check category
-
-| Category | Lowest ratio across both themes |
-| --- | ---: |
-| button text | 4.69:1 |
-| essential outline / focus | 3.72:1 |
-| primary button text | 6.26:1 |
-| readable text | 5.67:1 |
-| status label | 5.15:1 |
+| DTCG token conventions | PASS — FUNG-scoped validator accepts 202 typed tokens across the supported types; metadata and project data use `$extensions.com.fung.design-system`. This is not a full DTCG schema validator. |
+| Generated CSS and Brand Kit export | PASS — both are generated from the canonical JSON while retaining the existing `--fung-*` names. |
+| Solid-color contrast targets | PASS — all 58 declared foreground/background pairs pass their project targets using source precision. Translucent surfaces and full app rendering are outside this result. |
+| Shared board and brand presentation | PASS — both HTML outputs render from the canonical JSON; stale generated HTML is detected by `design-system:check`. |
+| CI drift gate | CONFIGURED — `.github/workflows/ci.yml` runs `design-system:check` before design-system tests; hosted Actions evidence is pending a push. |
+| Mobile compatibility URLs | PASS — former Mobile board URLs redirect to the shared board and brand presentation. |
+| Documentation authority/index | PASS — docs, Desktop, Mobile, Brand Kit and interface inventory point to the shared authority; historical material is identified as such. |
+| `LiquidGlass.css` token ownership | PASS — the desktop adaptation consumes generated `--fung-glass-*` properties; material values live in the canonical source. |
+| Board specimens | PASS — canonical board data renders theme-aware primary/secondary actions, recording/local/inferred, focus, empty and recovery examples; the controls are illustrative and do not call application APIs. |
+| Generated stylesheet token inventory | PASS — `design-system:check` detects report drift; 24/24 application CSS files reference canonical tokens, no stylesheet is uncovered, no active flat single-color declaration remains, and canonical token fallback values are not duplicated in application CSS. Embedded colors are still counted for contextual review. |
+| Focused design-system tests | PASS — 5 tests across `tests/designSystemTokens.test.mjs` and `tests/designSystemPublishing.test.mjs`, including docs index/link and generated-file behavior. |
+| Application build | PASS — `node node_modules/typescript/bin/tsc` and `node node_modules/vite/bin/vite.js build` completed; Vite transformed 1,817 modules. |
+| Production component implementation | PARTIAL — all 24/24 stylesheets reference canonical tokens and direct flat color declarations are tokenized, but the source inventory does not prove every property/component contract or rendered theme parity. See [source inventory](COMPONENT_COVERAGE.md). |
+| Native desktop / installer / clean install | NOT ACCEPTED HERE — native click-through was previously `BLOCKED_ENVIRONMENT`; installer and clean-install gates remain separate. |
+| Physical-device UAT / production | NOT RUN — outside the token/board verification scope. |
+| Desktop route accessibility sample | PARTIAL PASS — [review evidence](ACCESSIBILITY_REVIEW.md) includes current-run Home, Live, History, Files and Appearance screenshots at 1280×720, Home-to-Live setup transition, named route controls, Home focus/skip-link behavior and Appearance selector tab order. The screenshots record two independent scroll regions; a Live action label mismatch found in review has been corrected in the current branch. |
+| Full accessibility audit | NOT COMPLETE — evidence covers five routes in one light-theme web preview; translucent contrast, keyboard task paths on every route, dialogs, zoom, reduced motion, forced colors, assistive technology, mobile and native behavior remain unverified. |
+| Figma/Penpot source and complete screen exports | PARTIAL LOCAL ASSETS — [Desktop P1–P4 wireframes](../../Desktop/wireframes/) and [Desktop SVG/PNG boards](../../design/callmd-desktop/) exist. No `.fig`/`.penpot` source or connected design tool is available; full per-surface and per-state library/exports remain incomplete. |
+| External `Downloads\fung-new-ui` source | DOCUMENTED ONLY — provenance hashes are retained in `LIQUID_GLASS_DESKTOP_ADAPTATION.md`; source assets remain external. |
 
 ## Reference checksums
 
-SHA-256 identifies the reference bytes packaged with this revision.
+SHA-256 identifies the reference bytes packaged with the design-system document.
 
 | Reference | SHA-256 |
 | --- | --- |

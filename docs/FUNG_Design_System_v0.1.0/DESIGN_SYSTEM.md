@@ -9,6 +9,9 @@ domain: "frontend-redesign"
 scope: "desktop, mobile, web dashboard, landing, phone page, proposed companion overlay"
 product_baseline: "FUNG 0.1.1 ตาม FRONTEND_REDESIGN_BRIEF.md v1.1.0b"
 implementation_verified: false
+token_css_integration_verified: true
+component_coverage: partial
+accessibility_certified: false
 human_approval_required: false
 ---
 
@@ -47,6 +50,8 @@ human_approval_required: false
 | **M2** | [Mock: Companion Overlay](references/companion-overlay-direction.png) — mock ล่าสุด | ทิศทางมาร์กเป็น companion และลำดับ Idle → Peek → Command → Conversation |
 | **U** | คำสั่งในบทสนทนา: niche / ใช้งานง่าย / มีลักษณะ JARVIS / overlay แบบ pet / ใช้โลโก้ที่ให้มา | เจตนาการออกแบบ ไม่ใช่ข้อยืนยันความพร้อมของ backend |
 
+**B เป็น snapshot ลงวันที่ 20 ก.ย. 2026:** ใช้อ้างอิง capability/product boundary และ provenance ของต้นทางเท่านั้น ข้อความเดิมใน snapshot ที่กำหนด Mobile เป็น token source ถูก supersede; token authority ปัจจุบันคือ `tokens/fung.tokens.json` ตาม §4 และ README นี้
+
 เอกสารนี้อ้างความสามารถจาก **B เท่านั้น** ไม่ได้อ่านหรือทดสอบ repository ล่าสุดซ้ำ ค่า spacing, semantic colors, interaction และ layout ใหม่ในเอกสารเป็น **ข้อเสนอออกแบบ** ที่แยกจากข้อเท็จจริงเดิม ภาพ M1/M2 เป็น visual direction ไม่ใช่ภาพผลิตภัณฑ์ที่ทำงานแล้ว ไม่มีการนำคำอธิบายคู่แข่งในบทสนทนามาเป็นข้อกำหนดทางเทคนิคที่ยืนยันแล้ว
 
 Current desktop shell truth is maintained in [`docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md`](../design/2026-09-19-liquid-glass-desktop-shell-refresh.md) and its approved addendum [`LIQUID_GLASS_DESKTOP_ADAPTATION.md`](LIQUID_GLASS_DESKTOP_ADAPTATION.md). Those documents supersede the older shell navigation language in the baseline snapshot while preserving the product capability and privacy contracts here.
@@ -67,7 +72,9 @@ Current desktop shell truth is maintained in [`docs/design/2026-09-19-liquid-gla
 
 ### 0.3 ไม่อยู่ในขอบเขตการส่งมอบครั้งนี้
 
-ไม่รวมการแก้ repository, native overlay implementation, Figma/Penpot component library, SVG โลโก้ฉบับ production, การทดสอบแอปจริง หรือภาพ light mode ทุกหน้าจอ ไฟล์ token เป็นข้อเสนอที่สร้างและตรวจคู่สีแล้ว แต่ยังต้องเชื่อมกับ component และ runtime จริง
+ส่งมอบรอบนี้รวมการเชื่อม token CSS กับ repository, ตัวสร้าง/ตัวตรวจ และ HTML design board ที่สร้างจาก token source เดียวกันแล้ว สถานะนี้ยืนยันเฉพาะ token integration และไฟล์ที่สร้าง ไม่ได้ยืนยันว่า component ทุกตัวหรือทุก surface implement ครบ
+
+ยังไม่รวม native overlay implementation เพิ่มเติม, Figma/Penpot component library, SVG โลโก้ฉบับ production, การทดสอบทุกหน้าจอ หรือ full accessibility audit; component coverage ยังเป็นบางส่วน และต้องใช้ runtime evidence แยกตาม flow
 
 ---
 
@@ -149,7 +156,7 @@ Porcelain เป็นความรู้สึกของวัสดุ ไ
 
 ## 4. Token architecture และ ownership
 
-**EXISTING:** สี brand 6 ตัวและ type family จาก B §2. **PROPOSED:** semantic themes, dimensions, motion และการ scope ตัวแปร
+**EXISTING:** สี brand 6 ตัวและ type family จาก B §2. **IMPLEMENTED IN REPOSITORY:** semantic themes, dimensions, motion, shared materials และการ scope ตัวแปรตาม token source ปัจจุบัน
 
 ลำดับ token: **Brand primitives → Semantic roles → Component usage**
 
@@ -157,12 +164,18 @@ Porcelain เป็นความรู้สึกของวัสดุ ไ
 
 | ไฟล์ในแพ็ก | หน้าที่ |
 | --- | --- |
-| `tokens/fung.tokens.json` | ข้อมูลตั้งต้นของ token, theme, breakpoint และคู่สีที่ทดสอบ; เป็น project-specific schema ไม่อ้าง DTCG compatibility |
-| `tokens/build_tokens.py` | สร้าง CSS และรายงาน contrast ด้วย Python standard library |
+| [`tokens/fung.tokens.json`](tokens/fung.tokens.json) | แหล่งแก้ไขหลัก ใช้กลุ่มและ token ตาม DTCG 2025.10; metadata, contrast checks, component/surface catalog และ FUNG-specific data อยู่ใน `$extensions.com.fung.design-system` |
+| [`tokens/build_tokens.py`](tokens/build_tokens.py) | ตรวจ DTCG token types ที่ FUNG ใช้ แล้วสร้าง CSS, contrast report และ `docs/brand-kit/tokens.css` ด้วย Python standard library |
 | `tokens/fung.tokens.css` | CSS ที่ generate แล้ว ใช้ prefix `--fung-` และ scope `[data-fung-root]` |
 | `qa/CONTRAST_REPORT.md` | ผลตรวจคู่สีทึบเท่านั้น ไม่ใช่ใบรับรอง accessibility ของแอป |
+| [`qa/COMPONENT_COVERAGE.md`](qa/COMPONENT_COVERAGE.md) | Generated source inventory ของ CSS ที่อ้าง canonical token |
+| [`qa/ACCESSIBILITY_REVIEW.md`](qa/ACCESSIBILITY_REVIEW.md) | Combined UX/accessibility sample ของ Desktop Home, Live, History, Files และ Appearance พร้อมภาพ, Home keyboard focus และ skip-link activation; ไม่ใช่ conformance audit |
+| [`scripts/render_design_system.mjs`](../../scripts/render_design_system.mjs) | สร้าง board และ brand presentation จาก DTCG JSON เดียวกัน |
+| [`docs/design-system/index.html`](../design-system/index.html) | Interactive cross-surface board ที่ generate แล้ว; ห้ามแก้ HTML โดยตรง |
 
-ห้ามแก้ JSON และ CSS แยกกันด้วยมือ ให้แก้ JSON แล้ว generate CSS ใหม่ การนำไปเป็น source of truth ใน repo ต้องเลือกให้เหลือเจ้าของเดียวและ migrate ของเดิม ไม่ปล่อยให้ `docs/brand-kit/tokens.css` กับชุดใหม่กลายเป็นสองมาตรฐานถาวร
+แก้ token ที่ `fung.tokens.json` แล้วรัน `npm run design-system:render`; ห้ามแก้ CSS, brand export หรือ board HTML แยกกันด้วยมือ ไฟล์เหล่านั้นเป็น output/compatibility view ที่สร้างซ้ำได้ ส่วน Mobile และเอกสารเก่าเป็น pointer หรือ historical context เท่านั้น ไม่มี token payload ที่แข่งกับ source หลัก
+
+รูปแบบอ้างอิงคือ [Design Tokens Format Module 2025.10 ของ W3C Design Tokens Community Group](https://www.w3.org/community/reports/design-tokens/CG-FINAL-format-20251028/): รายงานระบุว่า format เสถียร แต่ไม่ใช่ W3C Standard; validator ของ FUNG ตรวจเฉพาะชนิดและข้อกำหนดที่โครงการใช้ ไม่ได้อ้างว่าเป็น full DTCG schema validator
 
 ### 4.1 Theme contract
 
@@ -961,11 +974,13 @@ Light และ dark ต้องครอบหน้าจอเหล่า�
 
 ห้ามทำ native overlay เป็นแค่ CSS `position: fixed` แล้วอ้างว่าลอยเหนือทุกแอป และห้ามเอา mock ไป generate component ทั้งระบบโดยไม่ใส่ capability mapping
 
+สถานะ 2026-10-16: token source, CSS/export generator, component specimens, generated stylesheet token inventory และ Desktop shell route snapshots สำหรับ Home, Live, History, Files และ Appearance ถูกเชื่อมและบันทึกแล้ว; CSS ทั้ง 24/24 stylesheet อ้าง canonical token, ไม่มี active flat single-color declaration ที่ยังเขียนตรง และไม่มี fallback value ซ้ำกับ canonical `--fung-*` tokens. Route review บันทึก scroll region แยกสองส่วนและ `NATIVE_UNAVAILABLE` ในหน้าที่ต้องใช้ desktop bridge; keyboard Tab ไปยัง Appearance selectors ถูกยืนยันใน accessibility tree. ป้าย Live action ที่เคยระบุ pause/resume ถูกแก้ให้ตรงกับ handler ที่เปิด Live capture. การตรวจนี้เป็น preview หนึ่งธีมที่ 1280×720. Embedded colors in gradients, shadows, translucent materials และ illustrations ยังต้องตรวจตามบริบท; component-level semantic mapping และ rendered theme parity จึงยัง partial. มี Desktop P1–P4 wireframes และ SVG/PNG boards เป็น review assets บางส่วน แต่ native Figma/Penpot source และ complete screen exports ยังเป็นงานค้าง; ยังไม่มี full visual/assistive-technology accessibility audit ตารางนี้เป็น governance backlog และไม่ยกเลิก capability/privacy gates เดิม
+
 ### 24.1 ADR/change requests ที่เสนอ
 
 | Proposed ID | เรื่อง | เหตุที่ต้องแยก |
 | --- | --- | --- |
-| ADR-DS-001 | Token source of truth + theme persistence | ปัจจุบันมี palette หลายชุดตาม B |
+| ADR-DS-001 | Theme preference persistence and cross-surface synchronization | Token authority ย้ายมาอยู่ใน `fung.tokens.json` แล้ว; persistence และการ sync preference ยังต้องมี decision/contract |
 | ADR-DS-002 | Desktop fixed-stage → responsive/reflow | กระทบ native window, useStageScale และ accessibility |
 | ADR-DS-003 | Native Companion window + lifecycle | เป็นความสามารถใหม่ ไม่ใช่ modal เดิม |
 | ADR-DS-004 | Shared state/polling owner ข้าม windows | ป้องกัน double recording/duplicate poll/token exposure |
@@ -992,6 +1007,8 @@ FUNG_Design_System_v0.1.0/
     build_tokens.py
   qa/
     CONTRAST_REPORT.md
+    COMPONENT_COVERAGE.md
+    ACCESSIBILITY_REVIEW.md
     PACKAGE_CHECK.md
   references/
     FRONTEND_REDESIGN_BRIEF.md
@@ -1049,12 +1066,15 @@ CSS token file ไม่ให้ button behavior, focus trapping, route guards,
 
 ### 25.3 Rebuild และตรวจความตรงกัน
 
+รันจาก repository root:
+
 ```sh
-python tokens/build_tokens.py
-python tokens/build_tokens.py --check
+npm run design-system:render
+npm run design-system:check
+npm run test:design-system
 ```
 
-ใช้ Python 3.9+ และ standard library ไม่มี package เพิ่ม คำสั่งแรกเขียน CSS และรายงานใหม่ คำสั่ง `--check` ตรวจไฟล์ที่ generate ว่าตรง JSON และคู่สีผ่านโดยไม่แก้ไฟล์
+`render` สร้าง CSS/contrast report, brand CSS compatibility export, token-driven board specimens และ source-derived component coverage report; `check` ตรวจว่า outputs ตรงกับ source โดยไม่แก้ไฟล์; test ตรวจ DTCG conventions, source pointers และ publishing/redirect behavior ตัว validator เป็น project-scoped ไม่ใช่ full DTCG schema validation
 
 ### 25.4 Figma/Penpot handoff ที่ต้องทำในระยะพัฒนา
 
@@ -1062,7 +1082,7 @@ B §9 ต้องการไฟล์เดียว แยก page ตาม 
 
 ทุก screen frame มี ID จาก §22, state, theme, viewport, data fixture label, capability gate และ command/API mapping จาก §21 ส่ง wireframe + hi-fi แยกกัน; PNG 2× ตาม B ลง `docs/design/mockups/<surface>/NN-screen-state.png` และ wireframe ลง `docs/design/wireframes/<surface>/`
 
-แพ็กนี้ยังไม่ใช่ Figma/Penpot file และไม่อ้างว่าภาพครบตาม inventory แล้ว M1/M2 เป็นเพียง reference ของทิศทางล่าสุด
+[`docs/design-system/index.html`](../design-system/index.html) และหน้า brand เป็น local HTML board ที่ค้นหา token, เปรียบเทียบ theme และพิมพ์/export ผ่าน browser ได้; เป็น handoff artifact สำหรับ review ไม่ใช่ Figma/Penpot source. Repo มี [Desktop P1–P4 wireframes](../Desktop/wireframes/) และ [Desktop SVG/PNG boards](../design/callmd-desktop/) สำหรับ review แบบจำกัดขอบเขต; ยังไม่มี `.fig`/`.penpot` source, native component library หรือ PNG/wireframe exports ครบตาม inventory และยังไม่มี Figma/Penpot connector. M1/M2 ยังคงเป็น reference ของทิศทางเท่านั้น
 
 ---
 
@@ -1079,7 +1099,7 @@ B §9 ต้องการไฟล์เดียว แยก page ตาม 
 | O-07 | Desktop Notes, markers, clips และ task persistence อยู่ release ใด | ซ่อนจาก MVP จนมี contract ที่ผ่าน review |
 | O-08 | Cloud route disclosure ใช้ข้อมูลใดจาก backend | แสดง known/unknown อย่างซื่อสัตย์; ไม่สร้าง local badge จากการคาดเดา |
 | O-09 | Light mode และ responsive mock ผ่าน visual review หรือยัง | ยัง; token proposal ผ่านเฉพาะคู่สีที่ตรวจ |
-| O-10 | ที่อยู่ถาวรและ owner ของ token ใน repo | เลือกแหล่งเดียวใน Phase 0 ก่อน merge |
+| O-10 | ที่อยู่ถาวรและ owner ของ token ใน repo | **RESOLVED 2026-10-16:** `tokens/fung.tokens.json` เป็น canonical source; generated CSS, board และ Brand Kit เป็น outputs |
 
 **Freeze criteria:** ไม่มี open decision ที่กระทบ privacy/capture/capability ถูกข้ามไป; logo canonical ยืนยันแล้ว; state coverage สำคัญครบ; build/test ที่เกี่ยวข้องผ่าน; ผู้รับผิดชอบอนุมัติ version ไม่ใช่เปลี่ยน `status` เพราะภาพ mock ดูพร้อม
 

@@ -6,24 +6,24 @@
   align-items: center;
   justify-content: center;
   padding: 18px;
-  background: rgba(25, 26, 29, 0.58);
+  background: var(--fung-bg-backdrop);
   backdrop-filter: blur(5px);
 }
 
 .live-panel {
-  --live-porcelain: #f4f1ea;
-  --live-paper: #fffaf0;
-  --live-ink: #191a1d;
-  --live-graphite: #5f6268;
-  --live-line-color: #d8d2c6;
-  --live-indigo: #3d4f82;
-  --live-sage: #6e897d;
-  --live-metal: #9a8260;
-  --live-danger: #9e3f3f;
+  --live-porcelain: var(--fung-bg-inset);
+  --live-paper: var(--fung-bg-surface);
+  --live-ink: var(--fung-text-primary);
+  --live-graphite: var(--fung-text-secondary);
+  --live-line-color: var(--fung-border-subtle);
+  --live-indigo: var(--fung-link);
+  --live-sage: var(--fung-state-local-fg);
+  --live-metal: var(--fung-state-pending-fg);
+  --live-danger: var(--fung-state-danger-fg);
   width: min(1180px, 96vw);
   max-height: 94vh;
   overflow-y: auto;
-  border: 1px solid #c9c2b5;
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 16px;
   padding: 22px 24px 26px;
   background: var(--live-porcelain);
@@ -70,7 +70,7 @@
 
 .live-btn {
   min-height: 38px;
-  border: 1px solid #bdb6a9;
+  border: 1px solid var(--fung-border-subtle);
   background: var(--live-paper);
   color: var(--live-ink);
   border-radius: 10px;
@@ -83,8 +83,8 @@
 }
 
 .live-btn:hover:not(:disabled) {
-  background: #f0eadf;
-  border-color: #8f877a;
+  background: var(--fung-bg-inset);
+  border-color: var(--fung-border-strong);
 }
 
 .live-btn:active:not(:disabled) {
@@ -95,7 +95,7 @@
 .live-panel input:focus-visible,
 .live-panel select:focus-visible,
 .live-panel summary:focus-visible {
-  outline: 3px solid rgba(61, 79, 130, 0.34);
+  outline: var(--fung-focus-width) solid var(--fung-focus);
   outline-offset: 2px;
 }
 
@@ -107,23 +107,23 @@
 .live-btn-primary {
   border-color: var(--live-indigo);
   background: var(--live-indigo);
-  color: #fff;
+  color: var(--fung-action-primary-fg);
 }
 
 .live-btn-primary:hover:not(:disabled) {
-  border-color: #2f3f70;
-  background: #2f3f70;
+  border-color: var(--fung-action-primary-hover);
+  background: var(--fung-action-primary-hover);
 }
 
 .live-btn-danger {
   border-color: var(--live-danger);
   background: var(--live-danger);
-  color: #fff;
+  color: var(--fung-action-primary-fg);
 }
 
 .live-btn-danger-subtle {
-  border-color: #d2a7a7;
-  color: #853535;
+  border-color: var(--fung-state-danger-fg);
+  color: var(--fung-state-danger-fg);
 }
 
 .live-options {
@@ -149,7 +149,7 @@
 .live-panel input[type="password"],
 .live-panel select {
   min-height: 38px;
-  border: 1px solid #bdb6a9;
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 9px;
   background: var(--live-paper);
   color: var(--live-ink);
@@ -172,17 +172,17 @@
 
 .live-note {
   padding: 9px 12px;
-  border: 1px solid #c9b99d;
+  border: 1px solid var(--fung-state-pending-fg);
   border-radius: 9px;
   margin-bottom: 10px;
-  background: #f7eedc;
-  color: #5d4b2d;
+  background: var(--fung-state-pending-bg);
+  color: var(--fung-state-pending-fg);
 }
 
 .live-note-error {
-  border-color: #d3a0a0;
-  background: #f8e7e7;
-  color: #7e3030;
+  border-color: var(--fung-state-danger-fg);
+  background: var(--fung-state-danger-bg);
+  color: var(--fung-state-danger-fg);
 }
 
 .live-devices {
@@ -224,14 +224,14 @@
   display: flex;
   flex-direction: column;
   padding: 8px 10px;
-  border: 1px solid #e0dacd;
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 9px;
-  background: #fbf7ef;
+  background: var(--fung-bg-surface);
 }
 
 .live-line-system {
-  background: #f0f2f8;
-  border-color: #d6dbe9;
+  background: var(--fung-state-inferred-bg);
+  border-color: var(--fung-state-inferred-fg);
 }
 
 .live-line-meta {
@@ -266,7 +266,7 @@
 
 .live-topic {
   margin: 4px 0;
-  color: #252932;
+  color: var(--fung-text-primary);
   font-size: 15px;
 }
 
@@ -295,9 +295,9 @@
 .live-answer {
   margin-top: 10px;
   padding: 10px 12px;
-  border: 1px solid #bfd0c8;
+  border: 1px solid var(--fung-state-local-fg);
   border-radius: 10px;
-  background: #edf3f0;
+  background: var(--fung-state-local-bg);
 }
 
 .live-sources {
@@ -306,7 +306,7 @@
 }
 
 .live-source-kind {
-  color: #39483f;
+  color: var(--fung-state-local-fg);
 }
 
 .live-summary {
@@ -347,7 +347,7 @@
   padding: 12px;
   border: 1px solid var(--live-line-color);
   border-radius: 12px;
-  background: #f8f3e9;
+  background: var(--fung-bg-inset);
 }
 
 .external-tools__connector-list {
@@ -361,7 +361,7 @@
   justify-content: space-between;
   gap: 10px;
   padding-bottom: 8px;
-  border-bottom: 1px solid #ddd6c9;
+  border-bottom: 1px solid var(--fung-border-subtle);
 }
 
 .external-tools__connector strong,
@@ -387,7 +387,7 @@
   align-items: stretch;
   flex-direction: column;
   gap: 5px;
-  color: #35383e;
+  color: var(--fung-text-primary);
   font-size: 12px;
 }
 
@@ -398,7 +398,7 @@
 .external-tools fieldset {
   min-width: 0;
   margin: 0;
-  border: 1px solid #d5cebf;
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 9px;
   padding: 9px 10px 10px;
 }
@@ -437,7 +437,7 @@
 .external-tools__evidence label {
   align-items: flex-start !important;
   padding: 5px 0;
-  border-bottom: 1px solid #e4ded2;
+  border-bottom: 1px solid var(--fung-border-subtle);
   line-height: 1.35;
 }
 
@@ -451,7 +451,7 @@
 .external-tools__result {
   margin-top: 12px;
   padding: 12px;
-  border: 1px solid #c9c2b5;
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 12px;
   background: var(--live-paper);
 }
@@ -487,10 +487,10 @@
   overflow: auto;
   margin: 8px 0 10px;
   padding: 10px;
-  border: 1px solid #d8d2c6;
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 8px;
-  background: #f1ede5;
-  color: #25272c;
+  background: var(--fung-bg-inset);
+  color: var(--fung-text-primary);
   font: 12px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -590,16 +590,16 @@
 /* Quiet Archive live surface: the legacy shell keeps the external-tool
    selectors above, while the owned workspace uses the porcelain/ink palette. */
 .live-panel {
-  --live-porcelain: #faf8f3;
-  --live-paper: #fffdf8;
-  --live-ink: #171918;
-  --live-graphite: #536259;
-  --live-line-color: rgba(23, 25, 24, 0.14);
-  --live-indigo: #4a5b8b;
-  --live-sage: #6f897e;
-  --live-metal: #9a8260;
-  --live-danger: #b0553f;
-  border-color: rgba(23, 25, 24, 0.18);
+  --live-porcelain: var(--fung-bg-canvas);
+  --live-paper: var(--fung-bg-surface);
+  --live-ink: var(--fung-text-primary);
+  --live-graphite: var(--fung-text-secondary);
+  --live-line-color: var(--fung-border-subtle);
+  --live-indigo: var(--fung-link);
+  --live-sage: var(--fung-state-local-fg);
+  --live-metal: var(--fung-state-pending-fg);
+  --live-danger: var(--fung-state-danger-fg);
+  border-color: var(--fung-border-subtle);
   background: var(--live-porcelain);
   color: var(--live-ink);
 }
@@ -613,26 +613,17 @@
 }
 
 .theme-dark .live-panel {
-  --live-porcelain: #171918;
-  --live-paper: #222624;
-  --live-ink: #f4f1ea;
-  --live-graphite: #b9c3bd;
-  --live-line-color: rgba(244, 241, 234, 0.16);
-  --live-indigo: #bccaf3;
-  --live-sage: #9cb5aa;
-  --live-metal: #d1b68a;
-  --live-danger: #e18a72;
-  border-color: rgba(244, 241, 234, 0.2);
+  border-color: var(--fung-border-subtle);
   background: var(--live-porcelain);
 }
 
 .theme-dark .live-btn {
-  border-color: rgba(244, 241, 234, 0.26);
+  border-color: var(--fung-border-subtle);
   background: var(--live-paper);
   color: var(--live-ink);
 }
 
 .theme-dark .live-btn:hover:not(:disabled) {
-  background: #2d3330;
-  border-color: rgba(244, 241, 234, 0.42);
+  background: var(--fung-bg-hover);
+  border-color: var(--fung-border-strong);
 }

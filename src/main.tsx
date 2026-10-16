@@ -45,7 +45,7 @@ const rootRoute = resolveRootRoute({
 
 function BootstrapState({ message, alert = false }: { message: string; alert?: boolean }) {
   return (
-    <div className="loading-screen" role={alert ? "alert" : "status"}>
+    <div className="loading-screen" data-fung-root="true" data-theme="system" role={alert ? "alert" : "status"}>
       <p className="loading-message">{message}</p>
     </div>
   );

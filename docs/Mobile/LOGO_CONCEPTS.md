@@ -15,7 +15,7 @@ attributes:
 
 ## Review boundary
 
-These began as exploration mockups. Concept C is selected and vectorised; concepts A and B remain retained references only. The production master is defined by `DESIGN_SYSTEM.md` and the SVG assets in `docs/Mobile/design-system/assets/`.
+These began as exploration mockups. Concept C is selected and vectorised; concepts A and B remain retained references only. Shared brand-token ownership is defined by `docs/FUNG_Design_System_v0.1.0/tokens/fung.tokens.json`; the SVG master assets remain in `docs/Mobile/design-system/assets/`.
 
 ## Concept A — Kanso Signal
 

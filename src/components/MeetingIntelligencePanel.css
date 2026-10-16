@@ -1,11 +1,11 @@
 .meeting-intelligence {
-  --mi-bg: #faf8f3;
-  --mi-card: #fffdf8;
-  --mi-ink: #171918;
-  --mi-muted: #536259;
-  --mi-line: rgba(23, 25, 24, 0.14);
-  --mi-accent: #4a5b8b;
-  --mi-danger: #a34b3a;
+  --mi-bg: var(--fung-bg-canvas);
+  --mi-card: var(--fung-bg-surface);
+  --mi-ink: var(--fung-text-primary);
+  --mi-muted: var(--fung-text-secondary);
+  --mi-line: var(--fung-border-subtle);
+  --mi-accent: var(--fung-action-primary-bg);
+  --mi-danger: var(--fung-state-danger-fg);
   color: var(--mi-ink);
   background: var(--mi-bg);
   border: 1px solid var(--mi-line);
@@ -81,22 +81,22 @@
   margin: 0 0 12px;
   border: 1px solid var(--mi-line);
   border-radius: 9px;
-  background: rgba(154, 130, 96, 0.09);
+  background: var(--fung-state-pending-bg);
   color: var(--mi-ink);
   font-size: 12px;
   line-height: 1.45;
 }
 
 .meeting-intelligence__error {
-  border-color: #d3a0a0;
-  background: #f8e7e7;
-  color: #7e3030;
+  border-color: var(--fung-state-danger-fg);
+  background: var(--fung-state-danger-bg);
+  color: var(--fung-state-danger-fg);
 }
 
 .meeting-intelligence__policy,
 .meeting-intelligence__success {
-  border-color: rgba(74, 91, 139, 0.35);
-  background: rgba(74, 91, 139, 0.08);
+  border-color: var(--fung-border-strong);
+  background: var(--fung-state-inferred-bg);
 }
 
 .meeting-intelligence__grid {
@@ -134,7 +134,7 @@
 .meeting-intelligence__text-button {
   min-height: 36px;
   padding: 7px 11px;
-  border: 1px solid #bdb6a9;
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 9px;
   background: var(--mi-card);
   color: var(--mi-ink);
@@ -155,7 +155,7 @@
 .meeting-intelligence select:focus-visible,
 .meeting-intelligence textarea:focus-visible,
 .meeting-intelligence summary:focus-visible {
-  outline: 3px solid rgba(74, 91, 139, 0.33);
+  outline: var(--fung-focus-width) solid var(--fung-focus);
   outline-offset: 2px;
 }
 
@@ -168,11 +168,11 @@
 .meeting-intelligence__button--primary {
   border-color: var(--mi-accent);
   background: var(--mi-accent);
-  color: #fff;
+  color: var(--fung-action-primary-fg);
 }
 
 .meeting-intelligence__button--danger {
-  border-color: #d2a7a7;
+  border-color: var(--fung-state-danger-fg);
   color: var(--mi-danger);
 }
 
@@ -199,7 +199,7 @@
   padding: 9px 10px;
   border: 1px solid var(--mi-line);
   border-radius: 9px;
-  background: color-mix(in srgb, var(--mi-card) 92%, #dbe0eb);
+  background: color-mix(in srgb, var(--mi-card) 92%, var(--fung-bg-selected));
 }
 
 .meeting-intelligence__utterance--provisional {
@@ -248,7 +248,7 @@
   width: 100%;
   min-height: 36px;
   padding: 8px 9px;
-  border: 1px solid #bdb6a9;
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 8px;
   background: var(--mi-card);
   color: var(--mi-ink);
@@ -286,7 +286,7 @@
   padding: 10px;
   border: 1px solid var(--mi-line);
   border-radius: 9px;
-  background: color-mix(in srgb, var(--mi-card) 94%, #dbe0eb);
+  background: color-mix(in srgb, var(--mi-card) 94%, var(--fung-bg-selected));
 }
 
 .meeting-intelligence__metric {
@@ -415,7 +415,7 @@
   max-width: 70%;
   padding: 3px 7px;
   border-radius: 999px;
-  background: rgba(83, 98, 89, 0.11);
+  background: var(--fung-bg-hover);
   color: var(--mi-muted);
   font-size: 10px;
   line-height: 1.3;
@@ -424,15 +424,15 @@
 
 .meeting-intelligence__badge--ready,
 .meeting-intelligence__badge--private {
-  background: rgba(111, 137, 126, 0.15);
-  color: #395247;
+  background: var(--fung-state-local-bg);
+  color: var(--fung-state-local-fg);
 }
 
 .meeting-intelligence__badge--blocked,
 .meeting-intelligence__badge--stale,
 .meeting-intelligence__badge--unavailable {
-  background: rgba(176, 85, 63, 0.12);
-  color: #8a3d2e;
+  background: var(--fung-state-danger-bg);
+  color: var(--fung-state-danger-fg);
 }
 
 .meeting-intelligence__blockers,
@@ -450,7 +450,7 @@
   padding: 10px;
   border: 1px solid var(--mi-line);
   border-radius: 8px;
-  background: rgba(111, 137, 126, 0.08);
+  background: var(--fung-state-local-bg);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.5;
@@ -573,35 +573,35 @@
 }
 
 .theme-dark .meeting-intelligence {
-  --mi-bg: #171918;
-  --mi-card: #222624;
-  --mi-ink: #f4f1ea;
-  --mi-muted: #b9c3bd;
-  --mi-line: rgba(244, 241, 234, 0.16);
-  --mi-accent: #bccaf3;
-  --mi-danger: #e18a72;
+  --mi-bg: var(--fung-bg-canvas);
+  --mi-card: var(--fung-bg-surface);
+  --mi-ink: var(--fung-text-primary);
+  --mi-muted: var(--fung-text-secondary);
+  --mi-line: var(--fung-border-subtle);
+  --mi-accent: var(--fung-action-primary-bg);
+  --mi-danger: var(--fung-state-danger-fg);
 }
 
 .theme-dark .meeting-intelligence__button {
-  border-color: rgba(244, 241, 234, 0.26);
+  border-color: var(--fung-border-subtle);
   background: var(--mi-card);
   color: var(--mi-ink);
 }
 
 .theme-dark .meeting-intelligence__button--primary {
-  background: #4a5b8b;
-  color: #fff;
+  background: var(--fung-action-primary-bg);
+  color: var(--fung-action-primary-fg);
 }
 
 .theme-dark .meeting-intelligence__badge--ready,
 .theme-dark .meeting-intelligence__badge--private {
-  color: #c5ded2;
+  color: var(--fung-state-local-fg);
 }
 
 .theme-dark .meeting-intelligence__badge--blocked,
 .theme-dark .meeting-intelligence__badge--stale,
 .theme-dark .meeting-intelligence__badge--unavailable {
-  color: #ffb5a2;
+  color: var(--fung-state-danger-fg);
 }
 
 @media (max-width: 900px) {

@@ -35,11 +35,12 @@ function resolveRuntimeImports(source) {
     .replaceAll('from "lucide-react"', `from "${lucideModuleUrl}"`);
 }
 
-const [shellSource, contractsSource, brandAssetSource, shellCssSource] = await Promise.all([
+const [shellSource, contractsSource, brandAssetSource, shellCssSource, designTokensCssSource] = await Promise.all([
   readFile(path.join(worktreeRoot, "src/components/desktop/DesktopShell.tsx"), "utf8"),
   readFile(path.join(worktreeRoot, "src/components/desktop/contracts.ts"), "utf8"),
   readFile(path.join(worktreeRoot, "docs/brand-kit/logo/fung-mark.svg"), "utf8"),
   readFile(path.join(worktreeRoot, "src/components/desktop/DesktopShell.css"), "utf8"),
+  readFile(path.join(worktreeRoot, "docs/FUNG_Design_System_v0.1.0/tokens/fung.tokens.css"), "utf8"),
 ]);
 
 await writeFile(path.join(runtimeDir, "contracts.mjs"), resolveRuntimeImports(transpile(contractsSource)), "utf8");
@@ -332,14 +333,32 @@ test("the shell keeps truthful profile states and the hover rail owns desktop ac
 });
 
 test("brand tint stays CSS-owned for explicit light/dark and system-effective themes", () => {
-  assert.match(shellCssSource, /\.desktop-shell\s*\{[\s\S]*--shell-brand:\s*#171918;/);
-  assert.match(shellCssSource, /\.desktop-shell--dark\s*\{[\s\S]*--shell-brand:\s*#faf8f3;/);
+  assert.match(shellCssSource, /\.desktop-shell\s*\{[\s\S]*?--shell-brand:\s*var\(--fung-logo-mark\);/);
+  assert.match(
+    shellCssSource,
+    /\.desktop-shell\[data-fung-root\]\.desktop-shell--dark\s*\{[\s\S]*?--shell-brand:\s*var\(--fung-logo-mark\);/,
+  );
   const systemDarkRules = shellCssSource.match(
     /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{[\s\S]*?\.desktop-shell--system\s*\{([\s\S]*?)\n  \}/,
   )?.[1];
 
   assert.ok(systemDarkRules, "system theme needs a dark media-query branch");
-  assert.match(systemDarkRules, /--shell-brand:\s*#faf8f3;/);
+  assert.match(systemDarkRules, /color-scheme:\s*dark;/);
+  const darkSystemTokens = designTokensCssSource.match(
+    /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{[\s\S]*?\[data-fung-root\]:not\(\[data-theme\]\),\s*\[data-fung-root\]\[data-theme="system"\]\s*\{([\s\S]*?)\n  \}/,
+  )?.[1];
+  assert.ok(darkSystemTokens, "system theme tokens need a dark media-query branch");
+  assert.match(darkSystemTokens, /--fung-logo-mark:\s*#FAF8F3;/);
+  const lightTokens = designTokensCssSource.match(
+    /\[data-fung-root\]\[data-theme="light"\]\s*\{([\s\S]*?)\n\}/,
+  )?.[1];
+  const darkTokens = designTokensCssSource.match(
+    /\[data-fung-root\]\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/,
+  )?.[1];
+  assert.ok(lightTokens, "light theme tokens need an explicit theme block");
+  assert.ok(darkTokens, "dark theme tokens need an explicit root block");
+  assert.match(lightTokens, /--fung-logo-mark:\s*#171918;/);
+  assert.match(darkTokens, /--fung-logo-mark:\s*#FAF8F3;/);
   assert.match(shellCssSource, /\.desktop-shell__brand\s*\{[\s\S]*color:\s*var\(--shell-brand\);/);
   assert.match(shellCssSource, /\.desktop-shell__brand-mark\s*\{[\s\S]*color:\s*currentColor;/);
   assert.match(shellCssSource, /\.desktop-shell__brand-wordmark\s*\{[\s\S]*color:\s*currentColor;/);

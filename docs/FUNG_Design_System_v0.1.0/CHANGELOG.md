@@ -12,6 +12,8 @@ Captured a current production-preview Desktop Home review at 1280×720. The repo
 
 Extended the production-preview review to the Live, History, Files and Appearance routes at the same viewport. Recorded the Home-to-Live setup transition, native-unavailable and empty states, and two independent scroll regions. Corrected the Live task-card label from “Pause or resume” to “Open live capture” to match its handler. Appearance selector tab order was also observed without changing settings. The added route snapshots do not close theme, keyboard-path, native, screen-reader, zoom or full-screen export acceptance.
 
+Reconciled the design handoff inventory: local Desktop P1–P4 wireframes and SVG/PNG boards exist, while the repository has no native `.fig`/`.penpot` project or connected design-tool integration and full per-surface exports remain incomplete.
+
 ## 1.0.0b — 2026-09-20 — Beta
 
 อัปเดต current DesktopShell ให้ตรงกับ implementation: recording อยู่บน Home/Live surface, Appearance เป็นหน้าแยก, sidebar ไม่มี controls ของ theme/material/transparency, header ไม่มีปุ่มย่อ/ปิด และมี profile/login state; commit `285566b` พร้อม build, tests และ WebView evidence แล้ว

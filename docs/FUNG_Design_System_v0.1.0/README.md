@@ -41,7 +41,7 @@
 - Stylesheet token integration — source-audited; all 24/24 application CSS files reference canonical tokens, no active flat single-color declaration remains, and canonical token fallbacks no longer duplicate the source values. Embedded colors remain in layered effects and illustrations; stylesheet references do not prove every component/property has full semantic mapping or rendered parity. See [coverage inventory](qa/COMPONENT_COVERAGE.md).
 - Component implementation status — still partial; token presence and direct-color migration do not prove complete component contracts or accessibility acceptance. `implementation_verified: false` remains accurate.
 - Accessibility certification — not completed; current evidence covers five Desktop shell routes in a 1280×720 light-theme preview, plus Home focus/skip-link behavior and Appearance selector tab order. The route review records separate sidebar/main scroll regions; a Live action label mismatch found during review is corrected in the current branch. See the [review and screenshots](qa/ACCESSIBILITY_REVIEW.md).
-- Figma/Penpot and complete per-screen exports — not included; the local HTML board is the available review/handoff artifact.
+- Figma/Penpot and complete per-screen exports — not included. Local handoff assets include [Desktop P1–P4 wireframes](../Desktop/wireframes/), [Desktop SVG/PNG boards](../design/callmd-desktop/) and the shared HTML board; no native `.fig`/`.penpot` source exists in this repository.
 - Native desktop, installer/clean-install, physical-device UAT and production gates remain separate; see [package checks](qa/PACKAGE_CHECK.md) and the [Liquid Glass evidence](LIQUID_GLASS_DESKTOP_ADAPTATION.md).
 
 ## ใช้ token
@@ -70,6 +70,6 @@ npm run test:design-system
 
 ## ขอบเขตการส่งมอบ
 
-W3C Design Tokens Community Group Format Module 2025.10 เป็น stable community-group specification/report ไม่ใช่ W3C Standard. FUNG ใช้รูปแบบ token/group และ `$extensions` ที่เกี่ยวข้อง โดยคง validator scope ตามที่ระบุข้างต้น. ไม่มี font binaries, native Figma/Penpot source, complete screen exports หรือการรับรอง accessibility ของทั้งแอปแนบมา
+W3C Design Tokens Community Group Format Module 2025.10 เป็น stable community-group specification/report ไม่ใช่ W3C Standard. FUNG ใช้รูปแบบ token/group และ `$extensions` ที่เกี่ยวข้อง โดยคง validator scope ตามที่ระบุข้างต้น. ไม่มี font binaries, native Figma/Penpot source, complete screen exports หรือการรับรอง accessibility ของทั้งแอปแนบมา; local SVG/PNG assets มีเฉพาะขอบเขต Desktop บางส่วนตาม [package check](qa/PACKAGE_CHECK.md)
 
 อ่านพร้อมภาพและ relative links ให้แตก ZIP ทั้งโฟลเดอร์ ไม่ย้ายเฉพาะ Markdown ออกจากโครงสร้าง

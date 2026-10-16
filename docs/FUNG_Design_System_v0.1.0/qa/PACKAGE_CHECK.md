@@ -23,7 +23,7 @@ This report separates repository/token verification from component, native, rele
 | Physical-device UAT / production | NOT RUN — outside the token/board verification scope. |
 | Desktop route accessibility sample | PARTIAL PASS — [review evidence](ACCESSIBILITY_REVIEW.md) includes current-run Home, Live, History, Files and Appearance screenshots at 1280×720, Home-to-Live setup transition, named route controls, Home focus/skip-link behavior and Appearance selector tab order. The screenshots record two independent scroll regions; a Live action label mismatch found in review has been corrected in the current branch. |
 | Full accessibility audit | NOT COMPLETE — evidence covers five routes in one light-theme web preview; translucent contrast, keyboard task paths on every route, dialogs, zoom, reduced motion, forced colors, assistive technology, mobile and native behavior remain unverified. |
-| Figma/Penpot source and complete screen exports | NOT INCLUDED — the local HTML board and bounded route screenshots are review artifacts, not the required editable native library or complete wireframe/mockup exports. No Figma/Penpot tool is connected in this session. |
+| Figma/Penpot source and complete screen exports | PARTIAL LOCAL ASSETS — [Desktop P1–P4 wireframes](../../Desktop/wireframes/) and [Desktop SVG/PNG boards](../../design/callmd-desktop/) exist. No `.fig`/`.penpot` source or connected design tool is available; full per-surface and per-state library/exports remain incomplete. |
 | External `Downloads\fung-new-ui` source | DOCUMENTED ONLY — provenance hashes are retained in `LIQUID_GLASS_DESKTOP_ADAPTATION.md`; source assets remain external. |
 
 ## Reference checksums

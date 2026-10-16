@@ -22,8 +22,9 @@ This folder is the documentation source of truth for the current beta build.
 | --- | --- | --- |
 | 00 | `../design/2026-09-19-liquid-glass-desktop-shell-refresh.md` | Current DesktopShell chrome, active surfaces, sidebar and responsive shell contract |
 | 00a | `../FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md` | Approved Liquid Glass material, motion, profile and appearance-page addendum |
+| 00b | `../FUNG_Design_System_v0.1.0/DESIGN_SYSTEM.md` | Shared token authority, theme contract and cross-platform component/state guidance |
 | 01 | `01-foundations.md` | Product principles, goals, non-goals, acceptance criteria |
-| 02 | `02-tokens.md` | Skeuomorphic design tokens and material rules |
+| 02 | `02-tokens.md` | Historical Skeuomorphic Subtract tokens; current values are in the shared DTCG source |
 | 03 | `03_LAYOUT.md` | Legacy Subtract HUD layout and domain-coordinate reference; not current shell chrome |
 | 04 | `04-components.md` | Legacy component inventory plus domain ownership rules; current shell components live under `src/components/desktop/` |
 | 05 | `05-sitemap-ia.md` | Legacy P1-P4 domain IA; current shell navigation is defined by the Liquid Glass refresh |
@@ -39,6 +40,8 @@ This folder is the documentation source of truth for the current beta build.
 | --- | --- | --- |
 | `../design/2026-09-19-liquid-glass-desktop-shell-refresh.md` | beta | Current DesktopShell source-of-truth: Home/Live/Review/Appearance, hover sidebar, profile header and native-only window boundary |
 | `../FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md` | beta | Current Liquid Glass material and interaction addendum |
+| `../FUNG_Design_System_v0.1.0/tokens/fung.tokens.json` | beta | Canonical shared tokens; generated CSS is consumed by the Desktop shell |
+| `../design-system/index.html` | generated | Interactive cross-surface board and full token catalog |
 | `PRODUCT_SPEC.md` | beta | Original product requirements |
 | `ARCHITECTURE.md` | beta | Architecture-level design |
 | `AUDIO_AI_PIPELINE.md` | beta | Audio/AI processing plan |

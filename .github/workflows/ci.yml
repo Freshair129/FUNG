@@ -40,6 +40,7 @@ jobs:
       - run: npm run test:live-capture-routing
       - run: npm run test:recording-output
       - run: npm run test:mobile
+      - run: npm run design-system:check
       - run: npm run test:design-system
       - run: npm run test:auth
       - run: npm run test:w1-authority-schema

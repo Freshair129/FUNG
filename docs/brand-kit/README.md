@@ -1,60 +1,23 @@
 # FUNG Brand Kit
 
 Concept: **Quiet Archive** — a private, local-first voice capture and notes app.
-This folder is the source of truth for the identity: logo, colour, type, spacing, and voice.
+
+The shared token authority is [fung.tokens.json](../FUNG_Design_System_v0.1.0/tokens/fung.tokens.json). It owns the approved beta palette, typography, spacing, radius, semantic themes and material values. This directory contains the logo and a generated CSS compatibility export.
 
 ## Contents
 
-| File | What it is |
+| File | Role |
 | --- | --- |
-| `logo/fung-mark.svg` | The mark, scalable, `fill: currentColor` (tint per surface). Primary logo asset. |
-| `logo/Quiet Archive.png` | Original concept sheet (paper-fold render + explorations). Reference only. |
-| `tokens.css` | Brand tokens (colour, type, spacing, radius) as CSS custom properties. |
+| logo/fung-mark.svg | Scalable mark using currentColor. |
+| logo/Quiet Archive.png | Original concept sheet; reference only. |
+| tokens.css | Generated brand CSS aliases. Do not edit directly; run node scripts/design_system.mjs render. |
 
 ## Logo
 
-A single porcelain sheet rolled into an aperture — reads as an **O** (open, listening) and as an archive (kept, folded, private).
+The mark has no background of its own and inherits currentColor. Keep clear space of at least 25% of its width, use a minimum size of 24 px in UI and 16 px as a favicon, and do not stretch or box it. The OS app icon is the one use that places it on a tile.
 
-- **No background of its own.** The mark is one shape that takes `currentColor`: **ink `#171918`** on light surfaces, **porcelain `#FAF8F3`** on dark. Never lock it inside a filled box.
-- **Clearspace** ≥ 25% of the mark's width on every side.
-- **Minimum size** 24px in UI, 16px as a favicon.
-- **Misuse:** don't box it, don't recolour it with a brand hue (ink or porcelain only), don't stretch or distort it.
-- The one place a container is correct is the **OS app icon**, where the mark sits on an ink tile.
+The selected-beta SVG masters are in [Mobile design-system assets](../Mobile/design-system/assets/). See the [shared board](../design-system/index.html) for the generated brand and token references.
 
-Use the SVG anywhere it can scale; it inherits text colour, so `color: var(--fung-porcelain)` on a dark parent tints it.
+## Voice and state
 
-## Colour
-
-| Token | Hex | Role |
-| --- | --- | --- |
-| `--fung-porcelain` | `#FAF8F3` | Primary ground & material |
-| `--fung-ink` | `#171918` | Text, dark surfaces, app-icon tile |
-| `--fung-sage` | `#6F897E` | Brand accent, wordmark, positive / confirmed |
-| `--fung-slate` | `#4A5B8B` | Interactive: primary action, links, focus |
-| `--fung-metal` | `#9A8260` | Caution / pending (semantic extension) |
-| `--fung-clay` | `#B0553F` | Critical / error only (semantic extension) |
-
-Porcelain and ink do most of the work. Sage and slate are used sparingly — one accent per view.
-
-## Typography
-
-- **Fraunces** — display & concept (serif).
-- **IBM Plex Sans Thai** — Thai interface. Leads in-product.
-- **DM Sans** — Latin interface & the wordmark.
-- **IBM Plex Mono** — data, labels, timers, tokens.
-
-**Wordmark:** `FUNG`, DM Sans Medium, uppercase, letter-spacing `0.34em`; sage on light, porcelain on dark.
-
-## Space, radius, elevation
-
-- Spacing on a **4px base** (4 · 8 · 12 · 16 · 24 · 32).
-- Radius: 8 / 12 / 16 / pill.
-- Two elevation languages: **soft shadow** for mobile & web, **beveled porcelain** for the desktop material.
-
-## Voice & tone
-
-Calm, private, honest. Speaks Thai and English evenly; names things the way a person would; never fabricates — an empty screen says "ยังไม่มี…" and teaches the next action rather than showing an invented number.
-
----
-
-Living references (wireframes, mockups, full guidelines) are maintained as design artifacts outside the repo.
+Quiet, private and honest. Names should remain readable in Thai and English. Local, inferred, recording and error states need a text label or shape as well as color. The generated [contrast report](../FUNG_Design_System_v0.1.0/qa/CONTRAST_REPORT.md) covers declared solid-color pairs only; it is not whole-application accessibility certification.

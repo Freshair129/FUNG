@@ -1,5 +1,9 @@
 # Changelog
 
+## Implementation update — 2026-10-16
+
+Established `tokens/fung.tokens.json` as the shared DTCG 2025.10 token authority; generated runtime/Brand Kit CSS, contrast evidence and a cross-surface HTML board from it; redirected former Mobile board URLs; and reconciled Mobile, Desktop, Brand Kit, design brief and docs indexes. Token integration is verified in-repository, while component coverage remains partial and native Figma/full-screen exports remain open.
+
 ## 1.0.0b — 2026-09-20 — Beta
 
 อัปเดต current DesktopShell ให้ตรงกับ implementation: recording อยู่บน Home/Live surface, Appearance เป็นหน้าแยก, sidebar ไม่มี controls ของ theme/material/transparency, header ไม่มีปุ่มย่อ/ปิด และมี profile/login state; commit `285566b` พร้อม build, tests และ WebView evidence แล้ว

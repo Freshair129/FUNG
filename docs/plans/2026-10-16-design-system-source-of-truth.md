@@ -21,9 +21,15 @@ Consolidate FUNG's brand, semantic, typography, spacing, layout, motion and them
 - [x] Keep former Mobile board URLs as compatibility redirects and make Mobile/Desktop/Brand Kit specs point to the shared source.
 - [x] Reconcile the docs index, interface inventory, redesign brief, design-system README and package check against actual delivery evidence.
 - [x] Gate generated token, contrast, board and compatibility outputs with `design-system:check` in CI.
+- [x] Add theme-aware component specimens for primary/secondary actions and the required semantic states.
+- [x] Generate a source-derived component token coverage inventory and include it in `design-system:check`.
+- [x] Record bounded Desktop Home accessibility-tree and sequential keyboard evidence with its limits.
 - [x] Run focused design-system tests, generated-file checks, documentation link/index checks and the application build.
 - [x] Review the complete diff and local checks.
-- [ ] Publish a PR; native Figma delivery and complete screen exports remain open until that integration is available.
+- [ ] Migrate or explicitly exempt production stylesheets that do not yet use canonical tokens.
+- [ ] Complete visual, assistive-technology, zoom, forced-color, reduced-motion and native accessibility acceptance.
+- [ ] Deliver the native Figma/Penpot library and complete screen/wireframe exports when that integration is available.
+- [ ] Publish a PR; hosted CI evidence requires a push.
 
 ## Acceptance criteria
 
@@ -33,7 +39,8 @@ Consolidate FUNG's brand, semantic, typography, spacing, layout, motion and them
 4. The interactive board presents shared foundations and cross-surface guidance, has working theme/copy/print controls, and declares its source and verification boundary.
 5. Existing Mobile design-system URLs continue to resolve to the new shared board.
 6. No documentation claims a second editable token source or claims that native Figma screens, whole-app accessibility or component implementation are complete without evidence.
+7. The board renders token-driven component specimens and makes clear that they are examples, while generated QA reports identify production component coverage and accessibility evidence separately.
 
 ## Status
 
-Local delivery is complete on `codex/design-system-standard-20261016`: the canonical JSON follows the DTCG 2025.10 typed token/group conventions with FUNG data in a namespaced extension; CSS, Brand Kit export, contrast report and the shared HTML/brand boards are generated from that source. Five focused design-system tests, the generated-file check, TypeScript and Vite production build passed. CI is configured to fail when generated outputs drift; hosted Actions evidence and PR publication await a push. Component coverage remains partial; Figma/Penpot source and complete screen exports remain outside this local handoff.
+The initial source-of-truth and token-board slice is committed on `codex/design-system-standard-20261016` at `11f2332`. The follow-up adds theme-aware component specimens, a generated CSS coverage inventory checked by `design-system:check`, and a scoped Home keyboard/accessibility-tree review. The inventory currently finds canonical-token references in 7/24 application stylesheets; this is evidence for migration work, not full component adoption. The sampled Home sequence exposed named controls and 14 sequential focus moves, while the complete visual/assistive-technology audit, native Figma/Penpot source and complete screen exports remain open. Hosted Actions evidence and PR publication await a push.

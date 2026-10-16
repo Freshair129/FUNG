@@ -95,6 +95,12 @@ function validate(data, tokens) {
   if (!Array.isArray(extension.board.components) || extension.board.components.length < 8) {
     throw new Error("The shared board needs the documented component state set.");
   }
+  const specimenTypes = new Set(["primary-action", "secondary-action", "recording", "local", "inferred", "focus", "empty", "error"]);
+  for (const component of extension.board.components) {
+    if (!component.name || !component.state || !component.note || !specimenTypes.has(component.specimen)) {
+      throw new Error(`Component ${component.name ?? "(unnamed)"} needs a recognized specimen, state and usage note.`);
+    }
+  }
   if (!Array.isArray(extension.board.surfaces) || extension.board.surfaces.length < 4) {
     throw new Error("The shared board needs guidance for all product surfaces.");
   }
@@ -118,15 +124,26 @@ function makeData(source) {
     const prefix = `themes.${name}.`;
     return {
       canvas: formatted(prefix + "bg-canvas"),
+      inset: formatted(prefix + "bg-inset"),
       surface: formatted(prefix + "bg-surface"),
       surfaceRaised: formatted(prefix + "bg-elevated"),
       ink: formatted(prefix + "text-primary"),
       muted: formatted(prefix + "text-secondary"),
       line: formatted(prefix + "border-subtle"),
       focus: formatted(prefix + "focus"),
+      actionPrimary: formatted(prefix + "action-primary-bg"),
+      actionPrimaryFg: formatted(prefix + "action-primary-fg"),
+      actionPrimaryHover: formatted(prefix + "action-primary-hover"),
+      actionSecondary: formatted(prefix + "action-secondary-bg"),
+      actionSecondaryFg: formatted(prefix + "action-secondary-fg"),
+      dangerBg: formatted(prefix + "action-danger-bg"),
+      dangerFg: formatted(prefix + "action-danger-fg"),
       local: formatted(prefix + "state-local-fg"),
+      localBg: formatted(prefix + "state-local-bg"),
       inferred: formatted(prefix + "state-inferred-fg"),
+      inferredBg: formatted(prefix + "state-inferred-bg"),
       record: formatted(prefix + "state-recording-fg"),
+      recordBg: formatted(prefix + "state-recording-bg"),
       danger: formatted(prefix + "state-danger-fg"),
     };
   };
@@ -213,8 +230,8 @@ function shell({ title, data, content, page }) {
   <title>${escapeHtml(title)}</title>
   <script>if (location.search.includes("export=1")) document.documentElement.dataset.export="true";</script>
   <style>
-    :root { --canvas:${dark.canvas}; --surface:${dark.surface}; --raised:${dark.surfaceRaised}; --ink:${dark.ink}; --muted:${dark.muted}; --line:${dark.line}; --focus:${dark.focus}; --local:${dark.local}; --inferred:${dark.inferred}; --record:${dark.record}; --danger:${dark.danger}; --control:var(--fung-radius-md,14px); --surface-radius:var(--fung-radius-lg,20px); --dock:var(--fung-radius-pill,28px); --shadow:${data.elevation.rest}; font-family:${escapeHtml(data.type.uiFamily)}; color:var(--ink); background:var(--canvas); }
-    html[data-theme="light"] { --canvas:${light.canvas}; --surface:${light.surface}; --raised:${light.surfaceRaised}; --ink:${light.ink}; --muted:${light.muted}; --line:${light.line}; --focus:${light.focus}; --local:${light.local}; --inferred:${light.inferred}; --record:${light.record}; --danger:${light.danger}; color-scheme:light; }
+    :root { --canvas:${dark.canvas}; --inset:${dark.inset}; --surface:${dark.surface}; --raised:${dark.surfaceRaised}; --ink:${dark.ink}; --muted:${dark.muted}; --line:${dark.line}; --focus:${dark.focus}; --action-primary:${dark.actionPrimary}; --action-primary-fg:${dark.actionPrimaryFg}; --action-primary-hover:${dark.actionPrimaryHover}; --action-secondary:${dark.actionSecondary}; --action-secondary-fg:${dark.actionSecondaryFg}; --danger-bg:${dark.dangerBg}; --danger-fg:${dark.dangerFg}; --local:${dark.local}; --local-bg:${dark.localBg}; --inferred:${dark.inferred}; --inferred-bg:${dark.inferredBg}; --record:${dark.record}; --record-bg:${dark.recordBg}; --danger:${dark.danger}; --control:${data.radii.control}; --surface-radius:${data.radii.surface}; --dock:${data.radii.dock}; --shadow:${data.elevation.rest}; font-family:${escapeHtml(data.type.uiFamily)}; color:var(--ink); background:var(--canvas); }
+    html[data-theme="light"] { --canvas:${light.canvas}; --inset:${light.inset}; --surface:${light.surface}; --raised:${light.surfaceRaised}; --ink:${light.ink}; --muted:${light.muted}; --line:${light.line}; --focus:${light.focus}; --action-primary:${light.actionPrimary}; --action-primary-fg:${light.actionPrimaryFg}; --action-primary-hover:${light.actionPrimaryHover}; --action-secondary:${light.actionSecondary}; --action-secondary-fg:${light.actionSecondaryFg}; --danger-bg:${light.dangerBg}; --danger-fg:${light.dangerFg}; --local:${light.local}; --local-bg:${light.localBg}; --inferred:${light.inferred}; --inferred-bg:${light.inferredBg}; --record:${light.record}; --record-bg:${light.recordBg}; --danger:${light.danger}; color-scheme:light; }
     * { box-sizing:border-box; }
     body { margin:0; background:var(--canvas); color:var(--ink); }
     button,input { font:inherit; }
@@ -224,10 +241,10 @@ function shell({ title, data, content, page }) {
     .brand { display:flex; gap:10px; align-items:center; font-weight:700; letter-spacing:.02em; text-decoration:none; }
     .brand-dot { width:10px; height:10px; background:var(--focus); border-radius:999px; box-shadow:0 0 0 5px color-mix(in srgb,var(--focus) 15%,transparent); }
     .controls { display:flex; align-items:center; gap:8px; }
-    .button { min-height:40px; border:1px solid var(--line); border-radius:999px; background:var(--surface); color:var(--ink); padding:0 14px; cursor:pointer; }
+    .button { min-height:44px; border:1px solid var(--line); border-radius:var(--control); background:var(--surface); color:var(--ink); padding:0 14px; cursor:pointer; }
     .button:hover,.copy:hover { border-color:var(--focus); }
     .button:focus-visible,.copy:focus-visible,input:focus-visible,a:focus-visible { outline:3px solid var(--focus); outline-offset:3px; }
-    .button.primary { background:var(--focus); border-color:var(--focus); color:#fff; }
+    .button.primary { background:var(--action-primary); border-color:var(--action-primary); color:var(--action-primary-fg); }
     .page { max-width:1320px; margin:0 auto; padding:clamp(40px,8vw,112px) clamp(20px,4vw,56px) 96px; }
     .eyebrow { margin:0 0 12px; color:var(--local); font-size:12px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; }
     h1 { max-width:850px; margin:0; font-size:clamp(40px,7vw,88px); letter-spacing:-.055em; line-height:.98; }
@@ -273,6 +290,23 @@ function shell({ title, data, content, page }) {
     .token-swatch { width:28px; height:28px; border:1px solid var(--line); border-radius:8px; }
     .token-name,.token-variable,.token-value { overflow-wrap:anywhere; }
     .token-description { color:var(--muted); font-size:13px; }
+    .component-sample { display:grid; gap:10px; min-height:86px; margin-top:18px; padding:14px; border:1px solid var(--line); border-radius:var(--control); background:var(--canvas); }
+    .sample-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .sample-button { min-height:44px; padding:0 14px; border:1px solid var(--line); border-radius:var(--control); background:var(--action-secondary); color:var(--action-secondary-fg); cursor:pointer; }
+    .sample-button.primary { border-color:var(--action-primary); background:var(--action-primary); color:var(--action-primary-fg); }
+    .sample-button.primary:hover { background:var(--action-primary-hover); }
+    .sample-status { display:inline-flex; align-items:center; gap:8px; width:max-content; max-width:100%; padding:7px 10px; border-radius:999px; background:var(--local-bg); color:var(--local); font-size:13px; font-weight:600; }
+    .sample-status.recording { background:var(--record-bg); color:var(--record); }
+    .sample-dot { width:9px; height:9px; flex:none; border-radius:50%; background:currentColor; }
+    .sample-notice { display:grid; gap:5px; padding:12px; border:1px solid color-mix(in srgb,var(--inferred) 48%,var(--line)); border-radius:var(--control); background:var(--inferred-bg); color:var(--ink); }
+    .sample-notice.danger { border-color:color-mix(in srgb,var(--danger) 48%,var(--line)); background:var(--danger-bg); }
+    .sample-notice p,.sample-empty p { margin:0; font-size:13px; }
+    .sample-notice strong,.sample-empty strong { color:var(--ink); }
+    .sample-field { display:grid; gap:6px; max-width:360px; color:var(--ink); font-size:13px; }
+    .sample-field input { width:100%; min-height:44px; padding:0 12px; border:1px solid var(--line); border-radius:var(--control); background:var(--surface); color:var(--ink); }
+    .sample-focus { width:max-content; max-width:100%; padding:8px 12px; border:1px solid var(--line); border-radius:var(--control); outline:3px solid var(--focus); outline-offset:3px; }
+    .sample-empty { display:grid; gap:8px; justify-items:start; }
+    .sample-caption { color:var(--muted); font-size:11px; }
     .surface-card { min-height:180px; }
     .surface-link { display:inline-block; margin-top:14px; color:var(--focus); font-size:12px; }
     .desktop-preview { display:grid; grid-template-columns:120px 1fr; min-height:270px; gap:12px; }
@@ -351,7 +385,18 @@ function systemPage(data) {
   ];
   const swatches = colorTokens.map(([label,light,dark])=>`<article class="panel"><p class="eyebrow">${escapeHtml(label)}</p><div class="grid two"><span><span class="badge">Light</span><br><span class="swatch" style="display:block;background:${light};margin-top:10px"></span><code class="mono">${light}</code></span><span><span class="badge">Dark</span><br><span class="swatch" style="display:block;background:${dark};margin-top:10px"></span><code class="mono">${dark}</code></span></div></article>`).join("");
   const spacers = data.spacing.map((value)=>`<span class="space"><i style="height:${Math.min(value*1.45,120)}px"></i>${value}</span>`).join("");
-  const componentRows = data.components.map((component)=>`<article class="panel"><span class="badge ${component.state==="inferred"?"warning":component.state==="recording"?"record":""}">${escapeHtml(component.state)}</span><h3 style="margin-top:14px">${escapeHtml(component.name)}</h3><p>${escapeHtml(component.note)}</p></article>`).join("");
+  const componentSpecimen = (specimen) => {
+    if (specimen === "primary-action") return `<button type="button" class="sample-button primary" aria-label="ตัวอย่างปุ่มเริ่มประชุม — ไม่เรียกใช้การทำงาน">เริ่มประชุม</button>`;
+    if (specimen === "secondary-action") return `<button type="button" class="sample-button" aria-label="ตัวอย่างปุ่มดูบันทึก — ไม่เรียกใช้การทำงาน">ดูบันทึก</button>`;
+    if (specimen === "recording") return `<span class="sample-status recording"><span class="sample-dot" aria-hidden="true"></span>กำลังบันทึก · 00:12:34</span>`;
+    if (specimen === "local") return `<span class="sample-status"><span class="sample-dot" aria-hidden="true"></span>ประมวลผลในเครื่อง</span>`;
+    if (specimen === "inferred") return `<div class="sample-notice"><strong>AI เสนอ · รอตรวจทาน</strong><p>ยังไม่บันทึกเป็นข้อสรุปจนกว่าจะยืนยัน</p></div>`;
+    if (specimen === "focus") return `<span class="sample-focus" role="img" aria-label="ตัวอย่างเส้นแสดงโฟกัสคีย์บอร์ด">โฟกัสที่มองเห็นชัด</span>`;
+    if (specimen === "empty") return `<div class="sample-empty"><strong>ยังไม่มีบันทึก</strong><p>เริ่มประชุมหรือนำเข้าไฟล์เสียงเพื่อเริ่มงาน</p><button type="button" class="sample-button primary" aria-label="ตัวอย่างปุ่มเริ่มประชุมจากสถานะว่าง — ไม่เรียกใช้การทำงาน">เริ่มประชุม</button></div>`;
+    if (specimen === "error") return `<div class="sample-notice danger"><strong>โหลดไฟล์ไม่สำเร็จ</strong><p>ไฟล์ต้นฉบับยังอยู่ คุณลองใหม่ได้</p><button type="button" class="sample-button" aria-label="ตัวอย่างปุ่มลองใหม่ — ไม่เรียกใช้การทำงาน">ลองใหม่</button></div>`;
+    throw new Error(`Unsupported component specimen: ${specimen}`);
+  };
+  const componentRows = data.components.map((component)=>`<article class="panel"><span class="badge ${component.state==="inferred"?"warning":component.state==="recording"?"record":""}">${escapeHtml(component.state)}</span><h3 style="margin-top:14px">${escapeHtml(component.name)}</h3><p>${escapeHtml(component.note)}</p><div class="component-sample">${componentSpecimen(component.specimen)}<span class="sample-caption">Specimen จาก token กลาง · ปุ่มตัวอย่างไม่เรียก API</span></div></article>`).join("");
   const surfaceRows = data.surfaces.map((surface)=>`<article class="panel surface-card"><p class="eyebrow">${escapeHtml(surface.name)}</p><p>${escapeHtml(surface.principle)}</p><a class="surface-link" href="../${escapeHtml(surface.reference.replace(/^docs\//,""))}">${escapeHtml(surface.reference)}</a></article>`).join("");
   return shell({
     title: "FUNG Shared Design System",
@@ -362,11 +407,11 @@ function systemPage(data) {
       <section class="section"><div class="grid two"><article class="panel"><p class="eyebrow">Source status</p><h2>One portable token source.</h2><p>Edit <code>docs/FUNG_Design_System_v0.1.0/tokens/fung.tokens.json</code>. CSS, contrast evidence, the Brand Kit export and this board are generated from it.</p><span class="badge">Updated ${escapeHtml(data.sourceUpdatedAt)}</span><p class="mono">Token CSS integration is recorded separately from component completeness and whole-app accessibility.</p></article><article class="panel"><p class="eyebrow">Quiet Archive · selected beta</p><div style="display:flex;align-items:center;gap:16px">${mark}<span><h2>${escapeHtml(data.brand.name)}</h2><p>${escapeHtml(data.brand.tagline)}</p><span class="badge">${escapeHtml(data.brand.identity)} · beta</span></span></div></article></div></section>
       <section class="section"><p class="eyebrow">Semantic color</p><h2>Meaning before decoration.</h2><p>Each state has light and dark values. Keep text labels and shapes alongside color.</p><div class="grid five" style="margin-top:22px">${swatches}</div></section>
       <section class="section"><p class="eyebrow">Type, space and material</p><div class="grid two"><article class="panel"><p class="eyebrow">Thai-first type</p><div style="font-size:${data.type.display.size};line-height:${data.type.display.lineHeight};font-weight:${data.type.display.weight}">บันทึกให้ชัด<br>และฟังได้นาน</div><p style="font-size:${data.type.body.size};line-height:${data.type.body.lineHeight}">อ่านข้อความและ transcript สบายตา โดยไม่ใช้ viewport-scaled type</p><span class="mono">${escapeHtml(data.type.uiFamily)}</span></article><article class="panel"><p class="eyebrow">Spacing scale</p><div class="spacers">${spacers}</div><p>Controls ${data.radii.control} · surfaces ${data.radii.surface} · dock ${data.radii.dock}</p><p class="mono">Breakpoints: ${escapeHtml(Object.entries(data.breakpoints).map(([name,value])=>name+" "+value+"px").join(" · "))}</p></article></div></section>
-      <section class="section"><p class="eyebrow">Interactive states</p><h2>State must explain what happened.</h2><div class="grid two" style="margin-top:22px">${componentRows}</div></section>
+      <section class="section"><p class="eyebrow">Interactive states</p><h2>State must explain what happened.</h2><p>Specimens below use the shared theme values to show control, status, empty and recovery patterns. Their buttons are visual examples and do not call product APIs. Production component adoption is tracked in the <a href="../FUNG_Design_System_v0.1.0/qa/COMPONENT_COVERAGE.md">component coverage report</a>.</p><div class="grid two" style="margin-top:22px">${componentRows}</div></section>
       <section class="section"><p class="eyebrow">Cross-surface guidance</p><h2>One identity, fitted to each surface.</h2><div class="grid three" style="margin-top:22px">${surfaceRows}</div></section>
       <section class="section"><p class="eyebrow">Illustrative specimens</p><h2>Examples use the shared tokens.</h2><p>These board previews explain layout and state treatment; they are not screenshots or proof that every screen is implemented.</p><div class="grid two" style="margin-top:22px"><article class="specimen"><p class="eyebrow">Desktop · reader-safe surface</p><div class="desktop-preview"><aside><strong>FUNG</strong><span>Home</span><span>Live</span><span>Review</span><span>Appearance</span></aside><main><header><strong>Meeting review</strong><span class="badge">Local</span></header><div class="mini-card"><strong>Transcript and evidence</strong><p class="mini-muted">Readable content stays on a stable surface; source and runtime states remain visible.</p></div><div><span class="badge warning">AI suggestion · review</span></div></main></div></article><article class="specimen"><p class="eyebrow">Mobile · portrait / voice home</p><div class="device"><div class="mini-status"><span>9:41</span><span class="badge">Local-ready</span></div><div class="voice">⌁</div><div class="mini-card"><strong>เริ่มบันทึกเสียง</strong><p class="mini-muted">บันทึกในเครื่อง · พร้อมใช้งาน</p>${wave()}</div><div class="dock"><span>Home</span><span>Notes</span><b>Voice</b><span>Graph</span><span>Devices</span></div></div></article><article class="specimen"><p class="eyebrow">Mobile · landscape / responsive rail</p><div class="device landscape"><aside class="rail"><span>Home</span><span>Notes</span><b>Voice</b><span>Graph</span><span>Device</span></aside><div><div class="mini-status"><span>FUNG Mobile</span><span class="badge">On-device</span></div><div class="mini-card" style="margin-top:14px"><strong>เสียงบันทึก</strong>${wave()}<p class="mini-muted">Timeline, evidence and actions stay within the Mobile surface.</p></div></div></div></article><article class="specimen"><p class="eyebrow">Web · authenticated dashboard</p><div class="mini-card"><div class="mini-status"><strong>Workspace</strong><span class="badge">Connected to local runtime</span></div><div class="rule"></div><strong>Recent work</strong><p class="mini-muted">Use semantic states to show connection and job status; do not fill empty panels with invented activity.</p><button class="button primary">Open project</button></div></article></div></section>
       <section class="section"><p class="eyebrow">Full token catalog</p><h2>Search names, values and usage.</h2><div class="catalog-tools"><input class="catalog-search" data-token-search type="search" aria-label="Search design tokens" placeholder="Search token name, CSS variable, type, value or description" /><span class="badge">${data.tokens.length} tokens</span></div>${catalog(data)}</section>
-      <section class="section"><p class="eyebrow">Accessibility and delivery boundary</p><div class="grid three">${data.accessibility.map((note)=>`<article class="panel"><p>${escapeHtml(note)}</p></article>`).join("")}<article class="panel"><p>Native Figma/Penpot library and full inventory PNG exports remain separate deliverables. The local board is ready for review and token handoff.</p></article></div></section>
+      <section class="section"><p class="eyebrow">Accessibility and delivery boundary</p><div class="grid three">${data.accessibility.map((note)=>`<article class="panel"><p>${escapeHtml(note)}</p></article>`).join("")}<article class="panel"><p>Native Figma/Penpot library and full inventory PNG exports remain separate deliverables. The local board is ready for review and token handoff.</p><a class="surface-link" href="../FUNG_Design_System_v0.1.0/qa/PACKAGE_CHECK.md">Read verification and evidence limits</a></article></div></section>
       <footer class="footer">Generated from ${escapeHtml("docs/FUNG_Design_System_v0.1.0/tokens/fung.tokens.json")} · Do not hand-edit this HTML. <a href="brand/index.html">Open Quiet Archive brand presentation</a>.</footer>
     </div>`,
   });

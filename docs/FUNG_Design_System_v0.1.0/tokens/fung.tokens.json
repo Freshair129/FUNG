@@ -2530,41 +2530,49 @@
           {
             "name": "Primary action",
             "state": "ready",
+            "specimen": "primary-action",
             "note": "One clear action per active stage; keep an accessible name and a visible keyboard focus."
           },
           {
             "name": "Secondary action",
             "state": "ready",
+            "specimen": "secondary-action",
             "note": "Keep supporting actions visually quieter than the current primary action."
           },
           {
             "name": "Recording state",
             "state": "recording",
+            "specimen": "recording",
             "note": "Show recording with text and a persistent visual signal; never rely on color alone."
           },
           {
             "name": "Local execution",
             "state": "local",
+            "specimen": "local",
             "note": "Name the on-device or local runtime so local processing is not mistaken for cloud work."
           },
           {
             "name": "Inferred result",
             "state": "inferred",
+            "specimen": "inferred",
             "note": "Mark generated or inferred content as pending review until the user confirms it."
           },
           {
             "name": "Focus indicator",
             "state": "focus",
+            "specimen": "focus",
             "note": "Use a visible focus outline independently from material, border or shadow styling."
           },
           {
             "name": "Empty and unavailable",
             "state": "empty",
+            "specimen": "empty",
             "note": "Explain the next available action and why an unavailable capability cannot run."
           },
           {
             "name": "Error and recovery",
             "state": "error",
+            "specimen": "error",
             "note": "State what happened, whether source data remains safe, and how to retry or recover."
           }
         ],

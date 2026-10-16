@@ -22,7 +22,7 @@ attributes:
 | `architecture/` | Index of current, target, data, runtime, and deployment architecture views |
 | `Desktop/` | Desktop product, architecture และ current-state evidence |
 | `Mobile/` | Mobile product, UX และ implementation evidence |
-| `FUNG_Design_System_v0.1.0/` | Shared FUNG token authority, CSS generator, contrast evidence and design-system governance |
+| `FUNG_Design_System_v0.1.0/` | Shared FUNG token authority, CSS generator, contrast/component coverage and accessibility evidence |
 | `design-system/` | Generated interactive cross-surface board and Quiet Archive presentation; do not edit generated HTML |
 | `design/` | Current shell decisions, design briefs and surface-level design proposals |
 | `specs/` | Feature requirements และ technical design proposals |

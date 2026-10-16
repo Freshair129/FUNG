@@ -17,6 +17,8 @@
 | [Brand presentation](../design-system/brand/index.html) | Brand/token presentation ที่สร้างจาก token source เดียว |
 | [render_design_system.mjs](../../scripts/render_design_system.mjs) | สร้าง board และ brand presentation; ห้ามแก้ HTML output โดยตรง |
 | [CONTRAST_REPORT.md](qa/CONTRAST_REPORT.md) | ผลตรวจคู่สีทึบ 58 คู่ตามเป้าหมายภายในโครงการ |
+| [COMPONENT_COVERAGE.md](qa/COMPONENT_COVERAGE.md) | Generated source inventory ของการอ้าง canonical token ใน stylesheet ของแอป |
+| [ACCESSIBILITY_REVIEW.md](qa/ACCESSIBILITY_REVIEW.md) | หลักฐาน keyboard/accessibility tree ของ Desktop Home และรายการตรวจที่ยังเปิด |
 | [PACKAGE_CHECK.md](qa/PACKAGE_CHECK.md) | รายงานตรวจความครบของแพ็กและข้อจำกัดที่ยังไม่ได้ทดสอบ |
 | [CHANGELOG.md](CHANGELOG.md) | ประวัติฉบับเอกสาร |
 | `references/` | Brief ต้นทาง, logo concept และ mock ล่าสุดสองภาพ |
@@ -36,8 +38,8 @@
 หลักฐานและขอบเขตปัจจุบัน:
 
 - Token CSS integration — verified in repository; generator currently validates 202 tokens and 58 declared solid-color contrast pairs.
-- Component coverage — partial; token presence does not prove every UI component uses every token.
-- Accessibility certification — not completed; contrast report covers declared solid-color pairs, not rendered translucent surfaces or every interaction.
+- Component coverage — source-audited and partial; 7/24 application CSS files reference canonical tokens. See [coverage inventory](qa/COMPONENT_COVERAGE.md).
+- Accessibility certification — not completed; only the Desktop Home accessibility tree and 14 sequential keyboard focus moves were observed. See [review evidence](qa/ACCESSIBILITY_REVIEW.md).
 - Figma/Penpot and complete per-screen exports — not included; the local HTML board is the available review/handoff artifact.
 - Native desktop, installer/clean-install, physical-device UAT and production gates remain separate; see [package checks](qa/PACKAGE_CHECK.md) and the [Liquid Glass evidence](LIQUID_GLASS_DESKTOP_ADAPTATION.md).
 
@@ -63,7 +65,7 @@ npm run design-system:check
 npm run test:design-system
 ```
 
-`render` สร้าง outputs ทั้งหมดจาก JSON; `check` ยืนยัน CSS, report และ board ตรงกับ source โดยไม่แก้ไฟล์; test ตรวจ token conventions และ publishing contracts. Validator รองรับ DTCG token types ที่ FUNG ใช้ ยังไม่ใช่ validator เต็มรูปแบบของ DTCG.
+`render` สร้าง outputs ทั้งหมดจาก JSON และสร้าง source coverage inventory; `check` ยืนยัน CSS, report, coverage inventory และ board ตรงกับ source โดยไม่แก้ไฟล์; test ตรวจ token conventions และ publishing contracts. Validator รองรับ DTCG token types ที่ FUNG ใช้ ยังไม่ใช่ validator เต็มรูปแบบของ DTCG.
 
 ## ขอบเขตการส่งมอบ
 

@@ -37,4 +37,10 @@ const renderer = resolve(root, "scripts/render_design_system.mjs");
 const renderResult = spawnSync(process.execPath, [renderer, mode], { cwd: root, encoding: "utf8" });
 if (renderResult.stdout) process.stdout.write(renderResult.stdout);
 if (renderResult.stderr) process.stderr.write(renderResult.stderr);
-process.exit(renderResult.status ?? 1);
+if ((renderResult.status ?? 1) !== 0) process.exit(renderResult.status ?? 1);
+
+const coverageAudit = resolve(root, "scripts/audit_design_system_coverage.mjs");
+const coverageResult = spawnSync(process.execPath, [coverageAudit, mode], { cwd: root, encoding: "utf8" });
+if (coverageResult.stdout) process.stdout.write(coverageResult.stdout);
+if (coverageResult.stderr) process.stderr.write(coverageResult.stderr);
+process.exit(coverageResult.status ?? 1);

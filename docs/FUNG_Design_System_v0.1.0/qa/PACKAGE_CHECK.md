@@ -14,12 +14,15 @@ This report separates repository/token verification from component, native, rele
 | Mobile compatibility URLs | PASS — former Mobile board URLs redirect to the shared board and brand presentation. |
 | Documentation authority/index | PASS — docs, Desktop, Mobile, Brand Kit and interface inventory point to the shared authority; historical material is identified as such. |
 | `LiquidGlass.css` token ownership | PASS — the desktop adaptation consumes generated `--fung-glass-*` properties; material values live in the canonical source. |
+| Board specimens | PASS — canonical board data renders theme-aware primary/secondary actions, recording/local/inferred, focus, empty and recovery examples; the controls are illustrative and do not call application APIs. |
+| Generated component coverage inventory | PASS — `design-system:check` detects report drift; 7/24 application CSS files reference canonical tokens and 17 do not. |
 | Focused design-system tests | PASS — 5 tests across `tests/designSystemTokens.test.mjs` and `tests/designSystemPublishing.test.mjs`, including docs index/link and generated-file behavior. |
 | Application build | PASS — `node node_modules/typescript/bin/tsc` and `node node_modules/vite/bin/vite.js build` completed; Vite transformed 1,817 modules. |
-| Component coverage | PARTIAL — token integration is verified; every component and state has not been audited for adoption. |
+| Production component coverage | PARTIAL — the [source inventory](COMPONENT_COVERAGE.md) records 7/24 stylesheets with canonical token references and 17 without. Literal declaration counts guide triage and are not individual defect verdicts. |
 | Native desktop / installer / clean install | NOT ACCEPTED HERE — native click-through was previously `BLOCKED_ENVIRONMENT`; installer and clean-install gates remain separate. |
 | Physical-device UAT / production | NOT RUN — outside the token/board verification scope. |
-| Full accessibility audit | NOT RUN — keyboard, assistive technology, zoom, focus, rendered alpha colors and native behavior need runtime review. |
+| Desktop Home accessibility sample | PARTIAL PASS — [review evidence](ACCESSIBILITY_REVIEW.md) records the current accessibility tree and 14 sequential Tab moves. |
+| Full accessibility audit | NOT COMPLETE — screenshot capture timed out; visual focus/contrast, other routes, zoom, reduced motion, forced colors, assistive technology, mobile and native behavior remain unverified. |
 | Figma/Penpot source and complete screen exports | NOT INCLUDED — local HTML board is the current review/handoff artifact; Figma connector is not available in this session. |
 | External `Downloads\fung-new-ui` source | DOCUMENTED ONLY — provenance hashes are retained in `LIQUID_GLASS_DESKTOP_ADAPTATION.md`; source assets remain external. |
 

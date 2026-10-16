@@ -168,6 +168,8 @@ Porcelain เป็นความรู้สึกของวัสดุ ไ
 | [`tokens/build_tokens.py`](tokens/build_tokens.py) | ตรวจ DTCG token types ที่ FUNG ใช้ แล้วสร้าง CSS, contrast report และ `docs/brand-kit/tokens.css` ด้วย Python standard library |
 | `tokens/fung.tokens.css` | CSS ที่ generate แล้ว ใช้ prefix `--fung-` และ scope `[data-fung-root]` |
 | `qa/CONTRAST_REPORT.md` | ผลตรวจคู่สีทึบเท่านั้น ไม่ใช่ใบรับรอง accessibility ของแอป |
+| [`qa/COMPONENT_COVERAGE.md`](qa/COMPONENT_COVERAGE.md) | Generated source inventory ของ CSS ที่อ้าง canonical token |
+| [`qa/ACCESSIBILITY_REVIEW.md`](qa/ACCESSIBILITY_REVIEW.md) | ขอบเขตและหลักฐาน partial ของ Desktop Home; ไม่ใช่ conformance audit |
 | [`scripts/render_design_system.mjs`](../../scripts/render_design_system.mjs) | สร้าง board และ brand presentation จาก DTCG JSON เดียวกัน |
 | [`docs/design-system/index.html`](../design-system/index.html) | Interactive cross-surface board ที่ generate แล้ว; ห้ามแก้ HTML โดยตรง |
 
@@ -972,7 +974,7 @@ Light และ dark ต้องครอบหน้าจอเหล่า�
 
 ห้ามทำ native overlay เป็นแค่ CSS `position: fixed` แล้วอ้างว่าลอยเหนือทุกแอป และห้ามเอา mock ไป generate component ทั้งระบบโดยไม่ใส่ capability mapping
 
-สถานะ 2026-10-16: token source, CSS/export generator และ shared board ถูกเชื่อมแล้ว; component coverage ยัง partial, Figma/Penpot source และ complete screen exports ยังเป็นงานค้าง ตารางนี้เป็น governance backlog และไม่ยกเลิก capability/privacy gates เดิม
+สถานะ 2026-10-16: token source, CSS/export generator, component specimens, generated CSS coverage inventory และ Desktop Home keyboard/accessibility-tree sample ถูกเชื่อมและบันทึกแล้ว; production component coverage ยัง partial (7/24 stylesheet ใช้ canonical token), Figma/Penpot source และ complete screen exports ยังเป็นงานค้าง, และยังไม่มี full visual/assistive-technology accessibility audit ตารางนี้เป็น governance backlog และไม่ยกเลิก capability/privacy gates เดิม
 
 ### 24.1 ADR/change requests ที่เสนอ
 
@@ -1005,6 +1007,8 @@ FUNG_Design_System_v0.1.0/
     build_tokens.py
   qa/
     CONTRAST_REPORT.md
+    COMPONENT_COVERAGE.md
+    ACCESSIBILITY_REVIEW.md
     PACKAGE_CHECK.md
   references/
     FRONTEND_REDESIGN_BRIEF.md
@@ -1070,7 +1074,7 @@ npm run design-system:check
 npm run test:design-system
 ```
 
-`render` สร้าง CSS/contrast report, brand CSS compatibility export และ shared board จาก JSON เดียวกัน; `check` ตรวจว่า outputs ตรงกับ source โดยไม่แก้ไฟล์; test ตรวจ DTCG conventions, source pointers และ publishing/redirect behavior ตัว validator เป็น project-scoped ไม่ใช่ full DTCG schema validation
+`render` สร้าง CSS/contrast report, brand CSS compatibility export, token-driven board specimens และ source-derived component coverage report; `check` ตรวจว่า outputs ตรงกับ source โดยไม่แก้ไฟล์; test ตรวจ DTCG conventions, source pointers และ publishing/redirect behavior ตัว validator เป็น project-scoped ไม่ใช่ full DTCG schema validation
 
 ### 25.4 Figma/Penpot handoff ที่ต้องทำในระยะพัฒนา
 

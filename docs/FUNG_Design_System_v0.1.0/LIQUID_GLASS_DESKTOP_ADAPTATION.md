@@ -5,6 +5,7 @@ version: "1.0.2b"
 status: "beta"
 created_at: "2026-09-19T08:04:52+07:00"
 last_update: "2026-10-16T06:53:41+07:00,Codex"
+
 language: "th-TH / en"
 parent: "DS-FUNG-001 v0.1.0"
 superseded_by: null
@@ -94,18 +95,15 @@ Native window ที่ลอยเหนือแอปอื่นต้อง
 
 ## 4. Material contract
 
-ให้สร้าง/ใช้ namespace แยกจาก baseline tokens เดิม โดยยังไม่ลบหรือเปลี่ยน semantic token source of truth:
+Liquid Glass เป็น material family ใน canonical [`fung.tokens.json`](tokens/fung.tokens.json) เดียวกับ brand และ semantic tokens. Generated CSS exposes the existing `--fung-glass-*` names used by `LiquidGlass.css`; component CSS consumes these variables and does not own a competing palette.
 
-| Token family | Dark proposal | Light proposal | การใช้ |
+| Token family | Canonical DTCG group | Generated CSS names | การใช้ |
 | --- | --- | --- | --- |
-| canvas | `#111A17` | `#EEF0E9` | ambient desktop background |
-| chrome | `rgba(27,40,34,0.76)` | `rgba(252,252,246,0.76)` | rail, nav, control chrome |
-| control | `rgba(53,70,62,0.64)` | `rgba(248,251,245,0.68)` | buttons and lenses |
-| reader | `rgba(22,32,27,0.96)` | `rgba(255,254,250,0.96)` | transcript, summary, errors |
-| sheet | `rgba(28,40,33,0.96)` | `rgba(255,254,250,0.95)` | in-app sheet/panel |
-| edge/highlight | `rgba(205,223,213,0.42)` / `rgba(248,255,249,0.70)` | `rgba(88,104,94,0.44)` / `rgba(255,255,255,0.94)` | rim and separation, not focus substitute |
+| canvas, chrome, control, reader, sheet, edge, highlight, shade, solid, text, muted | `themes.dark.glass.*` | `--fung-glass-*` | dark ambient background and material surfaces |
+| Same material roles | `themes.light.glass.*` | `--fung-glass-*` | light ambient background and material surfaces |
+| blur, sheet blur, control/card/nav radius, saturation | shared `glass.*` dimensions/numbers | `--fung-glass-blur*`, `--fung-glass-radius-*`, `--fung-glass-saturation` | material geometry and backdrop treatment |
 
-Suggested names use `--fung-glass-*` and remain separate from `--fung-*` baseline until token ownership is reviewed. Blur is limited to chrome/control/sheet; reader surfaces use tint first. Focus-visible remains an independent high-contrast outline
+Blur is limited to chrome/control/sheet; reader surfaces use tint first. Focus-visible remains an independent high-contrast outline and never relies on the glass rim.
 
 ## 5. Interaction and accessibility contract
 
@@ -122,7 +120,7 @@ Implementation follows this approved document. Completion requires all of the fo
 
 | Gate | Expected evidence |
 | --- | --- |
-| Visual foundation | Current source uses the reviewed Liquid Glass token namespace without deleting baseline tokens |
+| Visual foundation | Current source consumes the reviewed `--fung-glass-*` variables generated from the shared DTCG source |
 | Desktop states | Home, Live Meeting, Review/Summary, Settings and in-app Companion states render in light/dark/system as scoped |
 | Capability truth | No new button reports success without an existing handler/contract; unsupported reference actions remain hidden/disabled/disclosed |
 | Interaction | Keyboard/focus/Escape/material fallback works; Companion close does not affect recording; recording is absent from the persistent sidebar; appearance controls are page-scoped |
@@ -142,7 +140,7 @@ Implementation follows this approved document. Completion requires all of the fo
 ## 8. Implementation sequence and approval gate
 
 1. **Document review** — review this mapping and open decisions; no code change
-2. **Foundation slice** — add/derive material tokens and scoped visual primitives; run token/static checks
+2. **Foundation slice** — COMPLETE in repository: material tokens and scoped visual primitives are generated/consumed from the shared source; token/static checks are recorded below
 3. **Desktop surfaces** — adapt existing Home → Live → Review/Summary → Settings flows without changing command contracts
 4. **In-app Companion** — implement only the bounded panel/sheet state machine; native overlay remains blocked by ADR
 5. **Visual and interaction QA** — browser smoke, keyboard/fallback checks, then native release click-through when Computer Use can target the window
@@ -155,7 +153,7 @@ Implementation follows this approved document. Completion requires all of the fo
 | LG-D01 | Desktop ambient wallpaper/geometry | Use CSS/static ambient layers only; no remote asset or video |
 | LG-D02 | Companion placement | In-app panel/sheet first; no OS-level window |
 | LG-D03 | Preference persistence | Reuse an approved existing settings contract; otherwise document a separate change request |
-| LG-D04 | Canonical glass token owner | Keep `--fung-glass-*` as an addendum until token source-of-truth ADR is approved |
+| LG-D04 | Canonical glass token owner | **RESOLVED 2026-10-16:** `fung.tokens.json` owns glass values; `LiquidGlass.css` consumes generated `--fung-glass-*` variables |
 | LG-D05 | Reference packaging | Keep external source hashes in this document; vendor assets only after licensing/provenance review |
 
 ## 9. Evidence หลัง implementation ที่ได้รับ approval

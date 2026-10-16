@@ -10,11 +10,11 @@
  */
 .device-pairing-panel {
   width: 100%;
-  background: #fffdf8;
-  border: 1px solid rgba(32, 35, 40, .12);
+  background: var(--fung-bg-surface);
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 20px;
   padding: 28px 32px;
-  color: #191a1d;
+  color: var(--fung-text-primary);
   box-shadow: 0 28px 70px rgba(25, 26, 29, .3);
 }
 
@@ -38,13 +38,13 @@
   height: 44px;
   border: none;
   border-radius: 50%;
-  background: #f0e8dc;
-  color: #5f6268;
+  background: var(--fung-action-secondary-bg);
+  color: var(--fung-text-secondary);
   cursor: pointer;
   padding: 0;
 }
 .device-pairing-close:hover {
-  background: #ecdfcc;
+  background: var(--fung-bg-hover);
 }
 
 .device-pairing-list {
@@ -58,8 +58,8 @@
 .device-pairing-empty {
   padding: 12px;
   border-radius: 10px;
-  background: #f7f2ea;
-  color: #5f6268;
+  background: var(--fung-bg-inset);
+  color: var(--fung-text-secondary);
   font-size: 13px;
   text-align: center;
 }
@@ -71,7 +71,7 @@
   gap: 12px;
   padding: 12px 14px;
   border-radius: 12px;
-  background: #f7f2ea;
+  background: var(--fung-bg-inset);
 }
 
 .device-pairing-item strong {
@@ -82,7 +82,7 @@
 .device-pairing-item small {
   display: block;
   margin-top: 2px;
-  color: #5f6268;
+  color: var(--fung-text-secondary);
   font-size: 11px;
 }
 
@@ -98,20 +98,20 @@
   flex-shrink: 0;
   border: none;
   border-radius: 50%;
-  background: #f0e8dc;
-  color: #8c4444;
+  background: var(--fung-action-secondary-bg);
+  color: var(--fung-state-danger-fg);
   cursor: pointer;
   padding: 0;
 }
 .device-pairing-revoke:hover {
-  background: #ecdfcc;
+  background: var(--fung-bg-hover);
 }
 
 .device-pairing-fungwire {
   margin: 0 0 16px;
   padding: 14px 16px;
   border-radius: 14px;
-  background: #f7f2ea;
+  background: var(--fung-bg-inset);
 }
 
 .device-pairing-fungwire-header {
@@ -129,7 +129,7 @@
 .device-pairing-fungwire-header small {
   display: block;
   margin-top: 2px;
-  color: #5f6268;
+  color: var(--fung-text-secondary);
   font-size: 11px;
 }
 
@@ -142,7 +142,7 @@
   align-items: center;
   border: none;
   border-radius: 999px;
-  background: #ded2bc;
+  background: var(--fung-state-pending-bg);
   cursor: pointer;
   transition: background 160ms ease;
 }
@@ -155,12 +155,12 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #fffdf8;
+  background: var(--fung-bg-surface);
   box-shadow: 0 2px 6px rgba(0, 0, 0, .16);
   transition: transform 160ms ease;
 }
 .device-pairing-fungwire-switch.is-on {
-  background: #3f7a52;
+  background: var(--fung-state-local-fg);
 }
 .device-pairing-fungwire-switch.is-on i {
   transform: translateX(18px);
@@ -180,7 +180,7 @@
   text-align: center;
 }
 .device-pairing-fungwire-status dt {
-  color: #5f6268;
+  color: var(--fung-text-secondary);
   font-size: 10px;
 }
 .device-pairing-fungwire-status dd {
@@ -198,10 +198,10 @@
   gap: 8px;
   width: max-content;
   padding: 8px 18px;
-  border: 1px solid rgba(32, 35, 40, .12);
+  border: 1px solid var(--fung-border-subtle);
   border-radius: 999px;
-  background: #3d4f82;
-  color: #fff;
+  background: var(--fung-action-primary-bg);
+  color: var(--fung-action-primary-fg);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
@@ -213,14 +213,14 @@
   gap: 6px;
   padding: 18px;
   border-radius: 14px;
-  background: #f7f2ea;
+  background: var(--fung-bg-inset);
   text-align: center;
 }
 
 .device-pairing-code-box p {
   margin: 0;
   font-size: 13px;
-  color: #5f6268;
+  color: var(--fung-text-secondary);
 }
 
 .device-pairing-code {
@@ -230,25 +230,25 @@
   letter-spacing: .35em;
   /* nudge the trailing letter-spacing gap out so the glyphs read centered */
   padding-left: .35em;
-  color: #191a1d;
+  color: var(--fung-text-primary);
 }
 
 .device-pairing-countdown {
   font-size: 12px;
-  color: #735c3c;
+  color: var(--fung-state-pending-fg);
 }
 
 .device-pairing-hint {
   font-size: 12px;
-  color: #5f6268;
+  color: var(--fung-text-secondary);
 }
 
 .device-pairing-success {
   margin: 12px 0 0;
   padding: 8px 12px;
   border-radius: 8px;
-  background: rgba(63, 122, 82, .12);
-  color: #3f7a52;
+  background: var(--fung-state-local-bg);
+  color: var(--fung-state-local-fg);
   font-size: 12px;
 }
 
@@ -256,88 +256,88 @@
   margin: 12px 0 0;
   padding: 8px 12px;
   border-radius: 8px;
-  background: rgba(140, 68, 68, .12);
-  color: #8c4444;
+  background: var(--fung-state-danger-bg);
+  color: var(--fung-state-danger-fg);
   font-size: 12px;
 }
 
 /* ── Dark theme ── */
 
 .theme-dark .device-pairing-panel {
-  background: linear-gradient(145deg, #26231f, #171615 72%, #11100f);
-  color: #f3efe7;
-  border-color: rgba(255, 255, 255, .11);
+  background: linear-gradient(145deg, var(--fung-bg-elevated), var(--fung-bg-surface) 72%, var(--fung-bg-canvas));
+  color: var(--fung-text-primary);
+  border-color: var(--fung-border-subtle);
   box-shadow: 0 28px 70px rgba(0, 0, 0, .5);
 }
-.theme-dark .device-pairing-close { background: #2f2b25; color: #c3bbad; }
-.theme-dark .device-pairing-close:hover { background: #443e35; }
+.theme-dark .device-pairing-close { background: var(--fung-bg-elevated); color: var(--fung-text-secondary); }
+.theme-dark .device-pairing-close:hover { background: var(--fung-bg-hover); }
 .theme-dark .device-pairing-empty,
 .theme-dark .device-pairing-item {
-  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+  background: linear-gradient(145deg, var(--fung-bg-elevated), var(--fung-bg-surface));
 }
 .theme-dark .device-pairing-empty {
-  color: #9b9386;
+  color: var(--fung-text-secondary);
 }
 .theme-dark .device-pairing-item small {
-  color: #9b9386;
+  color: var(--fung-text-secondary);
 }
 .theme-dark .device-pairing-revoke {
-  background: #39342d;
-  color: #f0aaa0;
+  background: var(--fung-action-secondary-bg);
+  color: var(--fung-state-danger-fg);
 }
 .theme-dark .device-pairing-revoke:hover {
-  background: #443e35;
+  background: var(--fung-bg-hover);
 }
 .theme-dark .device-pairing-start {
-  background: #a8b6e6;
-  color: #171615;
+  background: var(--fung-action-primary-bg);
+  color: var(--fung-action-primary-fg);
 }
 .theme-dark .device-pairing-code-box {
-  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+  background: linear-gradient(145deg, var(--fung-bg-elevated), var(--fung-bg-surface));
 }
 .theme-dark .device-pairing-code-box p {
-  color: #9b9386;
+  color: var(--fung-text-secondary);
 }
 .theme-dark .device-pairing-code {
-  color: #f3efe7;
+  color: var(--fung-text-primary);
 }
 .theme-dark .device-pairing-countdown {
-  color: #d2b88d;
+  color: var(--fung-state-pending-fg);
 }
 .theme-dark .device-pairing-hint {
-  color: #9b9386;
+  color: var(--fung-text-secondary);
 }
 .theme-dark .device-pairing-success {
-  background: rgba(159, 186, 173, .15);
-  color: #9fbaad;
+  background: var(--fung-state-local-bg);
+  color: var(--fung-state-local-fg);
 }
 .theme-dark .device-pairing-error {
-  background: rgba(240, 170, 160, .15);
-  color: #f0aaa0;
+  background: var(--fung-state-danger-bg);
+  color: var(--fung-state-danger-fg);
 }
 .theme-dark .device-pairing-fungwire {
-  background: linear-gradient(145deg, #2f2b25, #1d1b18);
+  background: linear-gradient(145deg, var(--fung-bg-elevated), var(--fung-bg-surface));
 }
 .theme-dark .device-pairing-fungwire-header small {
-  color: #9b9386;
+  color: var(--fung-text-secondary);
 }
 .theme-dark .device-pairing-fungwire-switch {
-  background: #443e35;
+  background: var(--fung-bg-hover);
 }
 .theme-dark .device-pairing-fungwire-switch.is-on {
-  background: #9fbaad;
+  background: var(--fung-state-local-bg);
 }
 .theme-dark .device-pairing-fungwire-switch i {
-  background: #f3efe7;
+  background: var(--fung-bg-surface);
 }
 .theme-dark .device-pairing-fungwire-status {
-  border-top-color: rgba(255, 255, 255, .11);
+  border-top-color: var(--fung-border-subtle);
 }
 .theme-dark .device-pairing-fungwire-status dt {
-  color: #9b9386;
+  color: var(--fung-text-secondary);
 }
 .theme-dark .device-pairing-fungwire-status dd {
-  color: #f3efe7;
+  color: var(--fung-text-primary);
 }
 
 @media (max-width: 620px) {

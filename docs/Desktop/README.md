@@ -22,8 +22,9 @@ This folder is the documentation source of truth for the current beta build.
 | --- | --- | --- |
 | 00 | [Current Studio flows](../design/2026-10-16-desktop-navigation-and-flows.md) | Current dashboard, bottom dock, five surfaces, wireframes, capture guard and user flows |
 | 00a | `../FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md` | Approved Liquid Glass material, motion, profile and appearance-page addendum |
+| 00b | `../FUNG_Design_System_v0.1.0/DESIGN_SYSTEM.md` | Shared token authority, theme contract and cross-platform component/state guidance |
 | 01 | `01-foundations.md` | Product principles, goals, non-goals, acceptance criteria |
-| 02 | `02-tokens.md` | Skeuomorphic design tokens and material rules |
+| 02 | `02-tokens.md` | Historical Skeuomorphic Subtract tokens; current values are in the shared DTCG source |
 | 03 | `03_LAYOUT.md` | Legacy Subtract HUD layout and domain-coordinate reference; not current shell chrome |
 | 04 | `04-components.md` | Legacy component inventory plus domain ownership rules; current shell components live under `src/components/desktop/` |
 | 05 | `05-sitemap-ia.md` | Legacy P1-P4 domain IA; current shell navigation follows the Studio flow contract |
@@ -40,6 +41,8 @@ This folder is the documentation source of truth for the current beta build.
 | [Studio flows](../design/2026-10-16-desktop-navigation-and-flows.md) | beta | Current shell/layout/navigation owner; 18 Desktop flows and platform handoffs |
 | [September shell refresh](../design/2026-09-19-liquid-glass-desktop-shell-refresh.md) | historical chrome | Sidebar/header placement superseded; preserve feature and material history |
 | `../FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md` | beta | Current Liquid Glass material and interaction addendum |
+| `../FUNG_Design_System_v0.1.0/tokens/fung.tokens.json` | beta | Canonical shared tokens; generated CSS is consumed by the Desktop shell |
+| `../design-system/index.html` | generated | Interactive cross-surface board and full token catalog |
 | `PRODUCT_SPEC.md` | beta | Original product requirements |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | candidate | Parent architecture and three-layer document/knowledge ownership |
 | `AUDIO_AI_PIPELINE.md` | beta | Audio/AI processing plan |

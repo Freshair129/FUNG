@@ -2,8 +2,8 @@
 version: "0.1.0b"
 created_at: "2026-08-09T00:00:00+07:00,ATHER"
 last_update: "2026-08-09T00:00:00+07:00,ATHER"
-status: "draft"
-superseded_by: null
+status: "legacy"
+superseded_by: "docs/FUNG_Design_System_v0.1.0/DESIGN_SYSTEM.md"
 attributes:
   domain: "local-first-audio-ai"
   doc_type: "design-system"
@@ -67,6 +67,8 @@ components:
 ---
 
 # Design System: FUNG
+
+> Historical 2026-08 design proposal. Its palette and components are retained as provenance and are not the current token source. Use [fung.tokens.json](docs/FUNG_Design_System_v0.1.0/tokens/fung.tokens.json) for current shared values and [the generated design board](docs/design-system/index.html) for the interactive reference.
 
 ## Overview
 

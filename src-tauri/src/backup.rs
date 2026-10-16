@@ -1062,7 +1062,10 @@ mod tests {
             retention: None,
         })
         .unwrap();
-        assert_eq!(restored.stable_frontier(), source_frontier);
+        assert!(
+            restored.stable_frontier() >= source_frontier,
+            "restore may append a local generation-publication frame"
+        );
         assert!(restored.node_view("job-note-a").is_some());
         assert!(restored.node_view("job-note-b").is_some());
         let edges = crate::genesis_adapter::query(

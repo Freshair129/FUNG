@@ -139,7 +139,7 @@ class KnowledgeExtractorTests(unittest.TestCase):
         document = payload["document"]
         self.assertEqual(document["dependency"], {
             "name": "pypdf",
-            "version": "6.16.1",
+            "version": "6.19.0",
             "license": "BSD-3-Clause",
         })
         self.assertIn("Quarterly revenue 42", document["pages"][0]["text"])

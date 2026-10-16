@@ -15,9 +15,9 @@ const browserCandidates = [
   "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
 ].filter(Boolean);
 const source = target === "brand"
-  ? resolve(root, "docs/Mobile/design-system/brand/index.html")
-  : resolve(root, "docs/Mobile/design-system/index.html");
-const output = resolve(root, `docs/Mobile/design-system/exports/fung-${target}-presentation.${format}`);
+  ? resolve(root, "docs/design-system/brand/index.html")
+  : resolve(root, "docs/design-system/index.html");
+const output = resolve(root, `docs/design-system/exports/fung-${target}-presentation.${format}`);
 
 async function locateBrowser() {
   for (const candidate of browserCandidates) {

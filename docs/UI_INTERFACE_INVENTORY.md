@@ -28,10 +28,11 @@ attributes:
 
 1. Implementation truth: [`docs/Desktop/08-real-progress.md`](Desktop/08-real-progress.md) และ [`docs/Mobile/IMPLEMENTATION_STATUS.md`](Mobile/IMPLEMENTATION_STATUS.md)
 2. Current Desktop layout/navigation/flows: [Studio flow contract](design/2026-10-16-desktop-navigation-and-flows.md); material rules: [Liquid Glass addendum](FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md). September sidebar placement is historical.
-3. Desktop component and IA contracts: [`04-components.md`](Desktop/04-components.md), [`05-sitemap-ia.md`](Desktop/05-sitemap-ia.md), [`07-meeting-mode.md`](Desktop/07-meeting-mode.md)
-4. Mobile product/UI contract: [`PRODUCT_UX_SPEC.md`](Mobile/PRODUCT_UX_SPEC.md)
-5. Shared visual rules: [`DESIGN.md`](../DESIGN.md), [`docs/Desktop/DESIGN_SYSTEM.md`](Desktop/DESIGN_SYSTEM.md), [`docs/Mobile/DESIGN_SYSTEM.md`](Mobile/DESIGN_SYSTEM.md)
-6. Source implementation: `src/App.tsx`, `src/components/desktop/`, `src/mobile/`, `src/web/`
+3. Shared design-system tokens and generated board: [`fung.tokens.json`](FUNG_Design_System_v0.1.0/tokens/fung.tokens.json), [`design-system/index.html`](design-system/index.html)
+4. Desktop component and IA contracts: [`04-components.md`](Desktop/04-components.md), [`05-sitemap-ia.md`](Desktop/05-sitemap-ia.md), [`07-meeting-mode.md`](Desktop/07-meeting-mode.md)
+5. Mobile product/UI contract: [`PRODUCT_UX_SPEC.md`](Mobile/PRODUCT_UX_SPEC.md)
+6. Shared visual rules: [`DESIGN.md`](../DESIGN.md), [`docs/Desktop/DESIGN_SYSTEM.md`](Desktop/DESIGN_SYSTEM.md), [`docs/Mobile/DESIGN_SYSTEM.md`](Mobile/DESIGN_SYSTEM.md)
+7. Source implementation: `src/App.tsx`, `src/components/desktop/`, `src/mobile/`, `src/web/`
 
 ## Inventory Summary
 
@@ -108,12 +109,12 @@ The product UX specification defines M1-M8. Several screens currently share `src
 
 | ID | Shared surface/rule | Source | Status |
 | --- | --- | --- | --- |
-| S01 | Color, typography, spacing, radius and elevation tokens | [`DESIGN.md`](../DESIGN.md), [`docs/Mobile/DESIGN_SYSTEM.md`](Mobile/DESIGN_SYSTEM.md) | `IMPLEMENTED` as documented source; versions remain beta/draft where marked |
-| S02 | App shell, panel zones and ownership rules | [Studio flows](design/2026-10-16-desktop-navigation-and-flows.md); [04-components.md](Desktop/04-components.md) for legacy/domain rules | `IMPLEMENTED` current shell; legacy component map does not override dock/navigation placement |
-| S03 | Buttons, segmented controls, signal cards and transcript/evidence rows | [`DESIGN.md`](../DESIGN.md) | `IMPLEMENTED` as design rule; implementation coverage is tracked per surface above |
+| S01 | Color, typography, spacing, radius, material and elevation tokens | [`fung.tokens.json`](FUNG_Design_System_v0.1.0/tokens/fung.tokens.json) | `IMPLEMENTED` as token source; CSS integration is verified; full component coverage is partial |
+| S02 | App shell, panel zones and ownership rules | [Studio flows](design/2026-10-16-desktop-navigation-and-flows.md), [`DESIGN_SYSTEM.md`](FUNG_Design_System_v0.1.0/DESIGN_SYSTEM.md) | `IMPLEMENTED` as design contract; screen implementation status is tracked per surface above |
+| S03 | Buttons, segmented controls, signal cards and transcript/evidence rows | [`DESIGN_SYSTEM.md`](FUNG_Design_System_v0.1.0/DESIGN_SYSTEM.md) | `SPECIFIED` as shared guidance; implementation coverage is tracked per surface above |
 | S04 | Loading, empty, error, offline and model-missing states | [`04-components.md`](Desktop/04-components.md) | `IMPLEMENTED` as rule; each new component must map its state coverage |
-| S05 | Thai-first mobile visual system and brand assets | [`docs/Mobile/DESIGN_SYSTEM.md`](Mobile/DESIGN_SYSTEM.md) | `IMPLEMENTED` source-of-truth; generated HTML must not be edited manually |
-| S06 | Interactive design-system reference | [`docs/Mobile/design-system/index.html`](Mobile/design-system/index.html) | `GENERATED` from `docs/Mobile/DESIGN_SYSTEM.md` |
+| S05 | Thai-first Mobile behavior and selected brand assets | [`PRODUCT_UX_SPEC.md`](Mobile/PRODUCT_UX_SPEC.md), [`Mobile/design-system/assets/`](Mobile/design-system/assets/) | `IMPLEMENTED` as Mobile-specific contract and selected beta assets |
+| S06 | Shared interactive design-system reference | [`docs/design-system/index.html`](design-system/index.html) | `GENERATED` from the DTCG token source; do not edit HTML manually |
 
 ## Browser Route Inventory
 
@@ -148,7 +149,7 @@ The plugin's transcript, model, format and destination questions are rendered by
 
 - Add or update an inventory row whenever a user-facing surface, state or platform boundary changes.
 - Include the implementation file and the evidence/status source in the same change.
-- Keep generated design-system HTML derived from its Markdown source; do not hand-edit generated artifacts.
+- Keep generated CSS, contrast report and board derived from the DTCG source; do not hand-edit generated artifacts.
 - Do not mark a surface release-ready from source presence alone; update the corresponding implementation-status and release-gate documents.
 
 ## Version Diff

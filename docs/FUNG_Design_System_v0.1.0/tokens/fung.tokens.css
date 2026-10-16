@@ -1,8 +1,8 @@
 /* FUNG Quiet Archive | DS-FUNG-001 v0.1.0 | BETA */
 
-/* Generated from fung.tokens.json. Re-run build_tokens.py after editing JSON. */
+/* Generated from the DTCG 2025.10 token source. Re-run build_tokens.py after editing JSON. */
 
-/* Tokens only: no fonts, network imports, component styles, or native window behavior. */
+/* Tokens only: no font files, network imports, component styles, or native window behavior. */
 
 /* Place data-fung-root and data-theme="light|dark|system" on each surface root. */
 
@@ -15,7 +15,7 @@
   --fung-brand-clay: #B0553F;
   --fung-font-ui: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
   --fung-font-latin: "DM Sans", "IBM Plex Sans Thai", system-ui, sans-serif;
-  --fung-font-display: "Fraunces", "IBM Plex Sans Thai", serif;
+  --fung-font-display: Fraunces, "IBM Plex Sans Thai", serif;
   --fung-font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --fung-font-weight-regular: 400;
   --fung-font-weight-medium: 500;
@@ -97,6 +97,12 @@
   --fung-z-dialog: 80;
   --fung-z-toast: 100;
   --fung-z-tooltip: 120;
+  --fung-glass-blur: 18px;
+  --fung-glass-blur-sheet: 26px;
+  --fung-glass-radius-control: 22px;
+  --fung-glass-radius-card: 22px;
+  --fung-glass-radius-nav: 30px;
+  --fung-glass-saturation: 125%;
 }
 
 [data-fung-root] {
@@ -138,10 +144,21 @@
   --fung-state-inferred-bg: #E9EDF7;
   --fung-logo-mark: #171918;
   --fung-logo-wordmark: #6F897E;
-  --fung-shadow-surface: 0 1px 2px rgba(23, 25, 24, 0.05);
-  --fung-shadow-elevated: 0 8px 28px rgba(23, 25, 24, 0.12);
-  --fung-shadow-overlay: 0 16px 48px rgba(23, 25, 24, 0.20);
-  --fung-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --fung-shadow-surface: 0px 1px 2px 0px rgba(23, 25, 24, 0.05);
+  --fung-shadow-elevated: 0px 8px 28px 0px rgba(23, 25, 24, 0.12);
+  --fung-shadow-overlay: 0px 16px 48px 0px rgba(23, 25, 24, 0.2);
+  --fung-shadow-inset: inset 0px 1px 0px 0px rgba(255, 255, 255, 0.72);
+  --fung-glass-canvas: #EEF0E9;
+  --fung-glass-chrome: rgba(252, 252, 246, 0.48);
+  --fung-glass-control: rgba(248, 251, 245, 0.34);
+  --fung-glass-reader: rgba(255, 254, 250, 0.68);
+  --fung-glass-sheet: rgba(255, 254, 250, 0.8);
+  --fung-glass-edge: rgba(88, 104, 94, 0.44);
+  --fung-glass-highlight: rgba(255, 255, 255, 0.94);
+  --fung-glass-shade: rgba(53, 71, 59, 0.17);
+  --fung-glass-solid: #F7F8F2;
+  --fung-glass-text: #171918;
+  --fung-glass-muted: #505A54;
   color-scheme: light;
 }
 
@@ -186,10 +203,21 @@
     --fung-state-inferred-bg: #293246;
     --fung-logo-mark: #FAF8F3;
     --fung-logo-wordmark: #FAF8F3;
-    --fung-shadow-surface: 0 1px 2px rgba(0, 0, 0, 0.18);
-    --fung-shadow-elevated: 0 8px 28px rgba(0, 0, 0, 0.30);
-    --fung-shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.46);
-    --fung-shadow-inset: inset 0 1px 0 rgba(250, 248, 243, 0.06);
+    --fung-shadow-surface: 0px 1px 2px 0px rgba(0, 0, 0, 0.18);
+    --fung-shadow-elevated: 0px 8px 28px 0px rgba(0, 0, 0, 0.3);
+    --fung-shadow-overlay: 0px 16px 48px 0px rgba(0, 0, 0, 0.46);
+    --fung-shadow-inset: inset 0px 1px 0px 0px rgba(250, 248, 243, 0.06);
+    --fung-glass-canvas: #111A17;
+    --fung-glass-chrome: rgba(27, 40, 34, 0.48);
+    --fung-glass-control: rgba(53, 70, 62, 0.38);
+    --fung-glass-reader: rgba(22, 32, 27, 0.7);
+    --fung-glass-sheet: rgba(28, 40, 33, 0.82);
+    --fung-glass-edge: rgba(205, 223, 213, 0.42);
+    --fung-glass-highlight: rgba(248, 255, 249, 0.7);
+    --fung-glass-shade: rgba(2, 10, 7, 0.5);
+    --fung-glass-solid: #202D25;
+    --fung-glass-text: #FAF8F3;
+    --fung-glass-muted: #CAD1C9;
     color-scheme: dark;
   }
 
@@ -234,10 +262,21 @@
   --fung-state-inferred-bg: #E9EDF7;
   --fung-logo-mark: #171918;
   --fung-logo-wordmark: #6F897E;
-  --fung-shadow-surface: 0 1px 2px rgba(23, 25, 24, 0.05);
-  --fung-shadow-elevated: 0 8px 28px rgba(23, 25, 24, 0.12);
-  --fung-shadow-overlay: 0 16px 48px rgba(23, 25, 24, 0.20);
-  --fung-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --fung-shadow-surface: 0px 1px 2px 0px rgba(23, 25, 24, 0.05);
+  --fung-shadow-elevated: 0px 8px 28px 0px rgba(23, 25, 24, 0.12);
+  --fung-shadow-overlay: 0px 16px 48px 0px rgba(23, 25, 24, 0.2);
+  --fung-shadow-inset: inset 0px 1px 0px 0px rgba(255, 255, 255, 0.72);
+  --fung-glass-canvas: #EEF0E9;
+  --fung-glass-chrome: rgba(252, 252, 246, 0.48);
+  --fung-glass-control: rgba(248, 251, 245, 0.34);
+  --fung-glass-reader: rgba(255, 254, 250, 0.68);
+  --fung-glass-sheet: rgba(255, 254, 250, 0.8);
+  --fung-glass-edge: rgba(88, 104, 94, 0.44);
+  --fung-glass-highlight: rgba(255, 255, 255, 0.94);
+  --fung-glass-shade: rgba(53, 71, 59, 0.17);
+  --fung-glass-solid: #F7F8F2;
+  --fung-glass-text: #171918;
+  --fung-glass-muted: #505A54;
   color-scheme: light;
 }
 
@@ -280,10 +319,21 @@
   --fung-state-inferred-bg: #293246;
   --fung-logo-mark: #FAF8F3;
   --fung-logo-wordmark: #FAF8F3;
-  --fung-shadow-surface: 0 1px 2px rgba(0, 0, 0, 0.18);
-  --fung-shadow-elevated: 0 8px 28px rgba(0, 0, 0, 0.30);
-  --fung-shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.46);
-  --fung-shadow-inset: inset 0 1px 0 rgba(250, 248, 243, 0.06);
+  --fung-shadow-surface: 0px 1px 2px 0px rgba(0, 0, 0, 0.18);
+  --fung-shadow-elevated: 0px 8px 28px 0px rgba(0, 0, 0, 0.3);
+  --fung-shadow-overlay: 0px 16px 48px 0px rgba(0, 0, 0, 0.46);
+  --fung-shadow-inset: inset 0px 1px 0px 0px rgba(250, 248, 243, 0.06);
+  --fung-glass-canvas: #111A17;
+  --fung-glass-chrome: rgba(27, 40, 34, 0.48);
+  --fung-glass-control: rgba(53, 70, 62, 0.38);
+  --fung-glass-reader: rgba(22, 32, 27, 0.7);
+  --fung-glass-sheet: rgba(28, 40, 33, 0.82);
+  --fung-glass-edge: rgba(205, 223, 213, 0.42);
+  --fung-glass-highlight: rgba(248, 255, 249, 0.7);
+  --fung-glass-shade: rgba(2, 10, 7, 0.5);
+  --fung-glass-solid: #202D25;
+  --fung-glass-text: #FAF8F3;
+  --fung-glass-muted: #CAD1C9;
   color-scheme: dark;
 }
 

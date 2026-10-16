@@ -1,4 +1,4 @@
-accelerate==1.10.1
+accelerate==1.15.0
 av==18.1.0
 faster-whisper==1.2.1
 pythainlp==5.3.8

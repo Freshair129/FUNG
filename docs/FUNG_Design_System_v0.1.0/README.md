@@ -1,6 +1,6 @@
 # FUNG — Quiet Archive Design System
 
-**Version 0.1.0 · Beta · approved and frozen 19 September 2026**
+**Version 0.1.0 · Beta · token authority and board updated 16 October 2026**
 
 เริ่มอ่านที่ [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) เอกสารภาษาไทยพร้อมชื่อ component/token/API ภาษาอังกฤษ ครอบคลุม Desktop, Mobile, Web dashboard, Landing, Phone page และข้อเสนอ Companion Overlay
 
@@ -11,16 +11,21 @@
 | [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) | หลักการ, logo, tokens, component contracts, flow/state, surface mapping, overlay, QA และ implementation plan |
 | [LIQUID_GLASS_DESKTOP_ADAPTATION.md](LIQUID_GLASS_DESKTOP_ADAPTATION.md) | Approved beta addendum สำหรับ desktop Liquid Glass; บันทึก Studio glass rim/dock contrast และ isolated native preview แล้ว; native frame visual acceptance, installer/clean-install/production ยัง pending |
 | [fung.tokens.css](tokens/fung.tokens.css) | Semantic tokens แบบ Light/Dark/System ที่ generate แล้ว |
-| [fung.tokens.json](tokens/fung.tokens.json) | Source ของ token ในแพ็กนี้; project-specific schema |
-| [build_tokens.py](tokens/build_tokens.py) | Rebuild CSS และตรวจคู่สีด้วย Python standard library |
+| [fung.tokens.json](tokens/fung.tokens.json) | Canonical token source ตาม DTCG Format Module 2025.10; FUNG metadata อยู่ใน namespaced `$extensions` |
+| [build_tokens.py](tokens/build_tokens.py) | ตรวจ token types ที่ FUNG ใช้ และสร้าง CSS, contrast report และ Brand Kit compatibility export |
+| [Shared design board](../design-system/index.html) | HTML board ที่สร้างจาก token source เดียว มี searchable catalog, cross-surface examples, theme switch และ print |
+| [Brand presentation](../design-system/brand/index.html) | Brand/token presentation ที่สร้างจาก token source เดียว |
+| [render_design_system.mjs](../../scripts/render_design_system.mjs) | สร้าง board และ brand presentation; ห้ามแก้ HTML output โดยตรง |
 | [CONTRAST_REPORT.md](qa/CONTRAST_REPORT.md) | ผลตรวจคู่สีทึบ 58 คู่ตามเป้าหมายภายในโครงการ |
+| [COMPONENT_COVERAGE.md](qa/COMPONENT_COVERAGE.md) | Generated source inventory ของการอ้าง canonical token ใน stylesheet ของแอป |
+| [ACCESSIBILITY_REVIEW.md](qa/ACCESSIBILITY_REVIEW.md) | รายงาน combined UX/accessibility ของ Desktop Home, Live, History, Files และ Appearance พร้อมภาพ preview, skip-link evidence, findings และข้อจำกัด |
 | [PACKAGE_CHECK.md](qa/PACKAGE_CHECK.md) | รายงานตรวจความครบของแพ็กและข้อจำกัดที่ยังไม่ได้ทดสอบ |
 | [CHANGELOG.md](CHANGELOG.md) | ประวัติฉบับเอกสาร |
 | `references/` | Brief ต้นทาง, logo concept และ mock ล่าสุดสองภาพ |
 
 ## ฐานข้อมูลและสถานะ
 
-เอกสารฉบับนี้เป็น design source ที่ได้รับอนุมัติและ freeze ในสถานะ **Beta** โดยอิง `FRONTEND_REDESIGN_BRIEF.md` v1.1.0b รอบ implementation วันที่ 20 กันยายน 2026 ได้นำ token และ visual foundation ไปผูกกับ FUNG repository แล้ว ส่วน current desktop shell อยู่ใน Liquid Glass addendum และมี local build/WebView evidence แล้ว แต่สถานะนี้ยังไม่ใช่การรับรองว่า component และ Companion ทุกส่วนในเอกสารถูก implement ครบ หรือพร้อม production
+เอกสารฉบับนี้เป็น design authority สถานะ **Beta** โดยอิง `FRONTEND_REDESIGN_BRIEF.md` v1.1.0b และ current shell addendum. ณ 16 ตุลาคม 2026 token source ใช้ DTCG 2025.10 conventions และสร้าง runtime CSS, Brand Kit export, contrast report และ shared board ได้จาก JSON เดียว ส่วน component coverage ยัง partial; `implementation_verified: false` จึงคงไว้สำหรับขอบเขตทั้ง design system ไม่ใช่การปฏิเสธ token integration ที่ตรวจแล้ว
 
 `LIQUID_GLASS_DESKTOP_ADAPTATION.md` เป็นเอกสารลูกสถานะ **Beta** จาก reference `C:\Users\pc\Downloads\fung-new-ui` v0.3.0 ซึ่งเป็น mobile HTML prototype และ Companion concept ที่ไม่มี desktop production integration เดิม เอกสารได้รับ approval สำหรับ implementation แบบจำกัดขอบเขตแล้ว การ implement ที่มีอยู่เป็น local evidence ไม่เปลี่ยนสถานะ Beta ของ `DESIGN_SYSTEM.md` และไม่ถือเป็น production readiness
 
@@ -30,9 +35,9 @@ Current layout/navigation and user journeys: [Studio flow contract](../design/20
 
 ## สถานะการ integrate ล่าสุด
 
-รอบนี้เชื่อม `tokens/fung.tokens.css` กับ global styles และ surface roots ของ Desktop, Mobile, Web dashboard และ Landing; ใช้ canonical mark แบบ `currentColor`; และเพิ่มสถานะที่แยกข้อมูลจริงออกจาก fixture/ข้อมูลที่ยังอ่านไม่ได้ใน Mobile โดยไม่เปลี่ยน bridge, auth, routing หรือ native command contract
+`tokens/fung.tokens.json` เป็นแหล่งแก้ไข token เพียงแห่งเดียว; CSS ที่ runtime ใช้, `docs/brand-kit/tokens.css`, contrast report และ board เป็น generated outputs. Mobile legacy URLs redirect ไป shared board. Liquid Glass values ที่ Desktop ใช้อยู่ถูกรวมใน source เดียวกัน โดย public `--fung-*` names ยังคงเดิม
 
-หลักฐาน local ล่าสุด:
+หลักฐานและขอบเขตปัจจุบัน:
 
 - `npm run build` — PASS
 - `npm run test:callmd-contracts`, `npm run test:callmd-live`, `npm run test:callmd-shell`, `npm run test:mobile`, `npm run test:audio-viz` — PASS
@@ -40,6 +45,12 @@ Current layout/navigation and user journeys: [Studio flow contract](../design/20
 - Browser smoke — Landing, Desktop light/dark และ Mobile route render ได้; ไม่มี console warning/error ในรอบตรวจ
 - Local Windows engineering build — standard `npx tauri build --no-bundle` evidence ด้านล่างเป็นประวัติเดิม; 2026-10-16 สร้างและเปิด isolated debug preview `src-tauri/target/debug/fung.exe` ด้วย identifier แยก และยืนยันว่า WebView โหลด FUNG แล้ว แต่ native frame/edge visual acceptance ยัง pending; เหตุ Dota 2 ในรอบเดิมเป็นประวัติ ผู้ใช้แจ้งว่าเกมจบแล้ว แต่ยังไม่มีหลักฐาน native visual รอบใหม่; ใช้ temporary `bundle.resources: []` override เนื่องจาก `.knowledge-parser-runtime` ไม่มีใน checkout และไม่ได้ทดสอบ resource-backed features
 - ยังไม่ทำ installer click-through, clean install, physical-device UAT หรือ full accessibility audit
+- Token CSS integration — verified in repository; generator currently validates 202 tokens and 58 declared solid-color contrast pairs.
+- Stylesheet token integration — the main-branch audit before the Studio dashboard found 24/24 application CSS files referencing canonical tokens and no active flat single-color declaration. After integrating the current dashboard, the regenerated inventory finds canonical references in 24/25 stylesheets and 43 flat single-color declarations across the scanned CSS; the report is source evidence, not rendered parity. Embedded colors remain in layered effects and illustrations. See the [coverage inventory](qa/COMPONENT_COVERAGE.md).
+- Component implementation status — still partial; token presence and direct-color migration do not prove complete component contracts or accessibility acceptance. `implementation_verified: false` remains accurate.
+- Accessibility certification — not completed; the available evidence covers five pre-dashboard Desktop shell routes in a 1280×720 light-theme preview, plus Home focus/skip-link behavior and Appearance selector tab order. Its sidebar/main screenshots do not verify the current dashboard and bottom dock. See the [review and screenshots](qa/ACCESSIBILITY_REVIEW.md).
+- Figma/Penpot and complete per-screen exports — not included. Local handoff assets include [Desktop P1–P4 wireframes](../Desktop/wireframes/), [Desktop SVG/PNG boards](../design/callmd-desktop/) and the shared HTML board; no native `.fig`/`.penpot` source exists in this repository.
+- Native desktop, installer/clean-install, physical-device UAT and production gates remain separate; see [package checks](qa/PACKAGE_CHECK.md) and the [Liquid Glass evidence](LIQUID_GLASS_DESKTOP_ADAPTATION.md).
 
 ## ใช้ token
 
@@ -51,21 +62,22 @@ Current layout/navigation and user journeys: [Studio flow contract](../design/20
 
 เลือก `light`, `dark` หรือ `system` ได้ แต่การ persist preference, event handling, permissions และ native window behavior ต้อง implement แยก CSS ไม่มี network imports และไม่มี font files แนบมา
 
-การนำ token ไปไว้ใน repository ต้องรวม ownership กับ brand tokens เดิม ไม่ทิ้งสองแหล่งความจริงให้ drift แยกกัน
+Brand Kit เป็น generated compatibility export จาก canonical source; แก้ token ที่ JSON แล้ว rebuild แทนการแก้ CSS output.
 
 ## Rebuild / check
 
-รันจากโฟลเดอร์แพ็กด้วย Python 3.9+:
+รันจาก repository root:
 
 ```sh
-python tokens/build_tokens.py
-python tokens/build_tokens.py --check
+npm run design-system:render
+npm run design-system:check
+npm run test:design-system
 ```
 
-คำสั่งแรกเขียน CSS และรายงาน contrast ใหม่จาก JSON คำสั่งที่สองตรวจว่า output ตรงกับ source โดยไม่แก้ไฟล์ และคืน non-zero เมื่อคู่สีไม่ผ่านหรือไฟล์ไม่ตรงกัน
+`render` สร้าง outputs ทั้งหมดจาก JSON และสร้าง source coverage inventory; `check` ยืนยัน CSS, report, coverage inventory และ board ตรงกับ source โดยไม่แก้ไฟล์; test ตรวจ token conventions และ publishing contracts. Validator รองรับ DTCG token types ที่ FUNG ใช้ ยังไม่ใช่ validator เต็มรูปแบบของ DTCG.
 
 ## ขอบเขตการส่งมอบ
 
-มีเอกสารและ token files พร้อมภาพอ้างอิง แพ็กเกจนี้ไม่ bundle repository patch, font files, Figma/Penpot source หรือ native overlay implementation; integration patch และ runtime evidence อยู่ใน repository แยกจากแพ็กนี้ และยังไม่ใช่การรับรอง accessibility ของแอป
+W3C Design Tokens Community Group Format Module 2025.10 เป็น stable community-group specification/report ไม่ใช่ W3C Standard. FUNG ใช้รูปแบบ token/group และ `$extensions` ที่เกี่ยวข้อง โดยคง validator scope ตามที่ระบุข้างต้น. ไม่มี font binaries, native Figma/Penpot source, complete screen exports หรือการรับรอง accessibility ของทั้งแอปแนบมา; local SVG/PNG assets มีเฉพาะขอบเขต Desktop บางส่วนตาม [package check](qa/PACKAGE_CHECK.md)
 
 อ่านพร้อมภาพและ relative links ให้แตก ZIP ทั้งโฟลเดอร์ ไม่ย้ายเฉพาะ Markdown ออกจากโครงสร้าง

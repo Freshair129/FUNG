@@ -102,7 +102,7 @@ After approval, implementation may modify `src/mobile/mobile.css` and the existi
 
 ## Supersession
 
-The approved values and reference boundary in this proposal have been consolidated into `docs/Mobile/DESIGN_SYSTEM.md`. That document is now the only editable Mobile token source. This file remains as decision provenance and must not be edited as a competing token set.
+The approved values and reference boundary are consolidated into the shared DTCG source at `docs/FUNG_Design_System_v0.1.0/tokens/fung.tokens.json`. This proposal remains decision provenance and is not an editable token source.
 
 ## Version Diff
 

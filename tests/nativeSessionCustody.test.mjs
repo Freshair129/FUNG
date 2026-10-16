@@ -150,6 +150,9 @@ test("native broker source retains lifecycle and authority paths as supplemental
 });
 
 test("native broker behavioral matrix executes through registered Rust entrypoints", () => {
+  // A cold Windows CI target can take longer than five minutes to compile the
+  // Tauri and pinned GenesisBlock dependencies before the test binary starts.
+  const cargoTimeoutMs = 15 * 60 * 1000;
   const result = spawnSync(
     "cargo",
     [
@@ -160,9 +163,10 @@ test("native broker behavioral matrix executes through registered Rust entrypoin
       "--",
       "--nocapture",
     ],
-    { cwd: root, encoding: "utf8", timeout: 300000, windowsHide: true },
+    { cwd: root, encoding: "utf8", timeout: cargoTimeoutMs, windowsHide: true },
   );
-  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  const processError = result.error ? `\ncargo process error: ${result.error.message}` : "";
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}${processError}`;
   assert.equal(result.status, 0, output);
   const firstMatrixStart = output.indexOf("running ");
   assert.ok(firstMatrixStart >= 0, output);

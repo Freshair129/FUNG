@@ -1,7 +1,8 @@
 ---
-version: "0.3.23b"
+version: "0.3.24b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-16,Codex"
+
 status: "beta"
 superseded_by: null
 attributes:
@@ -40,25 +41,41 @@ executable or requalify audio, private-source, device, provider, installer or
 release acceptance. Detailed receipts and remaining gates are in the
 [flow audit](../verification/implementation-reports/2026-10-16-wireframe-wireflow-userflow-audit.md).
 
-## Existing-profile database recovery — 2026-10-15
+## Existing-profile schema recovery — upstream merged, FUNG validation in progress (2026-10-15)
 
-[Issue #41](https://github.com/Freshair129/FUNG/issues/41) is repaired in this
-branch by pinning GenesisBlock `ddfc6e9` (upstream draft PR #233). The engine
-rebuilds schema projections transactionally without deleting an open SQLite
-file. Startup now preserves existing provider configuration and timestamps.
+FUNG issue [#41](https://github.com/Freshair129/FUNG/issues/41) reports that a
+normal second desktop boot panicked with
+`REL_SCHEMA_VERSION_CONFLICT` against the same persisted Genesis profile. The
+earlier September diagnosis below called this fail-closed behavior for an
+incompatible old database; that conclusion was superseded by the later
+copied-profile reproduction and GenesisBlock recovery investigation. See the
+[RCA and evidence ledger](../verification/implementation-reports/2026-10-15-issue-41-recovery-rca.md).
 
-The original profile was hash-backed up. Its disposable copy reproduces the
-old error and opens with the repair. Native debug build passed; two orderly
-close/reopen cycles preserve all 71 application tables, identity and output
-settings, with integrity `ok`; a third boot is left open. The original profile
-contains two provider rows and no projects/recordings/transcripts. Populated
-Thai-data preservation is separately covered by automated child-process and
-three-reopen regressions (8 FUNG tests passed, 1 diagnostic ignored).
+This focused fix pins `genesis-block-native` to the merged commit of
+[GenesisBlock PR #233](https://github.com/Freshair129/GenesisBlock/pull/233),
+`2cf485573d48d0e5e2ae76db647ec4c4dee543c3`. That upstream change rebuilds a
+Windows relational projection off to the side and publishes it through SQLite's
+backup transaction instead of deleting an open projection. FUNG startup also
+inserts default model-provider rows only when their IDs are absent, preserving
+the existing provider configuration and timestamps.
 
-[Recovery report](../verification/implementation-reports/2026-10-15-existing-profile-recovery.md)
-records the backup, upstream tests, binary hash and WAL-aware comparisons.
-This is idle native lifecycle evidence, not installer, active-job shutdown or
-arbitrary-crash qualification. Earlier startup failures below are historical.
+The new `existing_profile_second_open_preserves_schema_data_and_provider_configuration`
+regression opens a disposable persisted profile, installs the schema, commits
+project/recording/transcript rows and a customized provider, checkpoints, drops
+the handle, then repeats open/install/startup seeding and compares those rows.
+The focused Windows regression passed 1/1 against the merged pin; both locked
+`cargo check` and `cargo build` passed. The first exact-pin PR suite exposed two
+old tests that expected backup restore to preserve an identical frontier.
+GenesisBlock's native restore test allows the local generation-publication
+frame (`restored frontier >= source frontier`), so FUNG's restore tests now use
+that bound and retain their data-integrity assertions; both pass when run alone.
+The latest local full suite had 611 passes, 1 unrelated stdio timeout threshold
+failure under parallel load, and 3 ignored tests; the isolated timing test passes
+in 0.17s. Fresh exact-head CI for [FUNG PR #83](https://github.com/Freshair129/FUNG/pull/83)
+will rerun the full suite. The actual-profile lifecycle receipts from the separate
+[FUNG PR #80](https://github.com/Freshair129/FUNG/pull/80) used the earlier
+`ddfc6e9` candidate and do not qualify this new pinned revision. Packaged startup,
+arbitrary crash recovery and issue closure remain open.
 
 ## Reference dashboard composition — 2026-10-15
 
@@ -134,9 +151,8 @@ current exact-rate/stereo/sample-format requirements; the typed error was
 shown and no sound started. The error does not isolate sample rate as the only
 cause. Both native boots had `localApi.running=false` and no pending jobs, so
 enabled local API requests and active-job shutdown are outside this acceptance.
-This does not prove forced-crash recovery, close issue #41, qualify Thai
-accuracy, or establish packaged/release readiness. Genesis remains pinned to
-`77e07f7b127f65a1f92cfc688ef15f322115d5f8`.
+This does not by itself close issue #41, qualify Thai accuracy, or establish packaged/release readiness. These receipts predate the current GenesisBlock pin `2cf485573d48d0e5e2ae76db647ec4c4dee543c3`; see the recovery section above for current-pin regression evidence.
+
 
 ## Python runtime Dependabot remediation — 2026-10-01
 
@@ -939,16 +955,13 @@ Two follow-ups from 0.2.18b are now corrected rather than left as open bugs:
   `dataDir` recorder bug (fixed in PR #42) reporting `available:false` at that
   moment, so capture fell to web. On a real Android device native is always
   tried first.
-- **Issue #41 is fail-closed on incompatible state, not an install-idempotency
-  bug.** `genesis_adapter::install` registers v1..v10 stepwise, skips
-  `REL_SCHEMA_VERSION_CONFLICT` on already-registered steps, and re-registering
-  the current version is idempotent (proven by
-  `schema_v4_adds_external_tables_and_upgrade_is_idempotent`, which re-runs
-  `install` on a v10 store). Normal reboots therefore do not crash. The crash
-  was a genuinely incompatible pre-September genesisdb (written by an older
-  GenesisBlockDB) — the right behavior is to refuse rather than proceed on
-  mismatched state. A friendlier recovery/error is a product decision, not a
-  latent correctness bug; left for the owner to direct.
+- **Historical Issue #41 diagnosis, superseded 2026-10-15.** The test cited here
+  proves that `genesis_adapter::install` tolerates an already-current schema;
+  it did not exercise Windows projection recovery after the prior process had
+  persisted and closed the profile. The later disposable-profile reproduction
+  and upstream GenesisBlock investigation identified a Windows projection
+  replacement/replay defect. The current candidate and its still-open validation
+  gates are recorded at the top of this file and in the linked RCA report.
 
 ## Current truth sync (2026-09-04)
 
@@ -1037,11 +1050,10 @@ when no real reading exists.
 Two operational discoveries: (1) the desktop panicked on second boot against
 the pre-September `%APPDATA%\dev.fung.local` state with
 `REL_SCHEMA_VERSION_CONFLICT` (issue #41); the data root held no projects and
-was reset, after which repeated boots are clean. See the 2026-09-13 sync below
-for the corrected characterization — `genesis_adapter::install` is idempotent
-across same-version reboots (test-proven), so this was fail-closed on an
-incompatible pre-September genesisdb, not an install-idempotency bug. (2) The
-Supabase project (`nqnrvqnijzovkrhxslfp`) had been
+was reset, after which repeated boots were clean. The 2026-09-13 note below
+records the then-current install-idempotency hypothesis; the later copied-profile
+reproduction and GenesisBlock recovery investigation supersede it as described
+at the top of this file. (2) The Supabase project (`nqnrvqnijzovkrhxslfp`) had been
 auto-paused by the free tier, which removes its DNS entirely — every auth
 surface fails with NXDOMAIN until it is restored; at the time of this sync the
 restore itself is blocked by a Supabase-wide "Project Lifecycle Actions"
@@ -1306,6 +1318,15 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.23b` → `0.3.24b`
+
+- Reconciled issue #41 documentation and regression coverage with the merged
+  GenesisBlock `2cf4855` pin while preserving the PR #80 shutdown checkpoint.
+- Integrated the shared token board and regenerated coverage for the current
+  Studio dashboard; `DesktopStudio.css` remains a documented token migration gap.
+- Frontend build, Desktop shell (15/15), design-system checks and focused Rust
+  profile/persistence regressions passed; full PR CI and native/release gates remain open.
+
 ### `0.3.22b` → `0.3.23b`
 
 Reconciled current Studio wireframes/flows and documentation ownership; repaired
@@ -1477,8 +1498,9 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.24b | 2026-10-16 | beta | Reconciled PR #80 with main and the merged GenesisBlock pin; focused profile/persistence regressions and Desktop/design-system checks passed, full CI and native/release gates remain open. | working-tree | Codex |
 | 0.3.23b | 2026-10-16 | beta | Current Studio flow/index reconciliation, citation semantics and bounded UI repairs; frontend build and 89 CPU checks passed, native/provider/device gates retained. | working-tree | Codex |
-| 0.3.22b | 2026-10-15 | beta | Windows original-profile schema recovery (#41), preserved provider settings and verified native close/reopen. | See PR #80 recovery commit; GenesisBlock PR #233 | Codex |
+| 0.3.22b | 2026-10-15 | beta | Windows original-profile schema recovery (#41), preserved provider settings and native close/reopen evidence on the earlier Genesis candidate. | See PR #80 recovery commit; GenesisBlock PR #233 | Codex |
 | 0.3.21b | 2026-10-15 | beta | Reference dashboard with real project activity, bottom dock, responsive scrolling and bounded browser QA (#82). | See PR #80 dashboard commit | Codex |
 | 0.3.20b | 2026-10-15 | beta | Built and opened a native preview with the corrected frontend on user request; window startup confirmed, native visual/feature and installer acceptance pending. | 46f6c78 (preview source) | Codex |
 | 0.3.19b | 2026-10-15 | beta | Corrected desktop viewport/scroll layout (#81), fixed glass skip-link/overlay stacking and made project context collapsible; 14 shell checks, frontend build and bounded browser layout inspection passed. Installed native UI and release acceptance remain open. | working-tree | Codex |

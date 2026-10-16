@@ -72,9 +72,9 @@ mod zoom_sync;
 const PROJECT_ROOT: &str = env!("CARGO_MANIFEST_DIR");
 
 /// Default local Ollama endpoint. Seeded into the `model_providers` row
-/// `ollama-summary-intent` on first run (both the raw-SQL bootstrap and the
-/// genesis JSON upsert below) and used by `graph_build::llm_provider_config`
-/// as the fallback when that row's `config_json` has no `endpoint` key.
+/// `ollama-summary-intent` when missing and used by
+/// `graph_build::llm_provider_config` as the fallback when that row's
+/// `config_json` has no `endpoint` key.
 /// Single source of truth so the seed and the fallback cannot drift apart
 /// (issue #36).
 pub(crate) const DEFAULT_OLLAMA_ENDPOINT: &str = "http://127.0.0.1:11434";
@@ -132,13 +132,13 @@ const QWEN_CANDIDATE_PYTHON_SHA256: &str =
     "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3";
 const QWEN_CANDIDATE_TORCH_VERSION: &str = "2.14.0+cu130";
 const QWEN_CANDIDATE_TRANSFORMERS_VERSION: &str = "5.16.1";
-const QWEN_CANDIDATE_ACCELERATE_VERSION: &str = "1.10.1";
+const QWEN_CANDIDATE_ACCELERATE_VERSION: &str = "1.15.0";
 const QWEN_CANDIDATE_FASTER_WHISPER_VERSION: &str = "1.2.1";
 const QWEN_CANDIDATE_AV_VERSION: &str = "18.1.0";
 const QWEN_CANDIDATE_PYTHAINLP_VERSION: &str = "5.3.8";
 const QWEN_CANDIDATE_CUDA_VERSION: &str = "13.0";
 const QWEN_CANDIDATE_DEPENDENCY_LOCK_SHA256: &str =
-    "719504fc1f81edeb16a95c8640736ddab08e8885b30e850557471ffd853a72dc";
+    "1bb7f987caa6bef4c49e08cb257d50bdb7c139beb140ea61cba6fa26287c8787";
 const QWEN_CANDIDATE_RUNTIME: &str = ".venv-whisper-qwen-candidate";
 
 #[derive(Clone)]
@@ -7927,49 +7927,181 @@ mod transcript_correction_tests {
     }
 
     #[test]
-    fn startup_provider_defaults_preserve_existing_configuration() {
-        let (path, storage) = open_storage();
-        let custom = serde_json::json!({
-            "id":"ollama-summary-intent", "label":"ผู้ให้บริการของฉัน",
-            "runtime_location":"local", "kind":"summary_intent", "enabled":false,
-            "config_json":{"endpoint":"http://127.0.0.1:19999"},
-            "created_at":"original-created", "updated_at":"original-updated"
+    fn existing_profile_second_open_preserves_schema_data_and_provider_configuration() {
+        let directory = tempfile::tempdir().expect("create disposable profile directory");
+        let path = directory.path().join("genesisdb");
+        let first_boot = open_storage_at(&path);
+        seed_segment(&first_boot);
+
+        let custom_provider = serde_json::json!({
+            "id": "ollama-summary-intent",
+            "label": "ผู้ให้บริการของฉัน",
+            "runtime_location": "local",
+            "kind": "summary_intent",
+            "enabled": false,
+            "config_json": {"endpoint": "http://127.0.0.1:19999"},
+            "created_at": "provider-created",
+            "updated_at": "provider-updated",
         });
         genesis_adapter::commit_rows(
-            &storage,
-            vec![genesis_adapter::upsert("model_providers", custom)],
+            &first_boot,
+            vec![genesis_adapter::upsert(
+                "model_providers",
+                custom_provider.clone(),
+            )],
         )
         .unwrap();
-        let rows = || {
+        seed_default_model_providers(&first_boot, "first-boot").unwrap();
+        first_boot
+            .save_state()
+            .expect("persist the first boot's schema and rows");
+
+        let project_before = genesis_adapter::query(
+            &first_boot,
+            "projects",
+            &[
+                "id",
+                "name",
+                "storage_path",
+                "active_recording_id",
+                "created_at",
+            ],
+            vec![],
+            10,
+        )
+        .unwrap();
+        let recording_before = genesis_adapter::query(
+            &first_boot,
+            "recordings",
+            &[
+                "id",
+                "project_id",
+                "input_path",
+                "canonical_audio_path",
+                "duration_ms",
+            ],
+            vec![],
+            10,
+        )
+        .unwrap();
+        let transcript_before = genesis_adapter::query(
+            &first_boot,
+            "transcript_segments",
+            &["id", "text", "start_ms", "end_ms"],
+            vec![],
+            10,
+        )
+        .unwrap();
+        drop(first_boot);
+
+        // Reopening this same on-disk profile exercises the startup schema
+        // install path that previously failed with REL_SCHEMA_VERSION_CONFLICT.
+        let second_boot = open_storage_at(&path);
+        seed_default_model_providers(&second_boot, "second-boot").unwrap();
+
+        assert_eq!(
             genesis_adapter::query(
-                &storage,
-                "model_providers",
+                &second_boot,
+                "projects",
                 &[
                     "id",
-                    "label",
-                    "enabled",
-                    "config_json",
-                    "created_at",
-                    "updated_at",
+                    "name",
+                    "storage_path",
+                    "active_recording_id",
+                    "created_at"
                 ],
                 vec![],
                 10,
             )
+            .unwrap(),
+            project_before
+        );
+        assert_eq!(
+            genesis_adapter::query(
+                &second_boot,
+                "recordings",
+                &[
+                    "id",
+                    "project_id",
+                    "input_path",
+                    "canonical_audio_path",
+                    "duration_ms"
+                ],
+                vec![],
+                10,
+            )
+            .unwrap(),
+            recording_before
+        );
+        assert_eq!(
+            genesis_adapter::query(
+                &second_boot,
+                "transcript_segments",
+                &["id", "text", "start_ms", "end_ms"],
+                vec![],
+                10,
+            )
+            .unwrap(),
+            transcript_before
+        );
+
+        let provider = genesis_adapter::query(
+            &second_boot,
+            "model_providers",
+            &[
+                "id",
+                "label",
+                "runtime_location",
+                "kind",
+                "enabled",
+                "config_json",
+                "created_at",
+                "updated_at",
+            ],
+            vec![genesis_adapter::eq(
+                "model_providers",
+                "id",
+                serde_json::json!("ollama-summary-intent"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .expect("custom provider survives second startup");
+        assert_eq!(
+            provider,
+            serde_json::json!({
+                "model_providers.id": "ollama-summary-intent",
+                "model_providers.label": "ผู้ให้บริการของฉัน",
+                "model_providers.runtime_location": "local",
+                "model_providers.kind": "summary_intent",
+                "model_providers.enabled": false,
+                "model_providers.config_json": {"endpoint": "http://127.0.0.1:19999"},
+                "model_providers.created_at": "provider-created",
+                "model_providers.updated_at": "provider-updated",
+            })
+        );
+        assert_eq!(
+            genesis_adapter::query(
+                &second_boot,
+                "model_providers",
+                &["id"],
+                vec![genesis_adapter::eq(
+                    "model_providers",
+                    "id",
+                    serde_json::json!("vllm-summary-intent"),
+                )],
+                1,
+            )
             .unwrap()
-        };
-        let original = rows().pop().unwrap();
-        seed_default_model_providers(&storage, "first-boot").unwrap();
-        let first_boot = rows();
-        assert_eq!(first_boot.len(), 2);
-        assert!(first_boot.contains(&original));
-        seed_default_model_providers(&storage, "second-boot").unwrap();
-        let second_boot = rows();
-        assert_eq!(second_boot.len(), 2);
-        for provider in first_boot {
-            assert!(second_boot.contains(&provider));
-        }
-        drop(storage);
-        let _ = std::fs::remove_dir_all(path);
+            .len(),
+            1,
+            "startup still inserts missing provider defaults"
+        );
+        second_boot
+            .save_state()
+            .expect("checkpoint the recovered profile");
+        drop(second_boot);
     }
 
     #[test]

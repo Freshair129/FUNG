@@ -18,7 +18,7 @@ export function AuthCallback() {
 
   if (error) {
     return (
-      <div className="auth-callback-error">
+      <div className="auth-callback-error" data-fung-root="true" data-theme="system">
         <p>{error}</p>
         <a href="/">กลับหน้าแรก</a>
       </div>

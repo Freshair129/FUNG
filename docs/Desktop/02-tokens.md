@@ -2,15 +2,17 @@
 version: "0.1.0b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-07-05T13:15:00+07:00,ATHER"
-status: "beta"
-superseded_by: null
+status: "legacy"
+superseded_by: "docs/FUNG_Design_System_v0.1.0/tokens/fung.tokens.json"
 attributes:
   domain: "local-first-audio-ai"
   doc_type: "design-tokens"
   scope: "FUNG"
 ---
 
-# 02 - Tokens
+# 02 - Historical Desktop tokens
+
+> This July 2026 palette and Skeuomorphic Subtract material guide is retained as design history. It is not the current Desktop token authority. Use the [shared DTCG token source](../FUNG_Design_System_v0.1.0/tokens/fung.tokens.json) and the [cross-surface board](../design-system/index.html). Current Desktop shell and material behavior follow the Liquid Glass decision.
 
 ## Design Direction
 

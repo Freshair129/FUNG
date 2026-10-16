@@ -1,379 +1,2620 @@
 {
-  "$schemaNote": "Project-specific token schema; this is not a claim of DTCG compatibility.",
-  "metadata": {
-    "id": "DS-FUNG-001",
-    "version": "0.1.0",
-    "status": "beta",
-    "date": "2026-09-16",
-    "prefix": "--fung-",
-    "brandSource": "FRONTEND_REDESIGN_BRIEF.md §2",
-    "themeSource": "New semantic theme proposals; see DESIGN_SYSTEM.md §5",
-    "fontFilesIncluded": false
-  },
+  "$description": "FUNG shared design tokens. DTCG is the portable interchange source; CSS and the design board are generated outputs.",
   "brand": {
-    "porcelain": "#FAF8F3",
-    "ink": "#171918",
-    "sage": "#6F897E",
-    "slate": "#4A5B8B",
-    "metal": "#9A8260",
-    "clay": "#B0553F"
+    "$type": "color",
+    "porcelain": {
+      "$type": "color",
+      "$description": "Quiet Archive brand porcelain.",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.980392,
+          0.972549,
+          0.952941
+        ],
+        "hex": "#FAF8F3"
+      }
+    },
+    "ink": {
+      "$type": "color",
+      "$description": "Quiet Archive brand ink.",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.090196,
+          0.098039,
+          0.094118
+        ],
+        "hex": "#171918"
+      }
+    },
+    "sage": {
+      "$type": "color",
+      "$description": "Quiet Archive brand sage.",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.435294,
+          0.537255,
+          0.494118
+        ],
+        "hex": "#6F897E"
+      }
+    },
+    "slate": {
+      "$type": "color",
+      "$description": "Quiet Archive brand slate.",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.290196,
+          0.356863,
+          0.545098
+        ],
+        "hex": "#4A5B8B"
+      }
+    },
+    "metal": {
+      "$type": "color",
+      "$description": "Quiet Archive brand metal.",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.603922,
+          0.509804,
+          0.376471
+        ],
+        "hex": "#9A8260"
+      }
+    },
+    "clay": {
+      "$type": "color",
+      "$description": "Quiet Archive brand clay.",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.690196,
+          0.333333,
+          0.247059
+        ],
+        "hex": "#B0553F"
+      }
+    }
   },
   "shared": {
-    "font-ui": "\"IBM Plex Sans Thai\", \"DM Sans\", system-ui, sans-serif",
-    "font-latin": "\"DM Sans\", \"IBM Plex Sans Thai\", system-ui, sans-serif",
-    "font-display": "\"Fraunces\", \"IBM Plex Sans Thai\", serif",
-    "font-mono": "\"IBM Plex Mono\", ui-monospace, monospace",
-    "font-weight-regular": "400",
-    "font-weight-medium": "500",
-    "font-weight-semibold": "600",
-    "font-size-caption": "0.75rem",
-    "line-height-caption": "1.125rem",
-    "font-size-label": "0.8125rem",
-    "line-height-label": "1.25rem",
-    "font-size-body": "0.875rem",
-    "line-height-body": "1.5rem",
-    "font-size-body-mobile": "1rem",
-    "line-height-body-mobile": "1.625rem",
-    "font-size-title-sm": "1.25rem",
-    "line-height-title-sm": "1.875rem",
-    "font-size-title": "1.5rem",
-    "line-height-title": "2.125rem",
-    "font-size-display": "3rem",
-    "line-height-display": "1.12",
-    "font-size-timer": "1.75rem",
-    "line-height-timer": "2.25rem",
-    "font-size-timer-mobile": "2.5rem",
-    "line-height-timer-mobile": "3.25rem",
-    "wordmark-tracking": "0.34em",
-    "space-0": "0px",
-    "space-4": "4px",
-    "space-8": "8px",
-    "space-12": "12px",
-    "space-16": "16px",
-    "space-20": "20px",
-    "space-24": "24px",
-    "space-32": "32px",
-    "space-40": "40px",
-    "space-48": "48px",
-    "space-64": "64px",
-    "space-80": "80px",
-    "space-96": "96px",
-    "radius-xs": "4px",
-    "radius-sm": "8px",
-    "radius-md": "12px",
-    "radius-lg": "16px",
-    "radius-pill": "999px",
-    "border-width": "1px",
-    "focus-width": "2px",
-    "focus-offset": "3px",
-    "control-height": "44px",
-    "control-height-compact": "36px",
-    "touch-target": "44px",
-    "control-height-primary-mobile": "52px",
-    "icon-sm": "16px",
-    "icon-md": "20px",
-    "icon-lg": "24px",
-    "icon-stroke": "1.75",
-    "layout-desktop-stage-width": "1304px",
-    "layout-desktop-stage-height": "744px",
-    "layout-desktop-nav-width": "176px",
-    "layout-desktop-context-width": "320px",
-    "layout-topbar-height": "56px",
-    "layout-statusbar-height": "24px",
-    "layout-mobile-landscape-rail": "68px",
-    "layout-content-max-width": "1440px",
-    "layout-reading-max-width": "72ch",
-    "companion-idle-hitbox": "48px",
-    "companion-idle-mark": "32px",
-    "companion-peek-width": "296px",
-    "companion-command-width": "400px",
-    "companion-conversation-width": "440px",
-    "companion-screen-margin": "16px",
-    "motion-press": "80ms",
-    "motion-hover": "120ms",
-    "motion-expand": "180ms",
-    "motion-panel": "240ms",
-    "motion-maximum": "320ms",
-    "ease-standard": "cubic-bezier(0.2, 0, 0, 1)",
-    "ease-enter": "cubic-bezier(0.16, 1, 0.3, 1)",
-    "z-base": "0",
-    "z-sticky": "10",
-    "z-dropdown": "40",
-    "z-sheet": "60",
-    "z-dialog": "80",
-    "z-toast": "100",
-    "z-tooltip": "120"
+    "font-ui": {
+      "$type": "fontFamily",
+      "$description": "Font ui token.",
+      "$value": [
+        "IBM Plex Sans Thai",
+        "DM Sans",
+        "system-ui",
+        "sans-serif"
+      ]
+    },
+    "font-latin": {
+      "$type": "fontFamily",
+      "$description": "Font latin token.",
+      "$value": [
+        "DM Sans",
+        "IBM Plex Sans Thai",
+        "system-ui",
+        "sans-serif"
+      ]
+    },
+    "font-display": {
+      "$type": "fontFamily",
+      "$description": "Font display token.",
+      "$value": [
+        "Fraunces",
+        "IBM Plex Sans Thai",
+        "serif"
+      ]
+    },
+    "font-mono": {
+      "$type": "fontFamily",
+      "$description": "Font mono token.",
+      "$value": [
+        "IBM Plex Mono",
+        "ui-monospace",
+        "monospace"
+      ]
+    },
+    "font-weight-regular": {
+      "$type": "fontWeight",
+      "$description": "Font weight regular token.",
+      "$value": 400
+    },
+    "font-weight-medium": {
+      "$type": "fontWeight",
+      "$description": "Font weight medium token.",
+      "$value": 500
+    },
+    "font-weight-semibold": {
+      "$type": "fontWeight",
+      "$description": "Font weight semibold token.",
+      "$value": 600
+    },
+    "font-size-caption": {
+      "$type": "dimension",
+      "$description": "Font size caption token.",
+      "$value": {
+        "value": 0.75,
+        "unit": "rem"
+      }
+    },
+    "line-height-caption": {
+      "$type": "dimension",
+      "$description": "Line height caption token.",
+      "$value": {
+        "value": 1.125,
+        "unit": "rem"
+      }
+    },
+    "font-size-label": {
+      "$type": "dimension",
+      "$description": "Font size label token.",
+      "$value": {
+        "value": 0.8125,
+        "unit": "rem"
+      }
+    },
+    "line-height-label": {
+      "$type": "dimension",
+      "$description": "Line height label token.",
+      "$value": {
+        "value": 1.25,
+        "unit": "rem"
+      }
+    },
+    "font-size-body": {
+      "$type": "dimension",
+      "$description": "Font size body token.",
+      "$value": {
+        "value": 0.875,
+        "unit": "rem"
+      }
+    },
+    "line-height-body": {
+      "$type": "dimension",
+      "$description": "Line height body token.",
+      "$value": {
+        "value": 1.5,
+        "unit": "rem"
+      }
+    },
+    "font-size-body-mobile": {
+      "$type": "dimension",
+      "$description": "Font size body mobile token.",
+      "$value": {
+        "value": 1,
+        "unit": "rem"
+      }
+    },
+    "line-height-body-mobile": {
+      "$type": "dimension",
+      "$description": "Line height body mobile token.",
+      "$value": {
+        "value": 1.625,
+        "unit": "rem"
+      }
+    },
+    "font-size-title-sm": {
+      "$type": "dimension",
+      "$description": "Font size title sm token.",
+      "$value": {
+        "value": 1.25,
+        "unit": "rem"
+      }
+    },
+    "line-height-title-sm": {
+      "$type": "dimension",
+      "$description": "Line height title sm token.",
+      "$value": {
+        "value": 1.875,
+        "unit": "rem"
+      }
+    },
+    "font-size-title": {
+      "$type": "dimension",
+      "$description": "Font size title token.",
+      "$value": {
+        "value": 1.5,
+        "unit": "rem"
+      }
+    },
+    "line-height-title": {
+      "$type": "dimension",
+      "$description": "Line height title token.",
+      "$value": {
+        "value": 2.125,
+        "unit": "rem"
+      }
+    },
+    "font-size-display": {
+      "$type": "dimension",
+      "$description": "Font size display token.",
+      "$value": {
+        "value": 3,
+        "unit": "rem"
+      }
+    },
+    "line-height-display": {
+      "$type": "number",
+      "$description": "Line height display token.",
+      "$value": 1.12
+    },
+    "font-size-timer": {
+      "$type": "dimension",
+      "$description": "Font size timer token.",
+      "$value": {
+        "value": 1.75,
+        "unit": "rem"
+      }
+    },
+    "line-height-timer": {
+      "$type": "dimension",
+      "$description": "Line height timer token.",
+      "$value": {
+        "value": 2.25,
+        "unit": "rem"
+      }
+    },
+    "font-size-timer-mobile": {
+      "$type": "dimension",
+      "$description": "Font size timer mobile token.",
+      "$value": {
+        "value": 2.5,
+        "unit": "rem"
+      }
+    },
+    "line-height-timer-mobile": {
+      "$type": "dimension",
+      "$description": "Line height timer mobile token.",
+      "$value": {
+        "value": 3.25,
+        "unit": "rem"
+      }
+    },
+    "wordmark-tracking": {
+      "$type": "number",
+      "$description": "Wordmark tracking token.",
+      "$value": 0.34,
+      "$extensions": {
+        "com.fung.design-system": {
+          "cssUnit": "em"
+        }
+      }
+    },
+    "space-0": {
+      "$type": "dimension",
+      "$description": "Space 0 token.",
+      "$value": {
+        "value": 0,
+        "unit": "px"
+      }
+    },
+    "space-4": {
+      "$type": "dimension",
+      "$description": "Space 4 token.",
+      "$value": {
+        "value": 4,
+        "unit": "px"
+      }
+    },
+    "space-8": {
+      "$type": "dimension",
+      "$description": "Space 8 token.",
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      }
+    },
+    "space-12": {
+      "$type": "dimension",
+      "$description": "Space 12 token.",
+      "$value": {
+        "value": 12,
+        "unit": "px"
+      }
+    },
+    "space-16": {
+      "$type": "dimension",
+      "$description": "Space 16 token.",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      }
+    },
+    "space-20": {
+      "$type": "dimension",
+      "$description": "Space 20 token.",
+      "$value": {
+        "value": 20,
+        "unit": "px"
+      }
+    },
+    "space-24": {
+      "$type": "dimension",
+      "$description": "Space 24 token.",
+      "$value": {
+        "value": 24,
+        "unit": "px"
+      }
+    },
+    "space-32": {
+      "$type": "dimension",
+      "$description": "Space 32 token.",
+      "$value": {
+        "value": 32,
+        "unit": "px"
+      }
+    },
+    "space-40": {
+      "$type": "dimension",
+      "$description": "Space 40 token.",
+      "$value": {
+        "value": 40,
+        "unit": "px"
+      }
+    },
+    "space-48": {
+      "$type": "dimension",
+      "$description": "Space 48 token.",
+      "$value": {
+        "value": 48,
+        "unit": "px"
+      }
+    },
+    "space-64": {
+      "$type": "dimension",
+      "$description": "Space 64 token.",
+      "$value": {
+        "value": 64,
+        "unit": "px"
+      }
+    },
+    "space-80": {
+      "$type": "dimension",
+      "$description": "Space 80 token.",
+      "$value": {
+        "value": 80,
+        "unit": "px"
+      }
+    },
+    "space-96": {
+      "$type": "dimension",
+      "$description": "Space 96 token.",
+      "$value": {
+        "value": 96,
+        "unit": "px"
+      }
+    },
+    "radius-xs": {
+      "$type": "dimension",
+      "$description": "Radius xs token.",
+      "$value": {
+        "value": 4,
+        "unit": "px"
+      }
+    },
+    "radius-sm": {
+      "$type": "dimension",
+      "$description": "Radius sm token.",
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      }
+    },
+    "radius-md": {
+      "$type": "dimension",
+      "$description": "Radius md token.",
+      "$value": {
+        "value": 12,
+        "unit": "px"
+      }
+    },
+    "radius-lg": {
+      "$type": "dimension",
+      "$description": "Radius lg token.",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      }
+    },
+    "radius-pill": {
+      "$type": "dimension",
+      "$description": "Radius pill token.",
+      "$value": {
+        "value": 999,
+        "unit": "px"
+      }
+    },
+    "border-width": {
+      "$type": "dimension",
+      "$description": "Border width token.",
+      "$value": {
+        "value": 1,
+        "unit": "px"
+      }
+    },
+    "focus-width": {
+      "$type": "dimension",
+      "$description": "Focus width token.",
+      "$value": {
+        "value": 2,
+        "unit": "px"
+      }
+    },
+    "focus-offset": {
+      "$type": "dimension",
+      "$description": "Focus offset token.",
+      "$value": {
+        "value": 3,
+        "unit": "px"
+      }
+    },
+    "control-height": {
+      "$type": "dimension",
+      "$description": "Control height token.",
+      "$value": {
+        "value": 44,
+        "unit": "px"
+      }
+    },
+    "control-height-compact": {
+      "$type": "dimension",
+      "$description": "Control height compact token.",
+      "$value": {
+        "value": 36,
+        "unit": "px"
+      }
+    },
+    "touch-target": {
+      "$type": "dimension",
+      "$description": "Touch target token.",
+      "$value": {
+        "value": 44,
+        "unit": "px"
+      }
+    },
+    "control-height-primary-mobile": {
+      "$type": "dimension",
+      "$description": "Control height primary mobile token.",
+      "$value": {
+        "value": 52,
+        "unit": "px"
+      }
+    },
+    "icon-sm": {
+      "$type": "dimension",
+      "$description": "Icon sm token.",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      }
+    },
+    "icon-md": {
+      "$type": "dimension",
+      "$description": "Icon md token.",
+      "$value": {
+        "value": 20,
+        "unit": "px"
+      }
+    },
+    "icon-lg": {
+      "$type": "dimension",
+      "$description": "Icon lg token.",
+      "$value": {
+        "value": 24,
+        "unit": "px"
+      }
+    },
+    "icon-stroke": {
+      "$type": "number",
+      "$description": "Icon stroke token.",
+      "$value": 1.75
+    },
+    "layout-desktop-stage-width": {
+      "$type": "dimension",
+      "$description": "Layout desktop stage width token.",
+      "$value": {
+        "value": 1304,
+        "unit": "px"
+      }
+    },
+    "layout-desktop-stage-height": {
+      "$type": "dimension",
+      "$description": "Layout desktop stage height token.",
+      "$value": {
+        "value": 744,
+        "unit": "px"
+      }
+    },
+    "layout-desktop-nav-width": {
+      "$type": "dimension",
+      "$description": "Layout desktop nav width token.",
+      "$value": {
+        "value": 176,
+        "unit": "px"
+      }
+    },
+    "layout-desktop-context-width": {
+      "$type": "dimension",
+      "$description": "Layout desktop context width token.",
+      "$value": {
+        "value": 320,
+        "unit": "px"
+      }
+    },
+    "layout-topbar-height": {
+      "$type": "dimension",
+      "$description": "Layout topbar height token.",
+      "$value": {
+        "value": 56,
+        "unit": "px"
+      }
+    },
+    "layout-statusbar-height": {
+      "$type": "dimension",
+      "$description": "Layout statusbar height token.",
+      "$value": {
+        "value": 24,
+        "unit": "px"
+      }
+    },
+    "layout-mobile-landscape-rail": {
+      "$type": "dimension",
+      "$description": "Layout mobile landscape rail token.",
+      "$value": {
+        "value": 68,
+        "unit": "px"
+      }
+    },
+    "layout-content-max-width": {
+      "$type": "dimension",
+      "$description": "Layout content max width token.",
+      "$value": {
+        "value": 1440,
+        "unit": "px"
+      }
+    },
+    "layout-reading-max-width": {
+      "$type": "number",
+      "$description": "Layout reading max width token.",
+      "$value": 72,
+      "$extensions": {
+        "com.fung.design-system": {
+          "cssUnit": "ch"
+        }
+      }
+    },
+    "companion-idle-hitbox": {
+      "$type": "dimension",
+      "$description": "Companion idle hitbox token.",
+      "$value": {
+        "value": 48,
+        "unit": "px"
+      }
+    },
+    "companion-idle-mark": {
+      "$type": "dimension",
+      "$description": "Companion idle mark token.",
+      "$value": {
+        "value": 32,
+        "unit": "px"
+      }
+    },
+    "companion-peek-width": {
+      "$type": "dimension",
+      "$description": "Companion peek width token.",
+      "$value": {
+        "value": 296,
+        "unit": "px"
+      }
+    },
+    "companion-command-width": {
+      "$type": "dimension",
+      "$description": "Companion command width token.",
+      "$value": {
+        "value": 400,
+        "unit": "px"
+      }
+    },
+    "companion-conversation-width": {
+      "$type": "dimension",
+      "$description": "Companion conversation width token.",
+      "$value": {
+        "value": 440,
+        "unit": "px"
+      }
+    },
+    "companion-screen-margin": {
+      "$type": "dimension",
+      "$description": "Companion screen margin token.",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      }
+    },
+    "motion-press": {
+      "$type": "duration",
+      "$description": "Motion press token.",
+      "$value": {
+        "value": 80,
+        "unit": "ms"
+      }
+    },
+    "motion-hover": {
+      "$type": "duration",
+      "$description": "Motion hover token.",
+      "$value": {
+        "value": 120,
+        "unit": "ms"
+      }
+    },
+    "motion-expand": {
+      "$type": "duration",
+      "$description": "Motion expand token.",
+      "$value": {
+        "value": 180,
+        "unit": "ms"
+      }
+    },
+    "motion-panel": {
+      "$type": "duration",
+      "$description": "Motion panel token.",
+      "$value": {
+        "value": 240,
+        "unit": "ms"
+      }
+    },
+    "motion-maximum": {
+      "$type": "duration",
+      "$description": "Motion maximum token.",
+      "$value": {
+        "value": 320,
+        "unit": "ms"
+      }
+    },
+    "ease-standard": {
+      "$type": "cubicBezier",
+      "$description": "Ease standard token.",
+      "$value": [
+        0.2,
+        0,
+        0,
+        1
+      ]
+    },
+    "ease-enter": {
+      "$type": "cubicBezier",
+      "$description": "Ease enter token.",
+      "$value": [
+        0.16,
+        1,
+        0.3,
+        1
+      ]
+    },
+    "z-base": {
+      "$type": "number",
+      "$description": "Z base token.",
+      "$value": 0
+    },
+    "z-sticky": {
+      "$type": "number",
+      "$description": "Z sticky token.",
+      "$value": 10
+    },
+    "z-dropdown": {
+      "$type": "number",
+      "$description": "Z dropdown token.",
+      "$value": 40
+    },
+    "z-sheet": {
+      "$type": "number",
+      "$description": "Z sheet token.",
+      "$value": 60
+    },
+    "z-dialog": {
+      "$type": "number",
+      "$description": "Z dialog token.",
+      "$value": 80
+    },
+    "z-toast": {
+      "$type": "number",
+      "$description": "Z toast token.",
+      "$value": 100
+    },
+    "z-tooltip": {
+      "$type": "number",
+      "$description": "Z tooltip token.",
+      "$value": 120
+    },
+    "glass-blur": {
+      "$type": "dimension",
+      "$description": "Liquid Glass material geometry token.",
+      "$value": {
+        "value": 18,
+        "unit": "px"
+      }
+    },
+    "glass-blur-sheet": {
+      "$type": "dimension",
+      "$description": "Liquid Glass material geometry token.",
+      "$value": {
+        "value": 26,
+        "unit": "px"
+      }
+    },
+    "glass-radius-control": {
+      "$type": "dimension",
+      "$description": "Liquid Glass material geometry token.",
+      "$value": {
+        "value": 22,
+        "unit": "px"
+      }
+    },
+    "glass-radius-card": {
+      "$type": "dimension",
+      "$description": "Liquid Glass material geometry token.",
+      "$value": {
+        "value": 22,
+        "unit": "px"
+      }
+    },
+    "glass-radius-nav": {
+      "$type": "dimension",
+      "$description": "Liquid Glass material geometry token.",
+      "$value": {
+        "value": 30,
+        "unit": "px"
+      }
+    },
+    "glass-saturation": {
+      "$type": "number",
+      "$description": "Liquid Glass backdrop saturation percentage.",
+      "$value": 125,
+      "$extensions": {
+        "com.fung.design-system": {
+          "cssUnit": "%"
+        }
+      }
+    }
   },
   "themes": {
     "light": {
-      "bg-canvas": "#FAF8F3",
-      "bg-inset": "#F0EDE6",
-      "bg-surface": "#FFFEFA",
-      "bg-elevated": "#FFFFFF",
-      "bg-hover": "#EAEDE7",
-      "bg-selected": "#E3E9E1",
-      "bg-backdrop": "rgba(23, 25, 24, 0.46)",
-      "text-primary": "#171918",
-      "text-secondary": "#505A54",
-      "text-tertiary": "#59665F",
-      "text-inverse": "#FAF8F3",
-      "text-disabled": "#7D847D",
-      "border-subtle": "#D6D9D1",
-      "border-strong": "#768177",
-      "action-primary-bg": "#4A5B8B",
-      "action-primary-fg": "#FAF8F3",
-      "action-primary-hover": "#3F4E77",
-      "action-primary-pressed": "#354263",
-      "action-secondary-bg": "#ECEEE8",
-      "action-secondary-fg": "#171918",
-      "action-danger-bg": "#B0553F",
-      "action-danger-fg": "#FAF8F3",
-      "link": "#4A5B8B",
-      "focus": "#4A5B8B",
-      "state-local-fg": "#3F6150",
-      "state-local-bg": "#E7EEE8",
-      "state-pending-fg": "#765925",
-      "state-pending-bg": "#F4ECDD",
-      "state-danger-fg": "#9A4634",
-      "state-danger-bg": "#F7E7E1",
-      "state-recording-fg": "#9A4634",
-      "state-recording-bg": "#F7E7E1",
-      "state-inactive-fg": "#59665F",
-      "state-inactive-bg": "#ECEEE8",
-      "state-inferred-fg": "#4A5B8B",
-      "state-inferred-bg": "#E9EDF7",
-      "logo-mark": "#171918",
-      "logo-wordmark": "#6F897E",
-      "shadow-surface": "0 1px 2px rgba(23, 25, 24, 0.05)",
-      "shadow-elevated": "0 8px 28px rgba(23, 25, 24, 0.12)",
-      "shadow-overlay": "0 16px 48px rgba(23, 25, 24, 0.20)",
-      "shadow-inset": "inset 0 1px 0 rgba(255, 255, 255, 0.72)"
+      "$description": "light semantic theme tokens.",
+      "bg-canvas": {
+        "$type": "color",
+        "$description": "bg canvas in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.980392,
+            0.972549,
+            0.952941
+          ],
+          "hex": "#FAF8F3"
+        }
+      },
+      "bg-inset": {
+        "$type": "color",
+        "$description": "bg inset in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.941176,
+            0.929412,
+            0.901961
+          ],
+          "hex": "#F0EDE6"
+        }
+      },
+      "bg-surface": {
+        "$type": "color",
+        "$description": "bg surface in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            0.996078,
+            0.980392
+          ],
+          "hex": "#FFFEFA"
+        }
+      },
+      "bg-elevated": {
+        "$type": "color",
+        "$description": "bg elevated in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "hex": "#FFFFFF"
+        }
+      },
+      "bg-hover": {
+        "$type": "color",
+        "$description": "bg hover in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.917647,
+            0.929412,
+            0.905882
+          ],
+          "hex": "#EAEDE7"
+        }
+      },
+      "bg-selected": {
+        "$type": "color",
+        "$description": "bg selected in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.890196,
+            0.913725,
+            0.882353
+          ],
+          "hex": "#E3E9E1"
+        }
+      },
+      "bg-backdrop": {
+        "$type": "color",
+        "$description": "bg backdrop in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.090196,
+            0.098039,
+            0.094118
+          ],
+          "alpha": 0.46
+        }
+      },
+      "text-primary": {
+        "$type": "color",
+        "$description": "text primary in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.090196,
+            0.098039,
+            0.094118
+          ],
+          "hex": "#171918"
+        }
+      },
+      "text-secondary": {
+        "$type": "color",
+        "$description": "text secondary in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.313725,
+            0.352941,
+            0.329412
+          ],
+          "hex": "#505A54"
+        }
+      },
+      "text-tertiary": {
+        "$type": "color",
+        "$description": "text tertiary in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.34902,
+            0.4,
+            0.372549
+          ],
+          "hex": "#59665F"
+        }
+      },
+      "text-inverse": {
+        "$type": "color",
+        "$description": "text inverse in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.980392,
+            0.972549,
+            0.952941
+          ],
+          "hex": "#FAF8F3"
+        }
+      },
+      "text-disabled": {
+        "$type": "color",
+        "$description": "text disabled in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.490196,
+            0.517647,
+            0.490196
+          ],
+          "hex": "#7D847D"
+        }
+      },
+      "border-subtle": {
+        "$type": "color",
+        "$description": "border subtle in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.839216,
+            0.85098,
+            0.819608
+          ],
+          "hex": "#D6D9D1"
+        }
+      },
+      "border-strong": {
+        "$type": "color",
+        "$description": "border strong in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.462745,
+            0.505882,
+            0.466667
+          ],
+          "hex": "#768177"
+        }
+      },
+      "action-primary-bg": {
+        "$type": "color",
+        "$description": "action primary bg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.290196,
+            0.356863,
+            0.545098
+          ],
+          "hex": "#4A5B8B"
+        }
+      },
+      "action-primary-fg": {
+        "$type": "color",
+        "$description": "action primary fg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.980392,
+            0.972549,
+            0.952941
+          ],
+          "hex": "#FAF8F3"
+        }
+      },
+      "action-primary-hover": {
+        "$type": "color",
+        "$description": "action primary hover in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.247059,
+            0.305882,
+            0.466667
+          ],
+          "hex": "#3F4E77"
+        }
+      },
+      "action-primary-pressed": {
+        "$type": "color",
+        "$description": "action primary pressed in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.207843,
+            0.258824,
+            0.388235
+          ],
+          "hex": "#354263"
+        }
+      },
+      "action-secondary-bg": {
+        "$type": "color",
+        "$description": "action secondary bg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.92549,
+            0.933333,
+            0.909804
+          ],
+          "hex": "#ECEEE8"
+        }
+      },
+      "action-secondary-fg": {
+        "$type": "color",
+        "$description": "action secondary fg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.090196,
+            0.098039,
+            0.094118
+          ],
+          "hex": "#171918"
+        }
+      },
+      "action-danger-bg": {
+        "$type": "color",
+        "$description": "action danger bg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.690196,
+            0.333333,
+            0.247059
+          ],
+          "hex": "#B0553F"
+        }
+      },
+      "action-danger-fg": {
+        "$type": "color",
+        "$description": "action danger fg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.980392,
+            0.972549,
+            0.952941
+          ],
+          "hex": "#FAF8F3"
+        }
+      },
+      "link": {
+        "$type": "color",
+        "$description": "link in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.290196,
+            0.356863,
+            0.545098
+          ],
+          "hex": "#4A5B8B"
+        }
+      },
+      "focus": {
+        "$type": "color",
+        "$description": "focus in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.290196,
+            0.356863,
+            0.545098
+          ],
+          "hex": "#4A5B8B"
+        }
+      },
+      "state-local-fg": {
+        "$type": "color",
+        "$description": "state local fg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.247059,
+            0.380392,
+            0.313725
+          ],
+          "hex": "#3F6150"
+        }
+      },
+      "state-local-bg": {
+        "$type": "color",
+        "$description": "state local bg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.905882,
+            0.933333,
+            0.909804
+          ],
+          "hex": "#E7EEE8"
+        }
+      },
+      "state-pending-fg": {
+        "$type": "color",
+        "$description": "state pending fg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.462745,
+            0.34902,
+            0.145098
+          ],
+          "hex": "#765925"
+        }
+      },
+      "state-pending-bg": {
+        "$type": "color",
+        "$description": "state pending bg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.956863,
+            0.92549,
+            0.866667
+          ],
+          "hex": "#F4ECDD"
+        }
+      },
+      "state-danger-fg": {
+        "$type": "color",
+        "$description": "state danger fg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.603922,
+            0.27451,
+            0.203922
+          ],
+          "hex": "#9A4634"
+        }
+      },
+      "state-danger-bg": {
+        "$type": "color",
+        "$description": "state danger bg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.968627,
+            0.905882,
+            0.882353
+          ],
+          "hex": "#F7E7E1"
+        }
+      },
+      "state-recording-fg": {
+        "$type": "color",
+        "$description": "state recording fg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.603922,
+            0.27451,
+            0.203922
+          ],
+          "hex": "#9A4634"
+        }
+      },
+      "state-recording-bg": {
+        "$type": "color",
+        "$description": "state recording bg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.968627,
+            0.905882,
+            0.882353
+          ],
+          "hex": "#F7E7E1"
+        }
+      },
+      "state-inactive-fg": {
+        "$type": "color",
+        "$description": "state inactive fg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.34902,
+            0.4,
+            0.372549
+          ],
+          "hex": "#59665F"
+        }
+      },
+      "state-inactive-bg": {
+        "$type": "color",
+        "$description": "state inactive bg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.92549,
+            0.933333,
+            0.909804
+          ],
+          "hex": "#ECEEE8"
+        }
+      },
+      "state-inferred-fg": {
+        "$type": "color",
+        "$description": "state inferred fg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.290196,
+            0.356863,
+            0.545098
+          ],
+          "hex": "#4A5B8B"
+        }
+      },
+      "state-inferred-bg": {
+        "$type": "color",
+        "$description": "state inferred bg in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.913725,
+            0.929412,
+            0.968627
+          ],
+          "hex": "#E9EDF7"
+        }
+      },
+      "logo-mark": {
+        "$type": "color",
+        "$description": "logo mark in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.090196,
+            0.098039,
+            0.094118
+          ],
+          "hex": "#171918"
+        }
+      },
+      "logo-wordmark": {
+        "$type": "color",
+        "$description": "logo wordmark in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.435294,
+            0.537255,
+            0.494118
+          ],
+          "hex": "#6F897E"
+        }
+      },
+      "shadow-surface": {
+        "$type": "shadow",
+        "$description": "shadow surface in the light theme.",
+        "$value": {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0.090196,
+              0.098039,
+              0.094118
+            ],
+            "alpha": 0.05
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 1,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 2,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      },
+      "shadow-elevated": {
+        "$type": "shadow",
+        "$description": "shadow elevated in the light theme.",
+        "$value": {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0.090196,
+              0.098039,
+              0.094118
+            ],
+            "alpha": 0.12
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 8,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 28,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      },
+      "shadow-overlay": {
+        "$type": "shadow",
+        "$description": "shadow overlay in the light theme.",
+        "$value": {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0.090196,
+              0.098039,
+              0.094118
+            ],
+            "alpha": 0.2
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 16,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 48,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      },
+      "shadow-inset": {
+        "$type": "shadow",
+        "$description": "shadow inset in the light theme.",
+        "$value": {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              1,
+              1,
+              1
+            ],
+            "alpha": 0.72
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 1,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 0,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          },
+          "inset": true
+        }
+      },
+      "glass-canvas": {
+        "$type": "color",
+        "$description": "Liquid Glass canvas material in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.933333,
+            0.941176,
+            0.913725
+          ],
+          "hex": "#EEF0E9"
+        }
+      },
+      "glass-chrome": {
+        "$type": "color",
+        "$description": "Liquid Glass chrome material in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.988235,
+            0.988235,
+            0.964706
+          ],
+          "alpha": 0.48
+        }
+      },
+      "glass-control": {
+        "$type": "color",
+        "$description": "Liquid Glass control material in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.972549,
+            0.984314,
+            0.960784
+          ],
+          "alpha": 0.34
+        }
+      },
+      "glass-reader": {
+        "$type": "color",
+        "$description": "Liquid Glass reader material in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            0.996078,
+            0.980392
+          ],
+          "alpha": 0.68
+        }
+      },
+      "glass-sheet": {
+        "$type": "color",
+        "$description": "Liquid Glass sheet material in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            0.996078,
+            0.980392
+          ],
+          "alpha": 0.8
+        }
+      },
+      "glass-edge": {
+        "$type": "color",
+        "$description": "Liquid Glass edge material in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.345098,
+            0.407843,
+            0.368627
+          ],
+          "alpha": 0.44
+        }
+      },
+      "glass-highlight": {
+        "$type": "color",
+        "$description": "Liquid Glass highlight material in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            1,
+            1,
+            1
+          ],
+          "alpha": 0.94
+        }
+      },
+      "glass-shade": {
+        "$type": "color",
+        "$description": "Liquid Glass shade material in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.207843,
+            0.278431,
+            0.231373
+          ],
+          "alpha": 0.17
+        }
+      },
+      "glass-solid": {
+        "$type": "color",
+        "$description": "Liquid Glass solid material in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.968627,
+            0.972549,
+            0.94902
+          ],
+          "hex": "#F7F8F2"
+        }
+      },
+      "glass-text": {
+        "$type": "color",
+        "$description": "Liquid Glass text material in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.090196,
+            0.098039,
+            0.094118
+          ],
+          "hex": "#171918"
+        }
+      },
+      "glass-muted": {
+        "$type": "color",
+        "$description": "Liquid Glass muted material in the light theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.313725,
+            0.352941,
+            0.329412
+          ],
+          "hex": "#505A54"
+        }
+      }
     },
     "dark": {
-      "bg-canvas": "#171918",
-      "bg-inset": "#111312",
-      "bg-surface": "#202521",
-      "bg-elevated": "#292F2A",
-      "bg-hover": "#303932",
-      "bg-selected": "#313D34",
-      "bg-backdrop": "rgba(0, 0, 0, 0.58)",
-      "text-primary": "#FAF8F3",
-      "text-secondary": "#CAD1C9",
-      "text-tertiary": "#A3AFA4",
-      "text-inverse": "#171918",
-      "text-disabled": "#717B73",
-      "border-subtle": "#384239",
-      "border-strong": "#788A7A",
-      "action-primary-bg": "#B9C8EE",
-      "action-primary-fg": "#171918",
-      "action-primary-hover": "#CDD8F2",
-      "action-primary-pressed": "#A8BAE2",
-      "action-secondary-bg": "#303932",
-      "action-secondary-fg": "#FAF8F3",
-      "action-danger-bg": "#B0553F",
-      "action-danger-fg": "#FAF8F3",
-      "link": "#B9C8EE",
-      "focus": "#B9C8EE",
-      "state-local-fg": "#ACC6B4",
-      "state-local-bg": "#23382C",
-      "state-pending-fg": "#E3C493",
-      "state-pending-bg": "#3C3021",
-      "state-danger-fg": "#F1AB97",
-      "state-danger-bg": "#3D2722",
-      "state-recording-fg": "#F1AB97",
-      "state-recording-bg": "#3D2722",
-      "state-inactive-fg": "#A3AFA4",
-      "state-inactive-bg": "#2A302C",
-      "state-inferred-fg": "#B9C8EE",
-      "state-inferred-bg": "#293246",
-      "logo-mark": "#FAF8F3",
-      "logo-wordmark": "#FAF8F3",
-      "shadow-surface": "0 1px 2px rgba(0, 0, 0, 0.18)",
-      "shadow-elevated": "0 8px 28px rgba(0, 0, 0, 0.30)",
-      "shadow-overlay": "0 16px 48px rgba(0, 0, 0, 0.46)",
-      "shadow-inset": "inset 0 1px 0 rgba(250, 248, 243, 0.06)"
+      "$description": "dark semantic theme tokens.",
+      "bg-canvas": {
+        "$type": "color",
+        "$description": "bg canvas in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.090196,
+            0.098039,
+            0.094118
+          ],
+          "hex": "#171918"
+        }
+      },
+      "bg-inset": {
+        "$type": "color",
+        "$description": "bg inset in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.066667,
+            0.07451,
+            0.070588
+          ],
+          "hex": "#111312"
+        }
+      },
+      "bg-surface": {
+        "$type": "color",
+        "$description": "bg surface in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.12549,
+            0.145098,
+            0.129412
+          ],
+          "hex": "#202521"
+        }
+      },
+      "bg-elevated": {
+        "$type": "color",
+        "$description": "bg elevated in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.160784,
+            0.184314,
+            0.164706
+          ],
+          "hex": "#292F2A"
+        }
+      },
+      "bg-hover": {
+        "$type": "color",
+        "$description": "bg hover in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.188235,
+            0.223529,
+            0.196078
+          ],
+          "hex": "#303932"
+        }
+      },
+      "bg-selected": {
+        "$type": "color",
+        "$description": "bg selected in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.192157,
+            0.239216,
+            0.203922
+          ],
+          "hex": "#313D34"
+        }
+      },
+      "bg-backdrop": {
+        "$type": "color",
+        "$description": "bg backdrop in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0,
+            0,
+            0
+          ],
+          "alpha": 0.58
+        }
+      },
+      "text-primary": {
+        "$type": "color",
+        "$description": "text primary in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.980392,
+            0.972549,
+            0.952941
+          ],
+          "hex": "#FAF8F3"
+        }
+      },
+      "text-secondary": {
+        "$type": "color",
+        "$description": "text secondary in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.792157,
+            0.819608,
+            0.788235
+          ],
+          "hex": "#CAD1C9"
+        }
+      },
+      "text-tertiary": {
+        "$type": "color",
+        "$description": "text tertiary in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.639216,
+            0.686275,
+            0.643137
+          ],
+          "hex": "#A3AFA4"
+        }
+      },
+      "text-inverse": {
+        "$type": "color",
+        "$description": "text inverse in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.090196,
+            0.098039,
+            0.094118
+          ],
+          "hex": "#171918"
+        }
+      },
+      "text-disabled": {
+        "$type": "color",
+        "$description": "text disabled in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.443137,
+            0.482353,
+            0.45098
+          ],
+          "hex": "#717B73"
+        }
+      },
+      "border-subtle": {
+        "$type": "color",
+        "$description": "border subtle in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.219608,
+            0.258824,
+            0.223529
+          ],
+          "hex": "#384239"
+        }
+      },
+      "border-strong": {
+        "$type": "color",
+        "$description": "border strong in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.470588,
+            0.541176,
+            0.478431
+          ],
+          "hex": "#788A7A"
+        }
+      },
+      "action-primary-bg": {
+        "$type": "color",
+        "$description": "action primary bg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.72549,
+            0.784314,
+            0.933333
+          ],
+          "hex": "#B9C8EE"
+        }
+      },
+      "action-primary-fg": {
+        "$type": "color",
+        "$description": "action primary fg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.090196,
+            0.098039,
+            0.094118
+          ],
+          "hex": "#171918"
+        }
+      },
+      "action-primary-hover": {
+        "$type": "color",
+        "$description": "action primary hover in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.803922,
+            0.847059,
+            0.94902
+          ],
+          "hex": "#CDD8F2"
+        }
+      },
+      "action-primary-pressed": {
+        "$type": "color",
+        "$description": "action primary pressed in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.658824,
+            0.729412,
+            0.886275
+          ],
+          "hex": "#A8BAE2"
+        }
+      },
+      "action-secondary-bg": {
+        "$type": "color",
+        "$description": "action secondary bg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.188235,
+            0.223529,
+            0.196078
+          ],
+          "hex": "#303932"
+        }
+      },
+      "action-secondary-fg": {
+        "$type": "color",
+        "$description": "action secondary fg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.980392,
+            0.972549,
+            0.952941
+          ],
+          "hex": "#FAF8F3"
+        }
+      },
+      "action-danger-bg": {
+        "$type": "color",
+        "$description": "action danger bg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.690196,
+            0.333333,
+            0.247059
+          ],
+          "hex": "#B0553F"
+        }
+      },
+      "action-danger-fg": {
+        "$type": "color",
+        "$description": "action danger fg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.980392,
+            0.972549,
+            0.952941
+          ],
+          "hex": "#FAF8F3"
+        }
+      },
+      "link": {
+        "$type": "color",
+        "$description": "link in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.72549,
+            0.784314,
+            0.933333
+          ],
+          "hex": "#B9C8EE"
+        }
+      },
+      "focus": {
+        "$type": "color",
+        "$description": "focus in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.72549,
+            0.784314,
+            0.933333
+          ],
+          "hex": "#B9C8EE"
+        }
+      },
+      "state-local-fg": {
+        "$type": "color",
+        "$description": "state local fg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.67451,
+            0.776471,
+            0.705882
+          ],
+          "hex": "#ACC6B4"
+        }
+      },
+      "state-local-bg": {
+        "$type": "color",
+        "$description": "state local bg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.137255,
+            0.219608,
+            0.172549
+          ],
+          "hex": "#23382C"
+        }
+      },
+      "state-pending-fg": {
+        "$type": "color",
+        "$description": "state pending fg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.890196,
+            0.768627,
+            0.576471
+          ],
+          "hex": "#E3C493"
+        }
+      },
+      "state-pending-bg": {
+        "$type": "color",
+        "$description": "state pending bg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.235294,
+            0.188235,
+            0.129412
+          ],
+          "hex": "#3C3021"
+        }
+      },
+      "state-danger-fg": {
+        "$type": "color",
+        "$description": "state danger fg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.945098,
+            0.670588,
+            0.592157
+          ],
+          "hex": "#F1AB97"
+        }
+      },
+      "state-danger-bg": {
+        "$type": "color",
+        "$description": "state danger bg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.239216,
+            0.152941,
+            0.133333
+          ],
+          "hex": "#3D2722"
+        }
+      },
+      "state-recording-fg": {
+        "$type": "color",
+        "$description": "state recording fg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.945098,
+            0.670588,
+            0.592157
+          ],
+          "hex": "#F1AB97"
+        }
+      },
+      "state-recording-bg": {
+        "$type": "color",
+        "$description": "state recording bg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.239216,
+            0.152941,
+            0.133333
+          ],
+          "hex": "#3D2722"
+        }
+      },
+      "state-inactive-fg": {
+        "$type": "color",
+        "$description": "state inactive fg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.639216,
+            0.686275,
+            0.643137
+          ],
+          "hex": "#A3AFA4"
+        }
+      },
+      "state-inactive-bg": {
+        "$type": "color",
+        "$description": "state inactive bg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.164706,
+            0.188235,
+            0.172549
+          ],
+          "hex": "#2A302C"
+        }
+      },
+      "state-inferred-fg": {
+        "$type": "color",
+        "$description": "state inferred fg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.72549,
+            0.784314,
+            0.933333
+          ],
+          "hex": "#B9C8EE"
+        }
+      },
+      "state-inferred-bg": {
+        "$type": "color",
+        "$description": "state inferred bg in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.160784,
+            0.196078,
+            0.27451
+          ],
+          "hex": "#293246"
+        }
+      },
+      "logo-mark": {
+        "$type": "color",
+        "$description": "logo mark in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.980392,
+            0.972549,
+            0.952941
+          ],
+          "hex": "#FAF8F3"
+        }
+      },
+      "logo-wordmark": {
+        "$type": "color",
+        "$description": "logo wordmark in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.980392,
+            0.972549,
+            0.952941
+          ],
+          "hex": "#FAF8F3"
+        }
+      },
+      "shadow-surface": {
+        "$type": "shadow",
+        "$description": "shadow surface in the dark theme.",
+        "$value": {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0,
+              0,
+              0
+            ],
+            "alpha": 0.18
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 1,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 2,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      },
+      "shadow-elevated": {
+        "$type": "shadow",
+        "$description": "shadow elevated in the dark theme.",
+        "$value": {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0,
+              0,
+              0
+            ],
+            "alpha": 0.3
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 8,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 28,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      },
+      "shadow-overlay": {
+        "$type": "shadow",
+        "$description": "shadow overlay in the dark theme.",
+        "$value": {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0,
+              0,
+              0
+            ],
+            "alpha": 0.46
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 16,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 48,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          }
+        }
+      },
+      "shadow-inset": {
+        "$type": "shadow",
+        "$description": "shadow inset in the dark theme.",
+        "$value": {
+          "color": {
+            "colorSpace": "srgb",
+            "components": [
+              0.980392,
+              0.972549,
+              0.952941
+            ],
+            "alpha": 0.06
+          },
+          "offsetX": {
+            "value": 0,
+            "unit": "px"
+          },
+          "offsetY": {
+            "value": 1,
+            "unit": "px"
+          },
+          "blur": {
+            "value": 0,
+            "unit": "px"
+          },
+          "spread": {
+            "value": 0,
+            "unit": "px"
+          },
+          "inset": true
+        }
+      },
+      "glass-canvas": {
+        "$type": "color",
+        "$description": "Liquid Glass canvas material in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.066667,
+            0.101961,
+            0.090196
+          ],
+          "hex": "#111A17"
+        }
+      },
+      "glass-chrome": {
+        "$type": "color",
+        "$description": "Liquid Glass chrome material in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.105882,
+            0.156863,
+            0.133333
+          ],
+          "alpha": 0.48
+        }
+      },
+      "glass-control": {
+        "$type": "color",
+        "$description": "Liquid Glass control material in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.207843,
+            0.27451,
+            0.243137
+          ],
+          "alpha": 0.38
+        }
+      },
+      "glass-reader": {
+        "$type": "color",
+        "$description": "Liquid Glass reader material in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.086275,
+            0.12549,
+            0.105882
+          ],
+          "alpha": 0.7
+        }
+      },
+      "glass-sheet": {
+        "$type": "color",
+        "$description": "Liquid Glass sheet material in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.109804,
+            0.156863,
+            0.129412
+          ],
+          "alpha": 0.82
+        }
+      },
+      "glass-edge": {
+        "$type": "color",
+        "$description": "Liquid Glass edge material in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.803922,
+            0.87451,
+            0.835294
+          ],
+          "alpha": 0.42
+        }
+      },
+      "glass-highlight": {
+        "$type": "color",
+        "$description": "Liquid Glass highlight material in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.972549,
+            1,
+            0.976471
+          ],
+          "alpha": 0.7
+        }
+      },
+      "glass-shade": {
+        "$type": "color",
+        "$description": "Liquid Glass shade material in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.007843,
+            0.039216,
+            0.027451
+          ],
+          "alpha": 0.5
+        }
+      },
+      "glass-solid": {
+        "$type": "color",
+        "$description": "Liquid Glass solid material in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.12549,
+            0.176471,
+            0.145098
+          ],
+          "hex": "#202D25"
+        }
+      },
+      "glass-text": {
+        "$type": "color",
+        "$description": "Liquid Glass text material in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.980392,
+            0.972549,
+            0.952941
+          ],
+          "hex": "#FAF8F3"
+        }
+      },
+      "glass-muted": {
+        "$type": "color",
+        "$description": "Liquid Glass muted material in the dark theme.",
+        "$value": {
+          "colorSpace": "srgb",
+          "components": [
+            0.792157,
+            0.819608,
+            0.788235
+          ],
+          "hex": "#CAD1C9"
+        }
+      }
     }
   },
-  "contrastChecks": [
-    {
-      "foreground": "text-primary",
-      "background": "bg-canvas",
-      "minimum": 4.5,
-      "purpose": "readable text"
-    },
-    {
-      "foreground": "text-secondary",
-      "background": "bg-canvas",
-      "minimum": 4.5,
-      "purpose": "readable text"
-    },
-    {
-      "foreground": "text-tertiary",
-      "background": "bg-canvas",
-      "minimum": 4.5,
-      "purpose": "readable text"
-    },
-    {
-      "foreground": "link",
-      "background": "bg-canvas",
-      "minimum": 4.5,
-      "purpose": "readable text"
-    },
-    {
-      "foreground": "text-primary",
-      "background": "bg-surface",
-      "minimum": 4.5,
-      "purpose": "readable text"
-    },
-    {
-      "foreground": "text-secondary",
-      "background": "bg-surface",
-      "minimum": 4.5,
-      "purpose": "readable text"
-    },
-    {
-      "foreground": "text-tertiary",
-      "background": "bg-surface",
-      "minimum": 4.5,
-      "purpose": "readable text"
-    },
-    {
-      "foreground": "link",
-      "background": "bg-surface",
-      "minimum": 4.5,
-      "purpose": "readable text"
-    },
-    {
-      "foreground": "text-primary",
-      "background": "bg-elevated",
-      "minimum": 4.5,
-      "purpose": "readable text"
-    },
-    {
-      "foreground": "text-secondary",
-      "background": "bg-elevated",
-      "minimum": 4.5,
-      "purpose": "readable text"
-    },
-    {
-      "foreground": "text-tertiary",
-      "background": "bg-elevated",
-      "minimum": 4.5,
-      "purpose": "readable text"
-    },
-    {
-      "foreground": "link",
-      "background": "bg-elevated",
-      "minimum": 4.5,
-      "purpose": "readable text"
-    },
-    {
-      "foreground": "action-primary-fg",
-      "background": "action-primary-bg",
-      "minimum": 4.5,
-      "purpose": "primary button text"
-    },
-    {
-      "foreground": "action-primary-fg",
-      "background": "action-primary-hover",
-      "minimum": 4.5,
-      "purpose": "primary button text"
-    },
-    {
-      "foreground": "action-primary-fg",
-      "background": "action-primary-pressed",
-      "minimum": 4.5,
-      "purpose": "primary button text"
-    },
-    {
-      "foreground": "action-secondary-fg",
-      "background": "action-secondary-bg",
-      "minimum": 4.5,
-      "purpose": "button text"
-    },
-    {
-      "foreground": "action-danger-fg",
-      "background": "action-danger-bg",
-      "minimum": 4.5,
-      "purpose": "button text"
-    },
-    {
-      "foreground": "state-local-fg",
-      "background": "state-local-bg",
-      "minimum": 4.5,
-      "purpose": "status label"
-    },
-    {
-      "foreground": "state-pending-fg",
-      "background": "state-pending-bg",
-      "minimum": 4.5,
-      "purpose": "status label"
-    },
-    {
-      "foreground": "state-danger-fg",
-      "background": "state-danger-bg",
-      "minimum": 4.5,
-      "purpose": "status label"
-    },
-    {
-      "foreground": "state-recording-fg",
-      "background": "state-recording-bg",
-      "minimum": 4.5,
-      "purpose": "status label"
-    },
-    {
-      "foreground": "state-inactive-fg",
-      "background": "state-inactive-bg",
-      "minimum": 4.5,
-      "purpose": "status label"
-    },
-    {
-      "foreground": "state-inferred-fg",
-      "background": "state-inferred-bg",
-      "minimum": 4.5,
-      "purpose": "status label"
-    },
-    {
-      "foreground": "focus",
-      "background": "bg-canvas",
-      "minimum": 3.0,
-      "purpose": "essential outline / focus"
-    },
-    {
-      "foreground": "border-strong",
-      "background": "bg-canvas",
-      "minimum": 3.0,
-      "purpose": "essential outline / focus"
-    },
-    {
-      "foreground": "focus",
-      "background": "bg-surface",
-      "minimum": 3.0,
-      "purpose": "essential outline / focus"
-    },
-    {
-      "foreground": "border-strong",
-      "background": "bg-surface",
-      "minimum": 3.0,
-      "purpose": "essential outline / focus"
-    },
-    {
-      "foreground": "focus",
-      "background": "bg-elevated",
-      "minimum": 3.0,
-      "purpose": "essential outline / focus"
-    },
-    {
-      "foreground": "border-strong",
-      "background": "bg-elevated",
-      "minimum": 3.0,
-      "purpose": "essential outline / focus"
+  "$extensions": {
+    "com.fung.design-system": {
+      "metadata": {
+        "id": "DS-FUNG-001",
+        "version": "0.1.0",
+        "status": "beta",
+        "lastUpdated": "2026-10-16",
+        "cssPrefix": "--fung-",
+        "fontFilesIncluded": false,
+        "format": "DTCG 2025.10",
+        "implementationStatus": {
+          "tokenCssIntegration": "verified-in-repository",
+          "componentCoverage": "partial",
+          "accessibilityCertification": false
+        }
+      },
+      "contrastChecks": [
+        {
+          "foreground": "text-primary",
+          "background": "bg-canvas",
+          "minimum": 4.5,
+          "purpose": "readable text"
+        },
+        {
+          "foreground": "text-secondary",
+          "background": "bg-canvas",
+          "minimum": 4.5,
+          "purpose": "readable text"
+        },
+        {
+          "foreground": "text-tertiary",
+          "background": "bg-canvas",
+          "minimum": 4.5,
+          "purpose": "readable text"
+        },
+        {
+          "foreground": "link",
+          "background": "bg-canvas",
+          "minimum": 4.5,
+          "purpose": "readable text"
+        },
+        {
+          "foreground": "text-primary",
+          "background": "bg-surface",
+          "minimum": 4.5,
+          "purpose": "readable text"
+        },
+        {
+          "foreground": "text-secondary",
+          "background": "bg-surface",
+          "minimum": 4.5,
+          "purpose": "readable text"
+        },
+        {
+          "foreground": "text-tertiary",
+          "background": "bg-surface",
+          "minimum": 4.5,
+          "purpose": "readable text"
+        },
+        {
+          "foreground": "link",
+          "background": "bg-surface",
+          "minimum": 4.5,
+          "purpose": "readable text"
+        },
+        {
+          "foreground": "text-primary",
+          "background": "bg-elevated",
+          "minimum": 4.5,
+          "purpose": "readable text"
+        },
+        {
+          "foreground": "text-secondary",
+          "background": "bg-elevated",
+          "minimum": 4.5,
+          "purpose": "readable text"
+        },
+        {
+          "foreground": "text-tertiary",
+          "background": "bg-elevated",
+          "minimum": 4.5,
+          "purpose": "readable text"
+        },
+        {
+          "foreground": "link",
+          "background": "bg-elevated",
+          "minimum": 4.5,
+          "purpose": "readable text"
+        },
+        {
+          "foreground": "action-primary-fg",
+          "background": "action-primary-bg",
+          "minimum": 4.5,
+          "purpose": "primary button text"
+        },
+        {
+          "foreground": "action-primary-fg",
+          "background": "action-primary-hover",
+          "minimum": 4.5,
+          "purpose": "primary button text"
+        },
+        {
+          "foreground": "action-primary-fg",
+          "background": "action-primary-pressed",
+          "minimum": 4.5,
+          "purpose": "primary button text"
+        },
+        {
+          "foreground": "action-secondary-fg",
+          "background": "action-secondary-bg",
+          "minimum": 4.5,
+          "purpose": "button text"
+        },
+        {
+          "foreground": "action-danger-fg",
+          "background": "action-danger-bg",
+          "minimum": 4.5,
+          "purpose": "button text"
+        },
+        {
+          "foreground": "state-local-fg",
+          "background": "state-local-bg",
+          "minimum": 4.5,
+          "purpose": "status label"
+        },
+        {
+          "foreground": "state-pending-fg",
+          "background": "state-pending-bg",
+          "minimum": 4.5,
+          "purpose": "status label"
+        },
+        {
+          "foreground": "state-danger-fg",
+          "background": "state-danger-bg",
+          "minimum": 4.5,
+          "purpose": "status label"
+        },
+        {
+          "foreground": "state-recording-fg",
+          "background": "state-recording-bg",
+          "minimum": 4.5,
+          "purpose": "status label"
+        },
+        {
+          "foreground": "state-inactive-fg",
+          "background": "state-inactive-bg",
+          "minimum": 4.5,
+          "purpose": "status label"
+        },
+        {
+          "foreground": "state-inferred-fg",
+          "background": "state-inferred-bg",
+          "minimum": 4.5,
+          "purpose": "status label"
+        },
+        {
+          "foreground": "focus",
+          "background": "bg-canvas",
+          "minimum": 3,
+          "purpose": "essential outline / focus"
+        },
+        {
+          "foreground": "border-strong",
+          "background": "bg-canvas",
+          "minimum": 3,
+          "purpose": "essential outline / focus"
+        },
+        {
+          "foreground": "focus",
+          "background": "bg-surface",
+          "minimum": 3,
+          "purpose": "essential outline / focus"
+        },
+        {
+          "foreground": "border-strong",
+          "background": "bg-surface",
+          "minimum": 3,
+          "purpose": "essential outline / focus"
+        },
+        {
+          "foreground": "focus",
+          "background": "bg-elevated",
+          "minimum": 3,
+          "purpose": "essential outline / focus"
+        },
+        {
+          "foreground": "border-strong",
+          "background": "bg-elevated",
+          "minimum": 3,
+          "purpose": "essential outline / focus"
+        }
+      ],
+      "breakpoints": {
+        "compact": 640,
+        "medium": 960,
+        "wide": 1200,
+        "existingBootstrapCoarsePointer": 760
+      },
+      "board": {
+        "brand": {
+          "name": "FUNG",
+          "tagline": "Local-first voice intelligence",
+          "identity": "Quiet Archive",
+          "status": "selected-beta",
+          "assets": {
+            "mark": "quiet-archive-mark.svg",
+            "markInk": "quiet-archive-mark-ink.svg",
+            "markWhite": "quiet-archive-mark-white.svg",
+            "appIcon": "quiet-archive-app-icon.svg"
+          }
+        },
+        "components": [
+          {
+            "name": "Primary action",
+            "state": "ready",
+            "specimen": "primary-action",
+            "note": "One clear action per active stage; keep an accessible name and a visible keyboard focus."
+          },
+          {
+            "name": "Secondary action",
+            "state": "ready",
+            "specimen": "secondary-action",
+            "note": "Keep supporting actions visually quieter than the current primary action."
+          },
+          {
+            "name": "Recording state",
+            "state": "recording",
+            "specimen": "recording",
+            "note": "Show recording with text and a persistent visual signal; never rely on color alone."
+          },
+          {
+            "name": "Local execution",
+            "state": "local",
+            "specimen": "local",
+            "note": "Name the on-device or local runtime so local processing is not mistaken for cloud work."
+          },
+          {
+            "name": "Inferred result",
+            "state": "inferred",
+            "specimen": "inferred",
+            "note": "Mark generated or inferred content as pending review until the user confirms it."
+          },
+          {
+            "name": "Focus indicator",
+            "state": "focus",
+            "specimen": "focus",
+            "note": "Use a visible focus outline independently from material, border or shadow styling."
+          },
+          {
+            "name": "Empty and unavailable",
+            "state": "empty",
+            "specimen": "empty",
+            "note": "Explain the next available action and why an unavailable capability cannot run."
+          },
+          {
+            "name": "Error and recovery",
+            "state": "error",
+            "specimen": "error",
+            "note": "State what happened, whether source data remains safe, and how to retry or recover."
+          }
+        ],
+        "surfaces": [
+          {
+            "name": "Desktop",
+            "principle": "Liquid Glass shell; reader surfaces retain readable tint, explicit focus and stable navigation.",
+            "reference": "docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md"
+          },
+          {
+            "name": "Mobile",
+            "principle": "Touch-first responsive layouts; landscape stays Mobile and primary targets remain at least 44 dp.",
+            "reference": "docs/Mobile/PRODUCT_UX_SPEC.md"
+          },
+          {
+            "name": "Web dashboard",
+            "principle": "Reuse semantic colors and type; disclose authentication, local runtime and connection state.",
+            "reference": "docs/WEB_PRODUCTION_DEPLOYMENT.md"
+          },
+          {
+            "name": "Landing",
+            "principle": "Use the same Quiet Archive identity and truthful capability language without implying unavailable product behavior.",
+            "reference": "docs/app/WEB_LANDING_PAGE_PROPOSAL.md"
+          },
+          {
+            "name": "In-app companion",
+            "principle": "Remain inside the FUNG window and preserve focus, Escape and recording state boundaries.",
+            "reference": "docs/FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md"
+          }
+        ],
+        "brandNarrative": [
+          "Quiet Archive identity",
+          "Semantic color and truthful states",
+          "Thai-first typography",
+          "Local-first product application"
+        ],
+        "accessibility": [
+          "Listed solid-color pairs are measured by the generated contrast report.",
+          "The report is token-level evidence and does not certify the whole application.",
+          "Glass blur, image backgrounds, native overlays and real keyboard/screen-reader behavior need surface-level checks."
+        ]
+      }
     }
-  ],
-  "breakpoints": {
-    "compact": 640,
-    "medium": 960,
-    "wide": 1200,
-    "existingBootstrapCoarsePointer": 760
   }
 }

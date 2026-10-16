@@ -3,23 +3,6 @@
  * existing material and capability boundaries. */
 
 .desktop-shell[data-material="glass"] {
-  --fung-glass-blur: 18px;
-  --fung-glass-blur-sheet: 26px;
-  --fung-glass-saturation: 125%;
-  --fung-glass-radius-control: 22px;
-  --fung-glass-radius-card: 22px;
-  --fung-glass-radius-nav: 30px;
-  --fung-glass-canvas: #eef0e9;
-  --fung-glass-chrome: rgba(252, 252, 246, 0.48);
-  --fung-glass-control: rgba(248, 251, 245, 0.34);
-  --fung-glass-reader: rgba(255, 254, 250, 0.68);
-  --fung-glass-sheet: rgba(255, 254, 250, 0.8);
-  --fung-glass-edge: rgba(88, 104, 94, 0.44);
-  --fung-glass-highlight: rgba(255, 255, 255, 0.94);
-  --fung-glass-shade: rgba(53, 71, 59, 0.17);
-  --fung-glass-solid: #f7f8f2;
-  --fung-glass-text: #171918;
-  --fung-glass-muted: #505a54;
   position: relative;
   isolation: isolate;
   overflow: clip;
@@ -33,39 +16,11 @@
 
 .desktop-shell[data-material="glass"].desktop-shell--dark,
 .desktop-shell[data-material="glass"][data-theme="dark"] {
-  --fung-glass-canvas: #111a17;
-  --fung-glass-chrome: rgba(27, 40, 34, 0.48);
-  --fung-glass-control: rgba(53, 70, 62, 0.38);
-  --fung-glass-reader: rgba(22, 32, 27, 0.7);
-  --fung-glass-sheet: rgba(28, 40, 33, 0.82);
-  --fung-glass-edge: rgba(205, 223, 213, 0.42);
-  --fung-glass-highlight: rgba(248, 255, 249, 0.7);
-  --fung-glass-shade: rgba(2, 10, 7, 0.5);
-  --fung-glass-solid: #202d25;
-  --fung-glass-text: #faf8f3;
-  --fung-glass-muted: #cad1c9;
   color-scheme: dark;
   background:
     radial-gradient(circle at 14% 16%, rgba(84, 122, 105, 0.42), transparent 35%),
     radial-gradient(circle at 85% 76%, rgba(117, 135, 149, 0.34), transparent 38%),
     var(--fung-glass-canvas);
-}
-
-@media (prefers-color-scheme: dark) {
-  .desktop-shell[data-material="glass"].desktop-shell--system {
-    --fung-glass-canvas: #111a17;
-    --fung-glass-chrome: rgba(27, 40, 34, 0.48);
-    --fung-glass-control: rgba(53, 70, 62, 0.38);
-    --fung-glass-reader: rgba(22, 32, 27, 0.7);
-    --fung-glass-sheet: rgba(28, 40, 33, 0.82);
-    --fung-glass-edge: rgba(205, 223, 213, 0.42);
-    --fung-glass-highlight: rgba(248, 255, 249, 0.7);
-    --fung-glass-shade: rgba(2, 10, 7, 0.5);
-    --fung-glass-solid: #202d25;
-    --fung-glass-text: #faf8f3;
-    --fung-glass-muted: #cad1c9;
-    color-scheme: dark;
-  }
 }
 
 .desktop-shell[data-material="glass"]::before {
@@ -213,7 +168,7 @@
 .desktop-shell[data-material="glass"] .desktop-shell__button--primary,
 .desktop-shell[data-material="glass"] .desktop-shell__home-action--primary {
   background: linear-gradient(145deg, rgba(111, 154, 131, 0.86), rgba(53, 91, 72, 0.94));
-  color: #f8fff9;
+  color: var(--fung-glass-text);
   box-shadow: inset 0 1px 0 rgba(248, 255, 249, 0.72), 0 10px 24px rgba(30, 65, 47, 0.2);
 }
 
@@ -252,12 +207,12 @@
 .desktop-shell[data-material="glass"] .live-btn-primary,
 .desktop-shell[data-material="glass"] .recording-review__button--primary {
   background: linear-gradient(145deg, rgba(111, 154, 131, 0.86), rgba(53, 91, 72, 0.94));
-  color: #f8fff9;
+  color: var(--fung-glass-text);
 }
 
 .desktop-shell[data-material="glass"] .live-btn-danger {
-  background: rgba(176, 85, 63, 0.72);
-  color: #fff5f0;
+  background: color-mix(in srgb, var(--fung-action-danger-bg) 72%, transparent);
+  color: var(--fung-action-danger-fg);
 }
 
 .desktop-shell[data-material="glass"] .settings-stack,
@@ -281,7 +236,7 @@
 .desktop-shell[data-material="glass"] .tts-panel-overlay,
 .desktop-shell[data-material="glass"] .cloud-providers-overlay,
 .desktop-shell[data-material="glass"] .backup-panel-overlay {
-  background: rgba(2, 10, 7, 0.42);
+  background: var(--fung-bg-backdrop);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }

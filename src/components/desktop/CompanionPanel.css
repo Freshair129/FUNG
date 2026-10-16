@@ -10,7 +10,7 @@
 .companion-layer__backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(2, 10, 7, 0.38);
+  background: var(--fung-bg-backdrop);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }
@@ -22,13 +22,13 @@
   width: min(430px, calc(100vw - 32px));
   max-height: min(720px, calc(100vh - 48px));
   overflow: auto;
-  border: 1px solid var(--fung-glass-edge, rgba(205, 223, 213, 0.42));
+  border: 1px solid var(--fung-glass-edge);
   border-radius: 28px;
-  background: var(--fung-glass-sheet, rgba(28, 40, 33, 0.96));
-  color: var(--fung-glass-text, #faf8f3);
-  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.42), inset 0 1px 0 var(--fung-glass-highlight, rgba(248, 255, 249, 0.7));
-  backdrop-filter: blur(var(--fung-glass-blur-sheet, 26px)) saturate(var(--fung-glass-saturation, 125%));
-  -webkit-backdrop-filter: blur(var(--fung-glass-blur-sheet, 26px)) saturate(var(--fung-glass-saturation, 125%));
+  background: var(--fung-glass-sheet);
+  color: var(--fung-glass-text);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.42), inset 0 1px 0 var(--fung-glass-highlight);
+  backdrop-filter: blur(var(--fung-glass-blur-sheet)) saturate(var(--fung-glass-saturation));
+  -webkit-backdrop-filter: blur(var(--fung-glass-blur-sheet)) saturate(var(--fung-glass-saturation));
 }
 
 .companion-panel__header,
@@ -47,11 +47,11 @@
 }
 
 .companion-panel__header .fung-logo-container {
-  color: var(--fung-glass-text, #faf8f3) !important;
+  color: var(--fung-glass-text) !important;
 }
 
 .companion-panel__header .fung-wordmark-text {
-  color: var(--fung-glass-text, #faf8f3) !important;
+  color: var(--fung-glass-text) !important;
 }
 
 .companion-panel__close {
@@ -59,9 +59,9 @@
   width: 38px;
   height: 38px;
   place-items: center;
-  border: 1px solid var(--fung-glass-edge, rgba(205, 223, 213, 0.42));
+  border: 1px solid var(--fung-glass-edge);
   border-radius: 999px;
-  background: var(--fung-glass-control, rgba(53, 70, 62, 0.64));
+  background: var(--fung-glass-control);
   color: inherit;
   cursor: pointer;
 }
@@ -70,8 +70,8 @@
   display: flex;
   gap: 8px;
   padding: 0 24px 16px;
-  border-bottom: 1px solid color-mix(in srgb, var(--fung-glass-edge, #cde0d5) 45%, transparent);
-  color: var(--fung-glass-muted, #cad1c9);
+  border-bottom: 1px solid color-mix(in srgb, var(--fung-glass-edge) 45%, transparent);
+  color: var(--fung-glass-muted);
   font-size: 10px;
   letter-spacing: 0.12em;
 }
@@ -83,9 +83,9 @@
 }
 
 .companion-panel__tabs .is-active {
-  border-color: var(--fung-glass-edge, rgba(205, 223, 213, 0.42));
-  background: var(--fung-glass-control, rgba(53, 70, 62, 0.64));
-  color: var(--fung-glass-text, #faf8f3);
+  border-color: var(--fung-glass-edge);
+  background: var(--fung-glass-control);
+  color: var(--fung-glass-text);
 }
 
 .companion-panel__body {
@@ -96,7 +96,7 @@
 
 .companion-panel__eyebrow {
   margin: 0;
-  color: var(--fung-glass-muted, #cad1c9);
+  color: var(--fung-glass-muted);
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -114,7 +114,7 @@
 .companion-panel__action small,
 .companion-panel__disclosure,
 .companion-panel__footer {
-  color: var(--fung-glass-muted, #cad1c9);
+  color: var(--fung-glass-muted);
   line-height: 1.55;
 }
 
@@ -129,9 +129,9 @@
   gap: 12px;
   align-items: center;
   padding: 15px;
-  border: 1px solid var(--fung-glass-edge, rgba(205, 223, 213, 0.42));
+  border: 1px solid var(--fung-glass-edge);
   border-radius: 20px;
-  background: var(--fung-glass-reader, rgba(22, 32, 27, 0.96));
+  background: var(--fung-glass-reader);
 }
 
 .companion-panel__status-icon {
@@ -140,9 +140,9 @@
   height: 42px;
   flex: 0 0 42px;
   place-items: center;
-  border: 1px solid var(--fung-glass-edge, rgba(205, 223, 213, 0.42));
+  border: 1px solid var(--fung-glass-edge);
   border-radius: 14px;
-  color: #b9e6c8;
+  color: var(--fung-state-local-fg);
 }
 
 .companion-panel__status div {
@@ -172,9 +172,9 @@
   min-width: 0;
   min-height: 86px;
   padding: 14px;
-  border: 1px solid var(--fung-glass-edge, rgba(205, 223, 213, 0.42));
+  border: 1px solid var(--fung-glass-edge);
   border-radius: 20px;
-  background: var(--fung-glass-control, rgba(53, 70, 62, 0.64));
+  background: var(--fung-glass-control);
   color: inherit;
   cursor: pointer;
   text-align: left;
@@ -182,7 +182,7 @@
 
 .companion-panel__action svg {
   grid-row: span 2;
-  color: #b9e6c8;
+  color: var(--fung-state-local-fg);
 }
 
 .companion-panel__action span {
@@ -202,7 +202,7 @@
   gap: 8px;
   align-items: flex-start;
   padding: 11px 12px;
-  border: 1px solid color-mix(in srgb, var(--fung-glass-edge, #cde0d5) 62%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fung-glass-edge) 62%, transparent);
   border-radius: 16px;
   font-size: 11px;
 }
@@ -210,7 +210,7 @@
 .companion-panel__disclosure svg {
   flex: 0 0 auto;
   margin-top: 2px;
-  color: #b9e6c8;
+  color: var(--fung-state-local-fg);
 }
 
 .companion-panel__footer {
@@ -218,7 +218,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 24px 22px;
-  border-top: 1px solid color-mix(in srgb, var(--fung-glass-edge, #cde0d5) 45%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--fung-glass-edge) 45%, transparent);
   font-size: 11px;
 }
 
@@ -239,7 +239,7 @@
   }
 
   .companion-panel {
-    background: #202d25;
+    background: var(--fung-bg-surface);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }

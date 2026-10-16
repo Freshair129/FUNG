@@ -22,6 +22,9 @@ attributes:
 | `architecture/` | Index of current, target, data, runtime, and deployment architecture views |
 | `Desktop/` | Desktop product, architecture และ current-state evidence |
 | `Mobile/` | Mobile product, UX และ implementation evidence |
+| `FUNG_Design_System_v0.1.0/` | Shared FUNG token authority, CSS generator, contrast/component coverage and accessibility evidence |
+| `design-system/` | Generated interactive cross-surface board and Quiet Archive presentation; do not edit generated HTML |
+| `design/` | Current shell decisions, design briefs and surface-level design proposals |
 | `specs/` | Feature requirements และ technical design proposals |
 | `decisions/` | Architecture Decision Records และข้อเลือกที่อนุมัติแล้ว |
 | `ai-system/` | AI/ML data lineage, model cards, evaluation, lifecycle, and governance |
@@ -64,6 +67,9 @@ verification/
 ## Primary entry points
 
 - Parent architecture: `Desktop/ARCHITECTURE.md`
+- Shared design system: `FUNG_Design_System_v0.1.0/DESIGN_SYSTEM.md`
+- Canonical design tokens: `FUNG_Design_System_v0.1.0/tokens/fung.tokens.json`
+- Interactive design board: `design-system/index.html`
 - Architecture index: `architecture/README.md`
 - Requirements governance: `requirements/README.md`
 - AI system governance: `ai-system/README.md`

@@ -21,7 +21,7 @@ import {
   UserRound,
   Wifi,
 } from "lucide-react";
-import type { LiveStatusOutput } from "../../tauri.ts";
+import { nativeInvoke, type LiveStatusOutput } from "../../tauri.ts";
 import { CompanionPanel } from "./CompanionPanel";
 import { StudioHome } from "./StudioHome";
 import {
@@ -731,6 +731,14 @@ export function DesktopShell({
   const utilityMenuRef = useRef<HTMLDetailsElement | null>(null);
   const companionWasOpenRef = useRef(false);
   const captureLifecycle = getCaptureLifecycle(liveStatus, livePhase);
+
+  useEffect(() => {
+    if (!nativeInvoke) return;
+    const enabled = material === "glass" && transparency === "full";
+    void nativeInvoke<void>("desktop_window_set_glass", { enabled }).catch((error) => {
+      console.warn("[desktop-glass] native backdrop effect unavailable", error);
+    });
+  }, [material, transparency]);
 
   useEffect(() => {
     const closeOutsideMenus = (event: PointerEvent) => {

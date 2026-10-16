@@ -3,7 +3,7 @@
 html:has(.desktop-shell[data-layout="studio"]),
 body:has(.desktop-shell[data-layout="studio"]),
 #root:has(> .desktop-shell[data-layout="studio"]) { background: transparent; }
-#root:has(> .desktop-shell[data-layout="studio"]) { display: flow-root; height: 100dvh; overflow: clip; }
+#root:has(> .desktop-shell[data-layout="studio"]) { position: relative; z-index: 1; display: flow-root; height: 100dvh; overflow: clip; }
 html:has(.desktop-shell[data-layout="studio"]), body:has(.desktop-shell[data-layout="studio"]) { margin: 0; overflow: clip; }
 .desktop-shell[data-fung-root][data-layout="studio"] {
   --studio-blue: #437cf1;
@@ -23,15 +23,15 @@ html:has(.desktop-shell[data-layout="studio"]), body:has(.desktop-shell[data-lay
   border: 1px solid rgba(255, 255, 255, 0.58);
   border-radius: 22px;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(10, 13, 23, 0.12) 42%, rgba(145, 133, 214, 0.16)) padding-box,
+    linear-gradient(145deg, rgba(255, 255, 255, 0.32), rgba(10, 13, 23, 0.26) 42%, rgba(145, 133, 214, 0.26)) padding-box,
     linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(139, 169, 244, 0.38) 34%, rgba(189, 159, 255, 0.5) 72%, rgba(255, 255, 255, 0.56)) border-box;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.18),
     0 14px 38px rgba(29, 43, 83, 0.26),
     0 0 24px rgba(111, 146, 237, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.34);
-  backdrop-filter: blur(22px) saturate(155%);
-  -webkit-backdrop-filter: blur(22px) saturate(155%);
+  backdrop-filter: blur(30px) saturate(155%);
+  -webkit-backdrop-filter: blur(30px) saturate(155%);
   color: var(--studio-ink);
   font-family: "DM Sans", "IBM Plex Sans Thai", sans-serif;
 }

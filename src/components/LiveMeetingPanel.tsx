@@ -988,7 +988,7 @@ export function LiveMeetingPanel({
         closePlayer,
         () => liveMeetingStart({
           projectId: options.projectId ?? projectId ?? undefined,
-          captureSystem: options.captureSystem ?? true,
+          captureSystem: options.captureSystem ?? false,
           language: options.language,
           transcriptProfile: options.transcriptProfile,
           micDeviceId: options.micDeviceId,

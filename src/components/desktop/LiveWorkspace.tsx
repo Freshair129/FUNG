@@ -259,7 +259,7 @@ export function LiveWorkspace({
   const feedRef = useRef<HTMLDivElement | null>(null);
   const nearBottomRef = useRef(true);
   const previousSegmentCountRef = useRef(segmentFeed.length);
-  const [captureSystem, setCaptureSystem] = useState(true);
+  const [captureSystem, setCaptureSystem] = useState(false);
   const [micDeviceId, setMicDeviceId] = useState("");
   const [systemDeviceId, setSystemDeviceId] = useState("");
   const [language, setLanguage] = useState("auto");

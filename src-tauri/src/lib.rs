@@ -918,6 +918,33 @@ fn open_external_account_portal(app: tauri::AppHandle) -> AppResult<()> {
     native_auth::open_trusted_account_portal(app)
 }
 
+/// Toggles the native backdrop material for the transparent desktop window.
+/// CSS backdrop filters cannot sample content outside the WebView, so Windows
+/// uses the OS acrylic effect for the exposed glass margin around the shell.
+#[tauri::command]
+fn desktop_window_set_glass(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "The FUNG desktop window is unavailable.".to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        let result = if enabled {
+            window_vibrancy::apply_acrylic(&window, None)
+        } else {
+            window_vibrancy::clear_acrylic(&window)
+        };
+        result.map_err(|error| format!("Could not update the native glass effect: {error}"))?;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, enabled);
+    }
+
+    Ok(())
+}
+
 /// Opens this project's Google authorize URL for the mobile login flow. The
 /// webview supplies only the PKCE code challenge; every other part of the
 /// URL is fixed natively.
@@ -6763,6 +6790,13 @@ pub fn run() {
         .plugin(native_recorder::init())
         .plugin(on_device_ai::init())
         .setup(|app| {
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(error) = window_vibrancy::apply_acrylic(&window, None) {
+                    eprintln!("[desktop-glass] native acrylic unavailable: {error}");
+                }
+            }
+
             let state = app_state(app)?;
             // Recovery runs before the window is usable so a crashed session
             // is never presented as a healthy one. Detection only: stale jobs
@@ -6807,6 +6841,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_health,
+            desktop_window_set_glass,
             create_project,
             list_projects,
             create_job,

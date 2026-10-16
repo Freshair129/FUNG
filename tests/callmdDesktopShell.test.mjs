@@ -80,6 +80,14 @@ test("glass stacking cannot turn skip links or fixed overlays into grid rows", (
   assert.match(shellSource, /<summary className="desktop-shell__project-toggle"/);
 });
 
+test("full-glass Studio blurs the transparent window margin behind the shell", () => {
+  assert.match(shellSource, /desktop_window_set_glass/);
+  assert.match(shellSource, /material === "glass" && transparency === "full"/);
+  assert.match(studioCssSource, /backdrop-filter:\s*blur\(30px\) saturate\(155%\)/);
+  assert.match(studioCssSource, /#root:has\(> \.desktop-shell\[data-layout="studio"\]\)\s*\{[^}]*z-index:\s*1/);
+  assert.match(studioCssSource, /rgba\(255, 255, 255, 0\.32\)/);
+});
+
 test("hosted review and live pages defer page scrolling to main", () => {
   assert.match(shellCssSource, /\.desktop-shell__surface-content\s*\{[^}]*overflow:\s*visible/);
   assert.match(reviewCssSource, /\.desktop-shell \.recording-review\s*\{[^}]*max-height:\s*none;[^}]*overflow:\s*visible/);
@@ -88,10 +96,11 @@ test("hosted review and live pages defer page scrolling to main", () => {
 });
 
 await writeFile(path.join(runtimeDir, "contracts.mjs"), resolveRuntimeImports(transpile(contractsSource)), "utf8");
+await writeFile(path.join(runtimeDir, "tauri.mjs"), "export const nativeInvoke = null;\n", "utf8");
 await writeFile(
   path.join(runtimeDir, "DesktopShell.mjs"),
   resolveRuntimeImports(transpile(shellSource))
-    .replace('from "../../tauri.ts"', "")
+    .replace('from "../../tauri.ts"', 'from "./tauri.mjs"')
     .replace('from "./contracts.ts"', 'from "./contracts.mjs"')
     .replace('from "./CompanionPanel"', 'from "./CompanionPanel.mjs"')
     .replace('from "./StudioHome"', 'from "./StudioHome.mjs"')

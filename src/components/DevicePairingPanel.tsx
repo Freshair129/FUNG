@@ -9,6 +9,8 @@ import {
   brokerPairingCreate,
   brokerPairingPoll,
 } from "../lib/desktopSessionBroker";
+import { supabaseConfigured } from "../lib/bootstrap";
+import { describePairingFailure } from "../lib/pairingErrors";
 import "./DevicePairingPanel.css";
 // Pairing can open before Settings, so it must load its shared overlay styles.
 import "./AccountLoginPanel.css";
@@ -81,6 +83,7 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
   /// genuinely empty); a message when the fetch failed. Keeps "no devices"
   /// and "could not check" visually and textually distinct — see issue #34.
   const [devicesLoadError, setDevicesLoadError] = useState<string | null>(null);
+  const [pairingSetupRequired, setPairingSetupRequired] = useState(false);
   const [pairing, setPairing] = useState<PairingState>({ kind: "idle" });
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
@@ -95,10 +98,13 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
       const next = await brokerDeviceList();
       setDevices(next);
       setDevicesLoadError(null);
-    } catch {
+      setPairingSetupRequired(false);
+    } catch (error) {
       // Leave the last-known list alone: replacing it with [] would render
       // as "no devices paired" when the truth is "could not check".
-      setDevicesLoadError("โหลดรายการอุปกรณ์ไม่สำเร็จ — ตรวจสอบการเชื่อมต่อแล้วลองรีเฟรช");
+      const failure = describePairingFailure(error, supabaseConfigured);
+      setPairingSetupRequired(failure.setupRequired);
+      setDevicesLoadError(failure.message);
     }
   }, []);
 
@@ -172,7 +178,11 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
       const result = await brokerPairingCreate("FUNG Desktop");
       setPairing({ kind: "waiting", pairingId: result.pairingId, displayCode: result.displayCode, expiresAtMs: result.expiresAtMs });
       pollPairing(result.pairingId);
-    } catch { setPairing({ kind: "error", message: "สร้างรหัสจับคู่ไม่สำเร็จ" }); }
+    } catch (error) {
+      const failure = describePairingFailure(error, supabaseConfigured);
+      setPairingSetupRequired(failure.setupRequired);
+      setPairing({ kind: "error", message: failure.message });
+    }
     finally { setBusy(false); }
   }, [pollPairing]);
 
@@ -216,7 +226,7 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
       {pairing.kind === "waiting" && <div className="device-pairing-code-box"><p>กรอกรหัสนี้บนอุปกรณ์ที่ต้องการเชื่อมต่อ</p><div className="device-pairing-code">{pairing.displayCode}</div><div className="device-pairing-countdown">เหลือ {Math.max(0, Math.ceil((pairing.expiresAtMs - now) / 1000))} วินาที</div></div>}
       {pairing.kind === "confirmed" && <p className="device-pairing-success">เชื่อมต่อ {pairing.peerName} สำเร็จ</p>}
       {pairing.kind === "error" && <p className="device-pairing-error">{pairing.message}</p>}
-      <button className="device-pairing-start" onClick={() => void startPairing()} disabled={busy || pairing.kind === "waiting"}><Link2 size={16} /> สร้างรหัสจับคู่</button>
+      <button className="device-pairing-start" onClick={() => void startPairing()} disabled={busy || pairing.kind === "waiting" || pairingSetupRequired}><Link2 size={16} /> สร้างรหัสจับคู่</button>
       <button className="device-pairing-start" onClick={() => void refresh()} disabled={busy}><RefreshCw size={16} /> รีเฟรช</button>
 
       <div className="device-pairing-fungwire">

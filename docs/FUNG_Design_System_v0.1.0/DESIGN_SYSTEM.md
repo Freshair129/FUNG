@@ -169,7 +169,7 @@ Porcelain เป็นความรู้สึกของวัสดุ ไ
 | `tokens/fung.tokens.css` | CSS ที่ generate แล้ว ใช้ prefix `--fung-` และ scope `[data-fung-root]` |
 | `qa/CONTRAST_REPORT.md` | ผลตรวจคู่สีทึบเท่านั้น ไม่ใช่ใบรับรอง accessibility ของแอป |
 | [`qa/COMPONENT_COVERAGE.md`](qa/COMPONENT_COVERAGE.md) | Generated source inventory ของ CSS ที่อ้าง canonical token |
-| [`qa/ACCESSIBILITY_REVIEW.md`](qa/ACCESSIBILITY_REVIEW.md) | Combined UX/accessibility sample ของ Desktop Home พร้อมภาพ, keyboard focus และ skip-link activation; ไม่ใช่ conformance audit |
+| [`qa/ACCESSIBILITY_REVIEW.md`](qa/ACCESSIBILITY_REVIEW.md) | Combined UX/accessibility sample ของ Desktop Home, Live, History, Files และ Appearance พร้อมภาพ, Home keyboard focus และ skip-link activation; ไม่ใช่ conformance audit |
 | [`scripts/render_design_system.mjs`](../../scripts/render_design_system.mjs) | สร้าง board และ brand presentation จาก DTCG JSON เดียวกัน |
 | [`docs/design-system/index.html`](../design-system/index.html) | Interactive cross-surface board ที่ generate แล้ว; ห้ามแก้ HTML โดยตรง |
 
@@ -974,7 +974,7 @@ Light และ dark ต้องครอบหน้าจอเหล่า�
 
 ห้ามทำ native overlay เป็นแค่ CSS `position: fixed` แล้วอ้างว่าลอยเหนือทุกแอป และห้ามเอา mock ไป generate component ทั้งระบบโดยไม่ใส่ capability mapping
 
-สถานะ 2026-10-16: token source, CSS/export generator, component specimens, generated stylesheet token inventory และ Desktop Home keyboard/accessibility-tree sample ถูกเชื่อมและบันทึกแล้ว; CSS ทั้ง 24/24 stylesheet อ้าง canonical token, ไม่มี active flat single-color declaration ที่ยังเขียนตรง และไม่มี fallback value ซ้ำกับ canonical `--fung-*` tokens. Embedded colors in gradients, shadows, translucent materials และ illustrations ยังต้องตรวจตามบริบท; component-level semantic mapping และ rendered theme parity จึงยัง partial. Figma/Penpot source และ complete screen exports ยังเป็นงานค้าง, และยังไม่มี full visual/assistive-technology accessibility audit ตารางนี้เป็น governance backlog และไม่ยกเลิก capability/privacy gates เดิม
+สถานะ 2026-10-16: token source, CSS/export generator, component specimens, generated stylesheet token inventory และ Desktop shell route snapshots สำหรับ Home, Live, History, Files และ Appearance ถูกเชื่อมและบันทึกแล้ว; CSS ทั้ง 24/24 stylesheet อ้าง canonical token, ไม่มี active flat single-color declaration ที่ยังเขียนตรง และไม่มี fallback value ซ้ำกับ canonical `--fung-*` tokens. Route review บันทึก scroll region แยกสองส่วนและ `NATIVE_UNAVAILABLE` ในหน้าที่ต้องใช้ desktop bridge; keyboard Tab ไปยัง Appearance selectors ถูกยืนยันใน accessibility tree. ป้าย Live action ที่เคยระบุ pause/resume ถูกแก้ให้ตรงกับ handler ที่เปิด Live capture. การตรวจนี้เป็น preview หนึ่งธีมที่ 1280×720. Embedded colors in gradients, shadows, translucent materials และ illustrations ยังต้องตรวจตามบริบท; component-level semantic mapping และ rendered theme parity จึงยัง partial. Figma/Penpot source และ complete screen exports ยังเป็นงานค้าง, และยังไม่มี full visual/assistive-technology accessibility audit ตารางนี้เป็น governance backlog และไม่ยกเลิก capability/privacy gates เดิม
 
 ### 24.1 ADR/change requests ที่เสนอ
 

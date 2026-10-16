@@ -1,5 +1,5 @@
-version: "0.1.1b"
-updated_at: "2026-09-25T01:20:00+07:00"
+version: "0.1.2b"
+updated_at: "2026-10-16T00:00:00+07:00"
 status: "beta"
 scope: "FUNG local M1-M5 runtime contract with provider transport deferred"
 approval:
@@ -79,7 +79,7 @@ capabilities:
       capabilities: []
       source_input: bounded_stdin_pipe
       selected_path_passed_to_child: false
-      runtime: {python: "3.11.9", pypdf: "6.10.0", license: "BSD-3-Clause"}
+      runtime: {python: "3.11.9", pypdf: "6.19.0", license: "BSD-3-Clause"}
       unsupported_targets: [android, macos, linux]
     parser_network_access: false
     macros_or_external_recalculation: false

@@ -148,7 +148,7 @@ print(json.dumps({
     if ($dependencyInfo.python -ne $pythonVersion -or
         $dependencyInfo.torch -ne '2.14.0+cu130' -or
         $dependencyInfo.transformers -ne '5.16.1' -or
-        $dependencyInfo.accelerate -ne '1.10.1' -or
+        $dependencyInfo.accelerate -ne '1.15.0' -or
         $dependencyInfo.fasterWhisper -ne '1.2.1' -or
         $dependencyInfo.av -ne '18.1.0' -or
         $dependencyInfo.pythainlp -ne '5.3.8' -or

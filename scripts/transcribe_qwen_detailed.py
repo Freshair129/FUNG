@@ -8,6 +8,7 @@ import json
 import math
 import os
 import pathlib
+import re
 import sys
 
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -180,14 +181,36 @@ def validate_resource(profile: str) -> None:
             raise RuntimeError(f"less than 10 GiB free RAM before Qwen load: {available_ram / 1024**3:.2f} GiB")
 
 
+def validate_qwen_single_checkpoint(model_path: pathlib.Path, model_name: str) -> None:
+    """Fail closed on Accelerate's untrusted sharded-index loading path."""
+    if not model_path.is_dir():
+        raise RuntimeError(f"pinned local Qwen {model_name} model directory is missing: {model_path}")
+
+    filenames = [entry.name for entry in model_path.iterdir()]
+    has_index = any(name.casefold().endswith(".index.json") for name in filenames)
+    has_shards = any(
+        re.fullmatch(r"(?:pytorch_model|model)-\d+-of-\d+\.(?:bin|safetensors)", name)
+        for name in filenames
+    )
+    if has_index or has_shards:
+        raise RuntimeError(
+            f"Qwen candidate {model_name} sharded checkpoints are not allowed; "
+            "stage the approved single-file model."
+        )
+    if not (model_path / "model.safetensors").is_file():
+        raise RuntimeError(
+            f"Qwen candidate {model_name} pinned model.safetensors is missing; "
+            "stage the approved single-file model."
+        )
+
+
 def transcribe_qwen(
     chunks: list[dict],
     model_path: pathlib.Path,
     profile: str,
     audio_preprocessing_profile: str,
 ) -> tuple[list[str], list[dict]]:
-    if not model_path.is_dir():
-        raise RuntimeError(f"pinned local Qwen model directory is missing: {model_path}")
+    validate_qwen_single_checkpoint(model_path, "ASR")
     validate_resource(profile)
     use_gpu = profile == "gpu"
     dtype = torch.float16 if use_gpu else torch.float32
@@ -196,6 +219,7 @@ def transcribe_qwen(
     model = AutoModelForMultimodalLM.from_pretrained(
         str(model_path),
         local_files_only=True,
+        use_safetensors=True,
         low_cpu_mem_usage=True,
         dtype=dtype,
         device_map=device if use_gpu else None,
@@ -238,8 +262,7 @@ def align_qwen_texts(
     model_path: pathlib.Path,
     profile: str,
 ) -> tuple[list[dict], list[dict], dict]:
-    if not model_path.is_dir():
-        raise RuntimeError(f"pinned local Thai CTC model directory is missing: {model_path}")
+    validate_qwen_single_checkpoint(model_path, "Thai CTC")
     use_gpu = profile == "gpu"
     if use_gpu:
         free_vram, _ = torch.cuda.mem_get_info()

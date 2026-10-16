@@ -77,7 +77,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $metadata = & $embeddedPython -I -B -c "import importlib.metadata, pypdf; d=importlib.metadata.distribution('pypdf'); print(d.version + '|' + (d.metadata.get('License-Expression') or d.metadata.get('License') or ''))"
-if ($LASTEXITCODE -ne 0 -or $metadata.Trim() -notmatch '^6\.16\.1\|') {
+if ($LASTEXITCODE -ne 0 -or $metadata.Trim() -notmatch '^6\.19\.0\|') {
     throw "The staged parser dependency does not match the pinned pypdf version."
 }
 $licenseText = ($metadata.Trim() -split '\|', 2)[1]
@@ -87,7 +87,7 @@ if ($licenseText -notin @("BSD-3-Clause", "BSD 3-Clause License")) {
 $manifest = @{
     contractVersion = 1
     pythonVersion = "3.11.9"
-    pypdfVersion = "6.16.1"
+    pypdfVersion = "6.19.0"
     pypdfLicense = "BSD-3-Clause"
 }
 $manifestJson = ConvertTo-Json -InputObject $manifest -Compress
@@ -97,4 +97,4 @@ $manifestJson = ConvertTo-Json -InputObject $manifest -Compress
     [System.Text.UTF8Encoding]::new($false)
 )
 
-Write-Output "Staged isolated local knowledge parser runtime (CPython 3.11.9, pypdf 6.16.1, BSD-3-Clause)."
+Write-Output "Staged isolated local knowledge parser runtime (CPython 3.11.9, pypdf 6.19.0, BSD-3-Clause)."

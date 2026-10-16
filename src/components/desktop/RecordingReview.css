@@ -1,24 +1,15 @@
-:root {
-  --fung-porcelain: #faf8f3;
-  --fung-ink: #171918;
-  --fung-sage: #6f897e;
-  --fung-slate: #4a5b8b;
-  --fung-metal: #9a8260;
-  --fung-clay: #b0553f;
-}
-
 .recording-review {
-  --review-ground: var(--fung-porcelain);
-  --review-surface: #ffffff;
-  --review-surface-raised: #f3f0e9;
-  --review-border: #d9d5cc;
-  --review-text: var(--fung-ink);
-  --review-muted: #536259;
-  --review-action: var(--fung-slate);
-  --review-action-text: #ffffff;
-  --review-accent: var(--fung-sage);
-  --review-warning: #795f3d;
-  --review-error: var(--fung-clay);
+  --review-ground: var(--fung-bg-canvas);
+  --review-surface: var(--fung-bg-surface);
+  --review-surface-raised: var(--fung-bg-elevated);
+  --review-border: var(--fung-border-subtle);
+  --review-text: var(--fung-text-primary);
+  --review-muted: var(--fung-text-secondary);
+  --review-action: var(--fung-action-primary-bg);
+  --review-action-text: var(--fung-action-primary-fg);
+  --review-accent: var(--fung-brand-sage);
+  --review-warning: var(--fung-state-pending-fg);
+  --review-error: var(--fung-state-danger-fg);
   box-sizing: border-box;
   width: 100%;
   min-height: 100%;
@@ -26,9 +17,7 @@
   overflow: auto;
   padding: 28px;
   color: var(--review-text);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(250, 248, 243, 0.94)),
-    var(--review-ground);
+  background: var(--review-ground);
   font-family: "IBM Plex Sans Thai", "Leelawadee UI", Tahoma, sans-serif;
   line-height: 1.5;
 }
@@ -40,20 +29,17 @@
 }
 
 .theme-dark .recording-review {
-  --review-ground: #171918;
-  --review-surface: #222624;
-  --review-surface-raised: #2c322f;
-  --review-border: #48514c;
-  --review-text: #f5f3ed;
-  --review-muted: #b9c3bd;
-  --review-action: #bccaf3;
-  --review-action-text: #171918;
-  --review-accent: #8aa497;
-  --review-warning: #d7bd91;
-  --review-error: #e6a095;
-  background:
-    radial-gradient(circle at 90% 0%, rgba(74, 91, 139, 0.18), transparent 30%),
-    var(--review-ground);
+  --review-ground: var(--fung-bg-canvas);
+  --review-surface: var(--fung-bg-surface);
+  --review-surface-raised: var(--fung-bg-elevated);
+  --review-border: var(--fung-border-subtle);
+  --review-text: var(--fung-text-primary);
+  --review-muted: var(--fung-text-secondary);
+  --review-action: var(--fung-action-primary-bg);
+  --review-action-text: var(--fung-action-primary-fg);
+  --review-accent: var(--fung-brand-sage);
+  --review-warning: var(--fung-state-pending-fg);
+  --review-error: var(--fung-state-danger-fg);
 }
 
 .recording-review__header,

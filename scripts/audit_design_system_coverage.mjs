@@ -32,16 +32,20 @@ let rawColorSyntax = 0;
 let directLiteralDeclarations = 0;
 
 for (const path of cssFiles) {
-  const source = await readFile(path, "utf8");
+  // Ignore block comments so deleted palettes and documentation examples do not
+  // inflate the source inventory.
+  const source = (await readFile(path, "utf8")).replace(/\/\*[\s\S]*?\*\//g, "");
   const references = new Set([...source.matchAll(/var\(\s*(--fung-[\w-]+)/g)].map((match) => match[1]));
   const canonicalReferences = [...references].filter((name) => canonicalNames.has(name));
   const declarations = [...source.matchAll(directColor)].length;
-  rawColorSyntax += [...source.matchAll(colorSyntax)].length;
+  const colorSyntaxOccurrences = [...source.matchAll(colorSyntax)].length;
+  rawColorSyntax += colorSyntaxOccurrences;
   directLiteralDeclarations += declarations;
   records.push({
     path: relative(root, path).replaceAll("\\", "/"),
     canonicalReferences: canonicalReferences.sort(),
     directLiteralDeclarations: declarations,
+    colorSyntaxOccurrences,
   });
 }
 
@@ -49,7 +53,7 @@ const integrated = records.filter((record) => record.canonicalReferences.length 
 const uncovered = records.filter((record) => record.canonicalReferences.length === 0);
 const uniqueColors = new Set();
 for (const path of cssFiles) {
-  const source = await readFile(path, "utf8");
+  const source = (await readFile(path, "utf8")).replace(/\/\*[\s\S]*?\*\//g, "");
   for (const match of source.matchAll(/#[\da-f]{3,8}\b/gi)) uniqueColors.add(match[0].toUpperCase());
 }
 
@@ -63,25 +67,25 @@ const lines = [
   `- Stylesheets scanned: **${records.length}**.` ,
   `- Stylesheets using at least one canonical ` + "`--fung-*`" + ` variable: **${integrated.length}/${records.length}**. A locally invented ` + "`--fung-*`" + ` alias does not count as a canonical token reference.`,
   `- Stylesheets with no canonical token reference: **${uncovered.length}**.`,
-  `- Simple single-color CSS declarations written as a literal: **${directLiteralDeclarations}**. This includes visual states and surface-specific colors and is a triage count, not a claim that every occurrence is a defect.`,
-  `- CSS color syntax occurrences: **${rawColorSyntax}** across **${uniqueColors.size}** unique hex values. This count includes fallbacks, translucent materials, charts, illustrations and third-party marks.`,
+  `- Flat, single-color CSS declarations written as direct literals: **${directLiteralDeclarations}**. Block comments are excluded; semantic UI colors should use a canonical token.`,
+  `- Embedded CSS color syntax occurrences: **${rawColorSyntax}** across **${uniqueColors.size}** unique hex values. This inventory includes token fallbacks, gradients, shadows, translucent materials, illustrations and third-party marks; inspect context before changing these effects.`,
   "- The board's rendered component specimens demonstrate token intent; they do not prove production component adoption.",
   "",
   "## Canonical token references",
   "",
-  "| Stylesheet | Referenced tokens | Literal declarations |",
-  "| --- | --- | ---: |",
-  ...integrated.map((record) => `| \`${record.path}\` | ${record.canonicalReferences.map((name) => `\`${name}\``).join(", ")} | ${record.directLiteralDeclarations} |`),
+  "| Stylesheet | Referenced tokens | Flat literal declarations | Embedded color syntax |",
+  "| --- | --- | ---: | ---: |",
+  ...integrated.map((record) => `| \`${record.path}\` | ${record.canonicalReferences.map((name) => `\`${name}\``).join(", ")} | ${record.directLiteralDeclarations} | ${record.colorSyntaxOccurrences} |`),
   "",
   "## Stylesheets without canonical token references",
   "",
-  "| Stylesheet | Literal declarations |",
-  "| --- | ---: |",
-  ...uncovered.map((record) => `| \`${record.path}\` | ${record.directLiteralDeclarations} |`),
+  "| Stylesheet | Flat literal declarations | Embedded color syntax |",
+  "| --- | ---: | ---: |",
+  ...uncovered.map((record) => `| \`${record.path}\` | ${record.directLiteralDeclarations} | ${record.colorSyntaxOccurrences} |`),
   "",
   "## Acceptance boundary",
   "",
-  "New semantic colors should use a canonical token or include a documented, reviewed exception. Existing uncovered styles need an owner and a migration decision before being represented as complete. Source inspection cannot establish rendered contrast, alpha-over-image contrast, clipping, text scaling, native focus, screen-reader announcements or reduced-motion behavior. See the package verification report for the separate runtime evidence and limits.",
+  "Flat semantic colors are expected to use canonical tokens. Embedded colors remain visible in the inventory because gradients, shadows, translucent materials and illustration layers need contextual review; this source report does not verify their rendered appearance. Source inspection cannot establish rendered contrast, alpha-over-image contrast, clipping, text scaling, native focus, screen-reader announcements or reduced-motion behavior. See the package verification report for the separate runtime evidence and limits.",
   "",
 ];
 const report = lines.join("\n");

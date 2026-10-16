@@ -5,14 +5,14 @@
   justify-content: center;
   height: 100vh;
   gap: 24px;
-  background: #f5f2eb;
+  background: var(--fung-bg-inset);
 }
 
 .loading-spinner {
   width: 28px;
   height: 28px;
-  border: 3px solid rgba(111, 137, 126, 0.25);
-  border-top-color: #6f897e;
+  border: 3px solid var(--fung-state-local-bg);
+  border-top-color: var(--fung-brand-sage);
   border-radius: 50%;
   animation: loading-spin 0.8s linear infinite;
 }
@@ -20,7 +20,7 @@
 .loading-message {
   font-family: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
   font-size: 14px;
-  color: #5f6268;
+  color: var(--fung-text-secondary);
   margin: 0;
 }
 
@@ -29,16 +29,16 @@
 }
 
 .theme-dark .loading-screen {
-  background: #171918;
+  background: var(--fung-bg-canvas);
 }
 
 .theme-dark .loading-spinner {
-  border-color: rgba(163, 179, 170, 0.25);
-  border-top-color: #a3b3aa;
+  border-color: var(--fung-state-local-bg);
+  border-top-color: var(--fung-state-local-fg);
 }
 
 .theme-dark .loading-message {
-  color: #9b9386;
+  color: var(--fung-text-secondary);
 }
 
 /* Auth callback error state */
@@ -49,19 +49,19 @@
   justify-content: center;
   height: 100vh;
   gap: 16px;
-  background: #f5f2eb;
+  background: var(--fung-bg-inset);
   font-family: "IBM Plex Sans Thai", "DM Sans", system-ui, sans-serif;
 }
 
 .auth-callback-error p {
   font-size: 16px;
-  color: #c0392b;
+  color: var(--fung-state-danger-fg);
   margin: 0;
 }
 
 .auth-callback-error a {
   font-size: 14px;
-  color: #3d4f82;
+  color: var(--fung-link);
   text-decoration: none;
 }
 
@@ -70,13 +70,13 @@
 }
 
 .theme-dark .auth-callback-error {
-  background: #171918;
+  background: var(--fung-bg-canvas);
 }
 
 .theme-dark .auth-callback-error p {
-  color: #e74c3c;
+  color: var(--fung-state-danger-fg);
 }
 
 .theme-dark .auth-callback-error a {
-  color: #a8b6e6;
+  color: var(--fung-link);
 }

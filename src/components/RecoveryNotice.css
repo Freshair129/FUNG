@@ -61,7 +61,7 @@
   font: inherit;
   font-size: 12px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--fung-action-primary-fg);
   background: var(--evidence-indigo, #3d4f82);
   border: 1px solid transparent;
   border-radius: 999px;

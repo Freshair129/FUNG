@@ -4,7 +4,9 @@
 
 Established `tokens/fung.tokens.json` as the shared DTCG 2025.10 token authority; generated runtime/Brand Kit CSS, contrast evidence and a cross-surface HTML board from it; redirected former Mobile board URLs; and reconciled Mobile, Desktop, Brand Kit, design brief and docs indexes. Token integration is verified in-repository, while component coverage remains partial and native Figma/full-screen exports remain open.
 
-Added theme-aware component specimens to the board, a generated CSS token-coverage inventory checked by `design-system:check`, and a scoped Desktop Home accessibility evidence report. The production component migration and full visual/assistive-technology audit remain open.
+Added theme-aware component specimens to the board, a generated CSS token-coverage inventory checked by `design-system:check`, and a scoped Desktop Home accessibility evidence report. At that review point the production stylesheet migration and full visual/assistive-technology audit remained open.
+
+Migrated remaining direct semantic color declarations across Desktop, Mobile, Web and Landing styles to canonical tokens. Removed 116 duplicate canonical-token fallback values from five application stylesheets. The source inventory now finds token references in 24/24 application CSS files and zero active flat single-color declarations; embedded material, shadow, gradient and illustration colors remain inventoried for visual review. Component-level rendered parity and full accessibility are still open.
 
 ## 1.0.0b — 2026-09-20 — Beta
 

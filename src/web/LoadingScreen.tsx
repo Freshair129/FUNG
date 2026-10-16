@@ -7,7 +7,7 @@ type LoadingScreenProps = {
 
 export function LoadingScreen({ message }: LoadingScreenProps) {
   return (
-    <div className="loading-screen">
+    <div className="loading-screen" data-fung-root="true" data-theme="system">
       <FungLogo size={48} />
       <div className="loading-spinner" />
       {message && <p className="loading-message">{message}</p>}

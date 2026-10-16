@@ -16,7 +16,7 @@
 
 .recording-output-page__heading-row h2 {
   margin: 0;
-  color: var(--fung-ink, #f4f1ea);
+  color: var(--fung-text-primary);
   font-size: clamp(1.55rem, 2.6vw, 2.35rem);
   letter-spacing: -0.035em;
 }
@@ -24,7 +24,7 @@
 .recording-output-page__heading-row p {
   max-width: 620px;
   margin: 10px 0 0;
-  color: var(--fung-muted, #a8a49d);
+  color: var(--fung-text-secondary);
   line-height: 1.6;
 }
 
@@ -32,18 +32,18 @@
   display: grid;
   gap: 8px;
   padding: clamp(14px, 2vw, 18px);
-  border: 1px solid color-mix(in srgb, var(--fung-accent, #d89b4a) 36%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fung-brand-metal) 36%, transparent);
   border-radius: 22px;
-  background: color-mix(in srgb, var(--fung-surface, #1a1b1d) 82%, transparent);
+  background: color-mix(in srgb, var(--fung-bg-surface) 82%, transparent);
   box-shadow: 0 20px 60px rgb(0 0 0 / 18%);
 }
 
 .recording-output-card.is-unavailable {
-  border-color: color-mix(in srgb, #e37c6e 58%, transparent);
+  border-color: color-mix(in srgb, var(--fung-state-danger-fg) 58%, transparent);
 }
 
 .recording-output-card__label {
-  color: var(--fung-muted, #a8a49d);
+  color: var(--fung-text-secondary);
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -52,8 +52,8 @@
 
 .recording-output-card__path {
   overflow-wrap: anywhere;
-  color: var(--fung-ink, #f4f1ea);
-  font-family: var(--fung-mono, ui-monospace, monospace);
+  color: var(--fung-text-primary);
+  font-family: var(--fung-font-mono);
   font-size: clamp(0.86rem, 1.5vw, 1rem);
   line-height: 1.55;
 }
@@ -62,13 +62,13 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #9bd5a6;
+  color: var(--fung-state-local-fg);
   font-size: 0.9rem;
 }
 
 .recording-output-card.is-unavailable .recording-output-card__status,
 .recording-output-card__issue {
-  color: #f2a49a;
+  color: var(--fung-state-danger-fg);
 }
 
 .recording-output-card__issue {
@@ -91,14 +91,14 @@
   column-gap: 8px;
   row-gap: 0;
   padding: 8px 12px;
-  border-left: 2px solid color-mix(in srgb, var(--fung-accent, #d89b4a) 70%, transparent);
-  color: var(--fung-muted, #a8a49d);
+  border-left: 2px solid color-mix(in srgb, var(--fung-brand-metal) 70%, transparent);
+  color: var(--fung-text-secondary);
   font-size: 0.86rem;
   line-height: 1.5;
 }
 
 .recording-output-note strong {
-  color: var(--fung-ink, #f4f1ea);
+  color: var(--fung-text-primary);
 }
 
 .recording-output-spin {

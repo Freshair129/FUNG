@@ -26,7 +26,7 @@ Consolidate FUNG's brand, semantic, typography, spacing, layout, motion and them
 - [x] Record bounded Desktop Home accessibility-tree and sequential keyboard evidence with its limits.
 - [x] Run focused design-system tests, generated-file checks, documentation link/index checks and the application build.
 - [x] Review the complete diff and local checks.
-- [ ] Migrate or explicitly exempt production stylesheets that do not yet use canonical tokens.
+- [x] Migrate production stylesheet flat semantic colors to canonical tokens; remove duplicate fallback values for every canonical `--fung-*` token in application stylesheets; the generated inventory now finds canonical references in all 24/24 application stylesheets and zero active flat single-color literal declarations. Embedded gradients, shadows, translucent materials and illustration colors remain inventoried for contextual visual review.
 - [ ] Complete visual, assistive-technology, zoom, forced-color, reduced-motion and native accessibility acceptance.
 - [ ] Deliver the native Figma/Penpot library and complete screen/wireframe exports when that integration is available.
 - [ ] Publish a PR; hosted CI evidence requires a push.
@@ -43,4 +43,4 @@ Consolidate FUNG's brand, semantic, typography, spacing, layout, motion and them
 
 ## Status
 
-The initial source-of-truth and token-board slice is committed on `codex/design-system-standard-20261016` at `11f2332`. The follow-up adds theme-aware component specimens, a generated CSS coverage inventory checked by `design-system:check`, and a scoped Home keyboard/accessibility-tree review. The inventory currently finds canonical-token references in 7/24 application stylesheets; this is evidence for migration work, not full component adoption. The sampled Home sequence exposed named controls and 14 sequential focus moves, while the complete visual/assistive-technology audit, native Figma/Penpot source and complete screen exports remain open. Hosted Actions evidence and PR publication await a push.
+The initial source-of-truth and token-board slice is committed on `codex/design-system-standard-20261016` at `11f2332`; follow-up commits add theme-aware specimens, generated coverage and scoped Home keyboard/accessibility-tree evidence. The stylesheet migration is now recorded: all 24/24 application CSS files reference canonical tokens, canonical token fallback values are not duplicated in application CSS, and the source inventory finds zero active flat single-color literal declarations. This does not prove every component has complete semantic mapping or rendered theme parity. The sampled Home sequence exposed named controls and 14 sequential focus moves, while the complete visual/assistive-technology audit, native Figma/Penpot source and complete screen exports remain open. Hosted Actions evidence requires a push.

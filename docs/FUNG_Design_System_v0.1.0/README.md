@@ -38,7 +38,8 @@
 หลักฐานและขอบเขตปัจจุบัน:
 
 - Token CSS integration — verified in repository; generator currently validates 202 tokens and 58 declared solid-color contrast pairs.
-- Component coverage — source-audited and partial; 7/24 application CSS files reference canonical tokens. See [coverage inventory](qa/COMPONENT_COVERAGE.md).
+- Stylesheet token integration — source-audited; all 24/24 application CSS files reference canonical tokens, no active flat single-color declaration remains, and canonical token fallbacks no longer duplicate the source values. Embedded colors remain in layered effects and illustrations; stylesheet references do not prove every component/property has full semantic mapping or rendered parity. See [coverage inventory](qa/COMPONENT_COVERAGE.md).
+- Component implementation status — still partial; token presence and direct-color migration do not prove complete component contracts or accessibility acceptance. `implementation_verified: false` remains accurate.
 - Accessibility certification — not completed; only the Desktop Home accessibility tree and 14 sequential keyboard focus moves were observed. See [review evidence](qa/ACCESSIBILITY_REVIEW.md).
 - Figma/Penpot and complete per-screen exports — not included; the local HTML board is the available review/handoff artifact.
 - Native desktop, installer/clean-install, physical-device UAT and production gates remain separate; see [package checks](qa/PACKAGE_CHECK.md) and the [Liquid Glass evidence](LIQUID_GLASS_DESKTOP_ADAPTATION.md).

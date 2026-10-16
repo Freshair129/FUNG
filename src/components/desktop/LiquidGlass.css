@@ -172,7 +172,7 @@
 .desktop-shell[data-material="glass"] .desktop-shell__button--primary,
 .desktop-shell[data-material="glass"] .desktop-shell__home-action--primary {
   background: linear-gradient(145deg, rgba(111, 154, 131, 0.86), rgba(53, 91, 72, 0.94));
-  color: #f8fff9;
+  color: var(--fung-glass-text);
   box-shadow: inset 0 1px 0 rgba(248, 255, 249, 0.72), 0 10px 24px rgba(30, 65, 47, 0.2);
 }
 
@@ -211,12 +211,12 @@
 .desktop-shell[data-material="glass"] .live-btn-primary,
 .desktop-shell[data-material="glass"] .recording-review__button--primary {
   background: linear-gradient(145deg, rgba(111, 154, 131, 0.86), rgba(53, 91, 72, 0.94));
-  color: #f8fff9;
+  color: var(--fung-glass-text);
 }
 
 .desktop-shell[data-material="glass"] .live-btn-danger {
-  background: rgba(176, 85, 63, 0.72);
-  color: #fff5f0;
+  background: color-mix(in srgb, var(--fung-action-danger-bg) 72%, transparent);
+  color: var(--fung-action-danger-fg);
 }
 
 .desktop-shell[data-material="glass"] .settings-stack,
@@ -240,7 +240,7 @@
 .desktop-shell[data-material="glass"] .tts-panel-overlay,
 .desktop-shell[data-material="glass"] .cloud-providers-overlay,
 .desktop-shell[data-material="glass"] .backup-panel-overlay {
-  background: rgba(2, 10, 7, 0.42);
+  background: var(--fung-bg-backdrop);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }

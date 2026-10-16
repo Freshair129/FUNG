@@ -974,7 +974,7 @@ Light และ dark ต้องครอบหน้าจอเหล่า�
 
 ห้ามทำ native overlay เป็นแค่ CSS `position: fixed` แล้วอ้างว่าลอยเหนือทุกแอป และห้ามเอา mock ไป generate component ทั้งระบบโดยไม่ใส่ capability mapping
 
-สถานะ 2026-10-16: token source, CSS/export generator, component specimens, generated CSS coverage inventory และ Desktop Home keyboard/accessibility-tree sample ถูกเชื่อมและบันทึกแล้ว; production component coverage ยัง partial (7/24 stylesheet ใช้ canonical token), Figma/Penpot source และ complete screen exports ยังเป็นงานค้าง, และยังไม่มี full visual/assistive-technology accessibility audit ตารางนี้เป็น governance backlog และไม่ยกเลิก capability/privacy gates เดิม
+สถานะ 2026-10-16: token source, CSS/export generator, component specimens, generated stylesheet token inventory และ Desktop Home keyboard/accessibility-tree sample ถูกเชื่อมและบันทึกแล้ว; CSS ทั้ง 24/24 stylesheet อ้าง canonical token, ไม่มี active flat single-color declaration ที่ยังเขียนตรง และไม่มี fallback value ซ้ำกับ canonical `--fung-*` tokens. Embedded colors in gradients, shadows, translucent materials และ illustrations ยังต้องตรวจตามบริบท; component-level semantic mapping และ rendered theme parity จึงยัง partial. Figma/Penpot source และ complete screen exports ยังเป็นงานค้าง, และยังไม่มี full visual/assistive-technology accessibility audit ตารางนี้เป็น governance backlog และไม่ยกเลิก capability/privacy gates เดิม
 
 ### 24.1 ADR/change requests ที่เสนอ
 

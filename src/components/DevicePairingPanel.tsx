@@ -9,7 +9,7 @@ import {
   brokerPairingCreate,
   brokerPairingPoll,
 } from "../lib/desktopSessionBroker";
-import { supabaseConfigured } from "../lib/bootstrap";
+import { desktopAccountConfigured } from "../lib/bootstrap";
 import { describePairingFailure } from "../lib/pairingErrors";
 import "./DevicePairingPanel.css";
 // Pairing can open before Settings, so it must load its shared overlay styles.
@@ -102,7 +102,7 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
     } catch (error) {
       // Leave the last-known list alone: replacing it with [] would render
       // as "no devices paired" when the truth is "could not check".
-      const failure = describePairingFailure(error, supabaseConfigured);
+      const failure = describePairingFailure(error, desktopAccountConfigured);
       setPairingSetupRequired(failure.setupRequired);
       setDevicesLoadError(failure.message);
     }
@@ -179,7 +179,7 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
       setPairing({ kind: "waiting", pairingId: result.pairingId, displayCode: result.displayCode, expiresAtMs: result.expiresAtMs });
       pollPairing(result.pairingId);
     } catch (error) {
-      const failure = describePairingFailure(error, supabaseConfigured);
+      const failure = describePairingFailure(error, desktopAccountConfigured);
       setPairingSetupRequired(failure.setupRequired);
       setPairing({ kind: "error", message: failure.message });
     }

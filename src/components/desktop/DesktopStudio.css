@@ -1,4 +1,5 @@
 /* Reference dashboard composition. Existing surfaces retain their owners and handlers. */
+.desktop-shell__owned-slot:empty { display: none; }
 html:has(.desktop-shell[data-layout="studio"]),
 body:has(.desktop-shell[data-layout="studio"]),
 #root:has(> .desktop-shell[data-layout="studio"]) { background: transparent; }

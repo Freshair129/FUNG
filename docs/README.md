@@ -1,7 +1,7 @@
 ---
-version: "0.1.1b"
+version: "0.2.0b"
 created_at: "2026-08-20T00:00:00+07:00,ATHER"
-last_update: "2026-08-23T01:15:22+07:00,ATHER"
+last_update: "2026-10-16,Codex"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -27,7 +27,13 @@ attributes:
 | `ai-system/` | AI/ML data lineage, model cards, evaluation, lifecycle, and governance |
 | `plans/` | Implementation plans แบบ task-by-task |
 | `verification/` | Test, review, audit และ delivery evidence |
-| `contracts/` | API, MCP และ data contracts |
+| [`../contracts/`](../contracts/) | Repository-root API, MCP และ data contracts |
+| [`../schemas/`](../schemas/) | Repository-root SQL schema baselines |
+| [`design/`](design/README.md) | Current wireframe/wireflow/userflow ownership and design history |
+| [`FUNG_Design_System_v0.1.0/`](FUNG_Design_System_v0.1.0/README.md) | Shared design-system package and runtime-imported semantic tokens |
+| [`brand-kit/`](brand-kit/README.md) | Brand assets and identity references |
+| [`app/`](app/) | Web/landing product proposals and reference material |
+| [`superpowers/`](superpowers/) | Supporting plan/spec workflow artifacts; read each file's status |
 | `releases/` | Release notes และ release gates |
 | `appendices/` | Traceability และ supporting material |
 
@@ -61,12 +67,21 @@ verification/
 - Architecture index: `architecture/README.md`
 - Requirements governance: `requirements/README.md`
 - AI system governance: `ai-system/README.md`
+- Current UI journeys and wireframes: [Studio flow contract](design/2026-10-16-desktop-navigation-and-flows.md)
+- Interface inventory: [UI_INTERFACE_INVENTORY.md](UI_INTERFACE_INVENTORY.md)
+- Desktop status: [Desktop/08-real-progress.md](Desktop/08-real-progress.md)
+- Mobile status: [Mobile/IMPLEMENTATION_STATUS.md](Mobile/IMPLEMENTATION_STATUS.md)
+- Program roadmap: [master implementation plan](plans/2026-08-09-fung-master-implementation-plan.md)
+- Current flow review: [2026-10-16 audit](verification/implementation-reports/2026-10-16-wireframe-wireflow-userflow-audit.md)
+
+Internal tooling artifacts such as `.rwang-tasks/`, `.doc-graph.json` and
+`.preflight-report.json` are not runtime or release acceptance. Their recorded
+timestamps/content must be checked before reuse; this navigation repair does
+not regenerate or certify their hashes.
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.0b | 2026-10-16 | candidate | Reconciled directory map and root contract/schema locations; linked current design/flow audit and restored status entry points. | working-tree | Codex |
 | 0.1.1b | 2026-08-23 | candidate | Added document-control metadata, requirements, architecture, AI-system, and decision indexes. | pending | ATHER |
-- Desktop status: `Desktop/08-real-progress.md`
-- Mobile status: `Mobile/IMPLEMENTATION_STATUS.md`
-- Program roadmap: `plans/2026-08-09-fung-master-implementation-plan.md`

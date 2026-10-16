@@ -1,10 +1,10 @@
 ---
 id: DS-FUNG-GLASS-DESKTOP-001
 title: "FUNG — Liquid Glass Desktop Adaptation"
-version: "1.0.0b"
+version: "1.0.2b"
 status: "beta"
 created_at: "2026-09-19T08:04:52+07:00"
-last_update: "2026-09-20T03:53:22+07:00,RWANG"
+last_update: "2026-10-16T06:53:41+07:00,Codex"
 language: "th-TH / en"
 parent: "DS-FUNG-001 v0.1.0"
 superseded_by: null
@@ -15,13 +15,17 @@ attributes:
   source_path: "C:\\Users\\pc\\Downloads\\fung-new-ui"
 implementation_verified: false
 implementation_status: "PARTIAL_LOCAL_VERIFIED"
-native_clickthrough: "BLOCKED_ENVIRONMENT"
+native_clickthrough: "PENDING_VISUAL_ACCEPTANCE"
 human_approval_required: false
 ---
 
 # FUNG — Liquid Glass Desktop Adaptation
 
-**สถานะ:** Beta — approved และ local implementation verified บางส่วน; current native click-through ถูกบันทึกเป็น `BLOCKED_ENVIRONMENT`
+**สถานะ:** Beta — approved และ local implementation verified บางส่วน; native visual acceptance ของ Studio glass frame ยัง pending
+
+Current shell/navigation ownership: [Studio wireframes and flows](../design/2026-10-16-desktop-navigation-and-flows.md).
+The September sidebar/header arrangement below is historical; material,
+fallback and scoped evidence rules retain their authority.
 
 **ความเสี่ยง:** MEDIUM–HIGH — เปลี่ยน visual grammar หลาย desktop surfaces และเพิ่ม in-app companion presentation แต่ไม่เปลี่ยน backend, auth, recording, permission หรือ native command contract ในรอบนี้
 
@@ -166,19 +170,37 @@ Evidence นี้เป็น local engineering evidence เท่านั้�
 | Contract/regression tests | PASS | `test:desktop-bootstrap`, `test:callmd-contracts`, `test:callmd-shell`, `test:callmd-live`, `test:callmd-integration`, `test:design-system`, `test:release` |
 | Browser visual smoke | PASS (scoped) | Vite `http://127.0.0.1:1420/app?surface=desktop`: Home → Appearance → Live → Review, rail navigation, dedicated appearance controls, no sidebar recording action, and top-right signed-out account CTA ผ่าน; dark/solid/Companion และ additional 1024×768, 768×1024, 390×844 runs: NOT RUN |
 | Windows engineering build | PASS | `npx tauri build --no-bundle`; `src-tauri/target/release/fung.exe`, size `25,806,848` bytes, SHA-256 `BED7EFB569BCE7C8BDD4D4716052A3697B7EE41CE50590BB17845E9D8DCEF10E` |
-| Native desktop click-through | BLOCKED_ENVIRONMENT | Current Computer Use session cannot bind the elevated exact process; user-session launch exits `101` while crossing the external `..\\.venv-whisper` path. No native pass is claimed |
+| Native desktop click-through (2026-09-20 baseline) | BLOCKED_ENVIRONMENT (historical) | The prior elevated-process/path limitation remains a historical record; latest isolated preview build/startup and pending visual gate are documented in §9.1 |
 | Installer / clean install / production | NOT RUN | รอบนี้ใช้ `--no-bundle`; ไม่ใช่ installer, clean-VM หรือ production evidence |
 
-การแก้ stale UI: release executable ที่ path มาตรฐานถูก rebuild แล้ว แต่ native click-through รอบนี้ยังติด environment boundary; registered app `dev.fung.local` ที่ชี้ไป path อื่นไม่ใช้เป็นหลักฐานของ UI ใหม่
+การแก้ stale UI (evidence 2026-09-20): release executable ที่ path มาตรฐานถูก rebuild แล้ว แต่ native click-through รอบนั้นติด environment boundary; registered app `dev.fung.local` ที่ชี้ไป path อื่นไม่ใช่หลักฐานของ UI ใหม่. ผล preview ล่าสุดอยู่ใน §9.1
+
+## 9.1 Studio glass frame follow-up — 2026-10-16
+
+การปรับ reference-dashboard Studio shell ใน `src/components/desktop/DesktopStudio.css` ใช้ HTML roots โปร่งใส เพื่อให้พื้นที่นอก shell เปิดรับ transparency ของ Tauri window; shell ใช้ขอบไล่สีขาว/น้ำเงิน/ม่วง, radius 22px, เงานุ่ม และ `backdrop-filter: blur(22px) saturate(155%)`. Dock ใน glass/full ใช้พื้นดำโปร่งพร้อม blur 16px และเส้น highlight ด้านบนเพื่อรักษาความชัดของ label. โหมด solid และ reduced transparency เปลี่ยน shell/dock เป็นพื้นทึบและปิด blur.
+
+นี่เป็น implementation detail ของ Studio dashboard ไม่ใช่การเปลี่ยนสี semantic หรือ token ของสถานะข้อมูล/recording/provider และไม่อนุญาตให้ลด contrast ของ reader surfaces. Browser preview ใช้ยืนยัน layout และ contrast ของ dock ได้ แต่ไม่ใช่หลักฐานว่า native window โปร่งใสจริง.
+
+| Gate | ผล | Evidence |
+| --- | --- | --- |
+| Studio browser preview | PASS (layout only) | Vite preview แสดง dashboard และ dark dock; browser canvas ไม่ยืนยัน transparency ของ Tauri window |
+| Native preview build | PASS | `src-tauri/target/debug/fung.exe`, Tauri debug, `--no-bundle`, unique identifier `dev.fung.studio-glass-preview-20261016`; temporary CLI override ใช้ `bundle.resources: []` เพราะ `.knowledge-parser-runtime` ไม่มีใน checkout |
+| Native WebView startup | PASS (load only) | FUNG window และ WebView accessibility tree ปรากฏ; ใช้ identifier แยกจาก `dev.fung.local` จึงไม่เปิดโปรไฟล์หลัก |
+| Native frame/edge visual acceptance | PENDING_VISUAL_ACCEPTANCE | ขณะตรวจ Dota 2 ยังแสดงอยู่; screenshot ของ window แสดงภาพเกม จึงไม่ได้ดึง FUNG มาบังเกมและไม่อ้างว่าตรวจ transparency/blur ผ่าน; ปิด preview process แล้ว |
+| Installer / full packaged runtime | NOT RUN | Preview ใช้ `--no-bundle` และไม่ได้ทดสอบ resource-backed features |
+
+Build artifact ยังอยู่ใน `src-tauri/target/debug/fung.exe`. เหตุ Dota ในตารางเป็นประวัติของรอบตรวจนั้น; ผู้ใช้แจ้งว่าเกมจบแล้ว แต่ยังไม่มีหลักฐาน native frame visual acceptance รอบใหม่. ไม่มีการเปลี่ยน source code หรือ Tauri config เพื่อสร้าง preview นี้.
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 1.0.2b | 2026-10-16 | beta | Linked current Studio layout/flows and clarified historical game-blocked evidence without claiming new native acceptance. | working-tree | Codex |
+| 1.0.1b | 2026-10-16 | beta | Recorded Studio glass rim/dock contrast implementation and isolated native preview evidence; native visual acceptance remains pending | UNCOMMITTED | Codex |
 | 1.0.0b | 2026-09-20 | beta | Moved recording out of the persistent rail, promoted appearance to a dedicated page, and removed app-level minimize/close controls | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
 | 0.4.0b | 2026-09-19 | beta | Replaced the legacy desktop presentation with the approved hover rail/profile/glass shell; browser and build evidence pass, native recheck remains environment-blocked | UNCOMMITTED | RWANG |
 | 0.3.2b | 2026-09-19 | beta | Recorded bounded native click-through on the exact current executable and retained installer/release limitations | UNCOMMITTED | RWANG |
 | 0.3.1b | 2026-09-19 | beta | Recorded approved implementation, local/browser/build evidence, and explicit native/release gaps | 694607f9ecd67bbc2075f4bb1cba3021dc8b0da | RWANG |
 | 0.3.0b | 2026-09-19 | candidate | Added Liquid Glass desktop adaptation scope and approval gates; no code implementation | UNCOMMITTED | RWANG |
 
-Approval recorded in the task conversation on 2026-09-19. Code implementation and browser/build evidence are current; native click-through is environment-blocked, and installer, clean-install, production and full accessibility gates remain separate evidence gates.
+Approval recorded in the task conversation on 2026-09-19. Local implementation and browser/build evidence remain scoped; native visual acceptance for the latest Studio frame follow-up is still pending new evidence after the user cleared the game constraint. Installer, clean-install, production and full accessibility remain separate evidence gates.

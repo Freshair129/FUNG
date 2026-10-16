@@ -9,7 +9,7 @@
 | ไฟล์ | การใช้ |
 | --- | --- |
 | [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) | หลักการ, logo, tokens, component contracts, flow/state, surface mapping, overlay, QA และ implementation plan |
-| [LIQUID_GLASS_DESKTOP_ADAPTATION.md](LIQUID_GLASS_DESKTOP_ADAPTATION.md) | Approved beta addendum สำหรับแปลง `Downloads\fung-new-ui` เป็น desktop Liquid Glass; current shell refresh มี local implementation/build/browser evidence แล้ว แต่ native click-through รอบนี้ยัง `BLOCKED_ENVIRONMENT` และ installer/clean-install/production ยังเปิดอยู่ |
+| [LIQUID_GLASS_DESKTOP_ADAPTATION.md](LIQUID_GLASS_DESKTOP_ADAPTATION.md) | Approved beta addendum สำหรับ desktop Liquid Glass; บันทึก Studio glass rim/dock contrast และ isolated native preview แล้ว; native frame visual acceptance, installer/clean-install/production ยัง pending |
 | [fung.tokens.css](tokens/fung.tokens.css) | Semantic tokens แบบ Light/Dark/System ที่ generate แล้ว |
 | [fung.tokens.json](tokens/fung.tokens.json) | Source ของ token ในแพ็กนี้; project-specific schema |
 | [build_tokens.py](tokens/build_tokens.py) | Rebuild CSS และตรวจคู่สีด้วย Python standard library |
@@ -26,6 +26,8 @@
 
 ภาพ mock เป็น reference ไม่ใช่หลักฐานว่า backend รองรับปุ่มทุกตัวแล้ว เอกสาร §2 มี discrepancy register; §16 แยก native overlay ออกจาก panel ภายในแอป; §21 ผูก UI กับ API ที่ brief ระบุและชี้จุดที่ยังไม่มี contract
 
+Current layout/navigation and user journeys: [Studio flow contract](../design/2026-10-16-desktop-navigation-and-flows.md). Material rules remain in the addendum.
+
 ## สถานะการ integrate ล่าสุด
 
 รอบนี้เชื่อม `tokens/fung.tokens.css` กับ global styles และ surface roots ของ Desktop, Mobile, Web dashboard และ Landing; ใช้ canonical mark แบบ `currentColor`; และเพิ่มสถานะที่แยกข้อมูลจริงออกจาก fixture/ข้อมูลที่ยังอ่านไม่ได้ใน Mobile โดยไม่เปลี่ยน bridge, auth, routing หรือ native command contract
@@ -36,7 +38,7 @@
 - `npm run test:callmd-contracts`, `npm run test:callmd-live`, `npm run test:callmd-shell`, `npm run test:mobile`, `npm run test:audio-viz` — PASS
 - `npm run test:release`, `npm run test:desktop-bootstrap` — PASS
 - Browser smoke — Landing, Desktop light/dark และ Mobile route render ได้; ไม่มี console warning/error ในรอบตรวจ
-- Local Windows engineering build — `npx tauri build --no-bundle` สร้าง `src-tauri/target/release/fung.exe` ล่าสุดได้; current native exact-executable click-through ยัง `BLOCKED_ENVIRONMENT` เพราะ Computer Use bind กับ elevated process ไม่ได้และ user-session launch อ่าน `.venv-whisper` นอก workspace ไม่ผ่าน โดยยังแยก installer/clean-install/production และ full accessibility เป็นหลักฐานคนละ gate
+- Local Windows engineering build — standard `npx tauri build --no-bundle` evidence ด้านล่างเป็นประวัติเดิม; 2026-10-16 สร้างและเปิด isolated debug preview `src-tauri/target/debug/fung.exe` ด้วย identifier แยก และยืนยันว่า WebView โหลด FUNG แล้ว แต่ native frame/edge visual acceptance ยัง pending; เหตุ Dota 2 ในรอบเดิมเป็นประวัติ ผู้ใช้แจ้งว่าเกมจบแล้ว แต่ยังไม่มีหลักฐาน native visual รอบใหม่; ใช้ temporary `bundle.resources: []` override เนื่องจาก `.knowledge-parser-runtime` ไม่มีใน checkout และไม่ได้ทดสอบ resource-backed features
 - ยังไม่ทำ installer click-through, clean install, physical-device UAT หรือ full accessibility audit
 
 ## ใช้ token

@@ -1,7 +1,7 @@
 ---
-version: "0.3.0b"
+version: "0.4.0b"
 created_at: "2026-08-22T20:06:53+07:00,ATHER"
-last_update: "2026-09-20T03:53:22+07:00,RWANG"
+last_update: "2026-10-16,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -27,7 +27,7 @@ attributes:
 ## Source-of-Truth Order
 
 1. Implementation truth: [`docs/Desktop/08-real-progress.md`](Desktop/08-real-progress.md) และ [`docs/Mobile/IMPLEMENTATION_STATUS.md`](Mobile/IMPLEMENTATION_STATUS.md)
-2. Current Desktop shell contract: [`2026-09-19-liquid-glass-desktop-shell-refresh.md`](design/2026-09-19-liquid-glass-desktop-shell-refresh.md), [`LIQUID_GLASS_DESKTOP_ADAPTATION.md`](FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md)
+2. Current Desktop layout/navigation/flows: [Studio flow contract](design/2026-10-16-desktop-navigation-and-flows.md); material rules: [Liquid Glass addendum](FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md). September sidebar placement is historical.
 3. Desktop component and IA contracts: [`04-components.md`](Desktop/04-components.md), [`05-sitemap-ia.md`](Desktop/05-sitemap-ia.md), [`07-meeting-mode.md`](Desktop/07-meeting-mode.md)
 4. Mobile product/UI contract: [`PRODUCT_UX_SPEC.md`](Mobile/PRODUCT_UX_SPEC.md)
 5. Shared visual rules: [`DESIGN.md`](../DESIGN.md), [`docs/Desktop/DESIGN_SYSTEM.md`](Desktop/DESIGN_SYSTEM.md), [`docs/Mobile/DESIGN_SYSTEM.md`](Mobile/DESIGN_SYSTEM.md)
@@ -37,26 +37,30 @@ attributes:
 
 | Layer | IDs | Canonical source | Current conclusion |
 | --- | --- | --- | --- |
-| Desktop shell and Meeting Mode | D01-D12 | `src/components/desktop/DesktopShell.tsx`, `docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md`, `07-meeting-mode.md` | Liquid Glass shell and Home/Live/Review/Appearance surfaces are implemented; local WebView/build pass, native exact click-through remains a separate gate |
+| Desktop shell and Meeting Mode | D01-D14 | `src/components/desktop/DesktopShell.tsx`, [Studio flows](design/2026-10-16-desktop-navigation-and-flows.md), `07-meeting-mode.md` | Studio dashboard/bottom dock and five surfaces exist; current browser/CPU checks are scoped, native/provider/device acceptance remains separate |
 | Mobile product surface | M1-M8 | `docs/Mobile/PRODUCT_UX_SPEC.md` | Screen inventory exists; several lifecycle/device/AI gates remain open |
 | Shared design system | S01-S06 | `DESIGN.md`, desktop/mobile design-system sources | Tokens, components, states and generated references exist in separate sources |
 | Meeting-artifacts plugin | P01 | `.agents/plugins/fung-meeting-artifacts/` | No standalone UI; interaction is owned by Claude Code, Codex or Antigravity |
+| Browser bootstrap surfaces | W01-W04 | `src/main.tsx`, `src/lib/bootstrap.ts`, `src/web/` | Landing, Dashboard, callback and forced preview routes have different configuration/auth/native boundaries |
 
 ## Desktop Inventory
 
 | ID | Surface | Primary job | Implementation evidence | Status / boundary |
 | --- | --- | --- | --- | --- |
-| D01 | Liquid Glass desktop shell | Own brand lockup, ambient material, header status/profile and responsive shell chrome | `src/components/desktop/DesktopShell.tsx`, `src/components/desktop/DesktopShell.css`, `src/components/desktop/LiquidGlass.css` | `IMPLEMENTED`; local build/WebView pass, native exact click-through remains separate |
-| D02 | Active-surface navigation | Switch Home, Live and Review through the hover/focus-expandable sidebar without a legacy rail or power dock | `src/components/desktop/DesktopShell.tsx`, `src/components/desktop/contracts.ts` | `IMPLEMENTED`; sidebar contains navigation/actions and no recording start/stop control |
+| D01 | Studio dashboard and glass shell | Own hero, assistant/local-space/activity cards, frame and bottom dock | `src/components/desktop/StudioHome.tsx`, `src/components/desktop/DesktopStudio.css`, `src/components/desktop/DesktopShell.tsx` | `IMPLEMENTED`; native frame acceptance remains separate; project/capture facts preserve unavailable states |
+| D02 | Active-surface navigation | Dock Home/Live/History/Output; More → Appearance; project/utility disclosures | `src/components/desktop/DesktopShell.tsx`, `src/components/desktop/contracts.ts` | `IMPLEMENTED`; five controlled surfaces, capture guard, no current hover sidebar; anchors are not persistent deep links |
 | D03 | Appearance surface | Keep theme, material and transparency controls on a dedicated page, not inside the persistent sidebar | `src/components/desktop/DesktopShell.tsx`, `src/App.tsx` | `IMPLEMENTED`; WebView heading and three controls verified |
 | D04 | Live Meeting / Capture | Record, import, inspect capture state and open meeting workbench | `src/components/LiveMeetingPanel.tsx`, `src/lib/jobActions.ts` | `PARTIAL`; live Whisper runtime and UAT must be proven per [`08-real-progress.md`](Desktop/08-real-progress.md) |
-| D05 | Review / transcript | Review transcript, timestamps, speakers and evidence | `src/components/LiveMeetingPanel.tsx`, `src/App.tsx` | `PARTIAL`; transcript surface exists, but long-read/runtime completeness gates remain |
+| D05 | Review / transcript | Select actual project/recording, read transcript, explicitly play, ask and queue scoped jobs | `src/components/desktop/RecordingReview.tsx`, `src/App.tsx` | `PARTIAL`; current CPU scope/race checks pass; native audio/provider/device acceptance is separate from source completeness |
 | D06 | Summary / Runtime / Export | Show recap, provider state, privacy, provenance and export | `src/App.tsx`, `src/components/TtsProviderPanel.tsx`, `src/components/CloudProvidersPanel.tsx` | `PARTIAL`; export queue and some provider/runtime gates remain open |
 | D07 | External retrieval approval | Preview, approve, cancel, revoke and inspect sanitized connector results | `src/components/ExternalMeetingToolsPanel.tsx` | `IMPLEMENTED` behind default-off flags; real connector and visual UAT remain open |
 | D08 | Audio/media ingestion | Import local media, URL media and Zoom-linked sources | `src/components/MediaFetchPanel.tsx`, `src/components/ZoomPanel.tsx` | `PARTIAL`; real-site and source-custody/checksum gaps remain |
 | D09 | Account / connection / pairing | Sign in, manage account, pair devices and inspect cloud providers | `src/components/AccountLoginPanel.tsx`, `src/components/ExternalAccountPanel.tsx`, `src/components/DevicePairingPanel.tsx`, `src/web/AccountSettings.tsx` | `PARTIAL`; external identity/device gates are not equivalent to local UI existence |
 | D10 | Backup / recovery | Export, restore and explain data-safety state | `src/components/BackupPanel.tsx`, `src/components/RecoveryNotice.tsx` | `IMPLEMENTED` with clean-install restore and production transport gates open |
 | D11 | Loading / failure / degraded states | Keep data safety and recovery action visible | `src/web/LoadingScreen.tsx`, `src/components/RecoveryNotice.tsx`, component state rules | `IMPLEMENTED`; coverage should be expanded as new surfaces are added |
+| D12 | In-app Companion | Open Live/Settings and disclose selected context | `src/components/desktop/CompanionPanel.tsx` | `IMPLEMENTED` as navigation/context panel; no arbitrary chat, autonomous agent or external floating window is implied |
+| D13 | Output destination | Read/set/reset root for new files; lock while capture is active | `src/components/desktop/RecordingOutputPanel.tsx` | `PARTIAL`; browser unavailable state and source/CPU custody checks; native folder/permission acceptance remains separate |
+| D14 | Settings dialog | Account/backup/providers/import/runtime sections | `src/components/SettingsPanel.tsx` | `IMPLEMENTED` dialog with focus loop/Escape/restore; each child provider/device/runtime has separate gates |
 
 ### Desktop Surface Crosswalk
 
@@ -66,7 +70,8 @@ attributes:
 | Capture and Library | `live` | Live Meeting / capture workspace | idle, recording, paused, saving, interrupted, recovered |
 | Transcript and Speakers | `review` | Review workspace, transcript/evidence rows | pending, processing, low-confidence, speaker editing, ready |
 | Appearance | `appearance` | Dedicated theme/material/transparency page | light, dark, glass, solid, full transparency, reduced transparency |
-| Runtime and Governance | Sidebar actions / active content | Runtime, export, pairing, settings and Companion surfaces | local-ready, missing model, offline, approval-required, failed |
+| Output | `output` | New-file destination preference | loading, writable, denied/unavailable, busy, capture-locked |
+| Runtime and Governance | Dock / More / overlays | Runtime, export, pairing, settings and Companion surfaces | local-ready, missing model, offline, approval-required, failed |
 
 ### Desktop Page-Level Wireframes
 
@@ -77,7 +82,12 @@ attributes:
 | P3 | [`p3-summary-intent.svg`](Desktop/wireframes/p3-summary-intent.svg) | Recap, per-person intent, next steps, citations and confirmation |
 | P4 | [`p4-runtime-export.svg`](Desktop/wireframes/p4-runtime-export.svg) | BYOM/runtime, local policy, export bundle, provenance and egress |
 
-The complete set is indexed at [`docs/Desktop/wireframes/README.md`](Desktop/wireframes/README.md). These P1-P4 wireframes describe domain content only; they are not the current shell chrome. The current shell is defined by the Liquid Glass refresh documents above. Wireframes remain structural, not final visual mocks or release evidence.
+The original set is indexed at [Desktop wireframes](Desktop/wireframes/README.md).
+These P1-P4 SVGs and the September three-board CallMD package preserve historical
+content/layout references. Current screen anatomy, wireflows and 18 Desktop
+journeys are in [Studio flows](design/2026-10-16-desktop-navigation-and-flows.md);
+their [audit](verification/implementation-reports/2026-10-16-wireframe-wireflow-userflow-audit.md)
+links actual current screenshots. Static design artifacts are not runtime evidence.
 
 ## Mobile Screen Inventory
 
@@ -88,9 +98,9 @@ The product UX specification defines M1-M8. Several screens currently share `src
 | M1 | Voice Home | Start a command, recording, note or recent work | `src/mobile/MobileApp.tsx` (`HomeScreen`) | `IMPLEMENTED`; on-device STT asset remains a gate |
 | M2 | Live Capture | Record safely and expose durable chunk state | `src/mobile/MobileApp.tsx` (`CaptureScreen`), `src/mobile/captureOrchestration.ts` | `PARTIAL`; screen-off, kill/restart and extended lifecycle evidence remain open |
 | M3 | Notes Library | Find notes and projects | `src/mobile/MobileApp.tsx` (`NotesScreen`) | `IMPLEMENTED` at code/test level; physical/reopen evidence remains open |
-| M4 | Note Detail | Read evidence, edit text, play source and follow relations | Shared mobile surface; `src/mobile/MobileApp.tsx`, `src/mobile/TimelineScreen.tsx` | `PARTIAL`; dedicated screen-to-source mapping needs tightening |
+| M4 | Note Detail | Read/edit a selected note and follow related timeline | `NotesScreen` detail/editor in `src/mobile/MobileApp.tsx`; `src/mobile/TimelineScreen.tsx` | `PARTIAL`; shared nested state rather than an independent route; physical/source playback proof remains separate |
 | M5 | Graph Explorer | Explore note, speaker, topic, decision and evidence relations | `src/mobile/MobileApp.tsx` (`GraphScreen`), `src/mobile/bridge.ts` | `IMPLEMENTED` at code/test level; provider/device proof remains open |
-| M6 | Devices and Runtime | Pair Desktop and choose execution location | `src/mobile/MobileApp.tsx` (`DevicesScreen`), `src/mobile/bridge.ts` | `PARTIAL`; secure mutual-auth transport and resumable delegation remain open |
+| M6 | Devices and Runtime | Pair Desktop and choose execution location | `src/mobile/MobileApp.tsx` (`DevicesScreen`), `src/mobile/bridge.ts` | `PARTIAL`; transport/delegation implementation and historical LAN evidence exist; current APK/device requalification remains open per Mobile status |
 | M7 | Job Detail | Track queued, running, paused, failed and completed work | `src/mobile/MobileApp.tsx`, `src/mobile/CreativeStudio.tsx` | `PARTIAL`; executor and lifecycle evidence remain open |
 | M8 | MCP and Privacy | Enable bounded tools and inspect access | `src/mobile/MobileApp.tsx`, `src/mobile/bridge.ts` | `PARTIAL`; contract/build evidence exists, device-to-client interoperability remains open |
 
@@ -99,13 +109,26 @@ The product UX specification defines M1-M8. Several screens currently share `src
 | ID | Shared surface/rule | Source | Status |
 | --- | --- | --- | --- |
 | S01 | Color, typography, spacing, radius and elevation tokens | [`DESIGN.md`](../DESIGN.md), [`docs/Mobile/DESIGN_SYSTEM.md`](Mobile/DESIGN_SYSTEM.md) | `IMPLEMENTED` as documented source; versions remain beta/draft where marked |
-| S02 | App shell, panel zones and ownership rules | [`04-components.md`](Desktop/04-components.md) | `IMPLEMENTED` as component contract |
+| S02 | App shell, panel zones and ownership rules | [Studio flows](design/2026-10-16-desktop-navigation-and-flows.md); [04-components.md](Desktop/04-components.md) for legacy/domain rules | `IMPLEMENTED` current shell; legacy component map does not override dock/navigation placement |
 | S03 | Buttons, segmented controls, signal cards and transcript/evidence rows | [`DESIGN.md`](../DESIGN.md) | `IMPLEMENTED` as design rule; implementation coverage is tracked per surface above |
 | S04 | Loading, empty, error, offline and model-missing states | [`04-components.md`](Desktop/04-components.md) | `IMPLEMENTED` as rule; each new component must map its state coverage |
 | S05 | Thai-first mobile visual system and brand assets | [`docs/Mobile/DESIGN_SYSTEM.md`](Mobile/DESIGN_SYSTEM.md) | `IMPLEMENTED` source-of-truth; generated HTML must not be edited manually |
 | S06 | Interactive design-system reference | [`docs/Mobile/design-system/index.html`](Mobile/design-system/index.html) | `GENERATED` from `docs/Mobile/DESIGN_SYSTEM.md` |
 
-## Plugin Boundary
+## Browser Route Inventory
+
+| ID | Entry | Owner | Boundary |
+| --- | --- | --- | --- |
+| W01 | `/` and unmatched browser paths | `src/web/LandingPage.tsx` | Landing; not native application evidence |
+| W02 | `/app` | `src/web/Dashboard.tsx`, `src/web/AuthGuard.tsx` | Requires configured Supabase/session; no real sign-in performed in current flow audit |
+| W03 | `/auth/callback` | `src/web/AuthCallback.tsx` | Configuration and OAuth callback boundary; real provider ceremony remains separate |
+| W04 | `/app?surface=desktop` or `mobile` | `src/main.tsx`, `src/lib/bootstrap.ts` | Desktop browser preview has no native bridge; Mobile browser route requires configured Supabase |
+
+Mobile source uses bottom tabs Home/Files/Voice/Notes/Devices, with nested Graph
+and Timeline. M1-M8 are product domains, not eight standalone router paths.
+Source-only observations and device/runtime gates are in the current flow contract.
+
+## Plugin Interaction Boundary
 
 | ID | Surface | Owner | Evidence | Status |
 | --- | --- | --- | --- | --- |
@@ -115,10 +138,11 @@ The plugin's transcript, model, format and destination questions are rendered by
 
 ## Known Inventory Gaps
 
-1. There is no single stable cross-platform ID map from `D01-D12` / `M1-M8` to every React component and Tauri surface.
-2. Desktop shell surfaces use `home|live|review|appearance`, while domain content and Mobile still use P1-P4/M1-M8 IDs; the relationship is documented conceptually but not yet represented as a machine-readable graph.
+1. D01-D14 / M1-M8 / W01-W04 map product domains and entry owners; not every nested state has an independent stable ID.
+2. Desktop shell surfaces use `home|live|review|output|appearance`, while historical domain content and Mobile use P1-P4/M1-M8 IDs; the crosswalk is documented but is not a generated machine-readable graph.
 3. Implementation status and release/UAT status are intentionally different; a row marked `IMPLEMENTED` can still have runtime, device, provider or release gates open.
 4. Screenshot, keyboard, physical-device and clean-install evidence are not attached to every row; the new wireframes describe structure and state coverage, not execution proof.
+5. Mobile Graph search remains unimplemented; the enabled icon with no handler was removed in this repair. Current native/device/provider gates are retained in platform status, not closed by browser navigation.
 
 ## Update Rules
 
@@ -131,7 +155,8 @@ The plugin's transcript, model, format and destination questions are rendered by
 
 | Version | Change |
 | --- | --- |
-| 0.3.0b | 2026-09-20 | Reconciled the inventory with the Liquid Glass DesktopShell: active surfaces, dedicated Appearance page, hover sidebar, profile header and removal of shell-level recording/window controls. |
+| 0.4.0b | Reconciled current Studio dock/five surfaces, overlays, platform entry routes, legacy wireframes and flow evidence boundaries. |
+| 0.3.0b | Reconciled the September Liquid Glass shell, active surfaces, Appearance page, hover sidebar and profile header. |
 | 0.2.0b | Added complete Desktop P1-P4 page-level wireframes and linked them to the inventory. |
 | 0.1.0b | Added the first cross-platform UI interface inventory and separated UI implementation status from runtime/UAT/release readiness. |
 
@@ -139,6 +164,7 @@ The plugin's transcript, model, format and destination questions are rendered by
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 0.4.0b | 2026-10-16 | beta | Updated D01-D14, Mobile handoffs and W01-W04; linked current wireframes/flows/audit and corrected legacy layout/status pointers. | working-tree | Codex |
 | 0.3.0b | 2026-09-20 | beta | Synced the cross-platform interface inventory with the current DesktopShell and Liquid Glass active-surface contract. | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
 | 0.2.0b | 2026-08-22 | draft | Added and indexed the complete Desktop P1-P4 structural wireframe set. | N/A — uncommitted | ATHER |
 | 0.1.0b | 2026-08-22 | draft | Added Desktop, Mobile, Shared Design System and Plugin Boundary inventory. | N/A — uncommitted | ATHER |

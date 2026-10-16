@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link2, RefreshCw, Trash2, X } from "lucide-react";
 import {
   brokerDeviceEndpointPublish,
@@ -10,6 +10,8 @@ import {
   brokerPairingPoll,
 } from "../lib/desktopSessionBroker";
 import "./DevicePairingPanel.css";
+// Pairing can open before Settings, so it must load its shared overlay styles.
+import "./AccountLoginPanel.css";
 
 interface PairedDeviceRow {
   id: string;
@@ -41,6 +43,39 @@ const PUBLISH_MS = 60_000;
 const EMPTY_FUNGWIRE: FungwireStatus = { enabled: false, bind: null, activeJobs: 0, connectedPeers: 0 };
 
 export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
+  const panelRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const modal = Boolean(onClose);
+  useEffect(() => {
+    if (!modal) return;
+    const initiator = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+    return () => {
+      const target = initiator?.isConnected && initiator !== document.body && initiator.getClientRects().length > 0
+        ? initiator : document.querySelector<HTMLElement>('summary[aria-label="เพิ่มเติม"]');
+      target?.focus();
+    };
+  }, [modal]);
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (!modal || event.defaultPrevented) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose?.();
+      return;
+    }
+    if (event.key !== "Tab" || !panelRef.current) return;
+    const elements = Array.from(panelRef.current.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => element.getClientRects().length > 0);
+    const first = elements[0];
+    const last = elements[elements.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault(); last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault(); first?.focus();
+    }
+  };
   const [devices, setDevices] = useState<PairedDeviceRow[]>([]);
   /// null once the fetch has succeeded (the list itself may still be
   /// genuinely empty); a message when the fetch failed. Keeps "no devices"
@@ -157,11 +192,11 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
   }, [fungwire.enabled, startPublishing, stopPublishing]);
 
   return (
-    <section className="device-pairing-panel" aria-label="Device pairing">
+    <section ref={panelRef} className="device-pairing-panel" role={modal ? "dialog" : "region"} aria-modal={modal || undefined} aria-label="Device pairing" onKeyDown={handleKeyDown}>
       <header className="device-pairing-header">
         <Link2 size={20} aria-hidden="true" />
         <h3>เชื่อมต่ออุปกรณ์</h3>
-        {onClose && <button className="device-pairing-close" onClick={onClose} aria-label="ปิด"><X size={18} /></button>}
+        {onClose && <button ref={closeRef} className="device-pairing-close" onClick={onClose} aria-label="ปิดการจับคู่อุปกรณ์"><X size={18} /></button>}
       </header>
 
       <div className="device-pairing-list">

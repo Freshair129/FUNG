@@ -1,7 +1,7 @@
 ---
-version: "0.2.0b"
+version: "0.3.0b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-20T03:53:22+07:00,RWANG"
+last_update: "2026-10-16,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -20,13 +20,13 @@ This folder is the documentation source of truth for the current beta build.
 
 | Order | Document | Owns |
 | --- | --- | --- |
-| 00 | `../design/2026-09-19-liquid-glass-desktop-shell-refresh.md` | Current DesktopShell chrome, active surfaces, sidebar and responsive shell contract |
+| 00 | [Current Studio flows](../design/2026-10-16-desktop-navigation-and-flows.md) | Current dashboard, bottom dock, five surfaces, wireframes, capture guard and user flows |
 | 00a | `../FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md` | Approved Liquid Glass material, motion, profile and appearance-page addendum |
 | 01 | `01-foundations.md` | Product principles, goals, non-goals, acceptance criteria |
 | 02 | `02-tokens.md` | Skeuomorphic design tokens and material rules |
 | 03 | `03_LAYOUT.md` | Legacy Subtract HUD layout and domain-coordinate reference; not current shell chrome |
 | 04 | `04-components.md` | Legacy component inventory plus domain ownership rules; current shell components live under `src/components/desktop/` |
-| 05 | `05-sitemap-ia.md` | Legacy P1-P4 domain IA; current shell navigation is defined by the Liquid Glass refresh |
+| 05 | `05-sitemap-ia.md` | Legacy P1-P4 domain IA; current shell navigation follows the Studio flow contract |
 | 06 | `06-stack.md` | Tauri/Rust/API/MCP/SQLite/BYOM technical stack |
 | 07 | `07-meeting-mode.md` | Feature-driver content model for meeting recording and review |
 | 08 | `08-real-progress.md` | Current implementation truth, validation evidence, next gaps |
@@ -37,10 +37,11 @@ This folder is the documentation source of truth for the current beta build.
 
 | Document | Status | Notes |
 | --- | --- | --- |
-| `../design/2026-09-19-liquid-glass-desktop-shell-refresh.md` | beta | Current DesktopShell source-of-truth: Home/Live/Review/Appearance, hover sidebar, profile header and native-only window boundary |
+| [Studio flows](../design/2026-10-16-desktop-navigation-and-flows.md) | beta | Current shell/layout/navigation owner; 18 Desktop flows and platform handoffs |
+| [September shell refresh](../design/2026-09-19-liquid-glass-desktop-shell-refresh.md) | historical chrome | Sidebar/header placement superseded; preserve feature and material history |
 | `../FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md` | beta | Current Liquid Glass material and interaction addendum |
 | `PRODUCT_SPEC.md` | beta | Original product requirements |
-| `ARCHITECTURE.md` | beta | Architecture-level design |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | candidate | Parent architecture and three-layer document/knowledge ownership |
 | `AUDIO_AI_PIPELINE.md` | beta | Audio/AI processing plan |
 | `DESIGN_SYSTEM.md` | beta | Legacy plus current design direction |
 | `03_LAYOUT.md` | legacy | Historical Subtract HUD shell and inner-grid coordinates; preserve as design history |
@@ -50,27 +51,39 @@ This folder is the documentation source of truth for the current beta build.
 | `wireframes/README.md` | draft/legacy | Page-level P1-P4 structural wireframes for domain content, not current shell chrome |
 | `GPU_STANDALONE_RUNTIME_SPEC.md` | beta | CUDA 12/cuDNN runtime ownership, launcher, diagnostics, and clean-room GPU proof |
 | `UAT_SITEMAP_2026-07-19.md` | superseded | Historical sitemap and Meeting Mode UI UAT for the former Subtract HUD/P rail shell |
+| [CALLMD_ARCHITECTURE_COMPARISON.md](CALLMD_ARCHITECTURE_COMPARISON.md) | reference | Product/architecture comparison; not runtime acceptance |
+| [CALLMD_FUNG_SCORECARD_TH.md](CALLMD_FUNG_SCORECARD_TH.md) | reference | Comparison scorecard; read its evidence limits |
+| [LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md](LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md) | requirement source | Canonical existing live-meeting requirement IDs |
+| [ZOOM_INTEGRATION_SETUP.md](ZOOM_INTEGRATION_SETUP.md) | setup reference | Provider setup and its independent credential/runtime gates |
+| [Current flow audit](../verification/implementation-reports/2026-10-16-wireframe-wireflow-userflow-audit.md) | scoped evidence | Browser screenshots, source checks, fixes, CPU checks and named native/device blockers |
 
 ## Contract Files
 
 | File | Owns |
 | --- | --- |
-| `contracts/local-api-v1.yaml` | Loopback local API contract |
-| `contracts/local-mcp-v1.yaml` | MCP tool contract |
-| `contracts/fung-cli-v1.yaml` | CLI contract |
-| `contracts/genesisblockdb-entities-v1.yaml` | GenesisBlockDB domain entities |
-| `contracts/stateful-job-model-v1.yaml` | Stateful job model |
-| `schemas/sqlite-wal-v1.sql` | SQLite WAL schema baseline |
+| [local-api-v1.yaml](../../contracts/local-api-v1.yaml) | Loopback local API contract |
+| [local-mcp-v1.yaml](../../contracts/local-mcp-v1.yaml) | MCP tool contract |
+| [fung-cli-v1.yaml](../../contracts/fung-cli-v1.yaml) | CLI contract |
+| [genesisblockdb-entities-v1.yaml](../../contracts/genesisblockdb-entities-v1.yaml) | GenesisBlockDB domain entities |
+| [stateful-job-model-v1.yaml](../../contracts/stateful-job-model-v1.yaml) | Stateful job model |
+| [sqlite-wal-v1.sql](../../schemas/sqlite-wal-v1.sql) | SQLite WAL schema baseline |
 
 ## Current Design Decision
 
-The current Desktop UI direction is Liquid Glass: a translucent, motion-aware shell with FUNG / QUIET ARCHIVE lockup, a hover/focus-expandable sidebar, truthful profile state, and active surfaces `home`, `live`, `review`, and `appearance`. Recording actions belong to the active Home/Live surfaces; theme/material/transparency controls belong to the Appearance page; shell-level minimize/close buttons are not exposed. The older Skeuomorphic Subtract HUD documents remain as domain/layout history and are not the current shell source of truth.
+The current Desktop UI is the Studio dashboard with a bottom navigation dock,
+project/utility disclosures and `home`, `live`, `review`, `output`, `appearance`
+surfaces. Home enters capture setup; Live owns recording controls; Review owns
+selected-recording playback, Q&A and jobs; Output owns new-file destinations;
+Appearance owns local display choices. The Liquid Glass addendum owns materials.
+Older HUD and hover-sidebar placement remains design history. Native window
+controls remain platform-owned; browser preview does not qualify native behavior.
 
 ## Version Diff
 
 | Version | Change |
 | --- | --- |
-| 0.2.0b | 2026-09-20 | Reconciled the Desktop documentation index with the Liquid Glass DesktopShell and marked the older HUD/rail documents as legacy where appropriate. |
+| 0.3.0b | Reconciled current Studio flows, legacy pointers, supporting docs and root contract/schema links. |
+| 0.2.0b | Reconciled the Desktop documentation index with the September Liquid Glass shell and marked the older HUD/rail documents as legacy. |
 | 0.1.5b | Added page-level P1-P4 Desktop wireframes and their index. |
 | 0.1.4b | Added sitemap and Meeting Mode UAT record. |
 | 0.1.3b | Added standalone GPU runtime packaging specification. |
@@ -82,6 +95,7 @@ The current Desktop UI direction is Liquid Glass: a translucent, motion-aware sh
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.0b | 2026-10-16 | beta | Indexed current Studio wireframes/flows and audit; corrected supporting document coverage and relative contract/schema paths. | working-tree | Codex |
 | 0.2.0b | 2026-09-20 | beta | Added the current Liquid Glass shell references and reconciled legacy layout/index boundaries. | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
 | 0.1.5b | 2026-08-22 | draft | Added the complete P1-P4 Desktop page-level wireframe set. | N/A — uncommitted | ATHER |
 | 0.1.4b | 2026-07-19 | beta | Added sitemap UAT report to the documentation index. | N/A | ATHER |

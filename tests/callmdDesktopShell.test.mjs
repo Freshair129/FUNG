@@ -240,7 +240,7 @@ test("bootstrap and failed reads do not fabricate capture while known capture su
     const markup = renderShellWithProps({ liveStatus });
     assert.doesNotMatch(markup, /aria-label="สถานะการบันทึก"/, label);
     assert.doesNotMatch(markup, /มีเซสชันบันทึกอยู่/, label);
-    assert.match(markup, /พร้อมตรวจสอบ/, label);
+    assert.doesNotMatch(markup, /พร้อมตรวจสอบ/, label);
     if (label !== "loading") assert.match(markup, new RegExp(expectedNotice), label);
   }
 

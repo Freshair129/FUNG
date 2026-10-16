@@ -525,7 +525,9 @@ function SurfaceIntro({ activeSurface, scopeChoice, headingRef }: SurfaceIntroPr
         {copy.title}
       </h1>
       <p>{copy.description}</p>
-      <span className="desktop-shell__scope-note">ขอบเขต: {scopeLabel}</span>
+      {activeSurface === "live" || activeSurface === "review" ? (
+        <span className="desktop-shell__scope-note">ขอบเขต: {scopeLabel}</span>
+      ) : null}
     </header>
   );
 }
@@ -982,7 +984,7 @@ export function DesktopShell({
               }}
             />
           ) : null}
-          {activeSurface === "home" || activeSurface === "output" ? null : <LiveStatusNotice liveStatus={liveStatus} />}
+          {activeSurface === "live" || activeSurface === "review" ? <LiveStatusNotice liveStatus={liveStatus} /> : null}
           {activeSurface === "appearance" ? (
             <div className="desktop-shell__surface-content" aria-label="เนื้อหาลักษณะ">
               <AppearanceSurface
@@ -1019,9 +1021,9 @@ export function DesktopShell({
             <summary className="desktop-shell__project-toggle" aria-label="โครงการในเครื่อง" title="โครงการในเครื่อง"><FolderOpen size={17} /></summary>
             <div className="desktop-shell__project-details">
               <ProjectPanel project={project} selectedProjectId={selectedProjectId} selection={selection} onSelectProject={requestProject} />
-              <div className="desktop-shell__sidebar-note"><strong>{captureLifecycle === "inactive" ? "พร้อมตรวจสอบ" : "มีเซสชันบันทึกอยู่"}</strong></div>
+              {captureLifecycle !== "inactive" ? <div className="desktop-shell__sidebar-note"><strong>มีเซสชันบันทึกอยู่</strong></div> : null}
               {recoverySlot ? <div className="desktop-shell__owned-slot">{recoverySlot}</div> : null}
-              <button className="desktop-shell__button" type="button" onClick={() => { if (projectMenuRef.current) { projectMenuRef.current.open = false; projectMenuRef.current.querySelector<HTMLElement>("summary")?.focus(); } }}>ปิดโครงการ</button>
+              <button className="desktop-shell__button" type="button" onClick={() => { if (projectMenuRef.current) { projectMenuRef.current.open = false; projectMenuRef.current.querySelector<HTMLElement>("summary")?.focus(); } }}>ปิดรายการโครงการ</button>
             </div>
           </details>
           <button type="button" className="desktop-shell__dock-icon" aria-label="ตั้งค่า" title="ตั้งค่า" onClick={(event) => requestSettings(event.currentTarget)}><Settings2 size={17} /></button>

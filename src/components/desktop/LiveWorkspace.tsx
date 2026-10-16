@@ -436,7 +436,9 @@ export function LiveWorkspace({
           </h2>
           <div className="live-workspace__status" role="status" aria-live="polite">
             <span className={"live-workspace__phase live-workspace__phase--" + phase}>
-              {PHASE_LABELS[phase] ?? "สถานะการบันทึก"}
+              {phase === "idle" && !capabilities.capture.available
+                ? "เปิด FUNG Desktop เพื่อบันทึก"
+                : PHASE_LABELS[phase] ?? "สถานะการบันทึก"}
             </span>
             {(running || stopPending) ? (
               <span className="live-workspace__elapsed">{formatClock(elapsedMs)}</span>

@@ -1,7 +1,7 @@
 ---
-version: "0.3.22b"
+version: "0.3.23b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-15T09:40:00+07:00,Codex"
+last_update: "2026-10-16,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -11,6 +11,34 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Wireframe, wireflow and user-flow reconciliation — 2026-10-16
+
+The [current Studio flow contract](../design/2026-10-16-desktop-navigation-and-flows.md)
+maps five Desktop surfaces, overlays, capture guards, 18 journeys and Mobile/Web
+handoffs. Indexes now identify the current dashboard/bottom dock and retain the
+September sidebar and P1–P4 boards as historical layout references.
+
+The two architecture citation review findings are repaired: the original file
+digest and UTF-8 chunk digest are named separately, and locator offsets specify
+Unicode scalar units, exclusive end and page/document/line bases. UI repair
+removes the legacy action tile above Live/Review, routes shell export through
+explicit Review selection, fixes Output card theme contrast, adds Settings
+keyboard/modal behavior, removes nested main/modal semantics and misleading
+technical copy, and removes the Mobile Graph search control with no handler.
+Browser Desktop status remains unavailable when no native bridge is present.
+
+Import now explains a missing native bridge and catches picker/project-creation
+failures. Pairing loads its overlay without depending on opening Settings first,
+and supports modal keyboard navigation. The project list no longer implies
+readiness from an unknown capture state.
+
+Frontend TypeScript/Vite build and the focused 89-check CPU campaign pass.
+Current browser screenshots verify navigation, unavailable/empty states, dialog
+keyboard behavior and light/dark Output. This round does not rebuild a native
+executable or requalify audio, private-source, device, provider, installer or
+release acceptance. Detailed receipts and remaining gates are in the
+[flow audit](../verification/implementation-reports/2026-10-16-wireframe-wireflow-userflow-audit.md).
 
 ## Existing-profile database recovery — 2026-10-15
 
@@ -1278,6 +1306,12 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.22b` → `0.3.23b`
+
+Reconciled current Studio wireframes/flows and documentation ownership; repaired
+citation semantics and bounded navigation/accessibility/contrast defects. Browser
+and CPU evidence stays separate from native/device/provider qualification.
+
 ### `0.3.21b` → `0.3.22b`
 
 - Pin the bounded upstream Windows projection-recovery repair for #41.
@@ -1443,6 +1477,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.23b | 2026-10-16 | beta | Current Studio flow/index reconciliation, citation semantics and bounded UI repairs; frontend build and 89 CPU checks passed, native/provider/device gates retained. | working-tree | Codex |
 | 0.3.22b | 2026-10-15 | beta | Windows original-profile schema recovery (#41), preserved provider settings and verified native close/reopen. | See PR #80 recovery commit; GenesisBlock PR #233 | Codex |
 | 0.3.21b | 2026-10-15 | beta | Reference dashboard with real project activity, bottom dock, responsive scrolling and bounded browser QA (#82). | See PR #80 dashboard commit | Codex |
 | 0.3.20b | 2026-10-15 | beta | Built and opened a native preview with the corrected frontend on user request; window startup confirmed, native visual/feature and installer acceptance pending. | 46f6c78 (preview source) | Codex |

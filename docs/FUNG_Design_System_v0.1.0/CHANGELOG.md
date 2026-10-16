@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.2b — 2026-10-16 — Beta
+
+เชื่อม [Studio flow contract](../design/2026-10-16-desktop-navigation-and-flows.md)
+เป็นเจ้าของ dashboard/bottom-dock layout และ wireframe/wireflow/userflow ปัจจุบัน;
+แยก sidebar รุ่นกันยายนเป็นประวัติ และระบุว่าเหตุรอ Dota สิ้นสุดแล้ว แต่ยังไม่มี
+native frame visual acceptance รอบใหม่ การเปลี่ยนนี้ไม่รับรอง installer/production.
+
+## 1.0.1b — 2026-10-16 — Beta
+
+บันทึก Studio glass frame ตาม implementation ปัจจุบัน: ขอบโปร่งไล่สีและ blur รอบ shell, dock โปร่งสีเข้มเพื่อคง contrast, และ fallback ทึบสำหรับ solid/reduced transparency; เพิ่มหลักฐาน isolated native debug build และ WebView startup โดยระบุชัดว่า native visual acceptance ยังรอหลัง Dota จบ และไม่ใช้ browser screenshot ยืนยัน native transparency
+
 ## 1.0.0b — 2026-09-20 — Beta
 
 อัปเดต current DesktopShell ให้ตรงกับ implementation: recording อยู่บน Home/Live surface, Appearance เป็นหน้าแยก, sidebar ไม่มี controls ของ theme/material/transparency, header ไม่มีปุ่มย่อ/ปิด และมี profile/login state; commit `285566b` พร้อม build, tests และ WebView evidence แล้ว

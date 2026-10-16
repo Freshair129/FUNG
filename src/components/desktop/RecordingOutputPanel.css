@@ -1,4 +1,7 @@
 .recording-output-page {
+  --fung-ink: var(--shell-ink, #171918);
+  --fung-muted: var(--shell-muted, #536259);
+  --fung-surface: var(--shell-surface, #fffdf8);
   display: grid;
   align-content: start;
   gap: 8px;
@@ -34,7 +37,7 @@
   padding: clamp(14px, 2vw, 18px);
   border: 1px solid color-mix(in srgb, var(--fung-accent, #d89b4a) 36%, transparent);
   border-radius: 22px;
-  background: color-mix(in srgb, var(--fung-surface, #1a1b1d) 82%, transparent);
+  background: var(--fung-surface, #fffdf8);
   box-shadow: 0 20px 60px rgb(0 0 0 / 18%);
 }
 
@@ -62,13 +65,13 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #9bd5a6;
+  color: var(--fung-state-local-fg, #3f6150);
   font-size: 0.9rem;
 }
 
 .recording-output-card.is-unavailable .recording-output-card__status,
 .recording-output-card__issue {
-  color: #f2a49a;
+  color: var(--fung-state-danger-fg, #9a4634);
 }
 
 .recording-output-card__issue {
@@ -83,6 +86,24 @@
   gap: 10px;
   margin-top: 4px;
 }
+
+.recording-output-card__actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--shell-line, #c8cec9);
+  border-radius: 12px;
+  background: var(--shell-surface-muted, #f0f1ed);
+  color: var(--fung-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.recording-output-card__actions button:disabled { opacity: 0.6; cursor: not-allowed; }
+.recording-output-card__actions button:focus-visible { outline: 2px solid var(--shell-focus, #437cf1); outline-offset: 3px; }
 
 .recording-output-note {
   display: flex;

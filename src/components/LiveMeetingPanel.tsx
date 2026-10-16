@@ -1207,7 +1207,7 @@ export function LiveMeetingPanel({
       hidden={!visibleAttribute}
       aria-hidden={!visibleAttribute}
     >
-      <div className="live-panel" role="dialog" aria-modal="true" aria-labelledby="live-workspace-title">
+      <div className="live-panel" role="region" aria-labelledby="live-workspace-title">
         <LiveWorkspace
           selection={selection}
           phase={phase}

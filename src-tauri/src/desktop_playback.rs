@@ -1425,21 +1425,25 @@ where
                         .underrun_started_ms
                         .store(0, Ordering::Release);
                 }
-                if consumed_source_frames > 0
-                    && stream_runtime.stream_epoch.load(Ordering::Acquire) == epoch
-                {
-                    let _ = stream_runtime.position_frames.fetch_update(
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                        |position| {
-                            (stream_runtime.stream_epoch.load(Ordering::Acquire) == epoch)
-                                .then_some(
-                                    position
-                                        .saturating_add(consumed_source_frames)
-                                        .min(duration_frames),
-                                )
-                        },
-                    );
+                if consumed_source_frames > 0 {
+                    let mut position = stream_runtime.position_frames.load(Ordering::Acquire);
+                    loop {
+                        if stream_runtime.stream_epoch.load(Ordering::Acquire) != epoch {
+                            break;
+                        }
+                        let next_position = position
+                            .saturating_add(consumed_source_frames)
+                            .min(duration_frames);
+                        match stream_runtime.position_frames.compare_exchange_weak(
+                            position,
+                            next_position,
+                            Ordering::AcqRel,
+                            Ordering::Acquire,
+                        ) {
+                            Ok(_) => break,
+                            Err(actual_position) => position = actual_position,
+                        }
+                    }
                 }
             },
             move |_error| {

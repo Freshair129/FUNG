@@ -109,7 +109,7 @@ export function CompanionPanel({
           <p className="companion-panel__eyebrow">Quiet companion · {resolveMode(activeSurface, captureLifecycle)}</p>
           <h2 id="companion-panel-title">อยู่กับคุณเสมอ</h2>
           <p className="companion-panel__intro">
-            ช่วยเปิดพื้นที่ทำงานและอ่านสถานะตามจริง โดยไม่สร้างคำสั่งหรือผลลัพธ์ใหม่ที่ยังไม่มี handler
+            เปิดพื้นที่ประชุมสดหรือจัดการการตั้งค่า พร้อมดูบริบทของบันทึกที่เลือก
           </p>
 
           <div className="companion-panel__status" role="status" aria-live="polite">
@@ -130,7 +130,7 @@ export function CompanionPanel({
             >
               <Mic size={18} />
               <span>เปิดประชุมสด</span>
-              <small>เริ่มจาก handler เดิม</small>
+              <small>ตรวจแหล่งเสียงก่อนเริ่มบันทึก</small>
             </button>
             <button
               type="button"
@@ -139,13 +139,13 @@ export function CompanionPanel({
             >
               <Settings2 size={18} />
               <span>เปิดตั้งค่า</span>
-              <small>ธีมและการเชื่อมต่อ</small>
+              <small>บัญชี การเชื่อมต่อ และเครื่องมือ</small>
             </button>
           </div>
 
           <div className="companion-panel__disclosure">
             <Sparkles size={15} aria-hidden="true" />
-            <span>วัสดุ {material} · transparency {transparency} · ไม่ใช่หน้าต่างลอยข้ามแอป</span>
+            <span>ผู้ช่วยนี้แสดงภายใน FUNG การเปิดหน้านี้ไม่เริ่มบันทึกเสียง</span>
           </div>
         </section>
 

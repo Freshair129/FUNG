@@ -16,6 +16,11 @@ attributes:
 
 # FUNG desktop: Home, Live, Recording review
 
+> The SVG/PNG boards below preserve the September three-surface design. Current
+> Studio shell placement and navigation follow [current flows](2026-10-16-desktop-navigation-and-flows.md).
+> P1-B recording/playback/Q&A scope contracts retain their own authority;
+> these static mockups are not current runtime screenshots.
+
 ## 1. Authority and review decision
 
 The current execution authority is the [current approval

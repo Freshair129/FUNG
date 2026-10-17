@@ -146,6 +146,11 @@ assert.equal(typeof waitForCaptureInactive, "function");
 assert.equal(typeof createLiveControllerAdapter, "function");
 assert.equal(typeof workspace.getLiveSummaryPresentation, "function");
 
+test("system audio starts off unless the user explicitly opts in", () => {
+  assert.match(workspaceSource, /const \[captureSystem, setCaptureSystem\] = useState\(false\)/);
+  assert.match(panelSource, /captureSystem: options\.captureSystem \?\? false/);
+});
+
 const keyA = { projectId: "project-a", recordingId: "recording-a" };
 const keyB = { projectId: "project-b", recordingId: "recording-b" };
 

@@ -89,3 +89,5 @@ export function requiresSupabaseConfig(route: RootRoute, isTauriRuntime: boolean
 }
 
 export const supabaseConfigured = hasSupabaseConfig(import.meta.env);
+/** Public setup status for Desktop consumers without exposing provider naming. */
+export const desktopAccountConfigured = supabaseConfigured;

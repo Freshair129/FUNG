@@ -9,7 +9,7 @@
 | ไฟล์ | การใช้ |
 | --- | --- |
 | [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) | หลักการ, logo, tokens, component contracts, flow/state, surface mapping, overlay, QA และ implementation plan |
-| [LIQUID_GLASS_DESKTOP_ADAPTATION.md](LIQUID_GLASS_DESKTOP_ADAPTATION.md) | Approved beta addendum สำหรับแปลง `Downloads\fung-new-ui` เป็น desktop Liquid Glass; current shell refresh มี local implementation/build/browser evidence แล้ว แต่ native click-through รอบนี้ยัง `BLOCKED_ENVIRONMENT` และ installer/clean-install/production ยังเปิดอยู่ |
+| [LIQUID_GLASS_DESKTOP_ADAPTATION.md](LIQUID_GLASS_DESKTOP_ADAPTATION.md) | Approved beta addendum สำหรับ desktop Liquid Glass; บันทึก Studio glass rim/dock contrast และ isolated native preview แล้ว; native frame visual acceptance, installer/clean-install/production ยัง pending |
 | [fung.tokens.css](tokens/fung.tokens.css) | Semantic tokens แบบ Light/Dark/System ที่ generate แล้ว |
 | [fung.tokens.json](tokens/fung.tokens.json) | Canonical token source ตาม DTCG Format Module 2025.10; FUNG metadata อยู่ใน namespaced `$extensions` |
 | [build_tokens.py](tokens/build_tokens.py) | ตรวจ token types ที่ FUNG ใช้ และสร้าง CSS, contrast report และ Brand Kit compatibility export |
@@ -31,16 +31,24 @@
 
 ภาพ mock เป็น reference ไม่ใช่หลักฐานว่า backend รองรับปุ่มทุกตัวแล้ว เอกสาร §2 มี discrepancy register; §16 แยก native overlay ออกจาก panel ภายในแอป; §21 ผูก UI กับ API ที่ brief ระบุและชี้จุดที่ยังไม่มี contract
 
+Current layout/navigation and user journeys: [Studio flow contract](../design/2026-10-16-desktop-navigation-and-flows.md). Material rules remain in the addendum.
+
 ## สถานะการ integrate ล่าสุด
 
 `tokens/fung.tokens.json` เป็นแหล่งแก้ไข token เพียงแห่งเดียว; CSS ที่ runtime ใช้, `docs/brand-kit/tokens.css`, contrast report และ board เป็น generated outputs. Mobile legacy URLs redirect ไป shared board. Liquid Glass values ที่ Desktop ใช้อยู่ถูกรวมใน source เดียวกัน โดย public `--fung-*` names ยังคงเดิม
 
 หลักฐานและขอบเขตปัจจุบัน:
 
+- `npm run build` — PASS
+- `npm run test:callmd-contracts`, `npm run test:callmd-live`, `npm run test:callmd-shell`, `npm run test:mobile`, `npm run test:audio-viz` — PASS
+- `npm run test:release`, `npm run test:desktop-bootstrap` — PASS
+- Browser smoke — Landing, Desktop light/dark และ Mobile route render ได้; ไม่มี console warning/error ในรอบตรวจ
+- Local Windows engineering build — standard `npx tauri build --no-bundle` evidence ด้านล่างเป็นประวัติเดิม; 2026-10-16 สร้างและเปิด isolated debug preview `src-tauri/target/debug/fung.exe` ด้วย identifier แยก และยืนยันว่า WebView โหลด FUNG แล้ว แต่ native frame/edge visual acceptance ยัง pending; เหตุ Dota 2 ในรอบเดิมเป็นประวัติ ผู้ใช้แจ้งว่าเกมจบแล้ว แต่ยังไม่มีหลักฐาน native visual รอบใหม่; ใช้ temporary `bundle.resources: []` override เนื่องจาก `.knowledge-parser-runtime` ไม่มีใน checkout และไม่ได้ทดสอบ resource-backed features
+- ยังไม่ทำ installer click-through, clean install, physical-device UAT หรือ full accessibility audit
 - Token CSS integration — verified in repository; generator currently validates 202 tokens and 58 declared solid-color contrast pairs.
-- Stylesheet token integration — source-audited; all 24/24 application CSS files reference canonical tokens, no active flat single-color declaration remains, and canonical token fallbacks no longer duplicate the source values. Embedded colors remain in layered effects and illustrations; stylesheet references do not prove every component/property has full semantic mapping or rendered parity. See [coverage inventory](qa/COMPONENT_COVERAGE.md).
+- Stylesheet token integration — the main-branch audit before the Studio dashboard found 24/24 application CSS files referencing canonical tokens and no active flat single-color declaration. After integrating the current dashboard, the regenerated inventory finds canonical references in 24/25 stylesheets and 43 flat single-color declarations across the scanned CSS; the report is source evidence, not rendered parity. Embedded colors remain in layered effects and illustrations. See the [coverage inventory](qa/COMPONENT_COVERAGE.md).
 - Component implementation status — still partial; token presence and direct-color migration do not prove complete component contracts or accessibility acceptance. `implementation_verified: false` remains accurate.
-- Accessibility certification — not completed; current evidence covers five Desktop shell routes in a 1280×720 light-theme preview, plus Home focus/skip-link behavior and Appearance selector tab order. The route review records separate sidebar/main scroll regions; a Live action label mismatch found during review is corrected in the current branch. See the [review and screenshots](qa/ACCESSIBILITY_REVIEW.md).
+- Accessibility certification — not completed; the available evidence covers five pre-dashboard Desktop shell routes in a 1280×720 light-theme preview, plus Home focus/skip-link behavior and Appearance selector tab order. Its sidebar/main screenshots do not verify the current dashboard and bottom dock. See the [review and screenshots](qa/ACCESSIBILITY_REVIEW.md).
 - Figma/Penpot and complete per-screen exports — not included. Local handoff assets include [Desktop P1–P4 wireframes](../Desktop/wireframes/), [Desktop SVG/PNG boards](../design/callmd-desktop/) and the shared HTML board; no native `.fig`/`.penpot` source exists in this repository.
 - Native desktop, installer/clean-install, physical-device UAT and production gates remain separate; see [package checks](qa/PACKAGE_CHECK.md) and the [Liquid Glass evidence](LIQUID_GLASS_DESKTOP_ADAPTATION.md).
 

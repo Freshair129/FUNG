@@ -1,7 +1,8 @@
 ---
-version: "0.3.18b"
+version: "0.3.26b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-15T00:00:00+07:00,Codex"
+last_update: "2026-10-16,Codex"
+
 status: "beta"
 superseded_by: null
 attributes:
@@ -11,6 +12,34 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Wireframe, wireflow and user-flow reconciliation — 2026-10-16
+
+The [current Studio flow contract](../design/2026-10-16-desktop-navigation-and-flows.md)
+maps five Desktop surfaces, overlays, capture guards, 18 journeys and Mobile/Web
+handoffs. Indexes now identify the current dashboard/bottom dock and retain the
+September sidebar and P1–P4 boards as historical layout references.
+
+The two architecture citation review findings are repaired: the original file
+digest and UTF-8 chunk digest are named separately, and locator offsets specify
+Unicode scalar units, exclusive end and page/document/line bases. UI repair
+removes the legacy action tile above Live/Review, routes shell export through
+explicit Review selection, fixes Output card theme contrast, adds Settings
+keyboard/modal behavior, removes nested main/modal semantics and misleading
+technical copy, and removes the Mobile Graph search control with no handler.
+Browser Desktop status remains unavailable when no native bridge is present.
+
+Import now explains a missing native bridge and catches picker/project-creation
+failures. Pairing loads its overlay without depending on opening Settings first,
+and supports modal keyboard navigation. The project list no longer implies
+readiness from an unknown capture state.
+
+Frontend TypeScript/Vite build and the focused 89-check CPU campaign pass.
+Current browser screenshots verify navigation, unavailable/empty states, dialog
+keyboard behavior and light/dark Output. This round does not rebuild a native
+executable or requalify audio, private-source, device, provider, installer or
+release acceptance. Detailed receipts and remaining gates are in the
+[flow audit](../verification/implementation-reports/2026-10-16-wireframe-wireflow-userflow-audit.md).
 
 ## Existing-profile schema recovery — upstream merged, FUNG validation in progress (2026-10-15)
 
@@ -47,6 +76,83 @@ will rerun the full suite. The actual-profile lifecycle receipts from the separa
 [FUNG PR #80](https://github.com/Freshair129/FUNG/pull/80) used the earlier
 `ddfc6e9` candidate and do not qualify this new pinned revision. Packaged startup,
 arbitrary crash recovery and issue closure remain open.
+
+## Reference dashboard composition — 2026-10-15
+
+[Issue #82](https://github.com/Freshair129/FUNG/issues/82) adapts the supplied
+reference into FUNG: blue/lavender hero, assistant and local project cards,
+dated activity and a black bottom navigation dock. The sidebar moves into dock
+disclosures. Existing actions and capture owners remain; the main CTA opens the
+meeting workspace before recording starts.
+
+Project counts use actual metadata with explicit unknown/empty/error states.
+The document stays inside the viewport; main scrolls when cards stack on narrow
+windows. Shell 15/15, integration 6/6 and frontend build passed. Browser design QA
+covered reference/responsive sizes, navigation, settings, Companion and synthetic
+capture guards. See the [dashboard report](../verification/implementation-reports/2026-10-15-studio-dashboard-layout.md)
+for evidence and native/release limits. Ollama/GPU were untouched.
+
+Native debug build passed. Normal-profile startup reproduced the open #41
+schema-version conflict; an isolated `dev.fung.studio-preview-20261015` preview
+opened successfully for user review. Existing database was not reset. Native
+visual/feature acceptance and second-boot acceptance remain unverified.
+
+## Desktop shell viewport and scroll correction — 2026-10-15
+
+[Issue #81](https://github.com/Freshair129/FUNG/issues/81) reproduced an extra
+58px row above the titlebar: glass styling changed the absolute skip link into
+a grid item and also affected fixed overlay wrappers. Named header/capture/body
+regions and scoped glass stacking now keep the header at y=0 and the body within
+the viewport. Main owns page scrolling; embedded review/live pages do not add a
+second page scroller. Project context is a keyboard-operable disclosure, closed
+initially, so rail actions fit a normal laptop window. Short windows and opened
+long project details can still scroll. Narrow navigation shows all four tabs.
+
+Shell tests passed 14/14 and the production frontend build passed. Chrome checks
+covered five viewport sizes, glass/solid materials, Companion, and isolated
+capture/modal fixtures. This UI patch has not replaced or qualified an installed
+native app. See the [layout report](../verification/implementation-reports/2026-10-15-desktop-shell-layout.md)
+for measurements, reproduction and remaining limits. Ollama/GPU were untouched.
+
+On the user's subsequent request, a standalone native preview at `46f6c78` was
+built with the current embedded frontend and opened successfully (window title
+`FUNG`, nonzero handle, responding process). This is build/launch evidence; native
+visual/feature and installer acceptance remain pending. The prior native7 binary
+was preserved before reusing the build cache. See the layout report for receipts.
+
+## Standalone import, playback channel, and shutdown durability — 2026-10-15
+
+The pinned local CPU runtime completed a real 48 kHz fixture import through
+FUNG's loopback API and production Whisper worker. The terminal job, transcript,
+file-channel audio readback, edit, SRT/VTT/WAV export, and orderly Genesis
+reopen passed; the English fixture matched 12/12 expected keywords. A native
+debug app then completed the same edit/export flow through the UI, closed via
+`CloseMainWindow`, and showed the edited transcript and completed exports on
+the second boot.
+
+That native restart reproduced a durability defect before the fix: a UI edit
+was visible and exported, but a normal window close followed by reopen read
+the older transcript. Shutdown now joins the managed job worker, joins the
+owned live-capture cleanup thread when available, guards duplicate exit
+callbacks, and calls the pinned Genesis `Storage::save_state()` checkpoint
+once. A required child
+process regression exits without Rust destructors and verifies the edited
+segment, accepted proposal, and audit event after reopen. An ignored manual
+negative-control run without the final checkpoint observed the durable
+pre-edit baseline; this is diagnostic evidence, not a required durability
+contract for future Genesis versions.
+
+Evidence and limits: [standalone readiness report](../verification/implementation-reports/2026-10-15-standalone-readiness.md),
+[issue #79](https://github.com/Freshair129/FUNG/issues/79), route receipt
+`standalone-acceptance-20261015-04.json`, and native receipt
+`native-first-second-boot-20261015-18/receipt.json`. Native playback opened the
+review flow but the selected output configuration was unsupported by the
+current exact-rate/stereo/sample-format requirements; the typed error was
+shown and no sound started. The error does not isolate sample rate as the only
+cause. Both native boots had `localApi.running=false` and no pending jobs, so
+enabled local API requests and active-job shutdown are outside this acceptance.
+This does not by itself close issue #41, qualify Thai accuracy, or establish packaged/release readiness. These receipts predate the current GenesisBlock pin `2cf485573d48d0e5e2ae76db647ec4c4dee543c3`; see the recovery section above for current-pin regression evidence.
+
 
 ## Python runtime Dependabot remediation — 2026-10-01
 
@@ -393,9 +499,60 @@ visual gate evidence only.
 
 ## Current Status
 
-FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. A Windows relaunch smoke proves the app window can reopen and base Genesis project/recording/transcript rows remain readable; summary/export review after restart is still open. The host `py -3` interpreter cannot import `faster_whisper`, while FUNG's staged `.venv-whisper` runtime imports `faster-whisper` 1.2.1, has the earlier pinned `small` model, and uses the staged CUDA 12/cuDNN 9 bundle. Pinned turbo/medium models and standalone worker/decoder probes now pass as recorded in the 2026-09-24 closure ledger. The shared live-worker routing regression found by native inject testing is now corrected and passes turbo GPU/medium CPU fixture probes. Thai speech qualification and complete application acceptance remain open. Live Meeting real-capture, device, connector, and visual UAT remain open. Streamable HTTP, vendor-specific production connectors, automated screenshot/keyboard UAT, real-device capture UAT, and real-connector UAT remain open.
+The 2026-10-16 native debug screen UAT on PR #80 opened all five primary
+Desktop surfaces, the Project/More/Companion/Pairing/Settings overlays and all
+seven Settings sections in an isolated app-data profile; the Genesis shutdown
+checkpoint passed. The 2026-10-17 follow-up transcribed an offline synthetic
+Thai fixture on CPU, built and clean-installed the 1.44 GiB unsigned NSIS
+package in a separate temporary directory, verified the bundled model hash,
+and launched the packaged app against the same empty test profile. Native app
+import/Review/output-chooser clicks remain NOT_RUN because the computer-use
+window inventory exposed no app window. Supabase pairing, provider acceptance,
+upgrade install and interactive packaged UI remain open. See the [native screen
+UAT report](../verification/implementation-reports/2026-10-16-desktop-native-uat.md).
+
+FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. The 2026-10-15 standalone campaign completed real CPU/int8 Whisper transcription through the production loopback import route using the pinned `large-v3-turbo` model, followed by transcript correction, SRT/VTT/WAV export and orderly storage reopen. Native run 18 also passed history, manual edit, export, normal window close and second-boot readback after the shutdown checkpoint fix. On 2026-10-16 the native playback worker passed an isolated local-fixture smoke on the default Scarlett Solo output: the device exposes 44.1 kHz stereo only, and a 16 kHz WAV played through resampling, paused and resumed from its current position, then reached the source duration. The smoke does not qualify playback through the native UI, a user recording, or an installed package. Native shutdown evidence covers an idle app with the local API disabled. Thai speech quality, enabled-API/in-flight writes, active-capture shutdown, forced-crash recovery, summary review and packaged application acceptance remain open. Live Meeting real-capture, device, connector and broader visual UAT remain open. The [standalone readiness report](../verification/implementation-reports/2026-10-15-standalone-readiness.md) records the earlier commands and limits; current playback evidence is the ignored hardware test in `src-tauri/src/desktop_playback.rs`.
 
 This document separates implemented truth from planned capability.
+
+## Initial standalone staging snapshot — 2026-10-15 (superseded)
+
+This subsection preserves the initial staging state before production-route
+and native acceptance ran. Its pending statements are historical; use the
+current status above and the standalone readiness report for the final result.
+
+The portable FUNG runtime staged CPython 3.11.9, faster-whisper 1.2.1, and
+`mobiuslabsgmbh/faster-whisper-large-v3-turbo` at revision
+`0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf`. The staging script exited 0 after
+loading the model on CPU with `int8`. This confirms the pinned runtime and
+model load locally; it does not prove a transcript can be produced.
+
+Using the repository lockfile, `npm ci --no-audit --no-fund` completed under
+Node 24.19.0/npm 11.17.0. `npm run build` passed, and four focused suites
+passed 26/26: `test:recording-output` (3), `test:local-api-client` (8),
+`test:web-recordings` (4), and `test:callmd-history` (11). The command logs
+and exit-code summary are under
+`G:\AI-Studio\verification\2026-10-15-readiness-fixes\FUNG`.
+
+An opt-in ignored Rust test now describes the production loopback upload → job
+poll → transcript/playback read path, production transcript correction and
+SRT/VTT/WAV exports, and orderly reopen readback against a disposable Genesis
+store. It is **implemented but not yet compiled or run**. A profile-preparation
+helper and native WebDriver first/second-boot harness are prepared. The native
+profile validates its Tauri identifier and confines the resolved app-data path
+under Roaming. Before native launch, `preserve-route-exports.ps1` snapshots and
+hashes route-produced SRT/VTT/WAV files because native re-export may rewrite
+their recorded paths. The native Tauri build/UI pass and actual CPU
+transcription remain open. Evidence, fixture hashes, and the exact test
+contract are in the
+[standalone readiness report](../verification/implementation-reports/2026-10-15-standalone-readiness.md).
+
+This work is tracked by [issue #79](https://github.com/Freshair129/FUNG/issues/79).
+It leaves the lockfile's GenesisBlockDB commit
+`77e07f7b127f65a1f92cfc688ef15f322115d5f8` (v0.2.6) unchanged. The separate
+[issue #41](https://github.com/Freshair129/FUNG/issues/41) crash-style schema
+startup concern is not claimed as fixed; only a fresh disposable store with
+orderly handle drain/reopen is in the pending test scope.
 
 ## Current truth sync (2026-09-17)
 
@@ -1173,11 +1330,102 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.25b` → `0.3.26b`
+
+- Re-ran native screen UAT on PR #80 head `61940cd` in an isolated
+  `dev.fung.uat.local` profile. All five primary surfaces and the Project,
+  More, Companion, Pairing and Settings overlays were opened; all seven Settings
+  sections rendered. The isolated profile shut down with a successful Genesis
+  checkpoint.
+- Focused Desktop/recording CPU checks passed `89/89`; TypeScript and Vite
+  production build passed; GitHub frontend and Rust checks passed on this head.
+- Pairing device read, URL-fetch dependency, provider connections, capture,
+  populated Review, output writes and package/installer acceptance remain
+  blocked or not run. Keep release gates open; see the [native screen UAT
+  report](../verification/implementation-reports/2026-10-16-desktop-native-uat.md).
+
+### `0.3.24b` → `0.3.25b`
+
+- Select a stereo output rate supported by the active device and linearly
+  resample source frames while keeping the review timeline in source frames.
+- Reset queued audio and resampler phase across seek/pause; resume from the
+  consumed playback position instead of the worker's buffered read-ahead cursor.
+- Default output on this host reported only 44.1 kHz. The ignored native smoke
+  played a temporary 16 kHz fixture through the production worker, then paused,
+  resumed and reached the exact source duration.
+- Playback unit tests passed 25/25; the hardware smoke passed 1/1; strict
+  Clippy and formatting passed. Full Rust tests had 619 pass, 2 timing failures
+  under parallel load and 6 ignored; both failures passed when rerun alone.
+  Native UI, real-user recording, installer and release acceptance stay open.
+
+### `0.3.23b` → `0.3.24b`
+
+- Reconciled issue #41 documentation and regression coverage with the merged
+  GenesisBlock `2cf4855` pin while preserving the PR #80 shutdown checkpoint.
+- Integrated the shared token board and regenerated coverage for the current
+  Studio dashboard; `DesktopStudio.css` remains a documented token migration gap.
+- Frontend build, Desktop shell (15/15), design-system checks and focused Rust
+  profile/persistence regressions passed; full PR CI and native/release gates remain open.
+
+### `0.3.22b` → `0.3.23b`
+
+Reconciled current Studio wireframes/flows and documentation ownership; repaired
+citation semantics and bounded navigation/accessibility/contrast defects. Browser
+and CPU evidence stays separate from native/device/provider qualification.
+
+### `0.3.21b` → `0.3.22b`
+
+- Pin the bounded upstream Windows projection-recovery repair for #41.
+- Preserve existing model provider defaults and verify original-profile
+  close/reopen without resetting data; record populated synthetic coverage.
+
+### `0.3.20b` → `0.3.21b`
+
+- Adapted supplied dashboard reference with real activity states, generated
+  assets and fixed bottom navigation.
+- Recorded responsive browser QA, focus restoration, 15 shell checks and six
+  integration checks without promoting native audio/model or release acceptance.
+
+### `0.3.19b` → `0.3.20b`
+
+- Recorded the user's native preview launch request and successful standalone
+  build/window startup at `46f6c78`, without promoting native visual, feature or
+  installer acceptance from browser-only evidence.
+
+### `0.3.18b` → `0.3.19b`
+
+- Corrected skip-link/overlay placement, optional shell rows and nested page
+  scroll ownership; constrained the live grid at narrow widths.
+- Added compact rail spacing, collapsible project context and four-tab narrow
+  navigation; recorded 14 shell checks, frontend build and bounded browser
+  evidence without promoting native/installer acceptance.
+
+### `0.3.17b` → `0.3.18b`
+
+- Recorded the production 48 kHz loopback import → CPU Whisper → completed
+  transcript → edit/export/reopen pass and the eight-check native first/second
+  boot flow. Native playback surfaced an unsupported output configuration;
+  no sound started.
+- Fixed normal-close transcript durability by joining the managed job worker
+  and live-capture cleanup coordinator, then checkpointing Genesis once behind
+  a duplicate-exit guard. The required child-process regression validates
+  edited segment, proposal and audit readback after explicit checkpoint and
+  process exit. Enabled API/in-flight and active-job shutdown, forced-crash
+  recovery, issue #41, Thai accuracy and packaging remain open.
+- Recorded Rust focused results, the debug/native artifact hash and exact
+  restart evidence in the standalone readiness report; local API was disabled
+  in the native profile and Ollama/GPU were untouched.
+
 ### `0.3.16b` → `0.3.17b`
 
 - Recorded the failed five-clip Qwen preprocessing experiment, preserved raw as
   the baseline, and kept Detailed disabled because both low-clarity misses and
   word-level timing review remain open.
+- Passed the frontend production build and 26 focused import/playback/editor
+  tests; added the standalone CPU runtime probe evidence and an opt-in loopback
+  import/transcript/playback/edit/export/reopen acceptance test contract;
+  added isolated first/second-boot harnesses and pre-native export snapshots;
+  actual transcription, test compilation, and native UI acceptance remain open.
 
 ### `0.3.15b` → `0.3.16b`
 
@@ -1290,6 +1538,16 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.26b | 2026-10-16 | beta | Re-ran native Desktop screen UAT on PR #80 in an isolated app-data profile; five core surfaces and seven Settings sections rendered, but device/provider, recording, populated Review and package gates remain open. | working-tree | Codex |
+| 0.3.25b | 2026-10-16 | beta | Added device-rate negotiation and source-timeline resampling; local native 16 kHz-to-44.1 kHz playback plus pause/resume passed, while native UI, package and full-suite timing gates remain open. | working-tree | Codex |
+| 0.3.24b | 2026-10-16 | beta | Reconciled PR #80 with main and the merged GenesisBlock pin; focused profile/persistence regressions and Desktop/design-system checks passed, full CI and native/release gates remain open. | working-tree | Codex |
+| 0.3.23b | 2026-10-16 | beta | Current Studio flow/index reconciliation, citation semantics and bounded UI repairs; frontend build and 89 CPU checks passed, native/provider/device gates retained. | working-tree | Codex |
+| 0.3.22b | 2026-10-15 | beta | Windows original-profile schema recovery (#41), preserved provider settings and native close/reopen evidence on the earlier Genesis candidate. | See PR #80 recovery commit; GenesisBlock PR #233 | Codex |
+| 0.3.21b | 2026-10-15 | beta | Reference dashboard with real project activity, bottom dock, responsive scrolling and bounded browser QA (#82). | See PR #80 dashboard commit | Codex |
+| 0.3.20b | 2026-10-15 | beta | Built and opened a native preview with the corrected frontend on user request; window startup confirmed, native visual/feature and installer acceptance pending. | 46f6c78 (preview source) | Codex |
+| 0.3.19b | 2026-10-15 | beta | Corrected desktop viewport/scroll layout (#81), fixed glass skip-link/overlay stacking and made project context collapsible; 14 shell checks, frontend build and bounded browser layout inspection passed. Installed native UI and release acceptance remain open. | working-tree | Codex |
+| 0.3.18b | 2026-10-15 | beta | Closed the #79 standalone import path with real CPU Whisper loopback transcription, edit/export/reopen, and native normal-close persistence; added a single Genesis checkpoint after managed writers drain. Native playback output configuration remains unsupported on this host; enabled API/in-flight and forced-crash shutdown are unverified. | working-tree | Codex |
+| 0.3.17b | 2026-10-15 | beta | Recorded [issue #79](https://github.com/Freshair129/FUNG/issues/79), passed the frontend build and 26 focused tests, and prepared pinned large-v3-turbo, loopback, and isolated native acceptance evidence; actual transcription, Cargo run, and native UI acceptance remain open. | working-tree | Codex |
 | 0.3.16b | 2026-10-01 | beta | Tested raw, afftdn and speechnorm on five mic clips; neither filter corrected both misses, so Detailed remains disabled. | working-tree | RWANG |
 | 0.3.15b | 2026-09-30 | beta | Recorded user-reported bt10m/bt3m transcript errors and separate reference sensitivity; Detailed routing remains disabled pending timing review and remediation. | working-tree | RWANG |
 | 0.3.14b | 2026-09-30 | beta | Passed the 55-clip FUNG Qwen worker and LOTUSDIS WER/CER comparison; five human audio checks remain pending, so Detailed routing stays disabled. | working-tree | RWANG |

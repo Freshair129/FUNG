@@ -988,7 +988,7 @@ export function LiveMeetingPanel({
         closePlayer,
         () => liveMeetingStart({
           projectId: options.projectId ?? projectId ?? undefined,
-          captureSystem: options.captureSystem ?? true,
+          captureSystem: options.captureSystem ?? false,
           language: options.language,
           transcriptProfile: options.transcriptProfile,
           micDeviceId: options.micDeviceId,
@@ -1207,7 +1207,7 @@ export function LiveMeetingPanel({
       hidden={!visibleAttribute}
       aria-hidden={!visibleAttribute}
     >
-      <div className="live-panel" role="dialog" aria-modal="true" aria-labelledby="live-workspace-title">
+      <div className="live-panel" role="region" aria-labelledby="live-workspace-title">
         <LiveWorkspace
           selection={selection}
           phase={phase}

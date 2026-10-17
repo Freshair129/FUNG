@@ -45,6 +45,11 @@
     reports its absence rather than letting the user discover it as a
     download error.
 
+.PARAMETER HostPython
+    Python interpreter with pip used to download and install wheels targeted
+    at the bundled CPython 3.11 runtime. The embeddable runtime intentionally
+    has no pip, so pip must run from a host interpreter.
+
 .EXAMPLE
     # On a machine with network access, after stage_whisper_runtime.ps1:
     ./scripts/stage_media_fetch_runtime.ps1 -WithJsRuntime
@@ -53,6 +58,7 @@
 param(
     [string]$YtDlpVersion = '2026.7.4',
     [string]$DenoVersion = '2.8.3',
+    [string]$HostPython,
     [switch]$GenerateLock,
     [switch]$WithJsRuntime
 )
@@ -69,6 +75,24 @@ $licensesDir = Join-Path $venv 'LICENSES'
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "No staged FUNG runtime at $venv. Run scripts/stage_whisper_runtime.ps1 first."
 }
+
+if (-not $HostPython) {
+    $hostPythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($hostPythonCommand) { $HostPython = $hostPythonCommand.Source }
+}
+if (-not $HostPython -or -not (Test-Path -LiteralPath $HostPython -PathType Leaf)) {
+    throw 'A host Python interpreter with pip is required. Pass -HostPython with its executable path.'
+}
+$pipVersion = & $HostPython -m pip --version
+if ($LASTEXITCODE -ne 0) { throw "Host Python has no working pip: $HostPython" }
+Write-Host "Using host pip for CPython 3.11 / win_amd64 wheels: $pipVersion"
+
+$targetPythonArgs = @(
+    '--python-version', '3.11',
+    '--platform', 'win_amd64',
+    '--implementation', 'cp',
+    '--abi', 'cp311'
+)
 
 if ($GenerateLock) {
     # Resolved for the staged interpreter, not the host one: the runtime is
@@ -96,12 +120,10 @@ if ($GenerateLock) {
         New-Item -ItemType Directory -Path $work -Force | Out-Null
 
         Write-Host "Resolving $($entry.Spec) ..."
-        $pipArgs = @(
-            '-m', 'pip', 'download', '--disable-pip-version-check', '--only-binary=:all:',
-            '--python-version', '3.11', '--platform', 'win_amd64', '--dest', $work
-        )
+        $pipArgs = @('-m', 'pip', 'download', '--disable-pip-version-check', '--only-binary=:all:') +
+            $targetPythonArgs + @('--dest', $work)
         if ($entry.NoDeps) { $pipArgs += '--no-deps' }
-        & $python @pipArgs $entry.Spec
+        & $HostPython @pipArgs $entry.Spec
         if ($LASTEXITCODE -ne 0) { throw "Dependency resolution failed with exit code $LASTEXITCODE" }
 
         $lines = @($entry.Header)
@@ -129,33 +151,35 @@ foreach ($required in @($lockfile, $jsLockfile)) {
 New-Item -ItemType Directory -Path $target -Force | Out-Null
 
 Write-Host "Installing yt-dlp from $lockfile ..."
-& $python -m pip install --disable-pip-version-check --no-deps --only-binary=:all: `
-    --require-hashes --target $target -r $lockfile
+& $HostPython -m pip install --disable-pip-version-check --no-deps --only-binary=:all: `
+    @targetPythonArgs --require-hashes --upgrade --target $target -r $lockfile
 if ($LASTEXITCODE -ne 0) { throw "yt-dlp install failed with exit code $LASTEXITCODE" }
 
 if ($WithJsRuntime) {
     Write-Host "Installing the deno JS runtime from $jsLockfile ..."
-    & $python -m pip install --disable-pip-version-check --no-deps --only-binary=:all: `
-        --require-hashes --target $target -r $jsLockfile
+    & $HostPython -m pip install --disable-pip-version-check --no-deps --only-binary=:all: `
+        @targetPythonArgs --require-hashes --upgrade --target $target -r $jsLockfile
     if ($LASTEXITCODE -ne 0) { throw "JS runtime install failed with exit code $LASTEXITCODE" }
 }
 
 New-Item -ItemType Directory -Path $licensesDir -Force | Out-Null
 $licenseSources = [ordered]@{
-    'YT-DLP-LICENSE.txt' = "https://raw.githubusercontent.com/yt-dlp/yt-dlp/$YtDlpVersion/LICENSE"
+    'YT-DLP-LICENSE.txt' = Join-Path $target "yt_dlp-$YtDlpVersion.dist-info\licenses\LICENSE"
 }
 if ($WithJsRuntime) {
-    $licenseSources['DENO-LICENSE.txt'] = "https://raw.githubusercontent.com/denoland/deno/v$DenoVersion/LICENSE.md"
+    $licenseSources['DENO-LICENSE.txt'] = Join-Path $target "deno-$DenoVersion.dist-info\licenses\LICENSE"
 }
 foreach ($entry in $licenseSources.GetEnumerator()) {
-    Invoke-WebRequest -Uri $entry.Value -OutFile (Join-Path $licensesDir $entry.Key)
+    if (-not (Test-Path -LiteralPath $entry.Value -PathType Leaf)) {
+        throw "Expected wheel license is missing: $($entry.Value)"
+    }
+    Copy-Item -LiteralPath $entry.Value -Destination (Join-Path $licensesDir $entry.Key) -Force
 }
 
 # Import rather than assume: "the directory exists" and "the package loads"
 # are different claims, and staging is the one place that can afford the
 # stronger one. The probe the app runs on every panel open cannot.
-$env:PYTHONPATH = $target
-$probe = & $python -c "import yt_dlp; print('media-fetch-ready', yt_dlp.version.__version__)"
+$probe = & $python -c "import sys; sys.path.insert(0, sys.argv[1]); import yt_dlp; print('media-fetch-ready', yt_dlp.version.__version__)" $target
 if ($LASTEXITCODE -ne 0 -or -not ($probe -match 'media-fetch-ready')) {
     throw 'yt-dlp installed but does not import.'
 }

@@ -4,11 +4,11 @@ Generated from CSS under `src/` and the canonical generated token CSS. This is a
 
 ## Findings
 
-- Stylesheets scanned: **24**.
-- Stylesheets using at least one canonical `--fung-*` variable: **24/24**. A locally invented `--fung-*` alias does not count as a canonical token reference.
-- Stylesheets with no canonical token reference: **0**.
-- Flat, single-color CSS declarations written as direct literals: **0**. Block comments are excluded; semantic UI colors should use a canonical token.
-- Embedded CSS color syntax occurrences: **110** across **19** unique hex values. This inventory includes token fallbacks, gradients, shadows, translucent materials, illustrations and third-party marks; inspect context before changing these effects.
+- Stylesheets scanned: **25**.
+- Stylesheets using at least one canonical `--fung-*` variable: **24/25**. A locally invented `--fung-*` alias does not count as a canonical token reference.
+- Stylesheets with no canonical token reference: **1**.
+- Flat, single-color CSS declarations written as direct literals: **43**. Block comments are excluded; semantic UI colors should use a canonical token.
+- Embedded CSS color syntax occurrences: **194** across **66** unique hex values. This inventory includes token fallbacks, gradients, shadows, translucent materials, illustrations and third-party marks; inspect context before changing these effects.
 - The board's rendered component specimens demonstrate token intent; they do not prove production component adoption.
 
 ## Canonical token references
@@ -44,6 +44,7 @@ Generated from CSS under `src/` and the canonical generated token CSS. This is a
 
 | Stylesheet | Flat literal declarations | Embedded color syntax |
 | --- | ---: | ---: |
+| `src/components/desktop/DesktopStudio.css` | 43 | 84 |
 
 ## Acceptance boundary
 

@@ -1,7 +1,7 @@
 ---
-version: "0.2.0b"
+version: "0.3.0b"
 created_at: "2026-08-23T01:15:22+07:00,ATHER"
-last_update: "2026-09-21T03:58:31+07:00,RWANG"
+last_update: "2026-10-16,Codex"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -21,6 +21,7 @@ preserving the existing current-state source.
 | View | Canonical document | Truth boundary |
 |---|---|---|
 | Current product architecture | [`../Desktop/ARCHITECTURE.md`](../Desktop/ARCHITECTURE.md) | Current FUNG parent architecture |
+| Document and knowledge layers | [Three-layer ownership map](../Desktop/ARCHITECTURE.md#document-and-knowledge-architecture--three-layers) | Source of Truth, Retrieval and Intelligence; current implementation evidence versus target storage/index/GKS decisions |
 | Desktop implementation status | [`../Desktop/08-real-progress.md`](../Desktop/08-real-progress.md) | Evidence-backed current state |
 | Mobile implementation status | [`../Mobile/IMPLEMENTATION_STATUS.md`](../Mobile/IMPLEMENTATION_STATUS.md) | Evidence-backed mobile state |
 | AI/ML runtime and governance | [`../ai-system/README.md`](../ai-system/README.md) | Model/data/evaluation controls |
@@ -63,11 +64,13 @@ These are design contracts, not deployment or real-meeting evidence. Provider AP
 
 | Version | Change |
 | --- | --- |
+| 0.3.0b | Indexed the parent three-layer document/knowledge architecture without introducing a second authoritative design. |
 | 0.2.0b | Indexed the integrated meeting domains and detailed Google Meet/live/knowledge/agent contracts. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.3.0b | 2026-10-16 | candidate | Linked Source of Truth, Retrieval and Intelligence ownership and implementation boundaries in the parent architecture. | working-tree | Codex (Astra review) |
 | 0.2.0b | 2026-09-21 | candidate | Indexed the integrated meeting domains and detailed Google Meet/live/knowledge/agent contracts. | working-tree | RWANG |
 | 0.1.0b | 2026-08-23 | candidate | Added architecture-view index and current/target boundary rules. | pending | ATHER |

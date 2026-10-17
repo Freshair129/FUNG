@@ -641,7 +641,7 @@ function GraphScreen({ snapshot, go }: ScreenProps) {
   const selected = snapshot.nodes.find((node) => node.id === selectedId);
   return (
     <main className="m-screen m-graph-screen">
-      <header className="m-page-header"><div><span>GenesisBlockDB</span><h1>ความสัมพันธ์</h1></div><div className="m-header-actions"><button className="m-icon-action" aria-label="กลับไปโน้ต" onClick={() => go("notes")}><ArrowLeft /></button><button className="m-icon-action" aria-label="ค้นหาในกราฟ"><Search /></button></div></header>
+      <header className="m-page-header"><div><span>GenesisBlockDB</span><h1>ความสัมพันธ์</h1></div><div className="m-header-actions"><button className="m-icon-action" aria-label="กลับไปโน้ต" onClick={() => go("notes")}><ArrowLeft /></button></div></header>
       <section className="m-graph-canvas" aria-label="กราฟความสัมพันธ์ของโน้ต">
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           {snapshot.edges.map((edge) => {

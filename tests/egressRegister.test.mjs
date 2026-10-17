@@ -305,6 +305,12 @@ test("the fetch worker is staged apart from the transcription runtime", () => {
     "the fetch dependencies must not be installed into the transcription runtime",
   );
   assert.match(staging, /--require-hashes/, "wheels must be hash-pinned like every other runtime");
+  assert.match(staging, /HostPython/, "the embeddable runtime has no pip, so staging uses a host interpreter");
+  assert.match(staging, /--implementation', 'cp'[\s\S]*--abi', 'cp311'/, "host pip must target the bundled CPython 3.11 ABI");
+  assert.match(staging, /& \$HostPython -m pip install/, "runtime packages are installed by host pip into the isolated fetch target");
+  assert.match(staging, /--require-hashes --upgrade --target \$target/, "repeated staging must merge executable scripts into the existing isolated target");
+  assert.match(staging, /\.dist-info\\licenses\\LICENSE/, "bundled licenses should come from the hash-verified wheels");
+  assert.match(staging, /sys\.path\.insert\(0, sys\.argv\[1\]\)/, "the embeddable Python probe must add the isolated target explicitly because it ignores PYTHONPATH");
 
   // And the app must look where staging installs.
   const mediaFetch = productionRust("src-tauri/src/media_fetch.rs");

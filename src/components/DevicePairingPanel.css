@@ -34,8 +34,8 @@
   margin-left: auto;
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   border: none;
   border-radius: 50%;
   background: var(--fung-action-secondary-bg);

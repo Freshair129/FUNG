@@ -1130,12 +1130,12 @@ fn restore_index<K: KeyringPort>(
             keyring
                 .write(index, value)
                 .map_err(|_| public_error("cleanup_failed"))?;
-            if !keyring
+            if keyring
                 .read(index)
                 .ok()
                 .flatten()
                 .as_ref()
-                .is_some_and(|current| current.as_str() == value.as_str())
+                .is_none_or(|current| current.as_str() != value.as_str())
             {
                 return Err(public_error("cleanup_failed"));
             }
@@ -1215,11 +1215,11 @@ fn load_committed<K: KeyringPort>(
             keyring
                 .write(&index, &compacted)
                 .map_err(|_| public_error("cleanup_failed"))?;
-            if !keyring
+            if keyring
                 .read(&index)
                 .map_err(|_| public_error("cleanup_failed"))?
                 .as_ref()
-                .is_some_and(|value| value.as_str() == compacted.as_str())
+                .is_none_or(|value| value.as_str() != compacted.as_str())
             {
                 return Err(public_error("cleanup_failed"));
             }
@@ -1238,11 +1238,11 @@ fn restore_marker<K: KeyringPort>(
             keyring
                 .write(marker, value)
                 .map_err(|_| public_error("cleanup_failed"))?;
-            if !keyring
+            if keyring
                 .read(marker)
                 .map_err(|_| public_error("cleanup_failed"))?
                 .as_ref()
-                .is_some_and(|current| current.as_str() == value.as_str())
+                .is_none_or(|current| current.as_str() != value.as_str())
             {
                 return Err(public_error("cleanup_failed"));
             }

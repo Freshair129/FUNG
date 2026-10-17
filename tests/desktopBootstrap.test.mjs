@@ -69,14 +69,21 @@ test("desktop bootstrap keeps Supabase consumers behind lazy boundaries", async 
   assert.match(settingsSource, /import\("\.\/AccountLoginPanel"\)/);
 });
 
-test("the desktop rail expands on hover and owns the action menu", async () => {
-  const css = await readFile(new URL("../src/components/desktop/DesktopShell.css", import.meta.url), "utf8");
+test("Studio navigation remains in the bottom dock rather than a mounted sidebar", async () => {
+  const shell = await readFile(new URL("../src/components/desktop/DesktopShell.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/components/desktop/DesktopStudio.css", import.meta.url), "utf8");
 
-  assert.match(css, /grid-template-columns:\s*72px\s+minmax\(0,\s*1fr\)/);
-  assert.match(css, /desktop-shell__sidebar:hover[\s\S]*?width:\s*248px/);
-  assert.match(css, /desktop-shell__sidebar-action/);
-  assert.match(css, /desktop-shell__surface-content/);
-  assert.doesNotMatch(css, /grid-template-rows:\s*repeat\(6,/);
+  assert.match(shell, /<footer className="desktop-shell__dock"/);
+  assert.match(shell, /<SurfaceNavigation activeSurface=\{activeSurface\}/);
+  assert.doesNotMatch(shell, /<aside[^>]*className="desktop-shell__sidebar"/);
+  assert.match(css, /grid-template-areas:\s*"capture"\s*"body"\s*"dock"/);
+});
+
+test("pairing loads its overlay independently of the lazy Settings chunk", async () => {
+  const source = await readFile(new URL("../src/components/DevicePairingPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /import "\.\/AccountLoginPanel\.css"/);
+  assert.match(source, /aria-modal=\{modal \|\| undefined\}/);
+  assert.match(source, /event\.key === "Escape"/);
 });
 
 test("recording entry remains owned by the active Live surface, not the sidebar", async () => {

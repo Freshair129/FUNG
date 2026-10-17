@@ -4567,7 +4567,11 @@ fn shutdown_capture(
 }
 
 pub(crate) fn shutdown(state: &AppState) {
-    let _ = shutdown_capture(&state.live, &state.native_capture);
+    if let Some(cleanup) = shutdown_capture(&state.live, &state.native_capture) {
+        if cleanup.join().is_err() {
+            eprintln!("live capture cleanup panicked during application shutdown");
+        }
+    }
 }
 
 #[tauri::command]

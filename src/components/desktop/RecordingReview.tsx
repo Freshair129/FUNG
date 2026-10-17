@@ -2544,7 +2544,6 @@ export function RecordingReviewView({
                 {selectedProjectId ?? "ยังไม่ได้เลือกโครงการ"}
               </h3>
             </div>
-            <span className="recording-review__scope-badge">scope B</span>
           </div>
 
           <div
@@ -2648,7 +2647,7 @@ export function RecordingReviewView({
           </div>
         </aside>
 
-        <main className="recording-review__detail" aria-labelledby="recording-review-heading">
+        <section className="recording-review__detail" aria-labelledby="recording-review-heading">
           {!selection ? (
             <div className="recording-review__welcome">
               <p className="recording-review__eyebrow">อ่านย้อนหลังแบบเลือกเอง</p>
@@ -2721,7 +2720,7 @@ export function RecordingReviewView({
               <ReviewActionsPanel selection={selection} actions={actions} />
             </div>
           ) : null}
-        </main>
+        </section>
       </div>
     </section>
   );

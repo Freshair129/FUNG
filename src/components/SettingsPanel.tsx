@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Activity, Cloud, Link2, SlidersHorizontal, UserCircle, Volume2, X } from "lucide-react";
 import * as QRCode from "qrcode";
 import type { InvokeFn } from "../lib/backupFlow";
@@ -8,7 +8,7 @@ import "./SettingsPanel.css";
 // Eagerly imported (not lazy) because the "Supabase not configured" fallback
 // below reuses these class names directly, and that fallback can render
 // without ever mounting the lazy AccountLoginPanel that normally pulls this
-// stylesheet in — mirrors the same eager import in App.tsx.
+// stylesheet in. DevicePairingPanel also loads it for its own overlay.
 import "./AccountLoginPanel.css";
 
 const ExternalAccountPanel = lazy(() =>
@@ -85,6 +85,38 @@ export function SettingsPanel({
   onOpenExternalAccountPortal,
   initialTab,
 }: SettingsPanelProps) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    const initiator = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+    return () => {
+      const target = initiator?.isConnected && initiator !== document.body && initiator.getClientRects().length > 0
+        ? initiator : document.querySelector<HTMLElement>('summary[aria-label="เพิ่มเติม"]');
+      target?.focus();
+    };
+  }, []);
+
+  const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab" || !dialogRef.current) return;
+    const elements = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => element.getClientRects().length > 0);
+    const first = elements[0];
+    const last = elements[elements.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault(); last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault(); first?.focus();
+    }
+  };
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "account");
   const [localApi, setLocalApi] = useState<LocalApiInfo | null>(null);
   const [localApiError, setLocalApiError] = useState<string | null>(null);
@@ -157,10 +189,10 @@ export function SettingsPanel({
 
   return (
     <div className="settings-overlay" role="presentation" onClick={onClose}>
-      <div className="settings-stack" onClick={(event) => event.stopPropagation()}>
+      <div className="settings-stack" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="settings-panel-heading" onKeyDown={handleDialogKeyDown} onClick={(event) => event.stopPropagation()}>
         <header className="settings-header">
-          <h2>Settings</h2>
-          <button type="button" className="settings-close" onClick={onClose} aria-label="Close settings">
+          <h2 id="settings-panel-heading">ตั้งค่า</h2>
+          <button ref={closeRef} type="button" className="settings-close" onClick={onClose} aria-label="ปิดการตั้งค่า">
             <X size={18} />
           </button>
         </header>

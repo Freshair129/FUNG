@@ -259,7 +259,7 @@ export function LiveWorkspace({
   const feedRef = useRef<HTMLDivElement | null>(null);
   const nearBottomRef = useRef(true);
   const previousSegmentCountRef = useRef(segmentFeed.length);
-  const [captureSystem, setCaptureSystem] = useState(true);
+  const [captureSystem, setCaptureSystem] = useState(false);
   const [micDeviceId, setMicDeviceId] = useState("");
   const [systemDeviceId, setSystemDeviceId] = useState("");
   const [language, setLanguage] = useState("auto");
@@ -436,7 +436,9 @@ export function LiveWorkspace({
           </h2>
           <div className="live-workspace__status" role="status" aria-live="polite">
             <span className={"live-workspace__phase live-workspace__phase--" + phase}>
-              {PHASE_LABELS[phase] ?? "สถานะการบันทึก"}
+              {phase === "idle" && !capabilities.capture.available
+                ? "เปิด FUNG Desktop เพื่อบันทึก"
+                : PHASE_LABELS[phase] ?? "สถานะการบันทึก"}
             </span>
             {(running || stopPending) ? (
               <span className="live-workspace__elapsed">{formatClock(elapsedMs)}</span>

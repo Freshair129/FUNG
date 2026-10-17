@@ -71,7 +71,6 @@ import {
 import type { InvokeFn, RecoveredRecording, RecoveryReport } from "./lib/recoveryFlow";
 import { brokerSessionStatus, type SessionStatus } from "./lib/desktopSessionBroker";
 import {
-  isJobActionEnabled,
   jobActionBlockedReason,
   resolveJobAction,
 } from "./lib/jobActions";
@@ -951,7 +950,12 @@ export function App() {
     return `${localProviders}/${providers.length} local providers`;
   }, [providers]);
 
-  const liveStatus = liveSnapshot.liveStatus;
+  const liveStatus: ReadState<LiveStatusOutput> = nativeInvoke ? liveSnapshot.liveStatus : {
+    status: "unavailable",
+    identity: null,
+    data: null,
+    error: { code: "NATIVE_UNAVAILABLE", message: "การอ่านสถานะการบันทึกต้องใช้ FUNG Desktop", retryable: false },
+  };
   const captureActive = liveStatus.data?.active === true || liveStatus.data?.stopping === true;
 
   const stopAndLeave = useCallback(async (): Promise<LiveStatusOutput> => {
@@ -1068,11 +1072,6 @@ export function App() {
   const activeTranscribeJob = jobs.find(
     (job) => job.type === "transcript.transcribe" && job.status === "running",
   );
-
-  const primaryActionLabel =
-    transcribing && currentTile.primaryAction.value === "transcript.transcribe"
-      ? `Transcribing… ${activeTranscribeJob?.progress ?? 0}%`
-      : currentTile.primaryAction.label;
 
   const eventFeed = useMemo<EventEntry[]>(() => {
     if (activeAnchor === "P4" && providers.length > 0) {
@@ -1307,19 +1306,24 @@ export function App() {
   };
 
   const handleImportAndTranscribe = async () => {
-    const filePath = await pickAudioOrVideoFile();
-    if (!filePath) return;
-
-    let projectId = selectedProjectId;
-    if (!projectId) {
-      const project = await handleNewProject();
-      projectId = project.id;
+    setActionNotice(null);
+    if (!nativeInvoke) {
+      setActionNotice("เปิด FUNG Desktop เพื่อนำเข้าไฟล์เสียงหรือวิดีโอ");
+      return;
     }
-
-    activateAnchor("P2");
-    activateTile("transcript-pass");
-    setTranscribing(true);
     try {
+      const filePath = await pickAudioOrVideoFile();
+      if (!filePath) return;
+
+      let projectId = selectedProjectId;
+      if (!projectId) {
+        const project = await handleNewProject();
+        projectId = project.id;
+      }
+
+      activateAnchor("P2");
+      activateTile("transcript-pass");
+      setTranscribing(true);
       const job = await importAndTranscribe(filePath, projectId);
       setJobs((current) => [job, ...current.filter((entry) => entry.id !== job.id)]);
       const finished = await pollJobUntilDone(job.id);
@@ -1433,68 +1437,7 @@ export function App() {
     await refresh();
   };
 
-  /// Only `job` actions can be unavailable; anchors, capture, and the local
-  /// API are always live, so they are enabled unconditionally rather than
-  /// routed through the job vocabulary.
-  const tileActionEnabled = (action: TileAction) => {
-    if (action.kind !== "job") return true;
-    const plan = resolveJobAction(action.value);
-    const planJobType = plan.kind === "queue" ? plan.jobType : "";
-    return (
-      isJobActionEnabled(action.value, Boolean(activeRecordingId)) &&
-      !transcriptBlockedReason(planJobType)
-    );
-  };
-
-  const tileActionTitle = (action: TileAction) => {
-    if (action.kind !== "job") return action.label;
-    const plan = resolveJobAction(action.value);
-    const planJobType = plan.kind === "queue" ? plan.jobType : "";
-    return (
-      jobActionBlockedReason(action.value, Boolean(activeRecordingId)) ??
-      transcriptBlockedReason(planJobType) ??
-      action.label
-    );
-  };
-
   const effectiveTheme = resolveEffectiveTheme(theme, systemTheme);
-
-  const performTileAction = async (action: TileAction) => {
-    if (!tileActionEnabled(action)) {
-      setActionNotice(tileActionTitle(action));
-      return;
-    }
-    setActionNotice(null);
-
-    if (action.kind === "anchor") {
-      activateAnchor(action.value as Anchor);
-      return;
-    }
-
-    if (action.kind === "api") {
-      await handleStartApi();
-      return;
-    }
-
-    if (action.kind === "record") {
-      // Real capture lives in the Live Meeting panel now — the old
-      // setRecording() toggle was UI state with no backend.
-      setLiveMeetingOpen(true);
-      setActiveSurface("live");
-      activateTile("live-capture");
-      return;
-    }
-
-    await handleCreateJob(action.value);
-  };
-
-  const visibleActionNotice =
-    actionNotice ??
-    (!tileActionEnabled(currentTile.primaryAction)
-      ? tileActionTitle(currentTile.primaryAction)
-      : !tileActionEnabled(currentTile.secondaryAction)
-        ? tileActionTitle(currentTile.secondaryAction)
-        : null);
 
   const toggleSignal = async (id: SignalId) => {
     setSignals((current) => ({ ...current, [id]: !current[id] }));
@@ -1553,13 +1496,13 @@ export function App() {
           await handleImportAndTranscribe();
         },
         exportMedia: () => {
-          enterMeetingWorkspace(activeAnchor);
-          void handleCreateJob("export.render");
+          openReviewSurface();
+          setActionNotice("เลือกบันทึก แล้วกด “ส่งออกบันทึกนี้” ในงานของการบันทึก");
         },
-        exportDisabled: !activeRecordingId,
-        exportTitle:
-          jobActionBlockedReason("export.render", Boolean(activeRecordingId)) ??
-          "ส่งออก transcript .srt/.vtt และ source audio WAV/MP3 ถ้า format รองรับ",
+        exportDisabled: !selectedProjectId,
+        exportTitle: selectedProjectId
+          ? "เลือกบันทึกในประวัติเพื่อส่งออก transcript และไฟล์เสียงของรายการนั้น"
+          : "เลือกโครงการก่อนส่งออกบันทึก",
         setTheme,
         minimizeWindow: handleMinimizeWindow,
         closeWindow: handleCloseWindow,
@@ -1611,34 +1554,8 @@ export function App() {
         </div>
       ) : (
         <div className="callmd-desktop-content">
-          <section className="desktop-shell__state-card" aria-label={`${currentPage.primary} actions`}>
-            <span className="desktop-shell__section-kicker">{currentTile.eyebrow}</span>
-            <strong>{currentTile.title}</strong>
-            <p>{currentTile.detail}</p>
-            <span>{currentTile.currentLabel}: {currentTile.status}</span>
-            <div className="desktop-shell__button-row">
-              <button
-                className="desktop-shell__button desktop-shell__button--primary"
-                type="button"
-                onClick={() => void performTileAction(currentTile.primaryAction)}
-                disabled={!tileActionEnabled(currentTile.primaryAction)}
-                title={tileActionTitle(currentTile.primaryAction)}
-              >
-                {primaryActionLabel}
-              </button>
-              <button
-                className="desktop-shell__button desktop-shell__button--secondary"
-                type="button"
-                onClick={() => void performTileAction(currentTile.secondaryAction)}
-                disabled={!tileActionEnabled(currentTile.secondaryAction)}
-                title={tileActionTitle(currentTile.secondaryAction)}
-              >
-                {currentTile.secondaryAction.label}
-              </button>
-            </div>
-            {visibleActionNotice ? <p className="action-notice" role="status" aria-live="polite">{visibleActionNotice}</p> : null}
-          </section>
-          <div className={`callmd-surface-stack theme-${effectiveTheme}`} aria-label="พื้นที่ P1-B">
+          {actionNotice ? <p className="action-notice" role="status" aria-live="polite">{actionNotice}</p> : null}
+          <div className={`callmd-surface-stack theme-${effectiveTheme}`} aria-label="พื้นที่บันทึกและทบทวน">
             <LiveMeetingPanel
               onClose={() => {
                 setLiveMeetingOpen(false);

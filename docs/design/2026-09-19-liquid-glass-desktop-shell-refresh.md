@@ -13,6 +13,11 @@ attributes:
 
 # FUNG — Liquid Glass Desktop Shell Refresh
 
+> Shell-layout supersession (2026-10-16): current dashboard, bottom dock and
+> five-surface navigation are owned by [Studio navigation and flows](2026-10-16-desktop-navigation-and-flows.md).
+> The sidebar/header layout below is historical. Retain feature, material,
+> scope and verification history where not superseded by that topic-specific contract.
+
 ## Status and approval gate
 
 สถานะเอกสาร: **beta / approved implementation slice** มี code และ local evidence แล้ว โดย native click-through ของ exact executable ยังติด environment boundary ตาม §9

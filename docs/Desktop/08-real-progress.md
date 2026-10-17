@@ -502,10 +502,14 @@ visual gate evidence only.
 The 2026-10-16 native debug screen UAT on PR #80 opened all five primary
 Desktop surfaces, the Project/More/Companion/Pairing/Settings overlays and all
 seven Settings sections in an isolated app-data profile; the Genesis shutdown
-checkpoint passed. Focused UI/recording checks, TypeScript/Vite build and PR
-frontend/Rust CI passed. Pairing read, URL fetch, providers, actual capture,
-populated Review, output writes and package/installer acceptance remain blocked
-or NOT_RUN. See the [native screen UAT report](../verification/implementation-reports/2026-10-16-desktop-native-uat.md).
+checkpoint passed. The 2026-10-17 follow-up transcribed an offline synthetic
+Thai fixture on CPU, built and clean-installed the 1.44 GiB unsigned NSIS
+package in a separate temporary directory, verified the bundled model hash,
+and launched the packaged app against the same empty test profile. Native app
+import/Review/output-chooser clicks remain NOT_RUN because the computer-use
+window inventory exposed no app window. Supabase pairing, provider acceptance,
+upgrade install and interactive packaged UI remain open. See the [native screen
+UAT report](../verification/implementation-reports/2026-10-16-desktop-native-uat.md).
 
 FUNG has a working desktop-first foundation and a routed Live Meeting core. Sprint 4 adds an independently default-off connector and operator workflow for controlled read-only document and CRM lookup: local stdio registration, exact evidence/field preview, per-call approval, cancel/revoke, sanitized result provenance, and local history. The 2026-10-15 standalone campaign completed real CPU/int8 Whisper transcription through the production loopback import route using the pinned `large-v3-turbo` model, followed by transcript correction, SRT/VTT/WAV export and orderly storage reopen. Native run 18 also passed history, manual edit, export, normal window close and second-boot readback after the shutdown checkpoint fix. On 2026-10-16 the native playback worker passed an isolated local-fixture smoke on the default Scarlett Solo output: the device exposes 44.1 kHz stereo only, and a 16 kHz WAV played through resampling, paused and resumed from its current position, then reached the source duration. The smoke does not qualify playback through the native UI, a user recording, or an installed package. Native shutdown evidence covers an idle app with the local API disabled. Thai speech quality, enabled-API/in-flight writes, active-capture shutdown, forced-crash recovery, summary review and packaged application acceptance remain open. Live Meeting real-capture, device, connector and broader visual UAT remain open. The [standalone readiness report](../verification/implementation-reports/2026-10-15-standalone-readiness.md) records the earlier commands and limits; current playback evidence is the ignored hardware test in `src-tauri/src/desktop_playback.rs`.
 

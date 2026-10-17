@@ -172,7 +172,8 @@ acceptance for every feature shown in Settings.
   passed 13/13, and the `recording_output` filter passed 4/4.
 - Exact-head CI run 38917418422 passed both frontend and Rust jobs. No source
   files changed during this follow-up; the follow-up changes are documentation
-  only. The new documentation commit will receive its own CI run after push.
+  only. Exact-head CI for the current documentation commits is tracked in
+  PR #80.
 
 ### Native Review-profile click-through (2026-10-17)
 

@@ -14,20 +14,21 @@ attributes:
 
 ## Outcome
 
-**The initial native screen pass, isolated package launch, and 2026-10-17
-Review-profile click-through passed, but release UAT remains incomplete. Keep
-PR #80 in Draft and do not tag a release from this run.** The original screen
-pass covered Home, Live setup, History, Output, Appearance, Companion,
-project/More disclosures, Pairing, and every Settings tab. The new isolated
-debug-app pass completed a synthetic import, populated Review playback,
-pause/seek, transcript display, export, and output-folder selection followed
-by a new export write.
+**The initial native screen pass, synthetic Review-profile click-through, and
+2026-10-17 isolated packaged upgrade/reopen passed, but release UAT remains
+incomplete. Keep PR #80 in Draft and do not tag a release from this run.** The
+original screen pass covered Home, Live setup, History, Output, Appearance,
+Companion, project/More disclosures, Pairing, and every Settings tab. The
+isolated debug-app pass completed a synthetic import, populated Review
+playback, pause/seek, transcript display, export, and output-folder selection
+followed by a new export write. The packaged upgrade pass covered Home and
+selected account/backup settings in an empty test profile.
 
 This is not end-to-end acceptance for every feature. Native microphone capture,
-connected account/device flows, provider calls, packaged UI click-through,
-upgrade acceptance, and the remaining reliability and speech-quality gates
-were not exercised. The installer was installed in a clean temporary
-directory and launched at the process level; its UI still needs click-through.
+connected account/device flows, provider calls, signed-release packaging,
+upgrade with a data-bearing profile, and the remaining reliability and
+speech-quality gates were not exercised. The packaged UI pass did not sign in,
+create a recovery key, or write backup/cloud data.
 
 This is a UI screen pass with explicit integration gaps; it is not end-to-end
 acceptance for every feature shown in Settings.
@@ -153,13 +154,13 @@ acceptance for every feature shown in Settings.
   FUNG executable (version `0.1.1`), Python runtime, transcription scripts,
   knowledge-parser runtime, and 1,617,884,929-byte `large-v3-turbo` model were
   present. The installed model SHA-256
-  `E76620F83D5F5B69EFD3D87E3DC180C1BD21DF9FBACFD4335E5E1EFCC018DA` matched
+  `E76620F83D5F5B69EFD3D87E3DC180C1BD21DF9FBEBACFD4335E5E1EFCC018DA` matched
   the source model.
 - The packaged executable opened with window title `FUNG` and reused the same
   empty UAT profile initialized by the debug launch (13 profile files, about
-  2.29 MB). This proves clean install and empty-profile startup/reopen at the
-  process level. Packaged UI click-through and an upgrade install were not
-  verified. The installed test app remains open in the isolated profile.
+  2.29 MB). This initial install proved empty-profile startup at the process
+  level. The later packaged UI and upgrade pass is recorded below. The test app
+  remains isolated from the normal `dev.fung.local` profile.
 
 ### Focused regression checks
 
@@ -220,6 +221,41 @@ acceptance for every feature shown in Settings.
   key for a public settings request. It does not verify a signed-in session,
   device list, pairing, or any write operation; those remain release gates.
 
+### Packaged UI and isolated upgrade UAT (2026-10-17)
+
+- Rebuilt the NSIS installer from source head
+  `49025946d69d24fdc22c944eb0be4c4cd206a91e` using the temporary app identifier
+  `dev.fung.uat.followup20261017a` and `--no-sign`. The local installer is
+  1,538,564,985 bytes (1.43 GiB), SHA-256
+  `940DA0435C06A1EAF7C50C9BE07D8FF6CC3D531465587D77A75AC6630985EBA0`; Windows
+  reports its Authenticode status as `NotSigned`. This is a local UAT package,
+  not a release artifact.
+- Before reinstalling, copied the existing test profile from
+  `%APPDATA%\dev.fung.uat.followup20261017a` to
+  `%TEMP%\fung-uat-followup-20261017a\profile-before-upgrade-20261017-234102`.
+  The copy contains 15 files (4,861,096 bytes); SHA-256 checks matched all
+  source files before installation.
+- Ran the installer maintenance option `Add/Reinstall components` into the
+  exact existing directory `%TEMP%\fung-uat-followup-20261017a\installed`.
+  Setup completed successfully. The optional desktop shortcut was unchecked;
+  the installed app was launched from Setup.
+- The packaged `0.1.1` app loaded Home, then Settings → Sign In and Backup.
+  That page rendered Google sign-in and the local Development/Test backup
+  controls. No sign-in, recovery-key creation, backup, cloud write, or provider
+  call was performed. Settings → External Connections remained `Setup pending`
+  because `VITE_FUNG_WEB_APP_URL` is not configured. The local `.env` Supabase
+  URL and anon key are present in the built bundle; their values are not
+  recorded here.
+- Closed the packaged app normally, then reopened `fung.exe` from the same
+  temporary install and profile. Home loaded again and showed zero projects.
+  After the first open/close, the profile still had 15 files and the same
+  4,861,096-byte total, with no added or missing paths. Hashes changed for
+  `genesisdb/projection.sqlite`, `genesisdb/projection.sqlite-shm`, and
+  `genesisdb/state.json` during normal startup/shutdown. The verified
+  pre-upgrade copy remains available. This profile was empty; the run does not
+  establish upgrade safety for a profile containing real projects or
+  recordings. The normal `dev.fung.local` profile was not used.
+
 ## Release gates still open
 
 1. Run Supabase device-list and pairing acceptance with a signed-in test
@@ -229,9 +265,10 @@ acceptance for every feature shown in Settings.
    surfaces are included in this release; if included, stage their dependencies
    in the actual packaging workflow and run provider-specific acceptance.
    URL-fetch consent remains off; no URL was fetched during this pass.
-3. Click through the installed package and run an upgrade over the temporary
-   install. A clean temporary install and empty-profile reopen passed at the
-   process level; interactive packaged UI and upgrade acceptance remain open.
+3. Validate a signed release package and upgrade a disposable profile that
+   contains projects, recordings, transcripts, and provider settings. The
+   isolated unsigned package upgrade, selected Settings UI, and empty-profile
+   close/reopen passed; this does not cover data-bearing profile migration.
 4. Verify concurrent enabled Local API writes, active capture/job shutdown,
    forced-crash recovery, Thai speech quality, and microphone/device behavior.
 

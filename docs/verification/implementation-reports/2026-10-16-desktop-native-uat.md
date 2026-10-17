@@ -1,5 +1,5 @@
 ---
-version: "1.0.1b"
+version: "1.0.1c"
 created_at: "2026-10-16,Codex"
 last_update: "2026-10-17,Codex"
 status: "beta"
@@ -14,21 +14,20 @@ attributes:
 
 ## Outcome
 
-**The latest native screen pass, synthetic Thai transcription, NSIS build,
-isolated install, and packaged-app launch passed, but release UAT remains
-incomplete. Keep PR #80 in draft and do not tag a release from this run.** The
-original screen pass covered Home, Live setup, History, Output, Appearance,
-Companion, project/More disclosures, Pairing, and every Settings tab. The
-follow-up proved local transcription and package startup in an isolated test
-profile; it could not perform native file-picker or Review clicks because the
-computer-use window inventory returned no app windows.
+**The initial native screen pass, isolated package launch, and 2026-10-17
+Review-profile click-through passed, but release UAT remains incomplete. Keep
+PR #80 in Draft and do not tag a release from this run.** The original screen
+pass covered Home, Live setup, History, Output, Appearance, Companion,
+project/More disclosures, Pairing, and every Settings tab. The new isolated
+debug-app pass completed a synthetic import, populated Review playback,
+pause/seek, transcript display, export, and output-folder selection followed
+by a new export write.
 
-This is still not end-to-end acceptance. Native capture, importing the
-synthetic audio through the app, populated Review playback and actions, output
-chooser writes, connected account/device flows, provider calls, and upgrade
-acceptance were not exercised. The packaged installer was built and installed
-in a clean temporary directory; the packaged UI was launched but could not be
-clicked through in this session.
+This is not end-to-end acceptance for every feature. Native microphone capture,
+connected account/device flows, provider calls, packaged UI click-through,
+upgrade acceptance, and the remaining reliability and speech-quality gates
+were not exercised. The installer was installed in a clean temporary
+directory and launched at the process level; its UI still needs click-through.
 
 This is a UI screen pass with explicit integration gaps; it is not end-to-end
 acceptance for every feature shown in Settings.
@@ -49,11 +48,13 @@ acceptance for every feature shown in Settings.
   media URL was entered or fetched; the app's consent state remained withheld.
 - No microphone capture, provider API request, API-key entry, OAuth, Zoom
   connection, FUNGWIRE enablement, local API start or LAN share was triggered.
-  The follow-up ran only the local CPU Whisper worker against synthetic audio;
-  no inference was started through the app UI.
-- The output chooser, cloud credentials, backup destination/key, account login,
-  and restore actions were not activated. The UAT application profile remained
-  separate from the normal `dev.fung.local` profile.
+  The earlier follow-up ran the local CPU Whisper worker against synthetic
+  audio. That worker-only step did not start inference through the app UI;
+  the later app-level synthetic import and transcription are recorded below.
+- In the initial screen pass, the cloud credentials, backup destination/key,
+  account login, and restore actions were not activated. The current native
+  click-through used the separate `dev.fung.uat.review20261017b` profile; the
+  normal `dev.fung.local` profile was not opened or modified in that pass.
 
 ## Screen results
 
@@ -61,16 +62,16 @@ acceptance for every feature shown in Settings.
 | --- | --- | --- |
 | Home | PASS — UI | Dashboard, empty project/activity counts, shortcuts and persistent bottom dock rendered. “Start meeting” navigated to Live setup only. |
 | Live | PASS — setup UI; capture NOT_RUN | Device/language controls rendered. Participant-notice consent and system-audio capture both start unchecked; Start remains disabled until the notice is acknowledged. No capture was started. |
-| Review / History | PASS — empty state; populated review NOT_RUN | “Select a project first” state rendered. No recording, playback, question, summary or export job was created. |
-| Output | PASS — display; path mutation NOT_RUN | Native UI showed `C:\Users\suanr\Documents\fung` and “ready to write”. Choose Folder and Reset were not activated. |
+| Review / History | PASS — populated synthetic review | Native app imported one synthetic WAV, completed transcription, displayed one Thai segment, and passed playback, pause, seek, and export. No microphone capture, summary, or question action was run. |
+| Output | PASS — isolated chooser and write | Native folder picker selected the same isolated `%TEMP%` output directory; the setting persisted and a subsequent export job wrote WAV/SRT/VTT there. No user Documents path was used. |
 | Appearance | PASS — native Glass toggle | Windows Acrylic blurred the transparent outer margin. Switching to solid cleared the native Acrylic effect; returning to Glass/full applied it again. The setting was restored to Glass/full. |
 | Projects disclosure | PASS — empty state | Empty local-project state and “selection does not start recording/playback” disclosure rendered. |
 | More disclosure | PASS — menu | Import, Pair, Appearance and Account actions rendered; Export was correctly disabled without a project. Import was not invoked. |
 | Companion | PASS — dialog | In-app panel opened and Escape closed it. No inference or capture started. |
-| Pairing | PARTIAL — configuration | Dialog names the missing `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`; Create Pairing is disabled and FUNGWIRE stays off. No account, paired-device fixture, or network pairing was available. |
+| Pairing | PARTIAL — service configuration verified; app flow NOT_RUN | The initial screen pass showed missing `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. The current `.env` now has both; read-only Auth health and settings requests returned HTTP 200. No app sign-in, device-list acceptance, paired-device fixture, or pairing mutation was run. FUNGWIRE stayed off. |
 | Settings dialog | PASS — shell | Dialog opened; all seven tabs rendered. First opening lazy-loaded tab content took several seconds and then completed. |
 | Settings: External Connections | PARTIAL — configuration | Shows setup pending and no auth endpoint configured. No account portal was opened. |
-| Settings: Sign In and Backup | PARTIAL — configuration | Missing Supabase configuration and backup destination are explicit. No recovery key was generated, folder selected, backup or restore run. |
+| Settings: Sign In and Backup | PARTIAL — configuration | The initial screen pass showed missing Supabase configuration and backup destination. Current read-only Auth checks accept the configured anon key; no account login, recovery key, backup, or restore was run. |
 | Settings: TTS Providers | PARTIAL — provider | Empty state rendered; no TTS provider is configured. |
 | Settings: Cloud Providers | PASS — form only | Provider forms and local/cloud policy controls rendered. Credential fields were blank; no credentials or provider request were sent. |
 | Settings: Fetch from URL | PASS — consent boundary; fetch NOT_RUN | Shows that internet media fetching is not authorized. Pinned `yt-dlp` and Deno were staged locally and passed the embedded Python probe, but no URL was entered and consent was not enabled. |
@@ -136,11 +137,10 @@ acceptance for every feature shown in Settings.
   `%APPDATA%\dev.fung.uat.followup20261017a`, and the configured output path
   was inside the same temporary UAT root. The normal `dev.fung.local` profile
   was not used.
-- After the process opened a `FUNG` window, `cua.getState()` continued to
-  return `apps: []`. The installed FUNG process had a live window handle, but
-  this session had no CUA window entry to bind. Therefore the file picker,
-  import action, populated Review controls, and output chooser could not be
-  clicked or observed; those remain NOT_RUN.
+- At this point in the earlier follow-up, `cua.getState()` continued to return
+  `apps: []`, so the file picker, import action, populated Review controls,
+  and output chooser were not run in that pass. The subsequent native
+  click-through is recorded below.
 
 ### NSIS build and isolated package install
 
@@ -174,24 +174,65 @@ acceptance for every feature shown in Settings.
   files changed during this follow-up; the follow-up changes are documentation
   only. The new documentation commit will receive its own CI run after push.
 
+### Native Review-profile click-through (2026-10-17)
+
+- Built and opened the FUNG debug app from this branch using the isolated app
+  identifier `dev.fung.uat.review20261017b` at tested app-source head
+  `b66d2447d0afb197bc5ea1b33e0edf227527ad73`. Its profile directory was
+  `%APPDATA%\dev.fung.uat.review20261017b`; the output directory was
+  `%TEMP%\fung-uat-review20261017b\output`. The path was shown as “ready to
+  write” in the native Output page and persisted in
+  `%APPDATA%\dev.fung.uat.review20261017b\recording-output.json`. The native
+  folder picker selected this same path. Only this test profile was changed.
+- Imported the offline synthetic Thai WAV
+  `%TEMP%\fung-uat-followup-20261017a\fung-synthetic-thai-uat.wav` through the
+  app. The imported file was 301,392 bytes with SHA-256
+  `D52863A874B942E4B3EE453720B7771FC18CAA7F5721B83159CA16EF284719BF`.
+  FUNG created project `c70988c5-2670-47d5-af5e-f2373d522cd2` and recording
+  `8490cd8a-ae36-44d5-a375-9d44c36f3a47`; the transcription job completed with
+  one populated Thai segment. The fixture contains generated speech only, not
+  user audio or personal data.
+- In populated Review, opened the native player, played, paused, sought to
+  approximately 4 seconds of the 6-second recording, and closed the player.
+  The transcript remained visible and matched the same project/recording pair.
+- Triggered export from Review both before and after selecting the isolated
+  output path. The post-selection `export.render` job
+  `68428132-73c1-4c31-a878-3f469c64a2a4` completed at 100%. WAV, SRT, and VTT
+  artifacts appeared in Review and were written under the isolated project
+  export directory. The exported WAV is 301,392 bytes and has the same SHA-256
+  as the imported WAV. SRT/VTT contain the transcript cue at 00:00–00:06.180.
+- This closes the synthetic app-level import/Review/playback/export and
+  output-folder-selection/write gate for the debug app. It does not prove
+  microphone capture, Thai speech quality, packaged UI behavior, or any
+  account/provider integration. A prior UAT left synthetic test data in the
+  primary `dev.fung.local` profile; this pass did not open, modify, or delete
+  that profile or its data.
+
+### Supabase configuration check (2026-10-17)
+
+- Confirmed `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are populated in
+  the local `.env`; values were not printed or added to this report.
+- Read-only requests to the configured Auth health endpoint and Auth settings
+  endpoint returned HTTP 200. The settings request included the anon key; no
+  response body was retained.
+- This verifies endpoint reachability and that the API accepts the configured
+  key for a public settings request. It does not verify a signed-in session,
+  device list, pairing, or any write operation; those remain release gates.
+
 ## Release gates still open
 
-1. Set up the intended Supabase/auth environment and re-run device-list and
-   pairing with a disposable paired-device fixture. Pairing is still blocked
-   here because the environment has no Supabase config or signed-in account.
-2. Import the synthetic fixture through the native app and run populated
-   Review: playback, pause/seek, transcript action and export. The CPU worker
-   transcript above does not close this app-level gate.
-3. Select the temporary output directory through the native chooser and
-   verify a new file write. The test profile was preconfigured directly, so
-   the chooser remains untested.
-4. Decide whether URL fetch, TTS, cloud, Zoom, account/backup and Local API/LAN
+1. Run Supabase device-list and pairing acceptance with a signed-in test
+   account and disposable paired-device fixture. `.env` configuration and
+   read-only Auth requests now pass, but no account or pairing flow was used.
+2. Decide whether URL fetch, TTS, cloud, Zoom, account/backup and Local API/LAN
    surfaces are included in this release; if included, stage their dependencies
    in the actual packaging workflow and run provider-specific acceptance.
    URL-fetch consent remains off; no URL was fetched during this pass.
-5. Click through the installed package and run an upgrade over the temporary
+3. Click through the installed package and run an upgrade over the temporary
    install. A clean temporary install and empty-profile reopen passed at the
    process level; interactive packaged UI and upgrade acceptance remain open.
+4. Verify concurrent enabled Local API writes, active capture/job shutdown,
+   forced-crash recovery, Thai speech quality, and microphone/device behavior.
 
 Until these gates are dispositioned, this UAT does not authorize PR merge or a
 release tag.

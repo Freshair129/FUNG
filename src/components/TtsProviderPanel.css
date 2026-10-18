@@ -47,6 +47,25 @@
   padding: 0;
 }
 
+.tts-test-text {
+  display: block;
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--fung-text-secondary);
+}
+
+.tts-test-text input {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 8px 10px;
+  border: 1px solid var(--fung-border-subtle);
+  border-radius: 8px;
+  background: var(--fung-bg-surface);
+  color: var(--fung-text-primary);
+  font-size: 13px;
+}
+
 /* ── Provider Card ── */
 
 .tts-provider-card {

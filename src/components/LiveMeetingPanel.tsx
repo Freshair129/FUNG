@@ -261,7 +261,11 @@ export async function waitForCaptureInactive(
   } = {},
 ): Promise<LiveStatusOutput> {
   const pollMs = options.pollMs ?? 250;
-  const timeoutMs = options.timeoutMs ?? 12_000;
+  // Final capture cleanup drains channel workers, seals WAV chunks, and may
+  // finish catch-up transcription before the native session is released.
+  // Use a generous limit so slow local transcription does not surface the old
+  // short-timeout error while the native session is still finalizing.
+  const timeoutMs = options.timeoutMs ?? 120_000;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => {
     window.setTimeout(resolve, ms);
   }));

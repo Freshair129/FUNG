@@ -907,7 +907,7 @@ fn child_compatible_whisper_model_path(path: PathBuf) -> PathBuf {
     path
 }
 
-fn worker_whisper_model_env_path(runtime: &WhisperRuntime) -> Option<PathBuf> {
+pub(crate) fn worker_whisper_model_env_path(runtime: &WhisperRuntime) -> Option<PathBuf> {
     bundled_whisper_model(runtime).map(child_compatible_whisper_model_path)
 }
 

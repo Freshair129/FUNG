@@ -981,7 +981,7 @@ impl LiveWorker {
             .arg(&script)
             .arg("--profile")
             .arg(&effective_profile);
-        if let Some(model) = crate::bundled_whisper_model(runtime) {
+        if let Some(model) = crate::worker_whisper_model_env_path(runtime) {
             command.env("FUNG_WHISPER_MODEL", model);
         }
         command.env("HF_HUB_OFFLINE", "1");

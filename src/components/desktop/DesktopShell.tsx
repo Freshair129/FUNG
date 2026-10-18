@@ -11,7 +11,6 @@ import {
   FolderOpen,
   History,
   Home,
-  LogIn,
   MoreHorizontal,
   Radio,
   Settings2,
@@ -20,6 +19,7 @@ import {
   Upload,
   UserRound,
   Wifi,
+  X,
 } from "lucide-react";
 import { nativeInvoke, type LiveStatusOutput } from "../../tauri.ts";
 import { CompanionPanel } from "./CompanionPanel";
@@ -28,7 +28,6 @@ import {
   normalizeReviewError,
   type DesktopShellProps,
   type DesktopSurface,
-  type DesktopAccountStatus,
   type LivePhase,
   type MaterialChoice,
   type ReadState,
@@ -256,42 +255,6 @@ function TransparencySelect({ transparency, onChange }: TransparencySelectProps)
         ))}
       </select>
     </label>
-  );
-}
-
-function AccountProfile({
-  status,
-  onOpen,
-}: {
-  status: DesktopAccountStatus | null | undefined;
-  onOpen: (initiator: HTMLButtonElement) => void;
-}) {
-
-  const isAuthenticated = status?.state === "authenticated";
-  const isTransitioning = status?.state === "login_pending" || status?.state === "refreshing";
-  const label = isAuthenticated
-    ? status.email ?? "ลงชื่อเข้าใช้แล้ว"
-    : isTransitioning
-      ? "กำลังยืนยันบัญชี…"
-      : status?.state === "refresh_failed"
-        ? "เข้าสู่ระบบใหม่"
-        : "สมัคร / เข้าสู่ระบบ";
-
-  return (
-    <button
-      className={`desktop-shell__profile${isAuthenticated ? " is-authenticated" : ""}`}
-      type="button"
-      aria-label={isAuthenticated ? `บัญชี ${label}` : "สมัครหรือเข้าสู่ระบบ"}
-      onClick={(event) => onOpen(event.currentTarget)}
-    >
-      <span className="desktop-shell__profile-icon" aria-hidden="true">
-        {isAuthenticated ? <UserRound size={17} /> : <LogIn size={17} />}
-      </span>
-      <span className="desktop-shell__profile-copy">
-        <small>{isAuthenticated ? "บัญชี FUNG" : "บัญชี"}</small>
-        <strong>{label}</strong>
-      </span>
-    </button>
   );
 }
 
@@ -706,7 +669,6 @@ export function DesktopShell({
   liveStatus,
   livePhase = "idle",
   theme,
-  accountStatus,
   mainContent,
   settingsSlot,
   pairingSlot,
@@ -850,6 +812,13 @@ export function DesktopShell({
   const requestAccount = (initiator: HTMLElement) => {
     requestNavigation(
       { label: "บัญชี", leavesCaptureContext: true, action: actions.openAccount },
+      initiator,
+    );
+  };
+
+  const requestCloseWindow = (initiator: HTMLElement) => {
+    requestNavigation(
+      { label: "ปิดแอป", leavesCaptureContext: true, action: actions.closeWindow },
       initiator,
     );
   };
@@ -1045,7 +1014,15 @@ export function DesktopShell({
               <SidebarActionButton icon={<UserRound size={17} />} label="บัญชี" onClick={(event) => requestAccount(event.currentTarget)} />
             </div>
           </details>
-          <AccountProfile status={accountStatus} onOpen={requestAccount} />
+          <button
+            type="button"
+            className="desktop-shell__close-button"
+            aria-label="ปิดแอป"
+            title="ปิดแอป"
+            onClick={(event) => requestCloseWindow(event.currentTarget)}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
         </div>
       </footer>
 

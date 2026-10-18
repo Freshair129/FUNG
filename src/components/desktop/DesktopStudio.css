@@ -61,6 +61,20 @@ html:has(.desktop-shell[data-layout="studio"]), body:has(.desktop-shell[data-lay
 .desktop-shell[data-fung-root][data-layout="studio"] .desktop-shell__body { display: block; min-height: 0; overflow: hidden; }
 .desktop-shell[data-fung-root][data-layout="studio"] .desktop-shell__main {
   height: 100%; padding: 26px; gap: 12px; border-radius: 15px; background: var(--studio-panel); color: var(--studio-ink);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--studio-muted) 48%, transparent) transparent;
+}
+.desktop-shell[data-layout="studio"] .desktop-shell__main::-webkit-scrollbar { width: 8px; height: 8px; }
+.desktop-shell[data-layout="studio"] .desktop-shell__main::-webkit-scrollbar-track { background: transparent; }
+.desktop-shell[data-layout="studio"] .desktop-shell__main::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--studio-muted) 48%, transparent);
+  background-clip: padding-box;
+}
+.desktop-shell[data-layout="studio"] .desktop-shell__main::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--studio-blue) 68%, transparent);
+  background-clip: padding-box;
 }
 .desktop-shell[data-fung-root][data-layout="studio"][data-surface="home"] .desktop-shell__main { padding: 0; gap: 0; background: transparent; }
 .desktop-shell[data-layout="studio"] .desktop-shell__surface-content[hidden] { display: none; }
@@ -166,9 +180,9 @@ html:has(.desktop-shell[data-layout="studio"]), body:has(.desktop-shell[data-lay
 .desktop-shell__dock-icon, .desktop-shell[data-layout="studio"] .desktop-shell__project-toggle { display: flex; align-items: center; justify-content: center; min-height: 32px; height: 32px; width: 30px; padding: 5px; color: #d1d4de; background: transparent; border: none; border-radius: 8px; cursor: pointer; }
 .desktop-shell__dock-icon:hover, .desktop-shell[data-layout="studio"] .desktop-shell__project-toggle:hover { background: #ffffff15; }
 .desktop-shell[data-layout="studio"] .desktop-shell__project-toggle::after { display: none; }
-.desktop-shell[data-layout="studio"] .desktop-shell__profile { width: 30px; height: 30px; min-height: 30px; min-width: 30px; padding: 0; justify-content: center; border: 1px solid #ffffff25; border-radius: 50%; background: #292839; color: #c8c1ff; }
-.desktop-shell[data-layout="studio"] .desktop-shell__profile-copy { display: none; }
-.desktop-shell[data-layout="studio"] .desktop-shell__profile-icon { background: transparent; width: 24px; height: 24px; }
+.desktop-shell[data-layout="studio"] .desktop-shell__close-button { display: grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px; border: 1px solid #ffffff25; border-radius: 50%; background: #292839; color: #c8c1ff; cursor: pointer; }
+.desktop-shell[data-layout="studio"] .desktop-shell__close-button:hover { background: #a83d4c; color: #fff; }
+.desktop-shell[data-layout="studio"] .desktop-shell__close-button:focus-visible { outline: 2px solid #6f9bff; outline-offset: 3px; }
 .desktop-shell[data-layout="studio"] .desktop-shell__project-menu { display: block; position: static; opacity: 1; max-height: none; overflow: visible; pointer-events: auto; }
 .desktop-shell__utility-menu summary { list-style: none; }
 .desktop-shell[data-layout="studio"] .desktop-shell__project-details,

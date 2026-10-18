@@ -256,6 +256,39 @@ acceptance for every feature shown in Settings.
   establish upgrade safety for a profile containing real projects or
   recordings. The normal `dev.fung.local` profile was not used.
 
+### Data-bearing packaged-profile upgrade UAT (2026-10-18)
+
+- Imported the offline synthetic Thai WAV through packaged FUNG under the
+  isolated app identifier `dev.fung.uat.followup20261017a`. It created project
+  `74ef455d-4ee5-4f38-95a5-0a009504600a`, recording
+  `b42bf53a-0be3-4369-bcec-c41538fef964`, and transcription job
+  `40d2de80-3942-4a6e-b242-87bf57ab878a`. The job completed at 100% and wrote
+  one Thai transcript segment. The synthetic WAV is 301,392 bytes with SHA-256
+  `D52863A874B942E4B3EE453720B7771FC18CAA7F5721B83159CA16EF284719BF`.
+- Closed FUNG normally before the upgrade. Backed up the isolated profile
+  (15 files, 5,341,500 bytes) and the project output WAV to
+  `%TEMP%\fung-uat-followup-20261017a\pre-populated-upgrade-backup-20261017-1953UTC`;
+  all 16 copied files matched their source SHA-256 values.
+- Re-ran the previously recorded unsigned NSIS package
+  (`940DA0435C06A1EAF7C50C9BE07D8FF6CC3D531465587D77A75AC6630985EBA0`)
+  against the same isolated install directory with `/S` and the explicit
+  `/D=<install-path>` target. The installer exited with code 0. This was the
+  same local UAT package, not a signed release artifact.
+- Reopened the installed app with the same app identifier and profile. Home
+  showed one project (`Session 1`); Review showed the same recording as
+  `completed` at 0:06 and displayed its Thai transcript. SQLite
+  `integrity_check` returned `ok`; the database still contained one project,
+  one completed recording, one completed transcription job, and one transcript
+  segment. The 14 profile files other than `projection.sqlite-shm` matched the
+  pre-upgrade backup exactly; the shared-memory file hash differed. The output
+  WAV remained present and matched the backed-up SHA-256.
+- The Review audio-player button was disabled, so playback was not verified.
+  The separate Local Meeting Intelligence panel showed
+  `The local meeting-intelligence action could not be completed` and no
+  transcript revision. These observations do not change the confirmed
+  project/recording/transcript persistence result. The normal `dev.fung.local`
+  profile was not opened or modified.
+
 ## Release gates still open
 
 1. Run Supabase device-list and pairing acceptance with a signed-in test
@@ -267,10 +300,12 @@ acceptance for every feature shown in Settings.
    URL-fetch consent remains off; no URL was fetched during this pass.
 3. Validate a signed release package and upgrade a disposable profile that
    contains projects, recordings, transcripts, and provider settings. The
-   isolated unsigned package upgrade, selected Settings UI, and empty-profile
-   close/reopen passed; this does not cover data-bearing profile migration.
+   unsigned isolated package now passed the synthetic data-bearing
+   project/recording/transcript persistence check, but it is not a signed
+   release artifact and the profile had no provider settings.
 4. Verify concurrent enabled Local API writes, active capture/job shutdown,
-   forced-crash recovery, Thai speech quality, and microphone/device behavior.
+   forced-crash recovery, Thai speech quality, microphone/device behavior, and
+   packaged audio playback. The Review player was disabled during this UAT.
 
 Until these gates are dispositioned, this UAT does not authorize PR merge or a
 release tag.

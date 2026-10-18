@@ -357,9 +357,17 @@ test("SSR renders the authoritative unboxed 40px FUNG mark and currentColor word
   assert.doesNotMatch(markup, /linearGradient|porcelainGrad|fung-logo-container/);
 });
 
-test("native window controls and drag boundaries stay explicit", () => {
+test("native close control uses the guarded close action and drag boundaries stay explicit", () => {
   assert.match(shellSource, /<footer className="desktop-shell__dock" data-tauri-drag-region>/);
-  assert.doesNotMatch(shellSource, /actions\.minimizeWindow|actions\.closeWindow/);
+  assert.match(
+    shellSource,
+    /const requestCloseWindow = \(initiator: HTMLElement\) => \{[\s\S]*?action: actions\.closeWindow/,
+  );
+  assert.match(
+    shellSource,
+    /className="desktop-shell__close-button"[\s\S]*?aria-label="ปิดแอป"[\s\S]*?onClick=\{\(event\) => requestCloseWindow\(event\.currentTarget\)\}/,
+  );
+  assert.doesNotMatch(shellSource, /actions\.minimizeWindow/);
   assert.doesNotMatch(shellSource, /className="panel-glass" data-tauri-drag-region/);
   assert.doesNotMatch(shellSource, /className="fab fab-topbar" data-tauri-drag-region/);
   assert.doesNotMatch(shellSource, /desktop-shell__legacy-workspace|callmd-legacy-workspace|power-dock/);
@@ -368,25 +376,15 @@ test("native window controls and drag boundaries stay explicit", () => {
   assert.doesNotMatch(shellCssSource, /\.desktop-shell__header-button/);
 });
 
-test("the shell keeps truthful profile states and the bottom dock owns desktop actions", () => {
-  const signedOut = renderToStaticMarkup(React.createElement(DesktopShell, createProps()));
-  assert.match(signedOut, /สมัคร \/ เข้าสู่ระบบ/);
-  assert.match(signedOut, /desktop-shell__sidebar/);
-  assert.doesNotMatch(signedOut, /<button[^>]*(เริ่มบันทึก|หยุดบันทึก)/);
-  assert.match(signedOut, /นำเข้าไฟล์/);
-  assert.match(signedOut, /ส่งออก/);
-  assert.match(signedOut, /จับคู่อุปกรณ์/);
-  assert.match(signedOut, /ลักษณะ/);
-  assert.doesNotMatch(signedOut, /desktop-shell__appearance/);
-
-  const signedIn = renderToStaticMarkup(
-    React.createElement(
-      DesktopShell,
-      createProps({ accountStatus: { state: "authenticated", email: "owner@example.test" } }),
-    ),
-  );
-  assert.match(signedIn, /owner@example\.test/);
-  assert.doesNotMatch(signedIn, /สมัคร \/ เข้าสู่ระบบ/);
+test("Studio home keeps desktop utilities in the dock overflow and account separate from close", () => {
+  const home = renderToStaticMarkup(React.createElement(DesktopShell, createProps()));
+  assert.match(home, /data-layout="studio"/);
+  assert.match(home, /class="desktop-shell__utility-actions"/);
+  assert.match(home, /aria-label="บัญชี"/);
+  assert.match(home, /aria-label="ปิดแอป"/);
+  assert.doesNotMatch(home, /class="desktop-shell__sidebar"/);
+  assert.doesNotMatch(home, /<button[^>]*(เริ่มบันทึก|หยุดบันทึก)/);
+  assert.doesNotMatch(home, /desktop-shell__appearance/);
 });
 
 test("studio dashboard uses real project metadata and preserves mounted surface owners", () => {

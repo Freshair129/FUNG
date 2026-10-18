@@ -3,9 +3,27 @@
 html:has(.desktop-shell[data-layout="studio"]),
 body:has(.desktop-shell[data-layout="studio"]),
 #root:has(> .desktop-shell[data-layout="studio"]) { background: transparent; }
-#root:has(> .desktop-shell[data-layout="studio"]) { position: relative; z-index: 1; display: flow-root; height: 100dvh; overflow: clip; }
-html:has(.desktop-shell[data-layout="studio"]), body:has(.desktop-shell[data-layout="studio"]) { margin: 0; overflow: clip; }
+#root:has(> .desktop-shell[data-layout="studio"]) {
+  position: fixed;
+  z-index: 1;
+  inset: 0;
+  display: flow-root;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: clip;
+}
+html:has(.desktop-shell[data-layout="studio"]),
+body:has(.desktop-shell[data-layout="studio"]) {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow: clip;
+}
 .desktop-shell[data-fung-root][data-layout="studio"] {
+  box-sizing: border-box;
   --studio-blue: #437cf1;
   --studio-panel: #fff;
   --studio-ink: #17191e;
@@ -16,7 +34,7 @@ html:has(.desktop-shell[data-layout="studio"]), body:has(.desktop-shell[data-lay
   grid-template-rows: auto minmax(0, 1fr) 52px;
   gap: 5px;
   width: calc(100% - 32px);
-  height: calc(100dvh - 32px);
+  height: calc(100% - 32px);
   min-height: 0;
   margin: 16px;
   padding: 5px 5px 0;
@@ -45,7 +63,6 @@ html:has(.desktop-shell[data-layout="studio"]), body:has(.desktop-shell[data-lay
 }
 .desktop-shell[data-layout="studio"][data-material="glass"][data-transparency="full"] .desktop-shell__dock {
   border-top: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 0 0 16px 16px;
   background: linear-gradient(112deg, rgba(7, 9, 15, 0.9), rgba(22, 22, 37, 0.78) 56%, rgba(7, 9, 15, 0.9));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(16px) saturate(145%);
@@ -161,11 +178,11 @@ html:has(.desktop-shell[data-layout="studio"]), body:has(.desktop-shell[data-lay
 .studio-progress__footer > svg { color: var(--studio-blue); flex: 0 0 auto; }
 .studio-progress__footer > button { margin-left: auto; display: flex; gap: 3px; align-items: center; white-space: nowrap; font-size: 8px; }
 
-.desktop-shell[data-layout="studio"] .desktop-shell__dock { grid-area: dock; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 3px 10px 7px; color: #d6d8dd; position: relative; z-index: 5; }
+.desktop-shell[data-layout="studio"] .desktop-shell__dock { grid-area: dock; min-width: 0; display: flex; align-items: center; gap: 12px; margin-inline: -5px; padding: 3px 10px 7px; border-radius: 0 0 21px 21px; color: #d6d8dd; position: relative; z-index: 5; }
 .desktop-shell[data-layout="studio"] .desktop-shell__brand { display: flex; align-items: center; gap: 8px; min-width: 92px; padding: 0; }
 .desktop-shell[data-layout="studio"] .desktop-shell__brand-mark { width: 28px; height: 28px; color: #c0b8ff; flex: 0 0 auto; }
 .desktop-shell[data-layout="studio"] .desktop-shell__brand-wordmark { font-size: 12px; letter-spacing: .06em; color: #fff; }
-.desktop-shell__dock-navigation { display: flex; align-items: center; justify-content: center; flex: 1; min-width: 0; gap: 10px; }
+.desktop-shell__dock-navigation { display: flex; align-items: center; justify-content: center; flex: 1 1 0; min-width: 0; gap: 10px; }
 .desktop-shell[data-layout="studio"] .desktop-shell__nav { display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 0; margin: 0; overflow: visible; min-height: 0; }
 .desktop-shell[data-layout="studio"] .desktop-shell__nav-link,
 .desktop-shell__dock-companion { display: flex; align-items: center; justify-content: center; flex-direction: row; gap: 6px; padding: 8px; min-height: 36px; border: none; border-radius: 8px; color: #9b9fa8; font-size: 10px; background: transparent; box-shadow: none; white-space: nowrap; }
@@ -229,7 +246,8 @@ html:has(.desktop-shell[data-layout="studio"]), body:has(.desktop-shell[data-lay
   .studio-assistant__wave { max-width: 230px; }
 }
 @media (max-width: 720px) {
-  .desktop-shell[data-fung-root][data-layout="studio"] { width: calc(100% - 16px); height: calc(100dvh - 16px); margin: 8px; grid-template-rows: auto minmax(0, 1fr) 94px; border-radius: 18px; }
+  .desktop-shell[data-fung-root][data-layout="studio"] { width: calc(100% - 16px); height: calc(100% - 16px); margin: 8px; grid-template-rows: auto minmax(0, 1fr) 94px; border-radius: 18px; }
+  .desktop-shell[data-layout="studio"] .desktop-shell__dock { border-radius: 0 0 17px 17px; }
   .desktop-shell[data-fung-root][data-layout="studio"] .desktop-shell__main { padding: 18px; }
   .desktop-shell[data-layout="studio"] .desktop-shell__dock { flex-wrap: wrap; align-content: center; justify-content: space-between; row-gap: 0; padding: 0 5px 5px; }
   .desktop-shell__dock-navigation { flex-basis: 100%; order: -1; height: 44px; }

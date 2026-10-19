@@ -8,6 +8,7 @@ import type {
   LiveSegmentEvent,
   LiveStartOutput,
   LiveStatusOutput,
+  DesktopMeetingActionItemSnapshot,
   LiveTopicEvent,
   Project,
   TranscriptView,
@@ -295,6 +296,12 @@ export type CapabilityState = {
 
 export type DesktopCapabilities = Readonly<Record<string, CapabilityState>>;
 
+export type MeetingActionItemsLoadState = {
+  status: "loading" | "ready" | "error" | "unavailable";
+  data: DesktopMeetingActionItemSnapshot | null;
+  error: string | null;
+};
+
 /**
  * Starting capture must close the review player first and await its native
  * acknowledgement. A false acknowledgement blocks the start request.
@@ -335,6 +342,7 @@ export type DesktopShellActions = {
   exportTitle?: string;
   setTheme: (theme: ThemeChoice) => void;
   minimizeWindow: () => void | Promise<void>;
+  hideWindowToTray: () => void | Promise<void>;
   closeWindow: () => void | Promise<void>;
 };
 

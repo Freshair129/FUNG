@@ -27,7 +27,7 @@ Product scope อยู่ใน [PRODUCT.md](../PRODUCT.md); RCA ย้อน�
 | เอกสาร Mobile และสถานะ | [Mobile index](Mobile/README.md), [Mobile implementation status](Mobile/IMPLEMENTATION_STATUS.md) | เอกสาร Mobile, build, automated checks, device UAT และข้อจำกัด |
 | ขอบเขตระบบ | [Desktop architecture](Desktop/ARCHITECTURE.md) และ [architecture index](architecture/README.md) | ส่วนประกอบ ข้อมูล runtime และขอบเขตระหว่างระบบ |
 | ข้อกำหนด | [Requirements index](requirements/README.md) | แหล่ง requirement ที่เป็น canonical และวิธีเพิ่ม requirement |
-| Design system | [Design system guide](FUNG_Design_System_v0.1.0/DESIGN_SYSTEM.md) และ [design board](design-system/index.html) | token และแนวทาง component; board เป็นไฟล์ generated |
+| Design system | [Design system guide](FUNG_Design_System_v0.1.0/DESIGN_SYSTEM.md), [canonical DTCG tokens](FUNG_Design_System_v0.1.0/tokens/fung.tokens.json) และ [design board](design-system/index.html) | token และแนวทาง component; board เป็นไฟล์ generated |
 
 ## แผนผังเอกสาร
 

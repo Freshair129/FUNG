@@ -1,5 +1,5 @@
 ---
-version: "0.3.27b"
+version: "0.3.28b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-19,Codex"
 
@@ -53,10 +53,25 @@ scroll inside their own reader without moving the dock or hiding page navigation
 The current sitemap is
 [`2026-10-16-desktop-navigation-and-flows.md`](../design/2026-10-16-desktop-navigation-and-flows.md).
 The former P1–P4 sitemap now points there and is explicitly marked historical.
-Browser DOM checks at 1202×884 and 820×760 found no horizontal overflow in the
-root, primary navigation or dock. Screenshot capture and browser input were
-unavailable in this pass, so visual screenshot review and click-through are not
-claimed. No build or test suite was run for this documentation/UI change.
+Home now uses a next-meeting card, local-space summary and an AI-proposed task
+pool. No calendar-event source is wired, so the meeting card reports that
+calendar data is unavailable and leaves date/time, attendees and topic blank.
+The task pool reads `ai_proposed` action items from local Genesis graph edges,
+links each item to its source recording and sorts explicit urgency/deadline
+wording before unspecified items; it does not turn a proposal into a confirmed
+task. Live and Archive details use keyboard-operable tabs. The dock keeps
+minimize, hide-to-tray and guarded close as separate actions. The native
+rectangular Acrylic backdrop is cleared; the rounded shell keeps its own glass
+surface and opaque content plane.
+
+Focused frontend checks passed: contracts 13/13, shell 16/16, Live 13/13,
+Review 11/11, output 3/3, integration 12/12 and design system 5/5. The Vite
+production build, Rust format check and locked Rust compile passed. The shared
+design board was regenerated from DTCG tokens and its check passed. The Codex
+browser screenshot/DOM capture was blank during this pass, so visual screenshot
+review, native tray interaction and click-through are not claimed. The empty
+calendar state is implemented; calendar-provider data, populated task-pool
+acceptance, packaged playback, device/provider and release gates remain open.
 
 ## Existing-profile schema recovery — upstream merged, FUNG validation in progress (2026-10-15)
 
@@ -1356,6 +1371,20 @@ Screenshot artifacts from the latest UI validation:
   browser input were unavailable; no visual or click-through acceptance is
   claimed. No build or tests were run.
 
+### `0.3.27b` → `0.3.28b`
+
+- Added the task-first Home cards and local AI-proposed task pool, tabbed Live
+  and Archive details, separate minimize/tray/close controls, and clipped glass
+  styling that clears rectangular native Acrylic.
+- Kept upcoming-meeting data honest: no calendar source is connected, so the
+  card presents an empty schedule state. Task priority currently uses explicit
+  urgency/deadline wording; proposals remain unconfirmed until reviewed.
+- Focused frontend suites passed 73/73; Vite build, design-system render/check,
+  Rust priority-cue unit test passed 1/1; Rust format and locked Rust compile
+  passed. Browser screenshot/DOM was blank;
+  visual/native tray/click-through, live calendar data and release gates remain
+  unverified.
+
 ### `0.3.25b` → `0.3.26b`
 
 - Re-ran native screen UAT on PR #80 head `61940cd` in an isolated
@@ -1564,6 +1593,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.28b | 2026-10-19 | beta | Added next-meeting empty state, local AI-proposed task pool, tabbed Live/Archive details and separate window controls; focused suites 73/73 plus frontend/Rust checks passed, visual/native tray and calendar-provider acceptance remain open. | working-tree | Codex |
 | 0.3.27b | 2026-10-19 | beta | Reframed navigation around Home/Live/Archive, grouped support destinations, removed tab-bar scrolling and corrected the legacy sitemap pointer; DOM bounds checked only, screenshot/click-through unavailable. | working-tree | Codex |
 | 0.3.26b | 2026-10-16 | beta | Re-ran native Desktop screen UAT on PR #80 in an isolated app-data profile; five core surfaces and seven Settings sections rendered, but device/provider, recording, populated Review and package gates remain open. | working-tree | Codex |
 | 0.3.25b | 2026-10-16 | beta | Added device-rate negotiation and source-timeline resampling; local native 16 kHz-to-44.1 kHz playback plus pause/resume passed, while native UI, package and full-suite timing gates remain open. | working-tree | Codex |

@@ -249,8 +249,7 @@ export function TtsProviderPanel({ onClose, embedded }: Props) {
       {/* Add button */}
       {!showForm && (
         <button
-          className="btn-secondary"
-          style={{ width: "100%", marginTop: 12 }}
+          className="btn-secondary tts-add-provider"
           onClick={() => { setShowForm(true); setEditId(null); setForm(emptyForm); }}
         >
           <Plus size={14} /> เพิ่ม TTS Provider

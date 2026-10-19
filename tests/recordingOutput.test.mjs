@@ -42,10 +42,11 @@ test("new capture and ingestion paths use the selected root while legacy paths s
   assert.match(playback, /allowed_projects_roots/);
 });
 
-test("desktop exposes the output surface, picker actions, and capture lock", () => {
+test("desktop exposes Storage as a More destination with picker actions and capture lock", () => {
   assert.match(contracts, /DesktopSurface = .*"output"/);
   assert.match(contracts, /showOutput: \(\) => void/);
-  assert.match(shell, /id: "output".*ไฟล์บันทึก/s);
+  assert.match(shell, /requestSurface\("output"/);
+  assert.match(shell, /label="ตำแหน่งจัดเก็บ"/);
   assert.match(shell, /actions\.showOutput/);
   assert.match(panel, /pickRecordingOutputFolder/);
   assert.match(panel, /recordingOutputSet/);

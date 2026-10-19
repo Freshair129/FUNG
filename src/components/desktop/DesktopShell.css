@@ -711,7 +711,8 @@
 
   .desktop-shell__nav {
     justify-content: flex-start;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    overflow: visible;
   }
 
   .desktop-shell__header-actions {

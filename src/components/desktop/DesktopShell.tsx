@@ -11,7 +11,9 @@ import {
   FolderOpen,
   History,
   Home,
+  Minimize2,
   MoreHorizontal,
+  PanelBottomClose,
   Radio,
   Settings2,
   SlidersHorizontal,
@@ -21,7 +23,7 @@ import {
   Wifi,
   X,
 } from "lucide-react";
-import { nativeInvoke, type LiveStatusOutput } from "../../tauri.ts";
+import { listMeetingActionItems, nativeInvoke, type DesktopMeetingActionItem, type LiveStatusOutput } from "../../tauri.ts";
 import { CompanionPanel } from "./CompanionPanel";
 import { StudioHome } from "./StudioHome";
 import {
@@ -29,6 +31,7 @@ import {
   type DesktopShellProps,
   type DesktopSurface,
   type LivePhase,
+  type MeetingActionItemsLoadState,
   type MaterialChoice,
   type ReadState,
   type ReviewError,
@@ -57,7 +60,6 @@ export const SURFACE_ITEMS: ReadonlyArray<{
   { id: "home", href: "#home", label: "หน้าหลัก" },
   { id: "live", href: "#live", label: "ประชุมสด" },
   { id: "review", href: "#history", label: "บันทึกย้อนหลัง" },
-  { id: "output", href: "#output", label: "ไฟล์บันทึก" },
 ];
 
 export const THEME_ITEMS: ReadonlyArray<{ id: ThemeChoice; label: string }> = [
@@ -164,7 +166,7 @@ type SurfaceNavigationProps = {
 
 function SurfaceNavigation({ activeSurface, onNavigate }: SurfaceNavigationProps) {
   return (
-    <nav className="desktop-shell__nav" aria-label="พื้นที่ทำงาน">
+    <nav className="desktop-shell__nav" aria-label="พื้นที่ทำงานหลัก">
       {SURFACE_ITEMS.map((item) => (
         <a
           key={item.id}
@@ -459,8 +461,8 @@ const SURFACE_COPY: Record<DesktopSurface, { kicker: string; title: string; desc
     description: "อ่านเนื้อหาและการกระทำของบันทึกที่จับคู่กับโครงการนี้เท่านั้น",
   },
   output: {
-    kicker: "ไฟล์บันทึก",
-    title: "กำหนดปลายทางไฟล์บันทึก",
+    kicker: "ตำแหน่งจัดเก็บ",
+    title: "ตำแหน่งจัดเก็บไฟล์บันทึก",
     description: "เลือกโฟลเดอร์สำหรับไฟล์ใหม่ โดยไฟล์เดิมยังอยู่ที่ตำแหน่งเดิมและเปิดอ่านได้",
   },
   appearance: {
@@ -688,6 +690,11 @@ export function DesktopShell({
   const [material, setMaterial] = useState<MaterialChoice>("glass");
   const [transparency, setTransparency] = useState<TransparencyChoice>("full");
   const [companionOpen, setCompanionOpen] = useState(false);
+  const [meetingActionItems, setMeetingActionItems] = useState<MeetingActionItemsLoadState>({
+    status: "loading",
+    data: null,
+    error: null,
+  });
   const companionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const projectMenuRef = useRef<HTMLDetailsElement | null>(null);
   const utilityMenuRef = useRef<HTMLDetailsElement | null>(null);
@@ -696,11 +703,13 @@ export function DesktopShell({
 
   useEffect(() => {
     if (!nativeInvoke) return;
-    const enabled = material === "glass" && transparency === "full";
-    void nativeInvoke<void>("desktop_window_set_glass", { enabled }).catch((error) => {
-      console.warn("[desktop-glass] native backdrop effect unavailable", error);
+    // Windows Acrylic is applied to the full rectangular HWND, so its tint
+    // leaks beyond the rounded CSS shell. Keep the native window transparent
+    // and render the glass material inside the clipped shell instead.
+    void nativeInvoke<void>("desktop_window_set_glass", { enabled: false }).catch((error) => {
+      console.warn("[desktop-glass] could not clear the full-window backdrop", error);
     });
-  }, [material, transparency]);
+  }, []);
 
   useEffect(() => {
     const closeOutsideMenus = (event: PointerEvent) => {
@@ -719,6 +728,29 @@ export function DesktopShell({
 
   useEffect(() => {
     headingRef.current?.focus();
+  }, [activeSurface]);
+
+  useEffect(() => {
+    if (activeSurface !== "home") return;
+    if (!nativeInvoke) {
+      setMeetingActionItems({ status: "unavailable", data: null, error: null });
+      return;
+    }
+
+    let current = true;
+    setMeetingActionItems({ status: "loading", data: null, error: null });
+    void listMeetingActionItems()
+      .then((data) => {
+        if (current) setMeetingActionItems({ status: "ready", data, error: null });
+      })
+      .catch((error: unknown) => {
+        if (current) setMeetingActionItems({
+          status: "error",
+          data: null,
+          error: error instanceof Error ? error.message : "อ่านรายการงานไม่สำเร็จ",
+        });
+      });
+    return () => { current = false; };
   }, [activeSurface]);
 
   useEffect(() => {
@@ -819,6 +851,20 @@ export function DesktopShell({
   const requestCloseWindow = (initiator: HTMLElement) => {
     requestNavigation(
       { label: "ปิดแอป", leavesCaptureContext: true, action: actions.closeWindow },
+      initiator,
+    );
+  };
+
+  const requestOpenActionItem = (item: DesktopMeetingActionItem, initiator: HTMLElement) => {
+    requestNavigation(
+      {
+        label: "บันทึกต้นทาง",
+        leavesCaptureContext: true,
+        action: () => {
+          actions.selectRecording({ projectId: item.projectId, recordingId: item.recordingId });
+          actions.showReview();
+        },
+      },
       initiator,
     );
   };
@@ -935,7 +981,9 @@ export function DesktopShell({
 
       <div className="desktop-shell__body">
         <main id="desktop-shell-main" className="desktop-shell__main" tabIndex={-1}>
-          {activeSurface !== "home" ? <SurfaceIntro activeSurface={activeSurface} scopeChoice={scopeChoice} headingRef={headingRef} /> : null}
+          {activeSurface !== "home" && activeSurface !== "live" ? (
+            <SurfaceIntro activeSurface={activeSurface} scopeChoice={scopeChoice} headingRef={headingRef} />
+          ) : null}
           {actionError ? (
             <div className="desktop-shell__action-error" role="alert">
               <strong>ทำรายการไม่สำเร็จ</strong>
@@ -949,10 +997,11 @@ export function DesktopShell({
               selectedProjectId={selectedProjectId}
               liveStatus={liveStatus}
               captureActive={captureLifecycle !== "inactive"}
+              actionItems={meetingActionItems}
               headingRef={headingRef}
               onNavigate={requestSurface}
+              onOpenActionItem={requestOpenActionItem}
               onImport={() => void runAction(actions.importMedia)}
-              onCompanion={() => setCompanionOpen(true)}
               onProjects={() => {
                 if (projectMenuRef.current) {
                   projectMenuRef.current.open = true;
@@ -1005,15 +1054,31 @@ export function DesktopShell({
           </details>
           <button type="button" className="desktop-shell__dock-icon" aria-label="ตั้งค่า" title="ตั้งค่า" onClick={(event) => requestSettings(event.currentTarget)}><Settings2 size={17} /></button>
           <details ref={utilityMenuRef} className="desktop-shell__utility-menu" onKeyDown={(event) => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector<HTMLElement>("summary")?.focus(); } }}>
-            <summary className="desktop-shell__dock-icon" aria-label="เพิ่มเติม" title="เพิ่มเติม"><MoreHorizontal size={18} /></summary>
+            <summary
+              className={`desktop-shell__dock-icon${activeSurface === "output" || activeSurface === "appearance" ? " is-active" : ""}`}
+              aria-label="เพิ่มเติม"
+              aria-current={activeSurface === "output" || activeSurface === "appearance" ? "page" : undefined}
+              title="เพิ่มเติม"
+            >
+              <MoreHorizontal size={18} />
+            </summary>
             <div className="desktop-shell__utility-actions" onClick={(event) => { if ((event.target as HTMLElement).closest("button")) event.currentTarget.parentElement?.removeAttribute("open"); }}>
-              <SidebarActionButton icon={<Upload size={17} />} label="นำเข้าไฟล์" onClick={() => void runAction(actions.importMedia)} />
-              <SidebarActionButton icon={<Download size={17} />} label="ส่งออก" disabled={actions.exportDisabled} title={actions.exportTitle} onClick={() => void runAction(actions.exportMedia)} />
-              <SidebarActionButton icon={<Wifi size={17} />} label="จับคู่อุปกรณ์" onClick={(event) => requestPairing(event.currentTarget)} />
-              <SidebarActionButton icon={<SlidersHorizontal size={17} />} label="ลักษณะ" onClick={(event) => requestSurface("appearance", event.currentTarget)} />
-              <SidebarActionButton icon={<UserRound size={17} />} label="บัญชี" onClick={(event) => requestAccount(event.currentTarget)} />
+              <div className="desktop-shell__utility-group" role="group" aria-label="ไฟล์และการจัดเก็บ">
+                <p className="desktop-shell__utility-heading">ไฟล์และการจัดเก็บ</p>
+                <SidebarActionButton icon={<Upload size={17} />} label="นำเข้าไฟล์" onClick={() => void runAction(actions.importMedia)} />
+                <SidebarActionButton icon={<Download size={17} />} label="ส่งออก" disabled={actions.exportDisabled} title={actions.exportTitle} onClick={() => void runAction(actions.exportMedia)} />
+                <SidebarActionButton icon={<FolderOpen size={17} />} label="ตำแหน่งจัดเก็บ" onClick={(event) => requestSurface("output", event.currentTarget)} />
+              </div>
+              <div className="desktop-shell__utility-group" role="group" aria-label="อุปกรณ์และลักษณะ">
+                <p className="desktop-shell__utility-heading">อุปกรณ์และลักษณะ</p>
+                <SidebarActionButton icon={<Wifi size={17} />} label="จับคู่อุปกรณ์" onClick={(event) => requestPairing(event.currentTarget)} />
+                <SidebarActionButton icon={<SlidersHorizontal size={17} />} label="ลักษณะ" onClick={(event) => requestSurface("appearance", event.currentTarget)} />
+                <SidebarActionButton icon={<UserRound size={17} />} label="บัญชี" onClick={(event) => requestAccount(event.currentTarget)} />
+              </div>
             </div>
           </details>
+          <button type="button" className="desktop-shell__dock-icon" aria-label="ย่อหน้าต่าง" title="ย่อหน้าต่าง" onClick={() => void runAction(actions.minimizeWindow)}><Minimize2 size={17} /></button>
+          <button type="button" className="desktop-shell__dock-icon" aria-label="ซ่อนลงถาดระบบ" title="ซ่อนลงถาดระบบ" onClick={() => void runAction(actions.hideWindowToTray)}><PanelBottomClose size={17} /></button>
           <button
             type="button"
             className="desktop-shell__close-button"

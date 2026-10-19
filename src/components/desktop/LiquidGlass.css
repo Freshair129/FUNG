@@ -7,8 +7,8 @@
   isolation: isolate;
   overflow: clip;
   background:
-    radial-gradient(circle at 12% 18%, rgba(141, 162, 150, 0.42), transparent 34%),
-    radial-gradient(circle at 88% 82%, rgba(207, 215, 221, 0.42), transparent 36%),
+    radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--fung-brand-sage) 22%, transparent), transparent 34%),
+    radial-gradient(circle at 88% 82%, color-mix(in srgb, var(--fung-action-primary-bg) 14%, transparent), transparent 36%),
     var(--fung-glass-canvas);
   color: var(--fung-glass-text);
   color-scheme: light;
@@ -18,8 +18,8 @@
 .desktop-shell[data-material="glass"][data-theme="dark"] {
   color-scheme: dark;
   background:
-    radial-gradient(circle at 14% 16%, rgba(84, 122, 105, 0.42), transparent 35%),
-    radial-gradient(circle at 85% 76%, rgba(117, 135, 149, 0.34), transparent 38%),
+    radial-gradient(circle at 14% 16%, color-mix(in srgb, var(--fung-brand-sage) 22%, transparent), transparent 35%),
+    radial-gradient(circle at 85% 76%, color-mix(in srgb, var(--fung-action-primary-bg) 16%, transparent), transparent 38%),
     var(--fung-glass-canvas);
 }
 
@@ -30,10 +30,10 @@
   content: "";
   pointer-events: none;
   background:
-    radial-gradient(circle at 12% 22%, rgba(255, 255, 255, 0.22), transparent 24%),
-    radial-gradient(circle at 82% 72%, rgba(113, 171, 137, 0.2), transparent 28%),
-    linear-gradient(126deg, transparent 0 31%, rgba(255, 255, 255, 0.1) 38%, transparent 43%),
-    linear-gradient(314deg, transparent 0 55%, rgba(143, 183, 160, 0.16) 63%, transparent 70%);
+    radial-gradient(circle at 12% 22%, color-mix(in srgb, var(--fung-brand-porcelain) 20%, transparent), transparent 24%),
+    radial-gradient(circle at 82% 72%, color-mix(in srgb, var(--fung-brand-sage) 14%, transparent), transparent 28%),
+    linear-gradient(126deg, transparent 0 31%, color-mix(in srgb, var(--fung-brand-porcelain) 9%, transparent) 38%, transparent 43%),
+    linear-gradient(314deg, transparent 0 55%, color-mix(in srgb, var(--fung-brand-slate) 12%, transparent) 63%, transparent 70%);
   opacity: 0.92;
   transform: scale(1.08);
   animation: fung-ambient-drift 24s ease-in-out infinite alternate;
@@ -42,15 +42,12 @@
 @keyframes fung-ambient-drift {
   0% {
     transform: scale(1.08) translate3d(-1.5%, -1%, 0);
-    filter: hue-rotate(0deg) saturate(1);
   }
   50% {
     transform: scale(1.14) translate3d(1%, 1.5%, 0);
-    filter: hue-rotate(8deg) saturate(1.08);
   }
   100% {
     transform: scale(1.1) translate3d(2%, -1%, 0);
-    filter: hue-rotate(-5deg) saturate(1.04);
   }
 }
 
@@ -139,7 +136,7 @@
 .desktop-shell[data-material="glass"] .desktop-shell__dialog,
 .desktop-shell[data-material="glass"] .desktop-shell__owned-slot:not(.desktop-shell__owned-slot--settings):not(.desktop-shell__owned-slot--pairing) {
   border-color: var(--fung-glass-edge);
-  border-radius: var(--fung-glass-radius-card);
+  border-radius: var(--fung-radius-lg);
   background: var(--fung-glass-reader);
   box-shadow: 0 16px 34px rgba(0, 0, 0, 0.16), inset 0 1px 0 var(--fung-glass-highlight);
 }
@@ -167,9 +164,9 @@
 
 .desktop-shell[data-material="glass"] .desktop-shell__button--primary,
 .desktop-shell[data-material="glass"] .desktop-shell__home-action--primary {
-  background: linear-gradient(145deg, rgba(111, 154, 131, 0.86), rgba(53, 91, 72, 0.94));
-  color: var(--fung-glass-text);
-  box-shadow: inset 0 1px 0 rgba(248, 255, 249, 0.72), 0 10px 24px rgba(30, 65, 47, 0.2);
+  background: linear-gradient(145deg, var(--fung-action-primary-bg), var(--fung-action-primary-hover));
+  color: var(--fung-action-primary-fg);
+  box-shadow: var(--fung-shadow-elevated);
 }
 
 .desktop-shell[data-material="glass"] .desktop-shell__button--secondary,
@@ -190,9 +187,9 @@
 .desktop-shell[data-material="glass"] .recording-review__list-panel,
 .desktop-shell[data-material="glass"] .recording-review__detail {
   border-color: var(--fung-glass-edge);
-  border-radius: var(--fung-glass-radius-card);
+  border-radius: var(--fung-radius-lg);
   background: var(--fung-glass-reader);
-  box-shadow: inset 0 1px 0 var(--fung-glass-highlight), 0 16px 34px rgba(0, 0, 0, 0.14);
+  box-shadow: var(--fung-shadow-surface), inset 0 1px 0 color-mix(in srgb, var(--fung-glass-highlight) 68%, transparent);
 }
 
 .desktop-shell[data-material="glass"] .live-btn,
@@ -206,8 +203,8 @@
 
 .desktop-shell[data-material="glass"] .live-btn-primary,
 .desktop-shell[data-material="glass"] .recording-review__button--primary {
-  background: linear-gradient(145deg, rgba(111, 154, 131, 0.86), rgba(53, 91, 72, 0.94));
-  color: var(--fung-glass-text);
+  background: linear-gradient(145deg, var(--fung-action-primary-bg), var(--fung-action-primary-hover));
+  color: var(--fung-action-primary-fg);
 }
 
 .desktop-shell[data-material="glass"] .live-btn-danger {

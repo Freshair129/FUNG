@@ -80,12 +80,12 @@ test("glass stacking cannot turn skip links or fixed overlays into grid rows", (
   assert.match(shellSource, /<summary className="desktop-shell__project-toggle"/);
 });
 
-test("full-glass Studio blurs the transparent window margin behind the shell", () => {
+test("glass effects stay inside the rounded shell and clear the rectangular native backdrop", () => {
   assert.match(shellSource, /desktop_window_set_glass/);
-  assert.match(shellSource, /material === "glass" && transparency === "full"/);
+  assert.match(shellSource, /desktop_window_set_glass", \{ enabled: false \}/);
   assert.match(studioCssSource, /backdrop-filter:\s*blur\(30px\) saturate\(155%\)/);
   assert.match(studioCssSource, /#root:has\(> \.desktop-shell\[data-layout="studio"\]\)\s*\{[^}]*z-index:\s*1/);
-  assert.match(studioCssSource, /rgba\(255, 255, 255, 0\.32\)/);
+  assert.match(studioCssSource, /background-color:\s*var\(--fung-glass-solid\)/);
 });
 
 test("hosted review and live pages defer page scrolling to main", () => {
@@ -96,7 +96,11 @@ test("hosted review and live pages defer page scrolling to main", () => {
 });
 
 await writeFile(path.join(runtimeDir, "contracts.mjs"), resolveRuntimeImports(transpile(contractsSource)), "utf8");
-await writeFile(path.join(runtimeDir, "tauri.mjs"), "export const nativeInvoke = null;\n", "utf8");
+await writeFile(
+  path.join(runtimeDir, "tauri.mjs"),
+  "export const nativeInvoke = null; export const listMeetingActionItems = async () => ({ items: [], totalCount: 0 });\n",
+  "utf8",
+);
 await writeFile(
   path.join(runtimeDir, "DesktopShell.mjs"),
   resolveRuntimeImports(transpile(shellSource))
@@ -172,6 +176,7 @@ function createProps(overrides = {}) {
     exportTitle: "ส่งออก",
     setTheme: (theme) => calls.push(["setTheme", theme]),
     minimizeWindow: () => calls.push(["minimizeWindow"]),
+    hideWindowToTray: () => calls.push(["hideWindowToTray"]),
     closeWindow: () => calls.push(["closeWindow"]),
   };
 
@@ -286,12 +291,14 @@ test("bootstrap and failed reads do not fabricate capture while known capture su
   }
 });
 
-test("SSR keeps Home, Live, History, and Output controlled by activeSurface with accessible navigation", () => {
+test("SSR keeps Home, Live, and History as primary navigation with Storage under More", () => {
   const homeMarkup = renderToStaticMarkup(React.createElement(DesktopShell, createProps()));
   assert.match(homeMarkup, /href="#home"[^>]*aria-current="page"/);
   assert.match(homeMarkup, /href="#live"/);
   assert.match(homeMarkup, /href="#history"/);
-  assert.match(homeMarkup, /href="#output"/);
+  assert.doesNotMatch(homeMarkup, /href="#output"/);
+  assert.match(homeMarkup, /aria-label="พื้นที่ทำงานหลัก"/);
+  assert.match(homeMarkup, /ตำแหน่งจัดเก็บ/);
   assert.match(homeMarkup, /ข้ามไปยังเนื้อหาหลัก/);
   assert.match(homeMarkup, /เริ่มประชุม/);
   assert.match(homeMarkup, /เปิดพื้นที่ประชุมก่อนเริ่มบันทึกเสียง/);
@@ -299,7 +306,9 @@ test("SSR keeps Home, Live, History, and Output controlled by activeSurface with
   assert.match(homeMarkup, /Surface content/);
   assert.doesNotMatch(homeMarkup, /พื้นที่ทำงานเดิม|callmd-legacy-workspace|fab-topbar|power-dock/);
   assert.match(homeMarkup, /data-surface="home"/);
-  assert.doesNotMatch(homeMarkup, /aria-label="ย่อหน้าต่าง"|aria-label="ปิดหน้าต่าง"/);
+  assert.match(homeMarkup, /aria-label="ย่อหน้าต่าง"/);
+  assert.match(homeMarkup, /aria-label="ซ่อนลงถาดระบบ"/);
+  assert.match(homeMarkup, /aria-label="ปิดแอป"/);
 
   const reviewMarkup = renderToStaticMarkup(
     React.createElement(
@@ -320,8 +329,9 @@ test("SSR keeps Home, Live, History, and Output controlled by activeSurface with
   const outputMarkup = renderToStaticMarkup(
     React.createElement(DesktopShell, createProps({ activeSurface: "output" })),
   );
-  assert.match(outputMarkup, /href="#output"[^>]*aria-current="page"/);
-  assert.match(outputMarkup, /กำหนดปลายทางไฟล์บันทึก/);
+  assert.doesNotMatch(outputMarkup, /href="#output"/);
+  assert.match(outputMarkup, /ตำแหน่งจัดเก็บไฟล์บันทึก/);
+  assert.match(outputMarkup, /aria-current="page"/);
 });
 
 test("appearance is a separate active surface and not an inline dock disclosure", () => {
@@ -367,7 +377,8 @@ test("native close control uses the guarded close action and drag boundaries sta
     shellSource,
     /className="desktop-shell__close-button"[\s\S]*?aria-label="ปิดแอป"[\s\S]*?onClick=\{\(event\) => requestCloseWindow\(event\.currentTarget\)\}/,
   );
-  assert.doesNotMatch(shellSource, /actions\.minimizeWindow/);
+  assert.match(shellSource, /aria-label="ย่อหน้าต่าง"[\s\S]*?actions\.minimizeWindow/);
+  assert.match(shellSource, /aria-label="ซ่อนลงถาดระบบ"[\s\S]*?actions\.hideWindowToTray/);
   assert.doesNotMatch(shellSource, /className="panel-glass" data-tauri-drag-region/);
   assert.doesNotMatch(shellSource, /className="fab fab-topbar" data-tauri-drag-region/);
   assert.doesNotMatch(shellSource, /desktop-shell__legacy-workspace|callmd-legacy-workspace|power-dock/);
@@ -381,6 +392,8 @@ test("Studio home keeps desktop utilities in the dock overflow and account separ
   assert.match(home, /data-layout="studio"/);
   assert.match(home, /class="desktop-shell__utility-actions"/);
   assert.match(home, /aria-label="บัญชี"/);
+  assert.match(home, /aria-label="ย่อหน้าต่าง"/);
+  assert.match(home, /aria-label="ซ่อนลงถาดระบบ"/);
   assert.match(home, /aria-label="ปิดแอป"/);
   assert.doesNotMatch(home, /class="desktop-shell__sidebar"/);
   assert.doesNotMatch(home, /<button[^>]*(เริ่มบันทึก|หยุดบันทึก)/);
@@ -391,20 +404,23 @@ test("studio dashboard uses real project metadata and preserves mounted surface 
   const ready = renderShellWithProps({ project: state("ready", [projectA]) });
   assert.match(ready, /data-layout="studio"/);
   assert.match(ready, /studio-hero/);
-  assert.match(ready, /studio-assistant/);
+  assert.match(ready, /studio-meeting/);
   assert.match(ready, /studio-activity/);
-  assert.match(ready, /studio-progress/);
+  assert.match(ready, /studio-task-pool/);
+  assert.match(ready, /การประชุมครั้งถัดไป/);
+  assert.match(ready, /วันและเวลา/);
+  assert.match(ready, /ผู้เข้าร่วม/);
+  assert.match(ready, /หัวข้อ/);
+  assert.match(ready, /ยังไม่มีข้อมูลปฏิทิน/);
+  assert.match(ready, /งานจากทุกการประชุม/);
   assert.match(ready, /<section hidden=""[^>]*>[\s\S]*?Surface content[\s\S]*?<\/section>/);
   assert.match(ready, /<strong>1<\/strong><small>โครงการทั้งหมด/);
-  assert.match(ready, /ยังไม่มีโครงการใหม่ในช่วงนี้/);
   const unavailable = renderShellWithProps({ project: state("unavailable") });
-  assert.match(unavailable, /เปิด FUNG Desktop เพื่อดูกิจกรรมของคุณ/);
   assert.match(unavailable, /<strong>—<\/strong><small>โครงการทั้งหมด/);
-  assert.doesNotMatch(unavailable, /<meter/);
-  const today = { ...projectA, createdAt: new Date().toISOString() };
-  const populated = renderShellWithProps({ project: state("ready", [today]) });
-  assert.equal((populated.match(/<meter /g) ?? []).length, 7);
-  assert.match(populated, /value="1"/);
+  const anotherProject = { ...projectA, id: "project-b", name: "Second project" };
+  const populated = renderShellWithProps({ project: state("ready", [projectA, anotherProject]) });
+  assert.match(populated, /<strong>2<\/strong><small>โครงการทั้งหมด/);
+  assert.doesNotMatch(populated, /<meter/);
 });
 
 test("brand tint stays CSS-owned for explicit light/dark and system-effective themes", () => {

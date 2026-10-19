@@ -28,6 +28,7 @@ import {
   createProject,
   getHealth,
   graphBuildStart,
+  hideWindowToTray,
   importAndTranscribe,
   listExportArtifacts,
   listJobs,
@@ -885,14 +886,12 @@ export function App() {
   }, [reviewSelection, selectedProjectId]);
 
   const handleReviewSelection = useCallback((selection: { projectId: string; recordingId: string } | null) => {
-    if (
-      selection &&
-      (selection.projectId !== selectedProjectId || !projects.some((project) => project.id === selection.projectId))
-    ) {
+    if (selection && !projects.some((project) => project.id === selection.projectId)) {
       return;
     }
+    if (selection) setSelectedRecording(selection.projectId);
     setReviewSelection(selection);
-  }, [projects, selectedProjectId]);
+  }, [projects]);
 
   const activeRecordingId = useMemo(
     () =>
@@ -1202,6 +1201,11 @@ export function App() {
     await minimizeWindow();
   };
 
+  const handleHideWindowToTray = async () => {
+    setPowerMenuOpen(false);
+    await hideWindowToTray();
+  };
+
   const handleCloseWindow = async () => {
     setPowerMenuOpen(false);
     await closeWindow();
@@ -1505,6 +1509,7 @@ export function App() {
           : "เลือกโครงการก่อนส่งออกบันทึก",
         setTheme,
         minimizeWindow: handleMinimizeWindow,
+        hideWindowToTray: handleHideWindowToTray,
         closeWindow: handleCloseWindow,
       }}
       recoverySlot={(

@@ -324,7 +324,7 @@ if (!fixtureMode) {
     assert.match(appSource, /projects\.some\(\(project\) => project\.id === selectedRecording\)/);
     assert.doesNotMatch(appSource, /libraryItems\.some\(\(item\) => item\.id === selectedRecording\)/);
     assert.match(appSource, /const \[reviewSelection, setReviewSelection\] = useState/);
-    assert.match(appSource, /selection\.projectId !== selectedProjectId/);
+    assert.match(appSource, /reviewSelection && reviewSelection\.projectId !== selectedProjectId/);
     assert.match(appSource, /NATIVE_UNAVAILABLE/);
     assert.match(appSource, /setProjectState\(createReadState<Project\[\]>\("unavailable"/);
     assert.match(appSource, /project=\{projectState\}/);

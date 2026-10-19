@@ -1,48 +1,41 @@
-import { useState, type RefObject } from "react";
-import { ArrowDownToLine, ArrowRight, AudioLines, CalendarDays, Circle, Clock3, FolderOpen, Headphones, Mic, Play, ShieldCheck, Sparkles, Upload } from "lucide-react";
-import type { DesktopShellProps, DesktopSurface } from "./contracts";
+import { ArrowRight, AudioLines, CalendarDays, Circle, ClipboardList, Clock3, FolderOpen, Headphones, MessageSquareText, Mic, Play, ShieldCheck, Upload, Users } from "lucide-react";
+import type { RefObject } from "react";
+import type { DesktopMeetingActionItem } from "../../tauri.ts";
+import type { DesktopShellProps, DesktopSurface, MeetingActionItemsLoadState } from "./contracts";
 
 type StudioHomeProps = Pick<DesktopShellProps, "project" | "selectedProjectId" | "liveStatus"> & {
   headingRef: RefObject<HTMLHeadingElement>;
   captureActive: boolean;
+  actionItems: MeetingActionItemsLoadState;
   onNavigate: (surface: DesktopSurface, initiator: HTMLElement) => void;
+  onOpenActionItem: (item: DesktopMeetingActionItem, initiator: HTMLElement) => void;
   onImport: () => void;
   onProjects: () => void;
-  onCompanion: () => void;
 };
 
-const dayLabel = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short" });
+const meetingDateLabel = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short" });
 
-export function StudioHome({ project, selectedProjectId, liveStatus, headingRef, captureActive, onNavigate, onImport, onProjects, onCompanion }: StudioHomeProps) {
-  const [period, setPeriod] = useState(7);
+function sourceDateLabel(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "วันที่ไม่ระบุ" : meetingDateLabel.format(date);
+}
+
+function priorityLabel(priority: DesktopMeetingActionItem["priority"]): string {
+  if (priority === "urgent") return "เร่งด่วน";
+  if (priority === "deadline") return "มีกำหนดส่ง";
+  return "ไม่ระบุลำดับ";
+}
+
+export function StudioHome({ project, selectedProjectId, liveStatus, headingRef, captureActive, actionItems, onNavigate, onOpenActionItem, onImport, onProjects }: StudioHomeProps) {
   const projects = project.data ?? [];
   const available = project.status === "ready" && Array.isArray(project.data);
   const selectedProject = projects.find((item) => item.id === selectedProjectId);
-  const now = new Date();
-  const dateKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-  const projectCounts = new Map<string, number>();
-  for (const item of projects) {
-    const created = new Date(item.createdAt);
-    if (Number.isNaN(created.getTime())) continue;
-    const key = dateKey(created);
-    projectCounts.set(key, (projectCounts.get(key) ?? 0) + 1);
-  }
-  const days = Array.from({ length: period }, (_, index) => {
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - period + index + 1);
-    return { date: start, count: projectCounts.get(dateKey(start)) ?? 0 };
-  });
-  const total = days.reduce((sum, day) => sum + day.count, 0);
-  const maximum = Math.max(1, ...days.map((day) => day.count));
   const liveKnown = liveStatus.status === "ready" && liveStatus.data !== null;
   const liveLabel = captureActive ? "กำลังบันทึก" : liveKnown ? "พร้อมเริ่มงาน"
     : liveStatus.status === "error" ? "อ่านสถานะการบันทึกไม่สำเร็จ"
       : liveStatus.status === "unavailable" ? "สถานะการบันทึกยังไม่พร้อมอ่าน" : "กำลังอ่านสถานะ";
-  const activityMessage = project.status === "loading" || project.status === "idle"
-    ? "กำลังอ่านกิจกรรมในเครื่อง"
-    : project.status === "error"
-      ? "อ่านกิจกรรมไม่สำเร็จ ลองเปิดโครงการอีกครั้ง"
-      : !available ? "เปิด FUNG Desktop เพื่อดูกิจกรรมของคุณ"
-        : total === 0 ? "ยังไม่มีโครงการใหม่ในช่วงนี้" : null;
+  const actionItemsList = actionItems.data?.items ?? [];
+  const actionItemsTotal = actionItems.data?.totalCount ?? 0;
 
   return (
     <div className="studio-home" aria-label="ภาพรวมพื้นที่ทำงาน">
@@ -70,17 +63,26 @@ export function StudioHome({ project, selectedProjectId, liveStatus, headingRef,
             <button type="button" onClick={(event) => onNavigate("live", event.currentTarget)}><Mic size={18} /><span>ประชุมสด</span><small>บันทึกบทสนทนา</small></button>
             <button type="button" onClick={onImport}><Upload size={18} /><span>นำเข้าเสียง</span><small>ไฟล์เสียง / วิดีโอ</small></button>
             <button type="button" onClick={(event) => onNavigate("review", event.currentTarget)}><Headphones size={18} /><span>ย้อนฟัง</span><small>ทบทวนบันทึก</small></button>
-            <button type="button" onClick={(event) => onNavigate("output", event.currentTarget)}><ArrowDownToLine size={18} /><span>ไฟล์บันทึก</span><small>จัดการพื้นที่เก็บ</small></button>
           </div>
         </div>
       </section>
 
-      <section className="studio-assistant studio-card" aria-labelledby="studio-assistant-heading">
-        <h2 id="studio-assistant-heading">AI Companion</h2>
-        <img src="/images/fung-assistant-waveform.png" className="studio-assistant__wave" alt="" />
-        <button type="button" className="studio-assistant__button" onClick={onCompanion} aria-label="เปิดผู้ช่วย Companion"><Sparkles size={23} /></button>
-        <strong>ผู้ช่วยของคุณ</strong>
-        <p>เปิดทางลัดและดูบริบทงาน</p>
+      <section className="studio-meeting studio-card" aria-labelledby="studio-meeting-heading">
+        <div className="studio-meeting__header">
+          <h2 id="studio-meeting-heading">การประชุมครั้งถัดไป</h2>
+          <span className="studio-meeting__status">ยังไม่มีข้อมูลปฏิทิน</span>
+        </div>
+        <div className="studio-meeting__empty">
+          <CalendarDays size={27} aria-hidden="true" />
+          <strong>ยังไม่มีข้อมูลกำหนดการ</strong>
+          <span>รายละเอียดนัดจะแสดงเมื่อมีข้อมูลปฏิทิน</span>
+        </div>
+        <dl className="studio-meeting__details">
+          <div><dt><Clock3 size={14} /> วันและเวลา</dt><dd>—</dd></div>
+          <div><dt><Users size={14} /> ผู้เข้าร่วม</dt><dd>—</dd></div>
+          <div><dt><MessageSquareText size={14} /> หัวข้อ</dt><dd>—</dd></div>
+        </dl>
+        <button className="studio-meeting__action" type="button" onClick={(event) => onNavigate("live", event.currentTarget)}><Mic size={15} /> เริ่มประชุมสด <ArrowRight size={13} /></button>
       </section>
 
       <section className="studio-activity studio-card" aria-labelledby="studio-activity-heading">
@@ -97,25 +99,37 @@ export function StudioHome({ project, selectedProjectId, liveStatus, headingRef,
         </dl>
       </section>
 
-      <section className="studio-progress studio-card" aria-labelledby="studio-progress-heading">
-        <div className="studio-section-heading">
-          <h2 id="studio-progress-heading">กิจกรรมโครงการ</h2>
-          <select aria-label="ช่วงเวลากิจกรรม" value={period} onChange={(event) => setPeriod(Number(event.target.value))}><option value={7}>7 วันล่าสุด</option><option value={30}>30 วันล่าสุด</option></select>
+      <section className="studio-task-pool studio-card" aria-labelledby="studio-task-pool-heading">
+        <div className="studio-task-pool__header">
+          <div>
+            <h2 id="studio-task-pool-heading">งานจากทุกการประชุม</h2>
+            <p>AI สกัดและเรียงตามคำเร่งด่วนหรือกำหนดส่ง</p>
+          </div>
+          <span className="studio-task-pool__count">{actionItems.status === "ready" ? actionItemsTotal.toLocaleString("th-TH") : "—"} รายการ</span>
         </div>
-        <div className="studio-progress__chart" aria-label="จำนวนโครงการที่สร้างในแต่ละวัน">
-          {activityMessage ? <p className="studio-progress__empty"><CalendarDays size={26} />{activityMessage}</p> : (
-            <div className="studio-progress__bars">
-              {days.map((day) => <div key={day.date.toISOString()}><meter min={0} max={maximum} value={day.count} aria-label={`${dayLabel.format(day.date)}: ${day.count} โครงการ`} title={`${dayLabel.format(day.date)} · ${day.count} โครงการ`} /><span>{period === 7 ? dayLabel.format(day.date) : day.date.getDate()}</span></div>)}
-            </div>
-          )}
+
+        <div className="studio-task-pool__list" aria-busy={actionItems.status === "loading"}>
+          {actionItems.status === "loading" ? <p className="studio-task-pool__empty"><ClipboardList size={25} />กำลังอ่านรายการงานจากประชุม</p> : null}
+          {actionItems.status === "unavailable" ? <p className="studio-task-pool__empty"><ClipboardList size={25} />เปิด FUNG Desktop เพื่ออ่านรายการงานในเครื่อง</p> : null}
+          {actionItems.status === "error" ? <p className="studio-task-pool__empty" role="alert"><ClipboardList size={25} />{actionItems.error ?? "อ่านรายการงานไม่สำเร็จ"}</p> : null}
+          {actionItems.status === "ready" && actionItemsList.length === 0 ? <p className="studio-task-pool__empty"><ClipboardList size={25} />ยังไม่มีงานที่ AI สกัดจากการประชุม</p> : null}
+          {actionItems.status === "ready" && actionItemsList.length > 0 ? (
+            <ol className="studio-task-pool__items">
+              {actionItemsList.slice(0, 4).map((item) => (
+                <li key={item.id}>
+                  <button type="button" className="studio-task" onClick={(event) => onOpenActionItem(item, event.currentTarget)} aria-label={`เปิดบันทึกต้นทางของงาน: ${item.title}`}>
+                    <span className={`studio-task__priority studio-task__priority--${item.priority}`}>{priorityLabel(item.priority)}</span>
+                    <strong>{item.title}</strong>
+                    <span className="studio-task__source">{item.meetingTitle} · {item.projectName} · {sourceDateLabel(item.meetingCreatedAt)}</span>
+                    <span className="studio-task__evidence">{item.owner ? `ผู้รับผิดชอบ ${item.owner}` : "ยังไม่ระบุผู้รับผิดชอบ"} · หลักฐาน {item.evidenceCount} ช่วงเสียง</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          ) : null}
         </div>
-        <p className="studio-progress__legend"><FolderOpen size={12} /> โครงการที่สร้างใหม่ <span>ข้อมูลจากเครื่องนี้</span></p>
-        <div className="studio-progress__stats">
-          <div><CalendarDays size={17} /><strong>{available ? total : "—"}</strong><span>โครงการใหม่<br />ในช่วงนี้</span></div>
-          <div><Clock3 size={17} /><strong>{period}</strong><span>วัน<br />ที่แสดง</span></div>
-          <div><FolderOpen size={17} /><strong>{available ? projects.length : "—"}</strong><span>โครงการ<br />ทั้งหมด</span></div>
-        </div>
-        <div className="studio-progress__footer"><ShieldCheck size={13} /><span>ค่อย ๆ เก็บทุกบทสนทนาที่สำคัญ</span><button type="button" onClick={onProjects}>เปิดโครงการ <ArrowRight size={12} /></button></div>
+
+        <div className="studio-task-pool__footer"><ShieldCheck size={13} /><span>รายการจาก AI เป็นข้อเสนอ ตรวจทานก่อนถือเป็นงานยืนยัน</span><button type="button" onClick={(event) => onNavigate("review", event.currentTarget)}>ดูบันทึก <ArrowRight size={12} /></button></div>
       </section>
     </div>
   );

@@ -32,13 +32,13 @@ const BackupPanel = lazy(() => import("./BackupPanel").then((m) => ({ default: m
 export type SettingsTab = "account" | "tts" | "cloud" | "fetch" | "zoom" | "runtime" | "account-login";
 
 const TABS: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
-  { id: "account", label: "External Connections", icon: SlidersHorizontal },
-  { id: "account-login", label: "Sign In and Backup", icon: UserCircle },
-  { id: "tts", label: "TTS Providers", icon: Volume2 },
-  { id: "cloud", label: "Cloud Providers", icon: Cloud },
-  { id: "fetch", label: "Fetch from URL", icon: Link2 },
-  { id: "zoom", label: "Zoom import", icon: Cloud },
-  { id: "runtime", label: "Runtime", icon: Activity },
+  { id: "account", label: "การเชื่อมต่อ", icon: SlidersHorizontal },
+  { id: "account-login", label: "บัญชีและสำรองข้อมูล", icon: UserCircle },
+  { id: "tts", label: "เสียงพูด", icon: Volume2 },
+  { id: "cloud", label: "ผู้ให้บริการคลาวด์", icon: Cloud },
+  { id: "fetch", label: "นำเข้าจากลิงก์", icon: Link2 },
+  { id: "zoom", label: "นำเข้า Zoom", icon: Cloud },
+  { id: "runtime", label: "ระบบและประสิทธิภาพ", icon: Activity },
 ];
 
 interface SettingsPanelProps {
@@ -135,6 +135,25 @@ export function SettingsPanel({
 
   const connectUrlField = useRef<HTMLInputElement | null>(null);
 
+  const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentTab: SettingsTab) => {
+    const index = TABS.findIndex((tab) => tab.id === currentTab);
+    const nextIndex = event.key === "ArrowRight"
+      ? (index + 1) % TABS.length
+      : event.key === "ArrowLeft"
+        ? (index - 1 + TABS.length) % TABS.length
+        : event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? TABS.length - 1
+            : -1;
+    if (nextIndex < 0) return;
+    event.preventDefault();
+    const nextTab = TABS[nextIndex];
+    if (!nextTab) return;
+    setActiveTab(nextTab.id);
+    document.getElementById(`settings-tab-${nextTab.id}`)?.focus();
+  };
+
   const copyConnectUrl = async () => {
     if (!localApi?.connectUrl) return;
     setLocalApiError(null);
@@ -196,12 +215,18 @@ export function SettingsPanel({
             <X size={18} />
           </button>
         </header>
-        <nav className="settings-tabs" aria-label="Settings sections">
+        <nav className="settings-tabs" role="tablist" aria-label="หมวดการตั้งค่า">
           {TABS.map((tab) => (
             <button
               key={tab.id}
+              id={`settings-tab-${tab.id}`}
               type="button"
-              className={`settings-tab ${activeTab === tab.id ? "is-active" : ""}`}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls="settings-content"
+              tabIndex={activeTab === tab.id ? 0 : -1}
+              className={`settings-tab${activeTab === tab.id ? " is-active" : ""}`}
+              onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
               onClick={() => setActiveTab(tab.id)}
             >
               <tab.icon size={16} />
@@ -209,7 +234,13 @@ export function SettingsPanel({
             </button>
           ))}
         </nav>
-        <div className="settings-body">
+        <div
+          id="settings-content"
+          className="settings-body"
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${activeTab}`}
+          tabIndex={0}
+        >
           <Suspense fallback={<p className="settings-loading">Loading…</p>}>
             {activeTab === "account" && <ExternalAccountPanel onClose={onClose} onOpenPortal={onOpenExternalAccountPortal} embedded />}
             {activeTab === "tts" && <TtsProviderPanel onClose={onClose} embedded />}

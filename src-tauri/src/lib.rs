@@ -918,32 +918,52 @@ fn open_external_account_portal(app: tauri::AppHandle) -> AppResult<()> {
     native_auth::open_trusted_account_portal(app)
 }
 
-/// Toggles the native backdrop material for the transparent desktop window.
-/// CSS backdrop filters cannot sample content outside the WebView, so Windows
-/// uses the OS acrylic effect for the exposed glass margin around the shell.
+/// Clears the legacy native backdrop material for the transparent desktop window.
+/// Windows Acrylic covers the rectangular HWND and cannot follow the rounded CSS
+/// shell, so enabling it would paint a square tint outside the app frame.
 #[tauri::command]
 fn desktop_window_set_glass(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
+    if enabled {
+        return Err(
+            "Native Acrylic is disabled because it cannot follow the rounded FUNG shell."
+                .to_string(),
+        );
+    }
+
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "The FUNG desktop window is unavailable.".to_string())?;
 
     #[cfg(target_os = "windows")]
     {
-        let result = if enabled {
-            window_vibrancy::apply_acrylic(&window, None)
-        } else {
-            window_vibrancy::clear_acrylic(&window)
-        };
-        result.map_err(|error| format!("Could not update the native glass effect: {error}"))?;
+        window_vibrancy::clear_acrylic(&window)
+            .map_err(|error| format!("Could not clear the native glass effect: {error}"))?;
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (window, enabled);
+        let _ = window;
     }
 
     Ok(())
 }
+
+#[tauri::command]
+fn desktop_window_hide_to_tray(app: tauri::AppHandle) -> Result<(), String> {
+    let tray_available = app
+        .try_state::<DesktopTrayAvailability>()
+        .is_some_and(|state| state.0.load(std::sync::atomic::Ordering::Acquire));
+    if !tray_available {
+        return Err("The system tray is unavailable; FUNG remains visible.".to_string());
+    }
+
+    app.get_webview_window("main")
+        .ok_or_else(|| "The FUNG desktop window is unavailable.".to_string())?
+        .hide()
+        .map_err(|error| format!("Could not hide FUNG to the system tray: {error}"))
+}
+
+struct DesktopTrayAvailability(std::sync::atomic::AtomicBool);
 
 /// Opens this project's Google authorize URL for the mobile login flow. The
 /// webview supplies only the PKCE code challenge; every other part of the
@@ -1813,6 +1833,268 @@ fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
         std::cmp::Reverse((project.updated_at.clone(), project.created_at.clone()))
     });
     Ok(projects)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopMeetingActionItem {
+    id: String,
+    title: String,
+    project_id: String,
+    project_name: String,
+    recording_id: String,
+    meeting_title: String,
+    meeting_created_at: String,
+    owner: Option<String>,
+    confidence: Option<f64>,
+    evidence_count: usize,
+    priority: String,
+    #[serde(skip)]
+    priority_rank: u8,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopMeetingActionItemSnapshot {
+    items: Vec<DesktopMeetingActionItem>,
+    total_count: usize,
+}
+
+fn action_priority(label: &str) -> (u8, &'static str) {
+    let text = label.to_lowercase();
+    if ["ด่วน", "เร่งด่วน", "ทันที", "urgent", "asap", "immediately"]
+        .iter()
+        .any(|cue| text.contains(cue))
+    {
+        (0, "urgent")
+    } else if ["ภายใน", "ก่อนวันที่", "กำหนดส่ง", "deadline", "due ", "by "]
+        .iter()
+        .any(|cue| text.contains(cue))
+    {
+        (1, "deadline")
+    } else {
+        (2, "unspecified")
+    }
+}
+
+#[cfg(test)]
+mod desktop_meeting_action_item_tests {
+    use super::action_priority;
+
+    #[test]
+    fn task_pool_priority_uses_explicit_urgency_then_deadline_cues() {
+        assert_eq!(action_priority("งานด่วนวันนี้"), (0, "urgent"));
+        assert_eq!(action_priority("ส่งรายงานภายในวันศุกร์"), (1, "deadline"));
+        assert_eq!(action_priority("ตรวจบันทึกประชุม"), (2, "unspecified"));
+        assert_eq!(action_priority("urgent ก่อนวันที่ 20"), (0, "urgent"));
+    }
+}
+
+#[tauri::command]
+fn list_meeting_action_items(
+    state: State<'_, AppState>,
+) -> AppResult<DesktopMeetingActionItemSnapshot> {
+    use std::collections::HashMap;
+
+    let nodes = genesis_adapter::query_all(
+        &state.genesis,
+        "graph_nodes",
+        &["id", "project_id", "entity_id", "label"],
+        vec![genesis_adapter::eq(
+            "graph_nodes",
+            "entity_type",
+            serde_json::json!("action_item"),
+        )],
+    )
+    .map_err(AppError::Genesis)?;
+    let edges = genesis_adapter::query_all(
+        &state.genesis,
+        "graph_edges",
+        &[
+            "project_id",
+            "source_node_id",
+            "target_node_id",
+            "predicate",
+            "epistemic_status",
+            "provenance_json",
+        ],
+        vec![genesis_adapter::eq(
+            "graph_edges",
+            "predicate",
+            serde_json::json!("extracted_from"),
+        )],
+    )
+    .map_err(AppError::Genesis)?;
+    let meetings = genesis_adapter::query_all(
+        &state.genesis,
+        "graph_nodes",
+        &["id", "project_id", "entity_id", "label"],
+        vec![genesis_adapter::eq(
+            "graph_nodes",
+            "entity_type",
+            serde_json::json!("meeting"),
+        )],
+    )
+    .map_err(AppError::Genesis)?;
+    let recordings = genesis_adapter::query_all(
+        &state.genesis,
+        "recordings",
+        &["id", "project_id", "created_at"],
+        vec![],
+    )
+    .map_err(AppError::Genesis)?;
+    let projects = genesis_adapter::query_all(&state.genesis, "projects", &["id", "name"], vec![])
+        .map_err(AppError::Genesis)?;
+
+    let node_by_id = nodes
+        .into_iter()
+        .filter_map(|row| {
+            let id = row.get("graph_nodes.id")?.as_str()?.to_owned();
+            Some((id, row))
+        })
+        .collect::<HashMap<_, _>>();
+    let meeting_by_id = meetings
+        .into_iter()
+        .filter_map(|row| {
+            let id = row.get("graph_nodes.id")?.as_str()?.to_owned();
+            Some((id, row))
+        })
+        .collect::<HashMap<_, _>>();
+    let recording_by_id = recordings
+        .into_iter()
+        .filter_map(|row| {
+            let id = row.get("recordings.id")?.as_str()?.to_owned();
+            Some((id, row))
+        })
+        .collect::<HashMap<_, _>>();
+    let project_names = projects
+        .into_iter()
+        .filter_map(|row| {
+            let id = row.get("projects.id")?.as_str()?.to_owned();
+            let name = row.get("projects.name")?.as_str()?.to_owned();
+            Some((id, name))
+        })
+        .collect::<HashMap<_, _>>();
+
+    let mut items = Vec::new();
+    for edge in edges {
+        if edge
+            .get("graph_edges.epistemic_status")
+            .and_then(serde_json::Value::as_str)
+            != Some("ai_proposed")
+        {
+            continue;
+        }
+        let Some(node_id) = edge
+            .get("graph_edges.source_node_id")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let Some(node) = node_by_id.get(node_id) else {
+            continue;
+        };
+        let Some(meeting) = edge
+            .get("graph_edges.target_node_id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|id| meeting_by_id.get(id))
+        else {
+            continue;
+        };
+        let Some(recording_id) = meeting
+            .get("graph_nodes.entity_id")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let Some(recording) = recording_by_id.get(recording_id) else {
+            continue;
+        };
+        let Some(project_id) = edge
+            .get("graph_edges.project_id")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        if node
+            .get("graph_nodes.project_id")
+            .and_then(serde_json::Value::as_str)
+            != Some(project_id)
+            || meeting
+                .get("graph_nodes.project_id")
+                .and_then(serde_json::Value::as_str)
+                != Some(project_id)
+        {
+            continue;
+        }
+        if recording
+            .get("recordings.project_id")
+            .and_then(serde_json::Value::as_str)
+            != Some(project_id)
+        {
+            continue;
+        }
+        let Some(project_name) = project_names.get(project_id) else {
+            continue;
+        };
+        let Some(title) = node
+            .get("graph_nodes.label")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let (priority_rank, priority) = action_priority(title);
+        let provenance = edge
+            .get("graph_edges.provenance_json")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
+            .unwrap_or(serde_json::Value::Null);
+        let owner = provenance
+            .get("owner")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        let confidence = provenance
+            .get("confidence")
+            .and_then(serde_json::Value::as_f64);
+        let evidence_count = provenance
+            .get("evidenceSegmentIds")
+            .and_then(serde_json::Value::as_array)
+            .map(Vec::len)
+            .unwrap_or_default();
+
+        items.push(DesktopMeetingActionItem {
+            id: node_id.to_owned(),
+            title: title.to_owned(),
+            project_id: project_id.to_owned(),
+            project_name: project_name.clone(),
+            recording_id: recording_id.to_owned(),
+            meeting_title: meeting
+                .get("graph_nodes.label")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("บันทึกประชุม")
+                .to_owned(),
+            meeting_created_at: recording
+                .get("recordings.created_at")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            owner,
+            confidence,
+            evidence_count,
+            priority: priority.to_owned(),
+            priority_rank,
+        });
+    }
+
+    items.sort_by(|left, right| {
+        left.priority_rank
+            .cmp(&right.priority_rank)
+            .then_with(|| right.meeting_created_at.cmp(&left.meeting_created_at))
+            .then_with(|| left.title.cmp(&right.title))
+    });
+    let total_count = items.len();
+    items.truncate(20);
+    Ok(DesktopMeetingActionItemSnapshot { items, total_count })
 }
 
 /// Queues a job and returns the row that will run.
@@ -6790,13 +7072,6 @@ pub fn run() {
         .plugin(native_recorder::init())
         .plugin(on_device_ai::init())
         .setup(|app| {
-            #[cfg(target_os = "windows")]
-            if let Some(window) = app.get_webview_window("main") {
-                if let Err(error) = window_vibrancy::apply_acrylic(&window, None) {
-                    eprintln!("[desktop-glass] native acrylic unavailable: {error}");
-                }
-            }
-
             let state = app_state(app)?;
             // Recovery runs before the window is usable so a crashed session
             // is never presented as a healthy one. Detection only: stale jobs
@@ -6817,6 +7092,50 @@ pub fn run() {
                 Err(error) => eprintln!("[recovery] startup scan failed: {error}"),
             }
             app.manage(state);
+            app.manage(DesktopTrayAvailability(std::sync::atomic::AtomicBool::new(
+                false,
+            )));
+
+            #[cfg(desktop)]
+            if let Some(icon) = app.default_window_icon().cloned() {
+                let tray_result = tauri::tray::TrayIconBuilder::new()
+                    .icon(icon)
+                    .tooltip("FUNG — คลิกเพื่อเปิด")
+                    .show_menu_on_left_click(false)
+                    .on_tray_icon_event(|tray, event| {
+                        use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+                        let should_show = matches!(
+                            event,
+                            TrayIconEvent::DoubleClick {
+                                button: MouseButton::Left,
+                                ..
+                            } | TrayIconEvent::Click {
+                                button: MouseButton::Left,
+                                button_state: MouseButtonState::Up,
+                                ..
+                            }
+                        );
+                        if should_show {
+                            if let Some(window) = tray.app_handle().get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    })
+                    .build(app.handle());
+                match tray_result {
+                    Ok(tray) => {
+                        app.manage(tray);
+                        app.state::<DesktopTrayAvailability>()
+                            .0
+                            .store(true, std::sync::atomic::Ordering::Release);
+                    }
+                    Err(error) => eprintln!("[tray] system tray unavailable: {error}"),
+                }
+            } else {
+                eprintln!("[tray] FUNG has no default icon; tray mode is unavailable");
+            }
             app.manage(filesystem_backup::FilesystemBackupState::default());
             app.manage(backup::BackupJobState::default());
             if let Err(error) = auth_session::startup_recover() {
@@ -6842,8 +7161,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_health,
             desktop_window_set_glass,
+            desktop_window_hide_to_tray,
             create_project,
             list_projects,
+            list_meeting_action_items,
             create_job,
             cancel_job,
             runnable_job_types,

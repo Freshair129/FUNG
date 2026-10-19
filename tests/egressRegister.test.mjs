@@ -217,7 +217,10 @@ test("the transcription worker is pinned offline, not merely expected to be", ()
   // Register §3.1. faster-whisper's own default is to download `small` from
   // huggingface.co, so "it loads a bundled model" has to be enforced by the
   // environment rather than by a comment.
-  const lib = productionRust("src-tauri/src/lib.rs");
+  // lib.rs interleaves several cfg(test) modules with later production
+  // commands and worker helpers, so productionRust's first-module slice
+  // would hide the production code these assertions protect.
+  const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
   const runnerStart = lib.indexOf("fn run_python_worker_with_interpreter(");
   assert.notEqual(runnerStart, -1, "the shared worker runner must remain present");
   const branchStart = lib.indexOf("match hf_home {", runnerStart);
@@ -279,7 +282,8 @@ test("URL ingest is refused by default and only http(s) is reachable", () => {
 
   // The command, not the worker, is where a refusal has to happen: the user
   // needs a reason and a next step, not a subprocess failure.
-  const lib = productionRust("src-tauri/src/lib.rs");
+  // fetch_and_transcribe is declared after embedded test modules in lib.rs.
+  const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
   const command = lib.slice(lib.indexOf("fn fetch_and_transcribe"));
   const body = command.slice(0, command.indexOf("thread::spawn"));
   assert.match(body, /media_fetch_readiness\(&state\)/);
@@ -305,6 +309,12 @@ test("the fetch worker is staged apart from the transcription runtime", () => {
     "the fetch dependencies must not be installed into the transcription runtime",
   );
   assert.match(staging, /--require-hashes/, "wheels must be hash-pinned like every other runtime");
+  assert.match(staging, /HostPython/, "the embeddable runtime has no pip, so staging uses a host interpreter");
+  assert.match(staging, /--implementation', 'cp'[\s\S]*--abi', 'cp311'/, "host pip must target the bundled CPython 3.11 ABI");
+  assert.match(staging, /& \$HostPython -m pip install/, "runtime packages are installed by host pip into the isolated fetch target");
+  assert.match(staging, /--require-hashes --upgrade --target \$target/, "repeated staging must merge executable scripts into the existing isolated target");
+  assert.match(staging, /\.dist-info\\licenses\\LICENSE/, "bundled licenses should come from the hash-verified wheels");
+  assert.match(staging, /sys\.path\.insert\(0, sys\.argv\[1\]\)/, "the embeddable Python probe must add the isolated target explicitly because it ignores PYTHONPATH");
 
   // And the app must look where staging installs.
   const mediaFetch = productionRust("src-tauri/src/media_fetch.rs");

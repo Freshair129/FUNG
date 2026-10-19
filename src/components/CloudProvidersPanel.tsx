@@ -144,8 +144,8 @@ export function CloudProvidersPanel({ onClose, embedded }: CloudProvidersPanelPr
     <section
       className="cloud-providers-panel"
       aria-label="ผู้ให้บริการคลาวด์"
-      aria-modal="true"
-      role="dialog"
+      aria-modal={embedded ? undefined : true}
+      role={embedded ? "region" : "dialog"}
       onMouseDown={(e) => e.stopPropagation()}
     >
       <header className="cloud-providers-header">

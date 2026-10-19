@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link2, RefreshCw, Trash2, X } from "lucide-react";
 import {
   brokerDeviceEndpointPublish,
@@ -9,7 +9,11 @@ import {
   brokerPairingCreate,
   brokerPairingPoll,
 } from "../lib/desktopSessionBroker";
+import { desktopAccountConfigured } from "../lib/bootstrap";
+import { describePairingFailure } from "../lib/pairingErrors";
 import "./DevicePairingPanel.css";
+// Pairing can open before Settings, so it must load its shared overlay styles.
+import "./AccountLoginPanel.css";
 
 interface PairedDeviceRow {
   id: string;
@@ -41,11 +45,45 @@ const PUBLISH_MS = 60_000;
 const EMPTY_FUNGWIRE: FungwireStatus = { enabled: false, bind: null, activeJobs: 0, connectedPeers: 0 };
 
 export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
+  const panelRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const modal = Boolean(onClose);
+  useEffect(() => {
+    if (!modal) return;
+    const initiator = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+    return () => {
+      const target = initiator?.isConnected && initiator !== document.body && initiator.getClientRects().length > 0
+        ? initiator : document.querySelector<HTMLElement>('summary[aria-label="เพิ่มเติม"]');
+      target?.focus();
+    };
+  }, [modal]);
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (!modal || event.defaultPrevented) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose?.();
+      return;
+    }
+    if (event.key !== "Tab" || !panelRef.current) return;
+    const elements = Array.from(panelRef.current.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => element.getClientRects().length > 0);
+    const first = elements[0];
+    const last = elements[elements.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault(); last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault(); first?.focus();
+    }
+  };
   const [devices, setDevices] = useState<PairedDeviceRow[]>([]);
   /// null once the fetch has succeeded (the list itself may still be
   /// genuinely empty); a message when the fetch failed. Keeps "no devices"
   /// and "could not check" visually and textually distinct — see issue #34.
   const [devicesLoadError, setDevicesLoadError] = useState<string | null>(null);
+  const [pairingSetupRequired, setPairingSetupRequired] = useState(false);
   const [pairing, setPairing] = useState<PairingState>({ kind: "idle" });
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
@@ -60,10 +98,13 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
       const next = await brokerDeviceList();
       setDevices(next);
       setDevicesLoadError(null);
-    } catch {
+      setPairingSetupRequired(false);
+    } catch (error) {
       // Leave the last-known list alone: replacing it with [] would render
       // as "no devices paired" when the truth is "could not check".
-      setDevicesLoadError("โหลดรายการอุปกรณ์ไม่สำเร็จ — ตรวจสอบการเชื่อมต่อแล้วลองรีเฟรช");
+      const failure = describePairingFailure(error, desktopAccountConfigured);
+      setPairingSetupRequired(failure.setupRequired);
+      setDevicesLoadError(failure.message);
     }
   }, []);
 
@@ -137,7 +178,11 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
       const result = await brokerPairingCreate("FUNG Desktop");
       setPairing({ kind: "waiting", pairingId: result.pairingId, displayCode: result.displayCode, expiresAtMs: result.expiresAtMs });
       pollPairing(result.pairingId);
-    } catch { setPairing({ kind: "error", message: "สร้างรหัสจับคู่ไม่สำเร็จ" }); }
+    } catch (error) {
+      const failure = describePairingFailure(error, desktopAccountConfigured);
+      setPairingSetupRequired(failure.setupRequired);
+      setPairing({ kind: "error", message: failure.message });
+    }
     finally { setBusy(false); }
   }, [pollPairing]);
 
@@ -157,11 +202,11 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
   }, [fungwire.enabled, startPublishing, stopPublishing]);
 
   return (
-    <section className="device-pairing-panel" aria-label="Device pairing">
+    <section ref={panelRef} className="device-pairing-panel" role={modal ? "dialog" : "region"} aria-modal={modal || undefined} aria-label="Device pairing" onKeyDown={handleKeyDown}>
       <header className="device-pairing-header">
         <Link2 size={20} aria-hidden="true" />
         <h3>เชื่อมต่ออุปกรณ์</h3>
-        {onClose && <button className="device-pairing-close" onClick={onClose} aria-label="ปิด"><X size={18} /></button>}
+        {onClose && <button ref={closeRef} className="device-pairing-close" onClick={onClose} aria-label="ปิดการจับคู่อุปกรณ์"><X size={18} /></button>}
       </header>
 
       <div className="device-pairing-list">
@@ -181,7 +226,7 @@ export function DevicePairingPanel({ onClose }: DevicePairingPanelProps) {
       {pairing.kind === "waiting" && <div className="device-pairing-code-box"><p>กรอกรหัสนี้บนอุปกรณ์ที่ต้องการเชื่อมต่อ</p><div className="device-pairing-code">{pairing.displayCode}</div><div className="device-pairing-countdown">เหลือ {Math.max(0, Math.ceil((pairing.expiresAtMs - now) / 1000))} วินาที</div></div>}
       {pairing.kind === "confirmed" && <p className="device-pairing-success">เชื่อมต่อ {pairing.peerName} สำเร็จ</p>}
       {pairing.kind === "error" && <p className="device-pairing-error">{pairing.message}</p>}
-      <button className="device-pairing-start" onClick={() => void startPairing()} disabled={busy || pairing.kind === "waiting"}><Link2 size={16} /> สร้างรหัสจับคู่</button>
+      <button className="device-pairing-start" onClick={() => void startPairing()} disabled={busy || pairing.kind === "waiting" || pairingSetupRequired}><Link2 size={16} /> สร้างรหัสจับคู่</button>
       <button className="device-pairing-start" onClick={() => void refresh()} disabled={busy}><RefreshCw size={16} /> รีเฟรช</button>
 
       <div className="device-pairing-fungwire">

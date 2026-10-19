@@ -92,6 +92,7 @@ export function TtsProviderPanel({ onClose, embedded }: Props) {
   // clobbers or misattributes the result shown on another provider's card.
   const [testResults, setTestResults] = useState<Record<string, TtsTestResult>>({});
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [testText, setTestText] = useState("ทดสอบระบบเสียง");
   const [saving, setSaving] = useState(false);
   const [validation, setValidation] = useState<TtsValidation | null>(null);
 
@@ -138,7 +139,7 @@ export function TtsProviderPanel({ onClose, embedded }: Props) {
   const handleTest = async (providerId: string) => {
     setTestingId(providerId);
     try {
-      const result = await ttsProviderTest(providerId);
+      const result = await ttsProviderTest(providerId, testText.trim() || "ทดสอบระบบเสียง");
       const typed: TtsTestResult = {
         status: result.status === "ok" ? "ok" : "error",
         latencyMs: result.latencyMs,
@@ -184,6 +185,18 @@ export function TtsProviderPanel({ onClose, embedded }: Props) {
         ผู้ให้บริการเสียงสังเคราะห์
         <button className="tts-panel-close" onClick={onClose}><X size={16} /></button>
       </h2>
+
+      {providers.length > 0 && (
+        <label className="tts-test-text">
+          ข้อความสำหรับทดสอบเสียง
+          <input
+            value={testText}
+            onChange={(event) => setTestText(event.target.value)}
+            maxLength={500}
+            aria-label="ข้อความสำหรับทดสอบเสียง"
+          />
+        </label>
+      )}
 
       {/* Provider cards */}
       {providers.map((p) => {
@@ -236,8 +249,7 @@ export function TtsProviderPanel({ onClose, embedded }: Props) {
       {/* Add button */}
       {!showForm && (
         <button
-          className="btn-secondary"
-          style={{ width: "100%", marginTop: 12 }}
+          className="btn-secondary tts-add-provider"
           onClick={() => { setShowForm(true); setEditId(null); setForm(emptyForm); }}
         >
           <Plus size={14} /> เพิ่ม TTS Provider

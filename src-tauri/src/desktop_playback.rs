@@ -34,6 +34,9 @@ const MAX_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 const OUTPUT_CHANNELS: usize = 2;
 const MIN_SAMPLE_RATE: u32 = 8_000;
 const MAX_SAMPLE_RATE: u32 = 96_000;
+const COMMON_OUTPUT_SAMPLE_RATES: [u32; 10] = [
+    8_000, 16_000, 22_050, 32_000, 44_100, 48_000, 88_200, 96_000, 176_400, 192_000,
+];
 
 const STATE_PAUSED: u8 = 0;
 const STATE_PLAYING: u8 = 1;
@@ -344,11 +347,16 @@ impl PlaybackManager {
                 }
                 let frame = frames_for_ms(position_ms, session.sample_rate);
                 let epoch = session.runtime.stream_epoch.load(Ordering::Acquire) + 1;
+                session.runtime.clear_queue();
+                session.runtime.stream_epoch.store(epoch, Ordering::Release);
                 session
                     .runtime
                     .position_frames
                     .store(frame, Ordering::Release);
-                session.runtime.clear_queue();
+                session.runtime.source_exhausted.store(
+                    frame >= frames_for_ms(session.duration_ms, session.sample_rate),
+                    Ordering::Release,
+                );
                 session
                     .command_tx
                     .send(WorkerCommand::Seek { frame, epoch })
@@ -359,7 +367,6 @@ impl PlaybackManager {
                             false,
                         )
                     })?;
-                session.runtime.stream_epoch.store(epoch, Ordering::Release);
                 if frame >= frames_for_ms(session.duration_ms, session.sample_rate) {
                     session.runtime.state.store(STATE_ENDED, Ordering::Release);
                 }
@@ -422,6 +429,7 @@ struct PlaybackRuntime {
     position_frames: AtomicU64,
     stream_epoch: AtomicU64,
     queue: Mutex<VecDeque<i16>>,
+    source_exhausted: AtomicBool,
     error: Mutex<Option<ReviewError>>,
     degraded: bool,
     missing_ranges: Vec<MissingRange>,
@@ -437,6 +445,7 @@ impl PlaybackRuntime {
             position_frames: AtomicU64::new(0),
             stream_epoch: AtomicU64::new(0),
             queue: Mutex::new(VecDeque::with_capacity(MAX_QUEUE_BYTES / 2)),
+            source_exhausted: AtomicBool::new(false),
             error: Mutex::new(None),
             degraded,
             missing_ranges,
@@ -543,6 +552,8 @@ struct OpenSource {
     reader: AudioReader,
     channels: u16,
     sample_rate: u32,
+    frame_count: u64,
+    next_frame: u64,
 }
 
 fn playback_error(code: &str, message: &str, retryable: bool) -> ReviewError {
@@ -676,8 +687,15 @@ fn ms_for_frames(frames: u64, sample_rate: u32) -> u64 {
     (u128::from(frames) * 1_000 / u128::from(sample_rate.max(1))) as u64
 }
 
-fn within_one_frame(left: u64, right: u64) -> bool {
-    left.abs_diff(right) <= 1
+fn within_millisecond_precision(
+    actual_frames: u64,
+    timestamped_duration_ms: u64,
+    sample_rate: u32,
+) -> bool {
+    let rate = u128::from(sample_rate);
+    let actual_duration_scaled = u128::from(actual_frames) * 1_000;
+    let timestamped_duration_scaled = u128::from(timestamped_duration_ms) * rate;
+    actual_duration_scaled.abs_diff(timestamped_duration_scaled) * 2 <= rate
 }
 
 fn reject_untrusted_path(raw: &str) -> Result<(), ReviewError> {
@@ -904,9 +922,10 @@ fn open_source(
     }
     let frames = u64::from(reader.duration());
     if frames == 0
-        || !within_one_frame(
+        || !within_millisecond_precision(
             frames,
-            frames_for_ms(descriptor.end_ms - descriptor.start_ms, spec.sample_rate),
+            descriptor.end_ms - descriptor.start_ms,
+            spec.sample_rate,
         )
     {
         return Err(playback_error(
@@ -919,6 +938,8 @@ fn open_source(
         reader,
         channels: spec.channels,
         sample_rate: spec.sample_rate,
+        frame_count: frames,
+        next_frame: 0,
     }))
 }
 
@@ -1097,8 +1118,11 @@ fn prepare_playback(
         if let Some(wave) = wave {
             let rate = wave.spec.sample_rate;
             let channels = wave.spec.channels;
-            let expected_frames = frames_for_ms(descriptor.end_ms - descriptor.start_ms, rate);
-            if !within_one_frame(wave.frames, expected_frames) {
+            if !within_millisecond_precision(
+                wave.frames,
+                descriptor.end_ms - descriptor.start_ms,
+                rate,
+            ) {
                 return Err(playback_error(
                     "PLAYBACK_TIMELINE_INVALID",
                     "The playback timeline is invalid.",
@@ -1199,40 +1223,130 @@ fn prepare_playback(
     })
 }
 
-fn exact_output_config(
+fn output_rate_for_range(source_rate: u32, minimum: u32, maximum: u32) -> Option<u32> {
+    if minimum == 0 || minimum > maximum {
+        return None;
+    }
+    if (minimum..=maximum).contains(&source_rate) {
+        return Some(source_rate);
+    }
+    COMMON_OUTPUT_SAMPLE_RATES
+        .into_iter()
+        .chain([minimum, maximum])
+        .filter(|rate| (minimum..=maximum).contains(rate))
+        .min_by_key(|rate| rate.abs_diff(source_rate))
+}
+
+fn output_sample_format_priority(format: SampleFormat) -> Option<u8> {
+    match format {
+        SampleFormat::F32 => Some(0),
+        SampleFormat::I16 => Some(1),
+        SampleFormat::U16 => Some(2),
+        _ => None,
+    }
+}
+
+fn supported_output_config(
     device: &cpal::Device,
-    sample_rate: u32,
-) -> Result<(StreamConfig, SampleFormat), ReviewError> {
+    source_rate: u32,
+) -> Result<(StreamConfig, SampleFormat, u32), ReviewError> {
     let configs = device.supported_output_configs().map_err(|_| {
         playback_error(
             "PLAYBACK_OUTPUT_UNSUPPORTED",
-            "The output device cannot play this recording rate.",
+            "The output device has no compatible stereo format.",
             false,
         )
     })?;
+    let mut selected: Option<(u32, u8, StreamConfig, SampleFormat, u32)> = None;
     for config in configs {
-        if config.channels() == OUTPUT_CHANNELS as u16
-            && matches!(
-                config.sample_format(),
-                SampleFormat::F32 | SampleFormat::I16 | SampleFormat::U16
-            )
-            && config.min_sample_rate().0 <= sample_rate
-            && config.max_sample_rate().0 >= sample_rate
-        {
-            let format = config.sample_format();
-            return Ok((
+        if config.channels() != OUTPUT_CHANNELS as u16 {
+            continue;
+        }
+        let format = config.sample_format();
+        let Some(format_priority) = output_sample_format_priority(format) else {
+            continue;
+        };
+        let Some(output_rate) = output_rate_for_range(
+            source_rate,
+            config.min_sample_rate().0,
+            config.max_sample_rate().0,
+        ) else {
+            continue;
+        };
+        let rate_distance = output_rate.abs_diff(source_rate);
+        let is_better = selected
+            .as_ref()
+            .is_none_or(|(best_distance, best_priority, _, _, _)| {
+                (rate_distance, format_priority) < (*best_distance, *best_priority)
+            });
+        if is_better {
+            selected = Some((
+                rate_distance,
+                format_priority,
                 config
-                    .with_sample_rate(cpal::SampleRate(sample_rate))
+                    .with_sample_rate(cpal::SampleRate(output_rate))
                     .config(),
                 format,
+                output_rate,
             ));
         }
     }
-    Err(playback_error(
-        "PLAYBACK_OUTPUT_UNSUPPORTED",
-        "The output device cannot play this recording rate.",
-        false,
-    ))
+    selected
+        .map(|(_, _, config, format, output_rate)| (config, format, output_rate))
+        .ok_or_else(|| {
+            playback_error(
+                "PLAYBACK_OUTPUT_UNSUPPORTED",
+                "The output device has no compatible stereo format.",
+                false,
+            )
+        })
+}
+
+fn interpolate_sample(left: i16, right: i16, phase: u64, output_rate: u32) -> i16 {
+    let output_rate = i64::from(output_rate.max(1));
+    let phase = phase.min(output_rate as u64) as i64;
+    let numerator = i64::from(left) * (output_rate - phase) + i64::from(right) * phase;
+    (numerator / output_rate).clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16
+}
+
+fn next_resampled_frame(
+    queue: &mut VecDeque<i16>,
+    phase: &mut u64,
+    source_rate: u32,
+    output_rate: u32,
+    source_exhausted: bool,
+) -> Option<([i16; OUTPUT_CHANNELS], u64)> {
+    if source_rate == 0 || output_rate == 0 {
+        return None;
+    }
+    let available_frames = queue.len() / OUTPUT_CHANNELS;
+    if available_frames == 0 || (available_frames < 2 && !source_exhausted) {
+        return None;
+    }
+
+    let left = [queue[0], queue[1]];
+    let right = if available_frames >= 2 {
+        [queue[2], queue[3]]
+    } else {
+        left
+    };
+    let frame = [
+        interpolate_sample(left[0], right[0], *phase, output_rate),
+        interpolate_sample(left[1], right[1], *phase, output_rate),
+    ];
+    let accumulated_phase = phase.saturating_add(u64::from(source_rate));
+    let advance_frames = accumulated_phase / u64::from(output_rate);
+    if !source_exhausted && advance_frames >= available_frames as u64 {
+        return None;
+    }
+
+    let consumed_frames = advance_frames.min(available_frames as u64);
+    for _ in 0..consumed_frames {
+        queue.pop_front();
+        queue.pop_front();
+    }
+    *phase = accumulated_phase % u64::from(output_rate);
+    Some((frame, consumed_frames))
 }
 
 fn set_silence<T: SizedSample + FromSample<i16>>(data: &mut [T]) {
@@ -1245,11 +1359,16 @@ fn build_output_stream<T>(
     device: &cpal::Device,
     config: &StreamConfig,
     runtime: Arc<PlaybackRuntime>,
+    source_rate: u32,
+    output_rate: u32,
+    duration_frames: u64,
 ) -> Result<Stream, ReviewError>
 where
     T: SizedSample + FromSample<i16> + Send + 'static,
 {
     let stream_runtime = Arc::clone(&runtime);
+    let mut resampler_phase = 0_u64;
+    let mut resampler_epoch = runtime.stream_epoch.load(Ordering::Acquire);
     device
         .build_output_stream(
             config,
@@ -1265,17 +1384,33 @@ where
                         return;
                     }
                 };
+                let epoch = stream_runtime.stream_epoch.load(Ordering::Acquire);
+                if epoch != resampler_epoch {
+                    resampler_phase = 0;
+                    resampler_epoch = epoch;
+                }
+                let source_exhausted = stream_runtime.source_exhausted.load(Ordering::Acquire);
                 let mut missing = false;
+                let mut consumed_source_frames = 0_u64;
                 for frame in data.chunks_mut(OUTPUT_CHANNELS) {
-                    let left = queue.pop_front();
-                    let right = queue.pop_front();
-                    if left.is_none() || right.is_none() {
-                        missing = true;
-                    }
-                    frame[0] = T::from_sample(left.unwrap_or(0));
+                    let (sample, consumed) = match next_resampled_frame(
+                        &mut queue,
+                        &mut resampler_phase,
+                        source_rate,
+                        output_rate,
+                        source_exhausted,
+                    ) {
+                        Some(result) => result,
+                        None => {
+                            missing = true;
+                            ([0, 0], 0)
+                        }
+                    };
+                    frame[0] = T::from_sample(sample[0]);
                     if frame.len() > 1 {
-                        frame[1] = T::from_sample(right.unwrap_or(0));
+                        frame[1] = T::from_sample(sample[1]);
                     }
+                    consumed_source_frames = consumed_source_frames.saturating_add(consumed);
                 }
                 if missing {
                     let elapsed = stream_runtime.started_at.elapsed().as_millis() as u64;
@@ -1290,9 +1425,26 @@ where
                         .underrun_started_ms
                         .store(0, Ordering::Release);
                 }
-                stream_runtime
-                    .position_frames
-                    .fetch_add((data.len() / OUTPUT_CHANNELS) as u64, Ordering::AcqRel);
+                if consumed_source_frames > 0 {
+                    let mut position = stream_runtime.position_frames.load(Ordering::Acquire);
+                    loop {
+                        if stream_runtime.stream_epoch.load(Ordering::Acquire) != epoch {
+                            break;
+                        }
+                        let next_position = position
+                            .saturating_add(consumed_source_frames)
+                            .min(duration_frames);
+                        match stream_runtime.position_frames.compare_exchange_weak(
+                            position,
+                            next_position,
+                            Ordering::AcqRel,
+                            Ordering::Acquire,
+                        ) {
+                            Ok(_) => break,
+                            Err(actual_position) => position = actual_position,
+                        }
+                    }
+                }
             },
             move |_error| {
                 runtime.device_lost.store(true, Ordering::Release);
@@ -1320,6 +1472,17 @@ fn read_frame(
             .map_err(|_| safe_storage_error())?;
         Ok([left, right])
     }
+}
+
+fn read_source_frame(source: &mut OpenSource) -> Result<[i16; OUTPUT_CHANNELS], ReviewError> {
+    if source.next_frame >= source.frame_count {
+        // Millisecond timestamps can round a source duration up by at most
+        // half a millisecond. Keep playback on its ledger timeline with silence.
+        return Ok([0, 0]);
+    }
+    let frame = read_frame(&mut source.reader, source.channels)?;
+    source.next_frame += 1;
+    Ok(frame)
 }
 
 fn queue_len(runtime: &PlaybackRuntime) -> usize {
@@ -1393,16 +1556,19 @@ fn fill_queue(
                     if let Some(reader) = source.as_mut() {
                         let local_frame =
                             cursor.saturating_sub(prepared.descriptors[index].frame_start);
-                        reader
-                            .reader
-                            .seek(local_frame as u32)
-                            .map_err(|_| safe_storage_error())?;
+                        reader.next_frame = local_frame;
+                        if local_frame < reader.frame_count {
+                            reader
+                                .reader
+                                .seek(local_frame as u32)
+                                .map_err(|_| safe_storage_error())?;
+                        }
                     }
                 }
             }
         }
         let frame = if let Some(reader) = source.as_mut() {
-            read_frame(&mut reader.reader, reader.channels)?
+            read_source_frame(reader)?
         } else {
             [0, 0]
         };
@@ -1452,23 +1618,45 @@ fn worker_loop(
         );
         return;
     };
-    let (config, sample_format) = match exact_output_config(&device, prepared.sample_rate) {
-        Ok(config) => config,
-        Err(error) => {
-            publish_ready(&ready_tx, Err(error), &cancel);
-            return;
-        }
-    };
+    let (config, sample_format, output_rate) =
+        match supported_output_config(&device, prepared.sample_rate) {
+            Ok(config) => config,
+            Err(error) => {
+                publish_ready(&ready_tx, Err(error), &cancel);
+                return;
+            }
+        };
     if cancel.load(Ordering::Acquire) {
         return;
     }
     let stream = match sample_format {
-        SampleFormat::F32 => build_output_stream::<f32>(&device, &config, Arc::clone(&runtime)),
-        SampleFormat::I16 => build_output_stream::<i16>(&device, &config, Arc::clone(&runtime)),
-        SampleFormat::U16 => build_output_stream::<u16>(&device, &config, Arc::clone(&runtime)),
+        SampleFormat::F32 => build_output_stream::<f32>(
+            &device,
+            &config,
+            Arc::clone(&runtime),
+            prepared.sample_rate,
+            output_rate,
+            prepared.duration_frames,
+        ),
+        SampleFormat::I16 => build_output_stream::<i16>(
+            &device,
+            &config,
+            Arc::clone(&runtime),
+            prepared.sample_rate,
+            output_rate,
+            prepared.duration_frames,
+        ),
+        SampleFormat::U16 => build_output_stream::<u16>(
+            &device,
+            &config,
+            Arc::clone(&runtime),
+            prepared.sample_rate,
+            output_rate,
+            prepared.duration_frames,
+        ),
         _ => Err(playback_error(
             "PLAYBACK_OUTPUT_UNSUPPORTED",
-            "The output device cannot play this recording rate.",
+            "The output device has no compatible stereo format.",
             false,
         )),
     };
@@ -1519,9 +1707,10 @@ fn worker_loop(
                     || runtime.position_frames.load(Ordering::Acquire) >= prepared.duration_frames
                 {
                     cursor = 0;
-                    runtime.position_frames.store(0, Ordering::Release);
                     runtime.stream_epoch.fetch_add(1, Ordering::AcqRel);
+                    runtime.position_frames.store(0, Ordering::Release);
                     runtime.clear_queue();
+                    runtime.source_exhausted.store(false, Ordering::Release);
                     source = None;
                     source_index = None;
                 }
@@ -1529,7 +1718,15 @@ fn worker_loop(
             }
             Ok(WorkerCommand::Pause) => {
                 runtime.state.store(STATE_PAUSED, Ordering::Release);
+                runtime.stream_epoch.fetch_add(1, Ordering::AcqRel);
+                cursor = runtime
+                    .position_frames
+                    .load(Ordering::Acquire)
+                    .min(prepared.duration_frames);
                 runtime.clear_queue();
+                runtime
+                    .source_exhausted
+                    .store(cursor >= prepared.duration_frames, Ordering::Release);
                 source = None;
                 source_index = None;
             }
@@ -1538,6 +1735,9 @@ fn worker_loop(
                 runtime.stream_epoch.store(epoch, Ordering::Release);
                 runtime.position_frames.store(cursor, Ordering::Release);
                 runtime.clear_queue();
+                runtime
+                    .source_exhausted
+                    .store(cursor >= prepared.duration_frames, Ordering::Release);
                 source = None;
                 source_index = None;
                 if cursor >= prepared.duration_frames {
@@ -1574,6 +1774,9 @@ fn worker_loop(
             runtime.set_error(error);
             break;
         }
+        runtime
+            .source_exhausted
+            .store(cursor >= prepared.duration_frames, Ordering::Release);
         let underrun = runtime.underrun_started_ms.load(Ordering::Acquire);
         if underrun > 0 && runtime.started_at.elapsed().as_millis() as u64 > underrun + 1_000 {
             runtime.set_error(playback_error(
@@ -2066,6 +2269,168 @@ async fn dispatch_close_playback(
 mod tests {
     use super::*;
 
+    #[test]
+    fn output_rate_falls_back_to_a_device_supported_rate() {
+        assert_eq!(output_rate_for_range(16_000, 44_100, 44_100), Some(44_100));
+        assert_eq!(output_rate_for_range(48_000, 44_100, 48_000), Some(48_000));
+        assert_eq!(output_rate_for_range(16_000, 48_000, 96_000), Some(48_000));
+        assert_eq!(output_rate_for_range(16_000, 0, 0), None);
+    }
+
+    #[test]
+    fn resampler_interpolates_and_keeps_source_timeline_rate() {
+        let mut queue = VecDeque::new();
+        for sample in 0..200_i16 {
+            queue.extend([sample * 100, sample * 100]);
+        }
+        let mut phase = 0_u64;
+        let mut consumed = 0_u64;
+        for _ in 0..441 {
+            let (_, source_frames) =
+                next_resampled_frame(&mut queue, &mut phase, 16_000, 44_100, false).unwrap();
+            consumed += source_frames;
+        }
+        assert_eq!(consumed, 160);
+        assert_eq!(phase, 0);
+    }
+
+    #[test]
+    fn resampler_emits_linear_midpoint_and_drains_final_source_frame() {
+        let mut queue = VecDeque::from([0_i16, 0, 1_000, 1_000]);
+        let mut phase = 0_u64;
+        let (first, consumed) =
+            next_resampled_frame(&mut queue, &mut phase, 22_050, 44_100, false).unwrap();
+        assert_eq!(first, [0, 0]);
+        assert_eq!(consumed, 0);
+
+        let (midpoint, consumed) =
+            next_resampled_frame(&mut queue, &mut phase, 22_050, 44_100, true).unwrap();
+        assert_eq!(midpoint, [500, 500]);
+        assert_eq!(consumed, 1);
+        assert_eq!(queue, VecDeque::from([1_000_i16, 1_000]));
+
+        let (tail, consumed) =
+            next_resampled_frame(&mut queue, &mut phase, 22_050, 44_100, true).unwrap();
+        assert_eq!(tail, [1_000, 1_000]);
+        assert_eq!(consumed, 0);
+
+        let (last, consumed) =
+            next_resampled_frame(&mut queue, &mut phase, 22_050, 44_100, true).unwrap();
+        assert_eq!(last, [1_000, 1_000]);
+        assert_eq!(consumed, 1);
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    #[ignore = "requires the Windows default audio output device"]
+    fn native_output_resampling_smoke_plays_and_resumes_a_local_fixture() {
+        let duration_frames = 8_000_u64;
+        let samples = (0..duration_frames)
+            .flat_map(|frame| {
+                let sample = (512.0
+                    * (2.0 * std::f64::consts::PI * 440.0 * frame as f64 / 16_000.0).sin())
+                    as i16;
+                [sample, sample]
+            })
+            .collect::<Vec<_>>();
+        let (directory, path) = temp_wave(
+            hound::WavSpec {
+                channels: 2,
+                sample_rate: 16_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+            &samples,
+        );
+        let descriptor = ChunkDescriptor {
+            id: "chunk-1".to_string(),
+            path: path.file_name().unwrap().to_string_lossy().into_owned(),
+            sequence_no: 1,
+            start_ms: 0,
+            end_ms: 500,
+            byte_size: std::fs::metadata(&path).unwrap().len(),
+            frame_start: 0,
+            frame_end: duration_frames,
+            available: true,
+        };
+        let prepared = PreparedPlayback {
+            project_root: directory.path().to_path_buf(),
+            project_id: "p1".to_string(),
+            recording_id: "r1".to_string(),
+            channel: "file".to_string(),
+            duration_ms: 500,
+            sample_rate: 16_000,
+            source_channels: 2,
+            duration_frames,
+            descriptors: vec![descriptor],
+            degraded: false,
+            missing_ranges: Vec::new(),
+        };
+        let runtime = Arc::new(PlaybackRuntime::new(false, Vec::new()));
+        let (command_tx, command_rx) = mpsc::channel();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let join = thread::spawn({
+            let runtime = Arc::clone(&runtime);
+            move || {
+                worker_loop(
+                    prepared,
+                    runtime,
+                    Arc::new(AtomicBool::new(false)),
+                    command_rx,
+                    ready_tx,
+                )
+            }
+        });
+
+        ready_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("native playback worker did not become ready")
+            .expect("native playback output stream could not be opened");
+        command_tx.send(WorkerCommand::Play).unwrap();
+        let pause_deadline = Instant::now() + Duration::from_secs(2);
+        while runtime.position_frames.load(Ordering::Acquire) < 1_600
+            && Instant::now() < pause_deadline
+        {
+            thread::sleep(Duration::from_millis(5));
+        }
+        command_tx.send(WorkerCommand::Pause).unwrap();
+        let pause_deadline = Instant::now() + Duration::from_secs(2);
+        while runtime.state.load(Ordering::Acquire) != STATE_PAUSED
+            && Instant::now() < pause_deadline
+        {
+            thread::sleep(Duration::from_millis(5));
+        }
+        let paused_position = runtime.position_frames.load(Ordering::Acquire);
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(
+            runtime.position_frames.load(Ordering::Acquire),
+            paused_position,
+            "paused playback position continued advancing"
+        );
+
+        let resumed_at = Instant::now();
+        command_tx.send(WorkerCommand::Play).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while runtime.state.load(Ordering::Acquire) != STATE_ENDED
+            && runtime.state.load(Ordering::Acquire) != STATE_ERROR
+            && Instant::now() < deadline
+        {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let state = runtime.state.load(Ordering::Acquire);
+        let position = runtime.position_frames.load(Ordering::Acquire);
+        let _ = command_tx.send(WorkerCommand::Close);
+        join.join().unwrap();
+
+        assert_eq!(state, STATE_ENDED, "native playback did not finish");
+        assert_eq!(position, duration_frames);
+        assert!(paused_position >= 1_600 && paused_position < duration_frames);
+        assert!(
+            resumed_at.elapsed() >= Duration::from_millis(200),
+            "playback skipped the buffered source after resume"
+        );
+    }
+
     fn test_session(
         owner: u128,
         handle: &str,
@@ -2272,11 +2637,91 @@ mod tests {
     }
 
     #[test]
-    fn frame_math_aligns_seek_down_without_resampling() {
+    fn frame_math_respects_millisecond_timestamp_precision() {
         assert_eq!(frames_for_ms(999, 48_000), 47_952);
         assert_eq!(ms_for_frames(frames_for_ms(999, 48_000), 48_000), 999);
-        assert!(within_one_frame(48_000, 48_001));
-        assert!(!within_one_frame(48_000, 48_002));
+        assert!(within_millisecond_precision(48_001, 1_000, 48_000));
+        assert!(within_millisecond_precision(231_722, 14_483, 16_000));
+        assert!(within_millisecond_precision(231_720, 14_483, 16_000));
+        assert!(!within_millisecond_precision(231_719, 14_483, 16_000));
+    }
+
+    #[test]
+    fn imported_pcm16_duration_rounding_is_validated_at_millisecond_precision() {
+        let frames = 231_722_u32;
+        let (directory, path) = temp_wave(
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+            &vec![1_i16; frames as usize],
+        );
+        let project_root =
+            std::fs::canonicalize(directory.path()).expect("fixture project root canonicalization");
+        let descriptor = ChunkDescriptor {
+            id: "rounded-import".to_string(),
+            path: path.display().to_string(),
+            sequence_no: 1,
+            start_ms: 0,
+            end_ms: 14_483,
+            byte_size: std::fs::metadata(&path).unwrap().len(),
+            frame_start: 0,
+            frame_end: frames_for_ms(14_483, 16_000),
+            available: true,
+        };
+
+        let wave = validate_wave(&project_root, &descriptor)
+            .unwrap()
+            .expect("rounded whole-file import is a valid source");
+        assert_eq!(wave.frames, u64::from(frames));
+        let source = open_source(&project_root, &descriptor)
+            .unwrap()
+            .expect("rounded whole-file import can be opened");
+        assert_eq!(source.frame_count, u64::from(frames));
+        assert_eq!(source.frame_count, 231_722);
+        assert_eq!(frames_for_ms(descriptor.end_ms, 16_000), 231_728);
+    }
+
+    #[test]
+    fn rounded_import_reader_pads_after_last_pcm_frame_without_reading_past_end() {
+        let frames = 231_722_u32;
+        let (directory, path) = temp_wave(
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 16_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+            &vec![17_i16; frames as usize],
+        );
+        let project_root =
+            std::fs::canonicalize(directory.path()).expect("fixture project root canonicalization");
+        let descriptor = ChunkDescriptor {
+            id: "rounded-import-tail".to_string(),
+            path: path.display().to_string(),
+            sequence_no: 1,
+            start_ms: 0,
+            end_ms: 14_483,
+            byte_size: std::fs::metadata(&path).unwrap().len(),
+            frame_start: 0,
+            frame_end: frames_for_ms(14_483, 16_000),
+            available: true,
+        };
+        let mut source = open_source(&project_root, &descriptor)
+            .unwrap()
+            .expect("rounded whole-file import can be opened");
+
+        source
+            .reader
+            .seek(frames - 1)
+            .expect("seek to final PCM frame");
+        source.next_frame = u64::from(frames - 1);
+        assert_eq!(read_source_frame(&mut source).unwrap(), [17, 17]);
+        assert_eq!(source.next_frame, u64::from(frames));
+        assert_eq!(read_source_frame(&mut source).unwrap(), [0, 0]);
+        assert_eq!(source.next_frame, u64::from(frames));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { ExternalMeetingToolsPanel } from "../ExternalMeetingToolsPanel";
 import type { LiveSegmentEvent, LiveSummaryEvent } from "../../tauri";
 import type { MeetingSummaries, SummaryRow } from "../../lib/meetingSummaries";
@@ -259,7 +259,8 @@ export function LiveWorkspace({
   const feedRef = useRef<HTMLDivElement | null>(null);
   const nearBottomRef = useRef(true);
   const previousSegmentCountRef = useRef(segmentFeed.length);
-  const [captureSystem, setCaptureSystem] = useState(true);
+  const [activeTab, setActiveTab] = useState<"capture" | "transcript" | "insights">("capture");
+  const [captureSystem, setCaptureSystem] = useState(false);
   const [micDeviceId, setMicDeviceId] = useState("");
   const [systemDeviceId, setSystemDeviceId] = useState("");
   const [language, setLanguage] = useState("auto");
@@ -268,6 +269,29 @@ export function LiveWorkspace({
   const [question, setQuestion] = useState("");
   const [leavePrompt, setLeavePrompt] = useState(false);
   const [showReturnToLatest, setShowReturnToLatest] = useState(false);
+
+  const handleTabKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    current: "capture" | "transcript" | "insights",
+  ) => {
+    const tabs = ["capture", "transcript", "insights"] as const;
+    const currentIndex = tabs.indexOf(current);
+    const nextIndex = event.key === "ArrowRight"
+      ? (currentIndex + 1) % tabs.length
+      : event.key === "ArrowLeft"
+        ? (currentIndex - 1 + tabs.length) % tabs.length
+        : event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? tabs.length - 1
+            : -1;
+    if (nextIndex < 0) return;
+    event.preventDefault();
+    const next = tabs[nextIndex];
+    if (!next) return;
+    setActiveTab(next);
+    document.getElementById(`live-tab-${next}`)?.focus();
+  };
 
   useEffect(() => {
     if (!captureDevices) return;
@@ -348,6 +372,7 @@ export function LiveWorkspace({
       },
         closeReviewPlayer ?? (async () => ({ closed: false })),
       );
+      setActiveTab("transcript");
     } catch {
       // The panel owns the safe error state. Keep the form and question intact.
     }
@@ -436,7 +461,9 @@ export function LiveWorkspace({
           </h2>
           <div className="live-workspace__status" role="status" aria-live="polite">
             <span className={"live-workspace__phase live-workspace__phase--" + phase}>
-              {PHASE_LABELS[phase] ?? "สถานะการบันทึก"}
+              {phase === "idle" && !capabilities.capture.available
+                ? "เปิด FUNG Desktop เพื่อบันทึก"
+                : PHASE_LABELS[phase] ?? "สถานะการบันทึก"}
             </span>
             {(running || stopPending) ? (
               <span className="live-workspace__elapsed">{formatClock(elapsedMs)}</span>
@@ -461,7 +488,56 @@ export function LiveWorkspace({
         </div>
       ) : null}
 
-      <section className="live-workspace__capture-card" aria-labelledby="live-capture-title">
+      <div className="live-workspace__tabs" role="tablist" aria-label="พื้นที่ประชุมสด">
+        <button
+          id="live-tab-capture"
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "capture"}
+          aria-controls="live-panel-capture"
+          tabIndex={activeTab === "capture" ? 0 : -1}
+          className={`live-workspace__tab${activeTab === "capture" ? " is-active" : ""}`}
+          onKeyDown={(event) => handleTabKeyDown(event, "capture")}
+          onClick={() => setActiveTab("capture")}
+        >
+          ตั้งค่าบันทึก
+        </button>
+        <button
+          id="live-tab-transcript"
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "transcript"}
+          aria-controls="live-panel-transcript"
+          tabIndex={activeTab === "transcript" ? 0 : -1}
+          className={`live-workspace__tab${activeTab === "transcript" ? " is-active" : ""}`}
+          onKeyDown={(event) => handleTabKeyDown(event, "transcript")}
+          onClick={() => setActiveTab("transcript")}
+        >
+          ข้อความ <span>{segmentFeed.length}</span>
+        </button>
+        <button
+          id="live-tab-insights"
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "insights"}
+          aria-controls="live-panel-insights"
+          tabIndex={activeTab === "insights" ? 0 : -1}
+          className={`live-workspace__tab${activeTab === "insights" ? " is-active" : ""}`}
+          onKeyDown={(event) => handleTabKeyDown(event, "insights")}
+          onClick={() => setActiveTab("insights")}
+        >
+          ข้อมูลและถาม
+        </button>
+      </div>
+
+      <section
+        id="live-panel-capture"
+        className="live-workspace__capture-card live-workspace__tab-panel"
+        role="tabpanel"
+        aria-labelledby="live-tab-capture"
+        tabIndex={0}
+        hidden={activeTab !== "capture"}
+      >
         <div>
           <p className="live-workspace__eyebrow">การบันทึกในเครื่อง</p>
           <h3 id="live-capture-title">
@@ -594,7 +670,14 @@ export function LiveWorkspace({
         </div>
       </section>
 
-      <div className="live-workspace__grid">
+      <div
+        id="live-panel-transcript"
+        className="live-workspace__tab-panel live-workspace__tab-panel--transcript"
+        role="tabpanel"
+        aria-labelledby="live-tab-transcript"
+        tabIndex={0}
+        hidden={activeTab !== "transcript"}
+      >
         <section className="live-workspace__transcript" aria-labelledby="live-transcript-title">
           <div className="live-workspace__section-heading">
             <div>
@@ -642,7 +725,16 @@ export function LiveWorkspace({
             </button>
           ) : null}
         </section>
+      </div>
 
+      <div
+        id="live-panel-insights"
+        className="live-workspace__tab-panel live-workspace__tab-panel--insights"
+        role="tabpanel"
+        aria-labelledby="live-tab-insights"
+        tabIndex={0}
+        hidden={activeTab !== "insights"}
+      >
         <aside className="live-workspace__side" aria-label="ข้อมูลเสริมของการประชุม">
           <section className="live-workspace__card" aria-labelledby="live-topic-title" aria-busy={topic.status === "loading"}>
             <div className="live-workspace__section-heading">

@@ -6,6 +6,7 @@ use std::{
     io::{BufRead, BufReader, Read},
     path::PathBuf,
     process::{Command, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Mutex},
     thread,
 };
@@ -906,7 +907,7 @@ fn child_compatible_whisper_model_path(path: PathBuf) -> PathBuf {
     path
 }
 
-fn worker_whisper_model_env_path(runtime: &WhisperRuntime) -> Option<PathBuf> {
+pub(crate) fn worker_whisper_model_env_path(runtime: &WhisperRuntime) -> Option<PathBuf> {
     bundled_whisper_model(runtime).map(child_compatible_whisper_model_path)
 }
 
@@ -916,6 +917,53 @@ fn worker_whisper_model_env_path(runtime: &WhisperRuntime) -> Option<PathBuf> {
 fn open_external_account_portal(app: tauri::AppHandle) -> AppResult<()> {
     native_auth::open_trusted_account_portal(app)
 }
+
+/// Clears the legacy native backdrop material for the transparent desktop window.
+/// Windows Acrylic covers the rectangular HWND and cannot follow the rounded CSS
+/// shell, so enabling it would paint a square tint outside the app frame.
+#[tauri::command]
+fn desktop_window_set_glass(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
+    if enabled {
+        return Err(
+            "Native Acrylic is disabled because it cannot follow the rounded FUNG shell."
+                .to_string(),
+        );
+    }
+
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "The FUNG desktop window is unavailable.".to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        window_vibrancy::clear_acrylic(&window)
+            .map_err(|error| format!("Could not clear the native glass effect: {error}"))?;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn desktop_window_hide_to_tray(app: tauri::AppHandle) -> Result<(), String> {
+    let tray_available = app
+        .try_state::<DesktopTrayAvailability>()
+        .is_some_and(|state| state.0.load(std::sync::atomic::Ordering::Acquire));
+    if !tray_available {
+        return Err("The system tray is unavailable; FUNG remains visible.".to_string());
+    }
+
+    app.get_webview_window("main")
+        .ok_or_else(|| "The FUNG desktop window is unavailable.".to_string())?
+        .hide()
+        .map_err(|error| format!("Could not hide FUNG to the system tray: {error}"))
+}
+
+struct DesktopTrayAvailability(std::sync::atomic::AtomicBool);
 
 /// Opens this project's Google authorize URL for the mobile login flow. The
 /// webview supplies only the PKCE code challenge; every other part of the
@@ -997,6 +1045,8 @@ pub(crate) struct AppState {
     pub(crate) recording_output: Arc<Mutex<recording_output::RecordingOutputManager>>,
     pub(crate) genesis: Arc<genesis_block_native::Storage>,
     pub(crate) genesis_path: PathBuf,
+    shutdown_started: AtomicBool,
+    genesis_checkpoint_started: AtomicBool,
     pub(crate) meeting_owner_session: Mutex<Option<genesis_adapter::NativeOwnerUnlockSession>>,
     pub(crate) meeting_intelligence:
         Mutex<meeting_intelligence_runtime::MeetingIntelligenceRuntime>,
@@ -1658,6 +1708,8 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         jobs: job_engine::JobEngine::new(Arc::clone(&genesis)),
         genesis,
         genesis_path,
+        shutdown_started: AtomicBool::new(false),
+        genesis_checkpoint_started: AtomicBool::new(false),
         meeting_owner_session: Mutex::new(None),
         meeting_intelligence: Mutex::new(
             meeting_intelligence_runtime::MeetingIntelligenceRuntime::default(),
@@ -1781,6 +1833,268 @@ fn list_projects(state: State<'_, AppState>) -> AppResult<Vec<Project>> {
         std::cmp::Reverse((project.updated_at.clone(), project.created_at.clone()))
     });
     Ok(projects)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopMeetingActionItem {
+    id: String,
+    title: String,
+    project_id: String,
+    project_name: String,
+    recording_id: String,
+    meeting_title: String,
+    meeting_created_at: String,
+    owner: Option<String>,
+    confidence: Option<f64>,
+    evidence_count: usize,
+    priority: String,
+    #[serde(skip)]
+    priority_rank: u8,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopMeetingActionItemSnapshot {
+    items: Vec<DesktopMeetingActionItem>,
+    total_count: usize,
+}
+
+fn action_priority(label: &str) -> (u8, &'static str) {
+    let text = label.to_lowercase();
+    if ["ด่วน", "เร่งด่วน", "ทันที", "urgent", "asap", "immediately"]
+        .iter()
+        .any(|cue| text.contains(cue))
+    {
+        (0, "urgent")
+    } else if ["ภายใน", "ก่อนวันที่", "กำหนดส่ง", "deadline", "due ", "by "]
+        .iter()
+        .any(|cue| text.contains(cue))
+    {
+        (1, "deadline")
+    } else {
+        (2, "unspecified")
+    }
+}
+
+#[cfg(test)]
+mod desktop_meeting_action_item_tests {
+    use super::action_priority;
+
+    #[test]
+    fn task_pool_priority_uses_explicit_urgency_then_deadline_cues() {
+        assert_eq!(action_priority("งานด่วนวันนี้"), (0, "urgent"));
+        assert_eq!(action_priority("ส่งรายงานภายในวันศุกร์"), (1, "deadline"));
+        assert_eq!(action_priority("ตรวจบันทึกประชุม"), (2, "unspecified"));
+        assert_eq!(action_priority("urgent ก่อนวันที่ 20"), (0, "urgent"));
+    }
+}
+
+#[tauri::command]
+fn list_meeting_action_items(
+    state: State<'_, AppState>,
+) -> AppResult<DesktopMeetingActionItemSnapshot> {
+    use std::collections::HashMap;
+
+    let nodes = genesis_adapter::query_all(
+        &state.genesis,
+        "graph_nodes",
+        &["id", "project_id", "entity_id", "label"],
+        vec![genesis_adapter::eq(
+            "graph_nodes",
+            "entity_type",
+            serde_json::json!("action_item"),
+        )],
+    )
+    .map_err(AppError::Genesis)?;
+    let edges = genesis_adapter::query_all(
+        &state.genesis,
+        "graph_edges",
+        &[
+            "project_id",
+            "source_node_id",
+            "target_node_id",
+            "predicate",
+            "epistemic_status",
+            "provenance_json",
+        ],
+        vec![genesis_adapter::eq(
+            "graph_edges",
+            "predicate",
+            serde_json::json!("extracted_from"),
+        )],
+    )
+    .map_err(AppError::Genesis)?;
+    let meetings = genesis_adapter::query_all(
+        &state.genesis,
+        "graph_nodes",
+        &["id", "project_id", "entity_id", "label"],
+        vec![genesis_adapter::eq(
+            "graph_nodes",
+            "entity_type",
+            serde_json::json!("meeting"),
+        )],
+    )
+    .map_err(AppError::Genesis)?;
+    let recordings = genesis_adapter::query_all(
+        &state.genesis,
+        "recordings",
+        &["id", "project_id", "created_at"],
+        vec![],
+    )
+    .map_err(AppError::Genesis)?;
+    let projects = genesis_adapter::query_all(&state.genesis, "projects", &["id", "name"], vec![])
+        .map_err(AppError::Genesis)?;
+
+    let node_by_id = nodes
+        .into_iter()
+        .filter_map(|row| {
+            let id = row.get("graph_nodes.id")?.as_str()?.to_owned();
+            Some((id, row))
+        })
+        .collect::<HashMap<_, _>>();
+    let meeting_by_id = meetings
+        .into_iter()
+        .filter_map(|row| {
+            let id = row.get("graph_nodes.id")?.as_str()?.to_owned();
+            Some((id, row))
+        })
+        .collect::<HashMap<_, _>>();
+    let recording_by_id = recordings
+        .into_iter()
+        .filter_map(|row| {
+            let id = row.get("recordings.id")?.as_str()?.to_owned();
+            Some((id, row))
+        })
+        .collect::<HashMap<_, _>>();
+    let project_names = projects
+        .into_iter()
+        .filter_map(|row| {
+            let id = row.get("projects.id")?.as_str()?.to_owned();
+            let name = row.get("projects.name")?.as_str()?.to_owned();
+            Some((id, name))
+        })
+        .collect::<HashMap<_, _>>();
+
+    let mut items = Vec::new();
+    for edge in edges {
+        if edge
+            .get("graph_edges.epistemic_status")
+            .and_then(serde_json::Value::as_str)
+            != Some("ai_proposed")
+        {
+            continue;
+        }
+        let Some(node_id) = edge
+            .get("graph_edges.source_node_id")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let Some(node) = node_by_id.get(node_id) else {
+            continue;
+        };
+        let Some(meeting) = edge
+            .get("graph_edges.target_node_id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|id| meeting_by_id.get(id))
+        else {
+            continue;
+        };
+        let Some(recording_id) = meeting
+            .get("graph_nodes.entity_id")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let Some(recording) = recording_by_id.get(recording_id) else {
+            continue;
+        };
+        let Some(project_id) = edge
+            .get("graph_edges.project_id")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        if node
+            .get("graph_nodes.project_id")
+            .and_then(serde_json::Value::as_str)
+            != Some(project_id)
+            || meeting
+                .get("graph_nodes.project_id")
+                .and_then(serde_json::Value::as_str)
+                != Some(project_id)
+        {
+            continue;
+        }
+        if recording
+            .get("recordings.project_id")
+            .and_then(serde_json::Value::as_str)
+            != Some(project_id)
+        {
+            continue;
+        }
+        let Some(project_name) = project_names.get(project_id) else {
+            continue;
+        };
+        let Some(title) = node
+            .get("graph_nodes.label")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let (priority_rank, priority) = action_priority(title);
+        let provenance = edge
+            .get("graph_edges.provenance_json")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
+            .unwrap_or(serde_json::Value::Null);
+        let owner = provenance
+            .get("owner")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        let confidence = provenance
+            .get("confidence")
+            .and_then(serde_json::Value::as_f64);
+        let evidence_count = provenance
+            .get("evidenceSegmentIds")
+            .and_then(serde_json::Value::as_array)
+            .map(Vec::len)
+            .unwrap_or_default();
+
+        items.push(DesktopMeetingActionItem {
+            id: node_id.to_owned(),
+            title: title.to_owned(),
+            project_id: project_id.to_owned(),
+            project_name: project_name.clone(),
+            recording_id: recording_id.to_owned(),
+            meeting_title: meeting
+                .get("graph_nodes.label")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("บันทึกประชุม")
+                .to_owned(),
+            meeting_created_at: recording
+                .get("recordings.created_at")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            owner,
+            confidence,
+            evidence_count,
+            priority: priority.to_owned(),
+            priority_rank,
+        });
+    }
+
+    items.sort_by(|left, right| {
+        left.priority_rank
+            .cmp(&right.priority_rank)
+            .then_with(|| right.meeting_created_at.cmp(&left.meeting_created_at))
+            .then_with(|| left.title.cmp(&right.title))
+    });
+    let total_count = items.len();
+    items.truncate(20);
+    Ok(DesktopMeetingActionItemSnapshot { items, total_count })
 }
 
 /// Queues a job and returns the row that will run.
@@ -6711,7 +7025,25 @@ mod dotenv_tests {
     }
 }
 
+fn checkpoint_genesis_once(
+    genesis: &genesis_block_native::Storage,
+    checkpoint_started: &AtomicBool,
+) -> Result<bool, String> {
+    if checkpoint_started.swap(true, Ordering::AcqRel) {
+        return Ok(false);
+    }
+    genesis
+        .save_state()
+        .map(|()| true)
+        .map_err(|error| error.to_string())
+}
+
 fn shutdown_native_state(state: &AppState) {
+    // Both ExitRequested and main-window Destroyed may arrive for one close.
+    // Quiesce writers and checkpoint Genesis only once.
+    if state.shutdown_started.swap(true, Ordering::AcqRel) {
+        return;
+    }
     live_meeting::shutdown(state);
     state.playback.shutdown();
     state
@@ -6719,7 +7051,15 @@ fn shutdown_native_state(state: &AppState) {
         .lock()
         .expect("review registry mutex poisoned")
         .clear();
-    state.jobs.shutdown();
+    state.jobs.shutdown_and_wait();
+    match checkpoint_genesis_once(&state.genesis, &state.genesis_checkpoint_started) {
+        Ok(true) => eprintln!(
+            "[storage] Genesis shutdown checkpoint completed at frontier {}",
+            state.genesis.stable_frontier()
+        ),
+        Ok(false) => {}
+        Err(error) => eprintln!("[storage] Genesis shutdown checkpoint failed: {error}"),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -6752,6 +7092,50 @@ pub fn run() {
                 Err(error) => eprintln!("[recovery] startup scan failed: {error}"),
             }
             app.manage(state);
+            app.manage(DesktopTrayAvailability(std::sync::atomic::AtomicBool::new(
+                false,
+            )));
+
+            #[cfg(desktop)]
+            if let Some(icon) = app.default_window_icon().cloned() {
+                let tray_result = tauri::tray::TrayIconBuilder::new()
+                    .icon(icon)
+                    .tooltip("FUNG — คลิกเพื่อเปิด")
+                    .show_menu_on_left_click(false)
+                    .on_tray_icon_event(|tray, event| {
+                        use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+                        let should_show = matches!(
+                            event,
+                            TrayIconEvent::DoubleClick {
+                                button: MouseButton::Left,
+                                ..
+                            } | TrayIconEvent::Click {
+                                button: MouseButton::Left,
+                                button_state: MouseButtonState::Up,
+                                ..
+                            }
+                        );
+                        if should_show {
+                            if let Some(window) = tray.app_handle().get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    })
+                    .build(app.handle());
+                match tray_result {
+                    Ok(tray) => {
+                        app.manage(tray);
+                        app.state::<DesktopTrayAvailability>()
+                            .0
+                            .store(true, std::sync::atomic::Ordering::Release);
+                    }
+                    Err(error) => eprintln!("[tray] system tray unavailable: {error}"),
+                }
+            } else {
+                eprintln!("[tray] FUNG has no default icon; tray mode is unavailable");
+            }
             app.manage(filesystem_backup::FilesystemBackupState::default());
             app.manage(backup::BackupJobState::default());
             if let Err(error) = auth_session::startup_recover() {
@@ -6776,8 +7160,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_health,
+            desktop_window_set_glass,
+            desktop_window_hide_to_tray,
             create_project,
             list_projects,
+            list_meeting_action_items,
             create_job,
             cancel_job,
             runnable_job_types,
@@ -8157,6 +8544,268 @@ mod transcript_correction_tests {
 
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn checkpoint_child_writes_and_exits_without_drop() {
+        let Ok(path) = std::env::var("FUNG_TEST_CHECKPOINT_CHILD_PATH") else {
+            return;
+        };
+        let storage = open_storage_at(std::path::Path::new(&path));
+        seed_segment(&storage);
+        if std::env::var("FUNG_TEST_CHECKPOINT_MODE").as_deref() == Ok("uncheckpointed-schema") {
+            correct_transcript_segment_in_storage(
+                &storage,
+                "p1",
+                "r1",
+                "s1",
+                "ข้อความไทยที่แก้ไขและต้องอยู่หลังเปิดใหม่",
+            )
+            .unwrap();
+            // Keep the full v1–v13 schema journal and current projection, as
+            // in issue #41. Bypass Drop and the normal close checkpoint.
+            std::process::exit(0);
+        }
+        storage.save_state().expect("persist the pre-edit baseline");
+        correct_transcript_segment_in_storage(
+            &storage,
+            "p1",
+            "r1",
+            "s1",
+            "checkpointed native edit",
+        )
+        .unwrap();
+
+        if std::env::var("FUNG_TEST_CHECKPOINT_MODE").as_deref() == Ok("no-final-checkpoint") {
+            // Negative control: the seeded baseline is durable, but the edit
+            // is followed by process exit without the shutdown checkpoint.
+            std::process::exit(0);
+        }
+
+        let checkpoint_started = AtomicBool::new(false);
+        assert_eq!(
+            checkpoint_genesis_once(&storage, &checkpoint_started),
+            Ok(true)
+        );
+        assert_eq!(
+            checkpoint_genesis_once(&storage, &checkpoint_started),
+            Ok(false)
+        );
+
+        // This intentionally bypasses Storage::drop so recovery proves the
+        // explicit checkpoint, rather than the destructor, persisted rows.
+        std::process::exit(0);
+    }
+
+    #[test]
+    fn schema_history_reopens_after_process_exit_without_checkpoint() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("genesisdb");
+        let output = Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("transcript_correction_tests::checkpoint_child_writes_and_exits_without_drop")
+            .env("FUNG_TEST_CHECKPOINT_CHILD_PATH", &path)
+            .env("FUNG_TEST_CHECKPOINT_MODE", "uncheckpointed-schema")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "child failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        for _ in 0..3 {
+            let storage = open_storage_at(&path);
+            let project = genesis_adapter::query(
+                &storage,
+                "projects",
+                &[
+                    "id",
+                    "name",
+                    "storage_path",
+                    "active_recording_id",
+                    "created_at",
+                ],
+                vec![],
+                10,
+            )
+            .unwrap();
+            assert_eq!(
+                project,
+                vec![serde_json::json!({
+                    "projects.id":"p1", "projects.name":"Meeting",
+                    "projects.storage_path":"C:/fung/projects/p1",
+                    "projects.active_recording_id":"r1", "projects.created_at":"project-created",
+                })]
+            );
+            let recording = genesis_adapter::query(
+                &storage,
+                "recordings",
+                &[
+                    "id",
+                    "project_id",
+                    "input_path",
+                    "canonical_audio_path",
+                    "duration_ms",
+                ],
+                vec![],
+                10,
+            )
+            .unwrap();
+            assert_eq!(
+                recording,
+                vec![serde_json::json!({
+                    "recordings.id":"r1", "recordings.project_id":"p1",
+                    "recordings.input_path":"D:/incoming/meeting.wav",
+                    "recordings.canonical_audio_path":"C:/fung/projects/p1/r1/meeting.wav",
+                    "recordings.duration_ms":1000,
+                })]
+            );
+            let segment = genesis_adapter::query(
+                &storage,
+                "transcript_segments",
+                &["id", "text", "start_ms", "end_ms"],
+                vec![],
+                10,
+            )
+            .unwrap();
+            assert_eq!(
+                segment,
+                vec![serde_json::json!({
+                    "transcript_segments.id":"s1",
+                    "transcript_segments.text":"ข้อความไทยที่แก้ไขและต้องอยู่หลังเปิดใหม่",
+                    "transcript_segments.start_ms":100, "transcript_segments.end_ms":900,
+                })]
+            );
+            storage.save_state().unwrap();
+        }
+    }
+
+    #[test]
+    fn manual_correction_survives_shutdown_checkpoint_and_process_exit() {
+        let directory = tempfile::tempdir().expect("create isolated Genesis directory");
+        let path = directory.path().join("genesisdb");
+        let test_executable = std::env::current_exe().expect("test executable path");
+        let output = Command::new(&test_executable)
+            .arg("--exact")
+            .arg("transcript_correction_tests::checkpoint_child_writes_and_exits_without_drop")
+            .env("FUNG_TEST_CHECKPOINT_CHILD_PATH", &path)
+            .env("FUNG_TEST_CHECKPOINT_MODE", "checkpoint")
+            .output()
+            .expect("run checkpoint child process");
+        assert!(
+            output.status.success(),
+            "checkpoint child failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let storage = open_storage_at(&path);
+        let segment = genesis_adapter::query(
+            &storage,
+            "transcript_segments",
+            &["text"],
+            vec![genesis_adapter::eq(
+                "transcript_segments",
+                "id",
+                serde_json::json!("s1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .expect("corrected transcript survives process exit");
+        assert_eq!(
+            segment["transcript_segments.text"],
+            "checkpointed native edit"
+        );
+
+        let proposal = genesis_adapter::query(
+            &storage,
+            "transcript_refinement_proposals",
+            &["original_text", "proposed_text", "status"],
+            vec![genesis_adapter::eq(
+                "transcript_refinement_proposals",
+                "transcript_segment_id",
+                serde_json::json!("s1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .expect("accepted correction proposal survives process exit");
+        assert_eq!(
+            proposal["transcript_refinement_proposals.original_text"],
+            "ข้อความเดิม"
+        );
+        assert_eq!(
+            proposal["transcript_refinement_proposals.proposed_text"],
+            "checkpointed native edit"
+        );
+        assert_eq!(
+            proposal["transcript_refinement_proposals.status"],
+            "accepted"
+        );
+
+        let audit = genesis_adapter::query(
+            &storage,
+            "audit_events",
+            &["event_type", "payload_json"],
+            vec![genesis_adapter::eq(
+                "audit_events",
+                "event_type",
+                serde_json::json!("transcript.segment.corrected"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .expect("correction audit event survives process exit");
+        assert_eq!(audit["audit_events.payload_json"]["recordingId"], "r1");
+        assert_eq!(audit["audit_events.payload_json"]["segmentId"], "s1");
+
+        drop(storage);
+    }
+
+    #[test]
+    #[ignore = "manual negative control for process exit without the shutdown checkpoint"]
+    fn diagnostic_process_exit_without_final_checkpoint() {
+        let directory = tempfile::tempdir().expect("create isolated Genesis directory");
+        let path = directory.path().join("genesisdb");
+        let output = Command::new(std::env::current_exe().expect("test executable path"))
+            .arg("--exact")
+            .arg("transcript_correction_tests::checkpoint_child_writes_and_exits_without_drop")
+            .env("FUNG_TEST_CHECKPOINT_CHILD_PATH", &path)
+            .env("FUNG_TEST_CHECKPOINT_MODE", "no-final-checkpoint")
+            .output()
+            .expect("run negative-control child process");
+        assert!(
+            output.status.success(),
+            "negative-control child failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let storage = open_storage_at(&path);
+        let segment = genesis_adapter::query(
+            &storage,
+            "transcript_segments",
+            &["text"],
+            vec![genesis_adapter::eq(
+                "transcript_segments",
+                "id",
+                serde_json::json!("s1"),
+            )],
+            1,
+        )
+        .unwrap()
+        .pop()
+        .expect("baseline transcript survives process exit");
+        println!(
+            "negative_control_final_segment_text={}",
+            segment["transcript_segments.text"]
+        );
+        drop(storage);
     }
 
     #[test]

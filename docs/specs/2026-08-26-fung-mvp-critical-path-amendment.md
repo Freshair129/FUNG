@@ -180,8 +180,8 @@ No other files, migrations, credentials, release artifacts, external systems, or
 - `docs/Desktop/ARCHITECTURE.md` — Desktop-first, local API, Genesis boundary, stateful jobs and local export surface
 - `docs/Desktop/08-real-progress.md` — current Desktop implementation/evidence ledger and 1000-row refusal boundary
 - `docs/Mobile/IMPLEMENTATION_STATUS.md` — mobile evidence boundary; not a dependency for this Desktop MVP
-- `docs/.rwang-progress.md` — controller ledger; T12/T13 overlay; ledger is not edited by this task
-- `docs/.rwang-tasks/task-11-report.md` — restart, visual, device and real-connector UAT boundaries
+- `docs/verification/archive/documentation-maintenance/rwang-progress.md` — controller ledger; T12/T13 overlay; ledger is not edited by this task
+- `docs/verification/archive/documentation-maintenance/rwang/task-11-report.md` — restart, visual, device and real-connector UAT boundaries
 - `src-tauri/src/live_meeting.rs`, `src-tauri/src/lib.rs`, `src-tauri/src/meeting_intel.rs`, `src-tauri/src/transcript_export.rs`
 - `src/components/LiveMeetingPanel.tsx`, `src/App.tsx`, `src/tauri.ts`, `src/lib/jobActions.ts`, `src/lib/meetingSummaries.ts`
 

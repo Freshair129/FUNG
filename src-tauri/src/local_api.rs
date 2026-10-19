@@ -1309,10 +1309,16 @@ fn serve_bytes(audio: Audio, range: Option<&str>) -> Response {
 mod tests {
     use super::*;
     use genesis_block_native::{OpenOptions, Storage};
+    use sha2::{Digest, Sha256};
     use std::path::PathBuf;
 
     fn open_genesis() -> (PathBuf, Storage) {
         let path = std::env::temp_dir().join(format!("fung-local-api-test-{}", Uuid::new_v4()));
+        let storage = open_genesis_at(&path);
+        (path, storage)
+    }
+
+    fn open_genesis_at(path: &Path) -> Storage {
         let storage = Storage::open(OpenOptions {
             path: path.display().to_string(),
             page_cache_mb: Some(16),
@@ -1322,7 +1328,62 @@ mod tests {
         })
         .expect("open GenesisBlockDB");
         genesis_adapter::install(&storage).expect("install schema");
-        (path, storage)
+        storage
+    }
+
+    /// Match the desktop's production Genesis open options in app_state().
+    /// Most local API unit fixtures use a smaller vector dimension, but a
+    /// database copied into the native app must retain the same collection
+    /// definition as the real desktop startup.
+    fn open_desktop_genesis_at(path: &Path) -> Storage {
+        let storage = Storage::open(OpenOptions {
+            path: path.display().to_string(),
+            page_cache_mb: Some(64),
+            read_only: Some(false),
+            vector_dim: Some(384),
+            retention: None,
+        })
+        .expect("open GenesisBlockDB with desktop options");
+        genesis_adapter::install(&storage).expect("install schema");
+        storage
+    }
+
+    struct AcceptanceListener {
+        base_url: String,
+        stop: Arc<AtomicBool>,
+    }
+
+    impl Drop for AcceptanceListener {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn spawn_acceptance_listener(
+        storage: Arc<Storage>,
+        dir: PathBuf,
+        control: LocalApiControl,
+        host: Option<Arc<ImportHost>>,
+    ) -> AcceptanceListener {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind disposable loopback API");
+        let bind = listener
+            .local_addr()
+            .expect("loopback API address")
+            .to_string();
+        let stop = Arc::new(AtomicBool::new(false));
+        spawn_listener(
+            listener,
+            storage,
+            dir,
+            Arc::new(control),
+            host,
+            Arc::clone(&stop),
+        )
+        .expect("start disposable loopback API");
+        AcceptanceListener {
+            base_url: format!("http://{bind}"),
+            stop,
+        }
     }
 
     fn write_wav(path: &Path, sample_rate: u32, samples: &[i16]) {
@@ -2351,17 +2412,72 @@ mod tests {
         );
     }
 
-    /// The real thing, end to end below the browser: the repo's staged
-    /// `.venv-whisper` runtime transcribes an uploaded WAV through the same
-    /// route → pipeline → transcript path the web dashboard uses. Needs the
-    /// runtime staged on this machine (`scripts/stage_whisper_runtime.ps1`)
-    /// and a speech fixture in `FUNG_UPLOAD_FIXTURE`, so it is opt-in:
-    /// `cargo test --lib upload_transcribes_with_the_real_runtime -- --ignored --nocapture`.
+    /// The real thing, end to end below the browser: a staged portable runtime
+    /// transcribes a WAV uploaded over the production loopback listener, then
+    /// production edit/export paths survive reopening the same pinned
+    /// GenesisBlockDB store. Uses a disposable root because it writes recording
+    /// files, exports and a database. This stays opt-in; see the FUNG readiness
+    /// report for the fixture/hash/keyword environment contract.
     #[test]
     #[ignore]
     fn upload_transcribes_with_the_real_runtime() {
-        let fixture = std::env::var("FUNG_UPLOAD_FIXTURE")
-            .expect("FUNG_UPLOAD_FIXTURE=<path to a speech wav>");
+        let fixture = PathBuf::from(
+            std::env::var("FUNG_UPLOAD_FIXTURE")
+                .expect("FUNG_UPLOAD_FIXTURE=<path to a speech wav>"),
+        );
+        let expected_fixture_sha256 = std::env::var("FUNG_UPLOAD_FIXTURE_SHA256")
+            .expect("FUNG_UPLOAD_FIXTURE_SHA256=<expected SHA-256>");
+        assert_eq!(
+            expected_fixture_sha256.len(),
+            64,
+            "expected a SHA-256 hex digest"
+        );
+        assert!(
+            expected_fixture_sha256
+                .chars()
+                .all(|character| character.is_ascii_hexdigit()),
+            "expected fixture SHA-256 must be hexadecimal"
+        );
+        let expected_key_words = std::env::var("FUNG_UPLOAD_EXPECTED_KEYWORDS")
+            .expect("FUNG_UPLOAD_EXPECTED_KEYWORDS=<comma-separated expected speech words>")
+            .split(',')
+            .map(|word| word.trim().to_ascii_lowercase())
+            .filter(|word| !word.is_empty())
+            .collect::<Vec<_>>();
+        assert!(
+            expected_key_words.len() >= 5,
+            "provide at least five expected speech keywords"
+        );
+        assert!(
+            expected_key_words.iter().all(|word| word.is_ascii()),
+            "this acceptance keyword matcher is scoped to English/ASCII fixtures"
+        );
+        let acceptance_root = PathBuf::from(
+            std::env::var("FUNG_ACCEPTANCE_ROOT")
+                .expect("FUNG_ACCEPTANCE_ROOT=<new disposable acceptance directory>"),
+        );
+        assert!(
+            !acceptance_root.exists(),
+            "refusing to reuse acceptance output: {}",
+            acceptance_root.display()
+        );
+
+        assert_eq!(
+            std::env::var("FUNG_TRANSCRIPTION_PROFILE").unwrap_or_default(),
+            "cpu",
+            "acceptance must explicitly use CPU transcription"
+        );
+        assert_eq!(
+            std::env::var("FUNG_TRANSCRIPTION_COMPUTE_TYPE").unwrap_or_default(),
+            "int8",
+            "acceptance must explicitly use CPU int8"
+        );
+        assert_eq!(
+            std::env::var("FUNG_WHISPER_MODEL_PROFILE").unwrap_or_default(),
+            "turbo",
+            "acceptance must use the operational large-v3-turbo model"
+        );
+
         let root = crate::source_root();
         let runtime = WhisperRuntime {
             python: root
@@ -2376,62 +2492,110 @@ mod tests {
             "stage the whisper runtime first: {}",
             runtime.python.display()
         );
+        let runtime_root = runtime
+            .python
+            .parent()
+            .and_then(Path::parent)
+            .expect("portable runtime root");
+        let manifest: Value = serde_json::from_slice(
+            &fs::read(runtime_root.join("manifest.json")).expect("read runtime manifest"),
+        )
+        .expect("parse runtime manifest");
+        assert!(
+            manifest["models"].as_array().is_some_and(|models| {
+                models.iter().any(|model| {
+                    model["name"] == "large-v3-turbo"
+                        && model["revision"] == "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf"
+                })
+            }),
+            "runtime manifest does not contain the pinned turbo model revision"
+        );
 
-        let (dir, storage) = open_genesis();
-        let storage = Arc::new(storage);
-        let data_root = dir.join("data");
+        fs::create_dir_all(&acceptance_root).expect("create disposable acceptance directory");
+        let dir = acceptance_root.join("genesisdb");
+        assert!(
+            !dir.exists(),
+            "refusing to reuse Genesis store: {}",
+            dir.display()
+        );
+        // Production app_state() opens with page_cache_mb=64 and vector_dim=384.
+        // Keep this accepted database compatible with a copied-profile native boot.
+        let storage = Arc::new(open_desktop_genesis_at(&dir));
+        eprintln!("acceptance_genesis_options=page_cache_mb:64,vector_dim:384");
+        let data_root = acceptance_root.join("recordings");
         let recording_output = RecordingOutputManager::load(data_root.clone(), data_root.clone())
             .expect("test recording output manager");
-        let host = ImportHost {
+        let host = Arc::new(ImportHost {
             genesis: storage.clone(),
             recording_output: Arc::new(Mutex::new(recording_output)),
             runtime,
-        };
-        let control = control();
+        });
+        let first_control = control();
+        let listener = spawn_acceptance_listener(
+            Arc::clone(&storage),
+            dir.clone(),
+            first_control.clone(),
+            Some(Arc::clone(&host)),
+        );
+        let base_url = listener.base_url.clone();
+        let client = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .expect("build loopback HTTP client");
         let bytes = fs::read(&fixture).expect("read fixture");
-        let content_type = if fixture.to_ascii_lowercase().ends_with(".wav") {
+        let actual_fixture_sha256 = Sha256::digest(&bytes)
+            .iter()
+            .map(|byte| format!("{byte:02X}"))
+            .collect::<String>();
+        assert_eq!(
+            actual_fixture_sha256,
+            expected_fixture_sha256.to_ascii_uppercase(),
+            "fixture digest mismatch"
+        );
+        let content_type = if fixture
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("wav"))
+        {
             "audio/wav"
         } else {
             "audio/webm"
         };
 
-        let accepted = route(
-            &post(
-                "/recordings/import",
-                &[
-                    ("Authorization", "Bearer secret-token"),
-                    ("Content-Type", content_type),
-                    ("X-Fung-Filename", "real-runtime-check.wav"),
-                ],
-                &bytes,
-            ),
-            &storage,
-            &dir,
-            &control,
-            Some(&host),
-        );
+        let accepted = client
+            .post(format!("{base_url}/recordings/import"))
+            .bearer_auth(&first_control.token)
+            .header("Content-Type", content_type)
+            .header("X-Fung-Filename", "real-runtime-check.wav")
+            .body(bytes.clone())
+            .send()
+            .expect("upload fixture through loopback HTTP");
+        let accepted_status = accepted.status();
+        let accepted_body = accepted.text().expect("read upload receipt");
         assert_eq!(
-            accepted.status,
-            "202 Accepted",
-            "{}",
-            String::from_utf8_lossy(&accepted.body)
+            accepted_status,
+            reqwest::StatusCode::ACCEPTED,
+            "{accepted_body}"
         );
-        let receipt: Value = serde_json::from_slice(&accepted.body).unwrap();
+        let receipt: Value = serde_json::from_str(&accepted_body).unwrap();
         let job_id = receipt["jobId"].as_str().unwrap().to_string();
         let recording_id = receipt["recordingId"].as_str().unwrap().to_string();
+        let project_id = receipt["projectId"].as_str().unwrap().to_string();
 
         let started = std::time::Instant::now();
         let mut status = String::new();
         let mut job = Value::Null;
         while started.elapsed() < Duration::from_secs(300) {
-            let polled = route(
-                &get(&format!("/jobs/{job_id}?token=secret-token"), &[]),
-                &storage,
-                &dir,
-                &control,
-                Some(&host),
-            );
-            job = serde_json::from_slice(&polled.body).unwrap();
+            let polled = client
+                .get(format!(
+                    "{base_url}/jobs/{job_id}?token={}",
+                    first_control.token
+                ))
+                .send()
+                .expect("poll import job through loopback HTTP");
+            assert!(polled.status().is_success(), "job poll failed: {polled:?}");
+            job = polled.json().expect("parse import job response");
             status = job["job"]["status"].as_str().unwrap_or("").to_string();
             if status == "completed" || status == "failed" {
                 break;
@@ -2440,23 +2604,15 @@ mod tests {
         }
         assert_eq!(status, "completed", "job did not complete: {job}");
 
-        let transcript = route(
-            &get(
-                &format!("/recordings/{recording_id}/transcript?token=secret-token"),
-                &[],
-            ),
-            &storage,
-            &dir,
-            &control,
-            Some(&host),
-        );
-        assert_eq!(
-            transcript.status,
-            "200 OK",
-            "{}",
-            String::from_utf8_lossy(&transcript.body)
-        );
-        let body: Value = serde_json::from_slice(&transcript.body).unwrap();
+        let transcript = client
+            .get(format!(
+                "{base_url}/recordings/{recording_id}/transcript?token={}",
+                first_control.token
+            ))
+            .send()
+            .expect("read transcript through loopback HTTP");
+        assert_eq!(transcript.status(), reqwest::StatusCode::OK);
+        let body: Value = transcript.json().expect("parse transcript response");
         let segments = body["transcript"]["segments"].as_array().unwrap();
         assert!(
             !segments.is_empty(),
@@ -2466,25 +2622,268 @@ mod tests {
             .iter()
             .filter_map(|segment| segment["text"].as_str().map(str::to_string))
             .collect();
+        let recognized_words = text
+            .join(" ")
+            .to_ascii_lowercase()
+            .split(|character: char| !character.is_ascii_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .map(str::to_string)
+            .collect::<std::collections::HashSet<_>>();
+        let matched_key_words = expected_key_words
+            .iter()
+            .filter(|word| recognized_words.contains(word.as_str()))
+            .count();
+        let required_key_word_matches = (expected_key_words.len() * 65).div_ceil(100);
+        assert!(
+            matched_key_words >= required_key_word_matches,
+            "actual Whisper transcript matched only {matched_key_words}/{} fixture key words: {}",
+            expected_key_words.len(),
+            text.join(" | ")
+        );
         eprintln!(
-            "real-runtime upload transcribed in {:.1}s: {}",
+            "real-runtime upload transcribed in {:.1}s, matched {matched_key_words}/{} expected keywords: {}",
             started.elapsed().as_secs_f64(),
+            expected_key_words.len(),
             text.join(" | ")
         );
 
-        // The import is now a first-class desktop recording too.
-        let listed = route(
-            &get("/recordings?token=secret-token", &[]),
-            &storage,
-            &dir,
-            &control,
-            Some(&host),
+        // Playback goes through the same authenticated local API route used
+        // by the dashboard and must return the custodied upload bytes.
+        let playback = client
+            .get(format!(
+                "{base_url}/recordings/{recording_id}/audio?channel=file&token={}",
+                first_control.token
+            ))
+            .send()
+            .expect("play imported audio through loopback HTTP");
+        assert_eq!(playback.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            playback
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("audio/wav")
         );
-        let listed: Value = serde_json::from_slice(&listed.body).unwrap();
+        assert_eq!(
+            playback.bytes().expect("read playback body").as_ref(),
+            bytes.as_slice(),
+            "playback must serve the imported fixture"
+        );
+
+        // Manual edits and exports use the production storage functions that
+        // the desktop commands and export job call. They share the API's
+        // Genesis store and the same recording/project IDs.
+        let first_segment = segments.first().expect("at least one transcript segment");
+        let segment_id = first_segment["id"]
+            .as_str()
+            .expect("transcript segment id")
+            .to_string();
+        let original_segment_text = first_segment["text"]
+            .as_str()
+            .expect("transcript segment text")
+            .to_string();
+        let corrected_text = format!("{original_segment_text} [acceptance edit]");
+        crate::correct_transcript_segment_in_storage(
+            &storage,
+            &project_id,
+            &recording_id,
+            &segment_id,
+            &corrected_text,
+        )
+        .expect("correct transcript through the production storage command");
+
+        let subtitles =
+            crate::transcript_export::render_subtitles(&storage, &project_id, &recording_id)
+                .expect("render SRT and VTT through production export code");
+        assert!(subtitles.cue_count > 0);
+        assert!(fs::read_to_string(&subtitles.srt_path)
+            .unwrap()
+            .contains(&corrected_text));
+        assert!(fs::read_to_string(&subtitles.vtt_path)
+            .unwrap()
+            .contains(&corrected_text));
+        let audio_export = crate::audio_export::render_source_audio(
+            &storage,
+            &host.runtime,
+            &project_id,
+            &recording_id,
+        )
+        .expect("render source WAV through production export code")
+        .expect("imported WAV should produce an audio export");
+        assert_eq!(audio_export.kind, "wav");
+        assert_eq!(fs::read(&audio_export.file_path).unwrap(), bytes);
+
+        // The import is now a first-class desktop recording too.
+        let listed: Value = client
+            .get(format!(
+                "{base_url}/recordings?token={}",
+                first_control.token
+            ))
+            .send()
+            .expect("list recordings through loopback HTTP")
+            .json()
+            .expect("parse recordings response");
         assert!(listed["recordings"]
             .as_array()
             .unwrap()
             .iter()
             .any(|recording| recording["id"] == recording_id));
+
+        // Simulate a desktop restart: close all handles, reopen the same
+        // disposable Genesis path with the repository's pinned engine, and
+        // prove job, edited transcript, and export inventory still read back.
+        let worker_drain_started = std::time::Instant::now();
+        while Arc::strong_count(&storage) > 3
+            && worker_drain_started.elapsed() < Duration::from_secs(5)
+        {
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            Arc::strong_count(&storage),
+            3,
+            "import worker must release its Genesis handle before restart"
+        );
+        listener.stop.store(true, Ordering::SeqCst);
+        let listener_drain_started = std::time::Instant::now();
+        while Arc::strong_count(&storage) > 2
+            && listener_drain_started.elapsed() < Duration::from_secs(5)
+        {
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            Arc::strong_count(&storage),
+            2,
+            "loopback listener and request handlers must release Genesis before restart"
+        );
+        drop(host);
+        drop(storage);
+        let storage = Arc::new(open_desktop_genesis_at(&dir));
+        let reopened_control = LocalApiControl {
+            token: "post-restart-token".to_string(),
+            ..control()
+        };
+        let reopened_listener = spawn_acceptance_listener(
+            Arc::clone(&storage),
+            dir.clone(),
+            reopened_control.clone(),
+            None,
+        );
+        let reopened_url = reopened_listener.base_url.clone();
+        let reopened_job: Value = client
+            .get(format!(
+                "{reopened_url}/jobs/{job_id}?token={}",
+                reopened_control.token
+            ))
+            .send()
+            .expect("read job after reopening local service")
+            .json()
+            .expect("parse reopened job response");
+        assert_eq!(reopened_job["job"]["status"], "completed");
+
+        // The next check uses the desktop application, whose startup adopts
+        // any persisted pending work. Keep this acceptance profile safe to
+        // boot while Ollama is reserved elsewhere: every durable job must be
+        // terminal, and this import-only flow must not have queued summary or
+        // intent work as a side effect.
+        let reopened_jobs =
+            genesis_adapter::query_all(&storage, "jobs", &["id", "type", "status"], vec![])
+                .expect("inspect all persisted jobs before native restart acceptance");
+        assert!(
+            !reopened_jobs.is_empty(),
+            "expected the imported transcription job in the disposable ledger"
+        );
+        for row in &reopened_jobs {
+            let job_type = row["jobs.type"].as_str().unwrap_or("");
+            let job_status = row["jobs.status"].as_str().unwrap_or("");
+            assert_eq!(
+                job_status, "completed",
+                "native startup must not inherit pending or failed work: {row}"
+            );
+            assert!(
+                !matches!(
+                    job_type,
+                    "summary.generate" | "intent.infer" | "summary.intent"
+                ),
+                "native startup fixture must not contain summary/intent work: {row}"
+            );
+        }
+
+        let reopened_transcript: Value = client
+            .get(format!(
+                "{reopened_url}/recordings/{recording_id}/transcript?token={}",
+                reopened_control.token
+            ))
+            .send()
+            .expect("read transcript after reopening local service")
+            .json()
+            .expect("parse reopened transcript response");
+        let reopened_segments = reopened_transcript["transcript"]["segments"]
+            .as_array()
+            .expect("reopened transcript segments");
+        assert!(reopened_segments.iter().any(|segment| {
+            segment["id"].as_str() == Some(segment_id.as_str())
+                && segment["text"].as_str() == Some(corrected_text.as_str())
+        }));
+
+        let reopened_recordings: Value = client
+            .get(format!(
+                "{reopened_url}/recordings?token={}",
+                reopened_control.token
+            ))
+            .send()
+            .expect("list recordings after reopening local service")
+            .json()
+            .expect("parse reopened recordings response");
+        assert!(reopened_recordings["recordings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|recording| recording["id"] == recording_id));
+
+        let reopened_exports = genesis_adapter::query_all(
+            &storage,
+            "export_artifacts",
+            &["kind", "file_path"],
+            vec![genesis_adapter::eq(
+                "export_artifacts",
+                "project_id",
+                json!(project_id),
+            )],
+        )
+        .expect("reopen export inventory");
+        let export_kinds = reopened_exports
+            .iter()
+            .filter_map(|row| row["export_artifacts.kind"].as_str().map(str::to_string))
+            .collect::<Vec<_>>();
+        assert!(export_kinds.iter().any(|kind| kind == "srt"));
+        assert!(export_kinds.iter().any(|kind| kind == "vtt"));
+        assert!(export_kinds.iter().any(|kind| kind == "wav"));
+        for row in reopened_exports {
+            let path = row["export_artifacts.file_path"]
+                .as_str()
+                .expect("export artifact path");
+            assert!(
+                Path::new(path).is_file(),
+                "missing export after reopen: {path}"
+            );
+        }
+
+        eprintln!(
+            "restart readback passed; Genesis={}, project={}, recording={}, job={}, exports={:?}",
+            dir.display(),
+            project_id,
+            recording_id,
+            job_id,
+            export_kinds
+        );
+        reopened_listener.stop.store(true, Ordering::SeqCst);
+        let server_drain_started = std::time::Instant::now();
+        while Arc::strong_count(&storage) > 1
+            && server_drain_started.elapsed() < Duration::from_secs(5)
+        {
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(Arc::strong_count(&storage), 1);
+        drop(storage);
     }
 }

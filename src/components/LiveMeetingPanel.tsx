@@ -261,7 +261,11 @@ export async function waitForCaptureInactive(
   } = {},
 ): Promise<LiveStatusOutput> {
   const pollMs = options.pollMs ?? 250;
-  const timeoutMs = options.timeoutMs ?? 12_000;
+  // Final capture cleanup drains channel workers, seals WAV chunks, and may
+  // finish catch-up transcription before the native session is released.
+  // Use a generous limit so slow local transcription does not surface the old
+  // short-timeout error while the native session is still finalizing.
+  const timeoutMs = options.timeoutMs ?? 120_000;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => {
     window.setTimeout(resolve, ms);
   }));
@@ -988,7 +992,7 @@ export function LiveMeetingPanel({
         closePlayer,
         () => liveMeetingStart({
           projectId: options.projectId ?? projectId ?? undefined,
-          captureSystem: options.captureSystem ?? true,
+          captureSystem: options.captureSystem ?? false,
           language: options.language,
           transcriptProfile: options.transcriptProfile,
           micDeviceId: options.micDeviceId,
@@ -1207,7 +1211,7 @@ export function LiveMeetingPanel({
       hidden={!visibleAttribute}
       aria-hidden={!visibleAttribute}
     >
-      <div className="live-panel" role="dialog" aria-modal="true" aria-labelledby="live-workspace-title">
+      <div className="live-panel" role="region" aria-labelledby="live-workspace-title">
         <LiveWorkspace
           selection={selection}
           phase={phase}

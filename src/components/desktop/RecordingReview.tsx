@@ -102,6 +102,7 @@ export type RecordingReviewControllerProps = {
   selectedProjectId: string | null;
   selection: RecordingKey | null;
   onSelect: (selection: RecordingKey | null) => void;
+  onOpenMeetingIntelligence?: () => void;
   scopeChoice?: "A" | "B";
   visible?: boolean;
   registerClosePlayer?: (
@@ -119,6 +120,7 @@ export type RecordingReviewViewProps = FrozenRecordingReviewProps & {
   question: string;
   onQuestionChange: (question: string) => void;
   onAskQuestion: () => Promise<void>;
+  onOpenMeetingIntelligence?: () => void;
   visible?: boolean;
 };
 
@@ -2504,10 +2506,39 @@ export function RecordingReviewView({
   question,
   onQuestionChange,
   onAskQuestion,
+  onOpenMeetingIntelligence,
   visible = true,
 }: RecordingReviewViewProps) {
   const selectedProjectId = selection?.projectId ?? list.data?.projectId ?? null;
   const hasStaleList = list.status === "error" && list.data !== null;
+  const [activeDetailTab, setActiveDetailTab] = useState<"playback" | "transcript" | "insights" | "files">("playback");
+
+  useEffect(() => {
+    setActiveDetailTab("playback");
+  }, [selection?.projectId, selection?.recordingId]);
+
+  const handleDetailTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    current: "playback" | "transcript" | "insights" | "files",
+  ) => {
+    const tabs = ["playback", "transcript", "insights", "files"] as const;
+    const currentIndex = tabs.indexOf(current);
+    const nextIndex = event.key === "ArrowRight"
+      ? (currentIndex + 1) % tabs.length
+      : event.key === "ArrowLeft"
+        ? (currentIndex - 1 + tabs.length) % tabs.length
+        : event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? tabs.length - 1
+            : -1;
+    if (nextIndex < 0) return;
+    event.preventDefault();
+    const next = tabs[nextIndex];
+    if (!next) return;
+    setActiveDetailTab(next);
+    document.getElementById(`review-tab-${next}`)?.focus();
+  };
 
   return (
     <section
@@ -2544,7 +2575,6 @@ export function RecordingReviewView({
                 {selectedProjectId ?? "ยังไม่ได้เลือกโครงการ"}
               </h3>
             </div>
-            <span className="recording-review__scope-badge">scope B</span>
           </div>
 
           <div
@@ -2648,7 +2678,7 @@ export function RecordingReviewView({
           </div>
         </aside>
 
-        <main className="recording-review__detail" aria-labelledby="recording-review-heading">
+        <section className="recording-review__detail" aria-labelledby="recording-review-heading">
           {!selection ? (
             <div className="recording-review__welcome">
               <p className="recording-review__eyebrow">อ่านย้อนหลังแบบเลือกเอง</p>
@@ -2693,35 +2723,104 @@ export function RecordingReviewView({
                       ? "กำลังหยุด"
                       : "ยังบันทึกอยู่"}
                 </span>
+                {onOpenMeetingIntelligence ? (
+                  <button
+                    type="button"
+                    className="recording-review__button"
+                    onClick={onOpenMeetingIntelligence}
+                  >
+                    ผู้ช่วยประชุมในเครื่อง
+                  </button>
+                ) : null}
               </header>
-              <PlaybackPanel
-                recording={recording.data}
-                selection={selection}
-                state={playback}
-                actions={actions}
-              />
-              <TranscriptPanel
-                state={transcript}
-                selection={selection}
-                actions={actions}
-              />
-              <SummaryPanel
-                state={summaries}
-                selection={selection}
-                actions={actions}
-              />
-              <AskPanel
-                state={ask}
-                question={question}
-                selection={selection}
-                onQuestionChange={onQuestionChange}
-                onAskQuestion={onAskQuestion}
-              />
-              <ExportPanel state={exportState} selection={selection} />
-              <ReviewActionsPanel selection={selection} actions={actions} />
+              <div className="recording-review__tabs" role="tablist" aria-label="รายละเอียดการบันทึก">
+                {([
+                  ["playback", "ฟังเสียง"],
+                  ["transcript", "บทถอดเสียง"],
+                  ["insights", "สรุปและถาม"],
+                  ["files", "ไฟล์และเครื่องมือ"],
+                ] as const).map(([tab, label]) => (
+                  <button
+                    key={tab}
+                    id={`review-tab-${tab}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeDetailTab === tab}
+                    aria-controls={`review-panel-${tab}`}
+                    tabIndex={activeDetailTab === tab ? 0 : -1}
+                    className={`recording-review__tab${activeDetailTab === tab ? " is-active" : ""}`}
+                    onKeyDown={(event) => handleDetailTabKeyDown(event, tab)}
+                    onClick={() => setActiveDetailTab(tab)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div
+                id="review-panel-playback"
+                className="recording-review__tab-panel"
+                role="tabpanel"
+                aria-labelledby="review-tab-playback"
+                tabIndex={0}
+                hidden={activeDetailTab !== "playback"}
+              >
+                <PlaybackPanel
+                  recording={recording.data}
+                  selection={selection}
+                  state={playback}
+                  actions={actions}
+                />
+              </div>
+              <div
+                id="review-panel-transcript"
+                className="recording-review__tab-panel"
+                role="tabpanel"
+                aria-labelledby="review-tab-transcript"
+                tabIndex={0}
+                hidden={activeDetailTab !== "transcript"}
+              >
+                <TranscriptPanel
+                  state={transcript}
+                  selection={selection}
+                  actions={actions}
+                />
+              </div>
+              <div
+                id="review-panel-insights"
+                className="recording-review__tab-panel recording-review__tab-panel--grid"
+                role="tabpanel"
+                aria-labelledby="review-tab-insights"
+                tabIndex={0}
+                hidden={activeDetailTab !== "insights"}
+              >
+                <SummaryPanel
+                  state={summaries}
+                  selection={selection}
+                  actions={actions}
+                />
+                <AskPanel
+                  state={ask}
+                  question={question}
+                  selection={selection}
+                  onQuestionChange={onQuestionChange}
+                  onAskQuestion={onAskQuestion}
+                />
+              </div>
+              <div
+                id="review-panel-files"
+                className="recording-review__tab-panel recording-review__tab-panel--grid"
+                role="tabpanel"
+                aria-labelledby="review-tab-files"
+                tabIndex={0}
+                hidden={activeDetailTab !== "files"}
+              >
+                <ExportPanel state={exportState} selection={selection} />
+                <ReviewActionsPanel selection={selection} actions={actions} />
+              </div>
             </div>
           ) : null}
-        </main>
+        </section>
       </div>
     </section>
   );
@@ -2731,6 +2830,7 @@ export function RecordingReview({
   selectedProjectId,
   selection,
   onSelect,
+  onOpenMeetingIntelligence,
   scopeChoice = "B",
   visible = true,
   registerClosePlayer,
@@ -2845,6 +2945,7 @@ export function RecordingReview({
       question={snapshot.question}
       onQuestionChange={(question) => controller.setQuestion(question)}
       onAskQuestion={onAskQuestion}
+      onOpenMeetingIntelligence={onOpenMeetingIntelligence}
       visible={visible}
     />
   );

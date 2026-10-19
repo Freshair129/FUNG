@@ -2590,7 +2590,7 @@
           {
             "name": "Web dashboard",
             "principle": "Reuse semantic colors and type; disclose authentication, local runtime and connection state.",
-            "reference": "docs/WEB_PRODUCTION_DEPLOYMENT.md"
+            "reference": "docs/operations/web-production-deployment.md"
           },
           {
             "name": "Landing",

@@ -1,9 +1,15 @@
-# FUNG Desktop Page Wireframes
+# FUNG Desktop Wireframes
+
+Current Studio shell anatomy, wireflows and 18 detailed Desktop journeys live in
+the [current flow contract](../../design/2026-10-16-desktop-navigation-and-flows.md).
+Current browser screenshots and flow checks are in the [2026-10-16 audit](../../verification/implementation-reports/2026-10-16-wireframe-wireflow-userflow-audit.md).
+
+## Historical P1–P4 set
 
 > Legacy domain-content wireframes. These P1-P4 drawings describe historical
 > workbench content and do not define the current DesktopShell chrome. The
-> current shell is defined by [`2026-09-19-liquid-glass-desktop-shell-refresh.md`](../../design/2026-09-19-liquid-glass-desktop-shell-refresh.md)
-> and [`LIQUID_GLASS_DESKTOP_ADAPTATION.md`](../../FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md).
+> current shell/navigation is defined by the current flow contract above;
+> material rules remain in [`LIQUID_GLASS_DESKTOP_ADAPTATION.md`](../../FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md).
 
 ชุด wireframe ระดับหน้า Desktop สำหรับ P1-P4 โดยยึด `1280 x 720` stage, fixed HUD, P rail, center workbench, Agent card, Sector C และ signal sector ตาม [`03_LAYOUT.md`](../03_LAYOUT.md), [`04-components.md`](../04-components.md) และ [`05-sitemap-ia.md`](../05-sitemap-ia.md)
 
@@ -40,3 +46,6 @@ These are structural wireframes, not final visual mocks. They show ownership, in
 ## Version
 
 `0.1.0b` — first complete P1-P4 page-level wireframe set.
+
+`0.2.0b` — 2026-10-16: indexed current Studio flows and explicitly retained
+the original SVGs as historical domain-content references.

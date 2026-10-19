@@ -1,12 +1,27 @@
 # Changelog
 
+## Home design alignment — 2026-10-19
+
+Mapped the active Desktop palette to existing semantic tokens without adding brand colors, then replaced the Home assistant/activities area with a next-meeting card and a cross-project Task Pool of AI-proposed action items. The appointment card shows empty date, attendee, and topic fields until a calendar source exists; task rows retain their meeting/project context and use explicit urgency/deadline cues for ordering. Added native minimize and system-tray controls to the dock; tray interaction still requires a native build and acceptance pass.
+
+## 1.0.2b — 2026-10-16 — Beta
+
+เชื่อม [Studio flow contract](../design/2026-10-16-desktop-navigation-and-flows.md)
+เป็นเจ้าของ dashboard/bottom-dock layout และ wireframe/wireflow/userflow ปัจจุบัน;
+แยก sidebar รุ่นกันยายนเป็นประวัติ และระบุว่าเหตุรอ Dota สิ้นสุดแล้ว แต่ยังไม่มี
+native frame visual acceptance รอบใหม่ การเปลี่ยนนี้ไม่รับรอง installer/production.
+
+## 1.0.1b — 2026-10-16 — Beta
+
+บันทึก Studio glass frame ตาม implementation ปัจจุบัน: ขอบโปร่งไล่สีและ blur รอบ shell, dock โปร่งสีเข้มเพื่อคง contrast, และ fallback ทึบสำหรับ solid/reduced transparency; เพิ่มหลักฐาน isolated native debug build และ WebView startup โดยระบุชัดว่า native visual acceptance ยังรอหลัง Dota จบ และไม่ใช้ browser screenshot ยืนยัน native transparency
+
 ## Implementation update — 2026-10-16
 
 Established `tokens/fung.tokens.json` as the shared DTCG 2025.10 token authority; generated runtime/Brand Kit CSS, contrast evidence and a cross-surface HTML board from it; redirected former Mobile board URLs; and reconciled Mobile, Desktop, Brand Kit, design brief and docs indexes. Token integration is verified in-repository, while component coverage remains partial and native Figma/full-screen exports remain open.
 
 Added theme-aware component specimens to the board, a generated CSS token-coverage inventory checked by `design-system:check`, and a scoped Desktop Home accessibility evidence report. At that review point the production stylesheet migration and full visual/assistive-technology audit remained open.
 
-Migrated remaining direct semantic color declarations across Desktop, Mobile, Web and Landing styles to canonical tokens. Removed 116 duplicate canonical-token fallback values from five application stylesheets. The source inventory now finds token references in 24/24 application CSS files and zero active flat single-color declarations; embedded material, shadow, gradient and illustration colors remain inventoried for visual review. Component-level rendered parity and full accessibility are still open.
+Migrated remaining direct semantic color declarations across Desktop, Mobile, Web and Landing styles to canonical tokens. Removed 116 duplicate canonical-token fallback values from five application stylesheets. At that implementation update, the source inventory found token references in 24/24 application CSS files and zero active flat single-color declarations; embedded material, shadow, gradient and illustration colors remained inventoried for visual review. The later Studio dashboard integration adds `DesktopStudio.css`; its regenerated inventory reports canonical references in 24/25 stylesheets and 43 flat declarations across the scanned CSS. Component-level rendered parity and full accessibility remain open.
 
 Captured a current production-preview Desktop Home review at 1280×720. The report now includes Home, skip-link focus and skip-link activation screenshots; keyboard navigation reached the skip link and Enter moved focus to the main container. The preview shows separate sidebar/main scroll regions and does not expose native project state. Full route, theme, assistive-technology, zoom and native acceptance remain open.
 

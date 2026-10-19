@@ -308,7 +308,10 @@ if (!fixtureMode) {
     assert.equal(countMatches(appSource, /<LiveMeetingPanel\b/g), 1);
     assert.equal(countMatches(appSource, /<RecordingReview\b/g), 1);
     assert.match(appSource, /visible=\{activeSurface === "live"\}/);
-    assert.match(appSource, /visible=\{activeSurface === "review"\}/);
+    assert.match(appSource, /visible=\{activeSurface === "review" && !meetingIntelligenceOpen\}/);
+    assert.match(appSource, /onOpenMeetingIntelligence=\{\(\) => setMeetingIntelligenceOpen\(true\)\}/);
+    assert.match(appSource, /activeSurface === "review" && meetingIntelligenceOpen && reviewSelection && meetingIntelligenceService/);
+    assert.match(appSource, /onClose=\{\(\) => setMeetingIntelligenceOpen\(false\)\}/);
     assert.match(appSource, /liveStatus=\{liveStatus\}\s+livePhase=\{liveSnapshot\.phase\}/);
     assert.match(appSource, /closeReviewPlayer=\{closeReviewPlayer\}/);
     assert.match(appSource, /onControllerChange=\{handleLiveControllerChange\}/);
@@ -324,7 +327,7 @@ if (!fixtureMode) {
     assert.match(appSource, /projects\.some\(\(project\) => project\.id === selectedRecording\)/);
     assert.doesNotMatch(appSource, /libraryItems\.some\(\(item\) => item\.id === selectedRecording\)/);
     assert.match(appSource, /const \[reviewSelection, setReviewSelection\] = useState/);
-    assert.match(appSource, /selection\.projectId !== selectedProjectId/);
+    assert.match(appSource, /reviewSelection && reviewSelection\.projectId !== selectedProjectId/);
     assert.match(appSource, /NATIVE_UNAVAILABLE/);
     assert.match(appSource, /setProjectState\(createReadState<Project\[\]>\("unavailable"/);
     assert.match(appSource, /project=\{projectState\}/);
@@ -345,6 +348,53 @@ if (!fixtureMode) {
     assert.match(appSource, /<SettingsPanel[\s\S]*invoke=\{nativeInvoke\}/);
     assert.match(mainSource, /if \(rootRoute === "desktop"\) return <App \/>/);
     assert.match(mainSource, /React\.StrictMode/);
+  });
+
+  for (const scenario of ["no-native", "cancel", "picker-error", "project-error", "success"]) {
+    test(`import recovery handles ${scenario} without silent failure`, async () => {
+      const callback = appSource.match(/const handleImportAndTranscribe = async \(\) => \{([\s\S]*?)\n  \};\n\n  const transcriptBlockedReason/);
+      assert.ok(callback, "production import handler must be inspectable");
+      const events = [];
+      const invoke = scenario === "no-native" ? undefined : () => {};
+      const run = new Function("nativeInvoke", "setActionNotice", "pickAudioOrVideoFile", "selectedProjectId", "handleNewProject", "activateAnchor", "activateTile", "setTranscribing", "importAndTranscribe", "setJobs", "pollJobUntilDone", "refresh", `return async () => {${callback[1]}}`)(
+        invoke, (notice) => events.push(["notice", notice]),
+        async () => { events.push(["picker"]); if (scenario === "picker-error") throw Error("picker unavailable"); return scenario === "cancel" ? null : "fixture.wav"; },
+        null,
+        async () => { events.push(["project"]); if (scenario === "project-error") throw Error("project unavailable"); return { id: "fixture-project" }; },
+        () => {}, () => {}, (busy) => events.push(["busy", busy]),
+        async (file, project) => { events.push(["import", file, project]); return { id: "fixture-job" }; },
+        () => {}, async () => ({ status: "completed" }), async () => events.push(["refresh"]),
+      );
+      await run();
+      const notices = events.filter(([kind]) => kind === "notice").map(([, value]) => value).filter(Boolean);
+      if (scenario === "no-native") {
+        assert.match(notices[0], /FUNG Desktop/);
+        assert.ok(!events.some(([kind]) => kind === "picker"));
+      } else if (scenario.endsWith("error")) {
+        assert.match(notices[0], /ไม่สำเร็จ/);
+      } else {
+        assert.equal(notices.length, 0);
+      }
+      if (scenario === "success") {
+        assert.deepEqual(events.find(([kind]) => kind === "import"), ["import", "fixture.wav", "fixture-project"]);
+        assert.ok(events.some(([kind]) => kind === "refresh"));
+      } else {
+        assert.ok(!events.some(([kind]) => kind === "import"));
+      }
+      if (invoke) assert.deepEqual(events.at(-1), ["busy", false]);
+    });
+  }
+
+  test("shell export opens Review without queuing the project-current recording", () => {
+    const callback = appSource.match(/exportMedia:\s*\(\) => \{([\s\S]*?)\},\s*exportDisabled:/);
+    assert.ok(callback, "production shell must expose its export callback");
+    const events = [];
+    const unexpectedQueue = () => { throw new Error("opening export must not create a job"); };
+    const openExport = new Function("openReviewSurface", "setActionNotice", "handleCreateJob", "createJob", callback[1]);
+    openExport(() => events.push("review"), (notice) => events.push(notice), unexpectedQueue, unexpectedQueue);
+    assert.equal(events[0], "review");
+    assert.match(events[1], /ส่งออกบันทึกนี้/);
+    assert.equal(events.length, 2);
   });
 
   test("the new shell owns actions and removes the legacy presentation tree", () => {

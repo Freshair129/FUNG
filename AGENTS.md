@@ -6,5 +6,6 @@ Read in this order:
 2. `docs/Desktop/ARCHITECTURE.md` — system architecture
 3. `docs/Mobile/IMPLEMENTATION_STATUS.md` — mobile ground truth (evidence-based)
 4. `docs/Desktop/08-real-progress.md` — desktop ground truth
+5. `docs/CONTRIBUTING.md` — document placement, lifecycle, metadata, and evidence standard
 
 Rules of engagement live in §9 of the master plan.

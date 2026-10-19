@@ -77,6 +77,25 @@ export type Project = {
   updatedAt: string;
 };
 
+export type DesktopMeetingActionItem = {
+  id: string;
+  title: string;
+  projectId: string;
+  projectName: string;
+  recordingId: string;
+  meetingTitle: string;
+  meetingCreatedAt: string;
+  owner: string | null;
+  confidence: number | null;
+  evidenceCount: number;
+  priority: "urgent" | "deadline" | "unspecified";
+};
+
+export type DesktopMeetingActionItemSnapshot = {
+  items: DesktopMeetingActionItem[];
+  totalCount: number;
+};
+
 export type Job = {
   id: string;
   projectId: string;
@@ -229,6 +248,11 @@ export async function setLocalApiLan(enabled: boolean): Promise<LocalApiInfo> {
 export async function listProjects(): Promise<Project[]> {
   if (!canInvoke()) return [];
   return invoke<Project[]>("list_projects");
+}
+
+export async function listMeetingActionItems(): Promise<DesktopMeetingActionItemSnapshot> {
+  if (!canInvoke()) return { items: [], totalCount: 0 };
+  return invoke<DesktopMeetingActionItemSnapshot>("list_meeting_action_items");
 }
 
 export async function createProject(name: string): Promise<Project> {
@@ -741,6 +765,11 @@ export async function pickRecordingOutputFolder(): Promise<string | null> {
 export async function minimizeWindow(): Promise<void> {
   if (!canInvoke()) return;
   await getCurrentWindow().minimize();
+}
+
+export async function hideWindowToTray(): Promise<void> {
+  if (!canInvoke()) return;
+  await invoke<void>("desktop_window_hide_to_tray");
 }
 
 export async function closeWindow(): Promise<void> {

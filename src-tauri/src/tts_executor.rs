@@ -259,6 +259,49 @@ pub(crate) fn validate_wav(path: &Path) -> Result<(), String> {
     if &header[0..4] != b"RIFF" || &header[8..12] != b"WAVE" {
         return Err("ไฟล์เสียงไม่ถูกรูปแบบ WAV (RIFF header ไม่ถูกต้อง)".into());
     }
+
+    let mut reader =
+        hound::WavReader::open(path).map_err(|error| format!("อ่าน WAV ไม่ได้: {error}"))?;
+    let spec = reader.spec();
+    if spec.sample_rate == 0 || spec.channels == 0 || spec.bits_per_sample == 0 {
+        return Err("ไฟล์เสียง WAV ไม่มี audio format ที่ใช้ได้".into());
+    }
+
+    // A RIFF header alone is not evidence of synthesized audio. Some engines
+    // return a 44–46 byte WAV with zero or one sample when the selected voice
+    // cannot speak the requested language; that used to be reported as a TTS
+    // success and sent to playback.
+    let minimum_frames = (spec.sample_rate / 10).max(1);
+    if reader.duration() < minimum_frames {
+        return Err("เสียงที่สร้างสั้นเกินไปหรือไม่มี sample (ต่ำกว่า 100 ms)".into());
+    }
+
+    let has_signal = match spec.sample_format {
+        hound::SampleFormat::Int => {
+            let mut minimum = i32::MAX;
+            let mut maximum = i32::MIN;
+            for sample in reader.samples::<i32>() {
+                let sample = sample.map_err(|error| format!("อ่าน WAV samples ไม่ได้: {error}"))?;
+                minimum = minimum.min(sample);
+                maximum = maximum.max(sample);
+            }
+            let full_scale = (1_i64 << (spec.bits_per_sample - 1)).max(1) as f64;
+            (i64::from(maximum) - i64::from(minimum)) as f64 / full_scale > 0.0001
+        }
+        hound::SampleFormat::Float => {
+            let mut minimum = f32::INFINITY;
+            let mut maximum = f32::NEG_INFINITY;
+            for sample in reader.samples::<f32>() {
+                let sample = sample.map_err(|error| format!("อ่าน WAV samples ไม่ได้: {error}"))?;
+                minimum = minimum.min(sample);
+                maximum = maximum.max(sample);
+            }
+            f64::from(maximum - minimum) > 0.0001
+        }
+    };
+    if !has_signal {
+        return Err("ไฟล์เสียงที่สร้างไม่มีสัญญาณเสียง (silent output)".into());
+    }
     Ok(())
 }
 
@@ -272,35 +315,51 @@ pub(crate) fn cleanup_temp(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
-    fn make_valid_wav(dir: &Path) -> PathBuf {
-        let path = dir.join("test.wav");
-        let mut f = std::fs::File::create(&path).unwrap();
-        // Minimal valid WAV header (44 bytes)
-        let data_size: u32 = 0;
-        let file_size: u32 = 36; // 44 - 8
-        f.write_all(b"RIFF").unwrap();
-        f.write_all(&file_size.to_le_bytes()).unwrap();
-        f.write_all(b"WAVE").unwrap();
-        f.write_all(b"fmt ").unwrap();
-        f.write_all(&16u32.to_le_bytes()).unwrap(); // chunk size
-        f.write_all(&1u16.to_le_bytes()).unwrap(); // PCM
-        f.write_all(&1u16.to_le_bytes()).unwrap(); // mono
-        f.write_all(&16000u32.to_le_bytes()).unwrap(); // sample rate
-        f.write_all(&32000u32.to_le_bytes()).unwrap(); // byte rate
-        f.write_all(&2u16.to_le_bytes()).unwrap(); // block align
-        f.write_all(&16u16.to_le_bytes()).unwrap(); // bits per sample
-        f.write_all(b"data").unwrap();
-        f.write_all(&data_size.to_le_bytes()).unwrap();
+    fn make_wav(dir: &Path, name: &str, samples: &[i16]) -> PathBuf {
+        let path = dir.join(name);
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&path, spec).unwrap();
+        for sample in samples {
+            writer.write_sample(*sample).unwrap();
+        }
+        writer.finalize().unwrap();
         path
+    }
+
+    fn voiced_samples() -> Vec<i16> {
+        (0..8_000)
+            .map(|index| {
+                let phase = std::f64::consts::TAU * 220.0 * index as f64 / 16_000.0;
+                (phase.sin() * 5_000.0) as i16
+            })
+            .collect()
     }
 
     #[test]
     fn validate_wav_accepts_valid_file() {
         let dir = tempfile::tempdir().unwrap();
-        let path = make_valid_wav(dir.path());
+        let path = make_wav(dir.path(), "test.wav", &voiced_samples());
         assert!(validate_wav(&path).is_ok());
+    }
+
+    #[test]
+    fn validate_wav_rejects_zero_length_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = make_wav(dir.path(), "empty-audio.wav", &[]);
+        assert!(validate_wav(&path).unwrap_err().contains("100 ms"));
+    }
+
+    #[test]
+    fn validate_wav_rejects_silent_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = make_wav(dir.path(), "silent-audio.wav", &vec![0; 8_000]);
+        assert!(validate_wav(&path).unwrap_err().contains("silent output"));
     }
 
     #[test]

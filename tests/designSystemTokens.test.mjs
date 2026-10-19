@@ -98,7 +98,7 @@ test("indexes and desktop glass point to the shared token authority", async () =
 
     for (const [, target] of content.matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
       if (/^(?:https?:|mailto:|#)/i.test(target)) continue;
-      const fileTarget = target.split(/[?#]/, 1)[0].replace(/^<|>$/g, "");
+      const fileTarget = decodeURIComponent(target.split(/[?#]/, 1)[0].replace(/^<|>$/g, ""));
       if (!fileTarget) continue;
       await assert.doesNotReject(
         access(resolve(root, dirname(files[index]), fileTarget)),

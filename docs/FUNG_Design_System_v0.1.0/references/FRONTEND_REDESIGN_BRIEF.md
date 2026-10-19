@@ -1,7 +1,7 @@
 ---
-version: "1.1.0b"
+version: "1.1.1b"
 created_at: "2026-09-16T18:30:00+07:00,Claude"
-last_update: "2026-09-20T03:53:22+07:00,RWANG"
+last_update: "2026-10-19,Codex"
 status: "brief"
 attributes:
   domain: "frontend-redesign"
@@ -15,6 +15,13 @@ attributes:
 Scope correction (2026-09-17): Google Drive is canceled. The redesign covers
 local encrypted backup/restore and must not add Drive controls, Drive OAuth
 copy, Drive commands, or Drive deployment assumptions.
+
+> Desktop navigation was revised after this brief's September snapshot. The
+> current information architecture and navigation owner is the
+> [Studio navigation and flow contract](../../design/2026-10-16-desktop-navigation-and-flows.md):
+> Home, Live meeting and Archive are the three primary destinations; storage
+> location and Appearance are support destinations under More. Use the linked
+> contract for shell layout and tab behavior.
 
 เอกสารชุดเดียวสำหรับทีมออกแบบ UI ใหม่: ผลิตภัณฑ์คืออะไร, ฟีเจอร์ที่มีจริง (และที่ยังไม่มี), หน้าจอ/สถานะที่ต้องรองรับ, โลโก้และ token ที่ใช้อยู่, API ที่ frontend ใหม่ต้องเรียก, และข้อจำกัดที่ทดสอบบังคับไว้ ทุกข้อชี้ไฟล์ต้นทางในโค้ด (`file:line`) ณ `main` วันที่ 16 ก.ย. 2026 (เวอร์ชันแอป 0.1.1)
 
@@ -108,11 +115,11 @@ Type: Fraunces (display), **IBM Plex Sans Thai** (UI ไทย นำ), DM Sans 
 | Story/Creative | ตัด/ย้าย/แยกคลิป, effect chain, agent voice | Mobile StoryEditor/ProcessingStudio | 🧪 บางส่วน fixture | `mobile_story_*`, `mobile_effect_chain_update` |
 | Mobile MCP server | MCP บนมือถือ (ปิด default) | Mobile Devices | ✅ toggle | `mobile_mcp_set_enabled` |
 
-### 3.1 Current Desktop shell delta — 2026-09-20
+### 3.1 Historical Desktop shell snapshot — 2026-09-20 (superseded)
 
-The current desktop shell is implemented by `src/components/desktop/DesktopShell.tsx` and is governed by [`docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md`](../../design/2026-09-19-liquid-glass-desktop-shell-refresh.md) and [`../LIQUID_GLASS_DESKTOP_ADAPTATION.md`](../LIQUID_GLASS_DESKTOP_ADAPTATION.md). The surface contract is:
+This table records the September shell and is historical. The current Desktop shell is implemented by `src/components/desktop/DesktopShell.tsx` and its information architecture is governed by the [Studio navigation and flow contract](../../design/2026-10-16-desktop-navigation-and-flows.md); material behavior remains in the [Liquid Glass addendum](../LIQUID_GLASS_DESKTOP_ADAPTATION.md). Do not use the following sidebar/surface wording as the current sitemap:
 
-| Shell concern | Current contract | Evidence boundary |
+| Shell concern | Historical 2026-09-20 snapshot | Evidence boundary at that time |
 | --- | --- | --- |
 | Active surfaces | `home`, `live`, `review`, `appearance` | `src/components/desktop/contracts.ts`; build and WebView click-through pass |
 | Persistent sidebar | Hover/focus-expandable menu for navigation and bounded actions | No recording start/stop control; Appearance is navigation-only |
@@ -128,7 +135,7 @@ The current desktop shell is implemented by `src/components/desktop/DesktopShell
 
 ### 4.1 Desktop (`src/App.tsx`, 1549 บรรทัด, ไม่มี router)
 
-**Desktop shell** (`src/components/desktop/DesktopShell.tsx`): FUNG / QUIET ARCHIVE header, truthful profile/login state, recording status, hover/focus-expandable sidebar, project context and active-surface main content. The shell surfaces are `home`, `live`, `review` and the dedicated `appearance` page.
+**Desktop shell** (`src/components/desktop/DesktopShell.tsx`): Studio shell with a persistent dock for Home, Live meeting and Archive; Storage location and Appearance are secondary More destinations. Project, Settings, Companion and window actions stay in utility areas. See the current Studio flow contract for exact ownership and responsive behavior.
 
 **Home**: project context, `เริ่มประชุม` and media import actions. The persistent sidebar does not own recording start/stop.
 
@@ -136,7 +143,7 @@ The current desktop shell is implemented by `src/components/desktop/DesktopShell
 
 **Review**: recording history/review remains read-only and scoped to the selected project/recording pair.
 
-**Appearance**: theme, material and transparency controls render as a dedicated main-content page; the sidebar only navigates to it.
+**Appearance**: theme, material and transparency controls render as a support page reached from More.
 
 The shell no longer exposes app-level `ย่อ` / `ปิด` buttons. Native OS titlebar controls and the Tauri drag region remain outside the FUNG content contract.
 
@@ -146,7 +153,7 @@ Overlay: `RecoveryNotice`, `SettingsPanel` (7 tab: External Connections, Sign In
 
 **Panel อื่นที่มี copy/สถานะเฉพาะ**: BackupPanel (phrase 24 คำแสดงครั้งเดียว), CloudProvidersPanel (5 slot คงที่, daily cap), TtsProviderPanel (3 runtime type), MediaFetchPanel (3 สถานะแยกด้วย `blockerCode`), ZoomPanel, ExternalAccountPanel (**อังกฤษล้วน**, ปุ่ม disabled ถาวร), DevicePairingPanel (รหัส 6 หลัก + นับถอยหลัง, FUNGWIRE switch), AccountLoginPanel (ชื่ออุปกรณ์, สถานะรออนุมัติ)
 
-รายละเอียด copy ทุกปุ่ม/สถานะดู `docs/UI_INTERFACE_INVENTORY.md` และไฟล์ component โดยตรง
+รายละเอียด copy ทุกปุ่ม/สถานะดู `docs/design/interface-inventory.md` และไฟล์ component โดยตรง
 
 ### 4.2 Mobile (`src/mobile/MobileApp.tsx`, 1215 บรรทัด)
 
@@ -333,4 +340,4 @@ LAN TCP + Noise KK เฉพาะอุปกรณ์ที่จับคู�
 
 ## เอกสารอ้างอิงเพิ่มเติม (ในรีโป)
 
-อ่านก่อน: `docs/UI_INTERFACE_INVENTORY.md` (beta 2026-09-20), `../../design/2026-09-19-liquid-glass-desktop-shell-refresh.md` (Desktop shell current truth), `../LIQUID_GLASS_DESKTOP_ADAPTATION.md`, `docs/Mobile/PRODUCT_UX_SPEC.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md`, `docs/Mobile/DESIGN_SYSTEM.md`, `docs/Desktop/02-tokens.md` + `04-components.md` (legacy/domain intent), `docs/app/WEB_LANDING_PAGE_PROPOSAL.md`, `docs/WEB_PRODUCTION_DEPLOYMENT.md`, `docs/appendices/E-egress-register.md`, `docs/Desktop/08-real-progress.md` (สถานะจริงล่าสุด) · superseded shell reference: `docs/superpowers/specs/2026-08-29-desktop-sitemap-redesign-design.md`
+อ่านก่อน: `docs/design/interface-inventory.md`, `../../design/2026-10-16-desktop-navigation-and-flows.md` (current Desktop shell and sitemap), `../LIQUID_GLASS_DESKTOP_ADAPTATION.md`, `docs/Mobile/PRODUCT_UX_SPEC.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md`, `docs/Mobile/DESIGN_SYSTEM.md`, `docs/Desktop/02-tokens.md` + `04-components.md` (legacy/domain intent), `docs/app/WEB_LANDING_PAGE_PROPOSAL.md`, `docs/operations/web-production-deployment.md`, `docs/appendices/E-egress-register.md`, `docs/Desktop/08-real-progress.md` (สถานะจริงล่าสุด) · superseded shell references: `docs/Desktop/05-sitemap-ia.md`, `docs/superpowers/specs/2026-08-29-desktop-sitemap-redesign-design.md`

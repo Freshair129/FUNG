@@ -107,6 +107,7 @@ function utteranceStateLabel(state: TranscriptUtterance["state"]): string {
   if (state === "provisional") return "ชั่วคราว";
   if (state === "committed") return "ยืนยันแล้ว";
   if (state === "reviewed") return "ตรวจแก้แล้ว";
+  if (state === "legacy_read_only") return "อ่านอย่างเดียว";
   return "ถอนออก";
 }
 

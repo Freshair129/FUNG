@@ -1,7 +1,7 @@
 ---
-version: "0.1.3b"
+version: "0.1.4b"
 created_at: "2026-09-17T02:07:29+07:00"
-last_update: "2026-09-20T22:47:23+07:00,RWANG"
+last_update: "2026-10-19,Codex"
 status: candidate
 superseded_by: null
 base_sha: 376ef30db13670e4dea816ceff440f44ce73fffd
@@ -15,6 +15,11 @@ attributes:
 ---
 
 # FUNG desktop: Home, Live, Recording review
+
+> The SVG/PNG boards below preserve the September three-surface design. Current
+> Studio shell placement and navigation follow [current flows](2026-10-16-desktop-navigation-and-flows.md).
+> P1-B recording/playback/Q&A scope contracts retain their own authority;
+> these static mockups are not current runtime screenshots.
 
 ## 1. Authority and review decision
 
@@ -183,11 +188,13 @@ Reopen after restart does not auto-resume playback or label an interrupted recor
 
 ## 7A. Recording output destination — O1–O4
 
-`ไฟล์บันทึก` is a dedicated main-content surface reachable from the hover/focus
-sidebar. It shows the current user-visible output path, writable/unavailable
+The `output` surface is **ตำแหน่งจัดเก็บ**, reached from **More → ตำแหน่ง
+จัดเก็บ** in the current shell. This supersedes the older hover/focus sidebar
+placement. It shows the current user-visible output path, writable/unavailable
 state, the native **เลือกโฟลเดอร์** action and **คืนค่าเริ่มต้น** action. The
 renderer never writes a path directly; the native command validates and
-persists the selected absolute directory.
+persists the selected absolute directory. See the [current Studio flow
+contract](2026-10-16-desktop-navigation-and-flows.md) for the primary sitemap.
 
 The default is the native Documents directory plus `fung`. Changing the
 destination affects new projects and new output only. Existing AppData or
@@ -285,11 +292,14 @@ the local automated/WebView evidence boundary; native device UAT remains NOT_RUN
 0.1.2b → 0.1.3b: add the dedicated `ไฟล์บันทึก` surface, selectable output
 destination behavior, capture lock and legacy-root notice; native output-path
 smoke remains NOT_RUN.
+0.1.3b → 0.1.4b: correct output navigation to More → Storage location and
+link the current task-first sitemap; recording custody behavior is unchanged.
 
 ## CHANGELOG
 
 | Version | Timestamp (+07:00) | Status | Change | Commit |
 |---|---|---|---|---|
+| 0.1.4b | 2026-10-19 | candidate | Corrected recording-output navigation placement to More → Storage location and linked the current sitemap. | working-tree |
 | 0.1.3b | 2026-09-20T22:47:23+07:00 | candidate | Added the recording output destination surface and documented its native picker, capture lock and legacy custody behavior; native path smoke remains NOT_RUN | working-tree |
 | 0.1.2b | 2026-09-20T22:05:05+07:00 | candidate | Added source-level mic/loopback preflight selector semantics and synced the local/WebView verification boundary; native device UAT remains NOT_RUN | working-tree |
 | 0.1.1b | 2026-09-17T03:18:33+07:00 | candidate | Approved-scope authority/order and scoped SVG/PNG acceptance alignment; visual assets and semantics unchanged; runtime remains NOT_RUN | UNCOMMITTED; base 376ef30 |

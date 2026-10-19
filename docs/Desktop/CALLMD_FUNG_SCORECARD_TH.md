@@ -3,7 +3,7 @@ version: "0.2.0b"
 created_at: "2026-08-09T00:00:00+07:00,CLAUDE"
 last_update: "2026-08-11T10:37:54+07:00,Agent: ATHER"
 status: "superseded"
-superseded_by: "docs/DOC_PREFLIGHT_2026-08-11.md"
+superseded_by: "docs/verification/preflight/2026-08-11-doc-preflight.md"
 attributes:
   domain: "local-first-audio-ai"
   doc_type: "competitive-analysis"
@@ -14,7 +14,7 @@ related:
 
 # Call.md × FUNG — วิเคราะห์เทียบจากซอร์สโค้ดจริง พร้อมคะแนนและแผนดำเนินการ
 
-> **Historical implementation snapshot:** คะแนนและข้อความสถานะ FUNG ด้านล่างสะท้อนฐานที่ผู้เขียนตรวจ ณ 2026-08-09 และต้องไม่ใช้เป็น current implementation truth หลัง Live Meeting commits วันที่ 2026-08-10 เอกสาร current truth คือ `docs/Desktop/08-real-progress.md` และ `docs/DOC_PREFLIGHT_2026-08-11.md`
+> **Historical implementation snapshot:** คะแนนและข้อความสถานะ FUNG ด้านล่างสะท้อนฐานที่ผู้เขียนตรวจ ณ 2026-08-09 และต้องไม่ใช้เป็น current implementation truth หลัง Live Meeting commits วันที่ 2026-08-10 เอกสาร current truth คือ `docs/Desktop/08-real-progress.md` และ [เอกสาร preflight ณ 2026-08-11](../verification/preflight/2026-08-11-doc-preflight.md)
 
 ## Current-State Correction — 2026-08-11
 

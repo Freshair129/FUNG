@@ -1,7 +1,7 @@
 ---
-version: "1.1.1b"
+version: "1.2.0b"
 created_at: "2026-07-05T00:00:00+07:00,ATHER"
-last_update: "2026-09-23T01:22:19+07:00,RWANG"
+last_update: "2026-10-16,Codex"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -42,6 +42,11 @@ Desktop เป็น primary runtime สำหรับ recording, local files, 
 
 ## Architecture Overview
 
+The runtime diagram below describes the intended component boundary. Use the
+three-layer ownership view and its implementation evidence below to distinguish
+existing local behavior from target capabilities. Implementation acceptance is
+tracked in [Desktop progress](08-real-progress.md), not inferred from a diagram.
+
 ```mermaid
 flowchart LR
     UI["Tauri v2 React UI"] --> Bridge["Tauri Command Bridge"]
@@ -62,6 +67,174 @@ flowchart LR
     Models --> LocalAPI["OpenAI-Compatible Local API"]
     Audio --> Files["Local Project Files"]
 ```
+
+## Document and Knowledge Architecture — Three Layers
+
+This is the parent ownership map for FUNG documents, meeting evidence and AI
+answers. Detailed behavior remains owned by the [knowledge/evidence
+spec](../specs/2026-09-21-meeting-knowledge-evidence-spec.md), the [meeting domain
+map](../architecture/MEETING_INTELLIGENCE_DOMAINS.md) and their approved amendments.
+The three layers are logical responsibilities; they do not require three
+databases or three deployed services. Repository documentation authority and
+runtime data authority are separate concepts.
+
+```mermaid
+flowchart TB
+    subgraph truth["1. Source of Truth"]
+        files["File system: source and encrypted artifact custody"]
+        genesis["GenesisBlockDB: entities, versions, provenance and audit"]
+        postgres["Supabase / PostgreSQL: account and device control plane"]
+        rustfs["RustFS: proposed object-custody option"]
+        genesis --- files
+        postgres -. identity references only .-> genesis
+        rustfs -. future custody adapter .-> genesis
+    end
+    subgraph retrieval["2. Retrieval Layer"]
+        index["Derived chunks / search indexes; version and scope bound"]
+    end
+    subgraph intelligence["3. Intelligence Layer"]
+        extract["Extraction and entity-link candidates"]
+        answer["AI / RAG / proposed GKS orchestration"]
+        verify["Verification, citations and private draft"]
+    end
+    files --> extract
+    extract -->|validated persistence through FUNG commands| genesis
+    genesis -->|authorized source versions| index
+    answer -->|scoped retrieval| index
+    index -->|evidence candidates| verify
+    genesis -->|source version and current access checks| verify
+    verify -->|review or permitted state transition| genesis
+```
+
+### 1. Source of Truth — ownership, identity and custody
+
+Each class of data has one authoritative writer and a declared custody location.
+Trust means traceable origin, integrity, version and authorization; persistence
+or a model confidence score alone does not establish that a claim is correct.
+
+| Store / boundary | Authority and responsibility | Current versus target |
+| --- | --- | --- |
+| File system | Original audio and selected source bytes; encrypted document/chunk assets and exports. A custody reference locates bytes; the registered entity/version and hash identify them. | Local custody is implemented in `genesis_adapter.rs` and `meeting_knowledge.rs`. A path or filename alone is not a stable identity or an authorization grant. |
+| GenesisBlockDB | FUNG application entities, PK/FK relations, source versions, private-asset metadata, evidence references and audit records through the FUNG adapter. Internal SQLite/WAL/graph/vector details remain engine-owned. | Embedded adapter and versioned relational schema are present. Generic engine capabilities do not establish that every FUNG document/search feature is wired. |
+| PostgreSQL through Supabase | Auth/profile and device-enrollment control-plane records within their server authority. FUNG carries identity references across this boundary. | Repository implementation and historical deployment evidence exist in the [Supabase control-plane contract](../../supabase/README.md). It excludes audio, transcripts, notes, embeddings, graph/WAL and Genesis exports. This review does not revalidate hosted state. A PostgreSQL document store would be a new decision. |
+| RustFS | Candidate object custody for large immutable/versioned artifacts, referenced from authoritative metadata. | Proposed only: no FUNG adapter or deployment evidence was found in the inspected source. Selection requires a storage/retention/access decision; no automatic upload or second metadata authority is implied. |
+
+The existing [Genesis adapter schema](../../src-tauri/src/genesis_adapter.rs)
+uses `id` as the primary key. Its declared knowledge FK chain is
+`knowledge_documents.collection_id -> knowledge_collections.id`,
+`knowledge_document_versions.document_id -> knowledge_documents.id`, and
+`knowledge_chunks.version_id -> knowledge_document_versions.id`; metric
+observations also reference a document version. A unique `(document_id,
+version_no)` identifies a document revision within its document. Project,
+owner/vault and session scope checks remain necessary in addition to FK checks.
+`current_version_id`, custody references and JSON evidence references must not
+be described as database-enforced FKs merely because they contain IDs; the
+adapter validates their applicable ownership/version relationships.
+
+Keep these identities distinct: stable document/entity ID, document version
+ID/number, schema contract version, parser/model fingerprint, index generation,
+ACL revision, and model-run/evidence-bundle ID. A corrected transcript or source
+creates a traceable revision under its feature contract. An extracted entity
+link is an assertion about entities, not a reason to silently rewrite their PKs.
+Document-level canonical entity resolution beyond existing reviewed People links
+and recording graph extraction remains a target capability.
+
+Source, extracted content and model output retain provenance separately. Audit
+records describe actor, action, outcome and references to the affected revision;
+they do not certify the truth of extracted content. WAL durability and
+application audit are different responsibilities. Private content and secrets
+must follow the existing vault/keyring policy rather than being copied into
+general logs. Cross-store SQL FKs or a transaction spanning files, PostgreSQL,
+RustFS and GenesisBlockDB are not present. Any new custody adapter must specify
+staging, metadata commit, orphan cleanup, retry and restore reconciliation before
+activation; an acknowledged metadata write alone is not proof of recoverable bytes.
+
+### 2. Retrieval Layer — Search Index
+
+Search returns evidence candidates from permitted source versions. Chunks,
+lexical terms, embeddings and graph retrieval projections carry provenance back
+to those versions; ranking cannot promote a candidate to a trusted fact.
+
+Current selected-document retrieval is bounded local lexical scoring over
+authorized encrypted chunks in
+[`search_selected_knowledge`](../../src-tauri/src/meeting_knowledge.rs).
+The adapter loads selected active documents/versions and the read boundary
+checks scope and grants before decryption. This is not evidence of a dedicated
+external search service or a completed vector-search ingestion pipeline.
+The schema includes `knowledge_index_runs` and chunk `index_generation`, but
+the current import writes generation `1`; a schema field does not prove an
+atomic multi-generation index publication/rebuild lifecycle.
+
+The target index contract from the knowledge spec is: bind an index run to exact
+input versions, parser/embedding/config fingerprints, coverage and errors; publish
+one coherent generation; disclose partial coverage and stale/unavailable state;
+rebuild derived indexes from retained authorized source versions. Replacement
+must not mix an old title/locator with new content. A missing source or parser
+prevents a reproducible rebuild and must be reported. Revocation/deletion makes
+the source ineligible immediately; derived indexes, caches and unsent evidence
+then follow retention policy. Rebuild, backup restore and revocation propagation
+need their own acceptance evidence before being called complete.
+
+### 3. Intelligence Layer — AI / RAG / Genesis Knowledge System
+
+FUNG owns extraction, entity-link review, query planning, evidence selection,
+claim verification and answer presentation. **Genesis Knowledge System (GKS)**
+is a proposed name for orchestration of those responsibilities here, not an
+installed FUNG service or another name for GenesisBlockDB. Its deployment and
+adapter contract remain undecided. Current building blocks include
+[`graph_build.rs`](../../src-tauri/src/graph_build.rs) (structural graph plus
+model-extracted topics/decisions/actions with transcript evidence), local
+knowledge parsing/retrieval, reviewed People links and the local agent draft flow.
+
+| Handoff | Required evidence and boundary |
+| --- | --- |
+| Source -> extraction | Native-selected custody, byte hash and source version; parser/version fingerprint and bounded locators. Current import supports TXT/Markdown and Windows sandboxed text-PDF; other formats/OCR require separate qualification. |
+| Extraction -> entity linking | Preserve source spans, extraction provenance and uncertainty. Resolve aliases within authorized scope; ambiguous links remain candidates until the owning review/policy accepts them. |
+| Query -> retrieval | Explicit selected collection/project/session scope, current identity/access grants, bounded query and limits. Models cannot broaden scope or use document instructions as permission. |
+| Retrieved evidence -> verification | Recheck version and access; inspect claim support, contradictions and gaps. Typed numeric computations retain units, periods and source operands. Confidence, similarity and successful parsing are not verification. |
+| Verification -> citation/draft | Bind each supported claim to exact source version/hash and locator. Missing, conflicting or stale evidence yields clarification, partial/unavailable status or an unsupported claim label. Drafting has no send side effect. |
+| Draft -> publication | Existing audience/share policy, exact preview/hash, approval and delivery receipt contract apply. Read permission does not grant publication permission; local approval does not prove provider delivery. |
+
+The current `EvidenceCitation` records collection/document/version IDs and
+version number, source-version label, content hash, typed locator, retrieval time,
+read-grant ID and ACL revision. `EvidenceCitation.content_sha256` is the SHA-256
+of the extracted chunk's UTF-8 text (`knowledge_chunks.content_hash`), not the
+original file digest. The original selected-file byte digest is stored separately
+in `knowledge_document_versions.content_hash`; current import also uses it as
+`version_label` / citation `source_version`. Resolve the authorized version row
+before verifying the original bytes, and verify a chunk against its own digest.
+Do not assume future version labels will always be file digests.
+
+Current TXT/Markdown and text-PDF `start_char` / `end_char` locators are zero-based
+Unicode scalar-value offsets into the parser's extracted text, with an exclusive
+end. They follow Python string indexing and Rust `.chars()`, not UTF-8 byte,
+UTF-16 code-unit or user-perceived grapheme indexes. TXT/Markdown offsets are
+document-relative and line numbers are one-based; PDF offsets are page-relative,
+with a one-based `page_number`. Chunking preserves the parser page's offset base.
+A JavaScript citation viewer must convert scalar offsets before using UTF-16
+string APIs when supplementary characters occur. Thai combining sequences must
+not be collapsed to grapheme indexes. Normalizing or reparsing text requires an
+explicit locator mapping.
+Locator type definitions for spreadsheets/transcripts do not
+by themselves prove an ingestion or citation-viewer flow for every format.
+Revalidate source/account/access state before revealing or publishing content.
+
+### Evidence and remaining decisions
+
+The 2026-10-16 architecture review checked source and existing reports; it did
+not execute native knowledge ingestion or retrieval. The subsequent
+[UI flow audit](../verification/implementation-reports/2026-10-16-wireframe-wireflow-userflow-audit.md)
+records its own browser/CPU checks and retains the native knowledge gates.
+The [local M1–M5 implementation report](../verification/implementation-reports/2026-09-24-meeting-intelligence-local-adapters.md)
+and [current Desktop progress](08-real-progress.md) own verification history and
+remaining provider/device/installed-artifact/release gates. The architecture map
+does not close those gates.
+
+Remaining design decisions are RustFS deployment/custody policy; any expansion
+of PostgreSQL beyond the current control plane; the GKS service/module boundary;
+canonical document-entity linking and promotion policy; and executable index
+generation/rebuild/retention acceptance. These require focused contracts and
+evidence before changing application storage or activating external services.
 
 ## Key Components
 
@@ -163,12 +336,13 @@ Local-only capture remains available. API mode explicitly discloses third-party 
 
 Existing manual external MCP stays read-only/per-call approved. The new participant/publication boundary is separately default-off. Meeting Agent cannot call vendor endpoints directly from model-generated tools or UI code.
 
-The full D1–D13 schemas, commands, gateway, auto-publication and latency
-targets remain **target contracts, not implemented claims**. The sole bounded
-local exception is the `meeting-intelligence-v1` native SI/D8
-AccountCommitFence foundation, implemented in `85c96ed` and independently
-accepted as bounded N4/G1 local evidence. It does not implement or accept M1–M5,
-provider/native/real-room, release or production capability. Speaker recognition
+The original 2026-09-21 proposal and bounded R3 AccountCommitFence foundation
+were followed by the approved local M1–M5 implementation recorded in
+[Desktop progress](08-real-progress.md) and its linked 2026-09-24 implementation
+report. Local revisioned transcripts, selected knowledge/People operations,
+private agent drafts and preview/outbox controls have source and recorded local
+verification evidence. Full provider gateway, real-room publication/receipts,
+latency, device and release acceptance remain separate gates. Speaker recognition
 remains optional when participant-track attribution is sufficient; shared-room
 microphones still need anonymous diarization/review.
 
@@ -231,6 +405,7 @@ microphones still need anonymous diarization/review.
 
 | Version | Change |
 | --- | --- |
+| 1.2.0b | Added the three-layer document/knowledge ownership map, current storage and retrieval evidence, identity/citation/trust boundaries and remaining decisions; reconciled the local M1–M5 status pointer. |
 | 1.1.1b | Clarified the bounded R3 native SI/D8 AccountCommitFence implementation exception without promoting the broader D1–D13 meeting-intelligence contracts to implementation. |
 | 1.1.0b | Added candidate live-transcript, knowledge, Google Meet agent and governed external gateway boundaries while retaining Genesis authority. |
 | 0.1.0b | Initial architecture with desktop-first Tauri v2, SQLite WAL, GenesisBlockDB, API, MCP, CLI, BYOM runtimes, and stateful jobs. |
@@ -240,6 +415,7 @@ microphones still need anonymous diarization/review.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 1.2.0b | 2026-10-16 | candidate | Reviewed Source of Truth, Retrieval and Intelligence ownership; distinguished existing Genesis/files/Supabase behavior from proposed RustFS/GKS/index lifecycle. Documentation review only; no runtime verification. | working-tree | Codex (Astra review) |
 | 1.1.1b | 2026-09-23 | candidate | Clarified current bounded R3 AccountCommitFence evidence versus the still-candidate D1–D13 capability surface. | working-tree | RWANG |
 | 1.1.0b | 2026-09-21 | candidate | Added candidate live-transcript, knowledge, Google Meet agent and governed external gateway boundaries while retaining Genesis authority. | working-tree | RWANG |
 | 0.1.0b | 2026-07-05 | beta | Initial technical design. | N/A | ATHER |

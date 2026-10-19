@@ -1,0 +1,46 @@
+# RWANG Subagent Progress Ledger
+
+| Task | Status | Subagent | Review | Notes |
+|------|--------|----------|--------|-------|
+| T1: Documentation preflight audit | ✅ done_with_concerns | preflight_worker | PASS (audit quality) | CRIT-06 source-vs-requirements contradiction and zero executable requirement annotations remain blocking project findings. Preflight artifacts refreshed. |
+| T2: Document relationship and traceability audit | ✅ done_with_concerns | traceability_worker | PASS (audit integrity) | Historical snapshot recorded 58 nodes, 169 relationships, 18 manual relations, no hash mismatches, and one contradiction; manual coverage remained non-executable and the candidate requirements conflict remained open. |
+| T3: Cross-document consistency audit | ✅ done_with_concerns | crossdoc_auditor | FAIL (project documentation gate) | Five hard findings and five soft warnings; command/API/entity alignment otherwise passed and focused frontend test passed 5/5. |
+| T4: Hard-finding documentation reconciliation | ✅ done_with_concerns | hardfinding_fixer + fr101_fix | PASS (fix cycle 1) | H1/H2/H4/H5 and stale FR-101 claim corrected; H3 and all UAT/reflight gates remain open. |
+| T5: Post-fix preflight and traceability rerun | ✅ done_with_concerns | postfix_auditor + postfix_reviewer | PASS WITH WARNING (fix cycles 1-2) | 0 current CRITICAL; historical snapshot recorded 58 nodes/169 relationships, 26/26 hash-bearing nodes matched, 22/26 code and 16/26 test mappings, 0 open contradictions, and 1 resolved historical finding. H3/UAT gates remain open. |
+| T6: Traceability annotation contract (RED) | ✅ done | traceability_red | PASS | Focused contract covers exactly six implementation and two test files; RED is 48 missing annotations only, with no unknown IDs. |
+| T7: Scoped source/test annotations (GREEN) | ✅ done | traceability_green + traceability_transport_fix | PASS (fix cycle 1) | 47 canonical IDs across 8 surfaces; `@tested` transport target points to inline `#tests`; traceability test GREEN. |
+| T8: Annotation/traceability reflight | ✅ done_with_concerns | annotation_traceability_reflight + annotation_traceability_reviewer | PASS WITH WARN | Historical snapshot recorded 60 nodes/217 relationships; 47 annotation relations, 18 manual relations, 0 open contradictions, and 28/28 hashes. Preflight wording fix required and completed in T9. |
+| T9: Preflight staleness-wording fix | ✅ done_with_concerns | preflight_staleness_fix + preflight_count_fix2 | PASS WITH WARN (fix cycles 1-2) | WARN-03 now accurately lists four untracked mapped docs; 28/28 hashes current, stale_edges 0; commit-date provenance remains open. |
+
+| T10: Expanded all-26 annotation reflight | ✅ done | preflight_staleness_reviewer | PASS | 68 required/observed `@req` occurrences across 11 files; 26/26 IDs in the combined implementation/test contract, 238 historical relationships, 18 manual relations, 28/28 hashes, and no stale relationships. |
+| T11: Runtime/UAT gate recheck and full Rust regression | ✅ done_with_concerns | controller | PASS WITH WARN | `cargo test --lib` 195/195; Windows close/relaunch smoke preserved base Genesis rows. Visual/keyboard, real-device, real-connector, and summary/export-after-restart gates remain blocked/open with evidence in `task-11-report.md`. |
+
+## MVP-first reprioritization overlay (2026-08-26)
+
+| Task | Status | Subagent | Review | Notes |
+|------|--------|----------|--------|-------|
+| T12: MVP critical-path amendment | ✅ done_with_concerns | Luna 5.6 | pending Terra gate | Candidate defines D-MVP-01 through D-MVP-05; runtime proof, terminology, long-session pagination, and exact source alignment require review. |
+| T13: MVP amendment review gate | ✅ done | Terra 5.6 | ALL PASS (fix cycle 1) | Candidate v0.1.1b hash `3F8C7121BD1399696360670A86B5E4E7CC167482E4E0D0D8F0A011DA8B0A14A9`; no implementation before Boss exact-scope approval. |
+| T14: Docs/code truth sync | ✅ done_with_concerns | controller + doc-preflight + traceability audit | PASS WITH WARN | Google Drive/D-GDA3 lifecycle status, current main evidence, traceability, and Recording2 artifact portability are synced. The historical snapshot recorded 105 nodes/335 relationships, no missing endpoints, and no hash mismatches. W1 executable PostgreSQL verification is skipped without Docker; external/provider/device/production gates remain open. |
+
+## Phase 3 post-merge overlay (2026-08-12)
+
+The Phase 3 follow-up is merged into `main` at `cea2d93` (PR #10). It contains
+only the Python worker runtime hardening and focused concat contract added by
+the follow-up.
+The regression matrix is Rust 195/195, Python 5/5, mobile 4/4, auth 5/5,
+design-system 2/2 and Vite/TypeScript build pass. GitHub post-merge CI run
+`31609642060` passed for both frontend and Rust. Real provider/device UAT and
+release/product gates remain open.
+
+## Controller Gate
+
+- Trust hierarchy: Code > SDD/design > PRD/requirements.
+- Hard-gate findings (completeness, traceability, consistency) must be resolved or reported as blocking.
+- Workers must use file handoffs; no pasted prior-task summaries.
+- No commit, push, or unrelated cleanup is authorized by this ledger.
+- Current gate state: local Google Drive/Native Broker implementation is
+  accepted through D-GDA6 and documentation is truth-synced. W1 executable
+  PostgreSQL verification is environment-bounded on this host; external,
+  provider, device, release, and production blockers remain explicit and are
+  not waived.

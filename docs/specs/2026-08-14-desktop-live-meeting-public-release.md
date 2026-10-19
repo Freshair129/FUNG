@@ -34,7 +34,7 @@ link that always targets the latest GitHub release.
 - `docs/Desktop/GPU_STANDALONE_RUNTIME_SPEC.md` remains authoritative for a
   future GPU artifact. This release does not bundle NVIDIA CUDA/cuDNN files and
   therefore does not claim that gate.
-- `docs/WEB_PRODUCTION_DEPLOYMENT.md` keeps Vercel as a static frontend only;
+- `docs/operations/web-production-deployment.md` keeps Vercel as a static frontend only;
   installers remain GitHub Release assets.
 - GenesisBlockDB remains the single local persistence boundary. This release
   does not add cloud persistence or browser capture.

@@ -12,6 +12,7 @@
 .settings-stack {
   width: min(720px, 92vw);
   max-height: 84vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: linear-gradient(145deg, var(--fung-bg-surface), var(--fung-bg-inset));
@@ -74,8 +75,11 @@
 }
 
 .settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 20px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .settings-loading {

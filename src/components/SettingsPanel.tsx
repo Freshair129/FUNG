@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Activity, Cloud, Link2, SlidersHorizontal, UserCircle, Volume2, X } from "lucide-react";
 import * as QRCode from "qrcode";
 import type { InvokeFn } from "../lib/backupFlow";
@@ -8,7 +8,7 @@ import "./SettingsPanel.css";
 // Eagerly imported (not lazy) because the "Supabase not configured" fallback
 // below reuses these class names directly, and that fallback can render
 // without ever mounting the lazy AccountLoginPanel that normally pulls this
-// stylesheet in — mirrors the same eager import in App.tsx.
+// stylesheet in. DevicePairingPanel also loads it for its own overlay.
 import "./AccountLoginPanel.css";
 
 const ExternalAccountPanel = lazy(() =>
@@ -32,13 +32,13 @@ const BackupPanel = lazy(() => import("./BackupPanel").then((m) => ({ default: m
 export type SettingsTab = "account" | "tts" | "cloud" | "fetch" | "zoom" | "runtime" | "account-login";
 
 const TABS: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
-  { id: "account", label: "External Connections", icon: SlidersHorizontal },
-  { id: "account-login", label: "Sign In and Backup", icon: UserCircle },
-  { id: "tts", label: "TTS Providers", icon: Volume2 },
-  { id: "cloud", label: "Cloud Providers", icon: Cloud },
-  { id: "fetch", label: "Fetch from URL", icon: Link2 },
-  { id: "zoom", label: "Zoom import", icon: Cloud },
-  { id: "runtime", label: "Runtime", icon: Activity },
+  { id: "account", label: "การเชื่อมต่อ", icon: SlidersHorizontal },
+  { id: "account-login", label: "บัญชีและสำรองข้อมูล", icon: UserCircle },
+  { id: "tts", label: "เสียงพูด", icon: Volume2 },
+  { id: "cloud", label: "ผู้ให้บริการคลาวด์", icon: Cloud },
+  { id: "fetch", label: "นำเข้าจากลิงก์", icon: Link2 },
+  { id: "zoom", label: "นำเข้า Zoom", icon: Cloud },
+  { id: "runtime", label: "ระบบและประสิทธิภาพ", icon: Activity },
 ];
 
 interface SettingsPanelProps {
@@ -85,6 +85,38 @@ export function SettingsPanel({
   onOpenExternalAccountPortal,
   initialTab,
 }: SettingsPanelProps) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    const initiator = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+    return () => {
+      const target = initiator?.isConnected && initiator !== document.body && initiator.getClientRects().length > 0
+        ? initiator : document.querySelector<HTMLElement>('summary[aria-label="เพิ่มเติม"]');
+      target?.focus();
+    };
+  }, []);
+
+  const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab" || !dialogRef.current) return;
+    const elements = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => element.getClientRects().length > 0);
+    const first = elements[0];
+    const last = elements[elements.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault(); last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault(); first?.focus();
+    }
+  };
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "account");
   const [localApi, setLocalApi] = useState<LocalApiInfo | null>(null);
   const [localApiError, setLocalApiError] = useState<string | null>(null);
@@ -102,6 +134,25 @@ export function SettingsPanel({
   };
 
   const connectUrlField = useRef<HTMLInputElement | null>(null);
+
+  const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentTab: SettingsTab) => {
+    const index = TABS.findIndex((tab) => tab.id === currentTab);
+    const nextIndex = event.key === "ArrowRight"
+      ? (index + 1) % TABS.length
+      : event.key === "ArrowLeft"
+        ? (index - 1 + TABS.length) % TABS.length
+        : event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? TABS.length - 1
+            : -1;
+    if (nextIndex < 0) return;
+    event.preventDefault();
+    const nextTab = TABS[nextIndex];
+    if (!nextTab) return;
+    setActiveTab(nextTab.id);
+    document.getElementById(`settings-tab-${nextTab.id}`)?.focus();
+  };
 
   const copyConnectUrl = async () => {
     if (!localApi?.connectUrl) return;
@@ -157,19 +208,25 @@ export function SettingsPanel({
 
   return (
     <div className="settings-overlay" role="presentation" onClick={onClose}>
-      <div className="settings-stack" onClick={(event) => event.stopPropagation()}>
+      <div className="settings-stack" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="settings-panel-heading" onKeyDown={handleDialogKeyDown} onClick={(event) => event.stopPropagation()}>
         <header className="settings-header">
-          <h2>Settings</h2>
-          <button type="button" className="settings-close" onClick={onClose} aria-label="Close settings">
+          <h2 id="settings-panel-heading">ตั้งค่า</h2>
+          <button ref={closeRef} type="button" className="settings-close" onClick={onClose} aria-label="ปิดการตั้งค่า">
             <X size={18} />
           </button>
         </header>
-        <nav className="settings-tabs" aria-label="Settings sections">
+        <nav className="settings-tabs" role="tablist" aria-label="หมวดการตั้งค่า">
           {TABS.map((tab) => (
             <button
               key={tab.id}
+              id={`settings-tab-${tab.id}`}
               type="button"
-              className={`settings-tab ${activeTab === tab.id ? "is-active" : ""}`}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls="settings-content"
+              tabIndex={activeTab === tab.id ? 0 : -1}
+              className={`settings-tab${activeTab === tab.id ? " is-active" : ""}`}
+              onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
               onClick={() => setActiveTab(tab.id)}
             >
               <tab.icon size={16} />
@@ -177,7 +234,13 @@ export function SettingsPanel({
             </button>
           ))}
         </nav>
-        <div className="settings-body">
+        <div
+          id="settings-content"
+          className="settings-body"
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${activeTab}`}
+          tabIndex={0}
+        >
           <Suspense fallback={<p className="settings-loading">Loading…</p>}>
             {activeTab === "account" && <ExternalAccountPanel onClose={onClose} onOpenPortal={onOpenExternalAccountPortal} embedded />}
             {activeTab === "tts" && <TtsProviderPanel onClose={onClose} embedded />}

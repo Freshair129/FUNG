@@ -35,25 +35,85 @@ function resolveRuntimeImports(source) {
     .replaceAll('from "lucide-react"', `from "${lucideModuleUrl}"`);
 }
 
-const [shellSource, contractsSource, brandAssetSource, shellCssSource, designTokensCssSource] = await Promise.all([
+const [
+  shellSource,
+  contractsSource,
+  brandAssetSource,
+  shellCssSource,
+  designTokensCssSource,
+  glassCssSource,
+  reviewCssSource,
+  appCssSource,
+  studioSource,
+  studioCssSource,
+] = await Promise.all([
   readFile(path.join(worktreeRoot, "src/components/desktop/DesktopShell.tsx"), "utf8"),
   readFile(path.join(worktreeRoot, "src/components/desktop/contracts.ts"), "utf8"),
   readFile(path.join(worktreeRoot, "docs/brand-kit/logo/fung-mark.svg"), "utf8"),
   readFile(path.join(worktreeRoot, "src/components/desktop/DesktopShell.css"), "utf8"),
   readFile(path.join(worktreeRoot, "docs/FUNG_Design_System_v0.1.0/tokens/fung.tokens.css"), "utf8"),
+  readFile(path.join(worktreeRoot, "src/components/desktop/LiquidGlass.css"), "utf8"),
+  readFile(path.join(worktreeRoot, "src/components/desktop/RecordingReview.css"), "utf8"),
+  readFile(path.join(worktreeRoot, "src/styles.css"), "utf8"),
+  readFile(path.join(worktreeRoot, "src/components/desktop/StudioHome.tsx"), "utf8"),
+  readFile(path.join(worktreeRoot, "src/components/desktop/DesktopStudio.css"), "utf8"),
 ]);
+
+test("shell rows are assigned by region rather than optional child count", () => {
+  assert.match(studioCssSource, /grid-template-areas:\s*"capture"\s*"body"\s*"dock"/);
+  assert.match(studioCssSource, /grid-template-rows:\s*auto minmax\(0, 1fr\) 52px/);
+  assert.match(shellCssSource, /grid-template-areas:\s*"header"\s*"capture"\s*"body"/);
+  for (const [className, area] of [["header", "header"], ["capture-strip", "capture"], ["body", "body"]]) {
+    assert.match(shellCssSource, new RegExp(`\\.desktop-shell__${className}\\s*\\{[^}]*grid-area:\\s*${area}`));
+  }
+  const main = shellCssSource.match(/\.desktop-shell\[data-fung-root\] \.desktop-shell__main\s*\{([^}]+)\}/)?.[1];
+  assert.match(main ?? "", /display:\s*flex/);
+  assert.match(main ?? "", /overflow-y:\s*auto/);
+  assert.doesNotMatch(main ?? "", /grid-template-rows/);
+});
+
+test("glass stacking cannot turn skip links or fixed overlays into grid rows", () => {
+  assert.doesNotMatch(glassCssSource, /\.desktop-shell\[data-material="glass"\]\s*>\s*\*\s*\{/);
+  assert.match(glassCssSource, />\s*:is\(\.desktop-shell__header, \.desktop-shell__capture-strip, \.desktop-shell__body\)/);
+  assert.match(shellCssSource, /\.desktop-shell > #fung-companion-panel\s*\{\s*display:\s*contents/);
+  assert.match(shellSource, /<details ref=\{projectMenuRef\} className="desktop-shell__sidebar-context desktop-shell__project-menu"/);
+  assert.match(shellSource, /<summary className="desktop-shell__project-toggle"/);
+});
+
+test("glass effects stay inside the rounded shell and clear the rectangular native backdrop", () => {
+  assert.match(shellSource, /desktop_window_set_glass/);
+  assert.match(shellSource, /desktop_window_set_glass", \{ enabled: false \}/);
+  assert.match(studioCssSource, /backdrop-filter:\s*blur\(30px\) saturate\(155%\)/);
+  assert.match(studioCssSource, /#root:has\(> \.desktop-shell\[data-layout="studio"\]\)\s*\{[^}]*z-index:\s*1/);
+  assert.match(studioCssSource, /background-color:\s*var\(--fung-glass-solid\)/);
+});
+
+test("hosted review and live pages defer page scrolling to main", () => {
+  assert.match(shellCssSource, /\.desktop-shell__surface-content\s*\{[^}]*overflow:\s*visible/);
+  assert.match(reviewCssSource, /\.desktop-shell \.recording-review\s*\{[^}]*max-height:\s*none;[^}]*overflow:\s*visible/);
+  assert.match(appCssSource, /\.desktop-shell \.callmd-surface-stack \.live-panel\s*\{[^}]*min-width:\s*0;[^}]*overflow:\s*visible/);
+  assert.match(appCssSource, /\.desktop-shell \.callmd-surface-stack\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+});
 
 await writeFile(path.join(runtimeDir, "contracts.mjs"), resolveRuntimeImports(transpile(contractsSource)), "utf8");
 await writeFile(
-  path.join(runtimeDir, "DesktopShell.mjs"),
-  resolveRuntimeImports(transpile(shellSource))
-    .replace('from "../../tauri.ts"', "")
-    .replace('from "./contracts.ts"', 'from "./contracts.mjs"')
-    .replace('from "./CompanionPanel"', 'from "./CompanionPanel.mjs"')
-    .replace('import "./DesktopShell.css";', "")
-    .replace('import "./LiquidGlass.css";', ""),
+  path.join(runtimeDir, "tauri.mjs"),
+  "export const nativeInvoke = null; export const listMeetingActionItems = async () => ({ items: [], totalCount: 0 });\n",
   "utf8",
 );
+await writeFile(
+  path.join(runtimeDir, "DesktopShell.mjs"),
+  resolveRuntimeImports(transpile(shellSource))
+    .replace('from "../../tauri.ts"', 'from "./tauri.mjs"')
+    .replace('from "./contracts.ts"', 'from "./contracts.mjs"')
+    .replace('from "./CompanionPanel"', 'from "./CompanionPanel.mjs"')
+    .replace('from "./StudioHome"', 'from "./StudioHome.mjs"')
+    .replace('import "./DesktopShell.css";', "")
+    .replace('import "./LiquidGlass.css";', "")
+    .replace('import "./DesktopStudio.css";', ""),
+  "utf8",
+);
+await writeFile(path.join(runtimeDir, "StudioHome.mjs"), resolveRuntimeImports(transpile(studioSource)), "utf8");
 await writeFile(
   path.join(runtimeDir, "CompanionPanel.mjs"),
   "export function CompanionPanel() { return null; }\n",
@@ -116,6 +176,7 @@ function createProps(overrides = {}) {
     exportTitle: "ส่งออก",
     setTheme: (theme) => calls.push(["setTheme", theme]),
     minimizeWindow: () => calls.push(["minimizeWindow"]),
+    hideWindowToTray: () => calls.push(["hideWindowToTray"]),
     closeWindow: () => calls.push(["closeWindow"]),
   };
 
@@ -205,7 +266,7 @@ test("bootstrap and failed reads do not fabricate capture while known capture su
     const markup = renderShellWithProps({ liveStatus });
     assert.doesNotMatch(markup, /aria-label="สถานะการบันทึก"/, label);
     assert.doesNotMatch(markup, /มีเซสชันบันทึกอยู่/, label);
-    assert.match(markup, /พร้อมตรวจสอบ/, label);
+    assert.doesNotMatch(markup, /พร้อมตรวจสอบ/, label);
     if (label !== "loading") assert.match(markup, new RegExp(expectedNotice), label);
   }
 
@@ -230,19 +291,24 @@ test("bootstrap and failed reads do not fabricate capture while known capture su
   }
 });
 
-test("SSR keeps Home, Live, History, and Output controlled by activeSurface with accessible navigation", () => {
+test("SSR keeps Home, Live, and History as primary navigation with Storage under More", () => {
   const homeMarkup = renderToStaticMarkup(React.createElement(DesktopShell, createProps()));
   assert.match(homeMarkup, /href="#home"[^>]*aria-current="page"/);
   assert.match(homeMarkup, /href="#live"/);
   assert.match(homeMarkup, /href="#history"/);
-  assert.match(homeMarkup, /href="#output"/);
+  assert.doesNotMatch(homeMarkup, /href="#output"/);
+  assert.match(homeMarkup, /aria-label="พื้นที่ทำงานหลัก"/);
+  assert.match(homeMarkup, /ตำแหน่งจัดเก็บ/);
   assert.match(homeMarkup, /ข้ามไปยังเนื้อหาหลัก/);
   assert.match(homeMarkup, /เริ่มประชุม/);
-  assert.match(homeMarkup, /จะเปิดประชุมสดก่อนเริ่มการบันทึกจริง/);
+  assert.match(homeMarkup, /เปิดพื้นที่ประชุมก่อนเริ่มบันทึกเสียง/);
+  assert.match(homeMarkup, /<section hidden="" class="desktop-shell__surface-content"/);
   assert.match(homeMarkup, /Surface content/);
   assert.doesNotMatch(homeMarkup, /พื้นที่ทำงานเดิม|callmd-legacy-workspace|fab-topbar|power-dock/);
   assert.match(homeMarkup, /data-surface="home"/);
-  assert.doesNotMatch(homeMarkup, /aria-label="ย่อหน้าต่าง"|aria-label="ปิดหน้าต่าง"/);
+  assert.match(homeMarkup, /aria-label="ย่อหน้าต่าง"/);
+  assert.match(homeMarkup, /aria-label="ซ่อนลงถาดระบบ"/);
+  assert.match(homeMarkup, /aria-label="ปิดแอป"/);
 
   const reviewMarkup = renderToStaticMarkup(
     React.createElement(
@@ -263,11 +329,12 @@ test("SSR keeps Home, Live, History, and Output controlled by activeSurface with
   const outputMarkup = renderToStaticMarkup(
     React.createElement(DesktopShell, createProps({ activeSurface: "output" })),
   );
-  assert.match(outputMarkup, /href="#output"[^>]*aria-current="page"/);
-  assert.match(outputMarkup, /กำหนดปลายทางไฟล์บันทึก/);
+  assert.doesNotMatch(outputMarkup, /href="#output"/);
+  assert.match(outputMarkup, /ตำแหน่งจัดเก็บไฟล์บันทึก/);
+  assert.match(outputMarkup, /aria-current="page"/);
 });
 
-test("appearance is a separate active surface and not an inline sidebar disclosure", () => {
+test("appearance is a separate active surface and not an inline dock disclosure", () => {
   const markup = renderToStaticMarkup(
     React.createElement(DesktopShell, createProps({ activeSurface: "appearance" })),
   );
@@ -277,8 +344,8 @@ test("appearance is a separate active surface and not an inline sidebar disclosu
   assert.match(markup, /id="desktop-shell-material"/);
   assert.match(markup, /id="desktop-shell-transparency"/);
 
-  const sidebar = markup.match(/<aside[^>]*aria-label="บริบทงาน"[\s\S]*?<\/aside>/)?.[0];
-  assert.ok(sidebar, "appearance render should keep the shell sidebar");
+  const sidebar = markup.match(/<footer[^>]*class="desktop-shell__dock"[\s\S]*?<\/footer>/)?.[0];
+  assert.ok(sidebar, "appearance render should keep the bottom dock");
   assert.match(sidebar, /ลักษณะ/);
   assert.doesNotMatch(sidebar, /desktop-shell-theme|desktop-shell-material|desktop-shell-transparency/);
   assert.doesNotMatch(sidebar, /<button[^>]*(เริ่มบันทึก|หยุดบันทึก)/);
@@ -300,9 +367,18 @@ test("SSR renders the authoritative unboxed 40px FUNG mark and currentColor word
   assert.doesNotMatch(markup, /linearGradient|porcelainGrad|fung-logo-container/);
 });
 
-test("native window controls and drag boundaries stay explicit", () => {
-  assert.match(shellSource, /<header className="desktop-shell__header" data-tauri-drag-region>/);
-  assert.doesNotMatch(shellSource, /actions\.minimizeWindow|actions\.closeWindow/);
+test("native close control uses the guarded close action and drag boundaries stay explicit", () => {
+  assert.match(shellSource, /<footer className="desktop-shell__dock" data-tauri-drag-region>/);
+  assert.match(
+    shellSource,
+    /const requestCloseWindow = \(initiator: HTMLElement\) => \{[\s\S]*?action: actions\.closeWindow/,
+  );
+  assert.match(
+    shellSource,
+    /className="desktop-shell__close-button"[\s\S]*?aria-label="ปิดแอป"[\s\S]*?onClick=\{\(event\) => requestCloseWindow\(event\.currentTarget\)\}/,
+  );
+  assert.match(shellSource, /aria-label="ย่อหน้าต่าง"[\s\S]*?actions\.minimizeWindow/);
+  assert.match(shellSource, /aria-label="ซ่อนลงถาดระบบ"[\s\S]*?actions\.hideWindowToTray/);
   assert.doesNotMatch(shellSource, /className="panel-glass" data-tauri-drag-region/);
   assert.doesNotMatch(shellSource, /className="fab fab-topbar" data-tauri-drag-region/);
   assert.doesNotMatch(shellSource, /desktop-shell__legacy-workspace|callmd-legacy-workspace|power-dock/);
@@ -311,25 +387,40 @@ test("native window controls and drag boundaries stay explicit", () => {
   assert.doesNotMatch(shellCssSource, /\.desktop-shell__header-button/);
 });
 
-test("the shell keeps truthful profile states and the hover rail owns desktop actions", () => {
-  const signedOut = renderToStaticMarkup(React.createElement(DesktopShell, createProps()));
-  assert.match(signedOut, /สมัคร \/ เข้าสู่ระบบ/);
-  assert.match(signedOut, /desktop-shell__sidebar/);
-  assert.doesNotMatch(signedOut, /<button[^>]*(เริ่มบันทึก|หยุดบันทึก)/);
-  assert.match(signedOut, /นำเข้าไฟล์/);
-  assert.match(signedOut, /ส่งออก/);
-  assert.match(signedOut, /จับคู่อุปกรณ์/);
-  assert.match(signedOut, /ลักษณะ/);
-  assert.doesNotMatch(signedOut, /desktop-shell__appearance/);
+test("Studio home keeps desktop utilities in the dock overflow and account separate from close", () => {
+  const home = renderToStaticMarkup(React.createElement(DesktopShell, createProps()));
+  assert.match(home, /data-layout="studio"/);
+  assert.match(home, /class="desktop-shell__utility-actions"/);
+  assert.match(home, /aria-label="บัญชี"/);
+  assert.match(home, /aria-label="ย่อหน้าต่าง"/);
+  assert.match(home, /aria-label="ซ่อนลงถาดระบบ"/);
+  assert.match(home, /aria-label="ปิดแอป"/);
+  assert.doesNotMatch(home, /class="desktop-shell__sidebar"/);
+  assert.doesNotMatch(home, /<button[^>]*(เริ่มบันทึก|หยุดบันทึก)/);
+  assert.doesNotMatch(home, /desktop-shell__appearance/);
+});
 
-  const signedIn = renderToStaticMarkup(
-    React.createElement(
-      DesktopShell,
-      createProps({ accountStatus: { state: "authenticated", email: "owner@example.test" } }),
-    ),
-  );
-  assert.match(signedIn, /owner@example\.test/);
-  assert.doesNotMatch(signedIn, /สมัคร \/ เข้าสู่ระบบ/);
+test("studio dashboard uses real project metadata and preserves mounted surface owners", () => {
+  const ready = renderShellWithProps({ project: state("ready", [projectA]) });
+  assert.match(ready, /data-layout="studio"/);
+  assert.match(ready, /studio-hero/);
+  assert.match(ready, /studio-meeting/);
+  assert.match(ready, /studio-activity/);
+  assert.match(ready, /studio-task-pool/);
+  assert.match(ready, /การประชุมครั้งถัดไป/);
+  assert.match(ready, /วันและเวลา/);
+  assert.match(ready, /ผู้เข้าร่วม/);
+  assert.match(ready, /หัวข้อ/);
+  assert.match(ready, /ยังไม่มีข้อมูลปฏิทิน/);
+  assert.match(ready, /งานจากทุกการประชุม/);
+  assert.match(ready, /<section hidden=""[^>]*>[\s\S]*?Surface content[\s\S]*?<\/section>/);
+  assert.match(ready, /<strong>1<\/strong><small>โครงการทั้งหมด/);
+  const unavailable = renderShellWithProps({ project: state("unavailable") });
+  assert.match(unavailable, /<strong>—<\/strong><small>โครงการทั้งหมด/);
+  const anotherProject = { ...projectA, id: "project-b", name: "Second project" };
+  const populated = renderShellWithProps({ project: state("ready", [projectA, anotherProject]) });
+  assert.match(populated, /<strong>2<\/strong><small>โครงการทั้งหมด/);
+  assert.doesNotMatch(populated, /<meter/);
 });
 
 test("brand tint stays CSS-owned for explicit light/dark and system-effective themes", () => {

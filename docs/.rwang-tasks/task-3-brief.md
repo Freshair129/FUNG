@@ -1,31 +1,16 @@
-# Task 3 Brief — Cross-Document Consistency Audit
+---
+version: "0.1.0b"
+created_at: "2026-10-19"
+last_update: "2026-10-19"
+status: "superseded"
+superseded_by: "docs/verification/archive/documentation-maintenance/rwang/task-3-brief.md"
+attributes:
+  domain: "documentation-governance"
+  doc_type: "compatibility-pointer"
+  scope: "Historical documentation maintenance archive"
+  language: "Thai-first"
+---
 
-## Role
+# task-3-brief.md — moved
 
-You are an independent final documentation consistency auditor for FUNG.
-
-## Task
-
-Read the current design, requirements, implementation plan, progress ledger, preflight report, graph, traceability matrix, and the Sprint 4 source/test contracts. Audit terminology, requirement coverage, data-flow/API agreement, diagram/component agreement, version/date alignment, glossary signals, and cross-reference validity. Apply Code > SDD/design > PRD/requirements when comparing claims.
-
-## Inputs
-
-- `D:\FUNG\docs\.rwang-progress.md`
-- All files under `D:\FUNG\docs\`
-- `D:\FUNG\src\components\ExternalMeetingToolsPanel.tsx`
-- `D:\FUNG\src\lib\externalMeetingTools.ts`
-- `D:\FUNG\src\tauri.ts`
-- `D:\FUNG\src-tauri\src\external_mcp.rs`
-- `D:\FUNG\src-tauri\src\external_mcp_transport.rs`
-- `D:\FUNG\src-tauri\src\external_mcp_commands.rs`
-- `D:\FUNG\tests\externalMeetingTools.test.mjs`
-
-## Constraints
-
-- Do not change application code.
-- Do not rewrite docs merely for style.
-- Report hard-gate failures separately from soft warnings; include exact evidence and recommended owner/path.
-
-## Output contract
-
-Write `D:\FUNG\docs\.rwang-tasks\task-3-report.md` with PASS/WARN/FAIL for each audit item, unresolved contradictions, and a final recommendation. Return status DONE, DONE_WITH_CONCERNS, or BLOCKED.
+เนื้อหาเดิมถูกย้ายไปที่ [task-3-brief.md](../verification/archive/documentation-maintenance/rwang/task-3-brief.md). ใช้ path ปลายทางเป็นแหล่งอ้างอิงหลัก; ไฟล์นี้คงไว้เพื่อรองรับลิงก์เดิม.

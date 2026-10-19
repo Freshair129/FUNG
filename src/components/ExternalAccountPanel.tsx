@@ -32,8 +32,8 @@ export function ExternalAccountPanel({ onClose, onOpenPortal, embedded }: Extern
     <section
       className="account-panel"
       aria-label="Account and external connections"
-      aria-modal="true"
-      role="dialog"
+      aria-modal={embedded ? undefined : true}
+      role={embedded ? "region" : "dialog"}
       onMouseDown={(event) => event.stopPropagation()}
     >
       <header className="account-panel__header">

@@ -1,0 +1,55 @@
+---
+version: "0.1.0b"
+created_at: "2026-10-19"
+last_update: "2026-10-19"
+status: "beta"
+superseded_by: null
+attributes:
+  domain: "project-planning"
+  doc_type: "documentation-index"
+  scope: "FUNG implementation plans"
+  language: "Thai-first"
+---
+
+# FUNG implementation plans
+
+แผนในโฟลเดอร์นี้ระบุขอบเขตและลำดับงาน ไม่ใช่หลักฐานว่างานเสร็จหรือฟีเจอร์ทำงานแล้ว
+
+## จุดอ้างอิงหลัก
+
+- [Master implementation plan](2026-08-09-fung-master-implementation-plan.md) เป็นแผนระยะและ protocol ที่ระบุไว้ใน repo `AGENTS.md`; ตรวจสถานะจริงกับ Desktop/Mobile status docs ก่อนใช้.
+- [Desktop current progress](../Desktop/08-real-progress.md) และ [Mobile implementation status](../Mobile/IMPLEMENTATION_STATUS.md) เป็นแหล่งดูผลการทำงานและ gate ล่าสุดตาม platform.
+- [Dated execution plans](.) เป็นเอกสารงานตามวันที่และ feature; สถานะของแต่ละแผนอยู่ใน front matter/เนื้อหาของไฟล์นั้น.
+- [External retrieval plan](2026-08-11-live-meeting-external-retrieval-implementation.md) เป็นแผนที่ย้ายมาจาก path เก่า; compatibility pointer ยังอยู่ที่ `../implementation-plan.md`.
+
+## กติกา
+
+- ตั้งชื่อแผนใหม่เป็น `YYYY-MM-DD-<feature>-plan.md` หรือใช้รูปแบบที่ชัดเจนซึ่งมีอยู่ในชุดเดิม.
+- ลิงก์ไปยัง requirement/spec ที่เป็นต้นทาง และระบุ decision/architecture dependency.
+- ระบุ prerequisite, owner, task, verification evidence และ exit criteria.
+- เมื่อแผนถูกแทนที่ ให้ระบุสถานะและลิงก์ใหม่; อย่าอัปเดตแผนเก่าให้ดูเหมือนผลทดสอบปัจจุบัน.
+
+## Additional dated plans
+
+- [2026-08-05-zoom-meeting-ingestion](2026-08-05-zoom-meeting-ingestion.md)
+- [2026-08-08-auth-login-ui](2026-08-08-auth-login-ui.md)
+- [2026-08-08-byom-tts-provider](2026-08-08-byom-tts-provider.md)
+- [2026-08-09-phase-0-stabilize](2026-08-09-phase-0-stabilize.md)
+- [2026-08-09-phase-1-pairing-login](2026-08-09-phase-1-pairing-login.md)
+- [2026-08-09-phase-2-fungwire](2026-08-09-phase-2-fungwire.md)
+- [2026-08-09-phase-3-byom-cloud-keys](2026-08-09-phase-3-byom-cloud-keys.md)
+- [2026-08-13-phase-4-google-drive-backup-mobile-account](2026-08-13-phase-4-google-drive-backup-mobile-account.md) — `superseded`
+- [2026-08-23-recording2-smart-gift-catalog-task-breakdown](2026-08-23-recording2-smart-gift-catalog-task-breakdown.md) — `candidate`
+- [2026-09-17-callmd-playback-diagnostic-orchestration](2026-09-17-callmd-playback-diagnostic-orchestration.md) — `beta`
+- [2026-09-17-callmd-playback-diagnostic-review](2026-09-17-callmd-playback-diagnostic-review.md) — `under review`
+- [2026-09-17-callmd-playback-diagnostic-verification](2026-09-17-callmd-playback-diagnostic-verification.md) — `under review`
+- [2026-09-17-callmd-playback-fixture-fix-orchestration](2026-09-17-callmd-playback-fixture-fix-orchestration.md) — `beta`
+- [2026-09-17-callmd-playback-fixture-fix-review](2026-09-17-callmd-playback-fixture-fix-review.md) — `beta`
+- [2026-09-17-callmd-playback-fixture-fix-verification](2026-09-17-callmd-playback-fixture-fix-verification.md) — `beta`
+- [2026-09-17-callmd-pr59-ci-repair-orchestration](2026-09-17-callmd-pr59-ci-repair-orchestration.md) — `beta`
+- [2026-09-17-callmd-pr59-ci-repair-review](2026-09-17-callmd-pr59-ci-repair-review.md) — `candidate`
+- [2026-09-17-callmd-pr59-ci-repair-verification](2026-09-17-callmd-pr59-ci-repair-verification.md) — `beta`
+- [2026-09-22-meeting-local-completion-remediation](2026-09-22-meeting-local-completion-remediation.md) — `candidate`
+- [2026-09-22-phase-3-byom-acceptance-runbook](2026-09-22-phase-3-byom-acceptance-runbook.md) — `candidate`
+- [2026-09-22-phase-3-controller-blocker-remediation](2026-09-22-phase-3-controller-blocker-remediation.md) — `beta`
+- [2026-10-16-design-system-source-of-truth](2026-10-16-design-system-source-of-truth.md)

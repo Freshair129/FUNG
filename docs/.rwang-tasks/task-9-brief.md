@@ -1,20 +1,16 @@
-# Task 9 Brief — Preflight Staleness-Wording Fix
+---
+version: "0.1.0b"
+created_at: "2026-10-19"
+last_update: "2026-10-19"
+status: "superseded"
+superseded_by: "docs/verification/archive/documentation-maintenance/rwang/task-9-brief.md"
+attributes:
+  domain: "documentation-governance"
+  doc_type: "compatibility-pointer"
+  scope: "Historical documentation maintenance archive"
+  language: "Thai-first"
+---
 
-## Role
+# task-9-brief.md — moved
 
-You are a fresh documentation fix worker for FUNG.
-
-## Task
-
-Correct only the current staleness finding in `docs/.preflight-report.json` and the current post-fix table in `docs/DOC_PREFLIGHT_2026-08-11.md`. The graph reflight now proves all 28 hash-bearing mapped nodes match; the remaining warning is only that untracked scoped documents cannot be compared to committed git dates. Replace the stale wording that says three hashes still require refresh with this accurate provenance limitation. Preserve all historical audit sections unchanged.
-
-## Constraints
-
-- Do not change source, tests, graph, Appendix D, requirements, or implementation plan.
-- Keep the warning (do not downgrade to PASS) because git-date provenance is unresolved for untracked scoped artifacts.
-- Bump document versions/last_update/version diff/changelog truthfully.
-- Append `## Fix Cycle 1` to `docs/.rwang-tasks/task-8-report.md` with the exact changed paths and no runtime/UAT claim.
-
-## Output
-
-Write `docs/.rwang-tasks/task-9-report.md` with the before/after wording, command validation, and remaining gates. Return DONE_WITH_CONCERNS or BLOCKED.
+เนื้อหาเดิมถูกย้ายไปที่ [task-9-brief.md](../verification/archive/documentation-maintenance/rwang/task-9-brief.md). ใช้ path ปลายทางเป็นแหล่งอ้างอิงหลัก; ไฟล์นี้คงไว้เพื่อรองรับลิงก์เดิม.

@@ -217,7 +217,10 @@ test("the transcription worker is pinned offline, not merely expected to be", ()
   // Register §3.1. faster-whisper's own default is to download `small` from
   // huggingface.co, so "it loads a bundled model" has to be enforced by the
   // environment rather than by a comment.
-  const lib = productionRust("src-tauri/src/lib.rs");
+  // lib.rs interleaves several cfg(test) modules with later production
+  // commands and worker helpers, so productionRust's first-module slice
+  // would hide the production code these assertions protect.
+  const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
   const runnerStart = lib.indexOf("fn run_python_worker_with_interpreter(");
   assert.notEqual(runnerStart, -1, "the shared worker runner must remain present");
   const branchStart = lib.indexOf("match hf_home {", runnerStart);
@@ -279,7 +282,8 @@ test("URL ingest is refused by default and only http(s) is reachable", () => {
 
   // The command, not the worker, is where a refusal has to happen: the user
   // needs a reason and a next step, not a subprocess failure.
-  const lib = productionRust("src-tauri/src/lib.rs");
+  // fetch_and_transcribe is declared after embedded test modules in lib.rs.
+  const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
   const command = lib.slice(lib.indexOf("fn fetch_and_transcribe"));
   const body = command.slice(0, command.indexOf("thread::spawn"));
   assert.match(body, /media_fetch_readiness\(&state\)/);

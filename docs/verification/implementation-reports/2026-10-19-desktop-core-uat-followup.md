@@ -32,7 +32,8 @@ release executable was placed in the existing isolated install directory.
   the local UAT fix: `cb602095e6012dea53710beec0747843bae170d8`. The packaged
   executable includes the working-tree legacy-transcript fix. The local test
   changes also correct stale shell assertions: Output is reached through the
-  utility action, and Review yields while Meeting Intelligence is open.
+  utility action, Review yields while Meeting Intelligence is open, and egress
+  checks read production functions that follow embedded test modules.
 - Built a local NSIS bundle with a temporary Tauri identifier,
   `dev.fung.uat.core20261019`, and installed it to
   `%TEMP%\fung-uat-pr80-core-20261019\installed-current`. The app data stayed
@@ -91,7 +92,14 @@ in this evidence summary.
 - `npm run test:meeting-intelligence-contract`: **17 passed, 0 failed**.
 - `npm run test:job-actions`: **17 passed, 0 failed** after updating its
   stale Output-navigation and Review-visibility assertions.
+- `npm run test:egress`: **8 passed, 0 failed** after fixing its source reader
+  to inspect production code that follows embedded `cfg(test)` modules.
 - `npm run build` (`tsc` and Vite): passed; 1,820 modules transformed.
+- GitHub Actions run `39287230186` for head `6eb6de2` failed only at
+  `test:egress`; all preceding frontend steps passed. The test helper had
+  truncated `lib.rs` at its first embedded test module and therefore missed
+  later production functions. After fixing the helper, the local egress suite
+  passes; the next exact-head CI run is required to close this check.
 - SQLite read-only inspection: `integrity_check=ok`; project and recording
   counts matched before/after app restarts. No transcript text was read from
   the live mic/system capture for this check.

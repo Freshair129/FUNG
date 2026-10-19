@@ -131,4 +131,5 @@ attributes:
 - [2026-10-16-native-playback-resampling](2026-10-16-native-playback-resampling.md) — `local native output smoke passed; GUI and package gates open`
 - [2026-10-16-wireframe-wireflow-userflow-audit](2026-10-16-wireframe-wireflow-userflow-audit.md) — `beta`
 - [2026-10-18-core-audio-uat](2026-10-18-core-audio-uat.md) — `beta`
+- [2026-10-19-desktop-core-uat-followup](2026-10-19-desktop-core-uat-followup.md) — `beta`
 - [progress](progress.md)

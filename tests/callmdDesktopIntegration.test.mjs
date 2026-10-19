@@ -308,7 +308,10 @@ if (!fixtureMode) {
     assert.equal(countMatches(appSource, /<LiveMeetingPanel\b/g), 1);
     assert.equal(countMatches(appSource, /<RecordingReview\b/g), 1);
     assert.match(appSource, /visible=\{activeSurface === "live"\}/);
-    assert.match(appSource, /visible=\{activeSurface === "review"\}/);
+    assert.match(appSource, /visible=\{activeSurface === "review" && !meetingIntelligenceOpen\}/);
+    assert.match(appSource, /onOpenMeetingIntelligence=\{\(\) => setMeetingIntelligenceOpen\(true\)\}/);
+    assert.match(appSource, /activeSurface === "review" && meetingIntelligenceOpen && reviewSelection && meetingIntelligenceService/);
+    assert.match(appSource, /onClose=\{\(\) => setMeetingIntelligenceOpen\(false\)\}/);
     assert.match(appSource, /liveStatus=\{liveStatus\}\s+livePhase=\{liveSnapshot\.phase\}/);
     assert.match(appSource, /closeReviewPlayer=\{closeReviewPlayer\}/);
     assert.match(appSource, /onControllerChange=\{handleLiveControllerChange\}/);

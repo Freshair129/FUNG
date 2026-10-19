@@ -102,6 +102,7 @@ export type RecordingReviewControllerProps = {
   selectedProjectId: string | null;
   selection: RecordingKey | null;
   onSelect: (selection: RecordingKey | null) => void;
+  onOpenMeetingIntelligence?: () => void;
   scopeChoice?: "A" | "B";
   visible?: boolean;
   registerClosePlayer?: (
@@ -119,6 +120,7 @@ export type RecordingReviewViewProps = FrozenRecordingReviewProps & {
   question: string;
   onQuestionChange: (question: string) => void;
   onAskQuestion: () => Promise<void>;
+  onOpenMeetingIntelligence?: () => void;
   visible?: boolean;
 };
 
@@ -2504,6 +2506,7 @@ export function RecordingReviewView({
   question,
   onQuestionChange,
   onAskQuestion,
+  onOpenMeetingIntelligence,
   visible = true,
 }: RecordingReviewViewProps) {
   const selectedProjectId = selection?.projectId ?? list.data?.projectId ?? null;
@@ -2720,6 +2723,15 @@ export function RecordingReviewView({
                       ? "กำลังหยุด"
                       : "ยังบันทึกอยู่"}
                 </span>
+                {onOpenMeetingIntelligence ? (
+                  <button
+                    type="button"
+                    className="recording-review__button"
+                    onClick={onOpenMeetingIntelligence}
+                  >
+                    ผู้ช่วยประชุมในเครื่อง
+                  </button>
+                ) : null}
               </header>
               <div className="recording-review__tabs" role="tablist" aria-label="รายละเอียดการบันทึก">
                 {([
@@ -2818,6 +2830,7 @@ export function RecordingReview({
   selectedProjectId,
   selection,
   onSelect,
+  onOpenMeetingIntelligence,
   scopeChoice = "B",
   visible = true,
   registerClosePlayer,
@@ -2932,6 +2945,7 @@ export function RecordingReview({
       question={snapshot.question}
       onQuestionChange={(question) => controller.setQuestion(question)}
       onAskQuestion={onAskQuestion}
+      onOpenMeetingIntelligence={onOpenMeetingIntelligence}
       visible={visible}
     />
   );

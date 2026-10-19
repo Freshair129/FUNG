@@ -681,6 +681,7 @@ export function App() {
     projectId: string;
     recordingId: string;
   } | null>(null);
+  const [meetingIntelligenceOpen, setMeetingIntelligenceOpen] = useState(false);
   const [liveController, setLiveController] = useState<LiveMeetingController | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<LiveControllerSnapshot>(INITIAL_LIVE_SNAPSHOT);
   const [devicePairingPanelOpen, setDevicePairingPanelOpen] = useState(false);
@@ -889,6 +890,7 @@ export function App() {
     if (selection && !projects.some((project) => project.id === selection.projectId)) {
       return;
     }
+    setMeetingIntelligenceOpen(false);
     if (selection) setSelectedRecording(selection.projectId);
     setReviewSelection(selection);
   }, [projects]);
@@ -1169,6 +1171,7 @@ export function App() {
 
   const openReviewSurface = () => {
     setLiveMeetingOpen(false);
+    setMeetingIntelligenceOpen(false);
     setShowHome(false);
     setActiveSurface("review");
     enterMeetingWorkspace("P2");
@@ -1495,6 +1498,7 @@ export function App() {
         },
         openPairing: () => setDevicePairingPanelOpen(true),
         importMedia: async () => {
+          setMeetingIntelligenceOpen(false);
           setActiveSurface("review");
           setShowHome(false);
           await handleImportAndTranscribe();
@@ -1576,16 +1580,17 @@ export function App() {
               selectedProjectId={selectedProjectId}
               selection={reviewSelection}
               onSelect={handleReviewSelection}
-              visible={activeSurface === "review"}
+              onOpenMeetingIntelligence={() => setMeetingIntelligenceOpen(true)}
+              visible={activeSurface === "review" && !meetingIntelligenceOpen}
               registerClosePlayer={registerClosePlayer}
               registerRecoveryRefresh={registerRecoveryRefresh}
             />
-            {activeSurface === "review" && reviewSelection && meetingIntelligenceService ? (
+            {activeSurface === "review" && meetingIntelligenceOpen && reviewSelection && meetingIntelligenceService ? (
               <MeetingIntelligencePanel
                 projectId={reviewSelection.projectId}
                 recordingId={reviewSelection.recordingId}
                 service={meetingIntelligenceService}
-                onClose={() => setReviewSelection(null)}
+                onClose={() => setMeetingIntelligenceOpen(false)}
               />
             ) : null}
           </div>

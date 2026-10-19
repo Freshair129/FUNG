@@ -28,8 +28,8 @@ export type TranscriptUtterance = {
   endMs: number;
   rawText: string;
   text: string;
-  state: "provisional" | "committed" | "reviewed" | "retracted";
-  origin: "local_asr" | "provider_asr" | "human" | "refinement";
+  state: "provisional" | "committed" | "reviewed" | "retracted" | "legacy_read_only";
+  origin: "local_asr" | "provider_asr" | "human" | "refinement" | "unknown";
   language: string | null;
   confidence: number | null;
   modelRunId: string | null;
@@ -55,10 +55,11 @@ export type NativeTranscriptUtterance = {
   end_ms: number;
   model_run_id: string | null;
   review_state: string;
-  scope: NativeMeetingScope;
+  scope?: NativeMeetingScope | null;
   speaker_label?: string | null;
   speaker_id?: string | null;
   actor_kind?: "human" | "self" | "agent" | "unknown";
+  state?: string;
 };
 
 export type NativeTranscriptSnapshot = {
@@ -704,10 +705,11 @@ export function createMeetingIntelligenceService(port: MeetingNativePort): Meeti
 }
 
 export function normalizeTranscriptSnapshot(native: NativeTranscriptSnapshot, fallbackProjectId = ""): TranscriptSnapshot {
-  const utterances = native.utterances.map(normalizeUtterance);
+  const recordingId = native.recordingId ?? native.recording_id ?? "";
+  const utterances = native.utterances.map((row) => normalizeUtterance(row, fallbackProjectId, recordingId));
   return {
     projectId: utterances[0]?.scope.project_id ?? fallbackProjectId,
-    recordingId: native.recordingId ?? native.recording_id ?? "",
+    recordingId,
     cursor: native.highWatermark ?? native.high_watermark ?? 0,
     revision: utterances.reduce((latest, row) => Math.max(latest, row.revision), 0),
     utterances: utterances.sort((left, right) => left.startMs - right.startMs || left.utteranceId.localeCompare(right.utteranceId)),
@@ -718,7 +720,8 @@ export function normalizeTranscriptSnapshot(native: NativeTranscriptSnapshot, fa
   };
 }
 
-function normalizeUtterance(row: NativeTranscriptUtterance): TranscriptUtterance {
+function normalizeUtterance(row: NativeTranscriptUtterance, fallbackProjectId = "", fallbackRecordingId = ""): TranscriptUtterance {
+  const legacyReadOnly = row.state === "legacy_read_only" || !row.scope;
   return {
     utteranceId: row.utterance_id,
     revisionId: row.revision_id ?? row.id ?? "",
@@ -727,12 +730,21 @@ function normalizeUtterance(row: NativeTranscriptUtterance): TranscriptUtterance
     endMs: row.end_ms,
     rawText: row.raw_text,
     text: row.effective_text,
-    state: row.review_state === "reviewed" ? "reviewed" : row.review_state === "retracted" ? "retracted" : "committed",
+    state: legacyReadOnly
+      ? "legacy_read_only"
+      : row.review_state === "reviewed" ? "reviewed" : row.review_state === "retracted" ? "retracted" : "committed",
     origin: row.origin,
     language: row.language,
     confidence: row.confidence,
     modelRunId: row.model_run_id,
-    scope: row.scope,
+    scope: row.scope ?? {
+      project_id: fallbackProjectId,
+      recording_id: fallbackRecordingId,
+      meeting_session_id: "",
+      source_session_id: "",
+      track_id: "",
+      source_generation: 0,
+    },
     speakerLabel: row.speaker_label ?? null,
     speakerId: row.speaker_id ?? null,
     actorKind: row.actor_kind ?? "unknown",
@@ -793,6 +805,7 @@ export function buildHumanCorrectionRequest(
   utterance: TranscriptUtterance,
   correctedText: string,
 ): NativeMeetingRevisionRequest {
+  if (utterance.state === "legacy_read_only") throw new Error("Legacy transcript snapshots are read-only");
   const text = correctedText.trim();
   if (!text) throw new Error("Correction text is required");
   return {

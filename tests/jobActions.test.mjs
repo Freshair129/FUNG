@@ -125,9 +125,17 @@ test("the active desktop shell routes work through surfaces instead of legacy ti
   assert.match(app, /showOutput: openOutputSurface/, "output must be an explicit active surface");
   assert.match(shell, /id: "live"/, "the shell must expose the live surface");
   assert.match(shell, /id: "review"/, "the shell must expose the review surface");
-  assert.match(shell, /id: "output"/, "the shell must expose the output surface");
+  assert.match(
+    shell,
+    /surface === "output"\s*\?\s*actions\.showOutput/,
+    "storage navigation must route through the output surface action",
+  );
   assert.match(app, /visible=\{activeSurface === "live"\}/, "live content must follow the active surface");
-  assert.match(app, /visible=\{activeSurface === "review"\}/, "review content must follow the active surface");
+  assert.match(
+    app,
+    /visible=\{activeSurface === "review"\s*&&\s*!meetingIntelligenceOpen\}/,
+    "review content must yield to the explicit Meeting Intelligence panel",
+  );
   assert.match(app, /mainContent=\{activeSurface === "output" \?/, "output content must follow the active surface");
 });
 

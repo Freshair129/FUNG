@@ -77,6 +77,37 @@ test("snapshot normalization keeps raw and effective revision text with full sco
   assert.equal(normalized.utterances[0].state, "reviewed");
 });
 
+test("legacy transcript snapshots normalize without a revision scope and remain read-only", () => {
+  const normalized = normalizeTranscriptSnapshot({
+    recording_id: "recording-a",
+    high_watermark: 0,
+    legacy_snapshot: true,
+    utterances: [{
+      utterance_id: "legacy-segment-a",
+      revision: 0,
+      origin: "unknown",
+      raw_text: "legacy transcript",
+      effective_text: "legacy transcript",
+      start_ms: 120,
+      end_ms: 900,
+      review_state: "unknown",
+      state: "legacy_read_only",
+    }],
+  }, "project-a");
+
+  assert.equal(normalized.projectId, "project-a");
+  assert.equal(normalized.recordingId, "recording-a");
+  assert.equal(normalized.legacySnapshot, true);
+  assert.equal(normalized.utterances.length, 1);
+  assert.equal(normalized.utterances[0].state, "legacy_read_only");
+  assert.equal(normalized.utterances[0].scope.project_id, "project-a");
+  assert.equal(normalized.utterances[0].scope.recording_id, "recording-a");
+  assert.throws(
+    () => buildHumanCorrectionRequest(normalized.utterances[0], "edited transcript"),
+    /read-only/,
+  );
+});
+
 test("human correction request binds expected revision and native source scope", () => {
   const utterance = normalizeTranscriptSnapshot({
     recording_id: "recording-a",

@@ -1,7 +1,7 @@
 ---
-version: "0.1.1b"
+version: "0.1.2b"
 created_at: "2026-09-20T18:00:00+07:00,RWANG"
-last_update: "2026-09-20T22:47:23+07:00,RWANG"
+last_update: "2026-10-19,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -71,8 +71,10 @@ path becomes a read/write root.
 
 ## 4. UI contract
 
-Add a dedicated desktop surface named `output` / **ไฟล์บันทึก**, reachable from
-the existing sidebar menu. It contains:
+Add a dedicated desktop surface named `output` / **ตำแหน่งจัดเก็บ**, reached
+from **More → ตำแหน่งจัดเก็บ**. This is a destination preference, not a
+recording library. The current task-first navigation placement is owned by the
+[Studio flow contract](2026-10-16-desktop-navigation-and-flows.md). It contains:
 
 - current destination path;
 - writable/unavailable status;
@@ -139,6 +141,7 @@ Non-goals:
 
 | Version | Change |
 | --- | --- |
+| 0.1.2b | 2026-10-19 | Corrected the surface label and More-menu placement; clarified that output is a new-file destination preference, not a recording library. |
 | 0.1.1b | Implemented the native output-root manager, `ไฟล์บันทึก` surface, selected-root ingestion paths and legacy playback allow-list; real native output smoke remains NOT_RUN. |
 | 0.1.0b | Candidate spec separating internal AppData from selectable user-visible recording output. |
 
@@ -146,5 +149,6 @@ Non-goals:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.1.2b | 2026-10-19 | beta | Synced the storage-location label and More-menu placement with the current task-first sitemap. | working-tree | Codex |
 | 0.1.1b | 2026-09-20 | beta | Implemented selectable output custody and UI; automated verification passed, native output-path smoke remains NOT_RUN. | working-tree | RWANG |
 | 0.1.0b | 2026-09-20 | candidate | Defined Documents\\fung default, native destination selection, custody history and non-migrating legacy behavior. | working-tree | RWANG |

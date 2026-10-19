@@ -1,5 +1,9 @@
 # Changelog
 
+## Home design alignment — 2026-10-19
+
+Mapped the active Desktop palette to existing semantic tokens without adding brand colors, then replaced the Home assistant/activities area with a next-meeting card and a cross-project Task Pool of AI-proposed action items. The appointment card shows empty date, attendee, and topic fields until a calendar source exists; task rows retain their meeting/project context and use explicit urgency/deadline cues for ordering. Added native minimize and system-tray controls to the dock; tray interaction still requires a native build and acceptance pass.
+
 ## 1.0.2b — 2026-10-16 — Beta
 
 เชื่อม [Studio flow contract](../design/2026-10-16-desktop-navigation-and-flows.md)

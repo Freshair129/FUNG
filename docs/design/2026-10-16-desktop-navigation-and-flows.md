@@ -1,7 +1,7 @@
 ---
-version: "1.0.0b"
+version: "1.1.0b"
 created_at: "2026-10-16,Codex"
-last_update: "2026-10-16,Codex"
+last_update: "2026-10-19,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -46,38 +46,68 @@ when implementing a new screen inside this shell.
 flowchart TB
   subgraph shell["Desktop window / Studio frame"]
     strip["Capture strip: only while starting / active / stopping"]
-    subgraph main["One main landmark; owns page scrolling"]
-      intro["Surface title and task description; Home supplies its own title"]
-      body["One active surface: Home / Live / Review / Output / Appearance"]
+    subgraph main["One main landmark; active surface owns its bounded content"]
+      home["Home: next meeting · local workspace · task pool · shortcuts"]
+      live["Live meeting: Capture · Transcript · Insights"]
+      review["Archive: project → recording → Listen · Transcript · Insights · Files"]
+      support["Secondary destinations: Storage location · Appearance"]
     end
-    dock["Bottom dock: Home · Live · History · Output · Companion | Projects · Settings · More · Account"]
+    dock["Persistent dock: Home · Live · Archive | Companion · Project · Settings · More · Window controls"]
+    more["More: Import · Export · Storage location · Appearance · Pairing · Account"]
   end
-  strip --> intro --> body --> dock
+  strip --> home
+  home --> live
+  home --> review
+  dock --> support
+  dock --> more
 ```
+
+### Task-first sitemap
+
+The persistent dock has **three task destinations**: Home, Live meeting and
+Archive. The Home page summarizes the workspace and points to the next action;
+Live owns capture setup and in-progress meeting views; Archive owns project and
+recording selection plus review. The Companion remains a separate shortcut,
+not a fourth workspace page. Project selection, Settings, the More menu and
+window controls stay in the dock utility area.
+
+Storage location and Appearance are **support destinations** reached from
+More. Storage controls where new recordings are written; it is not a recording
+library. Import and Export are contextual actions, while Pairing and Account
+are device/account management. They do not compete with the three task pages in
+the primary navigation. The dock remains present while any support destination
+is open, and More is marked active so the current context remains visible.
+
+All Live, Review and Settings tabs must remain visible without horizontal
+scrolling. At narrow widths, tab labels wrap into bounded grid cells or a second
+row. Long transcript, recording-list and settings content may scroll inside its
+own reader; that scroll must not hide the persistent dock or page navigation.
 
 | Surface / region | Information order and controls | Ownership and state requirements |
 | --- | --- | --- |
-| Home hero | Project picker; headline; actual project/capture facts; Start meeting; four shortcuts | Start opens Live setup only. Project count is unknown when unavailable, not zero. Capture availability must not be inferred from a browser fallback. |
-| Home assistant card | Decorative illustration; Companion shortcut; brief capability disclosure | Artwork has empty alt and is not a live microphone or inference meter. The card opens an in-app shortcut panel. |
+| Home hero | Project picker; headline; actual project/capture facts; Start meeting; shortcuts to Live, import and Archive | Start opens Live setup only. Project count is unknown when unavailable, not zero. Capture availability must not be inferred from a browser fallback. |
+| Home next-meeting card | Date/time, attendees and topic when a calendar source exists; honest empty state otherwise | The card must not invent an appointment or imply calendar access. |
 | Home local-space card | Project count; capture status; selected project; local storage disclosure | Metadata comes from the native owner. Show unavailable/error/loading independently. |
-| Home activity card | 7/30-day selector; project creation counts; totals; project shortcut | This chart counts created projects, not meetings or AI activity. No synthetic bars on an unavailable read. |
+| Home task pool | AI-proposed tasks from meetings, sorted by urgency/deadline; source recording and evidence count | Tasks stay proposals until reviewed. Opening a task goes to its exact source recording. |
 | Live | Surface introduction; current read/error; capture setup/status; persisted transcript; topic/ask/summary context | One persistent Live owner; controls belong to LiveWorkspace. No legacy tile toolbar, marker placeholder or static "recording ready" claim above it. |
 | Review | Introduction; project recording list; selected recording detail; explicit playback; transcript/summary/ask; recording jobs and artifacts | One persistent Review owner. Every read/action uses the selected `(projectId, recordingId)`. Detail is a region, not a nested main landmark. |
-| Output | Current path/status; Choose folder; Reset; new-files-only notice | Native folder chooser; locked during capture and while saving. Preserve previous roots for old files. This is a destination preference, not a file browser. |
+| Storage location | Current path/status; Choose folder; Reset; new-files-only notice | Native folder chooser; locked during capture and while saving. Preserve previous roots for old files. This is a destination preference, not a file browser. |
 | Appearance | Theme; material; transparency; readable fallback explanation | Independent from capture/data reads. Do not show unrelated native-capture failures or recording-scope notes here. |
 | Project disclosure | Loading/error/unavailable/empty/list; selected recording context; recovery notices; Close list | Opening or closing the disclosure does not open/close a database/project or start recording. Empty recovery wrappers are hidden. |
-| More disclosure | Import; open Review for explicit export selection; pairing; Appearance; Account | Accessible names remain present even when icons are shown. Export shortcut creates no job until the user chooses a recording and uses its scoped action. |
+| More disclosure | Files group: Import, Export and Storage location; device group: Pairing, Appearance and Account | Accessible names remain present even when icons are shown. Export opens Review for explicit recording selection and creates no job until the user uses its scoped action. |
 | Settings dialog | Close; section choices; active panel | Focus enters the dialog, Tab stays within visible enabled controls, Escape closes and restores the initiating control. Embedded panels are regions rather than nested modal dialogs. |
-| Companion dialog | Close; context/status; Live and Settings shortcuts; in-app disclosure | Opening does not start capture or AI inference. No arbitrary prompt, autonomous agent or external overlay capability is implied. |
+| Companion shortcut/dialog | Close; context/status; Live and Settings shortcuts; in-app disclosure | It is a utility action rather than a primary workspace destination. Opening does not start capture or AI inference. No arbitrary prompt, autonomous agent or external overlay capability is implied. |
 | Pairing dialog | Close; device read/error; explicit create-code/refresh controls; FUNGWIRE status/actions | Loads its overlay independently of Settings; focus enters Close, Tab loops, Escape restores More. Merely opening does not grant trust or enable FUNGWIRE. |
 
 ### Responsive and accessibility contract
 
-- The document/root stays within the viewport; the active main owns scrolling.
-  Home cards stack when width requires it. Dock items remain reachable with
-  text or accessible names. Project/utility disclosures have bounded overflow.
+- The shell stays within the viewport and keeps the dock fixed. Home cards
+  stack when width requires it. Dock items remain reachable with text or
+  accessible names. Project/utility disclosures have bounded overflow.
 - Existing Live/Review readers own only bounded internal readers, not another
-  full-page scroller. Fixed dialog overlays do not create shell grid rows.
+  full-page scroller. Long transcript or recording lists can scroll within the
+  reader; navigation tabs never need horizontal scrolling. Fixed dialogs do not
+  create shell grid rows.
 - Keep a single page `main`, one active page H1, visible keyboard focus, the
   skip link and native select labels. Navigation focuses the active heading.
 - Settings, Pairing and Companion trap Tab and support Escape. Native pickers remain
@@ -88,17 +118,23 @@ flowchart TB
 
 ## 3. Wireflow — navigation and capture safety
 
-Surface IDs are `home|live|review|output|appearance`. Dock `#history` maps to
-`review`; the hash in the anchor is a presentation link, not a durable router
-contract. `activeSurface` is React state; reload starts at Home. Settings,
-Projects, Pairing and Companion are overlays/disclosures, not additional routes.
+Active surface IDs remain `home|live|review|output|appearance`. The primary
+dock navigation includes only `home|live|review`; `output` (Storage location)
+and `appearance` are support destinations opened from More. Dock `#history`
+maps to `review`; hashes are presentation links, not durable router contracts.
+`activeSurface` is React state; reload starts at Home. Settings, Projects,
+Pairing and Companion are overlays/disclosures, not additional routes.
 
 ```mermaid
 flowchart TD
   H["Home"] -->|Start meeting| L["Live setup"]
   H -->|History / Listen again| R["Review list"]
   H -->|Import| I["Native file selection"]
-  H --> O["Output destination"]
+  H --> M["More menu"]
+  L --> M
+  R --> M
+  M -->|Storage location| O["Storage destination"]
+  M --> AP["Appearance"]
   H --> C["Companion"]
   C --> L
   C --> S["Settings"]
@@ -141,7 +177,7 @@ check was executed. None means native/device/provider acceptance by itself.
 | UF-08 Ask from a recording | Select recording → type bounded question → Ask → answer with transcript sources | No automatic fallback to another recording, live tail or graph; insufficient evidence/provider failure remain explicit | SOURCE + CPU scope/race; no model inference in this audit |
 | UF-09 Reprocess/export selection | Review detail → chosen job (retry/detailed/speaker/summary/export) → job notice → refresh artifact/result | Pair is captured at click; detailed mode requires readiness; reject stale proposals; completion requires actual artifacts | SOURCE + CPU job-pair boundary; real provider/export not rerun |
 | UF-10 Enter export from More | Choose project → More → Export → Review → select recording → UF-09 | Disabled without a project; opening Review queues no job. Never substitute project-current recording for the historical recording the user selects | SOURCE + BROWSER disabled/no-project path; CPU selected-recording job scope |
-| UF-11 Set output destination | Output → native folder chooser → validate writable path → save | Cancel retains value; capture/busy locks changes; existing files stay at old roots; failure does not claim path saved | BROWSER disabled/unavailable; SOURCE + CPU custody/lock contract |
+| UF-11 Set output destination | More → Storage location → native folder chooser → validate writable path → save | Cancel retains value; capture/busy locks changes; existing files stay at old roots; failure does not claim path saved | BROWSER disabled/unavailable; SOURCE + CPU custody/lock contract |
 | UF-12 Change appearance | More → Appearance → theme/material/transparency | Display state is session-scoped; current reload resets Light/Glass/Full. Capture/data unavailable state is irrelevant. Durable Desktop appearance preferences remain a separate improvement | BROWSER entry and light/dark roundtrip; SOURCE session-state ownership |
 | UF-13 Settings and account | Dock Settings or Account → dialog → selected section → close/Escape | Restore focus; account sign-in is optional; no auth endpoint/secure-storage/provider proof is inferred from visible buttons | BROWSER focus/keyboard/config boundary; SOURCE account handlers |
 | UF-14 Pair a device | More → Pair → native account/device authority checks → explicit enrollment/pair approval | Denied/revoked/unavailable stays fail-closed; viewing must not grant trust | BROWSER dialog/read-failure/keyboard; SOURCE ceremony; real second-device ceremony not executed |
@@ -197,7 +233,7 @@ journey and must not be advertised until search behavior is delivered and tested
 
 ## 6. Maintenance and acceptance checklist
 
-1. Any surface/action change updates this map and the [interface inventory](../UI_INTERFACE_INVENTORY.md).
+1. Any surface/action change updates this map and the [interface inventory](interface-inventory.md); only task destinations belong in primary navigation.
 2. Keep current layout pointers, material/token owners and runtime evidence separate.
 3. Capture visible start, loading/empty/error, completion and recovery states for
    each affected journey; preserve exact user artifacts before native restarts.
@@ -211,4 +247,5 @@ journey and must not be advertised until search behavior is delivered and tested
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 1.1.0b | 2026-10-19 | beta | Reframed the sitemap around Home, Live and Archive; moved Storage location out of primary navigation and made inner tabs non-scrolling. | working-tree | Codex |
 | 1.0.0b | 2026-10-16 | beta | Reconciled Studio shell wireframes, navigation, 18 Desktop user flows and platform handoffs with source/browser/CPU evidence boundaries. | working-tree | Codex |

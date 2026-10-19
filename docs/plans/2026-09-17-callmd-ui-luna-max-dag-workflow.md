@@ -270,17 +270,18 @@ flowchart TD
   IR --> H[Candidate handoff · no automatic release]
 ```
 
-`docs/.doc-graph.json` describes documentation/code relationships, not a
-scheduler. Its cycles, stale content, deleted paths, and historical Drive nodes
-must not be translated into implementation edges. The scan report supplies an
-audit; this workflow does not rewrite that generated graph or its coverage
-claims.
+The historical documentation relationship snapshot described document and
+code relationships, not a scheduler. Its cycles, stale content, deleted paths,
+and historical Drive nodes must not be translated into implementation edges.
+That generated snapshot has since been retired; the scan report remains a
+dated audit and this workflow does not maintain its former coverage claims.
 
-The scan of the existing graph found 105 nodes / 335 relationships, no unknown
-edge endpoints, six removed Drive paths, and 26 node-hash mismatches using a
-documented SHA-256-prefix comparison (the generator's algorithm is undeclared).
-Three cyclic document-reference components exist; the 14 `depends_on` edges
-are acyclic. These are source-audit facts, not product/runtime evidence.
+The scan of the then-existing snapshot found 105 nodes / 335 relationships, no
+unknown endpoints, six removed Drive paths, and 26 content-hash mismatches
+using a documented SHA-256-prefix comparison (the generator's algorithm was
+undeclared). Three cyclic document-reference components existed; the 14
+`depends_on` edges were acyclic. These are dated source-audit facts, not
+product/runtime evidence.
 
 The final task manifest has **25 nodes / 28 dependency edges**. The initial
 22-node draft was extended after the FUNG scan identified missing desktop

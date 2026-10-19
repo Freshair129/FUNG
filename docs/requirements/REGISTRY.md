@@ -56,7 +56,7 @@ rg -o -i --glob '*.md' --glob '*.yaml' --glob '*.yml' --glob '*.json' `
   Sort-Object -Unique
 ```
 
-Update this file and the document graph together when an ID is allocated.
+When allocating an ID, update this registry and the maintained [traceability matrix](../appendices/D-traceability.md) together. The `@req` annotation contract is checked by `npm run test:traceability`.
 
 ## CHANGELOG
 

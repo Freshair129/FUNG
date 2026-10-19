@@ -1,22 +1,24 @@
 ---
-version: "0.3.0b"
+version: "0.3.1b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-20T03:53:22+07:00,RWANG"
+last_update: "2026-10-19,Codex"
 status: "superseded"
-superseded_by: "docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md"
+superseded_by: "docs/design/2026-10-16-desktop-navigation-and-flows.md"
 attributes:
   domain: "local-first-audio-ai"
   doc_type: "sitemap-ia"
   scope: "FUNG"
 ---
 
-# 05 - Sitemap IA
+# 05 - Legacy Sitemap IA (P1–P4, superseded)
 
-> The P1-P4 content taxonomy remains useful for domain content, but this
-> document's shell-navigation contract is superseded. Current navigation is
-> the active-surface model `home|live|review|appearance` with a
-> hover/focus-expandable sidebar, as defined by the Liquid Glass shell
-> refresh.
+> **Do not use this file to implement current navigation.** It describes the
+> retired P1–P4 / Subtract HUD / rail model. The current task-first sitemap,
+> page ownership, More menu and no-scroll tab rules live in the
+> [Studio navigation and flow contract](../design/2026-10-16-desktop-navigation-and-flows.md).
+> Only the domain vocabulary in **Domain Taxonomy** and **Grouping Logic** may
+> still inform content design; none of the P rail, topbar mirror, HUD sectors,
+> sidebar or radial-menu rules below are current shell behavior.
 
 ## IA Principle
 
@@ -147,7 +149,8 @@ Feature drivers reshape copy, tile priority, signal wording, and Agent card guid
 
 | Version | Change |
 | --- | --- |
-| 0.3.0b | 2026-09-20 | Marked P rail/topbar/power-dock shell navigation as superseded while retaining the P1-P4 domain taxonomy. |
+| 0.3.1b | 2026-10-19: Corrected the supersession target and explicitly marked the P1–P4 navigation rules as historical; linked the current task-first sitemap. |
+| 0.3.0b | 2026-09-20: Marked P rail/topbar/power-dock shell navigation as superseded while retaining the P1-P4 domain taxonomy. |
 | 0.2.2b | Added feature-driver strategy and linked Meeting Mode as the first detailed content model. |
 | 0.2.1b | Simplified active page content into three frequent-use action tiles per P. |
 | 0.2.0b | Redesigned IA around domain taxonomy and P1-P4 page-state navigation. |
@@ -157,6 +160,7 @@ Feature drivers reshape copy, tile priority, signal wording, and Agent card guid
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.1b | 2026-10-19 | superseded | Corrected the current sitemap pointer and fenced the retired P1–P4 navigation model as historical. | working-tree | Codex |
 | 0.3.0b | 2026-09-20 | superseded | Current shell navigation moved to the Liquid Glass active-surface contract. | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
 | 0.2.2b | 2026-07-09 | beta | Added feature-driver IA rule and connected Meeting Mode to the P1-P4 content model. | N/A | ATHER |
 | 0.2.1b | 2026-07-06 | beta | Added inner content simplification rule for frequent-use tiles. | N/A | ATHER |

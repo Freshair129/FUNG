@@ -1,7 +1,7 @@
 ---
-version: "0.2.2b"
+version: "0.2.3b"
 created_at: "2026-08-11T10:37:54+07:00,Agent: ATHER"
-last_update: "2026-09-20T03:53:22+07:00,Agent: RWANG"
+last_update: "2026-10-19,Agent: Codex"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -12,7 +12,7 @@ attributes:
 
 # Appendix D — FUNG Runtime Traceability
 
-*Refreshed by RWANG doc-graph on 2026-08-26. `Implemented locally` means current-main code and focused local evidence exist; it does not mean real external/provider/runtime verification passed.*
+*Maintained as a manual evidence matrix; the former generated relationship snapshot was retired on 2026-10-19. `Implemented locally` means current-main code and focused local evidence exist; it does not mean real external/provider/runtime verification passed.*
 
 Google Drive was canceled on 2026-09-17. Drive source, commands, Edge
 functions, and active contract tests are removed; the rows below remain only
@@ -20,7 +20,7 @@ to preserve traceability to historical decisions and evidence reports.
 
 ## Historical Documentation Conflict — Resolved in This Reflight
 
-Task 4 truth-synced FR-106--FR-114 and FR-116 to current default-off code-level evidence and corrected FR-101 so both recording entry points route to `LiveMeetingPanel`. The post-fix audit re-ran `npm run test:desktop-bootstrap` (5/5) and `npm run test:external-tools` (5/5), then confirmed that the requirements, source, and focused tests agree. The historical graph `contradicts` edge remains retained with `status: resolved`; this matrix still does not claim real-connector, visual/keyboard, summary/export review after restart, artifact-secret-scan, or real-device completion.
+Task 4 truth-synced FR-106--FR-114 and FR-116 to current default-off code-level evidence and corrected FR-101 so both recording entry points route to `LiveMeetingPanel`. The post-fix audit re-ran `npm run test:desktop-bootstrap` (5/5) and `npm run test:external-tools` (5/5), then confirmed that the requirements, source, and focused tests agree. The historical audit recorded a resolved contradiction; that old finding is not current evidence. This matrix still does not claim real-connector, visual/keyboard, summary/export review after restart, artifact-secret-scan, or real-device completion.
 
 Current shell mapping (2026-09-20): FR-101 is entered through the active Home/Live surfaces and the capture strip, not a persistent microphone rail. The Liquid Glass DesktopShell and Appearance page are presentation-shell changes; they do not change the native recording command or FR-101 runtime contract.
 
@@ -29,9 +29,9 @@ Current shell mapping (2026-09-20): FR-101 is entered through the active Home/Li
 `npm run test:traceability` passes **1/1** for the expanded annotation contract.
 The contract confirms canonical source/test intent only; it does not add runtime
 or UAT proof. Its 68 `@req` occurrences are separate from retained manual,
-code-inspection, and test-run graph mappings.
+code-inspection, and test-run mappings.
 
-| Surface | `@req` occurrences | Graph effect |
+| Surface | `@req` occurrences | Traceability relation |
 |---|---:|---|
 | Nine implementation files | 57 | `implements` edges with `source: annotation`, status `annotation-intent` |
 | Two test files | 11 | `verifies` edges with `source: annotation`, status `annotation-intent` |
@@ -41,7 +41,7 @@ The expanded annotation edges cover **25/26** scoped IDs through implementation
 comments and **11/26** through test comments; together they cover **26/26**
 unique IDs. `FR-101` is currently anchored by the desktop-bootstrap test
 annotation rather than an implementation-file annotation. The focused contract
-node records the 1/1 assertion that the eleven target files carry canonical IDs
+assertion records the 1/1 check that the eleven target files carry canonical IDs
 required by the contract. Annotation coverage remains source/test intent only
 and does not replace retained manual, code-inspection, or test-run mappings.
 
@@ -61,8 +61,8 @@ provider, staging, device, release, or production status.
 | AC-GDA6-11 external boundary | Final D-GDA6 Terra cycle-3 report and Phase 4 plan | Not established by current code | Provider/Drive evidence | CANCELED with the Google Drive scope |
 
 The Recording2 catalog task document deliberately points to local-only
-`.tmp-transcript/` provenance as plain paths. Those artifacts are not graph
-nodes and are not portable repository evidence.
+`.tmp-transcript/` provenance as plain paths. Those artifacts are not entries
+in this matrix and are not portable repository evidence.
 
 ## Functional Requirements
 
@@ -119,7 +119,7 @@ nodes and are not portable repository evidence.
 | NFRs with feature-specific unit/integration evidence | 5/10 | NFR-102/103/105/107/108 have partial gates; none removes the feature flag yet |
 | External MCP/CRM FRs implemented through backend plus operator surface | 11/11 | Detailed health, restart, device, secret-scan, and real-connector UAT remain S5 gates |
 | External MCP focused verification | 23/23 Rust plus 5/5 frontend | Feature cluster green; full Rust library regression is now 195/195 after the Windows `py.exe` fallback |
-| Retained manual/inspection graph coverage | 22/26 code, 16/26 test requirement mappings | Existing `manual`, `code-inspection`, and `test-run` edges remain unchanged |
+| Retained manual/inspection coverage | 22/26 code, 16/26 test requirement mappings | Existing `manual`, `code-inspection`, and `test-run` evidence remains unchanged |
 | Scoped executable annotation coverage | 57 implementation + 11 test `@req` occurrences | 25/26 implementation IDs and 11/26 test IDs; together 26/26 unique IDs across eleven exact files; source/test intent only |
 | Annotation contract | `npm run test:traceability` 1/1 | Validates canonical IDs and required occurrences; no runtime/UAT closure |
 
@@ -142,6 +142,10 @@ graph LR
 ```
 
 ## Version Diff
+
+`0.2.2b -> 0.2.3b`: retired the generated relationship snapshot; the manual
+matrix and executable annotation contract remain the maintained traceability
+sources.
 
 0.2.1b → 0.2.2b: reconciled FR-101 evidence with the current Home/Live active-surface shell and recorded that the Liquid Glass presentation change does not alter the native recording contract.
 
@@ -167,7 +171,7 @@ eight-file GREEN contract, with annotation mappings explicitly separated from
 manual/inspection edges and all runtime/UAT gates retained.
 
 `0.1.5b -> 0.1.6b`: recorded the post-fix agreement of requirements, source,
-and focused regressions; retained the former graph contradiction as resolved
+and focused regressions; retained the former contradiction as resolved
 historical evidence and left H3 plus all release/UAT gates open.
 
 `0.1.4b -> 0.1.5b`: recorded the unresolved candidate-requirements versus current-working-tree implementation conflict and refreshed the evidence boundary; no requirement coverage was invented.
@@ -176,6 +180,7 @@ historical evidence and left H3 plus all release/UAT gates open.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.2.3b | 2026-10-19 | beta | Retired the generated relationship snapshot; Appendix D and the executable annotation contract remain the maintained traceability sources. | pending | Codex |
 | 0.2.2b | 2026-09-20 | beta | Reconciled FR-101 evidence with the current DesktopShell active-surface entry. | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
 | 0.2.1b | 2026-09-17 | beta | Marked the canceled Google Drive rows historical and removed active source/test ownership from the traceability matrix. | a9f9b80 | Codex |
 | 0.2.0b | 2026-08-26 | candidate | Expanded traceability with the Phase 4 Google Drive/D-GDA6 local-versus-external evidence boundary and local-only Recording2 provenance | `888aded` | ATHER |

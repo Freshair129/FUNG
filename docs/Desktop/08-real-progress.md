@@ -1,7 +1,7 @@
 ---
-version: "0.3.26b"
+version: "0.3.27b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-16,Codex"
+last_update: "2026-10-19,Codex"
 
 status: "beta"
 superseded_by: null
@@ -40,6 +40,23 @@ keyboard behavior and light/dark Output. This round does not rebuild a native
 executable or requalify audio, private-source, device, provider, installer or
 release acceptance. Detailed receipts and remaining gates are in the
 [flow audit](../verification/implementation-reports/2026-10-16-wireframe-wireflow-userflow-audit.md).
+
+## Task-first navigation and tab fit — 2026-10-19
+
+The current IA has three primary task destinations: Home, Live meeting and
+Archive. Storage location and Appearance are support destinations grouped under
+More; project, Settings, Companion and window actions remain utility controls.
+The Live and Archive detail tabs and Settings category navigation use bounded
+wrapping grids rather than horizontal scrolling. Long transcripts and lists may
+scroll inside their own reader without moving the dock or hiding page navigation.
+
+The current sitemap is
+[`2026-10-16-desktop-navigation-and-flows.md`](../design/2026-10-16-desktop-navigation-and-flows.md).
+The former P1–P4 sitemap now points there and is explicitly marked historical.
+Browser DOM checks at 1202×884 and 820×760 found no horizontal overflow in the
+root, primary navigation or dock. Screenshot capture and browser input were
+unavailable in this pass, so visual screenshot review and click-through are not
+claimed. No build or test suite was run for this documentation/UI change.
 
 ## Existing-profile schema recovery — upstream merged, FUNG validation in progress (2026-10-15)
 
@@ -378,19 +395,19 @@ independent source review; native and product-level gates remain open.
 campaign, mock-browser flow and earlier source review; native UI, accessibility
 and product-level acceptance remain open.
 
-## Current Desktop shell truth — 2026-09-20
+## Desktop shell truth snapshot — 2026-09-20 (historical)
 
-The current desktop presentation is the Liquid Glass `DesktopShell`, not the
+At this snapshot, the desktop presentation was the Liquid Glass `DesktopShell`, not the
 older fixed HUD / P rail / InstrumentRail vocabulary used by earlier progress
 entries. The active shell surfaces are `home`, `live`, `review`, `output`, and
 `appearance`.
 
-- The persistent sidebar is hover/focus-expandable and owns navigation plus
+- In that snapshot, the persistent sidebar was hover/focus-expandable and owned navigation plus
   bounded actions; it does not own recording start/stop.
 - Recording entry remains on the Home/Live surfaces and the active capture
   strip. The native recording/runtime boundary is unchanged.
-- Appearance is a dedicated main-content page for theme, material and
-  transparency controls; the sidebar only navigates to it.
+- Appearance was a dedicated main-content page for theme, material and
+  transparency controls; the sidebar only navigated to it.
 - `ไฟล์บันทึก` is a dedicated main-content page for the user-visible recording
   destination; it exposes the current path, writable status, native folder
   picker and reset-to-`Documents\fung` action. It is disabled while capture is
@@ -1330,6 +1347,15 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.26b` → `0.3.27b`
+
+- Reframed primary navigation around Home/Live/Archive; grouped Storage
+  location and Appearance under More; removed horizontal scrolling from page
+  tabs and corrected the legacy sitemap pointer.
+- Browser DOM bounds passed at 1202×884 and 820×760. Screenshot capture and
+  browser input were unavailable; no visual or click-through acceptance is
+  claimed. No build or tests were run.
+
 ### `0.3.25b` → `0.3.26b`
 
 - Re-ran native screen UAT on PR #80 head `61940cd` in an isolated
@@ -1538,6 +1564,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.27b | 2026-10-19 | beta | Reframed navigation around Home/Live/Archive, grouped support destinations, removed tab-bar scrolling and corrected the legacy sitemap pointer; DOM bounds checked only, screenshot/click-through unavailable. | working-tree | Codex |
 | 0.3.26b | 2026-10-16 | beta | Re-ran native Desktop screen UAT on PR #80 in an isolated app-data profile; five core surfaces and seven Settings sections rendered, but device/provider, recording, populated Review and package gates remain open. | working-tree | Codex |
 | 0.3.25b | 2026-10-16 | beta | Added device-rate negotiation and source-timeline resampling; local native 16 kHz-to-44.1 kHz playback plus pause/resume passed, while native UI, package and full-suite timing gates remain open. | working-tree | Codex |
 | 0.3.24b | 2026-10-16 | beta | Reconciled PR #80 with main and the merged GenesisBlock pin; focused profile/persistence regressions and Desktop/design-system checks passed, full CI and native/release gates remain open. | working-tree | Codex |

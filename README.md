@@ -6,6 +6,8 @@ GenesisBlockDB adapter; optional account/device services use the separate
 Supabase control plane.
 
 - [Documentation hub](docs/README.md)
+- [Product scope](PRODUCT.md)
+- [Historical RCA archive](.brain/README.md)
 - [Desktop architecture and three-layer data ownership](docs/Desktop/ARCHITECTURE.md)
 - [Current UI wireframes, wireflows and user flows](docs/design/2026-10-16-desktop-navigation-and-flows.md)
 - [Desktop implementation evidence](docs/Desktop/08-real-progress.md)

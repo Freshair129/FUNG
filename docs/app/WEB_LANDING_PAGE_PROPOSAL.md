@@ -35,7 +35,7 @@ Approve a new public, scroll-driven landing page for the Vercel deployment while
 - Aligns with `docs/Desktop/DESIGN_SYSTEM.md`: disciplined hierarchy, porcelain surfaces, ink typography, muted sage, restrained indigo, warm-metal detail, and no dominant purple gradient.
 - Aligns with `docs/Mobile/DESIGN_SYSTEM.md`: Thai-first typography, tactile restraint, meaningful motion, and light/dark accessibility.
 - Aligns with `docs/Mobile/PRODUCT_UX_SPEC.md`: local-first operation and account-optional behavior.
-- Aligns with `docs/WEB_PRODUCTION_DEPLOYMENT.md`: Vercel remains the web deployment target.
+- Aligns with [`docs/operations/web-production-deployment.md`](../operations/web-production-deployment.md): Vercel remains the web deployment target.
 - Does not move local audio, transcript, graph, vector, or provenance data into Supabase.
 
 ## Brand idea

@@ -7,7 +7,7 @@ created_at: "2026-09-16"
 language: "th-TH / en"
 domain: "frontend-redesign"
 scope: "desktop, mobile, web dashboard, landing, phone page, proposed companion overlay"
-product_baseline: "FUNG 0.1.1 ตาม FRONTEND_REDESIGN_BRIEF.md v1.1.0b"
+product_baseline: "FUNG 0.1.1 ตาม FRONTEND_REDESIGN_BRIEF.md v1.1.1b"
 implementation_verified: false
 token_css_integration_verified: true
 component_coverage: partial
@@ -54,7 +54,7 @@ human_approval_required: false
 
 เอกสารนี้อ้างความสามารถจาก **B เท่านั้น** ไม่ได้อ่านหรือทดสอบ repository ล่าสุดซ้ำ ค่า spacing, semantic colors, interaction และ layout ใหม่ในเอกสารเป็น **ข้อเสนอออกแบบ** ที่แยกจากข้อเท็จจริงเดิม ภาพ M1/M2 เป็น visual direction ไม่ใช่ภาพผลิตภัณฑ์ที่ทำงานแล้ว ไม่มีการนำคำอธิบายคู่แข่งในบทสนทนามาเป็นข้อกำหนดทางเทคนิคที่ยืนยันแล้ว
 
-Current desktop shell truth is maintained in [`docs/design/2026-09-19-liquid-glass-desktop-shell-refresh.md`](../design/2026-09-19-liquid-glass-desktop-shell-refresh.md) and its approved addendum [`LIQUID_GLASS_DESKTOP_ADAPTATION.md`](LIQUID_GLASS_DESKTOP_ADAPTATION.md). Those documents supersede the older shell navigation language in the baseline snapshot while preserving the product capability and privacy contracts here.
+Current Desktop information architecture and navigation are maintained in the [Studio navigation and flow contract](../design/2026-10-16-desktop-navigation-and-flows.md). Material and transparency behavior remain governed by the approved [Liquid Glass addendum](LIQUID_GLASS_DESKTOP_ADAPTATION.md); the September shell refresh is historical for navigation. These documents supersede older shell-navigation language while preserving the product capability and privacy contracts here.
 
 ลำดับการตัดสิน: ความจริงของข้อมูลและข้อจำกัดความปลอดภัยใน B ต้องไม่ถูกเปลี่ยนเพราะภาพ mock; รูปร่างแบรนด์อิง L; รายละเอียด visual อิง M1/M2 และข้อเสนอในเอกสารนี้ หากสองแหล่งขัดกัน ต้องบันทึกข้อขัดแย้ง ไม่เดาเงียบ ๆ
 
@@ -202,35 +202,31 @@ Porcelain เป็นความรู้สึกของวัสดุ ไ
 
 B §2 ระบุ clay สำหรับ error/destructive ขณะที่ B §7 เพิ่มการใช้สีแดงกับ recording เอกสารนี้รักษาทั้งสองบริบท: ใช้ clay family กับ error, destructive และ recording เท่านั้น ไม่ใช้เป็นสีแบรนด์ของปุ่มทั่วไป
 
-### 5.2 Semantic palette — PROPOSED
+### 5.2 Desktop palette map — active usage contract
+
+สีในตารางเป็น token เดิมจาก `fung.tokens.json`; ตารางนี้กำหนดการใช้สีบน FUNG Desktop ให้ทุกหน้าใช้ความหมายเดียวกัน ไม่ได้เพิ่มหรือเปลี่ยนสีแบรนด์
+
+| บทบาทใน Desktop | Semantic token (`--fung-…`) | Light | Dark | ใช้กับ |
+| --- | --- | --- | --- | --- |
+| Shell canvas | `glass-canvas` | `#EEF0E9` | `#111A17` | พื้นงานใต้หน้าและด้านใน shell |
+| Page canvas | `bg-canvas` | `#FAF8F3` | `#171918` | พื้นรองและพื้นที่ว่าง |
+| Main card | `bg-surface` | `#FFFEFA` | `#202521` | การ์ดเนื้อหาหลักของ Home, Live, History, Files และ Settings |
+| Nested control | `bg-inset` | `#F0EDE6` | `#111312` | ช่องกรอก, แถวรอง, เนื้อหาย่อย และ tab ที่เลือก |
+| Raised control | `bg-elevated` | `#FFFFFF` | `#292F2A` | เมนูและ control ที่ลอยเหนือการ์ด |
+| Main text | `text-primary` | `#171918` | `#FAF8F3` | หัวข้อและเนื้อหาหลัก |
+| Supporting text | `text-secondary` | `#505A54` | `#CAD1C9` | คำอธิบายและ metadata ที่ยังต้องอ่านได้ |
+| Divider | `border-subtle` | `#D6D9D1` | `#384239` | เส้นแบ่งพื้นผิวและขอบการ์ด |
+| Primary action / selection / focus | `action-primary-bg`, `action-primary-fg`, `action-primary-hover`, `focus` | `#4A5B8B`, `#FAF8F3`, `#3F4E77`, `#4A5B8B` | `#B9C8EE`, `#171918`, `#CDD8F2`, `#B9C8EE` | ปุ่มหลัก, tab ที่เลือก, link และ focus ring |
+| Local / ready | `state-local-fg`, `state-local-bg` | `#3F6150`, `#E7EEE8` | `#ACC6B4`, `#23382C` | ป้ายสถานะที่ยืนยันว่าอยู่ในเครื่องหรือพร้อมทำงาน |
+| Pending | `state-pending-fg`, `state-pending-bg` | `#765925`, `#F4ECDD` | `#E3C493`, `#3C3021` | กำลังเชื่อมต่อ, รอ หรือยังไม่ยืนยัน |
+| Recording / error / destructive | `state-recording-fg`, `state-danger-fg`, `state-danger-bg` | `#9A4634`, `#9A4634`, `#F7E7E1` | `#F1AB97`, `#F1AB97`, `#3D2722` | การบันทึก, ข้อผิดพลาด และการกระทำทำลายข้อมูล |
+| Inferred / AI proposal | `state-inferred-fg`, `state-inferred-bg` | `#4A5B8B`, `#E9EDF7` | `#B9C8EE`, `#293246` | ข้อมูลที่ AI สกัดและยังรอตรวจทาน |
+| Brand mark | `logo-mark` | `#171918` | `#FAF8F3` | เครื่องหมาย FUNG บนพื้นสว่าง/มืด |
+| Brand wordmark | `logo-wordmark` | `#6F897E` | `#FAF8F3` | ชื่อ FUNG ในบริบทที่กำหนด |
+
+**กฎการใช้:** ปุ่มหลักและจุดเลือกใช้ slate semantic; sage ใช้กับสถานะ local/ready เท่านั้น; metal ใช้กับ pending; clay ใช้กับ recording/error/destructive เท่านั้น ภาพ Hero ใช้ porcelain/ink เป็นสีตัวอักษรบน artwork ได้ การทำ Liquid Glass ใช้ semantic token เดิมผ่าน `color-mix()` ได้ แต่พื้นอ่านเนื้อหาและการ์ดต้องคงความทึบตาม `bg-surface` เพื่อรักษาความชัดเจนทั้ง Light และ Dark
 
 ตารางนี้เป็น subset สำหรับอ่านเร็ว ค่าเต็มอยู่ใน JSON/CSS ห้ามเปลี่ยน brand primitive เพื่อแก้ contrast ของ component ให้แก้ semantic role แทน
-
-| Semantic token (`--fung-…`) | Light | Dark |
-| --- | --- | --- |
-| `bg-canvas` | `#FAF8F3` | `#171918` |
-| `bg-inset` | `#F0EDE6` | `#111312` |
-| `bg-surface` | `#FFFEFA` | `#202521` |
-| `bg-elevated` | `#FFFFFF` | `#292F2A` |
-| `text-primary` | `#171918` | `#FAF8F3` |
-| `text-secondary` | `#505A54` | `#CAD1C9` |
-| `text-tertiary` | `#59665F` | `#A3AFA4` |
-| `border-subtle` | `#D6D9D1` | `#384239` |
-| `border-strong` | `#768177` | `#788A7A` |
-| `action-primary-bg` | `#4A5B8B` | `#B9C8EE` |
-| `action-primary-fg` | `#FAF8F3` | `#171918` |
-| `link` | `#4A5B8B` | `#B9C8EE` |
-| `focus` | `#4A5B8B` | `#B9C8EE` |
-| `state-local-fg` | `#3F6150` | `#ACC6B4` |
-| `state-local-bg` | `#E7EEE8` | `#23382C` |
-| `state-pending-fg` | `#765925` | `#E3C493` |
-| `state-pending-bg` | `#F4ECDD` | `#3C3021` |
-| `state-danger-fg` | `#9A4634` | `#F1AB97` |
-| `state-danger-bg` | `#F7E7E1` | `#3D2722` |
-| `state-recording-fg` | `#9A4634` | `#F1AB97` |
-| `state-inferred-fg` | `#4A5B8B` | `#B9C8EE` |
-| `logo-mark` | `#171918` | `#FAF8F3` |
-| `logo-wordmark` | `#6F897E` | `#FAF8F3` |
 
 สี `border-subtle` มีหน้าที่แบ่งพื้นผิวแบบตกแต่ง ไม่ใช้เป็นขอบเดียวของ input หรือ control ที่ผู้ใช้จำเป็นต้องมองเห็น ใช้ `border-strong` สำหรับเส้นสำคัญ และใช้ selected label/indicator ร่วมกับสีเสมอ
 

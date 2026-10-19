@@ -193,6 +193,10 @@ Build artifact ยังอยู่ใน `src-tauri/target/debug/fung.exe`. �
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 1.0.6b | 2026-10-19 | beta | Added an opaque token-based base beneath the Studio glass gradients so transparent Tauri window backing cannot wash out page content. | working-tree | Codex |
+| 1.0.5b | 2026-10-19 | beta | Aligned desktop surface typography and grids with Home; moved live/review/settings detail into keyboard-accessible tabs and reduced the meeting intelligence grid to one row on wide screens. | working-tree | Codex |
+| 1.0.4b | 2026-10-19 | beta | Removed startup Acrylic application and unified embedded Cloud/TTS settings with the shell's single-scroll Quiet Archive surface. | working-tree | Codex |
+| 1.0.3b | 2026-10-19 | beta | Removed the full-HWND Acrylic tint path and unified desktop surfaces with Quiet Archive design tokens; native frame acceptance remains pending. | working-tree | Codex |
 | 1.0.2b | 2026-10-16 | beta | Linked current Studio layout/flows and clarified historical game-blocked evidence without claiming new native acceptance. | working-tree | Codex |
 | 1.0.1b | 2026-10-16 | beta | Recorded Studio glass rim/dock contrast implementation and isolated native preview evidence; native visual acceptance remains pending | UNCOMMITTED | Codex |
 | 1.0.0b | 2026-09-20 | beta | Moved recording out of the persistent rail, promoted appearance to a dedicated page, and removed app-level minimize/close controls | 285566b9515c5fc83b4fde64ce8e57389f7a565a | RWANG |
@@ -202,3 +206,110 @@ Build artifact ยังอยู่ใน `src-tauri/target/debug/fung.exe`. �
 | 0.3.0b | 2026-09-19 | candidate | Added Liquid Glass desktop adaptation scope and approval gates; no code implementation | UNCOMMITTED | RWANG |
 
 Approval recorded in the task conversation on 2026-09-19. Local implementation and browser/build evidence remain scoped; native visual acceptance for the latest Studio frame follow-up is still pending new evidence after the user cleared the game constraint. Installer, clean-install, production and full accessibility remain separate evidence gates.
+
+## 9.2 Rounded native frame and shared desktop surfaces — 2026-10-19
+
+The previous desktop preview showed a square gray tint outside the rounded shell. The source cause was the Windows Acrylic effect being applied to the full rectangular HWND while CSS only clipped the inner shell. Studio now clears the native backdrop effect and keeps the Tauri window, document roots, and `#root` transparent; the shell itself owns the rounded CSS glass frame and clipping. This removes the rectangular Acrylic layer from the design path. The latest isolated native screenshot confirmation is recorded in §9.3.
+
+Desktop Studio pages now share the Quiet Archive token palette, font, page heading spacing, reader surfaces, card radius, and surface shadows. The review, live capture, meeting intelligence, file destination, and appearance pages keep their existing component behavior while using the same shell surfaces and spacing. The home hero remains image-led; its status, control, focus, fallback, and card accents use design tokens.
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Native Acrylic leak correction | IMPLEMENTED | `lib.rs` no longer applies Acrylic at startup; `DesktopShell.tsx` keeps the legacy backdrop command cleared; `DesktopStudio.css` clips the token-based shell. |
+| Shared desktop surface styling | IMPLEMENTED | `DesktopStudio.css` applies Quiet Archive tokens to review, live capture, meeting intelligence, output, appearance, and embedded provider settings. |
+| TypeScript/Vite production build | PASS | `npm run build`; TypeScript and Vite production bundling completed successfully after this source change. |
+| Rust native compile | PASS | `cargo check --manifest-path src-tauri/Cargo.toml`; `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` also passes after formatting. |
+| Native reopened-window visual acceptance | PASS (scoped) | See §9.3: rebuilt isolated preview screenshot at 1280 × 800 confirmed the rounded shell and aligned dock; this does not qualify installer or populated-data states. |
+| Installer / full packaged runtime | NOT RUN | Separate from this UI correction. |
+
+## 9.3 Full desktop surface audit — 2026-10-19
+
+The isolated native preview was inspected across Home, Live, Review/History,
+Output, Companion, Appearance, Settings tabs, project disclosure, utility
+menu, device pairing and account entry. After the final source correction, the
+preview rebuilt and reopened with `dev.fung.rounded-preview-retry-20261019`.
+At 1280 × 800, its screenshot showed the rounded shell without a square gray
+Acrylic patch and the dock inside the shell edge. The TTS panel had no nested
+card/scroll surface; Cloud Providers scrolled from top through its last policy
+section using the Settings scrollbar alone. The close-app dock control closed
+the isolated preview and did not route to Settings.
+
+The preview profile had no selected project or recording, so populated
+history, transcript editing, playback and export states were not represented
+by this click-through. The isolated preview was reopened after the close-control
+check and left available for review; normal-profile data was not opened.
+
+The audit found that the Settings body and embedded Cloud/TTS panels could
+each own a scrollbar, while those panels kept their standalone modal width,
+padding, surface and heading. Settings now owns the scroll region; Cloud/TTS
+content flows at full width, and their controls/cards use the shared glass and
+Quiet Archive tokens. Source review also found Windows Acrylic still applied
+during Tauri setup before the UI later requested it be cleared. The startup
+application was removed so the native rectangular window does not paint a
+square tint outside the rounded shell.
+
+The capture guard behavior is retained. Packaged build, sign-in, pairing
+creation, file import, provider saving, and populated project workflows remain
+separate gates.
+
+## 9.4 Shared page grids and tab-first detail — 2026-10-19
+
+The Home dashboard remains the composition reference. Other desktop surfaces now
+share its typeface, Quiet Archive color and card tokens, surface spacing, and a
+responsive grid: Live insight cards use three columns on wide windows and collapse
+to two and then one; Output uses an 8/4 content split; Appearance uses three
+setting cards; Review keeps its recording list beside one reader. Repeated page
+titles come from the shell's shared `SurfaceIntro` rather than legacy page headers.
+
+Live capture, transcript, and meeting insight are separate keyboard-accessible
+tabs; Review playback, transcript, summary, and files/tools are tabs; Settings
+categories remain in one tab strip. Arrow, Home, and End navigation is supported.
+The page frame stays fixed to the rounded shell. Scrolling is confined to content
+that can grow without bound, such as long transcripts, recording lists, settings
+details, or tab labels at narrow widths.
+
+| Gate | Result | Evidence |
+|---|---|---|
+| Shared desktop layout | IMPLEMENTED | `DesktopStudio.css`, `LiveWorkspace.tsx`, `RecordingReview.tsx`, and `SettingsPanel.tsx` |
+| Production frontend build | PASS | `npm run build`; TypeScript and Vite production bundle completed successfully for this working-tree state. |
+| Native visual acceptance of the latest 3-column insight grid | PENDING | The earlier isolated screenshot covered the 2-column version; the current native inspection helper returned `Computer Use helper already has an active request`. |
+| Populated recordings and long-content states | NOT RUN | Empty-profile screenshots do not qualify transcript, playback, export, or long-list behavior. |
+
+## 9.5 Opaque Studio content plane — 2026-10-19
+
+The Tauri window and document roots remain transparent outside the rounded
+Studio frame. The Studio frame now paints `--fung-glass-solid` beneath its
+translucent gradients, so rendering environments that do not provide a usable
+backdrop still show a solid, theme-aware surface behind all page content.
+Existing edge gradients, shadows, and blur styling remain in place.
+
+| Gate | Result | Evidence |
+|---|---|---|
+| Opaque fallback surface | IMPLEMENTED | `DesktopStudio.css` sets an opaque token background color under the Studio gradient layers. |
+| Frontend build | PASS | `npm run build`; TypeScript and Vite production bundle completed successfully. |
+| Design token integrity | PASS | `npm run design-system:check`; 202 tokens, 58 contrast pairs, and 25/25 stylesheets passed. |
+| Isolated native build and launch | PASS (process) | No-bundle release binary at `src-tauri/target/release/fung.exe` is running under the existing isolated profile identifier; window title is `FUNG` and process responds. This is not installer or resource-backed feature evidence. |
+| Native visual confirmation | PENDING | Current Computer Use state capture is blocked by `Computer Use helper already has an active request`; visual appearance after this change is not claimed. |
+
+## 9.6 Home priorities and window controls — 2026-10-19
+
+The Home assistant card is now a next-meeting card with explicit date/time,
+attendees, and topic fields. The current local schema does not provide an
+upcoming calendar event source, so those fields remain empty until a schedule
+integration supplies real data; the UI does not infer a meeting from past
+recordings. The former project-activity chart is replaced by a Task Pool that
+reads AI-proposed action items from the local Genesis graph across projects,
+shows their source meeting/project, owner and evidence count, and opens the
+source recording. The list orders explicit urgency cues before deadline cues,
+then items with no stated priority; it labels all extracted items as AI
+proposals awaiting review.
+
+The dock adds minimize and hide-to-tray controls. The desktop tray icon restores
+the hidden window when clicked. The browser preview cannot exercise native
+tray behavior; that interaction remains subject to native build and UI review.
+
+| Gate | Result | Evidence |
+|---|---|---|
+| Home meeting and Task Pool surfaces | IMPLEMENTED | `StudioHome.tsx` consumes native action-item snapshots; empty appointment fields are explicit because no schedule data source exists. |
+| Priority ordering and meeting source link | IMPLEMENTED | `list_meeting_action_items` filters AI-proposed graph edges, sorts explicit urgency/deadline cues, and returns source meeting, project, owner and evidence count. |
+| Minimize and hide-to-tray controls | IMPLEMENTED IN SOURCE | Dock invokes native minimize/hide commands; tray click restores the main window. Native build and interaction are not verified in this preview. |

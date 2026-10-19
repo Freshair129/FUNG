@@ -1,7 +1,7 @@
 ---
-version: "0.1.4b"
+version: "0.1.5b"
 created_at: "2026-09-17T01:59:54.000+07:00,Codex DOC_ACCEPTANCE,c378af9fac3c00db063948f49f9ee857ebad9126"
-last_update: "2026-09-20T04:15:00+07:00,RWANG"
+last_update: "2026-10-19,Codex"
 status: "candidate"
 superseded_by: null
 base_sha: "376ef30db13670e4dea816ceff440f44ce73fffd"
@@ -17,12 +17,14 @@ attributes:
 
 # Call.md-inspired FUNG desktop acceptance plan
 
-> Interface mapping note (2026-09-20): this P1-B acceptance plan preserves
-> the recording/history contract, but older `InstrumentRail` references are
-> historical. The current shell boundary is
-> `src/components/desktop/DesktopShell.tsx` with active surfaces
-> `home|live|review|appearance`; native recording and review acceptance remain
-> separate from shell presentation evidence.
+> Interface mapping note (2026-10-19): this P1-B acceptance plan preserves
+> the recording/history contract, but older `InstrumentRail` and September
+> sidebar references are historical. The current shell has five controlled
+> content surfaces (`home|live|review|output|appearance`) and three primary
+> dock destinations (Home/Live/Archive); Storage location and Appearance are
+> support destinations under More. See the [current Studio flow contract](../design/2026-10-16-desktop-navigation-and-flows.md).
+> Native recording and review acceptance remain separate from shell
+> presentation evidence.
 
 ## 1. Authority, recommendation, and explicit choices
 
@@ -404,11 +406,15 @@ unchanged. No semantic scope, waiver, or Drive change.
 0.1.3b → 0.1.4b: reconcile the acceptance evidence map with the current
 Liquid Glass `DesktopShell` active-surface boundary while preserving the approved
 recording/history contract and native/runtime evidence gates.
+0.1.4b → 0.1.5b: reconcile the shell note with the task-first sitemap: Home,
+Live and Archive are primary destinations; Storage location and Appearance are
+secondary destinations under More. Native/runtime evidence gates remain unchanged.
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.1.5b | 2026-10-19 | candidate | Updated the Desktop shell map to the current three-destination dock and More support destinations; native evidence boundaries unchanged. | working-tree | Codex |
 | 0.1.4b | 2026-09-20 | candidate | Reconciled the shell/interface evidence map with DesktopShell active surfaces; recording/history and native evidence boundaries unchanged | pending; docs reconciliation | RWANG |
 | 0.1.3b | 2026-09-17 | candidate | FIX1 corrected the exact four baseline source-path inventory; existing CI, coverage, RCA/report, and approved boundaries preserved; no semantic change | UNCOMMITTED; base 376ef30 | Luna max worker |
 | 0.1.2b | 2026-09-17 | candidate | Approved-scope interface-first scheduling and explicit pure/expected-red/native test disposition; independent Terra review pending | UNCOMMITTED; base 376ef30 | Luna max worker |

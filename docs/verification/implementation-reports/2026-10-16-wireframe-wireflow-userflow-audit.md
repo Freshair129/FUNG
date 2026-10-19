@@ -22,7 +22,7 @@ endpoint. Unavailable data is not an empty database or a successful native read.
 
 The [current flow contract](../../design/2026-10-16-desktop-navigation-and-flows.md)
 contains structural wireframes, capture/navigation wireflows, 18 Desktop user
-flows and Mobile/Web handoffs. The [interface inventory](../../UI_INTERFACE_INVENTORY.md)
+flows and Mobile/Web handoffs. The [interface inventory](../../design/interface-inventory.md)
 maps product domains to implemented components and evidence boundaries.
 
 The audit used source inspection, screenshots before/after repairs, browser
@@ -221,7 +221,7 @@ Relative file targets in the 17 changed/new Markdown documents were checked:
 all links resolved, with no missing destination files. This is file-target
 validation, not a full external-URL or Markdown-anchor crawler. `git diff --check`
 passed; Git reported only its existing CRLF-to-LF normalization notice for the
-Liquid Glass addendum. No document graph/preflight hashes were regenerated.
+Liquid Glass addendum. No new relationship snapshot or preflight hashes were generated; the former generated snapshot has since been retired.
 
 ## 5. Remaining acceptance gates
 

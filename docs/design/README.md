@@ -26,7 +26,7 @@ and the linked verification reports.
 | Output destination | [Recording output](2026-09-20-recording-output-destination.md) | New-file root selection and custody of existing roots |
 | Recording review/playback/Q&A scope | [P1-B UX](2026-09-17-callmd-desktop-ui.md) and [contracts](../specs/2026-09-17-callmd-desktop-contracts.md) | Retain feature scope; current shell placement follows Studio flow contract |
 | Mobile UX | [Mobile product UX](../Mobile/PRODUCT_UX_SPEC.md) | Product IDs are distinct from component/route IDs |
-| Cross-platform interfaces | [Interface inventory](../UI_INTERFACE_INVENTORY.md) | Surface-to-source mapping and explicit evidence limits |
+| Cross-platform interfaces | [Interface inventory](interface-inventory.md) | Surface-to-source mapping and explicit evidence limits |
 | Historical Desktop chrome | [September refresh](2026-09-19-liquid-glass-desktop-shell-refresh.md), [P1–P4](../Desktop/wireframes/README.md), [CallMD boards](callmd-desktop/wireframes.svg) | Historical sidebar/HUD/three-board presentation; do not use as current shell |
 | Design brief | [Frontend brief](FRONTEND_REDESIGN_BRIEF.md) | Wider requirements; not proof every feature is delivered |
 
@@ -38,4 +38,5 @@ older security, data, feature or material contract. Preserve runtime imports fro
 
 | Version | Date | Summary |
 | --- | --- | --- |
+| 0.1.1b | 2026-10-19 | Added interface inventory to the design collection and updated its canonical path. |
 | 0.1.0b | 2026-10-16 | Added current/legacy design ownership and flow entry points. |

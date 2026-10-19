@@ -35,8 +35,8 @@ Terra verdict, feature acceptance, or code-dispatch record.
 | Evidence | Finding |
 |---|---|
 | Pinned execution | Branch `codex/callmd-ui-dag`, HEAD `376ef30db13670e4dea816ceff440f44ce73fffd`; product source base `c378af9fac3c00db063948f49f9ee857ebad9126`. |
-| Current scope record | Approval record confirms full B and says not to re-ask A/B or playback/Q&A; product dispatch remains gated. [`callmd-approval.md:44-57`](2026-09-17-callmd-approval.md:44) |
-| DAG | Manifest v0.1.4b declares max 3 Luna/max workers, `product_implementation_authorized=false`, and current code nodes remain planned. [`callmd-ui-task-dag.json:1-15`](../../plans/2026-09-17-callmd-ui-task-dag.json:1) |
+| Current scope record | Approval record confirms full B and says not to re-ask A/B or playback/Q&A; product dispatch remains gated. [`2026-09-17-callmd-approval.md:44-57`](2026-09-17-callmd-approval.md#L44) |
+| DAG | Manifest v0.1.4b declares max 3 Luna/max workers, `product_implementation_authorized=false`, and current code nodes remain planned. [`callmd-ui-task-dag.json:1-15`](../../plans/2026-09-17-callmd-ui-task-dag.json#L1) |
 | Accepted inputs | DOC_CONTRACT, DOC_UX, DOC_ACCEPTANCE and DOC_REVIEW are accepted; the reviewed author leases are released. No implementation lease is active. |
 | Main divergence | Controller observed local main has advanced to `05ed107a`, with stale CI steps removed by `d10bbf8`, via worktree/diff inspection. That is a read-only candidate only; no adoption, merge, or lease transfer is authorized. If considered later, baseline identity and acceptance must be revalidated against the pinned branch/target SHA, with a recorded DAG revision and descendant invalidation where applicable. |
 

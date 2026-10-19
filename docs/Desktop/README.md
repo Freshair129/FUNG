@@ -106,3 +106,15 @@ controls remain platform-owned; browser preview does not qualify native behavior
 | 0.1.2b | 2026-07-09 | beta | Added the Meeting Mode spec to the canonical document index. | N/A | ATHER |
 | 0.1.1b | 2026-07-09 | beta | Fixed canonical layout doc reference and source-of-truth note. | N/A | ATHER |
 | 0.1.0b | 2026-07-05 | beta | Added docs index. | N/A | ATHER |
+
+## Additional Desktop documents
+
+เอกสารเสริมและประวัติที่ไม่ใช่จุดเริ่มต้นหลักอยู่ในรายการนี้ ให้ตรวจสถานะของแต่ละไฟล์ก่อนใช้อ้างอิง
+
+- [01-foundations](01-foundations.md) — `beta`
+- [02-tokens](02-tokens.md) — `legacy`
+- [06-stack](06-stack.md) — `candidate`
+- [GPU_STANDALONE_RUNTIME_SPEC](GPU_STANDALONE_RUNTIME_SPEC.md) — `beta`
+- [IMPLEMENTATION_SURFACES](IMPLEMENTATION_SURFACES.md) — `beta`
+- [PRODUCT_SPEC](PRODUCT_SPEC.md) — `candidate`
+- [UAT_SITEMAP_2026-07-19](UAT_SITEMAP_2026-07-19.md) — `superseded`

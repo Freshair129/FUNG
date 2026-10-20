@@ -35,6 +35,7 @@ const PHASE_LABELS: Record<string, string> = {
   starting: "กำลังเริ่มบันทึก",
   listening: "กำลังบันทึก",
   degraded: "กำลังบันทึก — การถอดสดมีปัญหา",
+  transcribing: "กำลังประมวลผลเสียงช่วงสุดท้าย",
   stopping: "กำลังหยุดบันทึก",
   stopped: "หยุดบันทึกแล้ว",
   error: "เกิดข้อผิดพลาด",
@@ -265,7 +266,7 @@ export function LiveWorkspace({
   const [systemDeviceId, setSystemDeviceId] = useState("");
   const [language, setLanguage] = useState("auto");
   const [transcriptProfile, setTranscriptProfile] = useState<"chunked" | "revisioned">("chunked");
-  const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
+  const [privacyAcknowledged, setPrivacyAcknowledged] = useState(true);
   const [question, setQuestion] = useState("");
   const [leavePrompt, setLeavePrompt] = useState(false);
   const [showReturnToLatest, setShowReturnToLatest] = useState(false);
@@ -312,7 +313,7 @@ export function LiveWorkspace({
     ? operationErrors[operationErrors.length - 1]
     : null;
   const running = isRunning(phase);
-  const stopPending = phase === "stopping";
+  const stopPending = phase === "stopping" || phase === "transcribing";
   const hasSelection = selection !== null;
 
   useEffect(() => {

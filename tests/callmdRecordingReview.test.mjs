@@ -10,6 +10,14 @@ const root = process.cwd();
 const require = createRequire(import.meta.url);
 const sourcePath = path.resolve(root, "src/components/desktop/RecordingReview.tsx");
 const sourceText = readFileSync(sourcePath, "utf8");
+const studioCssText = readFileSync(
+  path.resolve(root, "src/components/desktop/DesktopStudio.css"),
+  "utf8",
+);
+const recordingReviewCssText = readFileSync(
+  path.resolve(root, "src/components/desktop/RecordingReview.css"),
+  "utf8",
+);
 
 const tauriUrl = pathToFileURL(path.resolve(root, "src/tauri.ts")).href;
 const contractsUrl = pathToFileURL(
@@ -42,13 +50,16 @@ const production = await import(
 const {
   PLAYBACK_POLL_INTERVAL_MS,
   RECORDING_PAGE_LIMIT,
+  RECORDING_REVIEW_PULL_REFRESH_TRIGGER_PX,
   RecordingReviewController,
   clampPlaybackPosition,
   consumePlaybackEvent,
   formatRecordingDuration,
   isRecordingAnswerFor,
   playbackPositionForKey,
+  recordingReviewPullDistance,
   sameReviewIdentity,
+  shouldRefreshRecordingReviewFromPull,
 } = production;
 
 const A = { projectId: "project-a", recordingId: "recording-a" };
@@ -94,6 +105,106 @@ function recording(key) {
     captureState: "inactive",
   };
 }
+
+test("History refreshes its recording snapshot when the hidden page becomes visible again", async () => {
+  let listCall = 0;
+  const { bridge, calls } = createBridge({
+    listRecordings: (projectId) => {
+      listCall += 1;
+      return page(
+        projectId,
+        "visible-snapshot-" + listCall,
+        null,
+        [recording({ projectId, recordingId: listCall === 1 ? A.recordingId : B.recordingId })],
+      );
+    },
+  });
+  const controller = new RecordingReviewController(bridge);
+
+  controller.syncScope(A.projectId, null);
+  controller.setVisible(true);
+  await settle();
+  assert.equal(calls.list.length, 1, "initial visibility must not duplicate the first page load");
+
+  controller.setVisible(false);
+  controller.setVisible(true);
+  await settle();
+
+  assert.equal(calls.list.length, 2);
+  assert.deepEqual(
+    controller.snapshot.list.data.items.map((item) => item.id),
+    [B.recordingId],
+  );
+  assert.ok(calls.release.includes("visible-snapshot-1"));
+  controller.dispose();
+  await settle();
+});
+
+test("Studio History keeps the project id compact and recent rows short without removing overflow", () => {
+  assert.match(
+    studioCssText,
+    /recording-review__panel-heading\s*>\s*div\s*\{[^}]*min-width:\s*0/s,
+  );
+  assert.match(
+    studioCssText,
+    /\.recording-review__panel-heading\s+h3\s*\{[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s,
+  );
+  assert.match(
+    studioCssText,
+    /recording-review__recording-row\s*\{[^}]*padding:\s*6px\s+10px/s,
+  );
+  assert.match(
+    studioCssText,
+    /\.recording-review__list\s*\{[^}]*overflow:\s*auto/s,
+  );
+});
+
+test("Review separates Summary and Ask into keyboard-operable sub-tabs", () => {
+  assert.ok(sourceText.includes('aria-label="สรุปและถามจากบันทึก"'));
+  assert.ok(sourceText.includes('role="tab"'));
+  assert.ok(sourceText.includes("handleInsightTabKeyDown(event, tab)"));
+  assert.ok(sourceText.includes('hidden={activeInsightTab !== "summary"}'));
+  assert.ok(sourceText.includes('hidden={activeInsightTab !== "ask"}'));
+  assert.ok(sourceText.includes('className="recording-review__card recording-review__card--ask"'));
+  assert.ok(sourceText.includes("rows={2}"));
+  assert.match(
+    studioCssText,
+    /recording-review__tab-panel--insights:not\(\[hidden\]\)\s*\{[^}]*overflow:\s*hidden/s,
+  );
+  assert.match(
+    studioCssText,
+    /recording-review__card--ask\s+\.recording-review__notice\s*\{[^}]*line-height:\s*1\.3/s,
+  );
+  assert.match(
+    recordingReviewCssText,
+    /recording-review__ask-form\s+textarea\s*\{[^}]*min-height:\s*58px/s,
+  );
+  assert.match(
+    recordingReviewCssText,
+    /recording-review__insight-panel:not\(\[hidden\]\)\s*\{[^}]*overflow:\s*auto/s,
+  );
+});
+
+test("Studio History replaces the refresh button with a top-edge pull gesture", () => {
+  assert.equal(RECORDING_REVIEW_PULL_REFRESH_TRIGGER_PX, 72);
+  assert.equal(recordingReviewPullDistance(0, 40), 24);
+  assert.equal(recordingReviewPullDistance(0, 200), 56);
+  assert.equal(recordingReviewPullDistance(50, 40), 0);
+  assert.equal(recordingReviewPullDistance(0, -80), 0);
+  assert.equal(shouldRefreshRecordingReviewFromPull(71, true), false);
+  assert.equal(shouldRefreshRecordingReviewFromPull(72, true), true);
+  assert.equal(shouldRefreshRecordingReviewFromPull(100, false), false);
+
+  assert.match(sourceText, /className="recording-review__pull-refresh"/);
+  assert.match(sourceText, /onPointerDown=\{handlePullRefreshPointerDown\}/);
+  assert.match(sourceText, /onPointerUp=\{finishPullRefreshGesture\}/);
+  assert.match(sourceText, /ลากลงเพื่อรีเฟรช/);
+  assert.doesNotMatch(sourceText, /aria-label="รีเฟรชประวัติบันทึก"/);
+  assert.match(
+    recordingReviewCssText,
+    /\.recording-review__pull-refresh\s*\{[^}]*touch-action:\s*none/s,
+  );
+});
 
 function page(projectId, snapshotId, nextCursor, items) {
   return {

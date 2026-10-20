@@ -226,19 +226,13 @@ fn terminalize_stale_jobs(storage: &genesis_block_native::Storage) -> Result<usi
     Ok(failed)
 }
 
-/// Finds every recording an unclean shutdown left unfinished, across all
-/// projects, and terminalizes stale jobs.
-///
-/// Detection only: nothing is marked complete and no orphan is adopted here,
-/// because both are decisions about what the audio *is*, and the previous
-/// behaviour of silently finishing an interrupted capture is what made an
-/// interruption invisible.
-pub(crate) fn scan(storage: &genesis_block_native::Storage) -> Result<RecoveryReport, String> {
-    let mut report = RecoveryReport {
-        stale_jobs_failed: terminalize_stale_jobs(storage)?,
-        ..RecoveryReport::default()
-    };
-
+/// Reads interrupted recordings without changing the database. The UI calls
+/// this while opening or refreshing Recovery, so inspection must remain
+/// side-effect free.
+fn find_interrupted_recordings(
+    storage: &genesis_block_native::Storage,
+) -> Result<Vec<InterruptedRecording>, String> {
+    let mut interrupted = Vec::new();
     for status in UNFINISHED_STATUSES {
         let rows = genesis_adapter::query(
             storage,
@@ -259,7 +253,7 @@ pub(crate) fn scan(storage: &genesis_block_native::Storage) -> Result<RecoveryRe
             let canonical = text(row, "recordings.canonical_audio_path");
             let (known_chunks, orphan_files, missing_files) =
                 reconcile_recording(storage, &recording_id, &canonical)?;
-            report.interrupted.push(InterruptedRecording {
+            interrupted.push(InterruptedRecording {
                 recording_id,
                 project_id: text(row, "recordings.project_id"),
                 status: text(row, "recordings.status"),
@@ -269,6 +263,51 @@ pub(crate) fn scan(storage: &genesis_block_native::Storage) -> Result<RecoveryRe
             });
         }
     }
+    Ok(interrupted)
+}
+
+/// Reads the current interrupted-recording list for the UI. This path does
+/// not terminalize jobs or write audit events; refreshing the view is read-only.
+pub(crate) fn inspect(storage: &genesis_block_native::Storage) -> Result<RecoveryReport, String> {
+    Ok(RecoveryReport {
+        interrupted: find_interrupted_recordings(storage)?,
+        stale_jobs_failed: 0,
+    })
+}
+
+/// Startup-only recovery: finds unfinished recordings across all projects,
+/// terminalizes stale jobs, and persists one durable audit event per recording.
+///
+/// Detection never marks a recording complete or adopts orphan audio. Those
+/// decisions remain an explicit user action.
+pub(crate) fn scan(storage: &genesis_block_native::Storage) -> Result<RecoveryReport, String> {
+    let report = RecoveryReport {
+        interrupted: find_interrupted_recordings(storage)?,
+        stale_jobs_failed: terminalize_stale_jobs(storage)?,
+    };
+
+    // Preserve events written by older builds and make the scan idempotent
+    // across startup retries. Deterministic IDs also collapse concurrent
+    // attempts for a newly interrupted recording to one row.
+    let existing_audits = genesis_adapter::query_all(
+        storage,
+        "audit_events",
+        &["payload_json"],
+        vec![genesis_adapter::eq(
+            "audit_events",
+            "event_type",
+            serde_json::json!("recovery.interrupted_recording_found"),
+        )],
+    )?;
+    let mut audited_recordings: std::collections::HashSet<String> = existing_audits
+        .iter()
+        .filter_map(|row| {
+            row.get("audit_events.payload_json")
+                .and_then(|payload| payload.get("recordingId"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .collect();
 
     // One durable record per interrupted recording, so the interruption
     // survives even if nobody is looking at the UI when FUNG starts.
@@ -276,11 +315,12 @@ pub(crate) fn scan(storage: &genesis_block_native::Storage) -> Result<RecoveryRe
     let audit: Vec<_> = report
         .interrupted
         .iter()
+        .filter(|item| audited_recordings.insert(item.recording_id.clone()))
         .map(|item| {
             genesis_adapter::upsert(
                 "audit_events",
                 serde_json::json!({
-                    "id": Uuid::new_v4().to_string(),
+                    "id": format!("recovery.interrupted_recording_found:{}", item.recording_id),
                     "project_id": item.project_id,
                     "event_type": "recovery.interrupted_recording_found",
                     "actor": "system",
@@ -422,32 +462,236 @@ pub(crate) fn recover_recording(
 
     outcome.duration_ms = record.duration_ms;
     genesis_adapter::finish_capture(storage, &record, &timestamp)?;
-    genesis_adapter::commit_rows(
+    let recovered_audits = genesis_adapter::query_all(
         storage,
-        vec![genesis_adapter::upsert(
+        "audit_events",
+        &["payload_json"],
+        vec![genesis_adapter::eq(
             "audit_events",
-            serde_json::json!({
-                "id": Uuid::new_v4().to_string(),
-                "project_id": record.project_id,
-                "event_type": "recovery.recording_recovered",
-                "actor": "user",
-                "payload_json": {
-                    "recordingId": recording_id,
-                    "adoptedChunks": outcome.adopted_chunks,
-                    "adoptedBytes": outcome.adopted_bytes,
-                    "unreadableFiles": outcome.unreadable_files,
-                    "durationMs": outcome.duration_ms,
-                },
-                "created_at": timestamp,
-            }),
+            "event_type",
+            serde_json::json!("recovery.recording_recovered"),
         )],
     )?;
+    let already_audited = recovered_audits.iter().any(|row| {
+        row.get("audit_events.payload_json")
+            .and_then(|payload| payload.get("recordingId"))
+            .and_then(serde_json::Value::as_str)
+            == Some(recording_id)
+    });
+    if !already_audited {
+        genesis_adapter::commit_rows(
+            storage,
+            vec![genesis_adapter::upsert(
+                "audit_events",
+                serde_json::json!({
+                    "id": format!("recovery.recording_recovered:{recording_id}"),
+                    "project_id": record.project_id,
+                    "event_type": "recovery.recording_recovered",
+                    "actor": "user",
+                    "payload_json": {
+                        "recordingId": recording_id,
+                        "adoptedChunks": outcome.adopted_chunks,
+                        "adoptedBytes": outcome.adopted_bytes,
+                        "unreadableFiles": outcome.unreadable_files,
+                        "durationMs": outcome.duration_ms,
+                    },
+                    "created_at": timestamp,
+                }),
+            )],
+        )?;
+    }
     Ok(outcome)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn open_recovery_storage(path: &Path) -> genesis_block_native::Storage {
+        let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
+            path: path.display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+            retention: None,
+        })
+        .expect("open isolated recovery test database");
+        genesis_adapter::install(&storage).expect("install FUNG schema");
+        storage
+    }
+
+    fn seed_interrupted_recording(storage: &genesis_block_native::Storage, recording_root: &Path) {
+        std::fs::create_dir_all(recording_root.join("chunks")).unwrap();
+        genesis_adapter::commit_rows(
+            storage,
+            vec![
+                genesis_adapter::upsert(
+                    "projects",
+                    serde_json::json!({
+                        "id": "project-1",
+                        "name": "Recovery test",
+                        "storage_path": "local-test-project",
+                        "created_at": "created",
+                        "updated_at": "updated",
+                    }),
+                ),
+                genesis_adapter::upsert(
+                    "recordings",
+                    serde_json::json!({
+                        "id": "recording-1",
+                        "project_id": "project-1",
+                        "source": "microphone",
+                        "input_path": null,
+                        "canonical_audio_path": recording_root.display().to_string(),
+                        "status": "recording",
+                        "duration_ms": 0,
+                        "created_at": "created",
+                        "updated_at": "updated",
+                    }),
+                ),
+                genesis_adapter::upsert(
+                    "mobile_recording_checkpoints",
+                    serde_json::json!({
+                        "id": "recording-1",
+                        "recording_id": "recording-1",
+                        "safe_offset_ms": 0,
+                        "segment_count": 0,
+                        "last_checksum": null,
+                        "updated_at": "updated",
+                    }),
+                ),
+            ],
+        )
+        .expect("seed interrupted recording");
+    }
+
+    fn interrupted_audit_count(storage: &genesis_block_native::Storage) -> usize {
+        genesis_adapter::query_all(
+            storage,
+            "audit_events",
+            &["id", "payload_json"],
+            vec![genesis_adapter::eq(
+                "audit_events",
+                "event_type",
+                serde_json::json!("recovery.interrupted_recording_found"),
+            )],
+        )
+        .expect("query recovery audit events")
+        .len()
+    }
+
+    fn recovered_audit_count(storage: &genesis_block_native::Storage) -> usize {
+        genesis_adapter::query_all(
+            storage,
+            "audit_events",
+            &["id", "payload_json"],
+            vec![genesis_adapter::eq(
+                "audit_events",
+                "event_type",
+                serde_json::json!("recovery.recording_recovered"),
+            )],
+        )
+        .expect("query recovered audit events")
+        .len()
+    }
+
+    #[test]
+    fn ui_inspection_is_read_only_and_startup_audit_is_idempotent() {
+        let directory = tempfile::tempdir().unwrap();
+        let database_path = directory.path().join("genesisdb");
+        let storage = open_recovery_storage(&database_path);
+        let recording_root = directory.path().join("project-1").join("recording-1");
+        seed_interrupted_recording(&storage, &recording_root);
+
+        let startup = scan(&storage).expect("run startup recovery");
+        assert_eq!(startup.interrupted.len(), 1);
+        assert_eq!(interrupted_audit_count(&storage), 1);
+
+        let first_inspection = inspect(&storage).expect("inspect recovery UI");
+        let second_inspection = inspect(&storage).expect("refresh recovery UI");
+        assert_eq!(first_inspection.interrupted, second_inspection.interrupted);
+        assert_eq!(first_inspection.stale_jobs_failed, 0);
+        assert_eq!(second_inspection.stale_jobs_failed, 0);
+        assert_eq!(interrupted_audit_count(&storage), 1);
+
+        // A repeated startup scan should retain the original audit event,
+        // including when it was written by a prior build with a random ID.
+        let repeated_startup = scan(&storage).expect("repeat startup recovery");
+        assert_eq!(repeated_startup.interrupted.len(), 1);
+        assert_eq!(interrupted_audit_count(&storage), 1);
+    }
+
+    #[test]
+    fn startup_scan_reuses_a_legacy_random_id_audit_event() {
+        let directory = tempfile::tempdir().unwrap();
+        let database_path = directory.path().join("genesisdb");
+        let storage = open_recovery_storage(&database_path);
+        let recording_root = directory.path().join("project-1").join("recording-1");
+        seed_interrupted_recording(&storage, &recording_root);
+        genesis_adapter::commit_rows(
+            &storage,
+            vec![genesis_adapter::upsert(
+                "audit_events",
+                serde_json::json!({
+                    "id": "legacy-random-audit-id",
+                    "project_id": "project-1",
+                    "event_type": "recovery.interrupted_recording_found",
+                    "actor": "system",
+                    "payload_json": { "recordingId": "recording-1" },
+                    "created_at": "legacy-created",
+                }),
+            )],
+        )
+        .expect("seed audit row from an older build");
+
+        scan(&storage).expect("scan interrupted recording with legacy audit");
+
+        let audits = genesis_adapter::query_all(
+            &storage,
+            "audit_events",
+            &["id", "payload_json"],
+            vec![genesis_adapter::eq(
+                "audit_events",
+                "event_type",
+                serde_json::json!("recovery.interrupted_recording_found"),
+            )],
+        )
+        .expect("query recovery audit events");
+        assert_eq!(audits.len(), 1);
+        assert_eq!(audits[0]["audit_events.id"], "legacy-random-audit-id");
+    }
+
+    #[test]
+    fn recovery_adopts_orphans_and_is_idempotent_across_retries() {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = open_recovery_storage(&directory.path().join("genesisdb"));
+        let recording_root = directory.path().join("project-1").join("recording-1");
+        seed_interrupted_recording(&storage, &recording_root);
+
+        let orphan = recording_root.join("chunks").join("mic-00001.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 1_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&orphan, spec).unwrap();
+        for sample in 1..=1_000i16 {
+            writer.write_sample(sample).unwrap();
+        }
+        writer.finalize().unwrap();
+
+        let first = recover_recording(&storage, "recording-1").expect("recover orphan audio");
+        assert_eq!(first.adopted_chunks, 1);
+        assert_eq!(first.duration_ms, 1_000);
+        assert_eq!(inspect(&storage).unwrap().interrupted.len(), 0);
+        assert_eq!(recovered_audit_count(&storage), 1);
+
+        let retry = recover_recording(&storage, "recording-1").expect("retry recovery safely");
+        assert_eq!(retry.adopted_chunks, 0);
+        assert_eq!(retry.duration_ms, 1_000);
+        assert_eq!(recovered_audit_count(&storage), 1);
+    }
 
     #[test]
     fn chunk_file_names_yield_their_channel_and_sequence() {

@@ -44,7 +44,7 @@ export function RecoveryNotice({ invoke }: RecoveryNoticeProps) {
     void refresh();
   }, [refresh]);
 
-  if (!invoke || interrupted.length === 0) return null;
+  if (!invoke || (interrupted.length === 0 && result === null)) return null;
 
   const handleRecover = async (recordingId: string) => {
     if (!invoke) return;
@@ -64,34 +64,38 @@ export function RecoveryNotice({ invoke }: RecoveryNoticeProps) {
 
   return (
     <section className="recovery-notice" role="status" aria-label="การบันทึกที่ถูกขัดจังหวะ">
-      <header className="recovery-notice-header">
-        <AlertTriangle size={16} aria-hidden="true" />
-        <h3>พบการบันทึกที่ไม่ได้ปิดอย่างถูกต้อง {interrupted.length} รายการ</h3>
-      </header>
-      <p className="recovery-notice-note">
-        เสียงที่บันทึกไว้ยังอยู่ในเครื่อง — กู้คืนเพื่อนำไฟล์ที่ยังไม่ได้บันทึกลง ledger เข้าระบบ
-        พร้อมลายเซ็นตรวจสอบ
-      </p>
-      <ul className="recovery-notice-list">
-        {interrupted.map((item) => (
-          <li key={item.recordingId} className="recovery-notice-item">
-            <span className="recovery-notice-detail">
-              <code>{item.recordingId.slice(0, 8)}</code> · สถานะ {item.status} ·{" "}
-              {item.knownChunks} ช่วงใน ledger
-              {item.orphanFiles.length > 0 && ` · พบไฟล์ค้าง ${item.orphanFiles.length}`}
-              {item.missingFiles > 0 && ` · ไฟล์หาย ${item.missingFiles}`}
-            </span>
-            <button
-              className="recovery-notice-btn"
-              type="button"
-              onClick={() => void handleRecover(item.recordingId)}
-              disabled={busy !== null}
-            >
-              {busy === item.recordingId ? "กำลังกู้คืน..." : "กู้คืน"}
-            </button>
-          </li>
-        ))}
-      </ul>
+      {interrupted.length > 0 ? (
+        <>
+          <header className="recovery-notice-header">
+            <AlertTriangle size={16} aria-hidden="true" />
+            <h3>พบการบันทึกที่ไม่ได้ปิดอย่างถูกต้อง {interrupted.length} รายการ</h3>
+          </header>
+          <p className="recovery-notice-note">
+            เสียงที่บันทึกไว้ยังอยู่ในเครื่อง — กู้คืนเพื่อนำไฟล์ที่ยังไม่ได้บันทึกลง ledger เข้าระบบ
+            พร้อมลายเซ็นตรวจสอบ
+          </p>
+          <ul className="recovery-notice-list">
+            {interrupted.map((item) => (
+              <li key={item.recordingId} className="recovery-notice-item">
+                <span className="recovery-notice-detail">
+                  <code>{item.recordingId.slice(0, 8)}</code> · สถานะ {item.status} ·{" "}
+                  {item.knownChunks} ช่วงใน ledger
+                  {item.orphanFiles.length > 0 && ` · พบไฟล์ค้าง ${item.orphanFiles.length}`}
+                  {item.missingFiles > 0 && ` · ไฟล์หาย ${item.missingFiles}`}
+                </span>
+                <button
+                  className="recovery-notice-btn"
+                  type="button"
+                  onClick={() => void handleRecover(item.recordingId)}
+                  disabled={busy !== null}
+                >
+                  {busy === item.recordingId ? "กำลังกู้คืน..." : "กู้คืน"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
       {result && <p className="recovery-notice-result">{result}</p>}
     </section>
   );

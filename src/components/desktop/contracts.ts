@@ -271,6 +271,7 @@ export type LivePhase =
   | "starting"
   | "listening"
   | "degraded"
+  | "transcribing"
   | "stopping"
   | "stopped"
   | "error";

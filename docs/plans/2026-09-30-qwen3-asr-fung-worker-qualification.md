@@ -1,7 +1,7 @@
 ---
-version: "0.1.6"
+version: "0.1.7"
 created_at: "2026-09-30T00:00:00+07:00,RWANG"
-last_update: "2026-10-01T00:15:00+07:00,RWANG"
+last_update: "2026-10-20T10:55:35+07:00,Codex"
 status: "partial-review-remediation-not-qualified"
 superseded_by: null
 attributes:
@@ -61,8 +61,10 @@ application-bundle inclusion, or a release claim.
   PyThaiNLP word-tokenized training labels. That establishes model/task
   compatibility only; it does not establish forced-alignment support,
   transcript-to-vocabulary mapping, or usable timing for Qwen text.
-- The current candidate runtime, Qwen pilot harness, and official Qwen runtime
-  dependency set are not yet one reproducible, pinned FUNG worker environment.
+- The pinned isolated runtime and hash-locked Qwen/Thai CTC
+  dependencies are now staged. One ONIKUMA sample aligned chunks 2–3,
+  but full alignment fails closed at U+0E46 and ASR-only similarity is
+  0.097. Fixed LOTUSDIS/microphone-strata qualification remains open.
 
 Evidence references: [model-selection qualification](../specs/2026-09-30-thai-asr-model-selection-qualification.md),
 [model-profile contract](../specs/2026-09-21-whisper-model-profiles.md),
@@ -236,8 +238,11 @@ stop and propose a plan amendment first.
 
 1. **Passed.** Pin and preflight ASR, Thai CTC candidate and Python dependencies; verify
    disk, RAM and GPU capacity before staging model files.
-2. **Structural checks passed; audio review pending.** Implement and run the isolated CTC alignment feasibility spike against the
-   paired LOTUSDIS clips. Stop before Detailed routing if its gate fails.
+2. **Single-sample probe complete; fixed pilot remains open.** The
+   isolated worker aligned original chunks 2–3 but rejected the full
+   capture at unsupported U+0E46. This probe does not qualify the fixed
+   corpus gate; keep Detailed routing disabled until the
+   fixed LOTUSDIS and microphone-strata gates pass.
 3. **Passed.** If feasibility passes, implement the isolated runtime manifest, worker,
    output validator and Rust candidate routing; add deterministic fixture
    tests.
@@ -262,3 +267,4 @@ stop and propose a plan amendment first.
 | 0.1.3 → 0.1.4 | Recorded the passing 55-clip FUNG worker and LOTUSDIS WER/CER qualification, consolidated local checks, and the five remaining human audio reviews; Detailed routing remains disabled. |
 | 0.1.5 → 0.1.6 | Recorded the negative low-clarity filter experiment; the original accuracy comparison remains separate and Detailed stays disabled. |
 | 0.1.4 → 0.1.5 | Recorded user listening evidence of bt10m/bt3m transcription errors, the discrepancy between heard speech and LOTUSDIS reference, and a separate five-row sensitivity score; timing approval and remediation remain open. |
+| 0.1.6 → 0.1.7 | Recorded the staged pinned runtime and the 2026-10-20 microphone pilot: low ASR similarity and a fail-closed U+0E46 alignment gap; fixed corpus and human-review gates remain open. |

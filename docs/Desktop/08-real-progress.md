@@ -1,7 +1,7 @@
 ---
-version: "0.3.28b"
+version: "0.3.29v"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-19,Codex"
+last_update: "2026-10-20,Codex"
 
 status: "beta"
 superseded_by: null
@@ -12,6 +12,252 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Latest microphone capture and stop-timer finding — 2026-10-20
+
+The user completed a microphone-only capture in isolated app id
+`dev.fung.uat.autonotice20261020` using the ONIKUMA M530; system loopback
+remained off. The database marks recording
+`b9b4d9ff-c5cf-4a3e-a390-bce80b0e9d19` completed at **21,930 ms**. Three
+contiguous PCM chunks were present, each contained nonzero signal, their
+SHA-256 values matched the database ledger, and SQLite `integrity_check`
+returned `ok`. The requested short sample was longer than five seconds; the
+measured duration is the saved duration, not a five-second capture.
+
+The UI continued showing elapsed-time growth (`0:26` → `0:44` → `1:00`) while
+the recording was still finalizing. A source correction now freezes the first
+elapsed value on entering the stopping state; `node --test
+tests/callmdLiveWorkspace.test.mjs` passed **16/16** and `npm run build`
+passed. A native UAT-ID package using app id
+`dev.fung.uat.timerfix20261020` is built and hash-verified. The user approved
+installation and launch, but the candidate had not been installed or runtime-
+tested as of this update. The unsigned installer SHA-256 is
+`6B97092EF1BFE1889F1B7D5352EDC569788461CA79A1FE82FFA1658AD8DEB3C0`.
+Four transcript segments appeared, but Thai wording and pitch/tone recognition were inaccurate;
+this does not qualify Thai ASR. History persistence was not verified for this
+sample. Overall Desktop/core acceptance remains **NOT PASSED**. See the
+[dated UAT report](../verification/implementation-reports/2026-10-19-desktop-core-uat-followup.md)
+and [timer report](../verification/implementation-reports/2026-10-20-live-timer-fix-uat.md).
+
+## Participant notice default and isolated package — 2026-10-20
+
+Per the user's request, a new Live session now initializes the participant-
+notice acknowledgment as checked. The control remains visible and user-toggleable;
+the system-loopback option still defaults off. `tests/callmdLiveWorkspace.test.mjs`
+asserts the default and keeps Start gated by the acknowledgment and capture
+capability. The focused suite passed 16/16.
+
+The change was built and installed under app id
+`dev.fung.uat.autonotice20261020`, isolated from `dev.fung.local`. The unsigned
+installer at
+`G:\AI-Studio\verification\2026-10-20-fung-pr80-core-uat\artifacts\FUNG_0.1.1_x64-setup.uat-autonotice-20261020.exe`
+has SHA-256
+`A7977A15C6E34F811C1D97885B9F57E8075DF6196C5767F45E226060DA01BFDB`; the
+installed executable is SHA-256
+`B1E5CD90A72B4AE752616BD382CF673EF5A6FD5796F264C5FDE44723B21DAE81`.
+On the first Live view, the installed app displayed the notice checked,
+loopback unchecked, and Start enabled. The system default microphone was
+ONIKUMA M530. No recording was started in this run because the user has not yet
+confirmed readiness to speak into the mic. The normal profile was not opened.
+
+The previously recorded recovery and close/reopen passes still stand. This
+default change does not qualify microphone signal or Thai recognition; core
+acceptance remains **NOT PASSED**. No commit, tag, or release was created. See
+the [dated core UAT report](../verification/implementation-reports/2026-10-19-desktop-core-uat-followup.md)
+and external receipt `installed-package-notice-default-uat-20261020.json`.
+
+## Installed recovery retest and microphone signal — 2026-10-20
+
+The recovery visibility/idempotency fix was rebuilt from HEAD
+`56c53544718989fd5429dd5071479262fab7c2ee` plus the working-tree changes,
+installed from the isolated UAT-ID NSIS package, and launched from
+`C:\Users\suanr\AppData\Local\Temp\fung-uat-pr80-core-20261019\installed-package-uat-20261020\fung.exe`.
+The package uses `dev.fung.uat.core20261019`; the regular `dev.fung.local`
+profile was not opened. The installer hash is
+`9D94BDC08968D19CFE5C22E2946C48197B2FB8933AC77A529D1F45E023401FE6` and the
+installed executable hash is
+`F0B3393967A25CD1EAF3083FCFF9866EA1289D1594A61E48B649C723F0FB0E2F`.
+Both are unsigned.
+
+| Gate | Result | Evidence |
+| --- | --- | --- |
+| Interrupted-recording recovery | PASS | The main-shell recovery action adopted three orphan WAV chunks (2,304,132 bytes); recording `ac04a18a-c88c-48d5-a0b1-e97fa2820c24` became `completed` at 88,000 ms with 11 contiguous chunks and exactly one `recovery.recording_recovered` audit. SQLite `integrity_check` returned `ok`. |
+| Installed-package close/reopen | PASS | After closing through FUNG's own control, the newly installed package reopened the same UAT app-id profile. Home had no interrupted-recording prompt; History retained `1:28 · completed`. |
+| ONIKUMA M530 speech capture | FAIL — signal near-silent | The user confirmed speaking, but seven of eleven chunks were all-zero PCM; the maximum peak was 21 and maximum RMS 0.5 on PCM16, with no transcript segments. Windows currently enumerates `Microphone (ONIKUMA M530)` with device status `OK`; UAT preferences hold a selected mic id and `systemDeviceId=null`. Endpoint presence does not prove a usable input signal, so hardware mute/gain/driver versus capture behavior remains unresolved. No new recording was started during this read-only diagnosis. |
+| Source checks | PASS | Shell tests 18/18, Rust recovery tests 10/10, frontend build, `cargo fmt --all -- --check`, and `git diff --check` passed. Shared release build outputs were restored and verified against their pre-build hashes. |
+
+The recovery and persistence gates pass on this isolated installed build, but
+core acceptance remains **NOT PASSED** because mic speech was not captured.
+Thai ASR/summary quality, diarization runtime, unsigned packaging, provider and
+account integrations, and smaller-window/display-scaling qualification remain
+open. PR #80 is already merged; this run created no commit, tag, or release.
+The detailed report and machine receipt are
+[`2026-10-19-desktop-core-uat-followup`](../verification/implementation-reports/2026-10-19-desktop-core-uat-followup.md)
+and `G:\AI-Studio\verification\2026-10-20-fung-pr80-core-uat\installed-package-recovery-retest-20261020.json`.
+
+## Recovery-audit package first-launch retest — 2026-10-20
+
+The UAT-ID NSIS `0.1.1` installer (`B1C5C7AB…F5ED2E45A`) was installed to
+the isolated test directory and opened with a separate profile/output root;
+the regular `dev.fung.local` profile was not opened. Startup and Home passed.
+History showed 11 completed recordings, and selecting a six-second import
+opened Review. The native player transitioned `paused` → `playing` → `ended`
+at `0:06 / 0:06` and was closed; acoustic output was not independently
+captured. In Review, Transcript showed one segment at `0:00` with no speaker
+label and no edits; Summary had no linked result; Ask displayed an empty
+`0 / 4,000` question field and stated that it would not call another provider
+automatically. No question was submitted. Live Capture, Transcript, and Insights tabs switched; the
+ONIKUMA M530 microphone was available and system loopback was off. The
+participant-notice acknowledgment remained unchecked, Start was disabled, and
+no capture or recovery action was performed in this retest. The copied
+database integrity check returned `ok`, with the same historical recovery
+event counts and no additional startup/UI-scan event.
+
+The captured native window was `1280 × 800`. Source config sets this window
+to a fixed size (`resizable: false`, minimum `1200 × 780`), so the disabled
+native Size action and ineffective border drag match the current build. The
+current navigation contract still requires fitting the shell to its viewport
+and requalification at narrow/short sizes; this package run did not change the
+viewport or display scaling, so those gates remain open.
+
+Before any new recording, the isolated package profile and output were copied
+to `G:\AI-Studio\verification\2026-10-20-fung-pr80-core-uat\package-retest-pre-crash-backup-20261020-052458`.
+All 75 copied files across roaming/local/output were SHA-256 verified; the
+local directory was empty. The database still reports 11 completed recordings,
+49 chunks, and the same three historical recovery audit events.
+
+The installed executable contains the expected UAT app id and the NSIS marker
+`BUNDLE_TYPE_VAR_NSS`. Reversing only its three marker bytes in memory produced
+the recorded companion build hash (`BE854538…6402A8830`) exactly, so package
+identity is verified. No file was modified. The remaining recovery-fix runtime
+test is still open because the participant-notice acknowledgment was unchecked
+and no new recording was started. Core acceptance remains **NOT PASSED**; no
+release was created.
+
+## Qwen3-ASR Thai candidate pilot — 2026-10-20
+
+The repository-pinned Qwen3-ASR and Thai CTC checkpoints are staged in an
+isolated local runtime with both SHA-256 values verified. On the existing
+ONIKUMA sample, chunks 2–3 passed ASR plus alignment with 29 segments and
+0.121 character similarity; all-six-chunk ASR-only scored 0.097. A full-waveform
+raw/denoise/normalize sweep scored 0.125/0.132/0.130, with the best result
+still inadequate. The full worker failed closed because CTC cannot represent
+U+0E46. Thai quality stays FAIL / OPEN, Detailed routing remains disabled, and
+this single sample does not qualify Desktop acceptance. See the
+[dated candidate pilot report](../verification/implementation-reports/2026-10-20-qwen-thai-asr-candidate-uat.md).
+
+## Recovery-audit installer rebuild — 2026-10-20
+
+The local working tree was rebuilt successfully as NSIS
+`FUNG_0.1.1_x64-setup.exe` after the recovery-audit fix. The new candidate is
+1,538,685,741 bytes, SHA-256
+`46E8A77DC01EF6BCAB7E0B8144BD217C4DBE9CBC0541BFE3D54FA20006E71E60`, and
+Authenticode reports `NotSigned`. The previous installer was preserved with
+its original SHA-256. The new package has not been installed or runtime-tested;
+its release target uses the default `dev.fung.local` app identity while the
+isolated NSIS install uses `dev.fung.uat.core20261019`. It was not installed
+or launched against the regular profile while native-window testing is paused
+for Codex IAB. A separate unsigned NSIS copy was then built with the isolated
+UAT identity for future recovery retest (SHA-256
+`B1C5C7AB90BBAE0D2534EBFD14687C9DC8BC8C42E9A1BDF899C8691F5ED2E45A`). It has
+not been installed or launched; the original release candidate was restored
+and its hash verified. Package recovery-audit runtime retest remains open.
+Core acceptance remains **NOT PASSED**, and no release was created.
+
+## Live microphone and crash-recovery UAT — 2026-10-20
+
+The isolated packaged NSIS `0.1.1` app captured a real ONIKUMA M530
+microphone sample and persisted all six WAV chunks with ledger hashes matching
+the files. Thai recognition was materially inaccurate. A separate 40-second
+capture was deliberately interrupted; after relaunch, FUNG detected the
+recording and recovered it with all five committed chunks intact. SQLite
+integrity passed, and recovery reported no missing/orphan files or adopted
+chunks. The packaged build emitted duplicate `interrupted_recording_found`
+audit events because startup and UI refresh shared a writing scan. The source
+fix now makes UI inspection read-only and the startup audit idempotent; recovery
+tests pass 9/9. The fix is included in the rebuilt NSIS candidate above, but
+that installer has not been installed or runtime-retested.
+
+## Same-capture Thai ASR follow-up — 2026-10-20
+
+Using the installed `large-v3-turbo` runtime on the existing 41.94-second mic
+capture, concatenating all six chunks produced only a small improvement over
+transcribing chunks separately (`0.110` vs `0.065` normalized character
+similarity). A generic FUNG vocabulary hint raised the full-capture score to
+`0.132`, still inadequate. Chunk 2 had a `-4.9 dBFS` peak, so low overall input
+level alone does not explain the bad recognition. Only `large-v3-turbo` was
+available in the checked local model locations; no alternative was downloaded.
+Changing VAD threshold from 0.50 to 0.75 had negligible effect on chunks 2 and
+3. Raw transcript text was not retained in the diagnostic. Thai recognition
+quality remains **FAIL / OPEN**.
+
+Codex IAB route smoke verified Home, Live tabs, History, project drawer, More,
+and all Settings tabs without controlling the Windows app. Native-backed
+Live/History operations show `NATIVE_UNAVAILABLE`; Account displays an
+`invoke` error in browser preview and the project list is unavailable, so this
+cannot verify installed-profile recordings or replace microphone/recovery
+evidence.
+Overall acceptance remains **NOT PASSED**: Thai transcript/summary quality,
+variable stop-finalization latency, packaged diarization, signed packaging,
+provider/account integrations and smaller-window/display-scaling qualification
+remain open. No release was created.
+
+See the [core UAT follow-up](../verification/implementation-reports/2026-10-19-desktop-core-uat-followup.md)
+and external receipt at
+`G:\AI-Studio\verification\2026-10-20-fung-pr80-core-uat\live-mic-crash-recovery-uat.json`.
+
+## Earlier core UAT regression snapshot before live/recovery retest — 2026-10-20
+
+Focused Desktop tests passed in the current working tree: shell 17/17, Live
+15/15, History 15/15, integration 12/12, recovery 7/7, command contracts
+13/13, live capture routing 4/4, recording output 3/3, and design-system tests
+5/5. The direct design-system check passed with 202 tokens, 58 contrast pairs,
+and 25/25 stylesheets; the production build passed with 1,820 modules.
+
+The supplemental browser viewport capture is unqualified: a requested 390×844
+capture reported 500×749 CSS pixels. The responsive matrix remains NOT RUN.
+The installed isolated NSIS app is still at the Live privacy gate with the
+participant acknowledgment unchecked; no recording was started. Crash-recovery
+UAT remains waiting for the user, and overall acceptance remains NOT PASSED.
+See the [core UAT follow-up](../verification/implementation-reports/2026-10-19-desktop-core-uat-followup.md).
+
+## Pre-live-UAT native package and GitHub snapshot — 2026-10-20
+
+The isolated NSIS app is confirmed running from its `installed-nsis-20261020`
+path as version 0.1.1 (SHA-256 `FD7891FDE9E0F75ADC0396FC1E8807A6999D8F9804B13047B356F73B9C29B43C`, Authenticode `NotSigned`). The Live screenshot and accessibility tree show the participant-notification acknowledgment unchecked and Start disabled; no capture started. PR #80 is already merged at `b59bc321`; `origin/main` matches and merge CI run `39290542777` completed successfully. Latest release remains `v0.1.0`; `v0.1.1` points to older commit `de7fd81`. No signing certificate/private key or `signtool.exe` was found. Acceptance remains NOT PASSED pending user acknowledgment and the other release gates.
+## Installed package desktop page sweep — 2026-10-20
+
+The isolated NSIS-upgraded `0.1.1` app was reviewed at 1280×800 across Home,
+Live (setup, transcript and data tabs), History/Review, Companion, project
+navigation, Settings, Storage, Appearance, pairing, import and export routes.
+Home and Live empty states fit; History/Files contains internal scrolling while
+the shell and dock remain visible. The Live start gate correctly stayed disabled
+because the per-session participant-notification acknowledgment was unchecked;
+no capture began. Settings integrations remain unconfigured, pairing requires
+sign-in, and the test output destination remained isolated. See the
+[packaged core UAT follow-up](../verification/implementation-reports/2026-10-19-desktop-core-uat-followup.md)
+and external receipt at
+`G:\AI-Studio\verification\2026-10-20-fung-pr80-core-uat\nsis-upgrade-uat.json`.
+GitHub confirms PR #80 and `main` at `b59bc321`; latest published release is
+`v0.1.0`, while the pre-existing `v0.1.1` tag points to older commit
+`de7fd81`. No local Code Signing certificate with a private key was found, so
+the candidate remains unsigned. Overall acceptance remains NOT PASSED; this
+pass does not create a release.
+
+## Isolated NSIS upgrade UAT — 2026-10-20
+
+Installed a locally built unsigned `0.1.0` baseline and upgraded it to `0.1.1`
+with the same isolated FUNG app id and install directory. All 484 files in the
+UAT Roaming/Local profiles matched their saved pre-upgrade SHA-256 manifest.
+The installed app reopened the existing project and synthetic Review
+transcript; six-second playback reached its ended state. Summary/Ask fit and
+keyboard navigation passed at 1280×800 and maximized 1920×1032. The Windows
+system-menu Size command was disabled, so smaller custom window sizes and
+non-default display scaling remain unqualified. Crash recovery, signed
+packaging, provider/account integration and Thai transcription/summary quality
+also remain open. Crash-recovery capture was not started because the isolated
+Live screen's per-session participant-notification acknowledgment was unchecked.
+See the [dated core UAT follow-up](../verification/implementation-reports/2026-10-19-desktop-core-uat-followup.md).
 
 ## Wireframe, wireflow and user-flow reconciliation — 2026-10-16
 
@@ -72,6 +318,25 @@ browser screenshot/DOM capture was blank during this pass, so visual screenshot
 review, native tray interaction and click-through are not claimed. The empty
 calendar state is implemented; calendar-provider data, populated task-pool
 acceptance, packaged playback, device/provider and release gates remain open.
+
+## Archive Review Summary/Ask fit — 2026-10-20
+
+Summary and Ask now appear as separate keyboard-operable sub-tabs inside the
+selected recording's Review view. The Ask card uses compact context copy and a
+two-line initial question field. A native packaged UAT run at 1280×800 showed
+both panels without an inner scrollbar or clipped controls; Left/Right and
+Home/End navigation each selected the expected single panel. The refreshed
+executable was built from PR #80 source plus local working-tree changes and
+opened under the isolated UAT app id; this does not represent a release build
+or installer-upgrade test. The after-change screenshot and detailed results
+are in the [Desktop core UAT follow-up](../verification/implementation-reports/2026-10-19-desktop-core-uat-followup.md).
+Other sizes/scaling, Thai transcript/summary quality, finalization latency,
+installer upgrade, signing and account/provider gates remain open. The
+installed-package crash-recovery UAT was performed and failed to reconcile the
+interrupted item: startup recorded one finding but left status `recording` and
+three WAV chunks outside the ledger (database integrity stayed `ok`). See the
+[latest Desktop core UAT follow-up](../verification/implementation-reports/2026-10-19-desktop-core-uat-followup.md).
+Overall Desktop/core acceptance remains NOT PASSED.
 
 ## Existing-profile schema recovery — upstream merged, FUNG validation in progress (2026-10-15)
 
@@ -1227,6 +1492,7 @@ overlay does not promote Phase 3 to fully release-ready.
 | Rust check | `cargo check` passed. |
 | SQLite WAL | Backend initializes SQLite with WAL, foreign keys, and busy timeout. |
 | Local API | Basic loopback `/health` API path exists. |
+| Developer workflow MCP | A stdio MCP adapter exposes a fixed synthetic import → transcribe → edit/export → Genesis reopen acceptance and recent per-stage timings. It is local developer tooling, separate from the FUNG product MCP surface. |
 | CLI | `fung-cli` smoke path exists and confirms WAL setting. |
 | Contracts | API, MCP, CLI, GenesisBlockDB, job model, and SQLite schema files exist. |
 | Layout RCA fix | Signals are inside the panel; `.fab-signals` removed. |
@@ -1290,7 +1556,7 @@ overlay does not promote Phase 3 to fully release-ready.
 - Source separation/layer generation.
 - Full transcript editor and evidence marking beyond the minimal correction/audit affordance.
 - Packaged audio-export click-through and close/relaunch artifact persistence.
-- Full MCP server runtime.
+- Full product MCP server runtime for the broader FUNG API surface; the developer-only workflow acceptance MCP is scoped separately.
 - Full local API beyond initial health/project/job surfaces.
 - Vendor-specific production connectors and all external write capabilities.
 
@@ -1361,6 +1627,40 @@ Screenshot artifacts from the latest UI validation:
 | CUDA redistribution | High | Treat NVIDIA redistribution terms as a release gate; stage only from an approved, version-pinned source. |
 
 ## Version Diff
+
+### `0.3.29q` → `0.3.29r`
+
+- Installed and reopened the isolated UAT-ID NSIS build with the recovery fix.
+  Orphan adoption, idempotent recovery audit, SQLite integrity and History
+  persistence passed. ONIKUMA speech capture remains near-silent despite the
+  endpoint being present; core acceptance remains open.
+
+### `0.3.29r` → `0.3.29s`
+
+- Initialized the participant-notice acknowledgment as checked for each new
+  Live session per the user's request, while preserving the system-loopback
+  default-off behavior and Start capability gate. Focused tests passed 16/16;
+  the installed isolated package showed the notice checked. A fresh spoken
+  mic sample is still pending, so core acceptance remains open.
+
+### `0.3.29d` → `0.3.29e`
+
+- Rechecked PR #80, `main`, published release and the existing `v0.1.1` tag
+  directly through GitHub. Confirmed the tested NSIS candidate is unsigned and
+  no local Code Signing certificate with a private key is available.
+- Recorded that Windows disables the system-menu Size action and a border drag
+  did not resize the native window; smaller-window/scaling UAT remains open.
+
+### `0.3.29c` → `0.3.29d`
+
+- Recorded an installed-package page sweep at 1280×800 across Home, Live,
+  History/Review, Companion, Settings, storage, appearance, pairing, import and
+  export routes. Home and Live empty states fit; History has internal list and
+  detail scrolling with the dock visible. Privacy acknowledgment remains
+  user-gated, and unconfigured integrations and visual differences are recorded
+  without promoting overall acceptance.
+- Added three isolated packaged UI screenshots and updated the external NSIS
+  UAT receipt. No recording or release was created.
 
 ### `0.3.26b` → `0.3.27b`
 
@@ -1593,6 +1893,23 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.29v | 2026-10-20 | beta | Registered developer workflow MCP; pinned synthetic import → CPU transcription → edit/export → orderly Genesis reopen passed. Workflow 30.46 s, transcription 28.85 s; transcript quality remains diagnostic only. | working-tree | Codex |
+| 0.3.29s | 2026-10-20 | beta | Participant notice now starts checked in every Live session per user request; loopback remains off. Focused tests 16/16; installed isolated UI confirmed the default. Mic sample awaits user readiness; core acceptance NOT PASSED. | working-tree | Codex |
+| 0.3.29r | 2026-10-20 | beta | Installed UAT-ID NSIS recovery retest passes orphan adoption, idempotent audit, SQLite integrity, and History persistence; ONIKUMA speech sample remains near-silent with no transcript. Package unsigned; core acceptance NOT PASSED. | working-tree | Codex |
+| 0.3.29q | 2026-10-20 | beta | Installed and opened isolated UAT-ID NSIS app; startup, History/Review and Live setup passed. Consent remained unchecked; no capture/recovery rerun. Installed executable hash differs from recorded companion build hash, leaving recovery-fix runtime verification open. | working-tree | Codex |
+| 0.3.29p | 2026-10-20 | beta | Built an unsigned NSIS copy with isolated UAT app identity for recovery-audit retest while preserving/restoring the default release candidate; package not installed/launched, so runtime gate remains open. | working-tree | Codex |
+| 0.3.29o | 2026-10-20 | beta | Rechecked the same full Thai capture with Qwen raw, denoise and normalization: scores remain low at 0.125/0.132/0.130; no transcript retained and Detailed remains disabled. Core UAT acceptance remains NOT PASSED. | working-tree | Codex |
+| 0.3.29n | 2026-10-20 | beta | Staged and hash-verified the pinned Qwen3-ASR/Thai CTC runtime. One-sample ASR remains poor (0.097 full capture); full CTC alignment fails closed at U+0E46; Detailed routing remains disabled. | working-tree | Codex |
+| 0.3.29m | 2026-10-20 | beta | Reprocessed the real mic capture with chunked/concatenated inputs, a generic vocabulary hint and three VAD thresholds. None produced usable Thai recognition; only Turbo is available locally. Thai-quality gate remains open; recovery-audit candidate is built but not installed/retested. | working-tree | Codex |
+| 0.3.29l | 2026-10-20 | beta | Reprocessed the real mic capture as six chunks and one concatenated waveform with/without a generic FUNG vocabulary hint; similarity remains poor and no alternate checkpoint is local. Thai-quality gate remains open; recovery-audit candidate is built but not installed/retested. | working-tree | Codex |
+| 0.3.29k | 2026-10-20 | beta | Rebuilt NSIS 0.1.1 from the local recovery-audit fix; verified installer hash and unsigned status while preserving the previous installer. The new package was not installed or runtime-retested; Codex IAB remains browser-only and core acceptance NOT PASSED. | working-tree | Codex |
+| 0.3.29j | 2026-10-20 | beta | Expanded Codex IAB smoke across project drawer, More and all Settings tabs without native window control; documented browser-only Account invoke error and live insight scrolling. Source recovery audit fix remains 9/9 with package retest open; overall core acceptance NOT PASSED. | working-tree | Codex |
+| 0.3.29i | 2026-10-20 | beta | Codex IAB route smoke passes without native window control; CPU/int8 Thai ASR diagnostic remains poor. Recovery audit dedupe source fix passes 9/9 tests and still needs packaged retest; signed release, integration, stop-latency and viewport gates remain open. | working-tree | Codex |
+| 0.3.29h | 2026-10-20 | beta | Isolated packaged NSIS UAT passes real microphone capture/persistence and one recovery of five committed chunks. Thai recognition remains inaccurate; duplicate recovery-scan audit events, variable stop latency, unsigned release and integration/viewport gates remain open; Codex browser reports NATIVE_UNAVAILABLE. | working-tree | Codex |
+| 0.3.29e | 2026-10-20 | beta | Revalidated merged PR #80/main and remote release/tag state; candidate remains unsigned with no local Code Signing certificate, and a border-drag attempt could not qualify smaller windows. Release gates remain open. | working-tree | Codex |
+| 0.3.29d | 2026-10-20 | beta | Installed NSIS desktop page sweep: Home and Live empty states fit at 1280×800; History internal scroll, user-gated capture, unconfigured settings/integrations, pairing sign-in gate, and three external screenshots recorded. Overall acceptance and release remain open. | working-tree | Codex |
+| 0.3.29c | 2026-10-20 | beta | Unsigned isolated NSIS 0.1.0-to-0.1.1 upgrade preserves all 484 profile files; installed Review transcript/playback and Summary/Ask pass at 1280×800 and maximized 1920×1032. Crash recovery, signing, Thai quality, integrations and smaller-window/scaling UAT remain open. | working-tree | Codex |
+| 0.3.29b | 2026-10-20 | beta | Compact Summary/Ask sub-tabs pass isolated packaged Review UAT at 1280×800, including arrow/Home/End navigation; other desktop and release gates remain open. | working-tree | Codex |
 | 0.3.28b | 2026-10-19 | beta | Added next-meeting empty state, local AI-proposed task pool, tabbed Live/Archive details and separate window controls; focused suites 73/73 plus frontend/Rust checks passed, visual/native tray and calendar-provider acceptance remain open. | working-tree | Codex |
 | 0.3.27b | 2026-10-19 | beta | Reframed navigation around Home/Live/Archive, grouped support destinations, removed tab-bar scrolling and corrected the legacy sitemap pointer; DOM bounds checked only, screenshot/click-through unavailable. | working-tree | Codex |
 | 0.3.26b | 2026-10-16 | beta | Re-ran native Desktop screen UAT on PR #80 in an isolated app-data profile; five core surfaces and seven Settings sections rendered, but device/provider, recording, populated Review and package gates remain open. | working-tree | Codex |

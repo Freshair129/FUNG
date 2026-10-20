@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.0l"
 created_at: "2026-10-19"
-last_update: "2026-10-19"
+last_update: "2026-10-20"
 status: "beta"
 superseded_by: null
 attributes:
@@ -131,5 +131,8 @@ attributes:
 - [2026-10-16-native-playback-resampling](2026-10-16-native-playback-resampling.md) — `local native output smoke passed; GUI and package gates open`
 - [2026-10-16-wireframe-wireflow-userflow-audit](2026-10-16-wireframe-wireflow-userflow-audit.md) — `beta`
 - [2026-10-18-core-audio-uat](2026-10-18-core-audio-uat.md) — `beta`
-- [2026-10-19-desktop-core-uat-followup](2026-10-19-desktop-core-uat-followup.md) — `beta`
+- [2026-10-19-desktop-core-uat-followup](2026-10-19-desktop-core-uat-followup.md) — `beta`; updated 2026-10-20: earlier recovery and close/reopen gates remain passed. Later isolated ONIKUMA M530 capture saved nonzero signal with matching chunk hashes and SQLite integrity `ok`; the 21.93-second sample had inaccurate Thai transcript segments and the UI timer advanced while stopping. Timer correction passes 16/16 focused tests and `npm run build`; isolated native candidate is built and hash-verified; installation awaits user approval. History UI reopen for the new sample, Thai quality, signing, integrations, viewport and overall core acceptance remain NOT PASSED. Details and external receipt are linked in the report.
+- [2026-10-20-workflow-mcp-acceptance](2026-10-20-workflow-mcp-acceptance.md) — `PASS`; synthetic file import, CPU transcription, edit, SRT/VTT/WAV export and orderly Genesis close/reopen passed through the registered local MCP. Keyword score is diagnostic only; mic/UI, crash recovery, GPU, Thai quality and full product MCP remain out of scope.
+- [2026-10-20-live-timer-fix-uat](2026-10-20-live-timer-fix-uat.md) — `beta`; earlier packaged UAT verifies active timer advancement. A later mic sample exposed continued timer advancement during stop finalization; source fix passes focused tests/build, and an unsigned native candidate awaits approval to install.
+- [2026-10-20-qwen-thai-asr-candidate-uat](2026-10-20-qwen-thai-asr-candidate-uat.md) — hashes verified; full-waveform raw/denoise/normalize comparison peaks at 0.132 similarity; Thai quality remains failed and full CTC alignment rejects U+0E46.
 - [progress](progress.md)

@@ -208,10 +208,27 @@ function renderShellWithProps(overrides = {}) {
   return renderToStaticMarkup(React.createElement(DesktopShell, createProps(overrides)));
 }
 
+test("interrupted recording recovery is rendered in the visible main surface", () => {
+  const marker = React.createElement("div", { "data-testid": "recovery-slot" }, "Recovery action");
+  const html = renderShellWithProps({ recoverySlot: marker });
+  const mainStart = html.indexOf("<main id=\"desktop-shell-main\"");
+  const mainEnd = html.indexOf("</main>", mainStart);
+  const recoveryIndex = html.indexOf("data-testid=\"recovery-slot\"");
+  const projectMenuStart = html.indexOf("class=\"desktop-shell__project-details\"");
+
+  assert.ok(mainStart >= 0 && mainEnd > mainStart, "the desktop main surface must render");
+  assert.ok(recoveryIndex > mainStart && recoveryIndex < mainEnd, "recovery action must be visible in main");
+  assert.ok(
+    projectMenuStart < 0 || recoveryIndex < projectMenuStart,
+    "recovery action must not depend on opening the project menu",
+  );
+});
+
 test("production shell helpers keep capture guards, stop confirmation, and safe failures explicit", () => {
   assert.equal(getCaptureLifecycle(state("loading"), "starting"), "starting");
   assert.equal(getCaptureLifecycle(state("ready", { active: true, stopping: false })), "active");
   assert.equal(getCaptureLifecycle(state("ready", { active: true, stopping: true })), "stopping");
+  assert.equal(getCaptureLifecycle(state("ready", { active: true, stopping: false }), "transcribing"), "stopping");
   assert.equal(getCaptureLifecycle(state("ready", { active: false, stopping: false })), "inactive");
 
   assert.deepEqual([...NAVIGATION_GUARD_CHOICES], ["continue", "stop", "stay"]);
@@ -232,6 +249,19 @@ test("production shell helpers keep capture guards, stop confirmation, and safe 
   assert.equal(safeFailure.code, "LEGACY_COMMAND_FAILED");
   assert.equal(safeFailure.message, "Desktop command failed.");
   assert.doesNotMatch(safeFailure.message, /private|secret|hidden/);
+});
+
+test("capture strip explains final transcript processing while native shutdown remains guarded", () => {
+  const markup = renderShellWithProps({
+    liveStatus: state("ready", { active: true, stopping: true }),
+    livePhase: "transcribing",
+  });
+  assert.match(markup, /กำลังประมวลผลเสียงช่วงสุดท้าย/);
+  assert.match(markup, /กำลังจัดการเสียงที่ค้างและปิดเซสชัน/);
+  assert.equal(getCaptureLifecycle(
+    state("ready", { active: true, stopping: true }),
+    "transcribing",
+  ), "stopping");
 });
 
 test("capture lifecycle precedence separates read bootstrap from the existing owner phase", () => {

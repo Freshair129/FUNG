@@ -1,7 +1,7 @@
 ---
-version: "1.0.1b"
+version: "1.0.1c"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-09-20T04:25:00+07:00,RWANG"
+last_update: "2026-10-20T00:00:00+07:00,Codex"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -110,7 +110,8 @@ Cloud providers are not default. Any cloud provider must be explicit opt-in and 
 | Contract | Purpose |
 | --- | --- |
 | `contracts/local-api-v1.yaml` | Local HTTP API |
-| `contracts/local-mcp-v1.yaml` | MCP operations |
+| `contracts/local-mcp-v1.yaml` | Planned FUNG product MCP operations |
+| `contracts/workflow-acceptance-mcp-v1.yaml` | Developer-only MCP for functional audio acceptance and timings |
 | `contracts/fung-cli-v1.yaml` | CLI behavior |
 | `contracts/stateful-job-model-v1.yaml` | Job model |
 | `docs/Mobile/FULL_FEATURE_WIRING_SPEC.md` | FUNG-to-Genesis operational-boundary and migration contract |
@@ -121,6 +122,7 @@ Cloud providers are not default. Any cloud provider must be explicit opt-in and 
 
 | Version | Change |
 | --- | --- |
+| 1.0.1c | Linked the separate developer workflow acceptance MCP contract without promoting the full product MCP runtime. |
 | 1.0.1b | Reconciled the frontend stack description with the current Liquid Glass DesktopShell; backend ownership remains unchanged. |
 | 0.1.0b | Added stack reference for desktop-first implementation. |
 | 1.0.0b | Replaced parallel SQLite/domain-layer framing with GenesisBlockDB as the single operational boundary. |

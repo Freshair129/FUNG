@@ -106,6 +106,7 @@ export function getCaptureLifecycle(
   liveStatus: Pick<ReadState<LiveStatusOutput>, "status" | "data">,
   livePhase: LivePhase = "idle",
 ): CaptureLifecycle {
+  if (livePhase === "transcribing") return "stopping";
   if (liveStatus.data?.stopping) return "stopping";
   if (livePhase === "stopping") return "stopping";
   if (liveStatus.data?.active) return "active";
@@ -499,23 +500,31 @@ function SurfaceIntro({ activeSurface, scopeChoice, headingRef }: SurfaceIntroPr
 
 type CaptureStripProps = {
   lifecycle: CaptureLifecycle;
+  livePhase: LivePhase;
   stopState: "idle" | "stopping" | "complete" | "error";
   stopError: ReviewError | null;
   onShowLive: () => void;
   onStop: () => void;
 };
 
-function CaptureStrip({ lifecycle, stopState, stopError, onShowLive, onStop }: CaptureStripProps) {
+function CaptureStrip({ lifecycle, livePhase, stopState, stopError, onShowLive, onStop }: CaptureStripProps) {
   const isStopping = lifecycle === "stopping" || stopState === "stopping";
   const isStarting = lifecycle === "starting";
   const isComplete = stopState === "complete";
+  const isFinalizing = livePhase === "transcribing";
   const title = isStopping
-    ? "กำลังยืนยันการหยุดบันทึก"
+    ? isFinalizing
+      ? "กำลังประมวลผลเสียงช่วงสุดท้าย"
+      : "กำลังหยุดบันทึก"
     : isStarting
       ? "กำลังเตรียมการบันทึก"
-      : "ยังบันทึกเสียงอยู่";
+      : isComplete
+        ? "หยุดบันทึกแล้ว"
+        : "ยังบันทึกเสียงอยู่";
   const detail = isStopping
-    ? "รอข้อมูลจาก Desktop ให้ active=false และ stopping=false ก่อนถือว่าหยุดแล้ว"
+    ? isFinalizing
+      ? "กำลังจัดการเสียงที่ค้างและปิดเซสชัน รอ Desktop ยืนยันก่อนเริ่มรอบใหม่หรือเปิด playback"
+      : "Desktop กำลังปิดเซสชัน รอการยืนยันก่อนเริ่มอัดหรือเปิด playback รอบใหม่"
     : isStarting
       ? "การเริ่มต้นยังไม่เสร็จ หลีกเลี่ยงการเริ่มซ้ำ"
       : isComplete
@@ -972,6 +981,7 @@ export function DesktopShell({
       {captureLifecycle !== "inactive" ? (
         <CaptureStrip
           lifecycle={captureLifecycle}
+          livePhase={livePhase}
           stopState={stripStopState}
           stopError={stripStopError}
           onShowLive={() => requestSurface("live", headingRef.current ?? document.body)}
@@ -981,6 +991,7 @@ export function DesktopShell({
 
       <div className="desktop-shell__body">
         <main id="desktop-shell-main" className="desktop-shell__main" tabIndex={-1}>
+          {recoverySlot ? <div className="desktop-shell__recovery-slot">{recoverySlot}</div> : null}
           {activeSurface !== "home" && activeSurface !== "live" ? (
             <SurfaceIntro activeSurface={activeSurface} scopeChoice={scopeChoice} headingRef={headingRef} />
           ) : null}
@@ -1048,7 +1059,6 @@ export function DesktopShell({
             <div className="desktop-shell__project-details">
               <ProjectPanel project={project} selectedProjectId={selectedProjectId} selection={selection} onSelectProject={requestProject} />
               {captureLifecycle !== "inactive" ? <div className="desktop-shell__sidebar-note"><strong>มีเซสชันบันทึกอยู่</strong></div> : null}
-              {recoverySlot ? <div className="desktop-shell__owned-slot">{recoverySlot}</div> : null}
               <button className="desktop-shell__button" type="button" onClick={() => { if (projectMenuRef.current) { projectMenuRef.current.open = false; projectMenuRef.current.querySelector<HTMLElement>("summary")?.focus(); } }}>ปิดรายการโครงการ</button>
             </div>
           </details>

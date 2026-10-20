@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "test:ci-coverage": "node --test tests/ciCoverage.test.mjs",
+    "test:fung-workflow-mcp": "node --test tests/fungWorkflowMcp.test.mjs",
     "test:callmd-contracts": "node --test --experimental-strip-types tests/callmdDesktopContracts.test.mjs",
     "test:callmd-shell": "node --test --experimental-strip-types tests/callmdDesktopShell.test.mjs",
     "test:callmd-live": "node --test --experimental-strip-types tests/callmdLiveWorkspace.test.mjs",

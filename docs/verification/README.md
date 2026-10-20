@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.0m"
 created_at: "2026-10-19"
-last_update: "2026-10-19"
+last_update: "2026-10-20"
 status: "beta"
 superseded_by: null
 attributes:
@@ -20,7 +20,10 @@ attributes:
 - [Desktop implementation truth](../Desktop/08-real-progress.md) สรุปผล Desktop และ remaining gates.
 - [Mobile implementation truth](../Mobile/IMPLEMENTATION_STATUS.md) สรุป build, automated checks และ physical-device gaps.
 - [Core audio UAT — 2026-10-18](implementation-reports/2026-10-18-core-audio-uat.md)
-- [Desktop core UAT follow-up — 2026-10-19](implementation-reports/2026-10-19-desktop-core-uat-followup.md)
+- [Desktop core UAT follow-up — updated 2026-10-20](implementation-reports/2026-10-19-desktop-core-uat-followup.md) — Earlier recovery and close/reopen pass remain valid. A later isolated ONIKUMA M530 capture saved nonzero signal; all three chunk hashes match the database and SQLite integrity is `ok`. The 21.93-second sample produced inaccurate Thai transcript segments and exposed a timer that continues during stop finalization. The source fix passes focused tests/build; the user approved the unsigned native candidate, but its installation and runtime retest are not evidenced. History UI reopen for this sample remains unverified. Overall core acceptance is NOT PASSED.
+- [Qwen3-ASR Thai candidate pilot — 2026-10-20](implementation-reports/2026-10-20-qwen-thai-asr-candidate-uat.md) — pinned hashes verified; full-waveform raw/denoise/normalize scores peak at 0.132, while full CTC alignment rejects U+0E46. Thai quality remains failed and Detailed routing stays disabled.
+- [Live timer fix UAT — 2026-10-20](implementation-reports/2026-10-20-live-timer-fix-uat.md) — an earlier package verified active timer advancement; a later mic run found timer advancement during stopping. Source correction passes focused tests/build; the user approved the unsigned isolated native candidate, but installation and runtime retest remain unverified.
+- [Workflow MCP acceptance — 2026-10-20](implementation-reports/2026-10-20-workflow-mcp-acceptance.md) — pinned synthetic file import → CPU transcription → edit/export → orderly Genesis reopen passed through MCP; transcript quality remains diagnostic only.
 - [Wireframe/wireflow/userflow audit — 2026-10-16](implementation-reports/2026-10-16-wireframe-wireflow-userflow-audit.md)
 - [Issue #41 recovery RCA — 2026-10-15](implementation-reports/2026-10-15-issue-41-recovery-rca.md)
 - [Documentation path and orphan-link audit — 2026-10-19](2026-10-19-documentation-path-and-orphan-audit.md)

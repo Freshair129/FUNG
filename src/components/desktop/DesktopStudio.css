@@ -1141,6 +1141,20 @@ body:has(.desktop-shell[data-layout="studio"]) {
   border-bottom-color: var(--studio-line);
 }
 
+.desktop-shell[data-layout="studio"] .recording-review__panel-heading > div {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__panel-heading h3 {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 1rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .desktop-shell[data-layout="studio"] .recording-review__list {
   flex: 1 1 0;
   min-height: 0;
@@ -1199,6 +1213,30 @@ body:has(.desktop-shell[data-layout="studio"]) {
   gap: 10px;
 }
 
+.desktop-shell[data-layout="studio"] .recording-review__tab-panel--insights:not([hidden]) {
+  overflow: hidden;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__insight-tabs {
+  gap: 5px;
+  padding-bottom: 6px;
+  border-bottom-color: var(--studio-line);
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__insight-tab {
+  min-height: 30px;
+  padding: 5px 11px;
+  font-size: var(--fung-font-size-caption);
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__insight-panel:not([hidden]) {
+  flex: 1 1 0;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__insight-panel > .recording-review__card {
+  height: 100%;
+}
+
 .desktop-shell[data-layout="studio"] .recording-review__tab-panel :is(.recording-review__card, .recording-review__welcome) {
   min-width: 0;
   border-color: var(--fung-glass-edge);
@@ -1209,6 +1247,61 @@ body:has(.desktop-shell[data-layout="studio"]) {
 
 .desktop-shell[data-layout="studio"] .recording-review__tab-panel .recording-review__card {
   padding: 14px;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__ask-form {
+  gap: 5px;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__ask-form textarea {
+  min-height: 58px;
+  max-height: 120px;
+  padding: 7px 9px;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__ask-form label {
+  font-size: var(--fung-font-size-caption);
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__card--ask .recording-review__card-heading {
+  margin-bottom: 6px;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__card--ask .recording-review__card-heading p {
+  margin: 4px 0 0;
+  font-size: var(--fung-font-size-caption);
+  line-height: 1.3;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__card--ask .recording-review__notice {
+  margin: 6px 0;
+  padding: 6px 9px;
+  font-size: var(--fung-font-size-caption);
+  line-height: 1.3;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__detail-stack {
+  gap: 7px;
+  padding: 10px;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__player {
+  padding: 10px;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__player .recording-review__card-heading {
+  margin-bottom: 8px;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__player .recording-review__seek {
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__player .recording-review__seek > p {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.25;
 }
 
 .desktop-shell[data-layout="studio"] .recording-review__welcome {
@@ -1227,6 +1320,34 @@ body:has(.desktop-shell[data-layout="studio"]) {
 .desktop-shell[data-layout="studio"] .recording-review__recording-row {
   border-radius: var(--fung-radius-md);
   font-family: var(--fung-font-ui);
+  padding: 6px 10px;
+  contain-intrinsic-size: 0 64px;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__recording-row-topline {
+  align-items: center;
+  font-size: 0.84rem;
+  line-height: 1.2;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__recording-row-topline strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__recording-row-topline span {
+  font-size: 0.72rem;
+}
+
+.desktop-shell[data-layout="studio"] .recording-review__recording-row-meta {
+  overflow: hidden;
+  margin-top: 2px;
+  font-size: 0.69rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* File destination and appearance use the same 12-column page grid. */

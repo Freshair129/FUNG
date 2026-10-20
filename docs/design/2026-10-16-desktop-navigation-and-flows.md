@@ -1,7 +1,7 @@
 ---
 version: "1.1.0b"
 created_at: "2026-10-16,Codex"
-last_update: "2026-10-19,Codex"
+last_update: "2026-10-20,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -95,7 +95,7 @@ own reader; that scroll must not hide the persistent dock or page navigation.
 | Appearance | Theme; material; transparency; readable fallback explanation | Independent from capture/data reads. Do not show unrelated native-capture failures or recording-scope notes here. |
 | Project disclosure | Loading/error/unavailable/empty/list; selected recording context; recovery notices; Close list | Opening or closing the disclosure does not open/close a database/project or start recording. Empty recovery wrappers are hidden. |
 | More disclosure | Files group: Import, Export and Storage location; device group: Pairing, Appearance and Account | Accessible names remain present even when icons are shown. Export opens Review for explicit recording selection and creates no job until the user uses its scoped action. |
-| Settings dialog | Close; section choices; active panel | Focus enters the dialog, Tab stays within visible enabled controls, Escape closes and restores the initiating control. Embedded panels are regions rather than nested modal dialogs. |
+| Settings right drawer | Close; vertical section tabs; active settings panel; local-first disclosure | Opens from the right with the desktop surface visible behind a dimmed glass layer. Arrow keys move between tabs; Tab stays within visible enabled controls; Escape and the close button dismiss the drawer and restore focus to the Settings control. Embedded panels are regions rather than nested modal dialogs. |
 | Companion shortcut/dialog | Close; context/status; Live and Settings shortcuts; in-app disclosure | It is a utility action rather than a primary workspace destination. Opening does not start capture or AI inference. No arbitrary prompt, autonomous agent or external overlay capability is implied. |
 | Pairing dialog | Close; device read/error; explicit create-code/refresh controls; FUNGWIRE status/actions | Loads its overlay independently of Settings; focus enters Close, Tab loops, Escape restores More. Merely opening does not grant trust or enable FUNGWIRE. |
 

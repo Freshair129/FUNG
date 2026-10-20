@@ -6,6 +6,7 @@ import {
   useState,
   type FormEvent,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   askRecording as bridgeAskRecording,
@@ -57,6 +58,29 @@ import "./RecordingReview.css";
 
 export const RECORDING_PAGE_LIMIT = 50;
 export const PLAYBACK_POLL_INTERVAL_MS = 250;
+export const RECORDING_REVIEW_PULL_REFRESH_TRIGGER_PX = 72;
+const RECORDING_REVIEW_PULL_REFRESH_MAX_DISTANCE_PX = 56;
+
+export function recordingReviewPullDistance(deltaX: number, deltaY: number): number {
+  if (deltaY < 4 || deltaY <= Math.abs(deltaX)) return 0;
+  return Math.min(
+    Math.round(deltaY * 0.6),
+    RECORDING_REVIEW_PULL_REFRESH_MAX_DISTANCE_PX,
+  );
+}
+
+export function shouldRefreshRecordingReviewFromPull(
+  deltaY: number,
+  enabled: boolean,
+): boolean {
+  return enabled && deltaY >= RECORDING_REVIEW_PULL_REFRESH_TRIGGER_PX;
+}
+
+type PullRefreshGesture = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+};
 
 export type RecordingReviewBridge = {
   listRecordings: typeof listRecordings;
@@ -642,8 +666,15 @@ export class RecordingReviewController {
   }
 
   public setVisible(visible: boolean): void {
+    const becameVisible = visible && !this.visible;
     this.visible = visible;
-    if (!visible) void this.closePlayer();
+    if (!visible) {
+      void this.closePlayer();
+      return;
+    }
+    if (becameVisible && this.snapshotValue.list.status === "ready") {
+      void this.refresh();
+    }
   }
 
   public startPolling(): () => void {
@@ -2172,13 +2203,11 @@ function PlaybackPanel({
 function AskPanel({
   state,
   question,
-  selection,
   onQuestionChange,
   onAskQuestion,
 }: {
   state: ReadState<RecordingAnswer>;
   question: string;
-  selection: RecordingKey;
   onQuestionChange: (question: string) => void;
   onAskQuestion: () => Promise<void>;
 }) {
@@ -2188,12 +2217,12 @@ function AskPanel({
   };
 
   return (
-    <section className="recording-review__card" aria-busy={state.status === "loading"}>
+    <section className="recording-review__card recording-review__card--ask" aria-busy={state.status === "loading"}>
       <div className="recording-review__card-heading">
         <div>
           <h3>ถามเฉพาะบันทึกนี้</h3>
           <p className="recording-review__muted">
-            คำตอบใช้บทถอดเสียงที่ตรงกับ {selection.projectId}/{selection.recordingId} เท่านั้น
+            คำตอบอิงบทถอดเสียงของบันทึกที่เลือกเท่านั้น
           </p>
         </div>
       </div>
@@ -2207,7 +2236,7 @@ function AskPanel({
           value={question}
           onChange={(event) => onQuestionChange(event.target.value)}
           maxLength={4000}
-          rows={4}
+          rows={2}
           aria-describedby="recording-review-ask-caveat"
           placeholder="ถามจากบทถอดเสียงของบันทึกนี้"
           disabled={state.status === "loading"}
@@ -2512,9 +2541,123 @@ export function RecordingReviewView({
   const selectedProjectId = selection?.projectId ?? list.data?.projectId ?? null;
   const hasStaleList = list.status === "error" && list.data !== null;
   const [activeDetailTab, setActiveDetailTab] = useState<"playback" | "transcript" | "insights" | "files">("playback");
+  const [activeInsightTab, setActiveInsightTab] = useState<"summary" | "ask">("summary");
+  const [pullRefreshState, setPullRefreshState] = useState<"idle" | "pulling" | "ready" | "refreshing">("idle");
+  const [pullRefreshDistance, setPullRefreshDistance] = useState(0);
+  const pullRefreshGestureRef = useRef<PullRefreshGesture | null>(null);
+  const pullRefreshInFlightRef = useRef(false);
+  const pullRefreshResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(false);
+  const canPullRefresh = Boolean(selectedProjectId) && list.status !== "loading";
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      pullRefreshGestureRef.current = null;
+      if (pullRefreshResetTimerRef.current) {
+        clearTimeout(pullRefreshResetTimerRef.current);
+      }
+    };
+  }, []);
+
+  const refreshFromPull = async () => {
+    if (!canPullRefresh || pullRefreshInFlightRef.current) return;
+    pullRefreshInFlightRef.current = true;
+    setPullRefreshState("refreshing");
+    setPullRefreshDistance(34);
+    const startedAt = Date.now();
+    try {
+      await actions.refresh();
+    } catch {
+      // The list controller exposes refresh failures in its own error state.
+    } finally {
+      if (!mountedRef.current) {
+        pullRefreshInFlightRef.current = false;
+        return;
+      }
+      const delay = Math.max(0, 350 - (Date.now() - startedAt));
+      pullRefreshResetTimerRef.current = setTimeout(() => {
+        pullRefreshInFlightRef.current = false;
+        pullRefreshResetTimerRef.current = null;
+        setPullRefreshState("idle");
+        setPullRefreshDistance(0);
+      }, delay);
+    }
+  };
+
+  const handlePullRefreshPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (
+      !canPullRefresh ||
+      pullRefreshInFlightRef.current ||
+      !event.isPrimary ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    ) {
+      return;
+    }
+    pullRefreshGestureRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePullRefreshPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = pullRefreshGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    const distance = recordingReviewPullDistance(deltaX, deltaY);
+    setPullRefreshDistance(distance);
+    if (distance <= 0) {
+      setPullRefreshState("idle");
+      return;
+    }
+    event.preventDefault();
+    setPullRefreshState(
+      shouldRefreshRecordingReviewFromPull(deltaY, canPullRefresh) ? "ready" : "pulling",
+    );
+  };
+
+  const finishPullRefreshGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = pullRefreshGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    pullRefreshGestureRef.current = null;
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    const shouldRefresh =
+      recordingReviewPullDistance(deltaX, deltaY) > 0 &&
+      shouldRefreshRecordingReviewFromPull(deltaY, canPullRefresh);
+    setPullRefreshDistance(0);
+    if (shouldRefresh) {
+      void refreshFromPull();
+      return;
+    }
+    setPullRefreshState("idle");
+  };
+
+  const cancelPullRefreshGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = pullRefreshGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    pullRefreshGestureRef.current = null;
+    setPullRefreshDistance(0);
+    setPullRefreshState("idle");
+  };
+
+  const handlePullRefreshKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const refreshShortcut =
+      event.key === "F5" ||
+      ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r");
+    if (!refreshShortcut) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void refreshFromPull();
+  };
 
   useEffect(() => {
     setActiveDetailTab("playback");
+    setActiveInsightTab("summary");
   }, [selection?.projectId, selection?.recordingId]);
 
   const handleDetailTabKeyDown = (
@@ -2540,6 +2683,22 @@ export function RecordingReviewView({
     document.getElementById(`review-tab-${next}`)?.focus();
   };
 
+  const handleInsightTabKeyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    current: "summary" | "ask",
+  ) => {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft" && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    const next = current === "summary" ? "ask" : "summary";
+    const selected = event.key === "Home"
+      ? "summary"
+      : event.key === "End"
+        ? "ask"
+        : next;
+    setActiveInsightTab(selected);
+    document.getElementById(`review-insight-tab-${selected}`)?.focus();
+  };
+
   return (
     <section
       className="recording-review"
@@ -2547,25 +2706,6 @@ export function RecordingReviewView({
       hidden={!visible}
       data-scope={scopeChoice}
     >
-      <header className="recording-review__header">
-        <div>
-          <p className="recording-review__eyebrow">Quiet Archive · FUNG</p>
-          <h2 id="recording-review-heading">บันทึกย้อนหลัง</h2>
-          <p className="recording-review__intro">
-            เลือกการบันทึกจริงจากโครงการ แล้วอ่าน ฟัง และถามจากคู่ข้อมูลเดียวกัน
-          </p>
-        </div>
-        <button
-          type="button"
-          className="recording-review__button"
-          onClick={() => void actions.refresh()}
-          disabled={!selectedProjectId || list.status === "loading"}
-          aria-label="รีเฟรชประวัติบันทึก"
-        >
-          รีเฟรช
-        </button>
-      </header>
-
       <div className="recording-review__layout">
         <aside className="recording-review__list-panel" aria-labelledby="recording-review-list-heading">
           <div className="recording-review__panel-heading">
@@ -2582,6 +2722,42 @@ export function RecordingReviewView({
             aria-busy={list.status === "loading"}
             aria-live="polite"
           >
+            <div
+              className="recording-review__pull-refresh"
+              role="region"
+              tabIndex={0}
+              aria-label="ดึงลงเพื่อรีเฟรชประวัติบันทึก"
+              aria-keyshortcuts="Control+R Meta+R F5"
+              aria-busy={pullRefreshState === "refreshing"}
+              aria-describedby="recording-review-pull-refresh-help"
+              data-state={pullRefreshState}
+              style={{ height: `${38 + pullRefreshDistance}px` }}
+              onKeyDown={handlePullRefreshKeyDown}
+              onPointerDown={handlePullRefreshPointerDown}
+              onPointerMove={handlePullRefreshPointerMove}
+              onPointerUp={finishPullRefreshGesture}
+              onPointerCancel={cancelPullRefreshGesture}
+            >
+              <span className="recording-review__pull-refresh-icon" aria-hidden="true">
+                {pullRefreshState === "refreshing" ? "◌" : "↓"}
+              </span>
+              <span aria-live="polite">
+                {!selectedProjectId
+                  ? "เลือกโครงการก่อน"
+                  : list.status === "loading"
+                    ? "กำลังอ่านประวัติ…"
+                    : pullRefreshState === "refreshing"
+                      ? "กำลังรีเฟรช…"
+                      : pullRefreshState === "ready"
+                        ? "ปล่อยเพื่อรีเฟรช"
+                        : pullRefreshState === "pulling"
+                          ? "ลากลงอีกนิด"
+                          : "ลากลงเพื่อรีเฟรช"}
+              </span>
+              <span id="recording-review-pull-refresh-help" className="recording-review__sr-only">
+                ลากแถบนี้ลงแล้วปล่อยเพื่อโหลดรายการใหม่ หรือโฟกัสแถบนี้แล้วกด Ctrl+R หรือ F5
+              </span>
+            </div>
             {!selectedProjectId ? (
               <ReviewStateCard
                 title="เลือกโครงการก่อน"
@@ -2678,7 +2854,7 @@ export function RecordingReviewView({
           </div>
         </aside>
 
-        <section className="recording-review__detail" aria-labelledby="recording-review-heading">
+        <section className="recording-review__detail" aria-label="รายละเอียดการบันทึก">
           {!selection ? (
             <div className="recording-review__welcome">
               <p className="recording-review__eyebrow">อ่านย้อนหลังแบบเลือกเอง</p>
@@ -2788,24 +2964,59 @@ export function RecordingReviewView({
               </div>
               <div
                 id="review-panel-insights"
-                className="recording-review__tab-panel recording-review__tab-panel--grid"
+                className="recording-review__tab-panel recording-review__tab-panel--insights"
                 role="tabpanel"
                 aria-labelledby="review-tab-insights"
                 tabIndex={0}
                 hidden={activeDetailTab !== "insights"}
               >
-                <SummaryPanel
-                  state={summaries}
-                  selection={selection}
-                  actions={actions}
-                />
-                <AskPanel
-                  state={ask}
-                  question={question}
-                  selection={selection}
-                  onQuestionChange={onQuestionChange}
-                  onAskQuestion={onAskQuestion}
-                />
+                <div className="recording-review__insight-tabs" role="tablist" aria-label="สรุปและถามจากบันทึก">
+                  {([ ["summary", "สรุป"], ["ask", "ถามบันทึกนี้"] ] as const).map(([tab, label]) => (
+                    <button
+                      key={tab}
+                      id={`review-insight-tab-${tab}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeInsightTab === tab}
+                      aria-controls={`review-insight-panel-${tab}`}
+                      tabIndex={activeInsightTab === tab ? 0 : -1}
+                      className={`recording-review__insight-tab${activeInsightTab === tab ? " is-active" : ""}`}
+                      onKeyDown={(event) => handleInsightTabKeyDown(event, tab)}
+                      onClick={() => setActiveInsightTab(tab)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div
+                  id="review-insight-panel-summary"
+                  className="recording-review__insight-panel"
+                  role="tabpanel"
+                  aria-labelledby="review-insight-tab-summary"
+                  tabIndex={0}
+                  hidden={activeInsightTab !== "summary"}
+                >
+                  <SummaryPanel
+                    state={summaries}
+                    selection={selection}
+                    actions={actions}
+                  />
+                </div>
+                <div
+                  id="review-insight-panel-ask"
+                  className="recording-review__insight-panel"
+                  role="tabpanel"
+                  aria-labelledby="review-insight-tab-ask"
+                  tabIndex={0}
+                  hidden={activeInsightTab !== "ask"}
+                >
+                  <AskPanel
+                    state={ask}
+                    question={question}
+                    onQuestionChange={onQuestionChange}
+                    onAskQuestion={onAskQuestion}
+                  />
+                </div>
               </div>
               <div
                 id="review-panel-files"

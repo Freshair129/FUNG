@@ -133,6 +133,10 @@ const {
   createLiveEventLifecycle,
   createLiveControllerAdapter,
   mergeLiveSegments,
+  advanceLiveElapsedMs,
+  resolveFrozenElapsedMs,
+  resolveLiveEventPhase,
+  resolveLivePhaseFromStatus,
   runStartWithCloseAck,
   settleLiveRequest,
   waitForCaptureInactive,
@@ -140,6 +144,10 @@ const {
 
 assert.equal(typeof createLiveEventLifecycle, "function");
 assert.equal(typeof mergeLiveSegments, "function");
+assert.equal(typeof advanceLiveElapsedMs, "function");
+assert.equal(typeof resolveFrozenElapsedMs, "function");
+assert.equal(typeof resolveLiveEventPhase, "function");
+assert.equal(typeof resolveLivePhaseFromStatus, "function");
 assert.equal(typeof runStartWithCloseAck, "function");
 assert.equal(typeof settleLiveRequest, "function");
 assert.equal(typeof waitForCaptureInactive, "function");
@@ -149,6 +157,53 @@ assert.equal(typeof workspace.getLiveSummaryPresentation, "function");
 test("system audio starts off unless the user explicitly opts in", () => {
   assert.match(workspaceSource, /const \[captureSystem, setCaptureSystem\] = useState\(false\)/);
   assert.match(panelSource, /captureSystem: options\.captureSystem \?\? false/);
+});
+
+test("participant notice acknowledgement starts checked for each live session", () => {
+  assert.match(workspaceSource, /const \[privacyAcknowledged, setPrivacyAcknowledged\] = useState\(true\)/);
+  assert.match(workspaceSource, /disabled=\{!privacyAcknowledged \|\| !captureCapability\.available\}/);
+});
+
+test("live elapsed display advances from the native clock snapshot and freezes on stop", () => {
+  assert.equal(advanceLiveElapsedMs(1200, 5000, 5300), 1500);
+  assert.equal(advanceLiveElapsedMs(1200, 5000, 4900), 1200);
+  assert.equal(resolveFrozenElapsedMs(null, 21930, null, 60000), 21930);
+  assert.equal(resolveFrozenElapsedMs(21930, 60000, null, 90000), 21930);
+  assert.equal(resolveFrozenElapsedMs(null, null, { baseElapsedMs: 1200, observedAtMs: 5000 }, 5300), 1500);
+  assert.equal(resolveFrozenElapsedMs(null, null, null, 5300), null);
+  assert.match(panelSource, /window\.setInterval\(tick, 250\)/);
+  assert.match(panelSource, /stopElapsedMsRef\.current = resolveFrozenElapsedMs\(/);
+  assert.match(panelSource, /stopElapsedMsRef\.current = clock\s*\?/);
+});
+
+test("final transcript processing remains visible until Desktop confirms capture is inactive", () => {
+  assert.equal(resolveLiveEventPhase("transcribing"), "transcribing");
+  assert.equal(resolveLiveEventPhase("recording"), "listening");
+  assert.equal(resolveLiveEventPhase("unexpected-state"), null);
+  assert.equal(
+    resolveLivePhaseFromStatus(
+      statusFor(keyA, { active: true, stopping: true }),
+      "transcribing",
+      true,
+    ),
+    "transcribing",
+  );
+  assert.equal(
+    resolveLivePhaseFromStatus(
+      statusFor(keyA, { active: false, stopping: true }),
+      "transcribing",
+      true,
+    ),
+    "transcribing",
+  );
+  assert.equal(
+    resolveLivePhaseFromStatus(
+      statusFor(keyA, { active: false, stopping: false }),
+      "transcribing",
+      true,
+    ),
+    "stopped",
+  );
 });
 
 const keyA = { projectId: "project-a", recordingId: "recording-a" };

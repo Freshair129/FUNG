@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Activity, Cloud, Link2, SlidersHorizontal, UserCircle, Volume2, X } from "lucide-react";
+import { Activity, Cloud, Link2, LockKeyhole, SlidersHorizontal, UserCircle, Volume2, X } from "lucide-react";
 import * as QRCode from "qrcode";
 import type { InvokeFn } from "../lib/backupFlow";
 import { setLocalApiLan, startLocalApi, type Job, type LocalApiInfo } from "../tauri";
 import { supabaseConfigured } from "../lib/bootstrap";
+import { FungLogo } from "./FungLogo";
 import "./SettingsPanel.css";
 // Eagerly imported (not lazy) because the "Supabase not configured" fallback
 // below reuses these class names directly, and that fallback can render
@@ -92,7 +93,7 @@ export function SettingsPanel({
     closeRef.current?.focus();
     return () => {
       const target = initiator?.isConnected && initiator !== document.body && initiator.getClientRects().length > 0
-        ? initiator : document.querySelector<HTMLElement>('summary[aria-label="เพิ่มเติม"]');
+        ? initiator : document.querySelector<HTMLElement>('button[aria-label="ตั้งค่า"]');
       target?.focus();
     };
   }, []);
@@ -137,9 +138,9 @@ export function SettingsPanel({
 
   const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentTab: SettingsTab) => {
     const index = TABS.findIndex((tab) => tab.id === currentTab);
-    const nextIndex = event.key === "ArrowRight"
+    const nextIndex = event.key === "ArrowDown" || event.key === "ArrowRight"
       ? (index + 1) % TABS.length
-      : event.key === "ArrowLeft"
+      : event.key === "ArrowUp" || event.key === "ArrowLeft"
         ? (index - 1 + TABS.length) % TABS.length
         : event.key === "Home"
           ? 0
@@ -208,138 +209,156 @@ export function SettingsPanel({
 
   return (
     <div className="settings-overlay" role="presentation" onClick={onClose}>
-      <div className="settings-stack" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="settings-panel-heading" onKeyDown={handleDialogKeyDown} onClick={(event) => event.stopPropagation()}>
-        <header className="settings-header">
-          <h2 id="settings-panel-heading">ตั้งค่า</h2>
-          <button ref={closeRef} type="button" className="settings-close" onClick={onClose} aria-label="ปิดการตั้งค่า">
+      <section className="settings-drawer" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="settings-panel-heading" onKeyDown={handleDialogKeyDown} onClick={(event) => event.stopPropagation()}>
+        <header className="settings-drawer__header">
+          <div className="settings-drawer__heading-group">
+            <div className="settings-drawer__brand" role="img" aria-label="FUNG Quiet Archive">
+              <FungLogo size={28} variant="dark" showWordmark wordmarkColor="var(--fung-text-primary)" />
+              <span>QUIET ARCHIVE</span>
+            </div>
+            <div className="settings-drawer__title-group">
+              <h2 id="settings-panel-heading">ตั้งค่า</h2>
+              <p>ปรับแต่งการทำงานของ FUNG ให้เหมาะกับคุณ</p>
+            </div>
+          </div>
+          <button ref={closeRef} type="button" className="settings-drawer__close" onClick={onClose} aria-label="ปิดการตั้งค่า">
             <X size={18} />
           </button>
         </header>
-        <nav className="settings-tabs" role="tablist" aria-label="หมวดการตั้งค่า">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              id={`settings-tab-${tab.id}`}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              aria-controls="settings-content"
-              tabIndex={activeTab === tab.id ? 0 : -1}
-              className={`settings-tab${activeTab === tab.id ? " is-active" : ""}`}
-              onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              <tab.icon size={16} />
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-        <div
-          id="settings-content"
-          className="settings-body"
-          role="tabpanel"
-          aria-labelledby={`settings-tab-${activeTab}`}
-          tabIndex={0}
-        >
-          <Suspense fallback={<p className="settings-loading">Loading…</p>}>
-            {activeTab === "account" && <ExternalAccountPanel onClose={onClose} onOpenPortal={onOpenExternalAccountPortal} embedded />}
-            {activeTab === "tts" && <TtsProviderPanel onClose={onClose} embedded />}
-            {activeTab === "cloud" && <CloudProvidersPanel onClose={onClose} embedded />}
-            {activeTab === "fetch" && (
-              <MediaFetchPanel projectId={projectId} onClose={onClose} onStarted={onFetchStarted} embedded />
-            )}
-            {activeTab === "zoom" && <ZoomPanel onClose={onClose} embedded />}
-            {activeTab === "account-login" && (
-              <div className="settings-account-login">
-                {supabaseConfigured ? (
-                  <AccountLoginPanel onClose={onClose} />
-                ) : (
-                  <section className="account-login-panel" aria-label="บัญชี FUNG ยังไม่พร้อมใช้งาน">
-                    <header className="account-login-header">
-                      <UserCircle size={18} />
-                      <h3>บัญชี &amp; อุปกรณ์</h3>
-                    </header>
-                    <p className="account-login-error">
-                      ยังไม่ได้ตั้งค่า Supabase — เพิ่ม VITE_SUPABASE_URL และ VITE_SUPABASE_ANON_KEY เพื่อเปิดใช้บัญชีและการจับคู่อุปกรณ์
-                    </p>
-                  </section>
-                )}
-                <BackupPanel invoke={invoke} projectId={projectId} />
-              </div>
-            )}
-            {activeTab === "runtime" && (
-              <div className="settings-runtime">
-                <p>Local API runtime status: <strong>{apiRunning ? "Running" : "Stopped"}</strong></p>
-                <button type="button" className="settings-runtime-start" onClick={onStartApi} disabled={apiRunning}>
-                  Start local API
-                </button>
-                <section className="settings-local-api" aria-label="ลิงก์เชื่อมต่อเว็บ">
-                  <h4>ฟังไฟล์ที่อัดไว้จากหน้าเว็บ (เครื่องนี้)</h4>
-                  <p className="settings-local-api-note">
-                    หน้าเว็บ FUNG ที่เปิดบนเครื่องนี้อ่านรายการและเล่นไฟล์ตรงจากแอปนี้ผ่าน 127.0.0.1 — ไม่มีเสียงขึ้น cloud
-                    ลิงก์ใช้ได้จนกว่าจะปิดแอป
-                  </p>
-                  {localApi?.connectUrl ? (
-                    <div className="settings-local-api-row">
-                      <input
-                        ref={connectUrlField}
-                        className="settings-local-api-url"
-                        type="text"
-                        readOnly
-                        value={localApi.connectUrl}
-                        onFocus={(event) => event.currentTarget.select()}
-                        aria-label="ลิงก์เชื่อมต่อเว็บ"
-                      />
-                      <button type="button" className="settings-runtime-start" onClick={() => void copyConnectUrl()}>
-                        {copied ? "คัดลอกแล้ว" : "คัดลอก"}
-                      </button>
-                    </div>
+        <div className="settings-drawer__layout">
+          <nav className="settings-drawer__tabs" role="tablist" aria-orientation="vertical" aria-label="หมวดการตั้งค่า">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                id={`settings-tab-${tab.id}`}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                aria-controls="settings-content"
+                tabIndex={activeTab === tab.id ? 0 : -1}
+                className={`settings-drawer__tab${activeTab === tab.id ? " is-active" : ""}`}
+                onKeyDown={(event) => handleTabKeyDown(event, tab.id)}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                <tab.icon size={18} aria-hidden="true" />
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </nav>
+          <div
+            id="settings-content"
+            className="settings-drawer__body"
+            role="tabpanel"
+            aria-labelledby={`settings-tab-${activeTab}`}
+            tabIndex={0}
+          >
+            <Suspense fallback={<p className="settings-loading">กำลังโหลดการตั้งค่า…</p>}>
+              {activeTab === "account" && <ExternalAccountPanel onClose={onClose} onOpenPortal={onOpenExternalAccountPortal} embedded />}
+              {activeTab === "tts" && <TtsProviderPanel onClose={onClose} embedded />}
+              {activeTab === "cloud" && <CloudProvidersPanel onClose={onClose} embedded />}
+              {activeTab === "fetch" && (
+                <MediaFetchPanel projectId={projectId} onClose={onClose} onStarted={onFetchStarted} embedded />
+              )}
+              {activeTab === "zoom" && <ZoomPanel onClose={onClose} embedded />}
+              {activeTab === "account-login" && (
+                <div className="settings-account-login">
+                  {supabaseConfigured ? (
+                    <AccountLoginPanel onClose={onClose} />
                   ) : (
-                    <button type="button" className="settings-runtime-start" onClick={() => void revealConnectUrl()}>
-                      แสดงลิงก์เชื่อมต่อเว็บ
-                    </button>
+                    <section className="account-login-panel" aria-label="บัญชี FUNG ยังไม่พร้อมใช้งาน">
+                      <header className="account-login-header">
+                        <UserCircle size={18} />
+                        <h3>บัญชี &amp; อุปกรณ์</h3>
+                      </header>
+                      <p className="account-login-error">
+                        ยังไม่ได้ตั้งค่า Supabase — เพิ่ม VITE_SUPABASE_URL และ VITE_SUPABASE_ANON_KEY เพื่อเปิดใช้บัญชีและการจับคู่อุปกรณ์
+                      </p>
+                    </section>
                   )}
-                  {localApiError && <p className="settings-local-api-error">{localApiError}</p>}
-                </section>
-                <section className="settings-local-api" aria-label="เปิดจากมือถือในวง Wi-Fi เดียวกัน">
-                  <h4>เปิดจากมือถือในวง Wi-Fi เดียวกัน</h4>
-                  <p className="settings-local-api-note">
-                    เมื่อเปิด desktop จะเสิร์ฟหน้าเล่นไฟล์บนเครือข่ายภายใน ให้มือถือสแกน QR แล้วเปิดใน browser
-                    ได้เลย — ไม่ผ่าน cloud ปิดเมื่อไรก็ได้ และปิดเองเมื่อปิดแอป (Windows Firewall อาจถามครั้งแรก
-                    → Allow)
-                  </p>
-                  <button
-                    type="button"
-                    className="settings-runtime-start"
-                    onClick={() => void toggleLan()}
-                    disabled={lanBusy}
-                  >
-                    {localApi?.lanEnabled ? "ปิดแชร์ในวง LAN" : "แชร์ให้มือถือ (LAN)"}
+                  <BackupPanel invoke={invoke} projectId={projectId} />
+                </div>
+              )}
+              {activeTab === "runtime" && (
+                <div className="settings-runtime">
+                  <p>Local API runtime status: <strong>{apiRunning ? "Running" : "Stopped"}</strong></p>
+                  <button type="button" className="settings-runtime-start" onClick={onStartApi} disabled={apiRunning}>
+                    Start local API
                   </button>
-                  {localApi?.lanEnabled && localApi.lanUrl && (
-                    <div className="settings-local-api-qr">
-                      {lanQr ? <img src={lanQr} alt="QR สำหรับเปิดบนมือถือ" width={240} height={240} /> : null}
-                      <input
-                        className="settings-local-api-url"
-                        type="text"
-                        readOnly
-                        value={localApi.lanUrl}
-                        onFocus={(event) => event.currentTarget.select()}
-                        aria-label="ลิงก์สำหรับมือถือ"
-                      />
-                    </div>
-                  )}
-                  {localApi?.lanEnabled && !localApi.lanUrl && (
-                    <p className="settings-local-api-error">
-                      เปิดแล้วที่ {localApi.lanBind} แต่หา IP ในวง LAN ของเครื่องนี้ไม่เจอ — เช็คว่าเชื่อม Wi-Fi/LAN อยู่
+                  <section className="settings-local-api" aria-label="ลิงก์เชื่อมต่อเว็บ">
+                    <h4>ฟังไฟล์ที่อัดไว้จากหน้าเว็บ (เครื่องนี้)</h4>
+                    <p className="settings-local-api-note">
+                      หน้าเว็บ FUNG ที่เปิดบนเครื่องนี้อ่านรายการและเล่นไฟล์ตรงจากแอปนี้ผ่าน 127.0.0.1 — ไม่มีเสียงขึ้น cloud
+                      ลิงก์ใช้ได้จนกว่าจะปิดแอป
                     </p>
-                  )}
-                </section>
-              </div>
-            )}
-          </Suspense>
+                    {localApi?.connectUrl ? (
+                      <div className="settings-local-api-row">
+                        <input
+                          ref={connectUrlField}
+                          className="settings-local-api-url"
+                          type="text"
+                          readOnly
+                          value={localApi.connectUrl}
+                          onFocus={(event) => event.currentTarget.select()}
+                          aria-label="ลิงก์เชื่อมต่อเว็บ"
+                        />
+                        <button type="button" className="settings-runtime-start" onClick={() => void copyConnectUrl()}>
+                          {copied ? "คัดลอกแล้ว" : "คัดลอก"}
+                        </button>
+                      </div>
+                    ) : (
+                      <button type="button" className="settings-runtime-start" onClick={() => void revealConnectUrl()}>
+                        แสดงลิงก์เชื่อมต่อเว็บ
+                      </button>
+                    )}
+                    {localApiError && <p className="settings-local-api-error">{localApiError}</p>}
+                  </section>
+                  <section className="settings-local-api" aria-label="เปิดจากมือถือในวง Wi-Fi เดียวกัน">
+                    <h4>เปิดจากมือถือในวง Wi-Fi เดียวกัน</h4>
+                    <p className="settings-local-api-note">
+                      เมื่อเปิด desktop จะเสิร์ฟหน้าเล่นไฟล์บนเครือข่ายภายใน ให้มือถือสแกน QR แล้วเปิดใน browser
+                      ได้เลย — ไม่ผ่าน cloud ปิดเมื่อไรก็ได้ และปิดเองเมื่อปิดแอป (Windows Firewall อาจถามครั้งแรก
+                      → Allow)
+                    </p>
+                    <button
+                      type="button"
+                      className="settings-runtime-start"
+                      onClick={() => void toggleLan()}
+                      disabled={lanBusy}
+                    >
+                      {localApi?.lanEnabled ? "ปิดแชร์ในวง LAN" : "แชร์ให้มือถือ (LAN)"}
+                    </button>
+                    {localApi?.lanEnabled && localApi.lanUrl && (
+                      <div className="settings-local-api-qr">
+                        {lanQr ? <img src={lanQr} alt="QR สำหรับเปิดบนมือถือ" width={240} height={240} /> : null}
+                        <input
+                          className="settings-local-api-url"
+                          type="text"
+                          readOnly
+                          value={localApi.lanUrl}
+                          onFocus={(event) => event.currentTarget.select()}
+                          aria-label="ลิงก์สำหรับมือถือ"
+                        />
+                      </div>
+                    )}
+                    {localApi?.lanEnabled && !localApi.lanUrl && (
+                      <p className="settings-local-api-error">
+                        เปิดแล้วที่ {localApi.lanBind} แต่หา IP ในวง LAN ของเครื่องนี้ไม่เจอ — เช็คว่าเชื่อม Wi-Fi/LAN อยู่
+                      </p>
+                    )}
+                  </section>
+                </div>
+              )}
+            </Suspense>
+          </div>
         </div>
-      </div>
+        <footer className="settings-drawer__footer">
+          <LockKeyhole size={17} aria-hidden="true" />
+          <div>
+            <strong>Local-first</strong>
+            <span>ไฟล์เสียง คำถอดความ และโน้ตยังอยู่บนอุปกรณ์นี้</span>
+          </div>
+        </footer>
+      </section>
     </div>
   );
 }

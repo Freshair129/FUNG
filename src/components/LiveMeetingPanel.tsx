@@ -78,6 +78,57 @@ export type LiveEventLifecycle = {
 const MAX_BOOTSTRAP_EVENTS = 200;
 const UNKNOWN_REFRESH_COOLDOWN_MS = 250;
 
+const LIVE_EVENT_PHASES: readonly LivePhase[] = [
+  "idle",
+  "starting",
+  "listening",
+  "degraded",
+  "transcribing",
+  "stopping",
+  "stopped",
+  "error",
+];
+
+export function resolveLiveEventPhase(state: string): LivePhase | null {
+  const next = state === "recording" ? "listening" : state;
+  return LIVE_EVENT_PHASES.includes(next as LivePhase) ? next as LivePhase : null;
+}
+
+export function resolveLivePhaseFromStatus(
+  status: LiveStatusOutput,
+  currentPhase: LivePhase,
+  hasKnownRecording: boolean,
+): LivePhase {
+  if (status.active) {
+    if (!status.stopping) return "listening";
+    return currentPhase === "transcribing" ? currentPhase : "stopping";
+  }
+  if (status.stopping) {
+    return currentPhase === "transcribing" ? currentPhase : "stopping";
+  }
+  return hasKnownRecording ? "stopped" : "idle";
+}
+
+export function advanceLiveElapsedMs(
+  baseElapsedMs: number,
+  observedAtMs: number,
+  nowMs: number,
+): number {
+  return Math.max(baseElapsedMs, Math.floor(baseElapsedMs + Math.max(0, nowMs - observedAtMs)));
+}
+
+export function resolveFrozenElapsedMs(
+  frozenElapsedMs: number | null,
+  reportedElapsedMs: number | null,
+  clock: { baseElapsedMs: number; observedAtMs: number } | null,
+  nowMs: number,
+): number | null {
+  if (frozenElapsedMs !== null) return frozenElapsedMs;
+  if (reportedElapsedMs !== null) return reportedElapsedMs;
+  if (clock) return advanceLiveElapsedMs(clock.baseElapsedMs, clock.observedAtMs, nowMs);
+  return null;
+}
+
 function sameRecordingKey(
   left: RecordingKey | null,
   right: RecordingKey | null,
@@ -574,6 +625,8 @@ export function LiveMeetingPanel({
   const [captureDevicesError, setCaptureDevicesError] = useState<string | null>(null);
   const [selection, setSelection] = useState<RecordingKey | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const elapsedClockRef = useRef<{ baseElapsedMs: number; observedAtMs: number } | null>(null);
+  const stopElapsedMsRef = useRef<number | null>(null);
   const [segments, setSegments] = useState<LiveSegmentEvent[]>([]);
   const [topic, setTopic] = useState<ReadState<LiveTopicEvent>>(emptyReadState);
   const [summaries, setSummaries] = useState<ReadState<MeetingSummaries>>(emptyReadState);
@@ -791,29 +844,70 @@ export function LiveMeetingPanel({
       };
       const changed = setLiveIdentity(nextKey);
       if (changed) void loadSummariesForKey(nextKey);
-      setPhaseSafe(status.stopping ? "stopping" : "listening");
-    } else if (status.stopping) {
-      setPhaseSafe("stopping");
+      setPhaseSafe(resolveLivePhaseFromStatus(status, phaseRef.current, true));
     } else {
-      setPhaseSafe(activeKeyRef.current ? "stopped" : "idle");
+      setPhaseSafe(resolveLivePhaseFromStatus(
+        status,
+        phaseRef.current,
+        activeKeyRef.current !== null,
+      ));
     }
 
-    if (status.elapsedMs !== null) setElapsedMs(status.elapsedMs);
+    if (status.elapsedMs !== null) {
+      if (status.stopping) {
+        stopElapsedMsRef.current = resolveFrozenElapsedMs(
+          stopElapsedMsRef.current,
+          status.elapsedMs,
+          elapsedClockRef.current,
+          performance.now(),
+        );
+        elapsedClockRef.current = null;
+        if (stopElapsedMsRef.current !== null) setElapsedMs(stopElapsedMsRef.current);
+      } else {
+        stopElapsedMsRef.current = null;
+        elapsedClockRef.current = {
+          baseElapsedMs: status.elapsedMs,
+          observedAtMs: performance.now(),
+        };
+        setElapsedMs(status.elapsedMs);
+      }
+    } else if (status.stopping) {
+      stopElapsedMsRef.current = resolveFrozenElapsedMs(
+        stopElapsedMsRef.current,
+        null,
+        elapsedClockRef.current,
+        performance.now(),
+      );
+      elapsedClockRef.current = null;
+      if (stopElapsedMsRef.current !== null) setElapsedMs(stopElapsedMsRef.current);
+    } else if (!status.active && !status.stopping) {
+      elapsedClockRef.current = null;
+      if (stopElapsedMsRef.current !== null) setElapsedMs(stopElapsedMsRef.current);
+    }
   }, [loadSummariesForKey, setControllerStatus, setLiveIdentity, setPhaseSafe]);
 
+  useEffect(() => {
+    if (phase !== "starting" && phase !== "listening" && phase !== "degraded") return;
+
+    const tick = () => {
+      const clock = elapsedClockRef.current;
+      if (!clock || stopElapsedMsRef.current !== null) return;
+      setElapsedMs(advanceLiveElapsedMs(
+        clock.baseElapsedMs,
+        clock.observedAtMs,
+        performance.now(),
+      ));
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 250);
+    return () => window.clearInterval(interval);
+  }, [phase]);
+
   const onStatusEvent = useCallback((event: LiveStatusEvent) => {
-    const allowed: LivePhase[] = [
-      "idle",
-      "starting",
-      "listening",
-      "degraded",
-      "stopping",
-      "stopped",
-      "error",
-    ];
-    const next = event.state === "recording" ? "listening" : event.state;
-    if (allowed.includes(next as LivePhase)) {
-      setPhaseSafe(next as LivePhase);
+    const next = resolveLiveEventPhase(event.state);
+    if (next) {
+      setPhaseSafe(next);
     } else {
       setPhaseSafe("error");
       addError({
@@ -938,6 +1032,14 @@ export function LiveMeetingPanel({
     if (!stopRequestRef.current) {
       stopRequestRef.current = liveMeetingStop()
         .then((receipt) => {
+          const clock = elapsedClockRef.current;
+          if (stopElapsedMsRef.current === null) {
+            stopElapsedMsRef.current = clock
+              ? advanceLiveElapsedMs(clock.baseElapsedMs, clock.observedAtMs, performance.now())
+              : 0;
+            setElapsedMs(stopElapsedMsRef.current);
+          }
+          elapsedClockRef.current = null;
           setPhaseSafe("stopping");
           return receipt;
         })
@@ -1002,6 +1104,8 @@ export function LiveMeetingPanel({
       const key = { projectId: output.projectId, recordingId: output.recordingId };
       setLiveIdentity(key);
       lifecycleRef.current?.setKnownIdentity(key);
+      stopElapsedMsRef.current = null;
+      elapsedClockRef.current = { baseElapsedMs: 0, observedAtMs: performance.now() };
       setPhaseSafe("starting");
       setElapsedMs(0);
       if (output.warning) {

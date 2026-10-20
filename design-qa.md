@@ -1,72 +1,38 @@
-# FUNG dashboard layout QA
+# Design QA: Settings right drawer
 
-final result: passed
+## Source and implementation
 
-Date: 2026-10-15. Scope: reference-led desktop layout adaptation, issue #82.
-This is browser layout/interaction acceptance, not native audio, model, installer,
-or release acceptance.
+- Source visual truth: `C:/Users/suanr/.codex/generated_images/01a13907-1593-7092-937b-87234303a7d9/exec-d926953f-4a42-4281-8bf1-25f74fc238e8.png` (Quiet Glass Settings Rail, 1487 × 1058 px).
+- Implementation: FUNG local preview at `http://127.0.0.1:1420/app?surface=desktop`, captured in the active Codex in-app browser (1006 × 806 px screenshot; CSS viewport and device scale factor are not exposed by the capture API).
+- State: desktop Home surface, Settings open, Connections tab selected, light appearance, Liquid Glass material.
+- Density normalization: unavailable. The source and implementation capture have different dimensions, and the browser screenshot bytes were not exposed as a filesystem artifact for resizing or compositing.
 
-## Reference and comparison
+## Visual review
 
-- User reference: `codex-clipboard-58758952-5c53-4e0d-9e8b-d77fb8490757.png`
-  (958 × 663).
-- Render: `http://127.0.0.1:1421/app?surface=desktop`, same 958 × 663 viewport.
-- Both reference and rendered screenshot were inspected together in one image
-  comparison input. Evidence: `home-reference-size.png` under
-  `G:\AI-Studio\verification\2026-10-15-fung-dashboard`.
-- Retained composition: approximately 55% photographic hero, two upper-right
-  cards, one wide lower-right card, rounded black frame and bottom navigation.
-  Fitness content is intentionally adapted to the existing FUNG product.
+- Full view: the implementation follows the selected right-side drawer structure with a brand header, vertical settings tabs, a content region, and a persistent local-first footer. The home surface remains visible behind the drawer. The capture is not a same-size side-by-side composite, so pixel-level comparison is incomplete.
+- Focused regions: reviewed the tab rail and the Connections, TTS, Cloud providers, Link import, Zoom, Runtime, and Account/backup content states in the Codex browser. The inner feature panels now share the drawer surface; cloud/TTS controls remain inside the bounded content scroller.
+- Typography: the current IBM Plex Sans Thai / DM Sans stack is preserved; Thai tab labels fit on one line at the captured desktop viewport.
+- Spacing and layout: drawer, header, vertical rail, active-tab indicator, content padding, and footer fit within the captured viewport. Long cloud-provider content scrolls within the content region.
+- Colors and tokens: FUNG porcelain, ink, border, local-state, and focus tokens are used. The dim layer is lighter than the previous capture, keeping the underlying home screen recognizable.
+- Image quality and assets: existing FUNG logo and home hero asset are reused; the tab icons use the existing Lucide icon set.
+- Copy and content: existing settings content and local-first disclosure are retained.
 
-## Surface audit
+## Findings and iteration history
 
-| Surface | Result |
-|---|---|
-| Typography | Single-line Thai hero at reference viewport; existing DM Sans/IBM Plex Sans Thai retained. Distinct heading, metadata and dock scales; no clipped headline. |
-| Spacing and layout | 5px card gutters, rounded cards, four hero shortcuts and fixed bottom dock. Main owns page scrolling; no sidebar or document scrollbar. |
-| Color | Blue/lavender hero, white cards and black frame follow the reference hierarchy. Dark appearance preserves readable card backgrounds and text. |
-| Imagery | Generated raster listener portrait and transparent waveform; existing FUNG mark and Lucide icons. Waveform is decorative, not an audio-level claim. |
-| Copy and data | Existing FUNG actions in Thai. Project totals and dated activity use actual props. Missing native data stays unknown/empty; no invented progress or assistant response. |
+- Initial browser capture showed the account panel with an extra rounded border, and the glass theme made the background too dark. Updated the drawer to flatten embedded feature roots and adjusted the glass overlay opacity. Follow-up browser captures show the account panel without the nested frame and the home hero more visible.
+- No actionable P0/P1/P2 visual mismatch was observed in the captures reviewed.
+- The Account and backup tab shows an unavailable native bridge/auth endpoint in the browser preview. This is a browser-preview limitation; native desktop behavior was not exercised in this visual pass.
+- Blocking evidence gap: the Codex browser produced visible screenshots, but did not expose a local screenshot path. The source and implementation images therefore could not be normalized and placed in one comparison input as required by the Product Design QA workflow.
 
-## Iterations
+## Interaction review
 
-1. Initial render exposed a two-line headline and oversized account control.
-   Corrected headline, profile selector and dock label specificity.
-2. Collapsing outer margins shifted the frame upward by 8/16px after navigation.
-   Root formatting context and viewport containment fixed this. Re-measured all
-   four sizes after the fix.
-3. Guard focus from closed utility menus now returns to their visible summary;
-   the synthetic capture flow remained on Home after Stay.
+- Clicked settings tabs and confirmed the selected state/content changes for the settings sections.
+- Arrow-key navigation moved focus and selection through the tab list.
+- Escape and the drawer close button both closed Settings and restored focus to the Settings control.
+- `npm run build` passed. `git diff --check` passed. No test suite was run.
 
-No unresolved P0, P1 or P2 findings in this bounded browser layout review.
+## Follow-up
 
-## Final geometry
+- Save the active Codex browser capture to a local image path and compare it side by side with the source at a documented scale, then rerun this QA report.
 
-| Viewport | Document size | Frame top | Main client / scroll height |
-|---|---|---|---|
-| 1280 × 800 | 1280 × 800 | 16 | 699 / 699 |
-| 958 × 663 | 958 × 663 | 16 | 562 / 562 |
-| 800 × 600 | 800 × 600 | 16 | 499 / 1110 |
-| 390 × 844 | 390 × 844 | 8 | 717 / 1110 |
-
-Narrow views stack cards and scroll main; the dock stays visible. A capture strip
-uses its own row, so short windows may also scroll main. Evidence in the directory
-above: `final-geometry.json`, `home-desktop.png`, `home-mobile-final.png`,
-`capture-fixture.png`, `guard-focus.json`.
-
-## Interaction and accessibility
-
-- Home/live/review/output navigation; CTA opens Live without starting audio.
-- Companion opens/closes via existing panel and restores trigger focus.
-- Settings opens/closes; project disclosure opens/closes, Escape returns focus.
-- Utility menu opens Appearance; dark/light checked and restored light.
-- 7/30-day selection updates period. Isolated synthetic project fixture shows
-  seven meters with 12 projects; fixture is excluded from production.
-- Capture fixture opens existing guard; Stay preserves Home. Utility-menu guard
-  returns focus to visible summary after Stay.
-- Focus treatment and semantic links, buttons, selects and meters retained.
-
-Fresh navigation produced no new console errors. Four historical Vite HMR
-`createRoot` warnings occurred during development and did not repeat during the
-fresh-page check. Native-only data is unavailable in browser; these checks do
-not prove native recording or model execution.
+final result: blocked

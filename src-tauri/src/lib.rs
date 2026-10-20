@@ -5340,11 +5340,11 @@ pub(crate) fn set_job_status(
     Ok(())
 }
 
-/// Re-runs the interrupted-recording scan. Cheap by construction — directory
-/// listings and row comparisons, no hashing — so the UI can call it freely.
+/// Reads the interrupted-recording list for the UI. This is deliberately
+/// side-effect free; startup owns stale-job repair and recovery audit writes.
 #[tauri::command]
 fn recovery_scan(state: State<'_, AppState>) -> AppResult<recovery::RecoveryReport> {
-    recovery::scan(&state.genesis).map_err(AppError::Genesis)
+    recovery::inspect(&state.genesis).map_err(AppError::Genesis)
 }
 
 /// What recovering one recording achieved: what was adopted back into the

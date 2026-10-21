@@ -1,7 +1,7 @@
 ---
-version: "1.9.7b"
+version: "1.9.14b"
 created_at: "2026-09-21T03:45:30+07:00,RWANG,base-b336f33"
-last_update: "2026-10-01T00:15:00+07:00,RWANG"
+last_update: "2026-10-20T00:00:00+07:00,Codex"
 status: "need review"
 superseded_by: null
 attributes:
@@ -18,9 +18,9 @@ attributes:
 
 | Field | Value |
 |---|---|
-| Version | 1.9.7b |
-| Date | 2026-10-01 |
-| Status | need review — local M1–M5 campaign and bounded Qwen 55-clip relative comparison passed; user-reviewed bt10m/bt3m errors remain, and neither low-clarity filter qualified; independent review, Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
+| Version | 1.9.14b |
+| Date | 2026-10-20 |
+| Status | need review — local M1–M5 campaign and bounded Qwen 55-clip relative comparison passed; user-reviewed bt10m/bt3m errors remain, and neither low-clarity filter qualified; user-authorized Product MCP run `FUNG-PRODUCT-MCP-2026-10-20-01` accepted MCP-00 inventory and MCP-01 contract v0.1.4b; MCP-02 notification and bounded-pagination fixes pass full Rust library tests, frontend build, and workflow MCP acceptance; independent re-review, package/client UAT, and capture acceptance remain open; MCP-03+ are not started; Phase 3 controller acceptance, Phase 4 clean-install/device proof, and Phase 5 release gates remain open; Google Drive is canceled |
 | Author | Claude (Fable 5) + Boss |
 | Supersedes | none (first master plan) |
 | Source docs | `2026-08-08-auth-web-hybrid-subproject-a-design.md`, `docs/Mobile/IMPLEMENTATION_STATUS.md` v0.4.3b, `docs/Desktop/08-real-progress.md` v0.2.36b, `docs/decisions/2026-09-17-google-drive-scope-cancellation.md`, Sub-project B brainstorm decisions (2026-08-09) |
@@ -207,6 +207,34 @@ raw-Qwen 55-clip relative WER/CER comparison, or any Phase 0–5, M1–M5,
 provider, device, packaging, or release acceptance. See the
 [Qwen qualification report](../verification/implementation-reports/2026-09-30-qwen-thai-candidate.md)
 and the [approved remediation plan](2026-09-30-qwen-low-clarity-remediation.md).
+
+## 0.8 Product MCP feature roadmap — 2026-10-20
+
+The developer workflow acceptance MCP provides a bounded synthetic
+file-import → transcription → edit/export → orderly reopen check. It does not
+prove microphone control. MCP-00 inventory and MCP-01 contract v0.1.4b are
+accepted. MCP-02 now has a local source candidate with six discovery/read/job
+tools, durable cancel/retry handling, and a default-off loopback
+Streamable HTTP listener. Its 647-test Rust regression (6 ignored), frontend
+build, and workflow MCP acceptance passed before implementation review. The
+review findings for notification dispatch and unbounded job-list reads have
+been patched in the working tree; post-fix full Rust library tests, frontend
+build, and workflow MCP acceptance pass. Independent implementation review
+remains open. MCP-03 and later nodes remain unstarted until MCP-02 is accepted
+by review.
+
+The [Product MCP feature roadmap](2026-10-20-product-mcp-feature-roadmap.md)
+sets P0–P5 priorities and core capture-to-result acceptance; the paired
+[execution DAG](2026-10-20-product-mcp-execution-dag.json) defines dependencies,
+parallel waves, and durable checkpoints. The user authorized run
+`FUNG-PRODUCT-MCP-2026-10-20-01`; MCP-00 source inventory and MCP-01 contract
+v0.1.4b passed independent review, while MCP-02 remains under implementation
+review. Core workflow acceptance prioritizes real saved audio, completed jobs,
+retrievable output, and restart persistence; transcription quality
+optimization follows that functional gate.
+This overlay does not authorize external provider activation, external writes,
+real-room publishing, merge, or release, and does not change the current
+Desktop/core acceptance state.
 
 ## 0. Historical Delivery Overlay (2026-08-13; superseded)
 
@@ -678,6 +706,13 @@ Per phase:
 
 | Version | Change |
 | --- | --- |
+| 1.9.13b → 1.9.14b | Recorded passing post-remediation Rust regression, frontend build and workflow MCP acceptance; independent review and package/client UAT remain open. |
+| 1.9.12b → 1.9.13b | Recorded post-remediation Rust compile, formatting, and whitespace checks; MCP-02 remains in REVIEW pending test suites and independent re-review. |
+| 1.9.11b → 1.9.12b | Recorded MCP-02 notification and bounded-pagination remediations; prior checks are explicitly pre-fix and the implementation remains in REVIEW pending post-fix validation and independent re-review. |
+| 1.9.10b → 1.9.11b | Recorded the MCP-02 source candidate, full local Rust/frontend/workflow evidence and current review gate; MCP-03+ remain blocked until independent implementation review accepts MCP-02. |
+| 1.9.9b → 1.9.10b | Accepted MCP-00 after independent review; started MCP-01 and added its versioned Desktop MCP contract and cross-cutting security semantics for review. |
+| 1.9.8b → 1.9.9b | Started the user-authorized Product MCP checkpointed DAG; MCP-00 inventory is awaiting independent review, and runtime/desktop acceptance claims remain separate. |
+| 1.9.7b → 1.9.8b | Added a candidate Product MCP P0–P5 roadmap and declarative execution DAG; current runtime proof and Desktop acceptance remain separate. |
 | 1.9.6b → 1.9.7b | Recorded the negative five-clip Qwen preprocessing result; raw remains the candidate baseline, the Detailed gate stays closed, and broader programme gates are unchanged. |
 | 1.9.5b → 1.9.6b | Recorded candidate staging, consolidated source-test results, offline Rust-worker model load and one qualitative same-audio comparison; Thai accuracy and release acceptance remain open. |
 | 1.9.4b → 1.9.5b | Recorded successful candidate staging, pinned dependency imports and consolidated source verification; Rust-worker model load and same-audio comparison remain pending. |
@@ -698,6 +733,13 @@ Per phase:
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 | --- | --- | --- | --- | --- | --- |
+| 1.9.14b | 2026-10-20 | need review | Post-remediation Rust library suite (649 passed, 6 ignored), frontend build and workflow MCP tests pass; independent implementation review and package/client UAT remain open. | working-tree | Codex |
+| 1.9.13b | 2026-10-20 | need review | Post-remediation Rust compile, format and whitespace checks pass; test suites, independent implementation review, packaged/client UAT and downstream MCP nodes remain open. | working-tree | Codex |
+| 1.9.12b | 2026-10-20 | need review | Patched implementation-review findings for notifications and bounded job pagination; prior checks remain pre-fix, with post-fix validation and independent re-review still open. | working-tree | Codex |
+| 1.9.11b | 2026-10-20 | need review | Recorded the MCP-02 source candidate and passing local regressions; independent implementation review, packaged/client UAT and downstream MCP nodes remain open. | working-tree | Codex |
+| 1.9.10b | 2026-10-20 | need review | Accepted the independent MCP-00 inventory; started MCP-01 contract review; no runtime implementation claimed. | working-tree | Codex |
+| 1.9.9b | 2026-10-20 | need review | Started user-authorized checkpointed Product MCP execution; source inventory awaits independent review; no product MCP runtime or release acceptance claimed. | working-tree | Codex |
+| 1.9.8b | 2026-10-20 | need review | Added candidate Product MCP priorities and execution dependencies; did not claim product MCP runtime completion or promote Desktop acceptance. | working-tree | Codex |
 | 1.9.7b | 2026-10-01 | need review | Recorded the failed low-clarity filter experiment while preserving raw-Qwen comparison evidence and all broader acceptance boundaries. | working-tree | RWANG |
 | 1.9.6b | 2026-09-29 | need review | Recorded successful isolated candidate staging, source verification, offline Rust-worker model load and one qualitative Turbo comparison; Thai accuracy and release acceptance remain open. | working-tree | RWANG |
 | 1.9.5b | 2026-09-29 | need review | Recorded candidate staging, pinned dependency imports and consolidated source validation; worker model load and same-audio comparison remained pending. | working-tree | RWANG |

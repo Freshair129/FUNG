@@ -620,6 +620,80 @@ impl JobEngine {
         Ok(id)
     }
 
+    /// Enqueues one job under a caller-persisted ID. Product MCP writes this
+    /// ID into its durable operation intent before calling here, so replay can
+    /// safely discover or recreate the exact same job after interruption.
+    pub(crate) fn enqueue_with_transcription_mode_for_id(
+        &self,
+        id: &str,
+        kind: JobKind,
+        project_id: &str,
+        recording_id: Option<&str>,
+        transcription_mode: TranscriptionMode,
+    ) -> Result<String, String> {
+        if id.trim().is_empty() {
+            return Err("job id must not be empty".to_owned());
+        }
+        if transcription_mode == TranscriptionMode::Detailed && kind != JobKind::TranscriptRetry {
+            return Err("detailed transcription mode requires transcript.retry".to_string());
+        }
+        if kind.requires_recording() && recording_id.is_none() {
+            return Err(format!("{} needs a recording", kind.as_str()));
+        }
+        if let Some(existing) = self.load(id)? {
+            if existing.project_id != project_id
+                || existing.kind != kind
+                || existing.recording_id.as_deref() != recording_id
+                || existing.transcription_mode != transcription_mode
+            {
+                return Err("persisted job id belongs to a different operation".to_owned());
+            }
+            if existing.status == "queued" {
+                let mut state = self.inner.state.lock().expect("job engine state poisoned");
+                state.schedule.insert(id.to_owned(), Instant::now());
+                drop(state);
+                self.inner.wake.notify_all();
+            }
+            return Ok(id.to_owned());
+        }
+
+        let timestamp = now();
+        let mut refs: Vec<String> = recording_id.map(str::to_owned).into_iter().collect();
+        if let Some(mode_ref) = transcription_mode.input_ref() {
+            refs.push(mode_ref.to_string());
+        }
+        genesis_adapter::commit_rows(
+            &self.inner.storage,
+            vec![
+                genesis_adapter::upsert(
+                    "jobs",
+                    serde_json::json!({
+                        "id": id, "project_id": project_id, "type": kind.as_str(),
+                        "status": "queued", "progress": 0,
+                        "input_refs_json": refs, "output_refs_json": [],
+                        "provider_id": null, "error_code": null, "error_message": null,
+                        "attempt_no": 1, "started_at": null, "finished_at": null,
+                        "created_at": timestamp, "updated_at": timestamp,
+                    }),
+                ),
+                genesis_adapter::upsert(
+                    "job_events",
+                    serde_json::json!({
+                        "id": Uuid::new_v4().to_string(), "job_id": id, "status": "queued",
+                        "message": format!("{} เข้าคิวแล้ว", kind.label()),
+                        "created_at": timestamp,
+                    }),
+                ),
+            ],
+        )?;
+
+        let mut state = self.inner.state.lock().expect("job engine state poisoned");
+        state.schedule.insert(id.to_owned(), Instant::now());
+        drop(state);
+        self.inner.wake.notify_all();
+        Ok(id.to_owned())
+    }
+
     /// Asks for a job to stop. See [`CancelOutcome`] for what that means in
     /// each case — a running handler is not interrupted.
     pub(crate) fn cancel(&self, job_id: &str) -> CancelOutcome {

@@ -1,5 +1,5 @@
 ---
-version: "0.3.29v"
+version: "0.3.33v"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-20,Codex"
 
@@ -12,6 +12,24 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Product MCP bridge candidate — 2026-10-20
+
+MCP-00 inventory and MCP-01 contract v0.1.4b are accepted. The MCP-02 source
+candidate adds a default-off IPv4 loopback Streamable HTTP bridge, discovery,
+health/capability/permission reads, job list/get/control, and durable
+idempotent retry/cancel recovery through the existing Genesis/job paths. The
+candidate's Rust/frontend/workflow checks passed before implementation review.
+Review findings for notification dispatch and unbounded job-list reads have
+been patched in the current working tree; post-fix Rust library tests, frontend
+build, and workflow MCP acceptance pass. Independent re-review remains open.
+MCP-02 remains REVIEW. See the
+[implementation report](../verification/implementation-reports/2026-10-20-product-mcp-implementation.md).
+
+This is source/test evidence only. Independent implementation review,
+packaged app and third-party MCP client interoperability are pending; MCP-03+
+remain not started until MCP-02 is accepted. No microphone capture, provider
+egress, external write, or release claim follows from this candidate.
 
 ## Latest microphone capture and stop-timer finding — 2026-10-20
 
@@ -1556,7 +1574,7 @@ overlay does not promote Phase 3 to fully release-ready.
 - Source separation/layer generation.
 - Full transcript editor and evidence marking beyond the minimal correction/audit affordance.
 - Packaged audio-export click-through and close/relaunch artifact persistence.
-- Full product MCP server runtime for the broader FUNG API surface; the developer-only workflow acceptance MCP is scoped separately.
+- MCP-03 and later Product MCP feature families; MCP-02 is a source candidate under review and is not yet packaged/client-accepted.
 - Full local API beyond initial health/project/job surfaces.
 - Vendor-specific production connectors and all external write capabilities.
 
@@ -1627,6 +1645,21 @@ Screenshot artifacts from the latest UI validation:
 | CUDA redistribution | High | Treat NVIDIA redistribution terms as a release gate; stage only from an approved, version-pinned source. |
 
 ## Version Diff
+
+### `0.3.32v` → `0.3.33v`
+
+- Recorded passing post-remediation Rust library tests, frontend build, and
+  workflow MCP acceptance. Independent re-review remains open.
+
+### `0.3.31v` → `0.3.32v`
+
+- Recorded passing post-remediation Rust compile, formatting and whitespace
+  checks. Test suites and independent re-review remained open.
+
+### `0.3.30v` → `0.3.31v`
+
+- Recorded the implementation-review remediations for MCP notifications and
+  bounded job pagination. Previous candidate test results remain pre-fix.
 
 ### `0.3.29q` → `0.3.29r`
 
@@ -1853,6 +1886,10 @@ native/device/release acceptance.
 
 | Version | Change |
 | --- | --- |
+| 0.3.32v → 0.3.33v | Recorded passing post-remediation Rust library tests, frontend build, and workflow MCP acceptance; independent re-review remains open. |
+| 0.3.31v → 0.3.32v | Recorded passing post-remediation Rust compile, format and whitespace checks; tests and independent re-review remained open. |
+| 0.3.30v → 0.3.31v | Patched the MCP notification and unbounded job-list findings; earlier checks are marked pre-remediation. |
+| 0.3.29v → 0.3.30v | Recorded the MCP-02 source candidate and local regression evidence; independent implementation review, package/client UAT, and downstream feature nodes remain open. |
 | 0.3.1b → 0.3.2b | Source-froze local M1–M5 integration, People profile/review lifecycle and Windows AppContainer/Job Object PDF parser; integrated campaign and independent review remain pending. |
 | 0.2.36b | Synced current `main` with the bounded R3 foundation integration and independent bounded N4/G1 evidence; historical worktree paths are identified as custody references and broader gates remain open. |
 | 0.2.35b | Recorded candidate live/knowledge/Google Meet agent documentation separately from existing runtime and unrun provider/deployment proof. |
@@ -1893,6 +1930,10 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.33v | 2026-10-20 | beta | Post-remediation Rust library tests (649 passed, 6 ignored), frontend build and workflow MCP acceptance pass; independent re-review remains open. | working-tree | Codex |
+| 0.3.32v | 2026-10-20 | beta | Post-remediation Rust compile, format and whitespace checks pass; test suites and independent re-review remain open. | working-tree | Codex |
+| 0.3.31v | 2026-10-20 | beta | Recorded working-tree fixes for MCP notification acceptance, bounded grant-filtered job pagination and contract metadata; no post-fix tests or independent re-review are claimed. | working-tree | Codex |
+| 0.3.30v | 2026-10-20 | beta | Added Product MCP-02 source candidate evidence: loopback bridge, read/job tools, durable controls, 647 Rust tests plus frontend/workflow validation. Independent review and packaged/client acceptance remain open. | working-tree | Codex |
 | 0.3.29v | 2026-10-20 | beta | Registered developer workflow MCP; pinned synthetic import → CPU transcription → edit/export → orderly Genesis reopen passed. Workflow 30.46 s, transcription 28.85 s; transcript quality remains diagnostic only. | working-tree | Codex |
 | 0.3.29s | 2026-10-20 | beta | Participant notice now starts checked in every Live session per user request; loopback remains off. Focused tests 16/16; installed isolated UI confirmed the default. Mic sample awaits user readiness; core acceptance NOT PASSED. | working-tree | Codex |
 | 0.3.29r | 2026-10-20 | beta | Installed UAT-ID NSIS recovery retest passes orphan adoption, idempotent audit, SQLite integrity, and History persistence; ONIKUMA speech sample remains near-silent with no transcript. Package unsigned; core acceptance NOT PASSED. | working-tree | Codex |

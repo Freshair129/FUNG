@@ -226,6 +226,66 @@ export type LocalApiInfo = {
   lanUrl: string | null;
 };
 
+export type ProductMcpStatus = {
+  running: boolean;
+  bind: string;
+  port: number;
+  endpoint: string;
+};
+
+export type ProductMcpGrant = {
+  id: string;
+  clientName: string;
+  scopes: string[];
+  projectScope: string[];
+  allProjects: boolean;
+  active: boolean;
+  createdAt: string;
+  expiresAt: string | null;
+};
+
+export type ProductMcpGrantInput = {
+  clientName: string;
+  scopes: string[];
+  projectScope: string[];
+  allProjects: boolean;
+};
+
+export type ProductMcpCreatedGrant = {
+  grant: ProductMcpGrant;
+  token: string;
+};
+
+export async function productMcpStatus(): Promise<ProductMcpStatus> {
+  if (!canInvoke()) return { running: false, bind: "127.0.0.1", port: 49175, endpoint: "http://127.0.0.1:49175/mcp" };
+  return invoke<ProductMcpStatus>("product_mcp_status");
+}
+
+export async function productMcpStart(port: number): Promise<ProductMcpStatus> {
+  if (!canInvoke()) throw new Error("Product MCP requires the FUNG Desktop app");
+  return invoke<ProductMcpStatus>("product_mcp_start", { port });
+}
+
+export async function productMcpStop(): Promise<ProductMcpStatus> {
+  if (!canInvoke()) throw new Error("Product MCP requires the FUNG Desktop app");
+  return invoke<ProductMcpStatus>("product_mcp_stop");
+}
+
+export async function productMcpGrantsList(): Promise<ProductMcpGrant[]> {
+  if (!canInvoke()) return [];
+  return invoke<ProductMcpGrant[]>("product_mcp_grants_list");
+}
+
+export async function productMcpGrantCreate(input: ProductMcpGrantInput): Promise<ProductMcpCreatedGrant> {
+  if (!canInvoke()) throw new Error("Product MCP requires the FUNG Desktop app");
+  return invoke<ProductMcpCreatedGrant>("product_mcp_grant_create", { input });
+}
+
+export async function productMcpGrantRevoke(grantId: string): Promise<void> {
+  if (!canInvoke()) throw new Error("Product MCP requires the FUNG Desktop app");
+  return invoke<void>("product_mcp_grant_revoke", { grantId });
+}
+
 const previewLocalApi: LocalApiInfo = {
   bind: "browser-preview",
   token: "",

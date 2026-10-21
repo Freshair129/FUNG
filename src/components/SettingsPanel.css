@@ -567,6 +567,167 @@
   padding: 6px;
 }
 
+.product-mcp-settings {
+  gap: 16px;
+}
+
+.product-mcp-settings h4 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.product-mcp-server-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.product-mcp-server-row input[type="number"] {
+  width: 116px;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid var(--line, #cbd2cc);
+  border-radius: 10px;
+  color: inherit;
+  background: var(--surface, #fff);
+}
+
+.product-mcp-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line, #cbd2cc);
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.product-mcp-endpoint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.product-mcp-endpoint code,
+.product-mcp-created code {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.product-mcp-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8a918d;
+}
+
+.product-mcp-status-dot.is-running {
+  background: #3e8f68;
+  box-shadow: 0 0 0 3px rgb(62 143 104 / 15%);
+}
+
+.product-mcp-local-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 0 0;
+  color: var(--muted, #616c67);
+  font-size: 12px;
+}
+
+.product-mcp-field-label {
+  display: block;
+  margin: 12px 0 6px;
+  font-size: 13px;
+}
+
+.product-mcp-scopes {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 0;
+  border: 0;
+}
+
+.product-mcp-scopes legend {
+  margin-bottom: 5px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.product-mcp-scopes label,
+.product-mcp-project-scope {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #d8ddd9);
+  border-radius: 11px;
+}
+
+.product-mcp-scopes label span,
+.product-mcp-project-scope span {
+  display: grid;
+  gap: 3px;
+}
+
+.product-mcp-scopes small,
+.product-mcp-project-scope small,
+.product-mcp-grant-list small {
+  color: var(--muted, #616c67);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.product-mcp-scopes input,
+.product-mcp-project-scope input {
+  flex: none;
+  margin-top: 3px;
+  accent-color: var(--accent, #426eaa);
+}
+
+.product-mcp-created {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid #d0a14b;
+  border-radius: 12px;
+  background: color-mix(in srgb, #f1c66f 12%, transparent);
+  font-size: 12px;
+}
+
+.product-mcp-grant-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.product-mcp-grant-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line, #d8ddd9);
+}
+
+.product-mcp-grant-list li > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
 @keyframes settings-overlay-in {
   from { opacity: 0; }
   to { opacity: 1; }

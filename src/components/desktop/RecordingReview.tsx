@@ -14,6 +14,7 @@ import {
   controlPlayback as bridgeControlPlayback,
   correctTranscriptSegment,
   createJob,
+  diarizationStatus,
   detailedTranscriptionReadiness,
   getPlayback as bridgeGetPlayback,
   getRecording as bridgeGetRecording,
@@ -29,6 +30,7 @@ import {
   type ExportArtifact,
   type DetailedTranscriptionReadiness,
   type DetailedTranscriptProposal,
+  type DiarizationReadiness,
   type Job,
   type TranscriptSegment,
   type TranscriptView,
@@ -96,6 +98,7 @@ export type RecordingReviewBridge = {
   correctTranscriptSegment: typeof correctTranscriptSegment;
   renameSpeaker: typeof renameSpeaker;
   createJob: typeof createJob;
+  diarizationReadiness: typeof diarizationStatus;
   detailedTranscriptionReadiness: typeof detailedTranscriptionReadiness;
   listDetailedTranscriptProposals: typeof listDetailedTranscriptProposals;
   reviewDetailedTranscriptProposal: typeof reviewDetailedTranscriptProposal;
@@ -116,6 +119,7 @@ export const defaultRecordingReviewBridge: RecordingReviewBridge = {
   correctTranscriptSegment,
   renameSpeaker,
   createJob,
+  diarizationReadiness: diarizationStatus,
   detailedTranscriptionReadiness,
   listDetailedTranscriptProposals,
   reviewDetailedTranscriptProposal,
@@ -1017,6 +1021,10 @@ export class RecordingReviewController {
 
   public detailedTranscriptionReadiness(): Promise<DetailedTranscriptionReadiness> {
     return this.startRequest(() => this.bridge.detailedTranscriptionReadiness());
+  }
+
+  public diarizationReadiness(): Promise<DiarizationReadiness | null> {
+    return this.startRequest(() => this.bridge.diarizationReadiness());
   }
 
   public async listDetailedTranscriptProposals(
@@ -2357,6 +2365,10 @@ function ReviewActionsPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [detailedReadiness, setDetailedReadiness] =
     useState<DetailedTranscriptionReadiness | null>(null);
+  const [diarizationReadiness, setDiarizationReadiness] =
+    useState<DiarizationReadiness | null>(null);
+  const [diarizationReadinessLoaded, setDiarizationReadinessLoaded] = useState(false);
+  const [diarizationReadinessError, setDiarizationReadinessError] = useState<string | null>(null);
   const [proposals, setProposals] = useState<DetailedTranscriptProposal[]>([]);
   const [proposalError, setProposalError] = useState<string | null>(null);
   const proposalEpoch = useRef(0);
@@ -2373,6 +2385,24 @@ function ReviewActionsPanel({
           accuracyQualified: false,
         });
       }
+    });
+    return () => {
+      active = false;
+    };
+  }, [actions]);
+
+  useEffect(() => {
+    let active = true;
+    void actions.diarizationReadiness().then((result) => {
+      if (!active) return;
+      setDiarizationReadiness(result);
+      setDiarizationReadinessLoaded(true);
+      setDiarizationReadinessError(null);
+    }).catch((error: unknown) => {
+      if (!active) return;
+      setDiarizationReadiness(null);
+      setDiarizationReadinessLoaded(true);
+      setDiarizationReadinessError(normalizeReviewError(error).message);
     });
     return () => {
       active = false;
@@ -2399,6 +2429,14 @@ function ReviewActionsPanel({
   };
 
   const queue = async (jobType: string, label: string) => {
+    if (jobType === "speakers.diarize" && diarizationReadiness?.available !== true) {
+      setNotice(
+        diarizationReadiness?.detail ??
+          diarizationReadinessError ??
+          "การแยกผู้พูดต้องใช้ FUNG Desktop และ runtime ที่พร้อมใช้งาน",
+      );
+      return;
+    }
     setPending(jobType);
     setNotice(null);
     try {
@@ -2459,13 +2497,23 @@ function ReviewActionsPanel({
           type="button"
           className="recording-review__button"
           onClick={() => void queue("speakers.diarize", "แยกผู้พูด")}
-          disabled={pending !== null}
+          disabled={pending !== null || !diarizationReadiness?.available}
+          title={diarizationReadiness?.detail ?? diarizationReadinessError ?? "กำลังตรวจสอบ runtime แยกผู้พูด"}
         >
           แยกผู้พูด
         </button>
       </div>
       {pending ? <p className="recording-review__muted" role="status">กำลังส่งคำขอ…</p> : null}
       {notice ? <p className="recording-review__notice" role="status">{notice}</p> : null}
+      <p className="recording-review__muted" role="status">
+        {diarizationReadiness?.available
+          ? `พร้อมแยกผู้พูดด้วย ${diarizationReadiness.model}`
+          : diarizationReadiness?.detail ??
+            diarizationReadinessError ??
+            (diarizationReadinessLoaded
+              ? "การแยกผู้พูดยังไม่พร้อมใน FUNG Desktop นี้"
+              : "กำลังตรวจสอบความพร้อมของ runtime แยกผู้พูด…")}
+      </p>
       <p className="recording-review__muted">
         โหมดทั่วไปใช้โปรไฟล์ปกติของ FUNG ซึ่งเริ่มต้นที่ large-v3-turbo; โหมดละเอียดสร้างข้อเสนอแยกและยังไม่มีหลักฐานว่าแม่นกว่าเสียงประชุมไทย
       </p>
@@ -3108,6 +3156,7 @@ export function RecordingReview({
         controller.renameSpeaker(speakerId, displayName),
       queueExistingJob: (key, jobType) =>
         controller.queueExistingJob(key, jobType),
+      diarizationReadiness: () => controller.diarizationReadiness(),
       detailedTranscriptionReadiness: () =>
         controller.detailedTranscriptionReadiness(),
       listDetailedTranscriptProposals: (key) =>

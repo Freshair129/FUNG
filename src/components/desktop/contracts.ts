@@ -3,6 +3,7 @@ import type {
   ExportArtifact,
   DetailedTranscriptionReadiness,
   DetailedTranscriptProposal,
+  DiarizationReadiness,
   Job,
   LiveCaptureDevices,
   LiveAudioLevelSample,
@@ -414,6 +415,7 @@ export type RecordingReviewActions = {
   ) => Promise<void>;
   renameSpeaker: (speakerId: string, displayName: string) => Promise<void>;
   queueExistingJob: (selection: RecordingKey, jobType: string) => Promise<Job>;
+  diarizationReadiness: () => Promise<DiarizationReadiness | null>;
   detailedTranscriptionReadiness: () => Promise<DetailedTranscriptionReadiness>;
   listDetailedTranscriptProposals: (selection: RecordingKey) => Promise<DetailedTranscriptProposal[]>;
   reviewDetailedTranscriptProposal: (

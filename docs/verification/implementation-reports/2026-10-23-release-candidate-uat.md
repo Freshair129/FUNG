@@ -23,10 +23,15 @@ created its isolated local profile.
 This is **not release acceptance**. The candidate has not completed a fresh
 microphone, system-loopback, or application-process-loopback recording followed
 by saved-audio review and close/reopen verification. PR #91 is still Draft and
-its first hosted CI run failed on an outdated `desktop-bootstrap` assertion;
-the assertion was corrected locally and the focused suite passed, but hosted CI
-has not yet rerun against that correction. No merge, version bump, release tag,
-or GitHub release was created.
+Hosted CI first failed on stale assertions left behind after the review logic
+moved out of `App.tsx`. Those checks now target `RecordingReview`; that review
+also exposed a real regression where diarization could be queued before the
+runtime was ready. The Review surface now probes readiness and blocks the job
+until it is available. The complete 37-command frontend CI sequence,
+production build, and pinned MCP functional workflow pass locally on `b3e43ac`.
+Hosted frontend CI passes on that head; Rust CI is still running. The installed
+runtime manifest and packaged CPU transcription probe also pass. No merge,
+version bump, release tag, or GitHub release was created.
 
 ## Evidence identity
 
@@ -36,6 +41,8 @@ or GitHub release was created.
 | Repository | `G:\AI-Studio\development\FUNG` |
 | Branch | `codex/desktop-workflow-mcp-20261020` |
 | Source/package commit | `dd9134e0c1167eae39f83151aadf05975402af80` |
+| Latest candidate code/test commit | `b3e43ac4b5152d17353ec54fd4a19c492fe15f0a` |
+| Latest pushed PR head | `b3e43ac4b5152d17353ec54fd4a19c492fe15f0a` |
 | Pull request | [#91](https://github.com/Freshair129/FUNG/pull/91), open Draft |
 | Candidate app identity | `dev.fung.uat.release20261023` |
 | Candidate product/version | `FUNG Release UAT 20261023`, `0.1.1` |
@@ -62,9 +69,22 @@ merged `main` commit after the release version is selected.
 | Product MCP focused Rust tests | PASS; 9 `product_mcp` and 12 `product_mcp_transport` tests |
 | `npm run test:desktop-bootstrap` on initial PR head | FAIL, 10/11; its recording-entry assertion expected the removed `setLiveMeetingOpen`/workspace contract |
 | Updated `npm run test:desktop-bootstrap` | PASS, 11/11; verifies that recording entry navigates to the active Live surface |
+| `npm run test:job-actions` on pushed follow-up | FAIL, 13/17; four assertions still expected `App.tsx` to own recording scope, transcript correction, and export UI |
+| Updated `npm run test:job-actions` | PASS, 17/17; verifies the current `RecordingReview` owner, selected-pair scope, auditable correction path, and persisted artifact display |
+| `npm run test:diarization` before readiness repair | FAIL at readiness-gate assertion; the moved review UI could queue without probing runtime/model readiness |
+| Updated `npm run test:diarization` | PASS, 8/8 Node checks and 3/3 Python worker checks; unavailable runtime now blocks the UI action and queue path |
+| `npm run build` after readiness repair | PASS; TypeScript and Vite production build, 1,820 modules |
+| Full frontend CI npm command sequence | PASS, all 37 commands, including all wired suites and `test:ci-coverage`, on `b3e43ac` |
+| Pinned workflow MCP acceptance at `b3e43ac` | PASS; CPU `int8` import → transcription → edit → SRT/VTT/WAV export → playback → Genesis close/reopen; 20.52 s total. Transcript keyword score is diagnostic only. |
+| MCP evidence | `G:\AI-Studio\verification\fung-workflow-mcp\workflow-2026-10-22T183437579Z-148f636a`; fixture SHA-256 `493E7CFAD303F6FF3032E0777B811317F48F6C08E74A23DEE779977F674B933F` |
 | PR #91 hosted frontend CI at `dd9134e` | FAIL at `test:desktop-bootstrap`; all earlier frontend steps passed |
-| PR #91 hosted Rust CI at `dd9134e` | In progress at the time of this report; native custody target compilation was running |
+| PR #91 hosted frontend CI at `129515b` | FAIL at `test:job-actions`; `test:desktop-bootstrap` passed, later suites were skipped |
 | Isolated NSIS installation and executable process launch | PASS; installed executable started and created only `dev.fung.uat.release20261023` profile data |
+| Installed Whisper runtime manifest | PASS; all 4,504 recorded files match their sizes and SHA-256 values; manifest SHA-256 `561DA25ED8C64E8F84B7007424CCBA1B63FCB34E9203F9AC2BBE3B3C6873A709` |
+| Installed package offline CPU transcription probe | PASS; bundled Python 3.11.9 and faster-whisper 1.2.1 ran CPU `int8` with HF offline mode against the packaged model and returned two segments |
+| Installer hash recheck | PASS; 1,538,782,433 bytes; SHA-256 `9CB3CB6CC485FC4F67AF22F35672165058BAB7D65099503941E017296A5A3B0B` |
+| PR #91 hosted frontend CI at `b3e43ac` | PASS |
+| PR #91 hosted Rust CI at `b3e43ac` | In progress; native custody test target compilation was running at last check |
 | Visible non-empty app window and uninstall/reinstall smoke | NOT RUN |
 | Packaged microphone/system/application capture and saved-output review | NOT RUN; waiting for the requested live microphone test |
 
@@ -75,8 +95,8 @@ evidence rather than hidden.
 
 ## Release gates still open
 
-- Push the stale-test correction and this report; obtain fresh green frontend
-  and Rust checks on the exact PR head.
+- Obtain green hosted Rust check on exact PR head `b3e43ac` (hosted frontend is
+  green).
 - Complete an actual microphone-only capture in the isolated installed app;
   verify nonzero saved audio, recording identity/channel provenance, review
   playback, normal close, and relaunch.
@@ -84,9 +104,11 @@ evidence rather than hidden.
   the installed Windows package, confirming source isolation and saved output.
 - Verify the installed app window is non-empty and uninstall/reinstall does not
   depend on development files.
-- Resolve the release dependency/security gate: the repository has open
-  Dependabot alerts for `aiohttp` 3.14.3 and PR #90 has a failed frontend check.
-  Re-check the alert and PR state before release promotion.
+- Three Dependabot alerts remain for `aiohttp` 3.14.3 in the opt-in
+  diarization-runtime lockfile. `tauri.conf.json` does not bundle that optional
+  runtime, and the installed candidate's `.venv-whisper` contains no `aiohttp`;
+  keep the alerts open as a staging/runtime follow-up and re-check before that
+  optional runtime is bundled or enabled by default.
 - Merge only after the release acceptance checks are complete. Bump all package
   version declarations and add the release note, then rebuild and verify the
   final package from the exact merged `main` commit before creating a new tag.

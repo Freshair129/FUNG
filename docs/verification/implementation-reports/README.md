@@ -140,5 +140,5 @@ attributes:
 - [2026-10-20-qwen-thai-asr-candidate-uat](2026-10-20-qwen-thai-asr-candidate-uat.md) — hashes verified; full-waveform raw/denoise/normalize comparison peaks at 0.132 similarity; Thai quality remains failed and full CTC alignment rejects U+0E46.
 - [2026-10-22-desktop-meeting-workflow-mvp](2026-10-22-desktop-meeting-workflow-mvp.md) — `beta`; source/build checks pass for explicit app audio routing and measured channel levels; installed native capture/review UAT remains open.
 - [2026-10-22-desktop-ui-design-qa](2026-10-22-desktop-ui-design-qa.md) — `beta`; production preview reviewed against saved mockups at 1280 × 720; compact-height Live/Companion scrolling and native window behavior remain open.
-- [2026-10-23-release-candidate-uat](2026-10-23-release-candidate-uat.md) — `blocked`; hosted frontend CI and installed offline transcription probe pass, while hosted Rust CI, visible installer UI, uninstall/reinstall, and native capture acceptance remain open.
+- [2026-10-23-release-candidate-uat](2026-10-23-release-candidate-uat.md) — `blocked`; frontend CI, visible installed-app UI, and offline CPU transcription pass, while hosted Rust CI, microphone capture with nonzero signal/transcript, loopback, and uninstall/reinstall remain open.
 - [progress](progress.md)

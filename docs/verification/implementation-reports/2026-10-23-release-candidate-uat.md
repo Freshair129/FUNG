@@ -17,20 +17,27 @@ attributes:
 
 The Desktop workflow candidate builds and installs as an unsigned Windows NSIS
 package in an isolated app identity. Source tests, TypeScript/Vite build, Rust
-library regression, and Clippy passed locally. The installed app launched and
-created its isolated local profile.
+library regression, and Clippy passed locally. The installed app launched with
+an isolated app-data profile. Its media output path still pointed to the
+standard user `Documents\fung` directory.
 
 This is **not release acceptance**. The candidate has not completed a fresh
-microphone, system-loopback, or application-process-loopback recording followed
-by saved-audio review and close/reopen verification. PR #91 is still Draft and
+system-loopback or application-process-loopback recording followed by
+saved-audio review and close/reopen verification. A microphone-only run in the
+installed candidate completed and saved chunks, but every PCM sample was zero
+and no transcript segment was produced, so the required real Live Meeting gate
+failed. The app wrote those chunks under the standard `Documents\fung` media
+directory even though its app-data profile was isolated. PR #91 is still Draft and
 Hosted CI first failed on stale assertions left behind after the review logic
 moved out of `App.tsx`. Those checks now target `RecordingReview`; that review
 also exposed a real regression where diarization could be queued before the
 runtime was ready. The Review surface now probes readiness and blocks the job
 until it is available. The complete 37-command frontend CI sequence,
 production build, and pinned MCP functional workflow pass locally on `b3e43ac`.
-Hosted frontend CI passes on that head; Rust CI is still running. The installed
-runtime manifest and packaged CPU transcription probe also pass. No merge,
+Hosted frontend CI passes on `b3e43ac` and `1ff6801`; Rust CI at `b3e43ac` was
+cancelled when the PR advanced, and Rust CI at `1ff6801` was still running at
+last check. The installed runtime manifest and packaged CPU transcription probe
+also pass. No merge,
 version bump, release tag, or GitHub release was created.
 
 ## Evidence identity
@@ -42,7 +49,7 @@ version bump, release tag, or GitHub release was created.
 | Branch | `codex/desktop-workflow-mcp-20261020` |
 | Source/package commit | `dd9134e0c1167eae39f83151aadf05975402af80` |
 | Latest candidate code/test commit | `b3e43ac4b5152d17353ec54fd4a19c492fe15f0a` |
-| Latest pushed PR head | `b3e43ac4b5152d17353ec54fd4a19c492fe15f0a` |
+| Latest pushed PR head | `1ff68019693b70321ccd0deb93e90acfcc3735b8` |
 | Pull request | [#91](https://github.com/Freshair129/FUNG/pull/91), open Draft |
 | Candidate app identity | `dev.fung.uat.release20261023` |
 | Candidate product/version | `FUNG Release UAT 20261023`, `0.1.1` |
@@ -83,10 +90,15 @@ merged `main` commit after the release version is selected.
 | Installed Whisper runtime manifest | PASS; all 4,504 recorded files match their sizes and SHA-256 values; manifest SHA-256 `561DA25ED8C64E8F84B7007424CCBA1B63FCB34E9203F9AC2BBE3B3C6873A709` |
 | Installed package offline CPU transcription probe | PASS; bundled Python 3.11.9 and faster-whisper 1.2.1 ran CPU `int8` with HF offline mode against the packaged model and returned two segments |
 | Installer hash recheck | PASS; 1,538,782,433 bytes; SHA-256 `9CB3CB6CC485FC4F67AF22F35672165058BAB7D65099503941E017296A5A3B0B` |
+| Visible installed-app UI | PASS; isolated unsigned candidate rendered non-empty Home and Live screens |
+| Installed microphone capture | FAIL for release acceptance; run completed at 107,530 ms with 16 durable 48 kHz mono/16-bit chunks (8,842,304 bytes), all PCM samples were zero, and no transcript segments were stored. The Live surface reported a local processing/transcription failure. Chunk hashes matched the database rows and SQLite `integrity_check` returned `ok`. |
+| Installed UAT media location | Recorded under `C:\Users\suanr\Documents\fung\projects\e220b14c-36a7-4f04-bff8-158df437f695\live\8bd7d44a-ebc4-4233-8367-8df3cb8a94a4\chunks`; files are preserved. The isolated app profile's `recording-output.json` points to `C:\Users\suanr\Documents\fung`. |
 | PR #91 hosted frontend CI at `b3e43ac` | PASS |
-| PR #91 hosted Rust CI at `b3e43ac` | In progress; native custody test target compilation was running at last check |
-| Visible non-empty app window and uninstall/reinstall smoke | NOT RUN |
-| Packaged microphone/system/application capture and saved-output review | NOT RUN; waiting for the requested live microphone test |
+| PR #91 hosted Rust CI at `b3e43ac` | Cancelled when the PR head advanced |
+| PR #91 hosted frontend CI at `1ff6801` | PASS |
+| PR #91 hosted Rust CI at `1ff6801` | In progress at last check; a later documentation update will trigger checks for the new head |
+| Uninstall/reinstall smoke | NOT RUN |
+| Installed system-loopback and application-process-loopback capture | NOT RUN |
 
 The initial Rust full-suite run at unrestricted test concurrency had one
 100-ms timeout. The exact test passed in isolation, and the complete library
@@ -95,15 +107,18 @@ evidence rather than hidden.
 
 ## Release gates still open
 
-- Obtain green hosted Rust check on exact PR head `b3e43ac` (hosted frontend is
+- Obtain green hosted Rust check on exact PR head `1ff6801` (hosted frontend is
   green).
-- Complete an actual microphone-only capture in the isolated installed app;
-  verify nonzero saved audio, recording identity/channel provenance, review
-  playback, normal close, and relaunch.
+- Fix or explain why the installed candidate produced all-zero microphone PCM;
+  then repeat microphone-only UAT with user speech, a nonzero saved waveform,
+  at least one transcript segment, review playback, normal close, and relaunch.
+- Point any further isolated-UAT media output to an isolated verification folder;
+  the completed zero-signal test files above remain preserved in `Documents\fung`.
 - Exercise system loopback and one actively producing application capture on
   the installed Windows package, confirming source isolation and saved output.
-- Verify the installed app window is non-empty and uninstall/reinstall does not
-  depend on development files.
+- Complete uninstall/reinstall smoke and confirm it does not depend on
+  development files. The non-empty app window was observed in the current
+  installed candidate.
 - Three Dependabot alerts remain for `aiohttp` 3.14.3 in the opt-in
   diarization-runtime lockfile. `tauri.conf.json` does not bundle that optional
   runtime, and the installed candidate's `.venv-whisper` contains no `aiohttp`;

@@ -1,7 +1,7 @@
 ---
 version: "0.1.0l"
 created_at: "2026-10-19"
-last_update: "2026-10-20"
+last_update: "2026-10-23"
 status: "beta"
 superseded_by: null
 attributes:
@@ -140,4 +140,5 @@ attributes:
 - [2026-10-20-qwen-thai-asr-candidate-uat](2026-10-20-qwen-thai-asr-candidate-uat.md) — hashes verified; full-waveform raw/denoise/normalize comparison peaks at 0.132 similarity; Thai quality remains failed and full CTC alignment rejects U+0E46.
 - [2026-10-22-desktop-meeting-workflow-mvp](2026-10-22-desktop-meeting-workflow-mvp.md) — `beta`; source/build checks pass for explicit app audio routing and measured channel levels; installed native capture/review UAT remains open.
 - [2026-10-22-desktop-ui-design-qa](2026-10-22-desktop-ui-design-qa.md) — `beta`; production preview reviewed against saved mockups at 1280 × 720; compact-height Live/Companion scrolling and native window behavior remain open.
+- [2026-10-23-release-candidate-uat](2026-10-23-release-candidate-uat.md) — `blocked`; isolated unsigned installer install/launch passed, but native capture UAT and fresh hosted CI remain open.
 - [progress](progress.md)

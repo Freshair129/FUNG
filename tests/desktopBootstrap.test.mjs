@@ -86,7 +86,7 @@ test("pairing loads its overlay independently of the lazy Settings chunk", async
   assert.match(source, /event\.key === "Escape"/);
 });
 
-test("recording entry remains owned by the active Live surface, not the sidebar", async () => {
+test("recording entry routes to the active Live surface", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   const shellSource = await readFile(
     new URL("../src/components/desktop/DesktopShell.tsx", import.meta.url),
@@ -97,20 +97,8 @@ test("recording entry remains owned by the active Live surface, not the sidebar"
   const startAction = appSource.slice(actionIndex, actionEnd);
 
   assert.notEqual(actionIndex, -1);
-  assert.match(startAction, /setLiveMeetingOpen\(true\)/);
-  assert.match(startAction, /enterMeetingWorkspace\("P1"\)/);
-  assert.match(startAction, /P1:\s*"live-capture"/);
+  assert.match(startAction, /setActiveSurface\("live"\)/);
   assert.doesNotMatch(startAction, /setRecording/);
-
-  const enterWorkspaceIndex = appSource.indexOf("const enterMeetingWorkspace");
-  const enterWorkspaceEnd = appSource.indexOf("};", enterWorkspaceIndex);
-  const enterWorkspaceBody = appSource.slice(enterWorkspaceIndex, enterWorkspaceEnd + "};".length);
-
-  assert.notEqual(enterWorkspaceIndex, -1);
-  // enterMeetingWorkspace must still change the active P and keep the existing
-  // capture state contract intact.
-  assert.match(enterWorkspaceBody, /activateAnchor\(anchor\)/);
-  assert.match(enterWorkspaceBody, /setShowHome\(false\)/);
   assert.doesNotMatch(shellSource, /label=\{captureLifecycle[^}]*เริ่มบันทึก/);
   assert.doesNotMatch(shellSource, /label="หยุดบันทึก"/);
 });

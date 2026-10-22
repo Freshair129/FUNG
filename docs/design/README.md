@@ -1,7 +1,7 @@
 ---
 version: "0.1.0b"
 created_at: "2026-10-16,Codex"
-last_update: "2026-10-16,Codex"
+last_update: "2026-10-22,Codex"
 status: "beta"
 superseded_by: null
 attributes:
@@ -23,6 +23,7 @@ and the linked verification reports.
 | Desktop glass, motion and fallbacks | [Liquid Glass addendum](../FUNG_Design_System_v0.1.0/LIQUID_GLASS_DESKTOP_ADAPTATION.md) | Material rules; Studio frame section is scoped evidence, not native acceptance |
 | Brand asset geometry | [Brand kit](../brand-kit/README.md) | Logo assets/identity; do not duplicate semantic token authority |
 | Capture input routing | [Device routing](2026-09-20-live-capture-device-routing.md) | Microphone/system-source selection |
+| Meeting workflow MVP amendment and visual references | [MVP design amendment](2026-10-22-desktop-meeting-workflow-mvp.md), [mockup evidence](mockups/2026-10-22-desktop-mvp/README.md) | Live system/app source routing, PCM-derived channel waveforms, horizontal settings tabs; runtime status is recorded separately |
 | Output destination | [Recording output](2026-09-20-recording-output-destination.md) | New-file root selection and custody of existing roots |
 | Recording review/playback/Q&A scope | [P1-B UX](2026-09-17-callmd-desktop-ui.md) and [contracts](../specs/2026-09-17-callmd-desktop-contracts.md) | Retain feature scope; current shell placement follows Studio flow contract |
 | Mobile UX | [Mobile product UX](../Mobile/PRODUCT_UX_SPEC.md) | Product IDs are distinct from component/route IDs |
@@ -38,5 +39,6 @@ older security, data, feature or material contract. Preserve runtime imports fro
 
 | Version | Date | Summary |
 | --- | --- | --- |
-| 0.1.1b | 2026-10-19 | Added interface inventory to the design collection and updated its canonical path. |
 | 0.1.0b | 2026-10-16 | Added current/legacy design ownership and flow entry points. |
+| 0.1.1b | 2026-10-19 | Added interface inventory to the design collection and updated its canonical path. |
+| 0.1.2b | 2026-10-22 | Indexed the dated Desktop meeting workflow MVP amendment and retained mockup evidence. |

@@ -601,7 +601,7 @@ fn validate_arguments(name: &str, arguments: &Value) -> Result<(), String> {
     }
     for key in ["project_id", "job_id", "idempotency_key"] {
         if let Some(value) = object.get(key) {
-            if !value.as_str().is_some_and(|text| !text.trim().is_empty()) {
+            if value.as_str().is_none_or(|text| text.trim().is_empty()) {
                 return Err(format!("{key} must be a non-empty string"));
             }
         }
@@ -895,7 +895,7 @@ fn list_jobs_for_grant(
         None
     } else {
         let more_rows =
-            genesis_adapter::query_page(storage, "jobs", &["id"], filters.clone(), 1, scan_offset)
+            !genesis_adapter::query_page(storage, "jobs", &["id"], filters.clone(), 1, scan_offset)
                 .map_err(|_| {
                     domain_error(
                         "storage.unavailable",
@@ -904,8 +904,7 @@ fn list_jobs_for_grant(
                         None,
                     )
                 })?
-                .first()
-                .is_some();
+                .is_empty();
         more_rows.then_some(scan_offset)
     };
     let next_cursor = next_cursor_position
@@ -1071,7 +1070,7 @@ fn control_job(
                     "fung.job.control",
                     &["job.control"],
                     "idempotency.replay",
-                    &[job_id.clone()],
+                    std::slice::from_ref(&job_id),
                     Some(&key_hash),
                 )
                 .map_err(|_| {

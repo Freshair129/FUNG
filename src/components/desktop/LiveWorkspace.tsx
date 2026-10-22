@@ -1,16 +1,26 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { ExternalMeetingToolsPanel } from "../ExternalMeetingToolsPanel";
-import type { LiveSegmentEvent, LiveSummaryEvent } from "../../tauri";
+import type { LiveSegmentEvent } from "../../tauri";
 import type { MeetingSummaries, SummaryRow } from "../../lib/meetingSummaries";
 import type {
   CloseReviewPlayer,
-  DesktopCapabilities,
   LiveWorkspaceProps,
   RecordingAnswerSource,
   ReviewError,
   ReviewErrorCode,
 } from "./contracts";
 import "./LiveWorkspace.css";
+
+function scaleLivePeak(value: number): number {
+  const clamped = Math.min(100, Math.max(0, Number.isFinite(value) ? value : 0));
+  return Math.round(Math.sqrt(clamped / 100) * 100);
+}
+
+function appendLivePeak(history: readonly number[], value: number, limit: number): number[] {
+  const next = history.length >= limit ? history.slice(history.length - limit + 1) : history.slice();
+  next.push(value);
+  return next;
+}
 
 export type LiveWorkspaceAdapterProps = {
   closeReviewPlayer?: CloseReviewPlayer;
@@ -29,6 +39,44 @@ export type LiveSummaryPresentation = {
   currentRows: SummaryRow[];
   disclosures: LiveSummaryDisclosure[];
 };
+
+function LiveChannelWaveform({
+  label,
+  sample,
+  history,
+}: {
+  label: string;
+  sample: LiveWorkspaceProps["liveAudioLevels"]["mic"];
+  history: readonly number[];
+}) {
+  return (
+    <section className="live-workspace__channel-waveform" aria-label={`waveform ${label}`}>
+      <div className="live-workspace__waveform-heading">
+        <h3>{label}</h3>
+        <span>{sample ? `${sample.levelPercent}%` : "รอสัญญาณเสียง"}</span>
+      </div>
+      <div
+        className="live-workspace__waveform-bars"
+        role="meter"
+        aria-label={`ระดับเสียง ${label}`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={sample?.levelPercent ?? 0}
+      >
+        {history.length === 0 ? (
+          <span className="live-workspace__waveform-empty">ยังไม่มีตัวอย่างเสียงจากช่องนี้</span>
+        ) : history.map((level, index) => (
+          <span
+            key={`${label}-${index}`}
+            className="live-workspace__waveform-bar"
+            style={{ height: `${Math.max(2, level)}%` }}
+            aria-hidden="true"
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
 
 const PHASE_LABELS: Record<string, string> = {
   idle: "พร้อมเริ่มประชุม",
@@ -241,6 +289,7 @@ export function LiveWorkspace({
   elapsedMs,
   devices,
   captureDevices,
+  liveAudioLevels,
   captureDevicesLoading,
   captureDevicesError,
   refreshCaptureDevices,
@@ -261,7 +310,16 @@ export function LiveWorkspace({
   const nearBottomRef = useRef(true);
   const previousSegmentCountRef = useRef(segmentFeed.length);
   const [activeTab, setActiveTab] = useState<"capture" | "transcript" | "insights">("capture");
-  const [captureSystem, setCaptureSystem] = useState(false);
+  const [captureSourceMode, setCaptureSourceMode] = useState<"mic" | "system" | "application">("mic");
+  const [applicationProcessId, setApplicationProcessId] = useState<number | null>(null);
+  const [waveformHistory, setWaveformHistory] = useState<{ mic: number[]; system: number[] }>({
+    mic: [],
+    system: [],
+  });
+  const lastWaveformSampleRef = useRef<{ mic: number | null; system: number | null }>({
+    mic: null,
+    system: null,
+  });
   const [micDeviceId, setMicDeviceId] = useState("");
   const [systemDeviceId, setSystemDeviceId] = useState("");
   const [language, setLanguage] = useState("auto");
@@ -294,11 +352,54 @@ export function LiveWorkspace({
     document.getElementById(`live-tab-${next}`)?.focus();
   };
 
+  const handleSourceTabKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    current: "mic" | "system" | "application",
+  ) => {
+    const tabs = ["mic", "system", "application"] as const;
+    const currentIndex = tabs.indexOf(current);
+    const nextIndex = event.key === "ArrowRight"
+      ? (currentIndex + 1) % tabs.length
+      : event.key === "ArrowLeft"
+        ? (currentIndex - 1 + tabs.length) % tabs.length
+        : event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? tabs.length - 1
+            : -1;
+    if (nextIndex < 0) return;
+    event.preventDefault();
+    const next = tabs[nextIndex];
+    if (!next) return;
+    setCaptureSourceMode(next);
+    document.getElementById(`live-source-tab-${next}`)?.focus();
+  };
+
   useEffect(() => {
     if (!captureDevices) return;
     setMicDeviceId(captureDevices.selectedMicDeviceId ?? "");
     setSystemDeviceId(captureDevices.selectedSystemDeviceId ?? "");
   }, [captureDevices?.selectedMicDeviceId, captureDevices?.selectedSystemDeviceId]);
+
+  useEffect(() => {
+    setWaveformHistory({ mic: [], system: [] });
+    lastWaveformSampleRef.current = { mic: null, system: null };
+  }, [selection?.projectId, selection?.recordingId]);
+
+  useEffect(() => {
+    for (const channel of ["mic", "system"] as const) {
+      const sample = liveAudioLevels[channel];
+      if (!sample || lastWaveformSampleRef.current[channel] === sample.observedAt) continue;
+      lastWaveformSampleRef.current[channel] = sample.observedAt;
+      setWaveformHistory((current) => ({
+        ...current,
+        [channel]: sample.waveform.reduce(
+          (history, peak) => appendLivePeak(history, scaleLivePeak(peak), 144),
+          current[channel],
+        ),
+      }));
+    }
+  }, [liveAudioLevels.mic?.observedAt, liveAudioLevels.system?.observedAt]);
 
   const captureCapability = capabilities.capture ?? { available: true, reasonCode: null };
   const askCapability = capabilities.recordingAsk ?? {
@@ -361,15 +462,16 @@ export function LiveWorkspace({
   };
 
   const handleStart = async () => {
-    if (!privacyAcknowledged || !captureCapability.available) return;
+    if (!privacyAcknowledged || !captureCapability.available || !canStartSelectedSource) return;
     try {
       await actions.start(
         {
-          captureSystem,
+          captureSystem: captureSourceMode !== "mic",
           language: language === "auto" ? undefined : language,
           transcriptProfile,
           micDeviceId: micDeviceId || undefined,
           systemDeviceId: systemDeviceId || undefined,
+          applicationProcessId: captureSourceMode === "application" ? applicationProcessId ?? undefined : undefined,
       },
         closeReviewPlayer ?? (async () => ({ closed: false })),
       );
@@ -445,11 +547,19 @@ export function LiveWorkspace({
   const askData = ask.status === "ready" ? ask.data : null;
   const micOptions = captureDevices?.inputs ?? [];
   const systemOptions = captureDevices?.loopbackOutputs ?? [];
+  const applicationOptions = captureDevices?.applications ?? [];
   const micSelectionUnavailable = Boolean(
     micDeviceId && !micOptions.some((device) => device.id === micDeviceId),
   );
   const systemSelectionUnavailable = Boolean(
     systemDeviceId && !systemOptions.some((device) => device.id === systemDeviceId),
+  );
+  const applicationSelectionUnavailable = applicationProcessId !== null && !applicationOptions.some(
+    (application) => application.processId === applicationProcessId,
+  );
+  const applicationCaptureAvailable = captureDevices?.applicationCaptureAvailable ?? false;
+  const canStartSelectedSource = captureSourceMode !== "application" || (
+    applicationCaptureAvailable && applicationProcessId !== null && !applicationSelectionUnavailable
   );
 
   return (
@@ -559,17 +669,9 @@ export function LiveWorkspace({
                 />
                 <span>ฉันจะแจ้งผู้ร่วมประชุมก่อนบันทึกเสียง</span>
               </label>
-              <label className="live-workspace__check">
-                <input
-                  type="checkbox"
-                  checked={captureSystem}
-                  onChange={(event) => setCaptureSystem(event.target.checked)}
-                />
-                <span>จับเสียงระบบด้วย (เสียงอีกฝ่ายในประชุมออนไลน์)</span>
-              </label>
               <div className="live-workspace__device-routing" aria-label="เลือกแหล่งเสียง">
                 <div className="live-workspace__device-routing-header">
-                  <span>แหล่งเสียง</span>
+                  <span>เสียงที่บันทึก</span>
                   <button
                     type="button"
                     className="live-btn live-btn-subtle"
@@ -578,6 +680,41 @@ export function LiveWorkspace({
                   >
                     {captureDevicesLoading ? "กำลังอ่านรายการ…" : "รีเฟรชอุปกรณ์"}
                   </button>
+                </div>
+                <div className="live-workspace__source-tabs" role="tablist" aria-label="เลือกช่องเสียงเพิ่มเติม">
+                  <button
+                    id="live-source-tab-mic"
+                    type="button"
+                    role="tab"
+                    aria-selected={captureSourceMode === "mic"}
+                    aria-controls="live-source-route-options"
+                    tabIndex={captureSourceMode === "mic" ? 0 : -1}
+                    className={captureSourceMode === "mic" ? "is-active" : ""}
+                    onKeyDown={(event) => handleSourceTabKeyDown(event, "mic")}
+                    onClick={() => setCaptureSourceMode("mic")}
+                  >ไมค์อย่างเดียว</button>
+                  <button
+                    id="live-source-tab-system"
+                    type="button"
+                    role="tab"
+                    aria-selected={captureSourceMode === "system"}
+                    aria-controls="live-source-route-options"
+                    tabIndex={captureSourceMode === "system" ? 0 : -1}
+                    className={captureSourceMode === "system" ? "is-active" : ""}
+                    onKeyDown={(event) => handleSourceTabKeyDown(event, "system")}
+                    onClick={() => setCaptureSourceMode("system")}
+                  >เสียงระบบ</button>
+                  <button
+                    id="live-source-tab-application"
+                    type="button"
+                    role="tab"
+                    aria-selected={captureSourceMode === "application"}
+                    aria-controls="live-source-route-options"
+                    tabIndex={captureSourceMode === "application" ? 0 : -1}
+                    className={captureSourceMode === "application" ? "is-active" : ""}
+                    onKeyDown={(event) => handleSourceTabKeyDown(event, "application")}
+                    onClick={() => setCaptureSourceMode("application")}
+                  >เลือกรายแอป</button>
                 </div>
                 <label className="live-workspace__field live-workspace__field--stacked">
                   <span>ไมโครโฟน</span>
@@ -598,25 +735,65 @@ export function LiveWorkspace({
                     ))}
                   </select>
                 </label>
-                <label className="live-workspace__field live-workspace__field--stacked">
-                  <span>เสียงระบบ / loopback</span>
-                  <select
-                    aria-label="อุปกรณ์เสียงระบบ"
-                    value={systemDeviceId}
-                    onChange={(event) => setSystemDeviceId(event.target.value)}
-                    disabled={!captureSystem || captureDevicesLoading}
-                  >
-                    <option value="">ค่าเริ่มต้นระบบ</option>
-                    {systemSelectionUnavailable ? (
-                      <option value={systemDeviceId}>อุปกรณ์เดิม — ไม่พร้อมใช้งาน</option>
+                <div
+                  id="live-source-route-options"
+                  role="tabpanel"
+                  aria-labelledby={`live-source-tab-${captureSourceMode}`}
+                >
+                {captureSourceMode === "mic" ? (
+                  <p className="live-workspace__muted">บันทึกเสียงจากไมโครโฟนที่เลือกเท่านั้น</p>
+                ) : null}
+                {captureSourceMode === "system" ? (
+                  <label className="live-workspace__field live-workspace__field--stacked">
+                    <span>อุปกรณ์เสียงระบบ</span>
+                    <select
+                      aria-label="อุปกรณ์เสียงระบบ"
+                      value={systemDeviceId}
+                      onChange={(event) => setSystemDeviceId(event.target.value)}
+                      disabled={captureDevicesLoading}
+                    >
+                      <option value="">ค่าเริ่มต้นระบบ</option>
+                      {systemSelectionUnavailable ? (
+                        <option value={systemDeviceId}>อุปกรณ์เดิม — ไม่พร้อมใช้งาน</option>
+                      ) : null}
+                      {systemOptions.map((device) => (
+                        <option key={device.id} value={device.id} disabled={!device.available}>
+                          {device.name}{device.isDefault ? " · ค่าเริ่มต้น" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                </div>
+                {captureSourceMode === "application" ? (
+                  <label className="live-workspace__field live-workspace__field--stacked">
+                    <span>แอปที่กำลังส่งเสียง</span>
+                    <select
+                      aria-label="แอปที่กำลังส่งเสียง"
+                      value={applicationProcessId === null ? "" : String(applicationProcessId)}
+                      onChange={(event) => setApplicationProcessId(event.target.value ? Number(event.target.value) : null)}
+                      disabled={!applicationCaptureAvailable || captureDevicesLoading}
+                    >
+                      <option value="">เลือกแอปที่กำลังส่งเสียง</option>
+                      {applicationSelectionUnavailable ? (
+                        <option value={String(applicationProcessId)}>แอปเดิม — ไม่ได้ส่งเสียงแล้ว</option>
+                      ) : null}
+                      {applicationOptions.map((application) => (
+                        <option key={application.processId} value={String(application.processId)}>
+                          {application.name} · PID {application.processId}
+                        </option>
+                      ))}
+                    </select>
+                    {applicationCaptureAvailable && applicationOptions.length === 0 ? (
+                      <span className="live-workspace__muted">ไม่พบแอปที่กำลังส่งเสียง · รีเฟรชรายการหลังเปิดเสียง</span>
                     ) : null}
-                    {systemOptions.map((device) => (
-                      <option key={device.id} value={device.id} disabled={!device.available}>
-                        {device.name}{device.isDefault ? " · ค่าเริ่มต้น" : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    {!applicationCaptureAvailable && captureDevices?.applicationCaptureIssue ? (
+                      <span className="live-workspace__device-issue" role="status">
+                        {captureDevices.applicationCaptureIssue}
+                      </span>
+                    ) : null}
+                  </label>
+                ) : null}
                 {captureDevicesError ? (
                   <p className="live-workspace__device-issue" role="alert">{captureDevicesError}</p>
                 ) : null}
@@ -650,7 +827,7 @@ export function LiveWorkspace({
               <button
                 type="button"
                 className="live-btn live-btn-primary"
-                disabled={!privacyAcknowledged || !captureCapability.available}
+                disabled={!privacyAcknowledged || !captureCapability.available || !canStartSelectedSource}
                 onClick={() => void handleStart()}
               >
                 ● เริ่มประชุม
@@ -658,14 +835,27 @@ export function LiveWorkspace({
               {!privacyAcknowledged ? (
                 <p className="live-workspace__disabled-reason">ต้องยืนยันการแจ้งผู้ร่วมประชุมก่อนเริ่ม</p>
               ) : null}
+              {!canStartSelectedSource && captureSourceMode === "application" ? (
+                <p className="live-workspace__disabled-reason">เลือกแอปที่กำลังส่งเสียงและรองรับการจับเสียงรายแอปก่อนเริ่ม</p>
+              ) : null}
               <CapabilityNotice capability={captureCapability}>
                 เริ่มบันทึกไม่ได้ในสถานะนี้
               </CapabilityNotice>
             </>
           ) : (
-            <div className="live-workspace__device-list" aria-label="อุปกรณ์ที่ใช้บันทึก">
-              <span>ไมค์: {devices.mic ?? "กำลังตรวจสอบ"}</span>
-              <span>ระบบ: {devices.system ?? "ไม่ได้จับเสียงระบบ"}</span>
+            <div className="live-workspace__capture-monitor" aria-label="เสียงที่กำลังบันทึก">
+              <LiveChannelWaveform label="ไมโครโฟน" sample={liveAudioLevels.mic} history={waveformHistory.mic} />
+              {devices.system ? (
+                <LiveChannelWaveform
+                  label={`เสียงที่เลือก · ${devices.system}`}
+                  sample={liveAudioLevels.system}
+                  history={waveformHistory.system}
+                />
+              ) : null}
+              <div className="live-workspace__device-list" aria-label="อุปกรณ์ที่ใช้บันทึก">
+                <span>ไมค์: {devices.mic ?? "กำลังตรวจสอบ"}</span>
+                <span>ระบบ: {devices.system ?? "ไม่ได้จับเสียงระบบ"}</span>
+              </div>
             </div>
           )}
         </div>

@@ -140,9 +140,9 @@ export function SettingsPanel({
 
   const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentTab: SettingsTab) => {
     const index = TABS.findIndex((tab) => tab.id === currentTab);
-    const nextIndex = event.key === "ArrowDown" || event.key === "ArrowRight"
+    const nextIndex = event.key === "ArrowRight"
       ? (index + 1) % TABS.length
-      : event.key === "ArrowUp" || event.key === "ArrowLeft"
+      : event.key === "ArrowLeft"
         ? (index - 1 + TABS.length) % TABS.length
         : event.key === "Home"
           ? 0
@@ -228,7 +228,7 @@ export function SettingsPanel({
           </button>
         </header>
         <div className="settings-drawer__layout">
-          <nav className="settings-drawer__tabs" role="tablist" aria-orientation="vertical" aria-label="หมวดการตั้งค่า">
+          <nav className="settings-drawer__tabs" role="tablist" aria-orientation="horizontal" aria-label="หมวดการตั้งค่า">
             {TABS.map((tab) => (
               <button
                 key={tab.id}

@@ -27,7 +27,12 @@ preflight now enumerates and selects one microphone and one loopback output,
 while preserving the existing default route when no explicit selection is made.
 
 This change adds OBS-like device selection at the source level without changing
-the existing two-channel ledger boundary.
+the existing two-channel ledger boundary. The 2026-10-22
+[Desktop workflow MVP amendment](2026-10-22-desktop-meeting-workflow-mvp.md)
+adds a Windows-only process-loopback route that shares the existing `system`
+channel; read that amendment for current app-source behavior. The earlier
+per-application exclusion below is superseded only for that bounded Windows
+implementation.
 
 Implementation status: native enumeration, persisted selections, renderer
 selectors, refresh/error states, native start-time revalidation, and the
@@ -55,8 +60,8 @@ Real Windows device click-through is still **NOT_RUN**; therefore
 ### Out of scope for this slice
 
 - More than one microphone input at the same time.
-- Per-application audio routing or process-specific capture like OBS Application
-  Audio Capture.
+- Per-application audio routing outside the Windows process-loopback path
+  specified in the 2026-10-22 amendment.
 - Arbitrary user-defined channel names or a new multi-channel database schema.
 - Mixing, phase alignment, resampling policy changes, or speaker identity
   verification.

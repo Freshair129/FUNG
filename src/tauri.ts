@@ -914,12 +914,33 @@ export type LiveCaptureDevice = {
   available: boolean;
 };
 
+export type LiveCaptureApplication = {
+  processId: number;
+  name: string;
+};
+
 export type LiveCaptureDevices = {
   inputs: LiveCaptureDevice[];
   loopbackOutputs: LiveCaptureDevice[];
+  applications: LiveCaptureApplication[];
+  applicationCaptureAvailable: boolean;
+  applicationCaptureIssue: string | null;
   selectedMicDeviceId: string | null;
   selectedSystemDeviceId: string | null;
   issue: string | null;
+};
+
+export type LiveAudioLevelEvent = {
+  recordingId: string;
+  channel: "mic" | "system";
+  levelPercent: number;
+  waveform: number[];
+};
+
+export type LiveAudioLevelSample = {
+  levelPercent: number;
+  waveform: readonly number[];
+  observedAt: number;
 };
 
 export type LiveStatusOutput = {
@@ -1002,6 +1023,7 @@ export async function liveMeetingStart(options?: {
   transcriptProfile?: "chunked" | "revisioned";
   micDeviceId?: string;
   systemDeviceId?: string;
+  applicationProcessId?: number;
 }): Promise<LiveStartOutput> {
   if (!canInvoke()) throw new Error("Live Meeting ต้องรันในแอปเดสก์ท็อป");
   return invoke<LiveStartOutput>("live_meeting_start", {
@@ -1011,6 +1033,7 @@ export async function liveMeetingStart(options?: {
     transcriptProfile: options?.transcriptProfile ?? "chunked",
     micDeviceId: options?.micDeviceId ?? null,
     systemDeviceId: options?.systemDeviceId ?? null,
+    applicationProcessId: options?.applicationProcessId ?? null,
   });
 }
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, CheckCircle2, Link2, Monitor, User, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { BackupPanel } from "../components/BackupPanel";

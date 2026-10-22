@@ -5,6 +5,7 @@ import type {
   DetailedTranscriptProposal,
   Job,
   LiveCaptureDevices,
+  LiveAudioLevelSample,
   LiveSegmentEvent,
   LiveStartOutput,
   LiveStatusOutput,
@@ -288,6 +289,7 @@ export type LiveStartOptions = {
   transcriptProfile?: "chunked" | "revisioned";
   micDeviceId?: string;
   systemDeviceId?: string;
+  applicationProcessId?: number;
 };
 
 export type CapabilityState = {
@@ -388,6 +390,7 @@ export type LiveWorkspaceProps = {
   elapsedMs: number;
   devices: LiveDevices;
   captureDevices: LiveCaptureDevices | null;
+  liveAudioLevels: Readonly<{ mic: LiveAudioLevelSample | null; system: LiveAudioLevelSample | null }>;
   captureDevicesLoading: boolean;
   captureDevicesError: string | null;
   refreshCaptureDevices: () => void | Promise<void>;

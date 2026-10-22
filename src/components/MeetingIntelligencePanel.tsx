@@ -91,12 +91,6 @@ function stateLabel(state: MeetingAgentStatus["state"]): string {
   }
 }
 
-function modeLabel(mode: AgentMode): string {
-  if (mode === "off") return "ปิด";
-  if (mode === "observe") return "สังเกตในเครื่อง";
-  return "ร่างคำตอบส่วนตัว";
-}
-
 function readinessLabel(readiness: string): string {
   if (readiness === "ready") return "พร้อม";
   if (readiness === "blocked") return "ถูกบล็อก";

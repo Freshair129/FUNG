@@ -38,6 +38,7 @@ mod fungwire_server;
 mod genesis_adapter;
 mod graph_build;
 mod job_engine;
+mod live_application_audio;
 mod live_meeting;
 mod live_transcript;
 mod local_api;
@@ -6791,6 +6792,7 @@ pub fn __debug_live_smoke(
     while let Ok(event) = chunk_rx.recv() {
         let chunk = match event {
             CaptureEvent::Chunk(chunk) => chunk,
+            CaptureEvent::Level { .. } => continue,
             CaptureEvent::ChunkWriteFailed {
                 channel,
                 start_ms,

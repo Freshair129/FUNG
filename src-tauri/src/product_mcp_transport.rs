@@ -150,14 +150,12 @@ impl TokenBuckets {
     }
 
     fn check(&self, grant_id: &str, is_job_control: bool) -> Result<(), u64> {
-        if let Err(retry) = consume_bucket(
+        consume_bucket(
             &self.general,
             grant_id,
             self.config.burst,
             self.config.requests_per_minute,
-        ) {
-            return Err(retry);
-        }
+        )?;
         if is_job_control {
             consume_bucket(
                 &self.job_control,
@@ -257,16 +255,16 @@ impl ProductMcpServer {
         let accept_thread = thread::Builder::new()
             .name("fung-product-mcp-accept".to_owned())
             .spawn(move || {
-                accept_loop(
+                accept_loop(AcceptLoopContext {
                     listener,
-                    addr,
-                    listener_stop,
+                    local_addr: addr,
+                    stop: listener_stop,
                     authenticate,
                     handler,
                     buckets,
-                    Arc::clone(&workers),
-                    Arc::clone(&in_flight),
-                );
+                    workers: Arc::clone(&workers),
+                    in_flight: Arc::clone(&in_flight),
+                });
             })?;
 
         Ok(Self {
@@ -296,7 +294,7 @@ impl Drop for ProductMcpServer {
     }
 }
 
-fn accept_loop(
+struct AcceptLoopContext {
     listener: TcpListener,
     local_addr: SocketAddr,
     stop: Arc<AtomicBool>,
@@ -305,7 +303,19 @@ fn accept_loop(
     buckets: Arc<TokenBuckets>,
     workers: Arc<Mutex<Vec<JoinHandle<()>>>>,
     in_flight: Arc<AtomicUsize>,
-) {
+}
+
+fn accept_loop(context: AcceptLoopContext) {
+    let AcceptLoopContext {
+        listener,
+        local_addr,
+        stop,
+        authenticate,
+        handler,
+        buckets,
+        workers,
+        in_flight,
+    } = context;
     while !stop.load(Ordering::SeqCst) {
         reap_finished_workers(&workers);
         match listener.accept() {
@@ -498,16 +508,7 @@ fn read_and_validate_request(
     let mut bounded_reader = DeadlineReader::new(stream, SOCKET_TIMEOUT);
     let request = read_http_request(&mut bounded_reader)?;
     if request.method != "POST" {
-        let status = if matches!(request.method.as_str(), "GET" | "DELETE") {
-            405
-        } else {
-            405
-        };
-        return Err(RequestFailure::http(
-            status,
-            -32000,
-            "HTTP method not allowed",
-        ));
+        return Err(RequestFailure::http(405, -32000, "HTTP method not allowed"));
     }
     if request.target != MCP_PATH {
         return Err(RequestFailure::http(404, -32000, "MCP endpoint not found"));

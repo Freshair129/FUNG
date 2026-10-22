@@ -21,6 +21,7 @@ attributes:
 
 - [Master implementation plan](2026-08-09-fung-master-implementation-plan.md) เป็นแผนระยะและ protocol ที่ระบุไว้ใน repo `AGENTS.md`; ตรวจสถานะจริงกับ Desktop/Mobile status docs ก่อนใช้.
 - [Desktop current progress](../Desktop/08-real-progress.md) และ [Mobile implementation status](../Mobile/IMPLEMENTATION_STATUS.md) เป็นแหล่งดูผลการทำงานและ gate ล่าสุดตาม platform.
+- [Desktop meeting workflow MVP implementation](2026-10-22-desktop-meeting-workflow-mvp.md) follows the approved Home → Live → Archive journey and tracks app/system source capture, measured per-channel waveforms, mockup evidence, and MVP verification gates.
 - [Dated execution plans](.) เป็นเอกสารงานตามวันที่และ feature; สถานะของแต่ละแผนอยู่ใน front matter/เนื้อหาของไฟล์นั้น.
 - [External retrieval plan](2026-08-11-live-meeting-external-retrieval-implementation.md) เป็นแผนที่ย้ายมาจาก path เก่า; compatibility pointer ยังอยู่ที่ `../implementation-plan.md`.
 

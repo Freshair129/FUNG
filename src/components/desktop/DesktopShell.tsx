@@ -1108,8 +1108,6 @@ export function DesktopShell({
             captureLifecycle={captureLifecycle}
             selection={selection}
             theme={theme}
-            material={material}
-            transparency={transparency}
             onClose={() => setCompanionOpen(false)}
             onNavigate={(surface, initiator) => {
               setCompanionOpen(false);

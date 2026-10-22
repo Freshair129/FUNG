@@ -46,7 +46,6 @@ import {
   type RecordingAnswer,
   type RecordingKey,
   type RecordingReviewActions,
-  type RecordingReviewProps,
   type RecordingRow,
   type RecordingReviewProps as FrozenRecordingReviewProps,
   type RecordingPage,
@@ -587,7 +586,6 @@ export class RecordingReviewController {
     const selectionChanged = !sameKey(selection, this.currentSelection);
     if (!projectChanged && !selectionChanged) return;
 
-    const previousProjectId = this.projectId;
     this.projectId = selectedProjectId;
     this.currentSelection = selection;
 

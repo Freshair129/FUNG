@@ -13,6 +13,28 @@ attributes:
 
 # 08 - Real Progress
 
+## Desktop meeting workflow UI and capture source candidate — 2026-10-22
+
+The approved Home → Live → Archive flow now has explicit microphone-only,
+system-audio, and active-application source choices; Windows application audio
+uses process-loopback capture and retains source provenance in the existing
+system channel. Recording-scoped PCM measurements feed separate microphone and
+remote-source waveform lanes. Settings categories use a horizontal tab grid.
+Saved mockup PNGs, hashes, the design amendment, and implementation/design-QA
+reports are indexed in the docs tree.
+
+The full TypeScript unused-symbol check, production build, focused Desktop and
+audio/design suites, design-token check, full Cargo check, Rust format, and 26
+targeted Rust tests pass. The affected Desktop runtime surfaces contain no seeded sample meeting,
+person, task, or decorative waveform data. The unreachable legacy P1–P4
+dashboard was removed. These are source/build and browser-preview results: the
+preview reports `NATIVE_UNAVAILABLE`, and installed microphone, system-loopback,
+application-loopback, saved-recording, and reopen/review UAT remain NOT RUN for
+this change. Overall workflow acceptance stays **OPEN** until native UAT passes.
+See the [implementation report](../verification/implementation-reports/2026-10-22-desktop-meeting-workflow-mvp.md),
+[design QA](../verification/implementation-reports/2026-10-22-desktop-ui-design-qa.md),
+and [mockup evidence](../design/mockups/2026-10-22-desktop-mvp/README.md).
+
 ## Product MCP bridge candidate — 2026-10-20
 
 MCP-00 inventory and MCP-01 contract v0.1.4b are accepted. The MCP-02 source

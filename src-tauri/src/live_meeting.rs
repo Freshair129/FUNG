@@ -50,7 +50,7 @@ const MIN_FREE_BYTES_TO_CONTINUE: u64 = 256 * 1024 * 1024;
 /// Chunks between free-space checks. Two channels at 8s chunks produce ~15
 /// per minute, so this is about a one-minute cadence.
 const DISK_CHECK_EVERY_CHUNKS: usize = 16;
-const MIN_FINAL_CHUNK_MS: u64 = 400;
+pub(crate) const MIN_FINAL_CHUNK_MS: u64 = 400;
 const CAPTURE_SAMPLE_QUEUE_CAPACITY: usize = 64;
 const CAPTURE_EVENT_QUEUE_CAPACITY: usize = 32;
 const RECENT_SEGMENT_CAP: usize = 240;
@@ -76,6 +76,9 @@ pub(crate) struct LiveCaptureDevice {
 pub(crate) struct LiveCaptureDevices {
     inputs: Vec<LiveCaptureDevice>,
     loopback_outputs: Vec<LiveCaptureDevice>,
+    applications: Vec<crate::live_application_audio::LiveCaptureApplication>,
+    application_capture_available: bool,
+    application_capture_issue: Option<String>,
     selected_mic_device_id: Option<String>,
     selected_system_device_id: Option<String>,
     issue: Option<String>,
@@ -305,6 +308,15 @@ struct LiveStatusEvent {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct LiveAudioLevelEvent {
+    recording_id: String,
+    channel: &'static str,
+    level_percent: u8,
+    waveform: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct LiveSegmentEvent {
     recording_id: String,
     segment_id: String,
@@ -357,9 +369,9 @@ pub(crate) struct RawChunk {
     pub(crate) checksum: String,
 }
 
-struct CaptureSampleBatch {
-    first_sample: u64,
-    samples: Vec<i16>,
+pub(crate) struct CaptureSampleBatch {
+    pub(crate) first_sample: u64,
+    pub(crate) samples: Vec<i16>,
 }
 
 /// What a capture thread reports to the coordinator.
@@ -372,6 +384,13 @@ struct CaptureSampleBatch {
 /// still needs no access to Genesis or the app handle.
 pub(crate) enum CaptureEvent {
     Chunk(RawChunk),
+    /// A bounded, recording-scoped level sample for the live UI. It contains
+    /// no audio bytes and may be dropped if the coordinator queue is busy.
+    Level {
+        channel: &'static str,
+        level_percent: u8,
+        waveform: Vec<u8>,
+    },
     /// Audio was captured but could not be committed to disk. This is lost
     /// source audio: the samples are already gone from the accumulator.
     ChunkWriteFailed {
@@ -406,6 +425,46 @@ fn sample_i16_to_i16(sample: i16) -> i16 {
 
 fn sample_u16_to_i16(sample: u16) -> i16 {
     (sample as i32 - 32_768) as i16
+}
+
+pub(crate) fn level_percent_from_i16(samples: &[i16]) -> u8 {
+    if samples.is_empty() {
+        return 0;
+    }
+    let square_sum = samples
+        .iter()
+        .map(|sample| {
+            let normalized = *sample as f64 / i16::MAX as f64;
+            normalized * normalized
+        })
+        .sum::<f64>();
+    ((square_sum / samples.len() as f64).sqrt() * 100.0)
+        .round()
+        .clamp(0.0, 100.0) as u8
+}
+
+fn waveform_peaks_from_i16(samples: &[i16], bins: usize) -> Vec<u8> {
+    if bins == 0 || samples.is_empty() {
+        return Vec::new();
+    }
+    let bucket_size = samples.len().div_ceil(bins);
+    (0..bins)
+        .map(|index| {
+            let start = index * bucket_size;
+            if start >= samples.len() {
+                return 0;
+            }
+            let end = (start + bucket_size).min(samples.len());
+            let peak = samples[start..end]
+                .iter()
+                .map(|sample| i32::from(*sample).unsigned_abs())
+                .max()
+                .unwrap_or(0);
+            ((peak as f64 / i16::MAX as f64) * 100.0)
+                .round()
+                .clamp(0.0, 100.0) as u8
+        })
+        .collect()
 }
 
 /// Downmixes interleaved frames to mono i16 and forwards them off the
@@ -454,7 +513,7 @@ fn build_stream<T: cpal::SizedSample + Send + 'static>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn cut_capture_chunk(
+pub(crate) fn cut_capture_chunk(
     channel: &'static str,
     sample_rate: u32,
     chunks_dir: &Path,
@@ -498,7 +557,7 @@ fn cut_capture_chunk(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn process_capture_sample_batch(
+pub(crate) fn process_capture_sample_batch(
     batch: CaptureSampleBatch,
     channel: &'static str,
     sample_rate: u32,
@@ -509,6 +568,7 @@ fn process_capture_sample_batch(
     timeline_samples: &mut u64,
     expected_sample: &mut u64,
     local_seq: &mut u32,
+    last_level_event: &mut Instant,
 ) {
     let overlap = expected_sample.saturating_sub(batch.first_sample) as usize;
     if overlap >= batch.samples.len() {
@@ -542,6 +602,14 @@ fn process_capture_sample_batch(
         }
     }
     let samples = &batch.samples[overlap..];
+    if last_level_event.elapsed() >= Duration::from_millis(100) {
+        let _ = chunk_tx.try_send(CaptureEvent::Level {
+            channel,
+            level_percent: level_percent_from_i16(samples),
+            waveform: waveform_peaks_from_i16(samples, 24),
+        });
+        *last_level_event = Instant::now();
+    }
     accumulator.extend_from_slice(samples);
     *expected_sample = first_sample + samples.len() as u64;
     while accumulator.len() >= samples_per_chunk {
@@ -777,6 +845,7 @@ fn spawn_capture_thread_with_fragment_ms(
         let mut timeline_samples: u64 = 0;
         let mut expected_sample: u64 = 0;
         let mut local_seq: u32 = 0;
+        let mut last_level_event = Instant::now();
 
         loop {
             match sample_rx.recv_timeout(Duration::from_millis(200)) {
@@ -791,6 +860,7 @@ fn spawn_capture_thread_with_fragment_ms(
                     &mut timeline_samples,
                     &mut expected_sample,
                     &mut local_seq,
+                    &mut last_level_event,
                 ),
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -814,6 +884,7 @@ fn spawn_capture_thread_with_fragment_ms(
                 &mut timeline_samples,
                 &mut expected_sample,
                 &mut local_seq,
+                &mut last_level_event,
             );
         }
         let captured_end_sample = sample_cursor.load(Ordering::Acquire);
@@ -1169,6 +1240,7 @@ fn create_revisioned_session(
     project_id: &str,
     recording_id: &str,
     channels: &[&str],
+    remote_source_kind: &str,
 ) -> Result<RevisionedSessionContext, String> {
     let meeting_session_id = Uuid::new_v4().to_string();
     let timestamp = now();
@@ -1208,7 +1280,7 @@ fn create_revisioned_session(
                 "project_id": project_id,
                 "recording_id": recording_id,
                 "meeting_session_id": meeting_session_id,
-                "source_kind": if *channel == CHANNEL_MIC { "microphone_capture" } else { "system_loopback_capture" },
+                "source_kind": if *channel == CHANNEL_MIC { "microphone_capture" } else { remote_source_kind },
                 "source_generation": source_generation,
                 "state": "active",
                 "contract_version": crate::meeting_intelligence_schema::CONTRACT_VERSION,
@@ -2724,6 +2796,22 @@ fn spawn_coordinator(
         while let Ok(event) = chunk_rx.recv() {
             let chunk = match event {
                 CaptureEvent::Chunk(chunk) => chunk,
+                CaptureEvent::Level {
+                    channel,
+                    level_percent,
+                    waveform,
+                } => {
+                    let _ = app.emit(
+                        "live-audio-level",
+                        LiveAudioLevelEvent {
+                            recording_id: recording_id.clone(),
+                            channel,
+                            level_percent,
+                            waveform,
+                        },
+                    );
+                    continue;
+                }
                 CaptureEvent::ChunkWriteFailed {
                     channel,
                     start_ms,
@@ -4161,9 +4249,26 @@ pub(crate) fn live_capture_devices(state: State<'_, AppState>) -> AppResult<Live
         }
     };
 
+    let (application_capture_available, applications, application_capture_issue) =
+        match crate::live_application_audio::capture_supported() {
+            Ok(false) => (
+                false,
+                Vec::new(),
+                Some("การจับเสียงรายแอปต้องใช้ Windows build 20348 ขึ้นไป".to_string()),
+            ),
+            Err(error) => (false, Vec::new(), Some(error)),
+            Ok(true) => match crate::live_application_audio::active_audio_applications() {
+                Ok(applications) => (true, applications, None),
+                Err(error) => (true, Vec::new(), Some(error)),
+            },
+        };
+
     Ok(LiveCaptureDevices {
         inputs,
         loopback_outputs,
+        applications,
+        application_capture_available,
+        application_capture_issue,
         selected_mic_device_id: preferences.mic_device_id,
         selected_system_device_id: preferences.system_device_id,
         issue: if issues.is_empty() {
@@ -4183,6 +4288,7 @@ pub(crate) fn live_meeting_start(
     transcript_profile: Option<String>,
     mic_device_id: Option<String>,
     system_device_id: Option<String>,
+    application_process_id: Option<u32>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<LiveStartOutput> {
@@ -4192,10 +4298,19 @@ pub(crate) fn live_meeting_start(
             .map_err(AppError::InvalidInput)?;
     let mic_device_id = normalize_device_id(mic_device_id);
     let system_device_id = normalize_device_id(system_device_id);
+    if application_process_id.is_some() && !capture_system {
+        return Err(AppError::InvalidInput(
+            "เปิดการจับเสียงฝั่งประชุมก่อนเลือกแอป".to_string(),
+        ));
+    }
+    let selected_application = application_process_id
+        .map(crate::live_application_audio::validate_active_audio_application)
+        .transpose()
+        .map_err(AppError::InvalidInput)?;
 
     validate_requested_device(CaptureDeviceKind::Mic, mic_device_id.as_deref())
         .map_err(AppError::InvalidInput)?;
-    if capture_system {
+    if capture_system && selected_application.is_none() {
         validate_requested_device(
             CaptureDeviceKind::SystemLoopback,
             system_device_id.as_deref(),
@@ -4317,7 +4432,7 @@ pub(crate) fn live_meeting_start(
     genesis_adapter::commit_rows(&state.genesis, vec![
         genesis_adapter::upsert("jobs", serde_json::json!({"id": job_id, "project_id": project_id, "type": "recording.capture", "status": "running", "progress": 0, "input_refs_json": [recording_id], "output_refs_json": [], "provider_id": null, "error_code": null, "error_message": null, "attempt_no": 1, "started_at": timestamp, "finished_at": null, "created_at": timestamp, "updated_at": timestamp})),
         genesis_adapter::upsert("job_events", serde_json::json!({"id": Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": "live capture started", "created_at": timestamp})),
-        genesis_adapter::upsert("audit_events", serde_json::json!({"id": Uuid::new_v4().to_string(), "project_id": project_id, "event_type": "live_meeting.started", "actor": "user", "payload_json": {"recordingId": recording_id, "captureSystem": capture_system}, "created_at": timestamp})),
+        genesis_adapter::upsert("audit_events", serde_json::json!({"id": Uuid::new_v4().to_string(), "project_id": project_id, "event_type": "live_meeting.started", "actor": "user", "payload_json": {"recordingId": recording_id, "captureSystem": capture_system, "remoteSourceKind": if application_process_id.is_some() { "application_loopback" } else if capture_system { "system_loopback" } else { "none" }, "applicationProcessId": application_process_id, "applicationName": selected_application.as_ref().map(|application| application.name.as_str())}, "created_at": timestamp})),
     ]).map_err(AppError::Genesis)?;
 
     let revisioned_context = if transcript_profile
@@ -4327,7 +4442,18 @@ pub(crate) fn live_meeting_start(
         if capture_system {
             channels.push(CHANNEL_SYSTEM);
         }
-        match create_revisioned_session(&state.genesis, &project_id, &recording_id, &channels) {
+        let remote_source_kind = if selected_application.is_some() {
+            "application_loopback_capture"
+        } else {
+            "system_loopback_capture"
+        };
+        match create_revisioned_session(
+            &state.genesis,
+            &project_id,
+            &recording_id,
+            &channels,
+            remote_source_kind,
+        ) {
             Ok(context) => Some(context),
             Err(error) => {
                 let _ =
@@ -4375,7 +4501,32 @@ pub(crate) fn live_meeting_start(
 
     // System loopback is best-effort: a failure downgrades to mic-only.
     let mut warning = None;
-    let system_device = if capture_system {
+    let system_device = if let Some(application) = selected_application.as_ref() {
+        match crate::live_application_audio::spawn_application_capture_thread(
+            application.process_id,
+            application.name.clone(),
+            stop.clone(),
+            chunk_tx.clone(),
+            chunks_dir.clone(),
+            transcript_profile.fragment_ms() as u64,
+        ) {
+            Ok(ready) => Some(ready.device_name),
+            Err(error) => {
+                stop.store(true, Ordering::SeqCst);
+                if let Some(context) = &revisioned_context {
+                    update_revisioned_session_state(&state.genesis, context, "failed");
+                }
+                let _ =
+                    crate::set_job_status(&state.genesis, &job_id, "failed", None, Some(&error));
+                if let Ok(record) = genesis_adapter::capture(&state.genesis, &recording_id) {
+                    let _ = genesis_adapter::finish_capture(&state.genesis, &record, &now());
+                }
+                return Err(AppError::InvalidInput(format!(
+                    "เปิดเสียงจากแอปที่เลือกไม่สำเร็จ: {error}"
+                )));
+            }
+        }
+    } else if capture_system {
         match spawn_capture_thread_with_fragment_ms(
             ChannelKind::SystemLoopback,
             CHANNEL_SYSTEM,
@@ -4623,6 +4774,7 @@ mod tests {
         let mut timeline_samples = 0;
         let mut expected_sample = 0;
         let mut sequence = 0;
+        let mut last_level_event = Instant::now();
 
         process_capture_sample_batch(
             CaptureSampleBatch {
@@ -4638,6 +4790,7 @@ mod tests {
             &mut timeline_samples,
             &mut expected_sample,
             &mut sequence,
+            &mut last_level_event,
         );
         process_capture_sample_batch(
             CaptureSampleBatch {
@@ -4653,6 +4806,7 @@ mod tests {
             &mut timeline_samples,
             &mut expected_sample,
             &mut sequence,
+            &mut last_level_event,
         );
 
         let events = rx.try_iter().collect::<Vec<_>>();
@@ -4708,6 +4862,25 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn live_meter_reports_measured_rms_with_silence_and_full_scale_bounds() {
+        assert_eq!(level_percent_from_i16(&[]), 0);
+        assert_eq!(level_percent_from_i16(&[0; 64]), 0);
+        assert_eq!(level_percent_from_i16(&[i16::MAX; 64]), 100);
+        let half_scale = level_percent_from_i16(&[i16::MAX / 2; 64]);
+        assert!((49..=51).contains(&half_scale));
+    }
+
+    #[test]
+    fn live_waveform_contains_peaks_from_each_real_sample_bucket() {
+        assert!(waveform_peaks_from_i16(&[], 4).is_empty());
+        assert_eq!(
+            waveform_peaks_from_i16(&[0, 0, i16::MAX, i16::MAX], 2),
+            vec![0, 100]
+        );
+        assert_eq!(waveform_peaks_from_i16(&[i16::MAX; 12], 6), vec![100; 6]);
     }
 
     fn open_storage() -> (PathBuf, Storage) {

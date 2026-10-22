@@ -154,14 +154,16 @@ assert.equal(typeof waitForCaptureInactive, "function");
 assert.equal(typeof createLiveControllerAdapter, "function");
 assert.equal(typeof workspace.getLiveSummaryPresentation, "function");
 
-test("system audio starts off unless the user explicitly opts in", () => {
-  assert.match(workspaceSource, /const \[captureSystem, setCaptureSystem\] = useState\(false\)/);
+test("microphone-only is the default and system or app capture is explicit", () => {
+  assert.match(workspaceSource, /const \[captureSourceMode, setCaptureSourceMode\] = useState<"mic" \| "system" \| "application">\("mic"\)/);
+  assert.match(workspaceSource, /captureSystem: captureSourceMode !== "mic"/);
+  assert.match(workspaceSource, /applicationProcessId: captureSourceMode === "application" \? applicationProcessId \?\? undefined : undefined/);
   assert.match(panelSource, /captureSystem: options\.captureSystem \?\? false/);
 });
 
 test("participant notice acknowledgement starts checked for each live session", () => {
   assert.match(workspaceSource, /const \[privacyAcknowledged, setPrivacyAcknowledged\] = useState\(true\)/);
-  assert.match(workspaceSource, /disabled=\{!privacyAcknowledged \|\| !captureCapability\.available\}/);
+  assert.match(workspaceSource, /disabled=\{!privacyAcknowledged \|\| !captureCapability\.available \|\| !canStartSelectedSource\}/);
 });
 
 test("live elapsed display advances from the native clock snapshot and freezes on stop", () => {

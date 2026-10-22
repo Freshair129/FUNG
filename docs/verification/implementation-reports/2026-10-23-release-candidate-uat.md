@@ -49,7 +49,7 @@ version bump, release tag, or GitHub release was created.
 | Branch | `codex/desktop-workflow-mcp-20261020` |
 | Source/package commit | `dd9134e0c1167eae39f83151aadf05975402af80` |
 | Latest candidate code/test commit | `b3e43ac4b5152d17353ec54fd4a19c492fe15f0a` |
-| Latest pushed PR head | `1ff68019693b70321ccd0deb93e90acfcc3735b8` |
+| PR head used for the hosted checks recorded here | `1ff68019693b70321ccd0deb93e90acfcc3735b8` |
 | Pull request | [#91](https://github.com/Freshair129/FUNG/pull/91), open Draft |
 | Candidate app identity | `dev.fung.uat.release20261023` |
 | Candidate product/version | `FUNG Release UAT 20261023`, `0.1.1` |
@@ -96,7 +96,7 @@ merged `main` commit after the release version is selected.
 | PR #91 hosted frontend CI at `b3e43ac` | PASS |
 | PR #91 hosted Rust CI at `b3e43ac` | Cancelled when the PR head advanced |
 | PR #91 hosted frontend CI at `1ff6801` | PASS |
-| PR #91 hosted Rust CI at `1ff6801` | In progress at last check; a later documentation update will trigger checks for the new head |
+| PR #91 hosted Rust CI at `1ff6801` | In progress at last check before the UAT evidence update was pushed |
 | Uninstall/reinstall smoke | NOT RUN |
 | Installed system-loopback and application-process-loopback capture | NOT RUN |
 

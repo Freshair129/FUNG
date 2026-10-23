@@ -698,6 +698,38 @@ test("stop-and-leave waits for active=false and stopping=false", async () => {
   assert.deepEqual(result, statuses[3]);
 });
 
+test("responsive CPU finalization can exceed two minutes without a false stop failure", async () => {
+  const originalNow = Date.now;
+  let clock = 0;
+  let reads = 0;
+  Date.now = () => clock;
+  try {
+    const result = await waitForCaptureInactive(async () => {
+      reads += 1;
+      return statusFor(keyA, { active: reads < 5, stopping: reads < 5 });
+    }, { pollMs: 60_000, sleep: async (ms) => { clock += ms; } });
+    assert.equal(clock, 240_000);
+    assert.equal(result.active, false);
+    assert.equal(reads, 5);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test("callers can still impose a bounded stop deadline", async () => {
+  const originalNow = Date.now;
+  let clock = 0;
+  Date.now = () => clock;
+  try {
+    await assert.rejects(() => waitForCaptureInactive(
+      async () => statusFor(keyA, { active: true, stopping: true }),
+      { timeoutMs: 500, pollMs: 250, sleep: async (ms) => { clock += ms; } },
+    ), (error) => error.code === "LEGACY_COMMAND_FAILED");
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test("visibility changes do not stop the lifecycle or remove listeners", async () => {
   const { events, sink } = createSink();
   const unlistenCalls = [];

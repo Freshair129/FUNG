@@ -313,11 +313,11 @@ export async function waitForCaptureInactive(
   } = {},
 ): Promise<LiveStatusOutput> {
   const pollMs = options.pollMs ?? 250;
-  // Final capture cleanup drains channel workers, seals WAV chunks, and may
-  // finish catch-up transcription before the native session is released.
-  // Use a generous limit so slow local transcription does not surface the old
-  // short-timeout error while the native session is still finalizing.
-  const timeoutMs = options.timeoutMs ?? 120_000;
+  // CPU catch-up scales with the recording length and can legitimately take
+  // longer than a fixed wall-clock deadline. A successful native status read
+  // remains authoritative: keep the capture guard until native releases it.
+  // Read failures still reject, and bounded callers may supply timeoutMs.
+  const timeoutMs = options.timeoutMs ?? Number.POSITIVE_INFINITY;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => {
     window.setTimeout(resolve, ms);
   }));

@@ -1,4 +1,4 @@
 # P2 parser dependency. Keep it in a separate local parser environment; do not
 # add it implicitly to the ASR runtime. License: BSD-3-Clause. The extractor
 # emits an SHA-256 fingerprint of the installed parser sources at runtime.
-pypdf==6.19.0 --hash=sha256:7e5d6e730e7dae87d560a2cee218b852f6498c8be61966f3cd02ead971e48d14
+pypdf==6.21.1 --hash=sha256:2d62c383acd6e0dff0a96322ba8b1135229343b084d73c6f6cfd947fd291afcb --hash=sha256:553e2d42f5bb3bb2a785a7d3de8ef90bb7df74b5413eff5a7b4388007ea9254b

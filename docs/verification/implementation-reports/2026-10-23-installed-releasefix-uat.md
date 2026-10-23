@@ -70,9 +70,9 @@ than inferring payload equality from installer compression settings.
 | Bundled runtime manifest | PASS; all 4,504 file sizes/hashes match, manifest SHA-256 `561DA25ED8C64E8F84B7007424CCBA1B63FCB34E9203F9AC2BBE3B3C6873A709` |
 | Installed offline CPU worker/model probe | PASS; installed Python/script/model transcribed the 32,994-ms SAPI fixture into 5 populated English segments with PATH restricted to Windows, empty HF cache path and offline flags |
 | Spoken microphone → Stop → transcript | NOT ACCEPTED; first 81,154-ms ONIKUMA run persisted 11 checksum-valid WAVs, but peaks were at most 38/32768 and no speech segments were returned; no user speech acknowledgement arrived during this run |
-| System loopback / selected application audio | NOT RUN |
-| Review playback / durable close-reopen | NOT RUN |
-| Uninstall-reinstall preserving UAT data | NOT RUN |
+| System loopback / selected application audio | System workflow produced audio/text but alignment failed (#94); selected application remains NOT RUN |
+| Review playback / durable close-reopen | Transport play/pause/close and normal close/reopen PASS on eae669a; aligned timeline still blocked by #94 |
+| Uninstall-reinstall preserving UAT data | PASS on eae669a: uninstall/reinstall exit 0, reopened with both recordings/eight edited transcript rows/27 checksum-valid chunks |
 | Hosted CI on `5a090f6` | Frontend and Rust PASS; subsequent stop-wait correction requires new-head checks |
 | Merge / final-main package / tag / publication | NOT RUN; gated by acceptance |
 
@@ -108,6 +108,76 @@ input was near-silent. The stale UI error required terminating only the identifi
 isolated UAT process after native completion. Its full profile was copied to
 `profile-after-first-mic` under the evidence root before installing the correction.
 This forced restart is not counted as the normal-close acceptance gate.
+
+### Stop-wait rebuild and system-loopback run
+
+The correction is committed as `eae669ab565961a0e542ce2d275b81afa9fecbd7`
+and tracked by [issue #93](https://github.com/Freshair129/FUNG/issues/93).
+The rebuilt unsigned UAT installer is 2,115,837,852 bytes, SHA-256
+`C10E2648E803CE0AB30918161CFE0DD8A414E1396A3AF9E7ED0E96C634053224`.
+Installation over the isolated UAT directory exited 0 and retained the first
+recording/project. Installed executable SHA-256 is
+`A063F9F39320EFE84D457A75DB5761C101945ED13F69026AF6C7C8402D08B62A`;
+all bytes equal the release build except Tauri's three-byte `NSS` bundle marker
+that the build output resets to `UNK` after bundling. Launch PID was 10972.
+
+Additional Shell/Review/History/routing/release/native-custody tests passed 76/76.
+This includes the native behavioral entrypoint matrix; it does not replace
+installed device acceptance. Hosted frontend and Rust passed on `eae669a`.
+
+System recording `e869555e-2712-4bca-9804-3fe8337e5db9` captured for 87,910 ms.
+The initial fixture helper did not run because Windows PowerShell script policy
+rejected it; no loopback signal was claimed from that failed helper. The explicit
+test helper then played successfully as PID 10052. The measured system waveform
+became visible; five checksum-valid system WAVs contain speech with peak about
+3030. CPU catch-up produced six persisted transcript segments during processing.
+The corrected UI continued displaying finalization beyond the former timeout.
+
+However, the loopback WAV timeline started at 0 despite playback beginning about
+49 seconds after recording start. Mic spans 0–87,910 ms but system spans
+0–39,012 ms: initial render-idle time is compressed. This is a release-blocking
+correctness defect, [issue #94](https://github.com/Freshair129/FUNG/issues/94).
+Its correction and installed delayed-playback retest remain open. Application
+process-loopback and spoken microphone acceptance are not promoted by this run.
+
+### Completed eae669a workflow checks
+
+The system capture eventually completed and persisted eight transcript rows. The
+UI changed from finalizing to stopped, displayed the count of eight, removed the
+capture guard, and allowed History navigation with no timeout/error. The native
+summary job completed with three populated summary rows and model/evidence refs.
+The installed local model was `qwen2.5:0.5b`. Its output echoed template phrasing
+and included an unrelated-language item: this is pipeline-output evidence, not
+useful-summary or language-quality acceptance (quality was explicitly deferred).
+
+History displayed both actual recordings. Review loaded the selected full identity;
+system playback opened paused at 0, played to 12 seconds, paused at 20 seconds and
+closed. It also exposed the incorrect 0:39–1:27 tail gap caused by #94, so correct
+timeline playback remains blocked even though transport controls work.
+
+Through the visible UI, the second transcript row was changed from
+`Please save the recording and check the trance` to
+`Please save the recording and check the transcript.`. The persisted row contains
+the edit. Export job completed and produced nonempty SRT/VTT containing the edited
+text plus a PCM WAV of 4,219,680 frames at 48 kHz (87,910 ms). SHA-256 values and
+paths are in `export-files-verified.json`; DB/output rows are in
+`after-export.json` and `summary-export-result.json` under the evidence root.
+
+The app's own Close button terminated the installed process normally with no active
+capture/player. Read-only integrity check after exit was `ok`; both recordings,
+eight transcript rows and 27 checksum-valid chunks remained. The profile was copied
+to `profile-after-normal-close`. Silent uninstall exited 0, removed installed
+`fung.exe`, and retained the UAT projection. Reinstall exited 0; installed executable
+hash remained `A063F9F3...B62A`. Reopened PID 41128 showed the existing project on
+Home. Read-only `after-reinstall-reopen.json` verifies integrity `ok`, both recordings,
+eight transcript rows, 27 checksum-valid chunks, and completed capture/summary/export
+jobs. This acceptance applies to the eae669a package, not subsequent native changes.
+
+Selected-application preflight remains unaccepted: two owned SoundPlayer processes
+(speech PID 26568, distractor tone PID 43404) were alive, but refreshing the app's
+application-source inventory returned no selectable applications. No application
+recording was started or falsely counted. The helpers were stopped after observing
+the inventory; a native apartment/session probe is investigating the cause.
 
 The output configuration confirms media is isolated under
 `C:\Users\suanr\AppData\Roaming\dev.fung.uat.releasefix20261023\recordings`.

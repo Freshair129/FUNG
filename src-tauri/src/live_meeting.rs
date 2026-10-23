@@ -570,6 +570,37 @@ pub(crate) fn process_capture_sample_batch(
     local_seq: &mut u32,
     last_level_event: &mut Instant,
 ) {
+    process_capture_sample_batch_with_gap_reason(
+        batch,
+        channel,
+        sample_rate,
+        samples_per_chunk,
+        chunks_dir,
+        chunk_tx,
+        accumulator,
+        timeline_samples,
+        expected_sample,
+        local_seq,
+        last_level_event,
+        "sample_queue_overflow",
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn process_capture_sample_batch_with_gap_reason(
+    batch: CaptureSampleBatch,
+    channel: &'static str,
+    sample_rate: u32,
+    samples_per_chunk: usize,
+    chunks_dir: &Path,
+    chunk_tx: &mpsc::SyncSender<CaptureEvent>,
+    accumulator: &mut Vec<i16>,
+    timeline_samples: &mut u64,
+    expected_sample: &mut u64,
+    local_seq: &mut u32,
+    last_level_event: &mut Instant,
+    gap_reason: &'static str,
+) {
     let overlap = expected_sample.saturating_sub(batch.first_sample) as usize;
     if overlap >= batch.samples.len() {
         return;
@@ -597,7 +628,7 @@ pub(crate) fn process_capture_sample_batch(
                 channel,
                 start_ms: gap_start_ms,
                 end_ms: gap_end_ms,
-                reason: "sample_queue_overflow",
+                reason: gap_reason,
             });
         }
     }

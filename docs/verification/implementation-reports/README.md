@@ -142,4 +142,5 @@ attributes:
 - [2026-10-22-desktop-ui-design-qa](2026-10-22-desktop-ui-design-qa.md) — `beta`; production preview reviewed against saved mockups at 1280 × 720; compact-height Live/Companion scrolling and native window behavior remain open.
 - [2026-10-23-release-candidate-uat](2026-10-23-release-candidate-uat.md) — `blocked`; frontend CI, visible installed-app UI, and offline CPU transcription pass, while hosted Rust CI, microphone capture with nonzero signal/transcript, loopback, and uninstall/reinstall remain open.
 - [progress](progress.md)
+- [2026-10-23-installed-releasefix-uat](2026-10-23-installed-releasefix-uat.md) — `candidate`; application packet-gap/tail corrections and 0.1.2 source checks pass; rebuilt installed-package acceptance in progress.
 - [2026-10-23-capture-backpressure-remediation](2026-10-23-capture-backpressure-remediation.md) — `beta`; CPU recording defers decode, post-meeting prerequisites and fresh alternate media roots corrected. Real ONIKUMA capture at 85% input yields usable signal and 3 CPU transcript segments; rebuilt installed acceptance remains open.

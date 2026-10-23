@@ -36,8 +36,8 @@ mod windows_impl {
     };
 
     use crate::live_meeting::{
-        cut_capture_chunk, process_capture_sample_batch, CaptureEvent, CaptureReady,
-        CaptureSampleBatch, CHANNEL_SYSTEM, MIN_FINAL_CHUNK_MS,
+        cut_capture_chunk, process_capture_sample_batch_with_gap_reason, CaptureEvent,
+        CaptureReady, CaptureSampleBatch, CHANNEL_SYSTEM, MIN_FINAL_CHUNK_MS,
     };
 
     use super::LiveCaptureApplication;
@@ -47,6 +47,185 @@ mod windows_impl {
     const APP_CAPTURE_FORMAT_RATE: u32 = 48_000;
     const APP_CAPTURE_CHANNELS: usize = 2;
     const APP_CAPTURE_WAIT_MS: u32 = 100;
+
+    fn packet_first_sample(
+        origin: &mut Option<u64>,
+        index: u64,
+        expected: u64,
+        discontinuity: bool,
+        timestamp_error: bool,
+    ) -> Result<u64, String> {
+        if timestamp_error {
+            return Err("ตำแหน่งเวลาเสียงจากแอปไม่น่าเชื่อถือ".into());
+        }
+        let first_packet = origin.is_none();
+        let base = *origin.get_or_insert(index);
+        let first = index.checked_sub(base).ok_or("ตำแหน่งเสียงจากแอปย้อนกลับ")?;
+        if first < expected || (!first_packet && discontinuity && first == expected) {
+            return Err("เสียงจากแอปขาดช่วงโดยไม่ทราบขนาด หรืออุปกรณ์รีเซ็ตตำแหน่ง".into());
+        }
+        Ok(first)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish_application_capture(
+        result: Result<(), String>,
+        sample_rate: u32,
+        chunks_dir: &Path,
+        chunk_tx: &mpsc::SyncSender<CaptureEvent>,
+        accumulator: &mut Vec<i16>,
+        timeline_samples: &mut u64,
+        local_seq: &mut u32,
+    ) -> Result<(), String> {
+        let min_final_samples = (sample_rate as u64 * MIN_FINAL_CHUNK_MS / 1000) as usize;
+        // On failure preserve even a short, already-captured tail; normal stop
+        // retains the existing minimum-fragment policy.
+        if !accumulator.is_empty() && (result.is_err() || accumulator.len() >= min_final_samples) {
+            let take = accumulator.len();
+            cut_capture_chunk(
+                CHANNEL_SYSTEM,
+                sample_rate,
+                chunks_dir,
+                chunk_tx,
+                accumulator,
+                timeline_samples,
+                local_seq,
+                take,
+            );
+        } else if !accumulator.is_empty() {
+            let start_ms = (*timeline_samples * 1000 / sample_rate as u64) as i64;
+            let end_ms =
+                ((*timeline_samples + accumulator.len() as u64) * 1000 / sample_rate as u64) as i64;
+            if end_ms > start_ms {
+                let _ = chunk_tx.send(CaptureEvent::SourceGap {
+                    channel: CHANNEL_SYSTEM,
+                    start_ms,
+                    end_ms,
+                    reason: "application_loopback_tail_too_short",
+                });
+            }
+        }
+        result
+    }
+
+    #[cfg(test)]
+    mod capture_regression_tests {
+        use super::*;
+
+        #[test]
+        fn packet_positions_preserve_native_gaps_and_reject_unmeasured_loss() {
+            let mut origin = None;
+            assert_eq!(
+                packet_first_sample(&mut origin, 100_000, 0, true, false).unwrap(),
+                0
+            );
+            assert_eq!(
+                packet_first_sample(&mut origin, 100_480, 480, false, false).unwrap(),
+                480
+            );
+            assert_eq!(
+                packet_first_sample(&mut origin, 101_440, 960, true, false).unwrap(),
+                1440
+            );
+            assert!(packet_first_sample(&mut origin, 101_920, 1920, true, false).is_err());
+            assert!(packet_first_sample(&mut origin, 100_000, 1920, false, false).is_err());
+            assert!(packet_first_sample(&mut origin, 102_400, 1920, false, true).is_err());
+        }
+
+        #[test]
+        fn packet_failure_keeps_captured_tail_before_reporting_error() {
+            let root = tempfile::tempdir().unwrap();
+            let (tx, rx) = mpsc::sync_channel(8);
+            let mut samples = vec![1234; 500];
+            let mut timeline = 0;
+            let mut sequence = 0;
+            let result = finish_application_capture(
+                Err("packet read failed".into()),
+                1000,
+                root.path(),
+                &tx,
+                &mut samples,
+                &mut timeline,
+                &mut sequence,
+            );
+            assert_eq!(result.unwrap_err(), "packet read failed");
+            assert!(samples.is_empty());
+            let CaptureEvent::Chunk(chunk) = rx.recv().unwrap() else {
+                panic!("tail was lost")
+            };
+            assert_eq!((chunk.start_ms, chunk.end_ms), (0, 500));
+            let values: Vec<_> = hound::WavReader::open(chunk.file_path)
+                .unwrap()
+                .into_samples::<i16>()
+                .map(Result::unwrap)
+                .collect();
+            assert_eq!(values, vec![1234; 500]);
+        }
+
+        #[test]
+        fn native_packet_gap_reaches_durable_chunk_timeline_and_gap_evidence() {
+            let root = tempfile::tempdir().unwrap();
+            let (tx, rx) = mpsc::sync_channel(8);
+            let mut origin = None;
+            let mut samples = Vec::new();
+            let mut timeline = 0;
+            let mut expected = 0;
+            let mut sequence = 0;
+            let mut last_level = Instant::now();
+            for (index, discontinuity) in [(100_000, true), (101_440, true)] {
+                let first = packet_first_sample(&mut origin, index, expected, discontinuity, false)
+                    .unwrap();
+                process_capture_sample_batch_with_gap_reason(
+                    CaptureSampleBatch {
+                        first_sample: first,
+                        samples: vec![1234; 480],
+                    },
+                    CHANNEL_SYSTEM,
+                    48000,
+                    96000,
+                    root.path(),
+                    &tx,
+                    &mut samples,
+                    &mut timeline,
+                    &mut expected,
+                    &mut sequence,
+                    &mut last_level,
+                    "application_loopback_discontinuity",
+                );
+            }
+            let CaptureEvent::Chunk(chunk) = rx.recv().unwrap() else {
+                panic!("pre-gap tail lost")
+            };
+            assert_eq!((chunk.start_ms, chunk.end_ms), (0, 10));
+            let CaptureEvent::SourceGap {
+                start_ms,
+                end_ms,
+                reason,
+                ..
+            } = rx.recv().unwrap()
+            else {
+                panic!("gap not reported")
+            };
+            assert_eq!(
+                (start_ms, end_ms, reason),
+                (10, 30, "application_loopback_discontinuity")
+            );
+            finish_application_capture(
+                Err("device stopped".into()),
+                48000,
+                root.path(),
+                &tx,
+                &mut samples,
+                &mut timeline,
+                &mut sequence,
+            )
+            .unwrap_err();
+            let CaptureEvent::Chunk(chunk) = rx.recv().unwrap() else {
+                panic!("post-gap tail lost")
+            };
+            assert_eq!((chunk.start_ms, chunk.end_ms), (30, 40));
+        }
+    }
 
     #[link(name = "ntdll")]
     unsafe extern "system" {
@@ -269,101 +448,94 @@ mod windows_impl {
         let sample_rate = APP_CAPTURE_FORMAT_RATE;
         let block_align = APP_CAPTURE_CHANNELS * 2;
         let samples_per_chunk = (sample_rate as u64 * fragment_ms / 1000) as usize;
-        let min_final_samples = (sample_rate as u64 * MIN_FINAL_CHUNK_MS / 1000) as usize;
         let mut accumulator = Vec::with_capacity(samples_per_chunk + 4096);
         let mut timeline_samples = 0u64;
         let mut expected_sample = 0u64;
         let mut local_seq = 0u32;
         let mut last_level_event = Instant::now();
         let mut bytes = VecDeque::<u8>::new();
-        let mut stream_error = None;
+        let mut packet_origin = None;
 
-        while !stop.load(Ordering::SeqCst) {
-            if let Err(error) = event.wait_for_event(APP_CAPTURE_WAIT_MS) {
-                if stop.load(Ordering::SeqCst) {
-                    break;
+        let capture_result = (|| -> Result<(), String> {
+            while !stop.load(Ordering::SeqCst) {
+                if let Err(error) = event.wait_for_event(APP_CAPTURE_WAIT_MS) {
+                    if stop.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    if matches!(error, wasapi::WasapiError::EventTimeout) {
+                        continue;
+                    }
+                    return Err(format!("รอสัญญาณเสียงจากแอปไม่สำเร็จ: {error}"));
                 }
-                stream_error = Some(format!("รอสัญญาณเสียงจากแอปไม่สำเร็จ: {error}"));
-                break;
+
+                loop {
+                    let packet_frames = capture
+                        .get_next_packet_size()
+                        .map_err(|error| format!("อ่านขนาด packet จากแอปไม่สำเร็จ: {error}"))?
+                        .unwrap_or(0);
+                    if packet_frames == 0 {
+                        break;
+                    }
+                    let packet_info = capture
+                        .read_from_device_to_deque(&mut bytes)
+                        .map_err(|error| format!("อ่าน audio packet จากแอปไม่สำเร็จ: {error}"))?;
+                    let usable_bytes = bytes.len() - bytes.len() % block_align;
+                    let mut mono = Vec::with_capacity(usable_bytes / block_align);
+                    for _ in 0..(usable_bytes / block_align) {
+                        let left = i16::from_le_bytes([
+                            bytes.pop_front().unwrap_or(0),
+                            bytes.pop_front().unwrap_or(0),
+                        ]) as i32;
+                        let right = i16::from_le_bytes([
+                            bytes.pop_front().unwrap_or(0),
+                            bytes.pop_front().unwrap_or(0),
+                        ]) as i32;
+                        mono.push(((left + right) / 2) as i16);
+                    }
+                    if mono.is_empty() {
+                        continue;
+                    }
+                    let batch = CaptureSampleBatch {
+                        first_sample: packet_first_sample(
+                            &mut packet_origin,
+                            packet_info.index,
+                            expected_sample,
+                            packet_info.flags.data_discontinuity,
+                            packet_info.flags.timestamp_error,
+                        )?,
+                        samples: mono,
+                    };
+                    process_capture_sample_batch_with_gap_reason(
+                        batch,
+                        CHANNEL_SYSTEM,
+                        sample_rate,
+                        samples_per_chunk,
+                        chunks_dir,
+                        chunk_tx,
+                        &mut accumulator,
+                        &mut timeline_samples,
+                        &mut expected_sample,
+                        &mut local_seq,
+                        &mut last_level_event,
+                        "application_loopback_discontinuity",
+                    );
+                }
             }
 
-            loop {
-                let packet_frames = capture
-                    .get_next_packet_size()
-                    .map_err(|error| format!("อ่านขนาด packet จากแอปไม่สำเร็จ: {error}"))?
-                    .unwrap_or(0);
-                if packet_frames == 0 {
-                    break;
-                }
-                capture
-                    .read_from_device_to_deque(&mut bytes)
-                    .map_err(|error| format!("อ่าน audio packet จากแอปไม่สำเร็จ: {error}"))?;
-                let usable_bytes = bytes.len() - bytes.len() % block_align;
-                let mut mono = Vec::with_capacity(usable_bytes / block_align);
-                for _ in 0..(usable_bytes / block_align) {
-                    let left = i16::from_le_bytes([
-                        bytes.pop_front().unwrap_or(0),
-                        bytes.pop_front().unwrap_or(0),
-                    ]) as i32;
-                    let right = i16::from_le_bytes([
-                        bytes.pop_front().unwrap_or(0),
-                        bytes.pop_front().unwrap_or(0),
-                    ]) as i32;
-                    mono.push(((left + right) / 2) as i16);
-                }
-                if mono.is_empty() {
-                    continue;
-                }
-                let batch = CaptureSampleBatch {
-                    first_sample: expected_sample,
-                    samples: mono,
-                };
-                process_capture_sample_batch(
-                    batch,
-                    CHANNEL_SYSTEM,
-                    sample_rate,
-                    samples_per_chunk,
-                    chunks_dir,
-                    chunk_tx,
-                    &mut accumulator,
-                    &mut timeline_samples,
-                    &mut expected_sample,
-                    &mut local_seq,
-                    &mut last_level_event,
-                );
-            }
-        }
-
-        let _ = client.stop_stream();
-        if accumulator.len() >= min_final_samples {
-            let take = accumulator.len();
-            cut_capture_chunk(
-                CHANNEL_SYSTEM,
-                sample_rate,
-                chunks_dir,
-                chunk_tx,
-                &mut accumulator,
-                &mut timeline_samples,
-                &mut local_seq,
-                take,
-            );
-        } else if !accumulator.is_empty() {
-            let start_ms = (timeline_samples * 1000 / sample_rate as u64) as i64;
-            let end_ms =
-                ((timeline_samples + accumulator.len() as u64) * 1000 / sample_rate as u64) as i64;
-            if end_ms > start_ms {
-                let _ = chunk_tx.send(CaptureEvent::SourceGap {
-                    channel: CHANNEL_SYSTEM,
-                    start_ms,
-                    end_ms,
-                    reason: "application_loopback_tail_too_short",
-                });
-            }
-        }
-        if let Some(error) = stream_error {
-            return Err(error);
-        }
-        Ok(())
+            Ok(())
+        })();
+        let stop_result = client
+            .stop_stream()
+            .map_err(|error| format!("หยุด stream แอปไม่สำเร็จ: {error}"));
+        finish_application_capture(
+            capture_result.and(stop_result),
+            sample_rate,
+            chunks_dir,
+            chunk_tx,
+            &mut accumulator,
+            &mut timeline_samples,
+            &mut local_seq,
+        )
     }
 }
 

@@ -166,6 +166,16 @@ test("participant notice acknowledgement starts checked for each live session", 
   assert.match(workspaceSource, /disabled=\{!privacyAcknowledged \|\| !captureCapability\.available \|\| !canStartSelectedSource\}/);
 });
 
+test("native channel failure detail remains visible instead of only a generic degraded label", () => {
+  const event = { state: "degraded", detail: "สตรีมเสียงช่อง system ผิดพลาด", recordingId: "capture", micDevice: null, systemDevice: null };
+  assert.equal(panel.resolveLiveStatusError(event)?.message, event.detail);
+  assert.equal(panel.resolveLiveStatusError({ ...event, state: "error" })?.message, event.detail);
+  assert.equal(panel.resolveLiveStatusError({ ...event, state: "listening" }), null);
+  assert.equal(panel.resolveLiveStatusError({ ...event, detail: "  " }), null);
+  assert.match(panelSource, /const statusError = resolveLiveStatusError\(event\)/);
+  assert.match(panelSource, /if \(statusError\) addError\(statusError\)/);
+});
+
 test("live elapsed display advances from the native clock snapshot and freezes on stop", () => {
   assert.equal(advanceLiveElapsedMs(1200, 5000, 5300), 1500);
   assert.equal(advanceLiveElapsedMs(1200, 5000, 4900), 1200);

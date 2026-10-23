@@ -5,8 +5,8 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 use crate::live_meeting::{
-    cut_capture_chunk, process_capture_sample_batch_with_gap_reason, CaptureEvent, CaptureReady,
-    CaptureSampleBatch, CHANNEL_SYSTEM, MIN_FINAL_CHUNK_MS,
+    flush_capture_tail, process_capture_sample_batch_with_gap_reason, CaptureEvent, CaptureReady,
+    CaptureSampleBatch, CHANNEL_SYSTEM,
 };
 use windows::core::PCWSTR;
 use windows::Win32::Media::Audio::*;
@@ -22,10 +22,12 @@ struct PacketClock {
     last_timestamp: Option<u64>,
     previous_frames: u64,
     max_future_hns: u64,
+    startup_buffer_hns: u64,
+    latest_empty_hns: u64,
 }
 
 impl PacketClock {
-    fn new(origin_hns: u64, max_future_hns: u64) -> Self {
+    fn new(origin_hns: u64, max_future_hns: u64, startup_buffer_hns: u64) -> Self {
         Self {
             origin_hns,
             end: 0,
@@ -33,8 +35,20 @@ impl PacketClock {
             last_timestamp: None,
             previous_frames: 0,
             max_future_hns,
+            startup_buffer_hns,
+            latest_empty_hns: origin_hns,
         }
     }
+    fn observe_empty(&mut self, before_query_hns: u64) -> Result<(), String> {
+        if before_query_hns < self.latest_empty_hns {
+            return Err("system loopback observation clock went backwards".into());
+        }
+        if self.last_timestamp.is_none() {
+            self.latest_empty_hns = before_query_hns;
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn position(
         &mut self,
@@ -65,7 +79,10 @@ impl PacketClock {
                 .map_err(|_| "system loopback timestamp exceeded frame range".into())
         };
         let first_packet = self.last_timestamp.is_none();
-        let startup_packet = first_packet && index == 0;
+        let since_empty = now
+            .checked_sub(self.latest_empty_hns)
+            .ok_or("system loopback observation clock went backwards")?;
+        let startup_packet = first_packet && since_empty <= self.startup_buffer_hns;
         let first = if let Some(previous) = self.last_timestamp {
             let delta = timestamp
                 .checked_sub(previous)
@@ -85,8 +102,9 @@ impl PacketClock {
         if discontinuity && !startup_packet && first == self.end {
             return Err("system loopback lost audio with unknown duration".into());
         }
-        // A flagged first packet at native position zero is a startup marker.
-        // A nonzero first position can instead mean the initial buffer overran.
+        // Loopback may attach to an already-running renderer, so its first
+        // native position need not be zero. A first flag is a startup marker
+        // only while recent empty-buffer/start observation rules out starvation.
         let silence = (first > self.end && (!discontinuity || startup_packet)).then_some(self.end);
         self.last_timestamp = Some(timestamp);
         self.previous_frames = frames;
@@ -148,6 +166,7 @@ pub(crate) fn spawn_system_capture_thread(
                 let _ = tx.send(CaptureEvent::StreamFailed {
                     channel: CHANNEL_SYSTEM,
                     error,
+                    terminal: true,
                 });
             }
         })
@@ -217,7 +236,11 @@ fn capture(
     let packets: IAudioCaptureClient = win(unsafe { client.GetService() })?;
     let latency_hns = win(unsafe { client.GetStreamLatency() })?.max(0) as u64;
     let buffer_frames = win(unsafe { client.GetBufferSize() })?;
-    let max_future_hns = latency_hns.max(u64::from(buffer_frames) * 10_000_000 / RATE);
+    let buffer_duration_hns = u64::from(buffer_frames) * 10_000_000 / RATE;
+    if buffer_duration_hns == 0 {
+        return Err("system loopback reported zero buffer capacity".into());
+    }
+    let max_future_hns = latency_hns.max(buffer_duration_hns);
     let mut frequency = 0;
     win(unsafe { QueryPerformanceFrequency(&mut frequency) })?;
     let origin_hns = qpc_hns(frequency)?;
@@ -226,7 +249,7 @@ fn capture(
     if let Some(ready) = readiness.take() {
         let _ = ready.send(Ok(name.to_string()));
     }
-    let mut clock = PacketClock::new(origin_hns, max_future_hns);
+    let mut clock = PacketClock::new(origin_hns, max_future_hns, buffer_duration_hns);
     let mut samples = Vec::new();
     let mut timeline = 0;
     let mut expected = 0;
@@ -239,7 +262,14 @@ fn capture(
             if stopping {
                 win(unsafe { running.0.Stop() })?;
             }
-            while win(unsafe { packets.GetNextPacketSize() })? > 0 {
+            loop {
+                // Timestamp before querying: preemption after the API returns
+                // must not make an old empty observation look artificially fresh.
+                let before_query_hns = qpc_hns(frequency)?;
+                if win(unsafe { packets.GetNextPacketSize() })? == 0 {
+                    clock.observe_empty(before_query_hns)?;
+                    break;
+                }
                 let mut ptr = std::ptr::null_mut();
                 let (mut frames, mut flags, mut index, mut timestamp) = (0, 0, 0, 0);
                 win(unsafe {
@@ -263,7 +293,9 @@ fn capture(
                 } else {
                     let bytes = unsafe { std::slice::from_raw_parts(ptr, frames as usize * 4) };
                     Ok(bytes
-                        .chunks_exact(4)
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
                         .map(|frame| {
                             let left = i16::from_le_bytes([frame[0], frame[1]]) as i32;
                             let right = i16::from_le_bytes([frame[2], frame[3]]) as i32;
@@ -278,7 +310,7 @@ fn capture(
                 }
                 let observed_now_hns = qpc_hns(frequency)?;
                 if clock.last_index.is_none() {
-                    eprintln!("SYSTEM_FIRST_PACKET timestamp={timestamp} now={observed_now_hns} origin={origin_hns} index={index} frames={frames} flags={flags:#x} latency_hns={latency_hns} buffer_frames={buffer_frames}");
+                    eprintln!("SYSTEM_FIRST_PACKET timestamp={timestamp} now={observed_now_hns} origin={origin_hns} index={index} frames={frames} flags={flags:#x} latency_hns={latency_hns} buffer_frames={buffer_frames} last_empty_hns={} startup_buffer_hns={buffer_duration_hns}", clock.latest_empty_hns);
                 }
                 let (first_sample, silence_before) = clock.position(
                     timestamp,
@@ -287,7 +319,7 @@ fn capture(
                     u64::from(frames),
                     flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0,
                     flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR.0 as u32 != 0,
-                ).map_err(|error| format!("{error}; timestamp={timestamp} now={observed_now_hns} origin={origin_hns} index={index} frames={frames} flags={flags:#x} latency_hns={latency_hns} buffer_frames={buffer_frames}"))?;
+                ).map_err(|error| format!("{error}; timestamp={timestamp} now={observed_now_hns} origin={origin_hns} index={index} frames={frames} flags={flags:#x} latency_hns={latency_hns} buffer_frames={buffer_frames} last_empty_hns={} startup_buffer_hns={buffer_duration_hns}", clock.latest_empty_hns))?;
                 process_capture_sample_batch_with_gap_reason(
                     CaptureSampleBatch {
                         first_sample,
@@ -314,29 +346,16 @@ fn capture(
         }
         Ok(())
     })();
-    // Errors retain every already accepted sample, including a short tail.
-    if !samples.is_empty()
-        && (result.is_err() || samples.len() >= (RATE * MIN_FINAL_CHUNK_MS / 1000) as usize)
-    {
-        let take = samples.len();
-        cut_capture_chunk(
-            CHANNEL_SYSTEM,
-            RATE as u32,
-            root,
-            tx,
-            &mut samples,
-            &mut timeline,
-            &mut sequence,
-            take,
-        );
-    } else if !samples.is_empty() {
-        let _ = tx.send(CaptureEvent::SourceGap {
-            channel: CHANNEL_SYSTEM,
-            start_ms: (timeline * 1000 / RATE) as i64,
-            end_ms: (expected * 1000 / RATE) as i64,
-            reason: "final_tail_too_short",
-        });
-    }
+    // Preserve every accepted sample on both normal stop and source failure.
+    flush_capture_tail(
+        CHANNEL_SYSTEM,
+        RATE as u32,
+        root,
+        tx,
+        &mut samples,
+        &mut timeline,
+        &mut sequence,
+    );
     result
 }
 
@@ -345,12 +364,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn native_nonzero_first_index_keeps_startup_overrun_evidence() {
-        let mut clock = PacketClock::new(1_000_000_000, 20_000_000);
+    fn native_already_playing_engine_establishes_arbitrary_first_index_baseline() {
+        let mut clock = PacketClock::new(3_564_052_695_895, 20_000_000, 20_000_000);
+        // Actual active-engine positive control: the renderer predates this capture client.
+        assert_eq!(
+            clock
+                .position(
+                    3_564_053_142_311,
+                    3_564_052_806_721,
+                    4_137_600,
+                    480,
+                    true,
+                    false
+                )
+                .unwrap(),
+            (2143, Some(0))
+        );
+    }
+
+    #[test]
+    fn native_starved_initial_buffer_keeps_loss_evidence_even_at_index_zero() {
+        let mut clock = PacketClock::new(1_000_000_000, 20_000_000, 20_000_000);
         let (first_sample, silence_before) = clock
-            .position(1_000_200_000, 1_000_300_000, 480, 480, true, false)
+            .position(1_030_000_000, 1_030_100_000, 0, 480, true, false)
             .unwrap();
-        assert_eq!((first_sample, silence_before), (960, None));
+        assert_eq!((first_sample, silence_before), (144_000, None));
         let root = tempfile::tempdir().unwrap();
         let (tx, rx) = mpsc::sync_channel(8);
         let mut samples = Vec::new();
@@ -378,20 +416,20 @@ mod tests {
             rx.recv().unwrap(),
             CaptureEvent::SourceGap {
                 start_ms: 0,
-                end_ms: 20,
+                end_ms: 3000,
                 reason: "system_loopback_discontinuity",
                 ..
             }
         ));
         assert!(
-            matches!(rx.recv().unwrap(), CaptureEvent::Chunk(chunk) if (chunk.start_ms, chunk.end_ms)==(20,30))
+            matches!(rx.recv().unwrap(), CaptureEvent::Chunk(chunk) if (chunk.start_ms, chunk.end_ms)==(3000,3010))
         );
     }
 
     #[test]
     fn native_contiguous_packets_ignore_nominal_qpc_drift() {
         for interval in [99_990, 100_010] {
-            let mut clock = PacketClock::new(1_000_000_000, 20_000_000);
+            let mut clock = PacketClock::new(1_000_000_000, 20_000_000, 20_000_000);
             for packet in 0..1000 {
                 let timestamp = 1_000_000_000 + packet * interval;
                 assert_eq!(
@@ -413,7 +451,8 @@ mod tests {
 
     #[test]
     fn native_first_discontinuity_is_startup_but_later_discontinuity_is_loss() {
-        let mut clock = PacketClock::new(1_000_000_000, 20_000_000);
+        let mut clock = PacketClock::new(1_000_000_000, 20_000_000, 20_000_000);
+        clock.observe_empty(1_489_900_000).unwrap();
         assert_eq!(
             clock
                 .position(1_490_000_000, 1_490_100_000, 0, 480, true, false)
@@ -432,7 +471,7 @@ mod tests {
     fn native_discontinuity_reaches_wav_timeline_as_loss_instead_of_silence() {
         let root = tempfile::tempdir().unwrap();
         let (tx, rx) = mpsc::sync_channel(16);
-        let mut clock = PacketClock::new(1_000_000_000, 20_000_000);
+        let mut clock = PacketClock::new(1_000_000_000, 20_000_000, 20_000_000);
         let mut samples = Vec::new();
         let (mut timeline, mut expected, mut sequence) = (0, 0, 0);
         let mut level = Instant::now();
@@ -502,14 +541,16 @@ mod tests {
             .unwrap()
             .samples::<i16>()
             .all(|sample| sample.unwrap() == 0));
-        assert!(crate::live_meeting::capture_outcome(70, gaps.len(), 0, 0)
-            .failure_reason
-            .is_some());
+        assert!(
+            crate::live_meeting::capture_outcome(70, gaps.len(), 0, 0, 0)
+                .failure_reason
+                .is_some()
+        );
     }
 
     #[test]
     fn native_packet_clock_preserves_idle_but_never_hides_flagged_loss() {
-        let mut clock = PacketClock::new(1_000_000_000, 20_000_000);
+        let mut clock = PacketClock::new(1_000_000_000, 20_000_000, 20_000_000);
         // 49s render idle, then 10ms of actual samples at 48kHz.
         assert_eq!(
             clock

@@ -1,5 +1,5 @@
 ---
-version: "0.3.35b"
+version: "0.3.36b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-23,Codex"
 
@@ -20,10 +20,12 @@ rows, local summary output, a saved transcript edit, SRT/VTT/WAV exports and
 successful normal close/reopen, data-preserving reinstall and durable-chunk crash
 recovery. Quality is explicitly deferred. Installed testing found and corrected
 the fixed UI stop timeout; system channel alignment and application inventory
-required further native changes. Real native delayed/resumed-idle probes pass and
-the combined patch has no unresolved independent review findings. Final source
-checks, rebuilt installed retest, spoken microphone acceptance and selected-app
-isolation remain open; no merge, tag or publication is claimed. See the
+required further native changes. The ec494fd installed package enumerates active
+applications and produces microphone audio/text, but application packet timing and
+system startup classification failed. Review reopened and withdrew its zero-index
+startup assumption. Corrected native system active-start and delayed/resumed-idle
+probes pass; selected-app isolation, terminal-failure reporting, final source/hosted
+checks and rebuilt installed retest remain open. No merge, tag or publication is claimed. See the
 [installed acceptance report](../verification/implementation-reports/2026-10-23-installed-releasefix-uat.md).
 
 ## CPU capture reliability and microphone follow-up — 2026-10-23
@@ -1691,6 +1693,13 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.35b` → `0.3.36b`
+
+- Record ec494fd installed microphone output and successful active-PID inventory.
+- Reopen native acceptance after real application timing/startup failures and
+  newer hosted Clippy findings; retain failed runs and withdrawn review inference.
+- Record corrected system production probes while keeping installed/release gates open.
+
 ### `0.3.34b` → `0.3.35b`
 
 Recorded installed workflow outputs, durable restart/reinstall/recovery evidence,
@@ -1986,6 +1995,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.36b | 2026-10-23 | beta | ec494fd installed mic output and active-PID inventory observed; native timing and partial-track reporting reopened with failed evidence retained; corrected system active/idle probes pass, final installed/release gates remain open. | working-tree | Codex |
 | 0.3.35b | 2026-10-23 | beta | Installed eae669a workflow outputs and restart/reinstall/recovery verified; native clock/inventory corrections independently reviewed with hardware probes; final package and spoken mic/app isolation gates remain open. | working-tree | Codex |
 | 0.3.34b | 2026-10-23 | beta | CPU decode deferred until Stop; post-meeting prerequisites and alternate media defaults corrected. Headless ONIKUMA audio produces 3 local CPU transcript segments; rebuilt installed acceptance remains open. | working-tree | Codex |
 | 0.3.33v | 2026-10-20 | beta | Post-remediation Rust library tests (649 passed, 6 ignored), frontend build and workflow MCP acceptance pass; independent re-review remains open. | working-tree | Codex |

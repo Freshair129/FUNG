@@ -50,7 +50,6 @@ const MIN_FREE_BYTES_TO_CONTINUE: u64 = 256 * 1024 * 1024;
 /// Chunks between free-space checks. Two channels at 8s chunks produce ~15
 /// per minute, so this is about a one-minute cadence.
 const DISK_CHECK_EVERY_CHUNKS: usize = 16;
-pub(crate) const MIN_FINAL_CHUNK_MS: u64 = 400;
 const CAPTURE_SAMPLE_QUEUE_CAPACITY: usize = 64;
 const CAPTURE_EVENT_QUEUE_CAPACITY: usize = 32;
 const RECENT_SEGMENT_CAP: usize = 240;
@@ -415,6 +414,8 @@ pub(crate) enum CaptureEvent {
     StreamFailed {
         channel: &'static str,
         error: String,
+        /// The producer exited permanently, rather than reporting a recoverable callback glitch.
+        terminal: bool,
     },
 }
 
@@ -509,6 +510,7 @@ fn build_stream<T: cpal::SizedSample + Send + 'static>(
                 let _ = faults.try_send(CaptureEvent::StreamFailed {
                     channel,
                     error: error.to_string(),
+                    terminal: false,
                 });
             },
             None,
@@ -558,6 +560,29 @@ pub(crate) fn cut_capture_chunk(
             });
         }
     }
+}
+
+pub(crate) fn flush_capture_tail(
+    channel: &'static str,
+    sample_rate: u32,
+    chunks_dir: &Path,
+    chunk_tx: &mpsc::SyncSender<CaptureEvent>,
+    accumulator: &mut Vec<i16>,
+    timeline_samples: &mut u64,
+    local_seq: &mut u32,
+) {
+    // A decoder's minimum window must never discard accepted source PCM.
+    let take = accumulator.len();
+    cut_capture_chunk(
+        channel,
+        sample_rate,
+        chunks_dir,
+        chunk_tx,
+        accumulator,
+        timeline_samples,
+        local_seq,
+        take,
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -918,7 +943,6 @@ fn spawn_capture_thread_with_fragment_ms(
         let _ = ready_tx.send(Ok(device_name));
 
         let samples_per_chunk = (sample_rate as u64 * fragment_ms / 1000) as usize;
-        let min_final_samples = (sample_rate as u64 * MIN_FINAL_CHUNK_MS / 1000) as usize;
         let mut accumulator: Vec<i16> = Vec::with_capacity(samples_per_chunk + 4096);
         let mut timeline_samples: u64 = 0;
         let mut expected_sample: u64 = 0;
@@ -991,34 +1015,16 @@ fn spawn_capture_thread_with_fragment_ms(
                 });
             }
             timeline_samples = captured_end_sample;
-            expected_sample = captured_end_sample;
         }
-        if accumulator.len() >= min_final_samples {
-            let take = accumulator.len();
-            cut_capture_chunk(
-                channel,
-                sample_rate,
-                &chunks_dir,
-                &chunk_tx,
-                &mut accumulator,
-                &mut timeline_samples,
-                &mut local_seq,
-                take,
-            );
-        } else if !accumulator.is_empty() {
-            let gap_start_sample = expected_sample.saturating_sub(accumulator.len() as u64);
-            let gap_start_ms = (gap_start_sample * 1000 / sample_rate as u64) as i64;
-            let gap_end_ms = (expected_sample * 1000 / sample_rate as u64) as i64;
-            if gap_end_ms > gap_start_ms {
-                let _ = chunk_tx.send(CaptureEvent::SourceGap {
-                    channel,
-                    start_ms: gap_start_ms,
-                    end_ms: gap_end_ms,
-                    reason: "final_tail_too_short",
-                });
-            }
-            accumulator.clear();
-        }
+        flush_capture_tail(
+            channel,
+            sample_rate,
+            &chunks_dir,
+            &chunk_tx,
+            &mut accumulator,
+            &mut timeline_samples,
+            &mut local_seq,
+        );
         // chunk_tx drops here; the coordinator sees Disconnected once every
         // channel thread has flushed.
     });
@@ -2704,6 +2710,7 @@ pub(crate) fn capture_outcome(
     lost_chunks: usize,
     stream_faults: usize,
     still_pending: usize,
+    terminal_sources: usize,
 ) -> CaptureOutcome {
     let seconds = duration_ms / 1000;
     if lost_chunks > 0 {
@@ -2715,6 +2722,12 @@ pub(crate) fn capture_outcome(
             message: format!(
                 "บันทึกจบแต่ไม่ครบ — เสียงหาย {lost_chunks} ช่วง ความยาวที่บันทึกได้ {seconds} วินาที"
             ),
+        };
+    }
+    if terminal_sources > 0 {
+        return CaptureOutcome {
+            failure_reason: Some(format!("{terminal_sources} captured source(s) terminated before recording stopped")),
+            message: format!("บันทึกจบแต่ไม่ครบ — แหล่งเสียงหยุดทำงาน {terminal_sources} ช่อง ความยาวที่บันทึกได้ {seconds} วินาที"),
         };
     }
     let mut message = format!("บันทึกเสร็จ ความยาว {seconds} วินาที");
@@ -2897,6 +2910,7 @@ fn spawn_coordinator(
         // this capture may be reported as a clean recording.
         let mut lost_chunks: usize = 0;
         let mut stream_faults: usize = 0;
+        let mut terminal_sources: usize = 0;
         let mut chunks_since_disk_check: usize = 0;
         let mut low_disk_warned = false;
         // `append_capture_chunk` stamps the recording's duration with the
@@ -2966,17 +2980,34 @@ fn spawn_coordinator(
                     }
                     continue;
                 }
-                CaptureEvent::StreamFailed { channel, error } => {
+                CaptureEvent::StreamFailed {
+                    channel,
+                    error,
+                    terminal,
+                } => {
                     stream_faults += 1;
+                    if terminal {
+                        terminal_sources += 1;
+                    }
+                    let event_type = if terminal {
+                        "live_meeting.source_terminated"
+                    } else {
+                        "live_meeting.stream_failed"
+                    };
+                    let detail = if terminal {
+                        format!("แหล่งเสียงช่อง {channel} หยุดทำงาน ({error}) — การบันทึกนี้อาจไม่ครบ")
+                    } else {
+                        format!("สตรีมเสียงช่อง {channel} ผิดพลาด ({error}) — ตรวจสอบอุปกรณ์เสียง")
+                    };
                     record_capture_fault(
                         &app,
                         &storage,
                         &project_id,
                         &recording_id,
-                        "live_meeting.stream_failed",
+                        event_type,
                         channel,
                         &error,
-                        format!("สตรีมเสียงช่อง {channel} ผิดพลาด ({error}) — ตรวจสอบอุปกรณ์เสียง"),
+                        detail,
                     );
                     continue;
                 }
@@ -3434,6 +3465,7 @@ fn spawn_coordinator(
             lost_chunks,
             stream_faults,
             still_pending,
+            terminal_sources,
         );
         match &outcome.failure_reason {
             Some(reason) => {
@@ -3447,7 +3479,7 @@ fn spawn_coordinator(
             update_revisioned_session_state(
                 &storage,
                 context,
-                if still_pending > 0 || lost_chunks > 0 {
+                if still_pending > 0 || lost_chunks > 0 || terminal_sources > 0 {
                     "degraded"
                 } else {
                     "completed"
@@ -5032,7 +5064,7 @@ mod tests {
         assert!(pcm[49_000..50_000].iter().all(|&sample| sample == 123));
         assert!(pcm[50_000..59_000].iter().all(|&sample| sample == 0));
         assert!(pcm[59_000..].iter().all(|&sample| sample == 456));
-        assert!(capture_outcome(60_000, 0, 0, 0).failure_reason.is_none());
+        assert!(capture_outcome(60_000, 0, 0, 0, 0).failure_reason.is_none());
     }
 
     #[test]
@@ -5310,6 +5342,54 @@ mod tests {
         assert!(
             initialize_capture_decoder::<()>("gpu", true, || Err("load failed".into())).is_err()
         );
+    }
+
+    #[test]
+    fn capture_normal_stop_preserves_every_nonempty_mic_and_system_tail() {
+        for channel in [CHANNEL_MIC, CHANNEL_SYSTEM] {
+            let temp = tempfile::tempdir().unwrap();
+            let (tx, rx) = mpsc::sync_channel(8);
+            let expected = vec![123_i16; 1440]; // 30 ms at 48 kHz, below the decoder window minimum.
+            let mut samples = expected.clone();
+            let mut timeline = 48_000;
+            let mut sequence = 0;
+            flush_capture_tail(
+                channel,
+                48_000,
+                temp.path(),
+                &tx,
+                &mut samples,
+                &mut timeline,
+                &mut sequence,
+            );
+            let events = rx.try_iter().collect::<Vec<_>>();
+            assert_eq!(events.len(), 1);
+            let CaptureEvent::Chunk(chunk) = &events[0] else {
+                panic!("normal source tail was discarded");
+            };
+            assert_eq!((chunk.start_ms, chunk.end_ms), (1000, 1030));
+            let reader = hound::WavReader::open(&chunk.file_path).unwrap();
+            assert_eq!(
+                reader
+                    .into_samples::<i16>()
+                    .map(Result::unwrap)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert!(samples.is_empty());
+            assert_eq!(timeline, 49_440);
+            assert_eq!(sequence, 1);
+            flush_capture_tail(
+                channel,
+                48_000,
+                temp.path(),
+                &tx,
+                &mut samples,
+                &mut timeline,
+                &mut sequence,
+            );
+            assert!(rx.try_recv().is_err());
+        }
     }
 
     #[test]
@@ -5805,7 +5885,7 @@ mod tests {
         // The job row is the durable record. If it says "completed" after
         // chunks failed to write, nothing downstream can tell the recording is
         // short — and the user is told the session finished normally.
-        let lossy = capture_outcome(120_000, 3, 1, 0);
+        let lossy = capture_outcome(120_000, 3, 1, 0, 0);
         assert!(
             lossy.failure_reason.is_some(),
             "a capture that lost chunks must fail its job"
@@ -5816,16 +5896,31 @@ mod tests {
             .contains("3 audio chunk(s) or media interval(s) were lost"));
         assert!(lossy.message.contains("เสียงหาย 3 ช่วง"));
 
-        let clean = capture_outcome(120_000, 0, 0, 0);
+        let clean = capture_outcome(120_000, 0, 0, 0, 0);
         assert_eq!(clean.failure_reason, None);
         assert_eq!(clean.message, "บันทึกเสร็จ ความยาว 120 วินาที");
+    }
+
+    #[test]
+    fn a_terminal_source_failure_is_durable_even_when_other_channel_audio_is_intact() {
+        let outcome = capture_outcome(60_000, 0, 1, 0, 1);
+        assert!(outcome
+            .failure_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains("source(s) terminated")));
+        assert!(outcome.message.contains("แหล่งเสียงหยุดทำงาน"));
+        assert!(!outcome.message.starts_with("บันทึกเสร็จ"));
+        assert!(
+            capture_outcome(60_000, 0, 1, 0, 0).failure_reason.is_none(),
+            "recoverable callback errors must stay distinct"
+        );
     }
 
     #[test]
     fn a_stream_fault_is_surfaced_without_failing_an_otherwise_intact_capture() {
         // A device glitch that cost no chunks is worth saying, but the audio
         // is complete, so the job did complete.
-        let outcome = capture_outcome(60_000, 0, 2, 0);
+        let outcome = capture_outcome(60_000, 0, 2, 0, 0);
         assert_eq!(outcome.failure_reason, None);
         assert!(outcome.message.contains("สตรีมเสียงผิดพลาด 2 ครั้ง"));
     }
@@ -5834,11 +5929,11 @@ mod tests {
     fn an_incomplete_transcript_is_stated_rather_than_implied_complete() {
         // Regression for the degraded-mode promise: chunks the catch-up pass
         // could not transcribe must be counted in what the user is told.
-        let outcome = capture_outcome(60_000, 0, 0, 4);
+        let outcome = capture_outcome(60_000, 0, 0, 4, 0);
         assert_eq!(outcome.failure_reason, None);
         assert!(outcome.message.contains("ยังถอดความไม่ได้ 4 ช่วง"));
 
-        let full = capture_outcome(60_000, 0, 0, 0);
+        let full = capture_outcome(60_000, 0, 0, 0, 0);
         assert!(!full.message.contains("ยังถอดความไม่ได้"));
     }
 

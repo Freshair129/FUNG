@@ -95,6 +95,12 @@ export function resolveLiveEventPhase(state: string): LivePhase | null {
   return LIVE_EVENT_PHASES.includes(next as LivePhase) ? next as LivePhase : null;
 }
 
+export function resolveLiveStatusError(event: LiveStatusEvent): ReviewError | null {
+  if (event.state !== "degraded" && event.state !== "error") return null;
+  const message = event.detail?.trim();
+  return message ? { code: "LEGACY_COMMAND_FAILED", message, retryable: false } : null;
+}
+
 export function resolveLivePhaseFromStatus(
   status: LiveStatusOutput,
   currentPhase: LivePhase,
@@ -936,6 +942,8 @@ export function LiveMeetingPanel({
   }, [phase]);
 
   const onStatusEvent = useCallback((event: LiveStatusEvent) => {
+    const statusError = resolveLiveStatusError(event);
+    if (statusError) addError(statusError);
     const next = resolveLiveEventPhase(event.state);
     if (next) {
       setPhaseSafe(next);

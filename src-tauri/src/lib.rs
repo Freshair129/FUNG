@@ -6822,7 +6822,7 @@ pub fn __debug_live_smoke(
                 ));
                 continue;
             }
-            CaptureEvent::StreamFailed { channel, error } => {
+            CaptureEvent::StreamFailed { channel, error, .. } => {
                 report.push_str(&format!(
                     "stream fault on {channel}: {error}
 "

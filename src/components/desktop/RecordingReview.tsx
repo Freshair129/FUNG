@@ -328,6 +328,12 @@ export function isRecordingAnswerFor(
   );
 }
 
+export function recordingCaptureWarning(row: RecordingRow): string | null {
+  return row.captureWarning === "capture_source_fault"
+    ? "พบข้อขัดข้องระหว่างบันทึกเสียง กรุณาตรวจสอบเสียงแต่ละช่องก่อนใช้งาน"
+    : null;
+}
+
 function validateRecordingRow(
   row: RecordingRow,
   expectedProjectId: string,
@@ -347,7 +353,8 @@ function validateRecordingRow(
     !Number.isFinite(Date.parse(row.createdAt)) ||
     typeof row.updatedAt !== "string" ||
     !Number.isFinite(Date.parse(row.updatedAt)) ||
-    !Array.isArray(row.channels)
+    !Array.isArray(row.channels) ||
+    (row.captureWarning !== undefined && row.captureWarning !== null && row.captureWarning !== "capture_source_fault")
   ) {
     return reviewError(
       row.projectId !== expectedProjectId
@@ -2873,6 +2880,9 @@ export function RecordingReviewView({
                       <span className="recording-review__recording-row-meta">
                         {formatReviewDate(item.createdAt)} · {item.status}
                       </span>
+                      {recordingCaptureWarning(item) ? (
+                        <span className="recording-review__recording-row-meta">มีข้อขัดข้องของเสียง · ตรวจสอบแต่ละช่อง</span>
+                      ) : null}
                       <span className="recording-review__recording-row-meta">
                         {item.captureState === "inactive"
                           ? "หยุดแล้ว"
@@ -2937,10 +2947,13 @@ export function RecordingReviewView({
                     {formatRecordingDuration(recording.data.durationMs)} ·{" "}
                     {recording.data.status}
                   </p>
+                  {recordingCaptureWarning(recording.data) ? (
+                    <p className="recording-review__notice" role="status">{recordingCaptureWarning(recording.data)}</p>
+                  ) : null}
                 </div>
                 <span className="recording-review__capture-state">
                   {recording.data.captureState === "inactive"
-                    ? "บันทึกเสร็จแล้ว"
+                    ? recordingCaptureWarning(recording.data) ? "หยุดแล้ว · มีข้อขัดข้องของเสียง" : "บันทึกเสร็จแล้ว"
                     : recording.data.captureState === "stopping"
                       ? "กำลังหยุด"
                       : "ยังบันทึกอยู่"}

@@ -185,6 +185,7 @@ export type RecordingRow = {
   language: string | null;
   channels: PlaybackChannel[];
   captureState: RecordingCaptureState;
+  captureWarning?: "capture_source_fault" | null;
 };
 
 export type RecordingPage = {

@@ -1,5 +1,5 @@
 ---
-version: "0.1.2b"
+version: "0.1.3b"
 created_at: "2026-10-23"
 last_update: "2026-10-23"
 status: "candidate"
@@ -38,12 +38,15 @@ to 1.5 GB. This version preparation does not create or publish a release.
 | --- | --- |
 | Full Rust library with application-capture corrections | 658 passed, 0 failed, 7 ignored; 197.83 s; compiled at 0.1.1 before metadata-only version preparation |
 | Final combined native clock, MTA inventory and safe application reader library | 670 passed, 0 failed, 9 ignored; 158.84 s at 0.1.2; `source-final-rust-tests.log` |
+| Final bounded writer, partial-track projection and all-source tail library | 683 passed, 0 failed, 10 ignored; 197.87 s; `final-writer-rust-tests.log` |
 | Clippy, all library targets, warnings denied | PASS at 0.1.2 |
 | Final combined native patch Clippy, all library targets, warnings denied | PASS; 1m 54s; `source-final-clippy.log` |
+| Final bounded-writer Clippy, all library targets, warnings denied | PASS; 40.20 s; `final-writer-clippy.log`; formatting and diff checks also pass |
 | Release distribution metadata checks | 11 passed at 0.1.2 |
 | Live workspace, routing and recording-output Node checks | 26 passed |
 | TypeScript/Vite production build | PASS at 0.1.2 |
 | Hosted CI on starting revision `6e6067c` | Frontend and Rust PASS; superseded by the new packet-handling changes |
+| Hosted CI at `ec494fd` | Frontend PASS; Rust FAIL on newer Clippy `chunks_exact_to_as_chunks` in both native readers; correction pending |
 
 ## Installed acceptance in progress
 
@@ -71,8 +74,8 @@ than inferring payload equality from installer compression settings.
 | Non-empty interactive app window | PASS after the user ended Dota; installed Home and Live rendered and accepted input |
 | Bundled runtime manifest | PASS; all 4,504 file sizes/hashes match, manifest SHA-256 `561DA25ED8C64E8F84B7007424CCBA1B63FCB34E9203F9AC2BBE3B3C6873A709` |
 | Installed offline CPU worker/model probe | PASS; installed Python/script/model transcribed the 32,994-ms SAPI fixture into 5 populated English segments with PATH restricted to Windows, empty HF cache path and offline flags |
-| Spoken microphone → Stop → transcript | NOT ACCEPTED; first 81,154-ms ONIKUMA run persisted 11 checksum-valid WAVs, but peaks were at most 38/32768 and no speech segments were returned; no user speech acknowledgement arrived during this run |
-| System loopback / selected application audio | System workflow produced audio/text but alignment failed (#94); selected application remains NOT RUN |
+| Spoken microphone → Stop → transcript | Functional output observed on ec494fd: microphone audio with peak 7,306 and populated transcript; first near-silent attempt remains historical below; corrected final package still requires retest |
+| System loopback / selected application audio | NOT ACCEPTED: system alignment/startup classification (#94) and selected-application packet-position failure remain open; inventory selection passed ec494fd |
 | Review playback / durable close-reopen | Transport play/pause/close and normal close/reopen PASS on eae669a; aligned timeline still blocked by #94 |
 | Uninstall-reinstall preserving UAT data | PASS on eae669a: uninstall/reinstall exit 0, reopened with both recordings/eight edited transcript rows/27 checksum-valid chunks |
 | Hosted CI on `5a090f6` | Frontend and Rust PASS; subsequent stop-wait correction requires new-head checks |
@@ -209,7 +212,7 @@ resumed speech. It passed: first nonzero at 3,427 ms, 20,087-ms total timeline,
 probe reports and `per-second-peaks.json` are local evidence. These runs do not
 claim installed-package acceptance for the new native code.
 
-The final startup exception is restricted to native frame index zero. A regression
+The ec494fd startup exception was restricted to native frame index zero. A regression
 first failed for an initial discontinuity at index 480, then passed with a real
 0–20-ms loss interval and retained 20–30-ms audio. This avoids converting genuine
 initial loss into clean silence. Five native clock/consumer regressions pass.
@@ -222,6 +225,134 @@ unresolved actionable findings. The final combined library suite passed 670 test
 with zero failures and nine explicit ignored tests in 158.84 seconds. Clippy with
 warnings denied passed in 1m 54s. New installed-package UAT remains a gate; source
 review and native probes do not close it.
+
+### ec494fd installed retest: review reopened
+
+The installed candidate has installer SHA-256
+`7263C767C5E276518D2518748B7BC1E5C04D785E34C956F88CBE06FE9E5D2588`
+and executable SHA-256
+`55CE51716EA5A69FFD1FF2EBDA61113A5385BA821359DB3FE9B4EF18B90E3AAD`.
+All 4,504 bundled runtime entries matched their expected sizes and hashes.
+The application inventory fix passed in this package: both controlled active
+players were selectable and the speech player PID 19232 was explicitly selected.
+
+Recording `3f1c168d-afb7-4968-b796-895438f21872` retained 56,560 ms of microphone
+audio, including a chunk with peak 7,306 and 84,275 nonzero samples. Its microphone
+transcript contains `One, two, three.` at 11,280–13,000 ms. Capture and summary jobs
+completed. This demonstrates actual microphone input and transcription output;
+it does not establish transcription quality or a successful application track.
+That track failed after 10 ms with a native discontinuity/position error.
+
+A simultaneous production system-route positive control retained populated audio
+but failed startup classification: its first packet had render index 4,137,600,
+480 frames, flag `0x1`, and a 44-ms start offset. The prior review requirement
+`index == 0` was withdrawn: a loopback client can join an existing render stream,
+so a nonzero first render index does not establish capture loss. Independent review
+is reopened, and both native routes require correction and installed retesting.
+The earlier quiet-start probes remain historical evidence only.
+
+The developer MCP synthetic CPU workflow also passed at ec494fd in run
+`workflow-2026-10-23T083815256Z-317eaec0`: transcript, edit, SRT/VTT/WAV export,
+playback read, and database reopen retained outputs. Its receipt explicitly does
+not replace installed microphone, system, or application capture acceptance.
+Hosted frontend CI passed; hosted Rust CI failed Clippy's newer
+`chunks_exact_to_as_chunks` lint in both native readers. Release remains blocked
+until the corrected head passes these checks and the native capture gates.
+
+### Native correction probes after ec494fd
+
+The replacement startup policy uses recent observed buffer availability and measured
+buffer duration, rather than requiring a zero initial render index. Its frozen
+debug probe executable SHA-256 is
+`DB5334FF8E528504E1D82AE4BF74097B4DEAE987C8D727DB67C57E2C0B430663`.
+`native-system-active-v4` passed with audio already playing: 20,122 ms, first
+signal at 42 ms, 656,768 nonzero samples, and no faults. `native-system-idle-v5`
+passed initial quiet → speech → four seconds of quiet → resumed speech: 20,045 ms,
+first signal at 3,460 ms, 455,950 nonzero samples, and no faults. PCM diagnostics
+confirm seconds 0/1/2 and 8/9/10 are silent while both speech intervals contain
+signal. These production-route probes do not replace installed-package retesting.
+The intervening `native-system-idle-v4` run omitted the player's mandatory WAV
+argument and therefore provided no input; it is a rejected harness run, not a
+product failure or a silence acceptance result.
+
+The selected-application diagnostic isolated its cause: packet two had 480 frames,
+zero flags, device index zero again, and an advancing native QPC timestamp. The
+old reader treated the virtual client's repeated zero counter as a backwards
+position despite no discontinuity flag. The application clock correction and
+simultaneous selected-source/distractor control remain pending.
+
+The next selected-source run (`native-application-qpc-v2`) streamed 12 seconds of
+speech but rejected a discarded 30-ms normal-stop tail. Tail persistence was
+corrected with an exact 30-ms regression. The subsequent paused/resumed-source
+run (`native-application-tail-v3`) retained its tail but still reported several
+10–54-ms source gaps; it was not accepted. A deterministic nonperiodic PCM fixture
+then independently verified real loss, rather than merely a timestamp anomaly:
+`native-application-marker-v4/pcm-continuity.json` found 960 missing reference
+frames (20 ms) exactly where the QPC classifier reported a 20-ms gap.
+
+`native-application-anomaly-v5` measured a virtual native buffer of only 480 frames
+(10 ms), while synchronous chunk writes took 21–58 ms. Reference correlations also
+confirmed the later reported losses. The classifier is retained; increasing its
+tolerance would hide real missing media. Supported buffered polling is being
+measured before choosing a larger reader/writer refactor.
+
+The user authorized unattended completion and requested silent operation. Both
+active render endpoints were muted and read back as muted; microphone settings
+were not changed. `native-system-muted-marker-v6` passed 20,117 ms with 963,719
+nonzero samples and no faults while speakers remained muted. Process-loopback
+marker probes also retained real signal under mute. Overnight tests do not
+require unmuting outputs or new human speech. Prior installed microphone speech
+evidence remains explicitly separate from new fixture-driven native evidence.
+
+Independent review additionally found that channel-failure event detail was hidden
+by the generic degraded state, and terminal stream faults could leave a capture
+job marked completed. The Live panel now surfaces degraded/error detail; its
+regression failed before implementation, then the full Live group passed 19 tests
+and TypeScript/Vite passed. Durable terminal-failure reporting is now implemented:
+terminal exits fail the job and degrade the revisioned session; bounded batched
+audit reads project the stable optional `captureWarning` code into scoped Review
+rows. All four source-fault types are covered without exposing raw error text.
+The combined Review tests passed 10 native and 17 frontend checks; microphone and
+system tail corrections passed 32 native checks (two hardware tests ignored).
+Independent review found no unresolved actionable findings in these changes.
+
+### Bounded application writer correction
+
+The supported polling experiment (`native-application-polling-v6` and stress-v7)
+was rejected before capture: the requested two-second buffer still measured only
+480 frames. It is not counted as an audio acceptance result. Event-driven capture
+was restored, and copied PCM is handed to a bounded writer queue. The reader keeps
+its own clock and end position; overflow/disconnection stops the native source,
+drains accepted PCM and preserves the tail before reporting explicit loss/failure.
+No timestamp-gap tolerance was relaxed. Slow-write and raw trace hooks exist only
+in test builds.
+
+Frozen writer probe SHA-256:
+`1B31C19D0C344E933454A868B1347DEB7D149E9979C561A96A24BC3DF6E591EF`.
+`native-application-writer-v8` passed a 12,010-ms baseline with 574,947 nonzero
+samples and no faults. `native-application-writer-stress-v9` passed 12,060 ms with
+577,362 nonzero samples and no faults while every two-second WAV write was delayed
+250 ms. Reference cross-correlation found **zero missing frames at every chunk
+boundary**, including the retained 10-ms and 60-ms final tails. Source SHA-256
+`FFE188C5CE2A7BCCDDACADCD5D9A415D6065A1864FA2082806B18109264C79D6`
+matches both frozen runs. Independent combined source review is accepted; focused
+frontend tests passed 71. The frozen full Rust library passed 683 tests with zero
+failures and ten explicit ignored tests; Clippy, formatting and diff checks passed.
+The 36 package test commands were verified compositionally: 35 passed in the
+initial broad run; the native custody compile was cancelled by the operator to
+release the Cargo slot. After limiting that runner to its registered library
+entrypoints, its explicit rerun passed all 12 checks. The later 71-test frontend
+group and fresh TypeScript/Vite build passed. Original cancelled-run evidence is
+retained instead of relabeled as an uninterrupted clean run.
+
+The controlled selected-speech/distractor run v11 proves source isolation and
+three seconds of quiet: selected-source 2200-Hz amplitude during quiet was below
+0.001 while simultaneous system control measured approximately 5,000. It still
+reported two 10-ms gaps at render-stream Stop/Resume boundaries. Those transition
+intervals remain under investigation and are **not** a normal pause/resume pass.
+An earlier v10 attempt and the first marker-transition v12 attempt failed the
+active-source preflight before capture; these are not audio acceptance results.
+Rebuilt installed acceptance and transition disposition remain separate gates.
 
 ### Installed crash recovery on eae669a
 

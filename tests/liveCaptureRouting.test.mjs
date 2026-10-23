@@ -84,6 +84,11 @@ test("capture meters are recording-scoped and render separate measured channels"
   assert.match(workspaceCss, /prefers-reduced-motion/);
 });
 
+test("application inventory failures remain visible on supported Windows", () => {
+  assert.doesNotMatch(workspace, /!applicationCaptureAvailable && captureDevices\?\.applicationCaptureIssue/);
+  assert.match(workspace, /applicationCaptureAvailable && !captureDevices\?\.applicationCaptureIssue && applicationOptions\.length === 0/);
+});
+
 test("settings categories use a visible horizontal tab grid without a scrolling tab rail", () => {
   assert.match(settings, /aria-orientation="horizontal"/);
   assert.match(settingsCss, /grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);

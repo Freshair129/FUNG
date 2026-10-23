@@ -40,6 +40,8 @@ mod graph_build;
 mod job_engine;
 mod live_application_audio;
 mod live_meeting;
+#[cfg(windows)]
+mod live_system_audio;
 mod live_transcript;
 mod local_api;
 mod local_diarization;

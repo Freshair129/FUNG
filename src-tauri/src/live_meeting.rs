@@ -372,6 +372,9 @@ pub(crate) struct RawChunk {
 pub(crate) struct CaptureSampleBatch {
     pub(crate) first_sample: u64,
     pub(crate) samples: Vec<i16>,
+    /// Only the callback-free render interval after this frame is silence.
+    /// Earlier missing frames still belong to dropped callback batches.
+    pub(crate) silence_before: Option<u64>,
 }
 
 /// What a capture thread reports to the coordinator.
@@ -497,6 +500,7 @@ fn build_stream<T: cpal::SizedSample + Send + 'static>(
                 let _ = tx.try_send(CaptureSampleBatch {
                     first_sample,
                     samples: mono,
+                    silence_before: None,
                 });
             },
             move |error| {
@@ -601,6 +605,34 @@ pub(crate) fn process_capture_sample_batch_with_gap_reason(
     last_level_event: &mut Instant,
     gap_reason: &'static str,
 ) {
+    if let Some(silence_start) = batch.silence_before.filter(|_| channel == CHANNEL_SYSTEM) {
+        let mut first = silence_start.max(*expected_sample);
+        // WASAPI render loopback may provide no callbacks while idle. Fill only
+        // that known interval, in bounded pieces on the non-realtime writer.
+        // Starting at silence_start preserves any earlier queue-overflow hole.
+        while first < batch.first_sample {
+            let count = (batch.first_sample - first).min(samples_per_chunk.max(1) as u64) as usize;
+            process_capture_sample_batch_with_gap_reason(
+                CaptureSampleBatch {
+                    first_sample: first,
+                    samples: vec![0; count],
+                    silence_before: None,
+                },
+                channel,
+                sample_rate,
+                samples_per_chunk,
+                chunks_dir,
+                chunk_tx,
+                accumulator,
+                timeline_samples,
+                expected_sample,
+                local_seq,
+                last_level_event,
+                gap_reason,
+            );
+            first += count as u64;
+        }
+    }
     let overlap = expected_sample.saturating_sub(batch.first_sample) as usize;
     if overlap >= batch.samples.len() {
         return;
@@ -758,6 +790,21 @@ fn spawn_capture_thread_with_fragment_ms(
     chunks_dir: PathBuf,
     fragment_ms: u64,
 ) -> Result<CaptureReady, String> {
+    #[cfg(windows)]
+    if matches!(kind, ChannelKind::SystemLoopback) {
+        let device =
+            resolve_capture_device(CaptureDeviceKind::SystemLoopback, device_id.as_deref())?;
+        let name = device
+            .name()
+            .map_err(|error| format!("selected system endpoint: {error}"))?;
+        return crate::live_system_audio::spawn_system_capture_thread(
+            name,
+            stop,
+            chunk_tx,
+            chunks_dir,
+            fragment_ms,
+        );
+    }
     let (ready_tx, ready_rx) = mpsc::channel::<Result<String, String>>();
 
     thread::spawn(move || {
@@ -4836,6 +4883,236 @@ mod tests {
     use genesis_block_native::{OpenOptions, Storage};
 
     #[test]
+    #[ignore = "records default native system loopback; explicit isolated UAT only"]
+    fn native_system_loopback_probe() {
+        let root = PathBuf::from(
+            std::env::var("FUNG_SYSTEM_PROBE_DIR").expect("set fresh evidence directory"),
+        );
+        assert!(root.is_absolute() && !root.exists());
+        std::fs::create_dir_all(&root).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::sync_channel(CAPTURE_EVENT_QUEUE_CAPACITY);
+        let ready = spawn_capture_thread(
+            ChannelKind::SystemLoopback,
+            CHANNEL_SYSTEM,
+            None,
+            stop.clone(),
+            tx,
+            root.clone(),
+        )
+        .unwrap();
+        std::fs::write(root.join("ready.txt"), &ready.device_name).unwrap();
+        eprintln!(
+            "SYSTEM_CAPTURE_READY: {} — starts a 20-second isolated probe",
+            ready.device_name
+        );
+        let started = Instant::now();
+        let mut chunks = Vec::new();
+        let mut faults = Vec::new();
+        loop {
+            if started.elapsed() >= Duration::from_secs(20) {
+                stop.store(true, Ordering::SeqCst);
+            }
+            match rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(CaptureEvent::Chunk(chunk)) => chunks.push(chunk),
+                Ok(CaptureEvent::Level { .. }) => {}
+                Ok(CaptureEvent::SourceGap {
+                    start_ms,
+                    end_ms,
+                    reason,
+                    ..
+                }) => faults.push(format!("gap {start_ms}..{end_ms} {reason}")),
+                Ok(CaptureEvent::StreamFailed { error, .. }) => faults.push(error),
+                Ok(CaptureEvent::ChunkWriteFailed { error, .. }) => faults.push(error),
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    assert!(started.elapsed() < Duration::from_secs(30))
+                }
+            }
+        }
+        let mut nonzero = 0u64;
+        let mut first_nonzero_ms = None;
+        let mut metadata = Vec::new();
+        for chunk in chunks {
+            let mut wav = hound::WavReader::open(&chunk.file_path).unwrap();
+            let rate = u64::from(wav.spec().sample_rate);
+            for (index, sample) in wav.samples::<i16>().enumerate() {
+                if sample.unwrap() != 0 {
+                    nonzero += 1;
+                    first_nonzero_ms
+                        .get_or_insert(chunk.start_ms + (index as u64 * 1000 / rate) as i64);
+                }
+            }
+            metadata.push(serde_json::json!({"startMs":chunk.start_ms,"endMs":chunk.end_ms,"file":chunk.file_path}));
+        }
+        let report = serde_json::json!({"device":ready.device_name,"chunks":metadata,"faults":faults,"nonzeroSamples":nonzero,"firstNonzeroMs":first_nonzero_ms,"scope":"native system capture only; no package/UI/transcription claim"});
+        std::fs::write(
+            root.join("probe-report.json"),
+            serde_json::to_vec_pretty(&report).unwrap(),
+        )
+        .unwrap();
+        eprintln!("{report}");
+        assert!(faults.is_empty());
+        assert!(nonzero > 0, "fixture must produce actual audio");
+    }
+
+    #[test]
+    fn system_normal_idle_writes_bounded_silent_wavs_without_capture_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let (tx, rx) = mpsc::sync_channel(CAPTURE_EVENT_QUEUE_CAPACITY);
+        let mut accumulator = Vec::new();
+        let mut timeline = 0;
+        let mut expected = 0;
+        let mut sequence = 0;
+        let mut level = Instant::now();
+        for batch in [
+            CaptureSampleBatch {
+                first_sample: 49_000,
+                samples: vec![123; 1_000],
+                silence_before: Some(0),
+            },
+            CaptureSampleBatch {
+                first_sample: 59_000,
+                samples: vec![456; 1_000],
+                silence_before: Some(50_000),
+            },
+        ] {
+            process_capture_sample_batch(
+                batch,
+                CHANNEL_SYSTEM,
+                1000,
+                8_000,
+                temp.path(),
+                &tx,
+                &mut accumulator,
+                &mut timeline,
+                &mut expected,
+                &mut sequence,
+                &mut level,
+            );
+        }
+        let take = accumulator.len();
+        cut_capture_chunk(
+            CHANNEL_SYSTEM,
+            1000,
+            temp.path(),
+            &tx,
+            &mut accumulator,
+            &mut timeline,
+            &mut sequence,
+            take,
+        );
+        let events: Vec<_> = rx.try_iter().collect();
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            CaptureEvent::SourceGap { .. }
+                | CaptureEvent::StreamFailed { .. }
+                | CaptureEvent::ChunkWriteFailed { .. }
+        )));
+        let chunks: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                CaptureEvent::Chunk(chunk) => Some(chunk),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(chunks.len(), 8);
+        let mut pcm = Vec::new();
+        for chunk in chunks {
+            assert!(chunk.end_ms - chunk.start_ms <= 8_000);
+            pcm.extend(
+                hound::WavReader::open(&chunk.file_path)
+                    .unwrap()
+                    .samples::<i16>()
+                    .map(Result::unwrap),
+            );
+        }
+        assert_eq!(pcm.len(), 60_000);
+        assert!(pcm[..49_000].iter().all(|&sample| sample == 0));
+        assert!(pcm[49_000..50_000].iter().all(|&sample| sample == 123));
+        assert!(pcm[50_000..59_000].iter().all(|&sample| sample == 0));
+        assert!(pcm[59_000..].iter().all(|&sample| sample == 456));
+        assert!(capture_outcome(60_000, 0, 0, 0).failure_reason.is_none());
+    }
+
+    #[test]
+    fn system_idle_is_bounded_silence_but_dropped_callback_audio_remains_a_gap() {
+        let temp = tempfile::tempdir().unwrap();
+        let (tx, rx) = mpsc::sync_channel(CAPTURE_EVENT_QUEUE_CAPACITY);
+        let mut accumulator = Vec::new();
+        let mut timeline = 0;
+        let mut expected = 0;
+        let mut sequence = 0;
+        let mut level = Instant::now();
+        for batch in [
+            CaptureSampleBatch {
+                first_sample: 8,
+                samples: vec![123; 4],
+                silence_before: Some(0),
+            },
+            // The callback at 12..16 was dropped before the render endpoint idled.
+            CaptureSampleBatch {
+                first_sample: 24,
+                samples: vec![456; 4],
+                silence_before: Some(16),
+            },
+        ] {
+            process_capture_sample_batch(
+                batch,
+                CHANNEL_SYSTEM,
+                1000,
+                4,
+                temp.path(),
+                &tx,
+                &mut accumulator,
+                &mut timeline,
+                &mut expected,
+                &mut sequence,
+                &mut level,
+            );
+        }
+        let events: Vec<_> = rx.try_iter().collect();
+        let gaps: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                CaptureEvent::SourceGap {
+                    start_ms,
+                    end_ms,
+                    reason,
+                    ..
+                } => Some((*start_ms, *end_ms, *reason)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(gaps, vec![(12, 16, "sample_queue_overflow")]);
+        let chunks: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                CaptureEvent::Chunk(chunk) => Some(chunk),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|c| (c.start_ms, c.end_ms))
+                .collect::<Vec<_>>(),
+            vec![(0, 4), (4, 8), (8, 12), (16, 20), (20, 24), (24, 28)]
+        );
+        for (chunk, value) in chunks.iter().zip([0, 0, 123, 0, 0, 456]) {
+            assert_eq!(
+                hound::WavReader::open(&chunk.file_path)
+                    .unwrap()
+                    .samples::<i16>()
+                    .map(Result::unwrap)
+                    .collect::<Vec<_>>(),
+                vec![value; 4]
+            );
+        }
+        assert_eq!(expected, 28);
+    }
+
+    #[test]
     fn revisioned_catchup_frontier_excludes_future_audio_in_long_recording() {
         let scope = crate::meeting_intelligence_schema::MeetingScope {
             project_id: "p".into(),
@@ -5049,6 +5326,7 @@ mod tests {
             CaptureSampleBatch {
                 first_sample: 0,
                 samples: vec![1; 8],
+                silence_before: None,
             },
             CHANNEL_MIC,
             1_000,
@@ -5065,6 +5343,7 @@ mod tests {
             CaptureSampleBatch {
                 first_sample: 12,
                 samples: vec![1; 4],
+                silence_before: None,
             },
             CHANNEL_MIC,
             1_000,

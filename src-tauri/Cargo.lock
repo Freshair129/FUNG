@@ -1741,6 +1741,7 @@ dependencies = [
  "uuid",
  "wasapi",
  "window-vibrancy",
+ "windows 0.62.2",
  "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",

@@ -16,7 +16,6 @@ pub(crate) struct LiveCaptureApplication {
 #[cfg(windows)]
 mod windows_impl {
     use std::collections::BTreeMap;
-    use std::collections::VecDeque;
     use std::mem::size_of;
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,6 +27,10 @@ mod windows_impl {
     use wasapi::{
         initialize_mta, AudioClient, DeviceEnumerator, Direction, SampleType, SessionState,
         StreamMode, WaveFormat,
+    };
+    use windows::Win32::Media::Audio::{
+        IAudioCaptureClient, AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY, AUDCLNT_BUFFERFLAGS_SILENT,
+        AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR,
     };
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
     use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
@@ -47,6 +50,108 @@ mod windows_impl {
     const APP_CAPTURE_FORMAT_RATE: u32 = 48_000;
     const APP_CAPTURE_CHANNELS: usize = 2;
     const APP_CAPTURE_WAIT_MS: u32 = 100;
+
+    struct ApplicationCaptureApartment;
+
+    impl Drop for ApplicationCaptureApartment {
+        fn drop(&mut self) {
+            wasapi::deinitialize();
+        }
+    }
+
+    /// The pointer must describe the PCM16 stereo packet just acquired from
+    /// WASAPI unless SILENT is set, in which case Windows permits a null pointer.
+    /// Release runs even when validation or decoding fails, before the caller
+    /// performs timeline validation, disk writes or channel sends.
+    unsafe fn decode_and_release_application_packet(
+        pointer: *const u8,
+        frames: u32,
+        flags: u32,
+        release: impl FnOnce() -> Result<(), String>,
+    ) -> Result<Vec<i16>, String> {
+        let decoded = (|| {
+            if frames > APP_CAPTURE_FORMAT_RATE * 2 {
+                return Err("audio packet จากแอปเกินขนาด buffer ที่อนุญาต".to_string());
+            }
+            if frames == 0 {
+                return Ok(Vec::new());
+            }
+            if flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0 {
+                return Ok(vec![0; frames as usize]);
+            }
+            if pointer.is_null() {
+                return Err("audio packet จากแอปเป็น null โดยไม่มีธง SILENT".to_string());
+            }
+            let bytes = unsafe {
+                std::slice::from_raw_parts(pointer, frames as usize * APP_CAPTURE_CHANNELS * 2)
+            };
+            Ok(bytes
+                .chunks_exact(APP_CAPTURE_CHANNELS * 2)
+                .map(|frame| {
+                    let left = i16::from_le_bytes([frame[0], frame[1]]) as i32;
+                    let right = i16::from_le_bytes([frame[2], frame[3]]) as i32;
+                    ((left + right) / 2) as i16
+                })
+                .collect())
+        })();
+        let released = release();
+        let samples = decoded?;
+        released?;
+        Ok(samples)
+    }
+
+    fn read_application_packet(
+        capture: &IAudioCaptureClient,
+    ) -> Result<(Vec<i16>, u64, u32), String> {
+        let mut pointer = std::ptr::null_mut();
+        let (mut frames, mut flags, mut index) = (0, 0, 0);
+        unsafe {
+            capture.GetBuffer(
+                &mut pointer,
+                &mut frames,
+                &mut flags,
+                Some(&mut index),
+                None,
+            )
+        }
+        .map_err(|error| format!("อ่าน audio packet จากแอปไม่สำเร็จ: {error}"))?;
+        // A successful empty read has no packet to release.
+        if frames == 0 {
+            return Ok((Vec::new(), index, flags));
+        }
+        let samples = unsafe {
+            decode_and_release_application_packet(pointer, frames, flags, || {
+                capture
+                    .ReleaseBuffer(frames)
+                    .map_err(|error| format!("คืน audio packet จากแอปไม่สำเร็จ: {error}"))
+            })
+        }?;
+        Ok((samples, index, flags))
+    }
+
+    struct InventoryApartment;
+    impl Drop for InventoryApartment {
+        fn drop(&mut self) {
+            wasapi::deinitialize();
+        }
+    }
+
+    fn on_inventory_thread<T: Send + 'static>(
+        read: impl FnOnce() -> Result<T, String> + Send + 'static,
+    ) -> Result<T, String> {
+        thread::Builder::new()
+            .name("fung-audio-inventory".into())
+            .spawn(move || {
+                initialize_mta()
+                    .ok()
+                    .map_err(|error| format!("เริ่ม Windows audio service ไม่สำเร็จ ({error})"))?;
+                let _apartment = InventoryApartment;
+                read()
+            })
+            .map_err(|error| format!("เปิด audio inventory thread ไม่สำเร็จ: {error}"))?
+            .join()
+            .map_err(|_| "audio inventory thread หยุดทำงาน".to_string())?
+    }
 
     fn packet_first_sample(
         origin: &mut Option<u64>,
@@ -111,6 +216,116 @@ mod windows_impl {
     #[cfg(test)]
     mod capture_regression_tests {
         use super::*;
+
+        #[test]
+        fn application_packet_reader_does_not_use_null_unsafe_wasapi_copy() {
+            let source = include_str!("live_application_audio.rs");
+            let unsafe_copy_call = [".read_from_device", "_to_deque("].concat();
+            assert!(
+                !source.contains(&unsafe_copy_call),
+                "wasapi 0.26 copies a possibly-null SILENT packet before checking its flags"
+            );
+        }
+
+        #[test]
+        fn application_packet_silent_null_decodes_zero_pcm_and_releases_once() {
+            let mut releases = 0;
+            let samples = unsafe {
+                decode_and_release_application_packet(
+                    std::ptr::null(),
+                    480,
+                    AUDCLNT_BUFFERFLAGS_SILENT.0 as u32,
+                    || {
+                        releases += 1;
+                        Ok(())
+                    },
+                )
+            }
+            .unwrap();
+            assert_eq!(samples, vec![0; 480]);
+            assert_eq!(releases, 1);
+        }
+
+        #[test]
+        fn application_packet_invalid_pointer_and_size_still_release() {
+            for (frames, flags) in [
+                (1, 0),
+                (
+                    APP_CAPTURE_FORMAT_RATE * 2 + 1,
+                    AUDCLNT_BUFFERFLAGS_SILENT.0 as u32,
+                ),
+            ] {
+                let mut releases = 0;
+                let result = unsafe {
+                    decode_and_release_application_packet(std::ptr::null(), frames, flags, || {
+                        releases += 1;
+                        Ok(())
+                    })
+                };
+                assert!(result.is_err());
+                assert_eq!(releases, 1);
+            }
+        }
+
+        #[test]
+        fn application_packet_decodes_stereo_without_losing_release_failures() {
+            let bytes = [1000i16.to_le_bytes(), (-500i16).to_le_bytes()].concat();
+            let mut releases = 0;
+            let samples = unsafe {
+                decode_and_release_application_packet(bytes.as_ptr(), 1, 0, || {
+                    releases += 1;
+                    Ok(())
+                })
+            }
+            .unwrap();
+            assert_eq!(samples, vec![250]);
+            assert_eq!(releases, 1);
+            let result = unsafe {
+                decode_and_release_application_packet(bytes.as_ptr(), 1, 0, || {
+                    Err("native release failed".into())
+                })
+            };
+            assert_eq!(result.unwrap_err(), "native release failed");
+        }
+
+        #[test]
+        fn inventory_worker_owns_mta_even_for_sta_caller() {
+            thread::spawn(|| {
+                wasapi::initialize_sta().ok().unwrap();
+                let result = on_inventory_thread(|| {
+                    assert!(
+                        wasapi::initialize_sta().is_err(),
+                        "inventory worker must already own MTA"
+                    );
+                    Ok(())
+                });
+                wasapi::deinitialize();
+                result.unwrap();
+            })
+            .join()
+            .unwrap();
+        }
+
+        #[test]
+        #[ignore = "reads native active audio-session inventory for explicit UAT diagnosis"]
+        fn active_inventory_apartment_probe() {
+            let sta = thread::spawn(|| {
+                wasapi::initialize_sta().ok().unwrap();
+                let result = active_audio_applications();
+                wasapi::deinitialize();
+                result
+            })
+            .join()
+            .unwrap();
+            let mta = thread::spawn(active_audio_applications).join().unwrap();
+            eprintln!("INVENTORY_STA={:?}", sta);
+            eprintln!("INVENTORY_MTA={:?}", mta);
+            assert!(
+                sta.is_ok(),
+                "production inventory must support a Tauri STA caller"
+            );
+            assert!(mta.is_ok(), "MTA inventory must be readable");
+        }
 
         #[test]
         fn packet_positions_preserve_native_gaps_and_reject_unmeasured_loss() {
@@ -179,6 +394,7 @@ mod windows_impl {
                     CaptureSampleBatch {
                         first_sample: first,
                         samples: vec![1234; 480],
+                        silence_before: None,
                     },
                     CHANNEL_SYSTEM,
                     48000,
@@ -289,9 +505,10 @@ mod windows_impl {
     }
 
     pub(crate) fn active_audio_applications() -> Result<Vec<LiveCaptureApplication>, String> {
-        initialize_mta()
-            .ok()
-            .map_err(|error| format!("เริ่ม Windows audio service ไม่สำเร็จ ({error})"))?;
+        on_inventory_thread(read_active_audio_applications)
+    }
+
+    fn read_active_audio_applications() -> Result<Vec<LiveCaptureApplication>, String> {
         let enumerator = DeviceEnumerator::new()
             .map_err(|error| format!("อ่านรายการ audio endpoint ไม่สำเร็จ: {error}"))?;
         let devices = enumerator
@@ -414,6 +631,7 @@ mod windows_impl {
         initialize_mta()
             .ok()
             .map_err(|error| format!("เริ่ม Windows audio service ไม่สำเร็จ ({error})"))?;
+        let _apartment = ApplicationCaptureApartment;
         let desired_format = WaveFormat::new(
             16,
             16,
@@ -435,8 +653,9 @@ mod windows_impl {
         let event = client
             .set_get_eventhandle()
             .map_err(|error| format!("สร้าง event ของ stream แอปไม่สำเร็จ: {error}"))?;
-        let capture = client
-            .get_audiocaptureclient()
+        // wasapi 0.26's copy helpers dereference SILENT packets before reading
+        // their flags. Use its public native interface to read/release safely.
+        let capture: IAudioCaptureClient = unsafe { client.as_iaudioclient().GetService() }
             .map_err(|error| format!("เปิด audio capture client ของแอปไม่สำเร็จ: {error}"))?;
         client
             .start_stream()
@@ -446,14 +665,12 @@ mod windows_impl {
         }
 
         let sample_rate = APP_CAPTURE_FORMAT_RATE;
-        let block_align = APP_CAPTURE_CHANNELS * 2;
         let samples_per_chunk = (sample_rate as u64 * fragment_ms / 1000) as usize;
         let mut accumulator = Vec::with_capacity(samples_per_chunk + 4096);
         let mut timeline_samples = 0u64;
         let mut expected_sample = 0u64;
         let mut local_seq = 0u32;
         let mut last_level_event = Instant::now();
-        let mut bytes = VecDeque::<u8>::new();
         let mut packet_origin = None;
 
         let capture_result = (|| -> Result<(), String> {
@@ -469,39 +686,23 @@ mod windows_impl {
                 }
 
                 loop {
-                    let packet_frames = capture
-                        .get_next_packet_size()
-                        .map_err(|error| format!("อ่านขนาด packet จากแอปไม่สำเร็จ: {error}"))?
-                        .unwrap_or(0);
+                    let packet_frames = unsafe { capture.GetNextPacketSize() }
+                        .map_err(|error| format!("อ่านขนาด packet จากแอปไม่สำเร็จ: {error}"))?;
                     if packet_frames == 0 {
                         break;
                     }
-                    let packet_info = capture
-                        .read_from_device_to_deque(&mut bytes)
-                        .map_err(|error| format!("อ่าน audio packet จากแอปไม่สำเร็จ: {error}"))?;
-                    let usable_bytes = bytes.len() - bytes.len() % block_align;
-                    let mut mono = Vec::with_capacity(usable_bytes / block_align);
-                    for _ in 0..(usable_bytes / block_align) {
-                        let left = i16::from_le_bytes([
-                            bytes.pop_front().unwrap_or(0),
-                            bytes.pop_front().unwrap_or(0),
-                        ]) as i32;
-                        let right = i16::from_le_bytes([
-                            bytes.pop_front().unwrap_or(0),
-                            bytes.pop_front().unwrap_or(0),
-                        ]) as i32;
-                        mono.push(((left + right) / 2) as i16);
-                    }
+                    let (mono, packet_index, packet_flags) = read_application_packet(&capture)?;
                     if mono.is_empty() {
                         continue;
                     }
                     let batch = CaptureSampleBatch {
+                        silence_before: None,
                         first_sample: packet_first_sample(
                             &mut packet_origin,
-                            packet_info.index,
+                            packet_index,
                             expected_sample,
-                            packet_info.flags.data_discontinuity,
-                            packet_info.flags.timestamp_error,
+                            packet_flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0,
+                            packet_flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR.0 as u32 != 0,
                         )?,
                         samples: mono,
                     };

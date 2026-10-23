@@ -1,5 +1,5 @@
 ---
-version: "0.1.1b"
+version: "0.1.2b"
 created_at: "2026-10-23"
 last_update: "2026-10-23"
 status: "candidate"
@@ -37,7 +37,9 @@ to 1.5 GB. This version preparation does not create or publish a release.
 | Check | Result |
 | --- | --- |
 | Full Rust library with application-capture corrections | 658 passed, 0 failed, 7 ignored; 197.83 s; compiled at 0.1.1 before metadata-only version preparation |
+| Final combined native clock, MTA inventory and safe application reader library | 670 passed, 0 failed, 9 ignored; 158.84 s at 0.1.2; `source-final-rust-tests.log` |
 | Clippy, all library targets, warnings denied | PASS at 0.1.2 |
+| Final combined native patch Clippy, all library targets, warnings denied | PASS; 1m 54s; `source-final-clippy.log` |
 | Release distribution metadata checks | 11 passed at 0.1.2 |
 | Live workspace, routing and recording-output Node checks | 26 passed |
 | TypeScript/Vite production build | PASS at 0.1.2 |
@@ -178,6 +180,61 @@ Selected-application preflight remains unaccepted: two owned SoundPlayer process
 application-source inventory returned no selectable applications. No application
 recording was started or falsely counted. The helpers were stopped after observing
 the inventory; a native apartment/session probe is investigating the cause.
+
+### Additional diagnosis and native candidate evidence
+
+[Issue #95](https://github.com/Freshair129/FUNG/issues/95) tracks the application
+inventory failure. A production native probe on an STA caller returned
+`RPC_E_CHANGED_MODE (0x80010106)`; an MTA caller returned both controlled active
+player PIDs 18588 and 42608. The correction isolates inventory on a named MTA worker
+with balanced COM lifetime. A frontend source regression also caught the hidden
+error: supported Windows previously masked an inventory failure with an empty-list
+hint. The regression failed first, then routing 8/8, Live 18/18, TypeScript/Vite,
+and a separate Shell/Review/History/routing/release group of 65 tests passed.
+
+The first #94 CPAL-clock proposal was rejected by independent review: CPAL hides
+native discontinuity flags, so clock jumps cannot all be claimed as known silence.
+The replacement uses native WASAPI packet flags. Its first real probe failed on
+startup/discontinuity and timestamp policy; it was not accepted. Subsequent changes
+retain a sample clock for continuous packets, bound timestamps using measured
+endpoint buffering, and handle the startup flag without discarding genuine loss.
+
+`native-system-probe-v2` exercises the production native system route after five
+seconds of initial quiet. It passed: first nonzero PCM at 5,500 ms, three chunks
+covering 0–20,049 ms, 477,042 nonzero samples and no faults. The next actual run,
+`native-system-probe-v3`, used initial quiet, speech, four seconds of quiet and
+resumed speech. It passed: first nonzero at 3,427 ms, 20,087-ms total timeline,
+458,006 nonzero samples and no faults. Per-second WAV checks confirm seconds
+0/1/2 and 8/9/10 are zero, while 4/5/6 and 12/13/14 contain signal. The native
+probe reports and `per-second-peaks.json` are local evidence. These runs do not
+claim installed-package acceptance for the new native code.
+
+The final startup exception is restricted to native frame index zero. A regression
+first failed for an initial discontinuity at index 480, then passed with a real
+0–20-ms loss interval and retained 20–30-ms audio. This avoids converting genuine
+initial loss into clean silence. Five native clock/consumer regressions pass.
+The process-loopback reader now uses the existing public native client interface,
+checks `SILENT` before nullable pointer access, bounds packet size and releases
+buffers on decode errors. Its focused Rust group passed 8 tests with the explicit
+hardware inventory probe ignored. No vendoring or extra dependency is required for
+that reader. Independent re-review of the combined native/UI patch found no
+unresolved actionable findings. The final combined library suite passed 670 tests,
+with zero failures and nine explicit ignored tests in 158.84 seconds. Clippy with
+warnings denied passed in 1m 54s. New installed-package UAT remains a gate; source
+review and native probes do not close it.
+
+### Installed crash recovery on eae669a
+
+An additional isolated microphone-only recording was interrupted by terminating
+the identified UAT process during capture. On restart the visible recovery banner
+reported recording `85920b91-e5d3-4d6c-82e3-7d4afc584479`. The app's Recover button
+completed recovery of four durable chunks covering 32 seconds and processed all
+four for transcription. The input was quiet, so no speech accuracy is claimed.
+All 30 chunks observed before termination retained identical hashes; one additional
+chunk committed before process termination, giving 31 after recovery. SQLite
+integrity remained `ok`. The original capture job correctly retains its interrupted
+failure history instead of being relabeled as an uninterrupted success. This proves
+durable-chunk recovery, not retention of the unsaved in-memory capture tail.
 
 The output configuration confirms media is isolated under
 `C:\Users\suanr\AppData\Roaming\dev.fung.uat.releasefix20261023\recordings`.

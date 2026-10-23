@@ -784,10 +784,10 @@ export function LiveWorkspace({
                         </option>
                       ))}
                     </select>
-                    {applicationCaptureAvailable && applicationOptions.length === 0 ? (
+                    {applicationCaptureAvailable && !captureDevices?.applicationCaptureIssue && applicationOptions.length === 0 ? (
                       <span className="live-workspace__muted">ไม่พบแอปที่กำลังส่งเสียง · รีเฟรชรายการหลังเปิดเสียง</span>
                     ) : null}
-                    {!applicationCaptureAvailable && captureDevices?.applicationCaptureIssue ? (
+                    {captureDevices?.applicationCaptureIssue ? (
                       <span className="live-workspace__device-issue" role="status">
                         {captureDevices.applicationCaptureIssue}
                       </span>

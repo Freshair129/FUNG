@@ -1,5 +1,5 @@
 ---
-version: "0.3.34b"
+version: "0.3.35b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-23,Codex"
 
@@ -12,6 +12,19 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Installed 0.1.2 workflow and native follow-up — 2026-10-23
+
+The isolated installed eae669a package produced system audio, eight transcript
+rows, local summary output, a saved transcript edit, SRT/VTT/WAV exports and
+successful normal close/reopen, data-preserving reinstall and durable-chunk crash
+recovery. Quality is explicitly deferred. Installed testing found and corrected
+the fixed UI stop timeout; system channel alignment and application inventory
+required further native changes. Real native delayed/resumed-idle probes pass and
+the combined patch has no unresolved independent review findings. Final source
+checks, rebuilt installed retest, spoken microphone acceptance and selected-app
+isolation remain open; no merge, tag or publication is claimed. See the
+[installed acceptance report](../verification/implementation-reports/2026-10-23-installed-releasefix-uat.md).
 
 ## CPU capture reliability and microphone follow-up — 2026-10-23
 
@@ -1678,6 +1691,11 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.34b` → `0.3.35b`
+
+Recorded installed workflow outputs, durable restart/reinstall/recovery evidence,
+native alignment/inventory follow-up and remaining exact-package capture gates.
+
 ### `0.3.33v` → `0.3.34b`
 
 - Recorded CPU capture-first decoding, post-meeting prerequisites, isolated media
@@ -1968,6 +1986,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.35b | 2026-10-23 | beta | Installed eae669a workflow outputs and restart/reinstall/recovery verified; native clock/inventory corrections independently reviewed with hardware probes; final package and spoken mic/app isolation gates remain open. | working-tree | Codex |
 | 0.3.34b | 2026-10-23 | beta | CPU decode deferred until Stop; post-meeting prerequisites and alternate media defaults corrected. Headless ONIKUMA audio produces 3 local CPU transcript segments; rebuilt installed acceptance remains open. | working-tree | Codex |
 | 0.3.33v | 2026-10-20 | beta | Post-remediation Rust library tests (649 passed, 6 ignored), frontend build and workflow MCP acceptance pass; independent re-review remains open. | working-tree | Codex |
 | 0.3.32v | 2026-10-20 | beta | Post-remediation Rust compile, format and whitespace checks pass; test suites and independent re-review remain open. | working-tree | Codex |

@@ -982,7 +982,7 @@ export type LiveStatusEvent = {
 
 export type LiveSummaryEvent = {
   recordingId: string;
-  state: "running" | "ready" | "failed";
+  state: "running" | "ready" | "failed" | "skipped";
   detail: string | null;
   exportPath: string | null;
 };

@@ -9,6 +9,16 @@ use crate::{AppError, AppResult, AppState};
 
 const CONFIG_FILE: &str = "recording-output.json";
 
+/// Alternate app identities (including UAT packages) own their media as well
+/// as their database. Existing explicit output selections are kept by load().
+pub(crate) fn default_media_root(identifier: &str, data_root: &Path, documents: &Path) -> PathBuf {
+    if identifier == "dev.fung.local" {
+        documents.join("fung")
+    } else {
+        data_root.join("recordings")
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RecordingOutputStatus {
@@ -269,6 +279,28 @@ pub(crate) fn recording_output_reset(
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn alternate_app_identity_has_its_own_default_media_root() {
+        let data = tempdir().unwrap();
+        let documents = data.path().join("documents");
+        let profile = data.path().join("uat-profile");
+        assert_eq!(
+            default_media_root("dev.fung.local", &profile, &documents),
+            documents.join("fung")
+        );
+        let root = default_media_root("dev.fung.uat.release20261023", &profile, &documents);
+        assert_eq!(root, profile.join("recordings"));
+        let manager = RecordingOutputManager::load(profile.clone(), root.clone()).unwrap();
+        assert_eq!(manager.current_root(), root);
+        assert!(!documents.exists());
+        assert_eq!(
+            RecordingOutputManager::load(profile, root.clone())
+                .unwrap()
+                .current_root(),
+            root
+        );
+    }
 
     #[test]
     fn default_and_custom_roots_are_persisted_and_known() {

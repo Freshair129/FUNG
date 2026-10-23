@@ -13,6 +13,15 @@ attributes:
 
 # Desktop release candidate and native UAT status
 
+## Later remediation
+
+The [capture follow-up](2026-10-23-capture-backpressure-remediation.md) records
+the queue-overflow diagnosis, source fixes, and fresh ONIKUMA headless capture
+producing three local CPU transcript segments after input-level adjustment.
+Hosted frontend and Rust checks on `ee8acfb` both passed. The evidence below
+remains the older installed-package snapshot; rebuilt installed acceptance
+and hosted checks for the new remediation are still required.
+
 ## Outcome
 
 The Desktop workflow candidate builds and installs as an unsigned Windows NSIS

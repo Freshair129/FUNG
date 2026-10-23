@@ -1,7 +1,7 @@
 ---
-version: "0.3.33v"
+version: "0.3.34b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-20,Codex"
+last_update: "2026-10-23,Codex"
 
 status: "beta"
 superseded_by: null
@@ -12,6 +12,16 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## CPU capture reliability and microphone follow-up — 2026-10-23
+
+CPU recording now defers model decoding until Stop to prevent inference from
+blocking the bounded capture queues. Post-meeting jobs require transcript and
+optional-runtime readiness; fresh alternate app IDs isolate their media defaults.
+Headless ONIKUMA recording with input raised to 85% produced usable signal and
+three local CPU transcript segments. Rust 654 tests, 34 focused frontend tests,
+build and Clippy pass. Rebuilt installed-package acceptance remains open. See
+the [remediation evidence](../verification/implementation-reports/2026-10-23-capture-backpressure-remediation.md).
 
 ## Desktop meeting workflow UI and capture source candidate — 2026-10-22
 
@@ -1668,6 +1678,12 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.33v` → `0.3.34b`
+
+- Recorded CPU capture-first decoding, post-meeting prerequisites, isolated media
+  defaults and real ONIKUMA audio → CPU transcription evidence; installed-package
+  and release gates remain open.
+
 ### `0.3.32v` → `0.3.33v`
 
 - Recorded passing post-remediation Rust library tests, frontend build, and
@@ -1952,6 +1968,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.34b | 2026-10-23 | beta | CPU decode deferred until Stop; post-meeting prerequisites and alternate media defaults corrected. Headless ONIKUMA audio produces 3 local CPU transcript segments; rebuilt installed acceptance remains open. | working-tree | Codex |
 | 0.3.33v | 2026-10-20 | beta | Post-remediation Rust library tests (649 passed, 6 ignored), frontend build and workflow MCP acceptance pass; independent re-review remains open. | working-tree | Codex |
 | 0.3.32v | 2026-10-20 | beta | Post-remediation Rust compile, format and whitespace checks pass; test suites and independent re-review remain open. | working-tree | Codex |
 | 0.3.31v | 2026-10-20 | beta | Recorded working-tree fixes for MCP notification acceptance, bounded grant-filtered job pagination and contract metadata; no post-fix tests or independent re-review are claimed. | working-tree | Codex |

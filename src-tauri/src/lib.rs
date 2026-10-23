@@ -1681,11 +1681,12 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         .path()
         .app_data_dir()
         .map_err(|_| AppError::MissingAppDataDir)?;
-    let default_output_root = app
+    let documents = app
         .path()
         .document_dir()
-        .map_err(|_| AppError::InvalidInput("Documents directory is not available".to_string()))?
-        .join("fung");
+        .map_err(|_| AppError::InvalidInput("Documents directory is not available".to_string()))?;
+    let default_output_root =
+        recording_output::default_media_root(&app.config().identifier, &app_data_dir, &documents);
     let recording_output =
         recording_output::RecordingOutputManager::load(app_data_dir.clone(), default_output_root)
             .map_err(AppError::InvalidInput)?;

@@ -1,0 +1,361 @@
+{
+  "schema_version": "1.0",
+  "document_version": "0.1.6b",
+  "plan_id": "FUNG-PRODUCT-MCP-2026-10",
+  "last_update": "2026-10-20",
+  "status": "active",
+  "scope": "Product MCP feature roadmap execution graph; user-authorized phased execution",
+  "snapshot": {
+    "branch": "codex/desktop-workflow-mcp-20261020",
+    "head": "1ccf107",
+    "working_tree_state": "UNCOMMITTED_SOURCE_CANDIDATE",
+    "packaged_runtime_or_client_uat": "NOT_RUN",
+    "developer_acceptance_mcp": [
+      "fung.workflow.describe",
+      "fung.workflow.run_acceptance",
+      "fung.workflow.list_runs"
+    ],
+    "product_contract": "contracts/product-mcp-v2.yaml",
+    "legacy_product_contract": "contracts/local-mcp-v1.yaml",
+    "mobile_contract": "contracts/mobile-mcp-v1.yaml",
+    "note": "Existing contracts and developer MCP tools are not proof that the full Desktop product MCP surface is runtime-verified."
+  },
+  "execution": {
+    "declarative_plan": true,
+    "scheduler_installed": false,
+    "dispatch_started": true,
+    "execution_id": "FUNG-PRODUCT-MCP-2026-10-20-01",
+    "current_node": "MCP-02",
+    "execution_mode": "checkpointed_dag",
+    "resume_policy": "resume_from_first_nonterminal_node; retain accepted evidence; invalidate downstream nodes only with recorded reason",
+    "user_authorized_at": "2026-10-20",
+    "implementation_authorized_by_user": true,
+    "implementation_authorized_by_this_plan": false,
+    "external_provider_or_write_authorized": false,
+    "release_authorized": false
+  },
+  "dependency_policy": {
+    "required_dependency_terminal_state": "ACCEPTED",
+    "optional_lane_skip_satisfies_dependency": true,
+    "skip_requires_recorded_reason": true,
+    "skipped_scope_must_be_excluded_from_release_claims": true
+  },
+  "states": [
+    "NOT_STARTED",
+    "READY",
+    "IN_PROGRESS",
+    "REVIEW",
+    "ACCEPTED",
+    "BLOCKED",
+    "SKIPPED",
+    "INVALIDATED"
+  ],
+  "priority_order": ["P0", "P1", "P2", "P3", "P4", "P5"],
+  "nodes": [
+    {
+      "id": "MCP-00",
+      "wave": "W0",
+      "priority": "P0",
+      "lane": "baseline",
+      "title": "Inventory MCP contract, runtime registration, APIs, and evidence",
+      "depends_on": [],
+      "status": "ACCEPTED",
+      "tool_domains": ["health", "capabilities", "permissions", "recording", "jobs", "transcript", "summary", "export"],
+      "evidence": ["../verification/implementation-reports/2026-10-20-product-mcp-inventory.md"],
+      "review_status": "INDEPENDENT_REVIEW_ACCEPTED",
+      "exit_criteria": [
+        "Classify each declared tool as RUNTIME_VERIFIED, IMPLEMENTED_NOT_UAT, CONTRACT_ONLY, MISSING, or BLOCKED.",
+        "Map every runtime tool to one Tauri command or local API and the authoritative Genesis adapter.",
+        "Record current input/output schemas, state changes, permissions, and exact evidence."
+      ]
+    },
+    {
+      "id": "MCP-01",
+      "wave": "W0",
+      "priority": "P0",
+      "lane": "contract",
+      "title": "Freeze versioned product MCP contract and capability policy",
+      "depends_on": ["MCP-00"],
+      "status": "ACCEPTED",
+      "tool_domains": ["capabilities", "permissions", "audit", "jobs"],
+      "evidence": ["../specs/2026-10-20-product-mcp-v2-contract.md"],
+      "review_status": "INDEPENDENT_REVIEW_ACCEPTED_V0.1.4B",
+      "prior_review_status": "INDEPENDENT_REVIEW_ACCEPTED for v0.1.2b",
+      "reopened_reason": "v0.1.3b review rejected incomplete server/discover wire details: ttlMs, cacheScope, concrete serverInfo object, and request/response prose examples.",
+      "acceptance_evidence": "Independent read-only review accepted v0.1.4b; discovery request/response, serverInfo, cache hints, cache scope, prior contract decisions, DAG criteria, and report were verified.",
+      "exit_criteria": [
+        "Specify all mandatory protocol-level methods including server/discover; its complete wire request/response, serverInfo object, and cache hints; tools/list cache hints; Streamable HTTP POST framing, Accept and MCP metadata headers, mismatch errors, body limit, response mode, Origin/Host/loopback checks, and the selected protocol revision.",
+        "Document the local-only Bearer profile as an explicit MCP OAuth deviation; bind grants to one workspace and exact project IDs or explicit all-projects consent.",
+        "Define read, local-write, capture, external-disclosure, destructive, and admin scopes plus provider-egress rechecks, request-rate limits, idempotency/replay, expected revisions, tool error envelopes, job lifecycle, and audit fields.",
+        "Provide MCP-compliant inputSchema, outputSchema, descriptions, and behavior annotations for every MCP-02 tool; require later phases to define schemas before implementation.",
+        "Independent contract/privacy review accepts the versioned machine and prose contract."
+      ]
+    },
+    {
+      "id": "MCP-02",
+      "wave": "W1",
+      "priority": "P0",
+      "lane": "shared-runtime",
+      "title": "Implement bounded local MCP-to-FUNG bridge and async job primitives",
+      "depends_on": ["MCP-01"],
+      "status": "REVIEW",
+      "tool_domains": ["health", "capabilities", "permissions", "jobs"],
+      "evidence": [
+        "../verification/implementation-reports/2026-10-20-product-mcp-implementation.md",
+        "../verification/implementation-reports/2026-10-20-workflow-mcp-acceptance.md"
+      ],
+      "review_status": "IMPLEMENTATION_FINDINGS_PATCHED_POST_FIX_VERIFICATION_AND_REVIEW_PENDING",
+      "acceptance_evidence": "The prior source candidate passed Rust/frontend/workflow checks before implementation-review remediation. Notification dispatch and bounded job-list reads are patched; post-fix Rust library suite passes 649/649 with 6 ignored, frontend build passes, and workflow MCP acceptance passes 3/3. Independent re-review and package/client interoperability remain open.",
+      "exit_criteria": [
+        "Local-only bind/auth behavior is verified; LAN access remains disabled by default.",
+        "server/discover reports the supported protocol, tools capability, concrete serverInfo identity, and valid ttlMs/cacheScope hints; tools/list reports valid cache hints; Streamable HTTP protocol headers/body framing and errors match the selected MCP revision.",
+        "Per-grant request/job-control limits and global in-flight cap are enforced.",
+        "tools/list exposes the accepted MCP-02 JSON schemas and tools/call returns protocol-valid success and domain-error envelopes.",
+        "Tools call existing app/API/Genesis paths without bypassing persistence invariants.",
+        "Long work returns job IDs and supports status/cancel without blocking capture."
+      ]
+    },
+    {
+      "id": "MCP-03",
+      "wave": "W1",
+      "priority": "P1",
+      "lane": "capture",
+      "title": "Expose capture source discovery and permission state",
+      "depends_on": ["MCP-01", "MCP-02"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["recording.sources", "capabilities", "permissions"],
+      "exit_criteria": [
+        "Return microphone, system-loopback, import, and per-app sources only when runtime-probed as available.",
+        "Report permission, device health, and unsupported reasons without silently widening capture scope."
+      ]
+    },
+    {
+      "id": "MCP-04",
+      "wave": "W1",
+      "priority": "P1",
+      "lane": "capture",
+      "title": "Expose start, status, pause, resume, stop, and recover controls",
+      "depends_on": ["MCP-03"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["project.create", "recording.start", "recording.status", "recording.control", "jobs"],
+      "exit_criteria": [
+        "Start uses the existing capture state machine and an idempotency key.",
+        "Stop returns the saved recording and processing job references.",
+        "Recording indicator, UI authorization, stop route, and source selection remain authoritative."
+      ]
+    },
+    {
+      "id": "MCP-05",
+      "wave": "W1",
+      "priority": "P2",
+      "lane": "library",
+      "title": "Expose project, recording, transcript, and artifact read APIs",
+      "depends_on": ["MCP-02", "MCP-01"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["project", "recording", "transcript", "summary", "export"],
+      "exit_criteria": [
+        "List/get operations are bounded, paginated, and permission-filtered.",
+        "Responses carry stable IDs, revision, processing status, and artifact references."
+      ]
+    },
+    {
+      "id": "MCP-06",
+      "wave": "W1",
+      "priority": "P2",
+      "lane": "retrieval",
+      "title": "Add transcript search, cross-meeting query, and citation resolution",
+      "depends_on": ["MCP-05"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["transcript.search", "meeting.ask", "citation"],
+      "exit_criteria": [
+        "Search returns bounded excerpts with source ID, revision, speaker, and timestamp.",
+        "Every answer citation resolves to an authorized original segment.",
+        "Cross-project access and stale or revoked source references fail closed."
+      ]
+    },
+    {
+      "id": "MCP-07",
+      "wave": "W1",
+      "priority": "P3",
+      "lane": "review",
+      "title": "Expose revision-safe transcript edits and speaker-label corrections",
+      "depends_on": ["MCP-05", "MCP-01"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["transcript.patch_segment", "transcript.rename_speaker", "revisions"],
+      "exit_criteria": [
+        "Edits require expected revision and create auditable revisions.",
+        "Conflicting edits return a revision conflict instead of overwriting.",
+        "Original ASR output remains distinguishable from human correction."
+      ]
+    },
+    {
+      "id": "MCP-08",
+      "wave": "W2",
+      "priority": "P3",
+      "lane": "artifacts",
+      "title": "Expose grounded summaries, decisions, and action-item workflows",
+      "depends_on": ["MCP-06", "MCP-07"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["summary", "decision", "task"],
+      "exit_criteria": [
+        "Generated summaries and extracted tasks cite source revisions and evidence spans.",
+        "Unknown owner/date fields remain unknown rather than being invented.",
+        "Edits or source changes mark derived drafts as stale."
+      ]
+    },
+    {
+      "id": "MCP-09",
+      "wave": "W2",
+      "priority": "P3",
+      "lane": "artifacts",
+      "title": "Expose export creation and artifact/job readback",
+      "depends_on": ["MCP-05", "MCP-08"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["export", "jobs"],
+      "exit_criteria": [
+        "Supported formats report source revision and completion state.",
+        "Retries do not silently duplicate artifacts.",
+        "Export survives orderly app/database close and reopen."
+      ]
+    },
+    {
+      "id": "MCP-10",
+      "wave": "W2",
+      "priority": "P1",
+      "lane": "integration",
+      "title": "Pass the core MCP capture-to-result acceptance workflow",
+      "depends_on": ["MCP-02", "MCP-04", "MCP-05", "MCP-06", "MCP-07", "MCP-08", "MCP-09"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["recording", "jobs", "transcript", "summary", "export"],
+      "exit_criteria": [
+        "Synthetic transport run proves the in-process MCP calls and produces a retrievable result; third-party client interoperability is reserved for MCP-18.",
+        "Packaged UAT microphone run saves nonzero audio chunks with matching ledger hashes.",
+        "Stop completes, job/result can be read, and data survives close/reopen.",
+        "ASR quality score is reported diagnostically and is not a gate for this workflow acceptance."
+      ]
+    },
+    {
+      "id": "MCP-11",
+      "wave": "W3",
+      "priority": "P4",
+      "optional": true,
+      "lane": "organization",
+      "title": "Add collections, contacts, reusable templates, and decision tracking",
+      "depends_on": ["MCP-10"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["collection", "contact", "template", "decision"],
+      "exit_criteria": [
+        "Organization operations remain within the selected workspace and explicit permissions.",
+        "Decision history retains supersession links and evidence."
+      ]
+    },
+    {
+      "id": "MCP-12",
+      "wave": "W3",
+      "priority": "P4",
+      "optional": true,
+      "lane": "media",
+      "title": "Add media import/process, local playback, clips, and translation",
+      "depends_on": ["MCP-10", "MCP-03"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["media", "clip", "translation", "glossary"],
+      "exit_criteria": [
+        "Imports use approved file handles/roots and bounded processing jobs.",
+        "Clips reference source time ranges and do not publish by default.",
+        "Translations remain linked to their source revision."
+      ]
+    },
+    {
+      "id": "MCP-13",
+      "wave": "W3",
+      "priority": "P4",
+      "optional": true,
+      "lane": "insights",
+      "title": "Add meeting/task analytics with coverage and uncertainty metadata",
+      "depends_on": ["MCP-10", "MCP-11"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["analytics"],
+      "exit_criteria": [
+        "Each aggregate reports scope, denominator, coverage, and missing-data caveats.",
+        "Inferred sentiment or performance is not represented as objective fact."
+      ]
+    },
+    {
+      "id": "MCP-14",
+      "wave": "W4",
+      "priority": "P5",
+      "optional": true,
+      "lane": "connectors",
+      "title": "Expose approved external read-only connector calls",
+      "depends_on": ["MCP-10", "MCP-01"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["connector", "external-read", "grant"],
+      "exit_criteria": [
+        "Preview shows query, connector/tool, requested fields, egress, and expiry.",
+        "Approval is per call and deny/revoke/timeout sends no request.",
+        "External results retain origin and retrieval timestamp."
+      ]
+    },
+    {
+      "id": "MCP-17",
+      "wave": "W4",
+      "priority": "P5",
+      "optional": true,
+      "lane": "operations",
+      "title": "Add diagnostics, audit, retention preview, and backup administration",
+      "depends_on": ["MCP-02", "MCP-10"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["diagnostics", "audit", "retention", "backup"],
+      "exit_criteria": [
+        "Audit records actor, client, scope, time, object/revision, job ID, and external receipt without secrets or full transcript logging.",
+        "Delete/purge and restore return a reviewable plan and require separate authorization."
+      ]
+    },
+    {
+      "id": "MCP-15",
+      "wave": "W4",
+      "priority": "P5",
+      "optional": true,
+      "lane": "sharing",
+      "title": "Add share, publish, and external-write preview/commit flows",
+      "depends_on": ["MCP-14", "MCP-17"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["share", "publish", "external-write"],
+      "exit_criteria": [
+        "Commit is bound to an immutable reviewed payload/destination preview.",
+        "Idempotency and delivery receipt reconciliation prevent duplicate sends.",
+        "Uncertain delivery becomes a held state; no blind retry."
+      ]
+    },
+    {
+      "id": "MCP-16",
+      "wave": "W4",
+      "priority": "P5",
+      "optional": true,
+      "lane": "automation",
+      "title": "Add calendar linking and bounded scheduled capture/automation",
+      "depends_on": ["MCP-04", "MCP-17"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["calendar", "automation", "scheduled-capture"],
+      "exit_criteria": [
+        "Schedules have explicit source, event scope, expiry, and revocation.",
+        "Automation actions are typed and allowlisted; arbitrary shell/API execution is unavailable."
+      ]
+    },
+    {
+      "id": "MCP-18",
+      "wave": "W5",
+      "priority": "P1",
+      "lane": "release-review",
+      "title": "Complete independent packaged UAT and MCP-client interoperability review",
+      "depends_on": ["MCP-10", "MCP-11", "MCP-12", "MCP-13", "MCP-14", "MCP-15", "MCP-16", "MCP-17"],
+      "status": "NOT_STARTED",
+      "tool_domains": ["all-selected"],
+      "exit_criteria": [
+        "Only selected release capabilities are claimed; skipped optional lanes have a recorded reason.",
+        "Codex and the other selected MCP clients pass tool discovery, parameters, cancellation, permission-denial, and restart matrix against the packaged Desktop app.",
+        "Evidence separates code tests, synthetic workflow, real mic, external provider, package, and signing."
+      ]
+    }
+  ]
+}

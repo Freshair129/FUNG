@@ -3,8 +3,10 @@ import type {
   ExportArtifact,
   DetailedTranscriptionReadiness,
   DetailedTranscriptProposal,
+  DiarizationReadiness,
   Job,
   LiveCaptureDevices,
+  LiveAudioLevelSample,
   LiveSegmentEvent,
   LiveStartOutput,
   LiveStatusOutput,
@@ -183,6 +185,7 @@ export type RecordingRow = {
   language: string | null;
   channels: PlaybackChannel[];
   captureState: RecordingCaptureState;
+  captureWarning?: "capture_source_fault" | null;
 };
 
 export type RecordingPage = {
@@ -288,6 +291,7 @@ export type LiveStartOptions = {
   transcriptProfile?: "chunked" | "revisioned";
   micDeviceId?: string;
   systemDeviceId?: string;
+  applicationProcessId?: number;
 };
 
 export type CapabilityState = {
@@ -388,6 +392,7 @@ export type LiveWorkspaceProps = {
   elapsedMs: number;
   devices: LiveDevices;
   captureDevices: LiveCaptureDevices | null;
+  liveAudioLevels: Readonly<{ mic: LiveAudioLevelSample | null; system: LiveAudioLevelSample | null }>;
   captureDevicesLoading: boolean;
   captureDevicesError: string | null;
   refreshCaptureDevices: () => void | Promise<void>;
@@ -411,6 +416,7 @@ export type RecordingReviewActions = {
   ) => Promise<void>;
   renameSpeaker: (speakerId: string, displayName: string) => Promise<void>;
   queueExistingJob: (selection: RecordingKey, jobType: string) => Promise<Job>;
+  diarizationReadiness: () => Promise<DiarizationReadiness | null>;
   detailedTranscriptionReadiness: () => Promise<DetailedTranscriptionReadiness>;
   listDetailedTranscriptProposals: (selection: RecordingKey) => Promise<DetailedTranscriptProposal[]>;
   reviewDetailedTranscriptProposal: (

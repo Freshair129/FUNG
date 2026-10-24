@@ -1,7 +1,7 @@
 ---
-version: "0.1.11b"
+version: "0.1.12b"
 created_at: "2026-08-26T00:00:00+07:00,Agent: Luna,Commit: 8a6406e6513943e09447daeb3c6572aa41468b67"
-last_update: "2026-09-17T00:00:00+07:00,Agent: Codex,Commit: 1b1a763"
+last_update: "2026-10-24,Agent: Codex"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -202,10 +202,28 @@ No other files, migrations, credentials, release artifacts, external systems, or
 | 0.1.10b | Records the sandbox-only Genesis lock denial and host-level responsive EXE observation; packaged click-through remains open. |
 | 0.1.11b | Confirms host-level WiX MSI packaging with an isolated target; NSIS and packaged acceptance remain open. |
 
+## Multichannel source-export custody — 2026-10-24
+
+Issue [#97](https://github.com/Freshair129/FUNG/issues/97) identifies an installed export that retained near-silent microphone audio while omitting populated system audio.
+
+- `export.render` must export every present captured channel explicitly; a multichannel live recording produces separate channel-named WAV files and channel-specific durable artifact IDs. It must not choose the playback default or invent a mix.
+- Single-channel/live and imported-file exports preserve their existing filename and artifact identity.
+- Admit source export only after the recording is `completed`: native capture drains its workers before `finish_capture`; ASR catch-up may still be running and must not block source export. Render an exact validated source snapshot, including channel paths, ordinals, intervals and byte bounds, rather than re-querying inputs between channels. Reject observed source-ledger changes before publication; later repair/recovery requires a new export attempt. This is snapshot-at-admission semantics, not a global lock on future repair.
+- All channels must be prepared and validated before the media set is advertised. Prepare sequentially, with a 512 MiB aggregate source/output byte ceiling, so the repair does not multiply in-memory renderer results.
+- Publish multichannel media as a complete immutable content-hashed directory and commit all artifact rows in one Genesis transaction. An unchanged retry reuses verified identical files/IDs. Failed preparation/publication must not publish a partial artifact set or overwrite a previously valid set. Supersede only the known ambiguous legacy row for this recording; preserve existing physical files.
+- Audio failure is an `export_failed` job failure, never a successful “skipped audio” result. Subtitle files already written can remain; this contract does not claim atomicity across subtitles, media files, job events and Genesis storage.
+- Artifact inventory shows the actual file basename alongside its type/date, so separate WAV artifacts are distinguishable. A filename is a display label, not recording ownership or authorization evidence; the existing project-scope warning remains.
+- Source gaps remain source gaps. Separate channel files retain their source timelines/durations; exporting does not repair capture loss or alter transcription quality claims.
+- The existing playback stitcher concatenates PCM. Source export therefore fails closed before rendering when live channel intervals have an initial offset, gap, overlap, invalid ordering or nonpositive duration. It must not silently compress missing time. Normal sub-millisecond WAV duration versus integer ledger rounding is allowed.
+- The legacy fixed-path single-channel file is staged before replacement. If the artifact transaction fails, restore its prior bytes (or remove only the newly published file when no prior file existed); if rollback itself fails, report that failure and preserve the recovery copy. Filesystem publication and Genesis storage are not a cross-resource atomic transaction.
+
+Implementation plan: [multichannel export repair](../plans/2026-10-24-multichannel-source-export-fix.md). Source tests, exact package UAT and release are separate gates.
+
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
+| 0.1.12b | 2026-10-24 | candidate | Define all-channel source export, atomic media-set publication, retry identity and honest audio job failure for issue 97; installed acceptance remains open. | working-tree | Codex |
 | 0.1.0b | 2026-08-26 | candidate | Documentation-only local MVP critical-path amendment; implementation awaits Terra review and Boss approval. | not created | Luna |
 | 0.1.1b | 2026-08-26 | candidate | Candidate documentation fix for Terra findings; implementation still awaits Terra re-review and Boss approval. | 8a6406e6513943e09447daeb3c6572aa41468b67 | Luna |
 | 0.1.2b | 2026-09-16 | candidate | Recorded the approved bounded D-MVP-02 working-tree implementation and local evidence; no runtime, provider, device, or release gate is claimed. | working-tree | Codex |

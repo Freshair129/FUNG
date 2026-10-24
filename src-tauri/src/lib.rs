@@ -38,7 +38,10 @@ mod fungwire_server;
 mod genesis_adapter;
 mod graph_build;
 mod job_engine;
+mod live_application_audio;
 mod live_meeting;
+#[cfg(windows)]
+mod live_system_audio;
 mod live_transcript;
 mod local_api;
 mod local_diarization;
@@ -53,6 +56,8 @@ mod meeting_intelligence_schema;
 mod meeting_knowledge;
 mod meeting_task_manager;
 mod mobile;
+mod product_mcp;
+mod product_mcp_transport;
 #[rustfmt::skip]
 mod native_auth;
 mod native_recorder;
@@ -1064,6 +1069,9 @@ pub(crate) struct AppState {
     pub(crate) jobs: job_engine::JobEngine,
     pub(crate) external_mcp: external_mcp_commands::ExternalMcpRuntime,
     pub(crate) external_meeting_tools_enabled: bool,
+    pub(crate) product_mcp: Mutex<product_mcp::Runtime>,
+    pub(crate) product_mcp_workspace_id: String,
+    pub(crate) product_mcp_operations: Arc<Mutex<()>>,
 }
 
 impl AppState {
@@ -1675,11 +1683,12 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         .path()
         .app_data_dir()
         .map_err(|_| AppError::MissingAppDataDir)?;
-    let default_output_root = app
+    let documents = app
         .path()
         .document_dir()
-        .map_err(|_| AppError::InvalidInput("Documents directory is not available".to_string()))?
-        .join("fung");
+        .map_err(|_| AppError::InvalidInput("Documents directory is not available".to_string()))?;
+    let default_output_root =
+        recording_output::default_media_root(&app.config().identifier, &app_data_dir, &documents);
     let recording_output =
         recording_output::RecordingOutputManager::load(app_data_dir.clone(), default_output_root)
             .map_err(AppError::InvalidInput)?;
@@ -1701,6 +1710,7 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         std::fs::write(&legacy_marker, now())?;
     }
     seed_default_model_providers(&genesis, &now()).map_err(AppError::Genesis)?;
+    let product_mcp_workspace_id = product_mcp::workspace_id(&app_data_dir)?;
     let genesis = Arc::new(genesis);
     Ok(AppState {
         data_root: app_data_dir,
@@ -1728,6 +1738,9 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
             env::var("FUNG_EXTERNAL_MEETING_TOOLS").as_deref(),
             Ok("1")
         ),
+        product_mcp: Mutex::new(product_mcp::Runtime::default()),
+        product_mcp_workspace_id,
+        product_mcp_operations: Arc::new(Mutex::new(())),
     })
 }
 
@@ -6782,6 +6795,7 @@ pub fn __debug_live_smoke(
     while let Ok(event) = chunk_rx.recv() {
         let chunk = match event {
             CaptureEvent::Chunk(chunk) => chunk,
+            CaptureEvent::Level { .. } => continue,
             CaptureEvent::ChunkWriteFailed {
                 channel,
                 start_ms,
@@ -6808,7 +6822,7 @@ pub fn __debug_live_smoke(
                 ));
                 continue;
             }
-            CaptureEvent::StreamFailed { channel, error } => {
+            CaptureEvent::StreamFailed { channel, error, .. } => {
                 report.push_str(&format!(
                     "stream fault on {channel}: {error}
 "
@@ -7044,6 +7058,9 @@ fn shutdown_native_state(state: &AppState) {
     if state.shutdown_started.swap(true, Ordering::AcqRel) {
         return;
     }
+    // Stop accepting MCP work and drain authenticated requests before any
+    // capture/job shutdown or Genesis checkpoint begins.
+    product_mcp::shutdown(&state.product_mcp);
     live_meeting::shutdown(state);
     state.playback.shutdown();
     state
@@ -7271,6 +7288,12 @@ pub fn run() {
             external_mcp_commands::meeting_tool_cancel,
             external_mcp_commands::meeting_tool_revoke,
             external_mcp_commands::meeting_tool_runs_list,
+            product_mcp::product_mcp_status,
+            product_mcp::product_mcp_start,
+            product_mcp::product_mcp_stop,
+            product_mcp::product_mcp_grants_list,
+            product_mcp::product_mcp_grant_create,
+            product_mcp::product_mcp_grant_revoke,
             mobile::mobile_capture_start,
             mobile::mobile_capture_append_segment,
             mobile::mobile_capture_reconcile_native,

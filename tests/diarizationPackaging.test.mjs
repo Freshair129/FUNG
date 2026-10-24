@@ -139,13 +139,17 @@ test("the shell checks readiness before queueing a diarization", () => {
   // The dependencies are opt-in and the model is gated, so this job can be
   // unrunnable for reasons the user can fix. Queueing anyway would surface
   // that as a job failure minutes later instead of at the click.
-  const app = readFileSync("src/App.tsx", "utf8");
-  assert.match(app, /plan\.jobType === "speakers\.diarize"/);
-  assert.match(app, /await diarizationStatus\(\)/);
+  const review = readFileSync("src/components/desktop/RecordingReview.tsx", "utf8");
+  assert.match(review, /actions\.diarizationReadiness\(\)/);
   assert.match(
-    app,
-    /readiness && !readiness\.available/,
+    review,
+    /if \(jobType === "speakers\.diarize" && diarizationReadiness\?\.available !== true\)/,
     "a probe that could not run is not the same as one that said no",
+  );
+  assert.match(
+    review,
+    /disabled=\{pending !== null \|\| !diarizationReadiness\?\.available\}/,
+    "the diarization action must stay disabled until readiness is confirmed",
   );
 });
 

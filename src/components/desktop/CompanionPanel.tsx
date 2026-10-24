@@ -4,10 +4,8 @@ import { FungLogo } from "../FungLogo";
 import type { CaptureLifecycle } from "./DesktopShell";
 import type {
   DesktopSurface,
-  MaterialChoice,
   RecordingKey,
   ThemeChoice,
-  TransparencyChoice,
 } from "./contracts";
 import "./CompanionPanel.css";
 
@@ -16,8 +14,6 @@ type CompanionPanelProps = {
   captureLifecycle: CaptureLifecycle;
   selection: RecordingKey | null;
   theme: ThemeChoice;
-  material: MaterialChoice;
-  transparency: TransparencyChoice;
   onClose: () => void;
   onNavigate: (surface: DesktopSurface, initiator: HTMLElement) => void;
   onOpenSettings: (initiator: HTMLElement) => void;
@@ -42,8 +38,6 @@ export function CompanionPanel({
   captureLifecycle,
   selection,
   theme,
-  material,
-  transparency,
   onClose,
   onNavigate,
   onOpenSettings,

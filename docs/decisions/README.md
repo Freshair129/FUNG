@@ -38,6 +38,9 @@ Use [`TEMPLATE.md`](TEMPLATE.md) for new records.
 Read the scope and approval inside each record. This index does not promote a
 decision or replace newer implementation/recovery evidence in platform status.
 
+- [CPU capture priority](2026-10-23-desktop-cpu-capture-priority.md) — CPU transcripts
+  follow Stop; source-audio preservation and installed acceptance remain required.
+
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |

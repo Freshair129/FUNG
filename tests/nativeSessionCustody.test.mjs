@@ -159,6 +159,7 @@ test("native broker behavioral matrix executes through registered Rust entrypoin
       "test",
       "--manifest-path",
       path.join(root, "src-tauri", "Cargo.toml"),
+      "--lib",
       "native_behavioral_",
       "--",
       "--nocapture",

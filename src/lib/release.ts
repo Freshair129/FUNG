@@ -1,9 +1,9 @@
-export const DESKTOP_RELEASE_VERSION = "0.1.1";
+export const DESKTOP_RELEASE_VERSION = "0.1.2";
 
 // Approximate installer size shown in the download CTA copy. Update this
 // alongside DESKTOP_RELEASE_VERSION whenever a new build changes the size
 // meaningfully, so the two facts stay in one place instead of drifting.
-export const DESKTOP_RELEASE_SIZE_LABEL = "491 MB";
+export const DESKTOP_RELEASE_SIZE_LABEL = "1.5 GB";
 
 const DEFAULT_DESKTOP_RELEASE_DOWNLOAD_URL =
   "https://github.com/Freshair129/FUNG-Releases/releases/latest/download/FUNG-windows-x64-setup.exe";

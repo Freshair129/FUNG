@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 use uuid::Uuid;
 
 use crate::graph_build::{call_llm, llm_provider_config};
@@ -1081,6 +1081,26 @@ fn post_meeting_job_order() -> [crate::job_engine::JobKind; 2] {
     ]
 }
 
+fn post_meeting_jobs(
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+    recording_id: &str,
+    include_diarization: bool,
+    diarization_ready: bool,
+) -> Result<Vec<crate::job_engine::JobKind>, String> {
+    if !load_segments(storage, project_id, recording_id)?
+        .iter()
+        .any(|segment| !segment.text.trim().is_empty())
+    {
+        return Ok(Vec::new());
+    }
+    Ok(if include_diarization && diarization_ready {
+        post_meeting_job_order().to_vec()
+    } else {
+        vec![crate::job_engine::JobKind::SummaryGenerate]
+    })
+}
+
 /// Queues the local-capture post-meeting pipeline for a recording.
 ///
 /// Previously this ran the whole pipeline inline on the caller's thread and
@@ -1118,10 +1138,34 @@ pub(crate) fn queue_post_meeting(
     };
     let mut diarization_error = None;
     let mut summary_error = None;
-    let job_order = if include_diarization {
-        post_meeting_job_order().to_vec()
-    } else {
-        vec![crate::job_engine::JobKind::SummaryGenerate]
+    let Some(state) = app.try_state::<crate::AppState>() else {
+        emit("failed", Some("ไม่พบสถานะงานประชุมในเครื่อง".into()));
+        return;
+    };
+    let diarization_ready = include_diarization
+        && crate::diarization::probe(&state.whisper_runtime, &state.data_root).available;
+    let job_order = match post_meeting_jobs(
+        &state.genesis,
+        project_id,
+        recording_id,
+        include_diarization,
+        diarization_ready,
+    ) {
+        Ok(jobs) if jobs.is_empty() => {
+            emit(
+                "skipped",
+                Some("ยังไม่พบคำพูดสำหรับสรุป — ตรวจสอบเสียงที่บันทึกและถอดความอีกครั้ง".into()),
+            );
+            return;
+        }
+        Ok(jobs) => jobs,
+        Err(error) => {
+            emit(
+                "failed",
+                Some(format!("ตรวจสอบ transcript ก่อนสรุปไม่ได้: {error}")),
+            );
+            return;
+        }
     };
     for kind in job_order {
         match engine.enqueue(kind, project_id, Some(recording_id)) {
@@ -1140,7 +1184,8 @@ pub(crate) fn queue_post_meeting(
         None => {
             let detail = match diarization_error {
                 Some(error) => format!("กำลังสรุปการประชุม... (ข้ามแยกผู้พูด: {error})"),
-                None => "กำลังแยกผู้พูดและสรุปการประชุม...".to_string(),
+                None if diarization_ready => "กำลังแยกผู้พูดและสรุปการประชุม...".to_string(),
+                None => "กำลังสรุปการประชุม...".to_string(),
             };
             emit("running", Some(detail));
         }
@@ -1637,6 +1682,33 @@ pub(crate) fn generate_meeting_summary(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn post_meeting_requires_its_own_transcript_and_optional_runtime() {
+        let (_path, storage) = open_storage();
+        seed(&storage, 0);
+        assert!(post_meeting_jobs(&storage, "p1", "r1", true, true)
+            .unwrap()
+            .is_empty());
+        seed(&storage, 2);
+        assert!(
+            post_meeting_jobs(&storage, "p1", "another-recording", true, true)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            post_meeting_jobs(&storage, "p1", "r1", true, false).unwrap(),
+            vec![crate::job_engine::JobKind::SummaryGenerate]
+        );
+        assert_eq!(
+            post_meeting_jobs(&storage, "p1", "r1", false, true).unwrap(),
+            vec![crate::job_engine::JobKind::SummaryGenerate]
+        );
+        assert_eq!(
+            post_meeting_jobs(&storage, "p1", "r1", true, true).unwrap(),
+            post_meeting_job_order()
+        );
+    }
 
     #[test]
     fn post_meeting_pipeline_diarizes_before_summary_without_new_job_types() {

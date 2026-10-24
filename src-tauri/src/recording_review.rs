@@ -77,6 +77,8 @@ pub(crate) struct RecordingRow {
     pub(crate) language: Option<String>,
     pub(crate) channels: Vec<String>,
     pub(crate) capture_state: String,
+    #[serde(default)]
+    pub(crate) capture_warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -785,10 +787,107 @@ fn recording_channels(
     Ok(result)
 }
 
+// Read once per project snapshot/detail, never once per recording. Audit text
+// stays native; the renderer receives only a stable generic warning code.
+fn capture_warning_recordings(
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+) -> Result<HashSet<String>, ReviewError> {
+    capture_warning_recordings_with_budget(
+        storage,
+        project_id,
+        MAX_SNAPSHOT_ROWS,
+        MAX_SNAPSHOT_BYTES,
+    )
+}
+
+fn capture_warning_recordings_with_budget(
+    storage: &genesis_block_native::Storage,
+    project_id: &str,
+    max_rows: usize,
+    max_bytes: usize,
+) -> Result<HashSet<String>, ReviewError> {
+    let mut warnings = HashSet::new();
+    let mut read_rows = 0_usize;
+    let mut read_bytes = 0_usize;
+    for event_type in [
+        "live_meeting.stream_failed",
+        "live_meeting.source_terminated",
+        "live_meeting.capture_source_gap",
+        "live_meeting.chunk_write_failed",
+    ] {
+        let mut offset = 0_u32;
+        loop {
+            // Probe one row beyond the combined budget, so we fail rather than
+            // produce a clean-looking projection from a truncated audit history.
+            let remaining = max_rows.saturating_sub(read_rows);
+            let limit = remaining
+                .saturating_add(1)
+                .min(genesis_adapter::ROW_CAP as usize) as u32;
+            let rows = genesis_adapter::query_page(
+                storage,
+                "audit_events",
+                &["payload_json"],
+                vec![
+                    genesis_adapter::eq(
+                        "audit_events",
+                        "project_id",
+                        serde_json::json!(project_id),
+                    ),
+                    genesis_adapter::eq(
+                        "audit_events",
+                        "event_type",
+                        serde_json::json!(event_type),
+                    ),
+                ],
+                limit,
+                offset,
+            )
+            .map_err(|_| query_error())?;
+            if rows.len() > remaining {
+                return Err(ReviewError::resource_limit());
+            }
+            read_rows += rows.len();
+            for row in &rows {
+                let bytes = serde_json::to_vec(row).map_err(|_| query_error())?.len();
+                read_bytes = read_bytes
+                    .checked_add(bytes)
+                    .ok_or_else(ReviewError::resource_limit)?;
+                if read_bytes > max_bytes {
+                    return Err(ReviewError::resource_limit());
+                }
+                if let Some(raw) = row.get("audit_events.payload_json") {
+                    let parsed;
+                    let payload = if let Some(text) = raw.as_str() {
+                        parsed = serde_json::from_str::<Value>(text).ok();
+                        parsed.as_ref()
+                    } else {
+                        Some(raw)
+                    };
+                    if let Some(id) = payload
+                        .and_then(|value| value.get("recordingId"))
+                        .and_then(Value::as_str)
+                    {
+                        warnings.insert(id.to_owned());
+                    }
+                }
+            }
+            if rows.len() < limit as usize {
+                break;
+            }
+            offset = offset
+                .checked_add(rows.len() as u32)
+                .ok_or_else(ReviewError::resource_limit)?;
+        }
+    }
+    Ok(warnings)
+}
+
 fn row_to_public_with_state(
     storage: &genesis_block_native::Storage,
     row: &RecordingStorageRow,
     capture_state: &str,
+    capture_warning: bool,
 ) -> Result<RecordingRow, ReviewError> {
     Ok(RecordingRow {
         id: row.identity.recording_id.clone(),
@@ -801,6 +900,7 @@ fn row_to_public_with_state(
         language: row.language.clone(),
         channels: recording_channels(storage, &row.identity.recording_id, &row.source)?,
         capture_state: capture_state.to_string(),
+        capture_warning: capture_warning.then(|| "capture_source_fault".to_string()),
     })
 }
 
@@ -972,6 +1072,7 @@ pub(crate) fn desktop_recordings_list(
                 .cmp(&string_field(right, "recordings.id").unwrap_or_default())
         })
     });
+    let warnings = capture_warning_recordings(&state.genesis, &project_id)?;
     let mut items = Vec::with_capacity(rows.len());
     for row in rows {
         let storage_row =
@@ -981,6 +1082,7 @@ pub(crate) fn desktop_recordings_list(
             &state.genesis,
             &storage_row,
             &capture_state,
+            warnings.contains(&storage_row.identity.recording_id),
         )?);
     }
     if snapshot_size(&items)? > MAX_SNAPSHOT_BYTES {
@@ -1019,7 +1121,13 @@ pub(crate) fn desktop_recording_get(
     let _owner = trusted_main_owner(&window, &state)?;
     let row = validate_recording_pair(&state.genesis, &project_id, &recording_id)?;
     let capture_state = live_capture_state(&state, &recording_id);
-    row_to_public_with_state(&state.genesis, &row, &capture_state)
+    let warnings = capture_warning_recordings(&state.genesis, &project_id)?;
+    row_to_public_with_state(
+        &state.genesis,
+        &row,
+        &capture_state,
+        warnings.contains(&recording_id),
+    )
 }
 
 #[cfg(test)]
@@ -1035,6 +1143,184 @@ mod tests {
         );
         assert!(validate_opaque_id("a/b", "id").is_err());
         assert!(validate_opaque_id(&"x".repeat(257), "id").is_err());
+    }
+
+    fn warning_store() -> (tempfile::TempDir, genesis_block_native::Storage) {
+        let root = tempfile::tempdir().unwrap();
+        let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {
+            path: root.path().join("store").display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+            retention: None,
+        })
+        .unwrap();
+        genesis_adapter::install(&storage).unwrap();
+        genesis_adapter::commit_rows(&storage, ["p", "q"].iter().map(|id| genesis_adapter::upsert(
+            "projects", serde_json::json!({"id": id, "name":"test", "storage_path":"s", "active_recording_id":null,"created_at":"t","updated_at":"t"})
+        )).collect()).unwrap();
+        (root, storage)
+    }
+
+    fn warning_audit(
+        id: &str,
+        project: &str,
+        event: &str,
+        payload: Value,
+    ) -> genesis_block_native::RelationalRowMutation {
+        genesis_adapter::upsert(
+            "audit_events",
+            serde_json::json!({
+                "id":id,"project_id":project,"event_type":event,"actor":"system","payload_json":payload,"created_at":"t"
+            }),
+        )
+    }
+
+    #[test]
+    fn capture_warning_legacy_wire_rows_default_to_none() {
+        let row: RecordingRow = serde_json::from_value(serde_json::json!({
+            "id":"r","projectId":"p","source":"microphone","status":"completed","durationMs":30,
+            "createdAt":"t","updatedAt":"t","language":null,"channels":["mic"],"captureState":"inactive"
+        })).unwrap();
+        assert_eq!(row.capture_warning, None);
+    }
+
+    #[test]
+    fn capture_warning_audits_are_project_scoped_exact_and_legacy_compatible() {
+        let (_root, storage) = warning_store();
+        assert!(capture_warning_recordings(&storage, "p")
+            .unwrap()
+            .is_empty());
+        genesis_adapter::commit_rows(
+            &storage,
+            vec![
+                warning_audit(
+                    "a",
+                    "p",
+                    "live_meeting.stream_failed",
+                    serde_json::json!({"recordingId":"r","error":"secret C:/private"}),
+                ),
+                warning_audit(
+                    "b",
+                    "p",
+                    "live_meeting.source_terminated",
+                    serde_json::json!("{\"recordingId\":\"legacy\"}"),
+                ),
+                warning_audit(
+                    "c",
+                    "p",
+                    "live_meeting.capture_source_gap",
+                    serde_json::json!({"recordingId":"gap"}),
+                ),
+                warning_audit(
+                    "d",
+                    "p",
+                    "live_meeting.chunk_write_failed",
+                    serde_json::json!({"recordingId":"write"}),
+                ),
+                warning_audit(
+                    "e",
+                    "q",
+                    "live_meeting.stream_failed",
+                    serde_json::json!({"recordingId":"foreign"}),
+                ),
+                warning_audit(
+                    "f",
+                    "p",
+                    "unrelated",
+                    serde_json::json!({"recordingId":"unrelated"}),
+                ),
+                warning_audit(
+                    "g",
+                    "p",
+                    "live_meeting.stream_failed",
+                    serde_json::json!({"recordingId":"r-extra"}),
+                ),
+                warning_audit(
+                    "h",
+                    "p",
+                    "live_meeting.stream_failed",
+                    serde_json::json!({"error":"r"}),
+                ),
+                warning_audit(
+                    "i",
+                    "p",
+                    "live_meeting.stream_failed",
+                    serde_json::json!("invalid JSON"),
+                ),
+            ],
+        )
+        .unwrap();
+        let warnings = capture_warning_recordings(&storage, "p").unwrap();
+        assert_eq!(
+            warnings,
+            ["r", "legacy", "gap", "write", "r-extra"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        );
+        assert!(!warnings.contains("r-ex"));
+        assert!(!warnings.contains("foreign"));
+        let row: RecordingRow = serde_json::from_value(serde_json::json!({
+            "id":"r","projectId":"p","source":"microphone","status":"completed","durationMs":30,
+            "createdAt":"t","updatedAt":"t","language":null,"channels":["mic"],"captureState":"inactive"
+        })).unwrap();
+        genesis_adapter::commit_rows(&storage, vec![genesis_adapter::upsert("recordings", serde_json::json!({
+            "id":"r","project_id":"p","source":"microphone","input_path":null,"canonical_audio_path":"fixture",
+            "status":"completed","duration_ms":30,"created_at":"2026-10-23T00:00:00Z","updated_at":"2026-10-23T00:00:00Z"
+        }))]).unwrap();
+        let stored = validate_recording_pair(&storage, "p", "r").unwrap();
+        assert!(validate_recording_pair(&storage, "q", "r").is_err());
+        let warned = row_to_public_with_state(
+            &storage,
+            &stored,
+            &row.capture_state,
+            warnings.contains("r"),
+        )
+        .unwrap();
+        let clean = row_to_public_with_state(&storage, &stored, "inactive", false).unwrap();
+        assert_eq!(clean.capture_warning, None);
+        let wire = serde_json::to_string(&warned).unwrap();
+        assert!(wire.contains("capture_source_fault"));
+        assert!(!wire.contains("private"));
+        assert_eq!(warned.status, "completed");
+    }
+
+    #[test]
+    fn capture_warning_reads_past_first_page_and_combines_event_budgets() {
+        let (_root, storage) = warning_store();
+        let mut rows = (0..1001)
+            .map(|index| {
+                warning_audit(
+                    &format!("{index:04}"),
+                    "p",
+                    "live_meeting.stream_failed",
+                    serde_json::json!({"recordingId":if index == 1000 { "last" } else { "first" }}),
+                )
+            })
+            .collect::<Vec<_>>();
+        rows.push(warning_audit(
+            "z",
+            "p",
+            "live_meeting.source_terminated",
+            serde_json::json!({"recordingId":"terminal"}),
+        ));
+        genesis_adapter::commit_rows(&storage, rows).unwrap();
+        let warnings = capture_warning_recordings(&storage, "p").unwrap();
+        assert!(warnings.contains("last"));
+        assert!(warnings.contains("terminal"));
+        assert_eq!(
+            capture_warning_recordings_with_budget(&storage, "p", 1001, MAX_SNAPSHOT_BYTES)
+                .unwrap_err()
+                .code,
+            "RESOURCE_LIMIT"
+        );
+        assert_eq!(
+            capture_warning_recordings_with_budget(&storage, "p", MAX_SNAPSHOT_ROWS, 1)
+                .unwrap_err()
+                .code,
+            "RESOURCE_LIMIT"
+        );
     }
 
     #[test]
@@ -1096,6 +1382,7 @@ mod tests {
                 language: None,
                 channels: vec!["file".to_string()],
                 capture_state: "inactive".to_string(),
+                capture_warning: None,
             })
             .collect::<Vec<_>>();
         let mut registry = ReviewRegistry::default();
@@ -1145,6 +1432,7 @@ mod tests {
                 language: None,
                 channels: vec!["file".to_string()],
                 capture_state: "inactive".to_string(),
+                capture_warning: None,
             },
             RecordingRow {
                 id: "r-1".to_string(),
@@ -1157,6 +1445,7 @@ mod tests {
                 language: None,
                 channels: vec!["file".to_string()],
                 capture_state: "inactive".to_string(),
+                capture_warning: None,
             },
         ];
         let now = Instant::now();
@@ -1216,6 +1505,7 @@ mod tests {
             language: None,
             channels: vec!["file".to_string()],
             capture_state: "inactive".to_string(),
+            capture_warning: None,
         }];
         let mut registry = ReviewRegistry::default();
         let first = registry

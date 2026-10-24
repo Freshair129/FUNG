@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft, AudioLines, Bookmark, Bot, Check, ChevronRight, CloudDownload, CloudUpload, Crop,
-  GripVertical, Leaf, Mic2, Monitor, Move, Pause, Play, Plus, Redo2, Scissors,
+  ArrowLeft, AudioLines, Bookmark, Bot, ChevronRight, CloudDownload, CloudUpload, Crop,
+  GripVertical, Leaf, Monitor, Move, Pause, Play, Plus, Redo2, Scissors,
   Send, Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Square, Undo2, Upload,
   VolumeX, WandSparkles, X,
 } from "lucide-react";

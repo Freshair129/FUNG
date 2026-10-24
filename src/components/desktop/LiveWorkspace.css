@@ -7,7 +7,7 @@
   --workspace-metal: var(--fung-state-pending-fg);
   --workspace-clay: var(--fung-state-danger-fg);
   color: var(--workspace-ink);
-  font-family: "IBM Plex Sans Thai", "Leelawadee UI", Tahoma, sans-serif;
+  font-family: var(--fung-font-ui);
 }
 
 .live-workspace,
@@ -185,6 +185,46 @@
   font-weight: 700;
 }
 
+.live-workspace__source-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--fung-border-subtle);
+  border-radius: 10px;
+  background: var(--fung-bg-inset);
+}
+
+.live-workspace__source-tabs button {
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--fung-text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.live-workspace__source-tabs button:hover {
+  color: var(--fung-text-primary);
+  background: var(--fung-bg-hover);
+}
+
+.live-workspace__source-tabs button.is-active {
+  border-color: var(--fung-border-strong);
+  color: var(--fung-text-primary);
+  background: var(--fung-bg-surface);
+  box-shadow: var(--fung-shadow-card);
+}
+
+.live-workspace__source-tabs button:focus-visible {
+  outline: 2px solid var(--fung-focus);
+  outline-offset: 2px;
+}
+
 .live-workspace__field--stacked {
   align-items: stretch;
   flex-direction: column;
@@ -358,6 +398,67 @@
   color: var(--fung-text-secondary);
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   font-size: 12px;
+}
+
+.live-workspace__capture-monitor {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+
+.live-workspace__channel-waveform {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--fung-border-subtle);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--fung-bg-surface) 70%, transparent);
+}
+
+.live-workspace__waveform-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--fung-text-secondary);
+  font-family: var(--fung-font-mono);
+  font-size: 11px;
+}
+
+.live-workspace__waveform-heading h3 {
+  margin: 0;
+  color: var(--fung-text-primary);
+  font: inherit;
+  font-weight: 600;
+}
+
+.live-workspace__waveform-bars {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 48px;
+  margin-top: 6px;
+  overflow: hidden;
+  border-radius: 5px;
+  color: var(--fung-action-primary-bg);
+  background: var(--fung-bg-inset);
+}
+
+.live-workspace__waveform-bar {
+  flex: 1 1 0;
+  min-width: 2px;
+  max-width: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.86;
+  transition: height 100ms linear;
+}
+
+.live-workspace__waveform-empty {
+  padding-inline: 8px;
+  color: var(--fung-text-tertiary);
+  font-size: 11px;
+  text-align: center;
 }
 
 .live-workspace__topic {
@@ -537,6 +638,16 @@
   .live-workspace__feed {
     max-height: 360px;
   }
+
+  .live-workspace__source-tabs {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-workspace__waveform-bar {
+    transition: none;
+  }
 }
 
 .theme-dark .live-workspace__check,
@@ -552,6 +663,10 @@
 .theme-dark .live-workspace__device-routing-header,
 .theme-dark .live-workspace__device-issue {
   color: var(--workspace-ink);
+}
+
+.theme-dark .live-workspace__channel-waveform {
+  background: var(--fung-bg-surface);
 }
 
 .theme-dark .live-workspace__header {

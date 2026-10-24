@@ -1,0 +1,445 @@
+schema_version: "2.0"
+document_version: "0.1.4b"
+status: "accepted"
+scope: "FUNG Desktop product MCP server; inbound local client calls"
+source_of_truth: "GenesisBlockDB through existing FUNG application services"
+protocol:
+  name: "Model Context Protocol"
+  revision: "2026-07-28"
+  transport: "streamable_http"
+  endpoint_path: "/mcp"
+  default_bind: "127.0.0.1"
+  default_port: 49175
+  configurable_port_range: "49152-65535"
+  stateless: true
+  default_enabled: false
+  on_port_conflict: "fail_closed"
+  cors: "disabled"
+  origin_policy: "allow_absent_or_loopback_only"
+  invalid_origin_http_status: 403
+  peer_policy: "loopback_only"
+  request:
+    method: "POST"
+    one_jsonrpc_message_per_request: true
+    jsonrpc_responses_in_request_body: false
+    content_type: "application/json"
+    max_body_bytes: 1048576
+    accept_required: ["application/json", "text/event-stream"]
+    required_headers:
+      "MCP-Protocol-Version":
+        mirrors: "params._meta.io.modelcontextprotocol/protocolVersion"
+        required: true
+        mismatch_http_status: 400
+        mismatch_jsonrpc_code: -32020
+        mismatch_error: "HeaderMismatch"
+      "Mcp-Method":
+        mirrors: "method"
+        required: true
+        compare_header_names_case_insensitively: true
+        compare_values_case_sensitively: true
+        mismatch_http_status: 400
+        mismatch_jsonrpc_code: -32020
+        mismatch_error: "HeaderMismatch"
+      "Mcp-Name":
+        mirrors: "params.name"
+        required_for: ["tools/call"]
+        mismatch_http_status: 400
+        mismatch_jsonrpc_code: -32020
+        mismatch_error: "HeaderMismatch"
+    unsupported_protocol_http_status: 400
+    unsupported_method_http_status: 404
+    unsupported_method_jsonrpc_code: -32601
+  response:
+    request_content_type: "application/json"
+    request_response_content_type: "application/json"
+    response_mode: "single_jsonrpc_response"
+    sse_streams: false
+    accepted_notification_http_status: 202
+    accepted_notification_body: "empty"
+    session_ids: false
+    resumable_streams: false
+    unsupported_http_methods: { methods: ["GET", "DELETE"], status: 405 }
+  rpc_methods:
+    required_protocol_methods:
+      - "server/discover"
+      - "tools/list"
+      - "tools/call"
+    supported_optional_methods: ["ping"]
+    server_discover:
+      request_parameters: "No body parameters other than standard _meta; _meta carries protocolVersion and may carry clientInfo and clientCapabilities."
+      response:
+        resultType: "complete"
+        supportedVersions: ["2026-07-28"]
+        capabilities: { tools: {} }
+        _meta:
+          "io.modelcontextprotocol/serverInfo":
+            name: "FUNG Desktop"
+            version: "0.1.1"
+        server_info_version_source: "src-tauri/Cargo.toml package.version; emitted as the runtime version"
+        instructions: "FUNG local Desktop tools provide scoped access to approved project data and job controls."
+        ttlMs: 300000
+        cacheScope: "public"
+    tools_list:
+      complete_result_cache:
+        required_fields: ["resultType", "tools", "ttlMs", "cacheScope"]
+        ttlMs: 0
+        cacheScope: "private"
+        rationale: "The exposed tool set may vary with the authenticated grant; do not share cached lists across authorization contexts."
+  security:
+    host_validation: true
+    origin_validation: true
+    loopback_peer_validation: true
+    no_lan_bind: true
+    rate_limits:
+      algorithm: "token_bucket"
+      bucket_key: "authenticated_grant_id"
+      client_info_is_untrusted_and_not_used_as_rate_limit_identity: true
+      window_seconds: 60
+      per_grant_requests_per_minute: 60
+      per_grant_burst: 20
+      per_grant_job_control_per_minute: 5
+      global_max_in_flight: 8
+      exceeded_http_status: 429
+      retry_after_header: true
+      exceeded_request_response:
+        content_type: "application/json"
+        body: "JSON-RPC error object echoes the parsed request id, code -32000, message 'Rate limit exceeded', and data.retry_after_seconds."
+      exceeded_notification_response:
+        content_type: "application/json"
+        body: "JSON-RPC error object without id, code -32000, message 'Rate limit exceeded', and data.retry_after_seconds."
+authentication:
+  profile: "fung_local_desktop_bearer_v1"
+  scheme: "Bearer"
+  standards_deviation: "Custom loopback-only application grant; not the MCP OAuth authorization profile."
+  mcp_oauth_authorization_profile: false
+  oauth_discovery: false
+  protected_resource_metadata: false
+  remote_resource_uri: false
+  permitted_transport_scope: "local Desktop loopback only; never LAN, reverse-proxy, or public exposure"
+  token_granularity: "one token per approved local client grant"
+  secret_store: "Windows Credential Manager via OS keyring"
+  default_grant_scopes: []
+  revocation: "effective_on_next_request"
+grant_binding:
+  workspace_id: "exact opaque local Desktop profile/workspace identifier"
+  project_scope: "exact project IDs, case-sensitive"
+  all_projects_default: false
+  empty_project_scope_behavior: "deny all project and project-owned object access"
+  all_projects_requires: "explicit user-selected grant option"
+  global_tools_without_project_scope: ["fung.health", "fung.capabilities.get", "fung.permissions.get"]
+  permissions_get_scope: "calling client grant only"
+scopes:
+  "workspace.read": "Read local projects and their authorized recordings, jobs, transcripts, summaries, artifacts, and citations."
+  "workspace.write": "Create or update authorized local project metadata and user-authored organization data."
+  "capture.control": "Discover capture sources and control the native capture state machine."
+  "job.control": "Cancel or retry supported local jobs; cancellation does not roll back committed work."
+  "transcript.edit": "Create revision-safe corrections to transcript and speaker review data."
+  "artifact.create": "Create local summaries, tasks, and exports."
+  "provider.use": "Use an enabled model provider; network egress is separately gated."
+  "external.disclose": "Send selected data to an explicitly named external destination after operation approval."
+  "data.delete": "Delete local data after operation approval."
+  "admin": "Change global integration, storage, or MCP server configuration."
+operations:
+  idempotency:
+    required_for: ["create", "start", "retry", "export", "job_control"]
+    key_pattern: "1-128 printable ASCII characters"
+    unique_tuple: ["client_grant_id", "tool_name", "idempotency_key"]
+    stored_with: ["canonical_request_hash", "original_result", "completion_state"]
+    canonicalization:
+      encoding: "RFC 8785 JSON Canonicalization Scheme over UTF-8"
+      omitted_fields: ["_meta", "transport_headers", "jsonrpc_request_id"]
+    durable_intent_before_dispatch: true
+    owning_service_receives_idempotency_key: true
+    crash_recovery: "replay completed result; reconcile pending operation with owner; hold unknown outcomes without blind retry"
+    same_key_same_hash: "return_original_result"
+    same_key_different_hash: "idempotency.key_reused; no side effect"
+    terminal_retention_days_after_completion: 30
+    active_or_recovery_required_retention: "until resolved plus 30 days"
+  revisions:
+    mutation_precondition: "expected_revision_when_supported_by_source_entity"
+    conflict_error: "revision.conflict"
+    partial_write_on_conflict: false
+  jobs:
+    long_operation_returns: ["job_id", "state", "related_object_ids"]
+    status_tool: "fung.job.get"
+    control_tool: "fung.job.control"
+    transport_cancel_cancels_durable_job: false
+  provider_invocation:
+    local_provider_requires: ["provider.use"]
+    off_device_provider_requires: ["provider.use", "external.disclose"]
+    off_device_provider_requires_fresh_fung_approval: true
+    retry_rechecks_provider_and_egress_policy: true
+    previous_approval_authorizes_new_remote_request: false
+  errors:
+    protocol: "JSON-RPC error response for protocol-level failures"
+    domain: "tools/call result with resultType=complete, isError=true, and content text containing serialized JSON; omit structuredContent because outputSchema describes success"
+    shared_domain_error_schema:
+      type: "object"
+      additionalProperties: false
+      required: ["code", "message", "retryable"]
+      properties:
+        code: { type: "string" }
+        message: { type: "string" }
+        retryable: { type: "boolean" }
+        resource_id: { type: "string" }
+        current_revision: { type: "integer", minimum: 0 }
+    stable_codes: ["permission.denied", "grant.revoked", "resource.not_found", "validation.failed", "revision.conflict", "idempotency.key_reused", "idempotency.outcome_unknown", "rate_limited", "capture.not_ready", "job.not_cancellable", "provider.unavailable", "feature.not_implemented", "storage.unavailable"]
+  audit:
+    storage: "GenesisBlockDB adapter"
+    record: ["grant_id", "tool_name", "requested_scopes", "outcome", "object_ids", "source_revision", "idempotency_key_hash", "timestamp"]
+    exclude: ["bearer_token", "raw_transcript", "audio_bytes", "provider_credentials", "absolute_local_path"]
+data_policy:
+  ids: "opaque exact GenesisBlockDB identifiers; case-sensitive"
+  meeting_id: "not minted until a canonical source entity exists"
+  default_page_size: 20
+  max_page_size: 100
+  raw_audio_in_read_responses: false
+  absolute_paths_in_read_responses: false
+tool_families:
+  MCP-02:
+    purpose: "Initial bounded health, capability, caller-grant, and durable-job tools."
+    tools:
+      - name: "fung.health"
+        description: "Return local FUNG and Genesis availability without exposing paths or project content."
+        required_scopes: []
+        project_scope_required: false
+        inputSchema:
+          type: object
+          properties: {}
+          additionalProperties: false
+        outputSchema:
+          type: object
+          required: ["status", "app", "version", "protocol_revision", "storage_available"]
+          properties:
+            status: { type: string, enum: ["ready", "degraded"] }
+            app: { type: string }
+            version: { type: string }
+            protocol_revision: { type: string }
+            storage_available: { type: boolean }
+          additionalProperties: false
+        annotations:
+          readOnlyHint: true
+          destructiveHint: false
+          idempotentHint: true
+          openWorldHint: false
+      - name: "fung.capabilities.get"
+        description: "Return the protocol features, limits, and tool names available to the calling grant."
+        required_scopes: []
+        project_scope_required: false
+        inputSchema:
+          type: object
+          properties: {}
+          additionalProperties: false
+        outputSchema:
+          type: object
+          required: ["protocol_revision", "features", "limits", "tool_names"]
+          properties:
+            protocol_revision: { type: string }
+            features:
+              type: array
+              items: { type: string }
+            limits:
+              type: object
+              required: ["default_page_size", "max_page_size", "max_request_bytes"]
+              properties:
+                default_page_size: { type: integer, minimum: 1 }
+                max_page_size: { type: integer, minimum: 1 }
+                max_request_bytes: { type: integer, minimum: 1 }
+              additionalProperties: false
+            tool_names:
+              type: array
+              items: { type: string }
+          additionalProperties: false
+        annotations:
+          readOnlyHint: true
+          destructiveHint: false
+          idempotentHint: true
+          openWorldHint: false
+      - name: "fung.permissions.get"
+        description: "Return only the calling local client grant's scopes and workspace/project binding."
+        required_scopes: []
+        project_scope_required: false
+        inputSchema:
+          type: object
+          properties: {}
+          additionalProperties: false
+        outputSchema:
+          type: object
+          required: ["grant_id", "active", "workspace_id", "scopes", "project_scope", "all_projects"]
+          properties:
+            grant_id: { type: string }
+            active: { type: boolean }
+            workspace_id: { type: string }
+            scopes:
+              type: array
+              items: { type: string }
+            project_scope:
+              type: array
+              items: { type: string }
+            all_projects: { type: boolean }
+            expires_at: { type: ["string", "null"], format: date-time }
+          additionalProperties: false
+        annotations:
+          readOnlyHint: true
+          destructiveHint: false
+          idempotentHint: true
+          openWorldHint: false
+      - name: "fung.job.list"
+        description: "List durable jobs visible to the calling grant, optionally limited to one authorized project."
+        required_scopes: ["workspace.read"]
+        project_scope_required: true
+        visibility: "only jobs bound to projects in the calling grant; projectless jobs are omitted"
+        inputSchema:
+          type: object
+          properties:
+            project_id: { type: string, minLength: 1 }
+            page_size: { type: integer, minimum: 1, maximum: 100, default: 20 }
+            cursor: { type: ["string", "null"] }
+          additionalProperties: false
+        outputSchema:
+          type: object
+          required: ["items", "next_cursor"]
+          properties:
+            items:
+              type: array
+              items:
+                type: object
+                required: ["job_id", "project_id", "kind", "state", "created_at", "updated_at"]
+                properties:
+                  job_id: { type: string }
+                  project_id: { type: string }
+                  kind: { type: string }
+                  state: { type: string }
+                  created_at: { type: string, format: date-time }
+                  updated_at: { type: string, format: date-time }
+                additionalProperties: false
+            next_cursor: { type: ["string", "null"] }
+          additionalProperties: false
+        annotations:
+          readOnlyHint: true
+          destructiveHint: false
+          idempotentHint: true
+          openWorldHint: false
+      - name: "fung.job.get"
+        description: "Read the current authorized durable-job status and related object IDs."
+        required_scopes: ["workspace.read"]
+        project_scope_required: true
+        visibility: "only jobs bound to projects in the calling grant; projectless jobs are denied"
+        inputSchema:
+          type: object
+          required: ["job_id"]
+          properties:
+            job_id: { type: string, minLength: 1 }
+          additionalProperties: false
+        outputSchema:
+          type: object
+          required: ["job_id", "kind", "state", "created_at", "updated_at", "related_object_ids"]
+          properties:
+            job_id: { type: string }
+            project_id: { type: string }
+            kind: { type: string }
+            state: { type: string }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+            progress: { type: integer, minimum: 0, maximum: 100 }
+            related_object_ids:
+              type: array
+              items: { type: string }
+            result_summary: { type: ["string", "null"] }
+          additionalProperties: false
+        annotations:
+          readOnlyHint: true
+          destructiveHint: false
+          idempotentHint: true
+          openWorldHint: false
+      - name: "fung.job.control"
+        description: "Cancel or retry a supported authorized local job; cancellation is best effort and does not roll back completed writes."
+        required_scopes: ["job.control"]
+        project_scope_required: true
+        inputSchema:
+          type: object
+          required: ["job_id", "action", "idempotency_key"]
+          properties:
+            job_id: { type: string, minLength: 1 }
+            action: { type: string, enum: ["cancel", "retry"] }
+            idempotency_key:
+              type: string
+              minLength: 1
+              maxLength: 128
+              pattern: "^[\\x20-\\x7E]+$"
+          additionalProperties: false
+        outputSchema:
+          type: object
+          required: ["job_id", "action", "accepted", "state"]
+          properties:
+            job_id: { type: string }
+            action: { type: string, enum: ["cancel", "retry"] }
+            accepted: { type: boolean }
+            state: { type: string }
+            retry_job_id: { type: ["string", "null"] }
+          additionalProperties: false
+        annotations:
+          readOnlyHint: false
+          destructiveHint: false
+          idempotentHint: true
+          openWorldHint: false
+  MCP-03:
+    purpose: "Capture source discovery. Define complete MCP tool schemas before implementation begins."
+    tools:
+      "fung.recording.sources.list": ["capture.control"]
+  MCP-04:
+    purpose: "Project creation and capture lifecycle. Define complete MCP tool schemas before implementation begins."
+    tools:
+      "fung.project.create": ["workspace.write"]
+      "fung.recording.start": ["capture.control"]
+      "fung.recording.status": ["workspace.read"]
+      "fung.recording.control": ["capture.control"]
+  MCP-05:
+    purpose: "Project, recording, transcript, summary, and export reads. Define complete MCP tool schemas before implementation begins."
+    tools:
+      "fung.project.list": ["workspace.read"]
+      "fung.recording.list": ["workspace.read"]
+      "fung.transcript.get": ["workspace.read"]
+      "fung.summary.list": ["workspace.read"]
+      "fung.export.list": ["workspace.read"]
+  MCP-06:
+    purpose: "Search, meeting questions, and citations. Define complete MCP tool schemas before implementation begins."
+    tools:
+      "fung.transcript.search": ["workspace.read"]
+      "fung.meeting.ask": ["workspace.read"]
+      "fung.citation.resolve": ["workspace.read"]
+  MCP-07:
+    purpose: "Revision-safe transcript and speaker corrections. Define complete MCP tool schemas before implementation begins."
+    tools:
+      "fung.transcript.patch_segment": ["transcript.edit"]
+      "fung.transcript.rename_speaker": ["transcript.edit"]
+  MCP-08:
+    purpose: "Grounded summaries and task workflows. Define complete MCP tool schemas before implementation begins."
+    tools:
+      "fung.summary.generate": ["workspace.read", "artifact.create", "provider.use"]
+      "fung.task.extract": ["workspace.read", "artifact.create", "provider.use"]
+      "fung.task.list": ["workspace.read"]
+      "fung.task.update": ["workspace.write"]
+    conditional_scopes:
+      - when: "the selected provider sends meeting content off-device"
+        require: ["external.disclose"]
+        additional_gate: "fresh operation-specific approval in FUNG"
+  MCP-09:
+    purpose: "Export creation and artifact/job readback. Define complete MCP tool schemas before implementation begins."
+    tools:
+      "fung.export.create": ["workspace.read", "artifact.create"]
+      "fung.export.get": ["workspace.read"]
+future_gated_families:
+  - family: "local organization and analytics"
+    gate: "owning MCP-11 and MCP-13 acceptance and scopes"
+  - family: "external connector writes, sharing, calendar, deletion, administration"
+    gate: "separate consent, destination preview, scope review, audit, and release approval"
+compatibility:
+  legacy_contract: "contracts/local-mcp-v1.yaml"
+  legacy_runtime_claim: false
+  breaking_changes: "new versioned tool or contract entry"
+references:
+  execution_dag: "docs/plans/2026-10-20-product-mcp-execution-dag.json"
+  normative_transport: "https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http"
+  normative_authorization: "https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization"
+  normative_tools: "https://modelcontextprotocol.io/specification/2026-07-28/server/tools"

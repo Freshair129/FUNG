@@ -1722,7 +1722,106 @@ fn schema_v11() -> RelationalSchemaPackage {
 }
 
 pub(crate) fn schema() -> RelationalSchemaPackage {
-    schema_v13()
+    schema_v15()
+}
+
+/// Add persisted operation intents so Product MCP can reconcile an interrupted
+/// job control call against the owning job ledger after restart.
+fn schema_v15() -> RelationalSchemaPackage {
+    use RelationalColumnType::Json;
+    let mut package = schema_v14();
+    package.schema_version = 15;
+    package.previous_version = Some(14);
+    package.package_id = "8c45d252-b7ed-4e57-9398-10eea72d29b9".to_string();
+    let idempotency = package
+        .tables
+        .iter_mut()
+        .find(|table| table.name == "product_mcp_idempotency")
+        .expect("v14 Product MCP idempotency schema");
+    idempotency.columns.push(nullable("intent_json", Json));
+    package
+}
+
+/// Add local product-MCP grant, idempotency, and audit ledgers.
+fn schema_v14() -> RelationalSchemaPackage {
+    use RelationalColumnType::{Boolean, Integer, Json, Text};
+    let mut package = schema_v13();
+    package.schema_version = 14;
+    package.previous_version = Some(13);
+    package.package_id = "7939b057-8166-49b7-8d0a-f180d7d9524e".to_string();
+    package.tables.extend([
+        table(
+            "product_mcp_grants",
+            vec![
+                required("id", Text),
+                required("workspace_id", Text),
+                required("client_name", Text),
+                nullable("client_version", Text),
+                required("scopes_json", Json),
+                required("project_scope_json", Json),
+                required("all_projects", Boolean),
+                required("token_sha256", Text),
+                required("credential_account", Text),
+                required("active", Boolean),
+                nullable("expires_at", Text),
+                required("created_at", Text),
+                nullable("revoked_at", Text),
+            ],
+            vec![],
+            vec![RelationalIndex {
+                name: "idx_product_mcp_grants_token".to_string(),
+                columns: vec!["token_sha256".to_string()],
+                unique: true,
+            }],
+        ),
+        table(
+            "product_mcp_idempotency",
+            vec![
+                required("id", Text),
+                required("grant_id", Text),
+                required("tool_name", Text),
+                required("idempotency_key_sha256", Text),
+                required("request_sha256", Text),
+                required("operation_state", Text),
+                nullable("job_id", Text),
+                nullable("result_json", Json),
+                required("created_at", Text),
+                required("updated_at", Text),
+                nullable("retain_until", Text),
+            ],
+            vec![fk("grant_id", "product_mcp_grants")],
+            vec![RelationalIndex {
+                name: "idx_product_mcp_idempotency_key".to_string(),
+                columns: vec![
+                    "grant_id".to_string(),
+                    "tool_name".to_string(),
+                    "idempotency_key_sha256".to_string(),
+                ],
+                unique: true,
+            }],
+        ),
+        table(
+            "product_mcp_audit",
+            vec![
+                required("id", Text),
+                required("grant_id", Text),
+                required("tool_name", Text),
+                required("requested_scopes_json", Json),
+                required("outcome", Text),
+                required("object_ids_json", Json),
+                nullable("source_revision", Integer),
+                nullable("idempotency_key_sha256", Text),
+                required("created_at", Text),
+            ],
+            vec![fk("grant_id", "product_mcp_grants")],
+            vec![RelationalIndex {
+                name: "idx_product_mcp_audit_grant_time".to_string(),
+                columns: vec!["grant_id".to_string(), "created_at".to_string()],
+                unique: false,
+            }],
+        ),
+    ]);
+    package
 }
 
 /// Link an optional model run to a proposal draft while preserving v1–v12.
@@ -1930,6 +2029,8 @@ pub(crate) fn install(storage: &Storage) -> Result<(), String> {
         schema_v10(),
         schema_v11(),
         schema_v12(),
+        schema_v13(),
+        schema_v14(),
         schema(),
     ];
     let last_index = packages.len() - 1;
@@ -11612,6 +11713,19 @@ pub(crate) fn query(
         .map_err(|error| error.to_string())
 }
 
+/// Read one bounded, deterministic page from a relational table. Supplying an
+/// offset makes Genesis order the page by the base table's primary key.
+pub(crate) fn query_page(
+    storage: &Storage,
+    table: &str,
+    columns: &[&str],
+    filters: Vec<RelationalFilter>,
+    limit: u32,
+    offset: u32,
+) -> Result<Vec<Value>, String> {
+    query_at(storage, table, columns, filters, limit, offset)
+}
+
 /// One page of [`query_all`]: `limit` rows starting `offset` rows in, ordered
 /// by the base table's primary key on the engine side.
 fn query_at(
@@ -14827,6 +14941,8 @@ mod tests {
             schema_v10(),
             schema_v11(),
             schema_v12(),
+            schema_v13(),
+            schema_v14(),
             schema(),
         ];
         for (index, package) in chain.iter().enumerate() {
@@ -15178,7 +15294,9 @@ mod tests {
         assert_eq!(schema_v10().schema_version, 10);
         assert_eq!(schema_v11().schema_version, 11);
         assert_eq!(schema_v12().schema_version, 12);
-        assert_eq!(schema().schema_version, 13);
+        assert_eq!(schema_v13().schema_version, 13);
+        assert_eq!(schema_v14().schema_version, 14);
+        assert_eq!(schema().schema_version, 15);
         let old_runs = schema_v12()
             .tables
             .into_iter()
@@ -16514,6 +16632,126 @@ mod tests {
             .unwrap_err(),
             "MEETING_AGENT_EVIDENCE_STALE"
         );
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn product_mcp_schema_persists_grants_idempotency_and_audit_with_constraints() {
+        let (path, storage) = open();
+        commit_rows(
+            &storage,
+            vec![upsert(
+                "product_mcp_grants",
+                json!({
+                    "id": "grant-1",
+                    "workspace_id": "workspace-1",
+                    "client_name": "Codex",
+                    "client_version": "1.0.0",
+                    "scopes_json": ["workspace.read", "job.control"],
+                    "project_scope_json": ["project-1"],
+                    "all_projects": false,
+                    "token_sha256": "token-hash-1",
+                    "credential_account": "product-mcp/grant-1",
+                    "active": true,
+                    "expires_at": null,
+                    "created_at": "2026-10-20T00:00:00Z",
+                    "revoked_at": null
+                }),
+            )],
+        )
+        .unwrap();
+        commit_rows(
+            &storage,
+            vec![upsert(
+                "product_mcp_idempotency",
+                json!({
+                    "id": "idem-1",
+                    "grant_id": "grant-1",
+                    "tool_name": "fung.job.control",
+                    "idempotency_key_sha256": "key-hash-1",
+                    "request_sha256": "request-hash-1",
+                    "operation_state": "completed",
+                    "job_id": "job-1",
+                    "intent_json": {"action":"retry","retry_job_id":"job-2"},
+                    "result_json": {"accepted": true},
+                    "created_at": "2026-10-20T00:00:00Z",
+                    "updated_at": "2026-10-20T00:00:00Z",
+                    "retain_until": "2026-11-19T00:00:00Z"
+                }),
+            )],
+        )
+        .unwrap();
+        commit_rows(
+            &storage,
+            vec![upsert(
+                "product_mcp_audit",
+                json!({
+                    "id": "audit-1",
+                    "grant_id": "grant-1",
+                    "tool_name": "fung.job.control",
+                    "requested_scopes_json": ["job.control"],
+                    "outcome": "completed",
+                    "object_ids_json": ["job-1"],
+                    "source_revision": null,
+                    "idempotency_key_sha256": "key-hash-1",
+                    "created_at": "2026-10-20T00:00:00Z"
+                }),
+            )],
+        )
+        .unwrap();
+
+        let grant = query(
+            &storage,
+            "product_mcp_grants",
+            &["id", "active", "scopes_json", "token_sha256"],
+            vec![eq("product_mcp_grants", "id", json!("grant-1"))],
+            1,
+        )
+        .unwrap();
+        assert_eq!(grant[0]["product_mcp_grants.active"], true);
+        assert_eq!(
+            grant[0]["product_mcp_grants.scopes_json"],
+            json!(["workspace.read", "job.control"])
+        );
+
+        let intent = query(
+            &storage,
+            "product_mcp_idempotency",
+            &["operation_state", "intent_json"],
+            vec![eq("product_mcp_idempotency", "id", json!("idem-1"))],
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            intent[0]["product_mcp_idempotency.intent_json"]["retry_job_id"],
+            "job-2"
+        );
+
+        let repeated_key = commit_rows(
+            &storage,
+            vec![upsert(
+                "product_mcp_idempotency",
+                json!({
+                    "id": "idem-2",
+                    "grant_id": "grant-1",
+                    "tool_name": "fung.job.control",
+                    "idempotency_key_sha256": "key-hash-1",
+                    "request_sha256": "request-hash-2",
+                    "operation_state": "pending",
+                    "job_id": null,
+                    "result_json": null,
+                    "created_at": "2026-10-20T00:00:01Z",
+                    "updated_at": "2026-10-20T00:00:01Z",
+                    "retain_until": null
+                }),
+            )],
+        );
+        assert!(
+            repeated_key.is_err(),
+            "grant/tool/idempotency key tuple must be unique"
+        );
+
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
     }

@@ -1,7 +1,11 @@
 # FUNG
 
-FUNG is a local-first audio workspace for recording, transcription, review and
-evidence-based meeting knowledge. Desktop uses Tauri/React and an embedded
+FUNG's product direction is a local-first meeting agent: **listen → understand →
+retrieve → act** during the conversation, with summaries and follow-up afterward.
+Its audio workspace provides recording, transcription, review and evidence-based
+meeting knowledge. [Product concept and readiness boundaries](PRODUCT.md#key-concept--ผู้ช่วยที่ทำงานไปพร้อมกับการประชุม)
+describe the target capabilities; [Desktop evidence](docs/Desktop/08-real-progress.md)
+records current implementation. Desktop uses Tauri/React and an embedded
 GenesisBlockDB adapter; optional account/device services use the separate
 Supabase control plane.
 

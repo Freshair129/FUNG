@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-07-05T13:15:00+07:00,ATHER"
+last_update: "2026-10-25"
 status: "beta"
 superseded_by: null
 attributes:
@@ -14,7 +14,11 @@ attributes:
 
 ## Product Thesis
 
-FUNG is a local-first AI native desktop app for people who need to record long conversations, preserve source audio, turn speech into useful text, understand who said what, and produce exportable evidence without making cloud upload the default.
+FUNG's [canonical product direction](../../PRODUCT.md#key-concept--ผู้ช่วยที่ทำงานไปพร้อมกับการประชุม)
+is a local-first meeting agent: listen → understand → retrieve → act during the
+conversation, then summarize and follow up. Durable source audio, transcription,
+speaker evidence and export support that experience. This direction is a product
+goal; current implementation and acceptance live in [Desktop progress](08-real-progress.md).
 
 The product starts on desktop because long recording, local files, model runtimes, SQLite WAL state, and legal/privacy boundaries are easiest to control on the user's own machine.
 
@@ -87,10 +91,12 @@ Reason: the app combines desktop runtime, long audio recording, local database d
 
 | Version | Change |
 | --- | --- |
+| 0.1.1b | Linked the user-confirmed live meeting agent direction and kept readiness separate from product intent. |
 | 0.1.0b | Added product foundation and V1 boundaries. |
 
 ## Changelog
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.1.1b | 2026-10-25 | beta | Aligned Desktop product thesis with canonical PRODUCT.md; no feature acceptance promoted. | pending | Codex |
 | 0.1.0b | 2026-07-05 | beta | Added foundations doc. | N/A | ATHER |

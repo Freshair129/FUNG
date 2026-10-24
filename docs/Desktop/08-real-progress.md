@@ -1,7 +1,7 @@
 ---
-version: "0.3.36b"
+version: "0.3.37b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-23,Codex"
+last_update: "2026-10-24,Codex"
 
 status: "beta"
 superseded_by: null
@@ -15,17 +15,24 @@ attributes:
 
 ## Installed 0.1.2 workflow and native follow-up — 2026-10-23
 
-The isolated installed eae669a package produced system audio, eight transcript
-rows, local summary output, a saved transcript edit, SRT/VTT/WAV exports and
-successful normal close/reopen, data-preserving reinstall and durable-chunk crash
-recovery. Quality is explicitly deferred. Installed testing found and corrected
-the fixed UI stop timeout; system channel alignment and application inventory
-required further native changes. The ec494fd installed package enumerates active
-applications and produces microphone audio/text, but application packet timing and
-system startup classification failed. Review reopened and withdrew its zero-index
-startup assumption. Corrected native system active-start and delayed/resumed-idle
-probes pass; selected-app isolation, terminal-failure reporting, final source/hosted
-checks and rebuilt installed retest remain open. No merge, tag or publication is claimed. See the
+The installed `9b2ed86` package records 21.35 seconds of populated system audio,
+produces eight transcript rows and summary output, supports playback and a saved
+transcript edit, and retains five recordings/17 transcript rows/46 unchanged
+chunk hashes after normal close/reopen. Archive correctly retains partial-track
+warnings and clears the detail warning when a clean recording is selected.
+Earlier packages separately proved spoken microphone output, data-preserving
+reinstall and durable-chunk crash recovery. Quality remains deferred.
+
+Source review, 683 Rust tests, Clippy, composed frontend checks, hosted frontend/
+Rust CI and an actual single-import developer MCP workflow pass at `9b2ed86`.
+The bounded native application writer preserves continuous and stalled-writer
+audio, but selected-process Stop/Resume still loses active samples (issue #96).
+Installed UAT also found that the Export button emits microphone-only WAV while
+omitting populated system audio and incorrectly completes the job (issue #97);
+the source correction now passes independent review, 692 Rust tests, Clippy,
+the 12-check native custody matrix and composed package checks. Rebuilt export
+acceptance remains pending. These are release blockers.
+No merge, tag or publication is claimed. See the
 [installed acceptance report](../verification/implementation-reports/2026-10-23-installed-releasefix-uat.md).
 
 ## CPU capture reliability and microphone follow-up — 2026-10-23

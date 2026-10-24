@@ -66,6 +66,18 @@ const A = { projectId: "project-a", recordingId: "recording-a" };
 const B = { projectId: "project-a", recordingId: "recording-b" };
 const NOW = "2026-09-17T00:00:00.000Z";
 
+test("export rows distinguish channel filenames without displaying parent paths", () => {
+  const microphone = production.exportArtifactFilename("G:\\private-workspace\\exports\\audio-r1-mic.wav");
+  const system = production.exportArtifactFilename("G:/private-workspace/exports/audio-r1-system.wav");
+  assert.equal(microphone, "audio-r1-mic.wav");
+  assert.equal(system, "audio-r1-system.wav");
+  assert.notEqual(microphone, system);
+  assert.equal(production.exportArtifactFilename("transcript-r1.srt"), "transcript-r1.srt");
+  assert.equal(production.exportArtifactFilename(""), "ไฟล์ส่งออก");
+  assert.match(sourceText, /exportArtifactFilename\(artifact\.filePath\)/);
+  assert.match(recordingReviewCssText, /\.recording-review__artifact-name[\s\S]*?overflow-wrap:\s*anywhere/);
+});
+
 function deferred() {
   let resolve;
   let reject;

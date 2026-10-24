@@ -318,9 +318,10 @@ test("export queue records source artifacts and transcodes supported imported fo
 
   assert.match(
     engine,
-    /audio_export::render_source_audio.*ข้าม audio export/s,
-    "the durable export job must report unsupported audio formats truthfully",
+    /audio_export::render_source_audio_channels[\s\S]*map_err\([\s\S]*export_failed/,
+    "the durable export job must fail honestly when any audio channel fails",
   );
+  assert.doesNotMatch(engine, /ข้าม audio export/, "audio failure must not become subtitle-only success");
   assert.match(
     audioExport,
     /audio\/wav.*audio\/mpeg.*export_artifacts/s,
@@ -348,7 +349,7 @@ test("export queue records source artifacts and transcodes supported imported fo
   );
   assert.match(
     review,
-    /const artifacts = state\.data \?\? \[\][\s\S]*artifacts\.map\(\(artifact\) => \([\s\S]*<span>\{artifact\.kind\}<\/span>/,
+    /const artifacts = state\.data \?\? \[\][\s\S]*artifacts\.map\(\(artifact\) => \([\s\S]*\{artifact\.kind\.toUpperCase\(\)\}[\s\S]*exportArtifactFilename\(artifact\.filePath\)/,
     "the review surface must display the persisted artifact kinds, including audio exports",
   );
 });

@@ -254,6 +254,10 @@ export function formatRecordingDuration(durationMs: number): string {
   return String(minutes) + ":" + String(seconds).padStart(2, "0");
 }
 
+export function exportArtifactFilename(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() || "ไฟล์ส่งออก";
+}
+
 export function clampPlaybackPosition(
   positionMs: number,
   durationMs: number,
@@ -2351,7 +2355,10 @@ function ExportPanel({
         <ul className="recording-review__artifact-list">
           {artifacts.map((artifact) => (
             <li key={artifact.id}>
-              <span>{artifact.kind}</span>
+              <span className="recording-review__artifact-name">
+                <strong>{artifact.kind.toUpperCase()}</strong>
+                <span>{exportArtifactFilename(artifact.filePath)}</span>
+              </span>
               <time dateTime={artifact.createdAt}>{formatReviewDate(artifact.createdAt)}</time>
             </li>
           ))}

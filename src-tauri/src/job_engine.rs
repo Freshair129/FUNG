@@ -1136,25 +1136,23 @@ fn dispatch(
         }
         JobKind::ExportRender => {
             crate::transcript_export::render_subtitles(storage, &job.project_id, recording_id)
-                .map(|export| {
+                .and_then(|export| {
                     let runtime = app.state::<crate::AppState>().whisper_runtime_clone();
-                    let audio_detail = match crate::audio_export::render_source_audio(
+                    let audio = crate::audio_export::render_source_audio_channels(
                         storage,
                         &runtime,
                         &job.project_id,
                         recording_id,
-                    ) {
-                        Ok(Some(audio)) => {
-                            format!(" และ {} {}", audio.kind, audio.file_path)
-                        }
-                        Ok(None) => " (ข้าม audio export)".to_string(),
-                        Err(error) => format!(" (ข้าม audio export: {error})"),
-                    };
+                    )?;
+                    let audio_detail = audio
+                        .iter()
+                        .map(|audio| format!(" และ {} {}", audio.kind, audio.file_path))
+                        .collect::<String>();
                     // `write_attempt` rewrites `output_refs_json` to `[]` on
                     // every status change, so the paths are recorded where
                     // they survive: `export_artifacts` (written by the
                     // renderer) and this event, which is the job's own trail.
-                    let _ = genesis_adapter::commit_rows(
+                    genesis_adapter::commit_rows(
                         storage,
                         vec![genesis_adapter::upsert(
                             "job_events",
@@ -1171,12 +1169,11 @@ fn dispatch(
                                 "created_at": now(),
                             }),
                         )],
-                    );
+                    )
                 })
-                // Every way this declines is a state the user changes, not
-                // one that clears by retrying: no transcript yet, or a
-                // recording past the engine's single-read ceiling. Retrying
-                // would just rewrite the same refusal onto the job.
+                // Source/codec/custody/publication failures are reported, not
+                // silently skipped or auto-retried. After repairing the stated
+                // cause, the user may explicitly retry this durable export.
                 .map_err(|error| JobFailure::permanent("export_failed", error))
         }
         JobKind::TranscriptRetry => {

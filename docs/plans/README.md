@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-19"
-last_update: "2026-10-19"
+last_update: "2026-10-24"
 status: "beta"
 superseded_by: null
 attributes:
@@ -16,6 +16,8 @@ attributes:
 แผนในโฟลเดอร์นี้ระบุขอบเขตและลำดับงาน ไม่ใช่หลักฐานว่างานเสร็จหรือฟีเจอร์ทำงานแล้ว
 
 ## จุดอ้างอิงหลัก
+
+- [Multichannel source-export repair, issue 97](2026-10-24-multichannel-source-export-fix.md) specifies all-channel custody, atomic media publication, timeline fail-closed behavior and honest job outcomes; acceptance evidence remains separate.
 
 - [Product MCP feature roadmap](2026-10-20-product-mcp-feature-roadmap.md) เป็น roadmap ที่อยู่ระหว่าง execution; [execution DAG](2026-10-20-product-mcp-execution-dag.json) เป็น checkpoint ledger (ไม่ใช่ scheduler หรือหลักฐานว่า feature ทำงานแล้ว). MCP-00 inventory และ MCP-01 contract v0.1.4b ผ่าน independent review; MCP-02 loopback bridge อยู่ระหว่างตรวจรับ implementation.
 

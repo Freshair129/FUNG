@@ -1,7 +1,7 @@
 ---
-version: "0.1.3b"
+version: "0.1.4b"
 created_at: "2026-10-23"
-last_update: "2026-10-23"
+last_update: "2026-10-24"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -12,6 +12,173 @@ attributes:
 ---
 
 # Rebuilt Desktop package acceptance
+
+## Current disposition — 2026-10-24
+
+The latest installed source is `9b2ed86`. **The complete release gate is FAIL**: selected-
+application capture still loses active PCM when its renderer stops/restarts
+([issue #96](https://github.com/Freshair129/FUNG/issues/96)), and installed export
+silently omits the system channel
+([issue #97](https://github.com/Freshair129/FUNG/issues/97)). The bounded writer
+fix passes continuous/stalled-writer tests, but does not close this transition
+gate. Independent source review found no additional regression; independent
+acceptance review retains FAIL. PR #91 remains draft; no merge, tag or publication
+is claimed. The chronological sections below retain earlier package identities
+and superseded results instead of relabeling them as current acceptance.
+
+The current installed candidate was built from `9b2ed86`: unsigned UAT installer
+**2,115,736,988 bytes**, SHA-256
+`D0D485E3763AAB8246C14DD412266505149C02475DC051C3EE0FD5ED10DA2ED6`;
+installed executable SHA-256
+`BEC2EA79AC1CD927AAAADDB287B211D9FF779C9A70BA402ADB93FAE8694D51A8`.
+Silent installation exited 0 and all 4,504 runtime entries matched the manifest.
+The isolated profile was backed up before installation; its database integrity
+was `ok`, with four recordings, nine transcript rows and 40 checksum-valid chunks.
+Normal-profile data was not used.
+
+Installed Archive list/detail correctly show a durable capture warning for the
+earlier failed application-track recording `3f1c168d-afb7-4968-b796-895438f21872`.
+Selecting the clean recovered recording removes the detail warning; the warning
+does not leak between recordings. This was observed after cold launch of the
+newly installed executable (`writer-installed-partial-warning.txt` and
+`writer-installed-clean-selection.txt`).
+
+Both active render endpoints remain muted at the user's request. Native system
+and selected-process probes retain PCM under mute. No new human microphone speech
+is requested during unattended testing, and microphone settings are unchanged.
+
+### Remaining transition loss: bounded experiments rejected
+
+The reference-correlated marker experiment keeps a separate silent renderer
+active and simultaneously captures full-system audio. It therefore distinguishes
+selected-process loss from an engine-wide quiet interval. The comparator has at
+most 1 ms of chunk-start rounding uncertainty; the measured losses exceed it.
+
+| Probe | Missing active frames before Stop | Missing active frames after Resume | Outcome |
+| --- | ---: | ---: | --- |
+| `marker-transition-v13` | 1,024 (21.3 ms) | 0 | FAIL |
+| `marker-scheduling-mmcss-v15` | 1,504 (31.3 ms) | 0 | FAIL; MMCSS Capture registration succeeded |
+| `marker-timeout-drain-v16` | 1,984 (41.3 ms) | 461 (9.6 ms) | FAIL; 1-ms timeout draining executed |
+
+Reader decode/release costs approximately 28–33 microseconds. Scheduling
+registration and shorter timeout draining did not remove the loss. Their
+`cfg(test)` diagnostics were removed and the production file restored exactly
+to `9b2ed86`; frozen external executables, packet traces, WAVs and comparison
+receipts remain under the evidence root. No gap tolerance was relaxed and no
+missing active audio was relabeled as silence.
+
+An optional Microsoft reference sample was source-pinned, license-preserved and
+built outside the repository. Automatic approval review rejected executing it
+with `blocked by policy`; neither that executable nor its wrapper was run. These
+build receipts do not establish reference-runtime behavior. No alternative path
+was used to bypass that rejection.
+
+### Installed system workflow and export failure at 9b2ed86
+
+From installed Live, selected ONIKUMA and the default system route, started the
+owned SAPI fixture under output mute, recorded 21 seconds, then pressed Stop
+before the fixture ended. Recording `51abb8ba-db6e-4b5b-ab5f-bc82bd8be032`
+retains six chunks: three system chunks spanning **0–21,349 ms**, and three mic
+chunks spanning **0–21,310 ms**. Every checksum matches. The system chunks contain
+726,081 nonzero samples with peak 31,726; the unspoken microphone contains only
+221 nonzero samples with peak 5. This run proves system speech capture and mic
+track persistence, not new spoken-microphone acceptance or perceptual quality.
+
+The capture job completed at `2026-10-23T23:42:25.962515900Z`, approximately
+92 seconds after Stop, without a capture-fault audit. The UI settled to stopped
+and displayed eight populated system transcript rows. The local summary job also
+completed. System playback opened, advanced from 0:00 to 0:10, paused at 0:15 and
+closed. Output remained muted, so this verifies transport and populated media,
+not an audible listening assessment.
+
+The first transcript row was edited in the installed UI to
+`The next meeting is tomorrow at ten. [UAT saved edit]`. The Export button created
+SRT/VTT with that exact edit, but its sole WAV was microphone-only: 21,310 ms,
+221 nonzero samples, peak 5. The speech-bearing system channel was absent. The
+export job incorrectly reported completed. Source diagnosis found the playback
+default `build_audio(..., None)` selects mic first; the export dispatcher also
+swallows audio-render errors. Issue #97 tracks correction and rebuilt retest.
+**This export run is FAIL despite successful subtitle files.**
+
+After an orderly installed-app close and relaunch, the UI retained the new
+recording and saved edit. SQLite integrity is `ok`; all five recordings, 17
+transcript rows and all 46 chunk hashes are unchanged. A first launch process
+ended without a captured diagnostic; the monitored retry produced the actual
+Home/Archive window. The data-retention pass is not a claim that every launch
+attempt succeeded. Local receipts: `writer-installed-finalized.json`,
+`writer-installed-export-loss.json`, `writer-installed-exports.json`,
+`writer-reopen-comparison.json`, `writer-installed-playback.png`, and
+`writer-installed-reopened-edit.png`.
+
+The actual developer MCP call passed at `9b2ed86` in
+`workflow-2026-10-23T234253761Z-c1b2fc82`: fixed synthetic import, CPU transcription,
+edit, subtitle/audio export, playback read and database reopen. Test-internal
+duration was 28.56 seconds, with a diagnostic keyword score of 12/12. The source
+fixture has a single imported channel, so this pass cannot detect issue #97 or
+replace installed/native-source acceptance. Hosted frontend and Rust CI both
+passed at `9b2ed86` (49 seconds and 19m 51s respectively;
+[run 40039614591](https://github.com/Freshair129/FUNG/actions/runs/40039614591)).
+
+### Installed selected-application steady-state run at 9b2ed86
+
+After relaunch, refreshed native inventory and selected the owned speech helper
+`powershell.exe` PID 30084. Recording
+`fc5f23e7-8649-44a0-aa89-782a8e0aac3e` records the provenance
+`remoteSourceKind=application_loopback` and that exact PID in its start audit.
+The fixture continued playing until after capture Stop, so this deliberately
+does not exercise the unresolved renderer Stop/Resume transition.
+
+Both channel timelines span **0–16,360 ms** in three chunks. Application audio
+contains 581,362 nonzero samples with peak 31,735 and retains its 360-ms tail;
+the unspoken mic is zero. All six checksums match. Capture and summary jobs
+completed; installed Live settled to stopped and displayed four populated remote
+transcript rows (`writer-installed-app-finalized.png/json`). No capture-fault
+audit was recorded. The native application inventory and this steady-state
+installed workflow pass, while issue #96 remains FAIL. Subsequent profile totals
+are six recordings, 21 transcript rows and 52 checksum-valid chunks.
+
+### Issue #97 source correction — installed retest pending
+
+The [bounded repair plan](../../plans/2026-10-24-multichannel-source-export-fix.md)
+and canonical D-MVP-05 amendment define separate channel WAVs, stable artifact
+identities, bounded preparation and explicit failure instead of skipped audio.
+The source candidate prepares a complete content-hashed media directory and
+commits its artifact rows together. A failed metadata commit preserves the
+previous artifact set; unchanged retries verify and reuse identical media.
+Legacy single-file publication restores prior bytes when metadata commit fails.
+Subtitle/media/job publication is explicitly not a cross-resource transaction.
+
+Export now requires completed native capture and renders the exact validated
+chunk snapshot. This permits completed capture while CPU ASR is still running,
+but rejects active capture, changed source metadata, missing media, invalid or
+noncontiguous source timelines and byte-ceiling violations. The export-only
+bounded stitcher leaves playback behavior unchanged. The admitted import path
+is also used for transcoding. PyAV enforces its output limit during mux writes.
+The Archive inventory shows actual basenames so separate WAVs are distinguishable,
+while retaining its project-scope warning.
+
+Twelve focused Rust export regressions pass, including source mutation, running
+ASR, byte ceilings, timeline refusal, publication/metadata failure, retry/tamper
+checks and legacy compatibility. Independent final re-review accepted the source
+without remaining findings. The filename UI regression failed before its helper
+was added; all 18 History tests and TypeScript/Vite then passed.
+
+The broad package-script run initially passed 33/35 non-custody commands. It found
+an unregistered Python test and an obsolete UI assertion. Explicit npm registration
+and the assertion were corrected; targeted reruns pass (CI inventory, job actions,
+recording output and its three Python bounded-mux tests). The original failure
+receipt is retained. The first combined library/Clippy pass was 690/0/10 ignored
+and 1m 11s respectively; it predates the final snapshot-race correction. After
+that correction, the fresh full library passed **692 tests, zero failed, ten
+ignored in 140.17 seconds**; Clippy passed in 18.15 seconds and the registered
+native custody matrix passed all 12 checks. All 36 package test commands therefore
+pass compositionally, retaining the original two failures and explicit reruns.
+Formatting, diff checks and 101 relative file links across seven edited/new
+documents passed. Installed-package export is still required; this source review
+does not change the installed failure or the separate issue #96 gate. Receipts:
+`final-export-snapshot-rust-tests.log`, `final-export-snapshot-clippy.log`,
+`final-export-snapshot-native-custody.log`, `final-export-frontend-results.json`
+and `final-export-frontend-rerun.json`.
 
 ## Source preparation
 
@@ -48,7 +215,7 @@ to 1.5 GB. This version preparation does not create or publish a release.
 | Hosted CI on starting revision `6e6067c` | Frontend and Rust PASS; superseded by the new packet-handling changes |
 | Hosted CI at `ec494fd` | Frontend PASS; Rust FAIL on newer Clippy `chunks_exact_to_as_chunks` in both native readers; correction pending |
 
-## Installed acceptance in progress
+## Historical installed acceptance — 5a090f6
 
 Source/package revision: `5a090f65a48513461ed49db572fb08fa6f271464`.
 Installer `FUNG Capture UAT 20261023_0.1.2_x64-setup.exe`: **2,115,837,852 bytes**,

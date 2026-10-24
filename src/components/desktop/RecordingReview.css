@@ -725,8 +725,21 @@
 }
 
 .recording-review__artifact-list time {
+  flex-shrink: 0;
   color: var(--review-muted);
   font-size: 0.76rem;
+}
+
+.recording-review__artifact-name {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  overflow-wrap: anywhere;
+}
+
+.recording-review__artifact-name strong {
+  color: var(--review-muted);
+  font-size: 0.72rem;
 }
 
 .recording-review__action-grid {

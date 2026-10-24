@@ -1,5 +1,5 @@
 ---
-version: "0.3.37b"
+version: "0.3.38b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-24,Codex"
 
@@ -13,7 +13,7 @@ attributes:
 
 # 08 - Real Progress
 
-## Installed 0.1.2 workflow and native follow-up — 2026-10-23
+## Installed 0.1.2 workflow and native follow-up — 2026-10-24
 
 The installed `9b2ed86` package records 21.35 seconds of populated system audio,
 produces eight transcript rows and summary output, supports playback and a saved
@@ -27,11 +27,15 @@ Source review, 683 Rust tests, Clippy, composed frontend checks, hosted frontend
 Rust CI and an actual single-import developer MCP workflow pass at `9b2ed86`.
 The bounded native application writer preserves continuous and stalled-writer
 audio, but selected-process Stop/Resume still loses active samples (issue #96).
-Installed UAT also found that the Export button emits microphone-only WAV while
-omitting populated system audio and incorrectly completes the job (issue #97);
-the source correction now passes independent review, 692 Rust tests, Clippy,
-the 12-check native custody matrix and composed package checks. Rebuilt export
-acceptance remains pending. These are release blockers.
+Installed UAT also found microphone-only WAV export that omitted populated system
+audio (issue #97). The correction passes independent review, 692 Rust tests,
+Clippy, the 12-check native custody matrix and composed package checks. Rebuilt
+installed `40be411` now exports both channels with exact source PCM for system
+and application recordings; retries retain audio IDs/paths/hashes. Reinstall and
+normal reopen preserve six recordings, 21 transcript rows and 52 checksum-valid
+chunks, including the edited subtitles. Hosted frontend/Rust CI and the actual
+single-import developer MCP workflow pass at this source head. Issue #96 remains
+the release blocker; no new renderer-transition acceptance is claimed.
 No merge, tag or publication is claimed. See the
 [installed acceptance report](../verification/implementation-reports/2026-10-23-installed-releasefix-uat.md).
 

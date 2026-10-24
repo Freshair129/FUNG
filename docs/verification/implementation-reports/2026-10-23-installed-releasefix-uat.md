@@ -1,5 +1,5 @@
 ---
-version: "0.1.4b"
+version: "0.1.5b"
 created_at: "2026-10-23"
 last_update: "2026-10-24"
 status: "candidate"
@@ -15,18 +15,75 @@ attributes:
 
 ## Current disposition — 2026-10-24
 
-The latest installed source is `9b2ed86`. **The complete release gate is FAIL**: selected-
-application capture still loses active PCM when its renderer stops/restarts
-([issue #96](https://github.com/Freshair129/FUNG/issues/96)), and installed export
-silently omits the system channel
-([issue #97](https://github.com/Freshair129/FUNG/issues/97)). The bounded writer
-fix passes continuous/stalled-writer tests, but does not close this transition
-gate. Independent source review found no additional regression; independent
-acceptance review retains FAIL. PR #91 remains draft; no merge, tag or publication
-is claimed. The chronological sections below retain earlier package identities
-and superseded results instead of relabeling them as current acceptance.
+The latest installed source is `40be411`. **The complete release gate remains FAIL**:
+selected-application capture still loses active PCM when its renderer stops/restarts
+([issue #96](https://github.com/Freshair129/FUNG/issues/96)). The multichannel
+export repair now passes installed-package acceptance for
+[issue #97](https://github.com/Freshair129/FUNG/issues/97). The bounded writer
+passes continuous/stalled-writer tests, but does not close the separate transition
+gate. Independent source review found no additional regression. PR #91 remains
+draft; no merge, tag or publication is claimed. The chronological sections below
+retain earlier package identities and superseded results.
 
-The current installed candidate was built from `9b2ed86`: unsigned UAT installer
+### Installed multichannel export and reopen at 40be411
+
+The unsigned isolated installer is **2,115,679,654 bytes**, SHA-256
+`0A04C9E6449B6C038E64BD7019328D97575C11598AEBE36B5F9BB1B88DB2DE78`.
+The installed executable SHA-256 is
+`7628F85F78BDF2D37DD8770C1D0D6740CE7E3281FCA66F7DBA1782CA27F1FF5D`.
+Installation exited 0. All **4,504 runtime entries match** manifest
+`561da25ed8c64e8f84b7007424ccba1b63fcb34e9203f9ac2bbe3b3c6873a709`.
+Before updating, the isolated profile was backed up with six recordings,
+21 transcript rows and 52 chunks. The normal profile was not used.
+
+From installed Archive → Files and Tools, exported the existing system recording
+`51abb8ba-db6e-4b5b-ab5f-bc82bd8be032`, repeated its export, then exported the
+selected-application steady-state recording `fc5f23e7-8649-44a0-aa89-782a8e0aac3e`.
+All three new export jobs completed. Each recording now has two explicitly scoped
+WAV artifacts; decoded PCM matches its original per-channel chunks **byte for byte**.
+
+| Source recording | Microphone export | Remote-source export | Result |
+| --- | --- | --- | --- |
+| System, 21 seconds | 1,022,880 frames; 221 nonzero samples | 1,024,772 frames; 726,081 nonzero samples | PASS, exact source PCM |
+| Application, 16 seconds | 785,280 frames; zero nonzero samples | 785,280 frames; 581,362 nonzero samples | PASS, exact source PCM |
+
+The unspoken microphone channels intentionally retain their quiet source audio;
+this test does not claim fresh human speech. The application recording was made
+with a continuously playing source at `9b2ed86`; exporting it does not exercise or
+resolve issue #96. Repeated export keeps the same two audio IDs, paths and hashes.
+The obsolete ambiguous audio row is removed while its physical legacy WAV remains
+unchanged. The saved `[UAT saved edit]` is present in both SRT and VTT.
+
+Closed the installed app through its Close button and relaunched the same binary.
+Home and Archive rendered on both launches. SQLite integrity is `ok`; all six
+recording rows, 21 transcript rows and 52 source chunks match the pre-update backup,
+and every source checksum remains valid. This composes prior capture/recovery
+evidence with the export-only build; no fresh capture or crash is claimed at this head.
+The artifact list reloads on recording selection; the action notice reports the
+queued response, so database completion and actual files were checked separately.
+
+Receipts under `G:\AI-Studio\verification\fung-releasefix-uat-20261023`:
+`installer-export-identity.json`, `installed-export-payload.json`,
+`runtime-export-verification.json`, `multichannel-export-after-fix.json`,
+`multichannel-export-repeat.json`, `multichannel-application-export-after-fix.json`,
+`export-reopen-identity.json` and `export-reopen-custody.json`.
+The external PCM comparator initially rejected the Windows extended-length prefix
+in its custody check; normalizing that prefix fixed the checker without changing
+media or relaxing profile containment. A first reopen checker counted an unrelated
+legacy export; scoping its count to the two tested recordings corrected that check.
+
+The actual developer workflow MCP also passes at `40be411`, run
+`workflow-2026-10-24T002640770Z-c5a8dcec`: import → CPU ASR → edit → SRT/VTT/WAV →
+playback byte read → database reopen. Internal duration was 49.17 seconds, ASR
+45.42 seconds, diagnostic keywords 12/12. Compilation ran concurrently, so this
+is not a normalized performance benchmark. This single-import synthetic workflow
+does not establish installed capture or Product MCP capture-control acceptance.
+Hosted frontend and Rust CI both pass at `40be411`, 45 seconds and 13m 21s:
+[run 40044968120](https://github.com/Freshair129/FUNG/actions/runs/40044968120).
+
+### Previous installed identity at 9b2ed86
+
+The previous installed candidate was built from `9b2ed86`: unsigned UAT installer
 **2,115,736,988 bytes**, SHA-256
 `D0D485E3763AAB8246C14DD412266505149C02475DC051C3EE0FD5ED10DA2ED6`;
 installed executable SHA-256
@@ -43,7 +100,7 @@ does not leak between recordings. This was observed after cold launch of the
 newly installed executable (`writer-installed-partial-warning.txt` and
 `writer-installed-clean-selection.txt`).
 
-Both active render endpoints remain muted at the user's request. Native system
+All active render endpoints remain muted at the user's request. Native system
 and selected-process probes retain PCM under mute. No new human microphone speech
 is requested during unattended testing, and microphone settings are unchanged.
 
@@ -137,7 +194,7 @@ audit was recorded. The native application inventory and this steady-state
 installed workflow pass, while issue #96 remains FAIL. Subsequent profile totals
 are six recordings, 21 transcript rows and 52 checksum-valid chunks.
 
-### Issue #97 source correction — installed retest pending
+### Issue #97 source correction and source verification
 
 The [bounded repair plan](../../plans/2026-10-24-multichannel-source-export-fix.md)
 and canonical D-MVP-05 amendment define separate channel WAVs, stable artifact
@@ -174,8 +231,8 @@ ignored in 140.17 seconds**; Clippy passed in 18.15 seconds and the registered
 native custody matrix passed all 12 checks. All 36 package test commands therefore
 pass compositionally, retaining the original two failures and explicit reruns.
 Formatting, diff checks and 101 relative file links across seven edited/new
-documents passed. Installed-package export is still required; this source review
-does not change the installed failure or the separate issue #96 gate. Receipts:
+documents passed. These source checks are separate from the successful installed
+export retest above and do not change the issue #96 gate. Receipts:
 `final-export-snapshot-rust-tests.log`, `final-export-snapshot-clippy.log`,
 `final-export-snapshot-native-custody.log`, `final-export-frontend-results.json`
 and `final-export-frontend-rerun.json`.

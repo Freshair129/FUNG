@@ -1,5 +1,5 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-24"
 last_update: "2026-10-24,Codex"
 status: "candidate"
@@ -43,4 +43,4 @@ Final focused snapshot source run: 12/12 audio-export tests passed; `rustfmt --c
 
 The real staged `.venv-whisper` PyAV worker encoded and decoded a small synthetic WAV (`pcm_s16le`, 8,000 frames) and MP3 (`mp3float`, 22,050 frames). An 8-byte real-mux budget failed while preserving previous MP3 bytes and removing the temporary file. External receipt: `G:\AI-Studio\verification\fung-releasefix-uat-20261023\audio-export-codec-995c32ee-5235-4f63-93f1-2026111cbf36\report.json`.
 
-Independent frozen-source re-review accepted the final race fix with no unresolved actionable findings. Combined checks and exact installed-package export remain separate gates owned by the parent delivery run. No installed or release acceptance is claimed here.
+Independent frozen-source re-review accepted the final race fix with no unresolved actionable findings. The parent's combined run subsequently passed 692 Rust tests, Clippy and the 12-check custody matrix. Installed `40be411` export now passes exact per-channel PCM comparison for system and selected-application steady-state recordings; retry and data-preserving reopen also pass. See the [installed acceptance report](../verification/implementation-reports/2026-10-23-installed-releasefix-uat.md#installed-multichannel-export-and-reopen-at-40be411). Overall release remains blocked separately by issue #96; no merge, tag or publication is claimed.

@@ -1,7 +1,7 @@
 ---
-version: "0.1.1b"
+version: "0.1.2b"
 created_at: "2026-10-19"
-last_update: "2026-10-24"
+last_update: "2026-10-25"
 status: "beta"
 superseded_by: null
 attributes:
@@ -16,6 +16,8 @@ attributes:
 แผนในโฟลเดอร์นี้ระบุขอบเขตและลำดับงาน ไม่ใช่หลักฐานว่างานเสร็จหรือฟีเจอร์ทำงานแล้ว
 
 ## จุดอ้างอิงหลัก
+
+- [Application renderer-transition repair, issue 96](2026-10-25-issue-96-application-transition.md) tracks root-cause isolation, source regressions and installed-package release gates.
 
 - [Multichannel source-export repair, issue 97](2026-10-24-multichannel-source-export-fix.md) specifies all-channel custody, atomic media publication, timeline fail-closed behavior and honest job outcomes; acceptance evidence remains separate.
 

@@ -154,14 +154,26 @@ assert.equal(typeof waitForCaptureInactive, "function");
 assert.equal(typeof createLiveControllerAdapter, "function");
 assert.equal(typeof workspace.getLiveSummaryPresentation, "function");
 
-test("system audio starts off unless the user explicitly opts in", () => {
-  assert.match(workspaceSource, /const \[captureSystem, setCaptureSystem\] = useState\(false\)/);
+test("microphone-only is the default and system or app capture is explicit", () => {
+  assert.match(workspaceSource, /const \[captureSourceMode, setCaptureSourceMode\] = useState<"mic" \| "system" \| "application">\("mic"\)/);
+  assert.match(workspaceSource, /captureSystem: captureSourceMode !== "mic"/);
+  assert.match(workspaceSource, /applicationProcessId: captureSourceMode === "application" \? applicationProcessId \?\? undefined : undefined/);
   assert.match(panelSource, /captureSystem: options\.captureSystem \?\? false/);
 });
 
 test("participant notice acknowledgement starts checked for each live session", () => {
   assert.match(workspaceSource, /const \[privacyAcknowledged, setPrivacyAcknowledged\] = useState\(true\)/);
-  assert.match(workspaceSource, /disabled=\{!privacyAcknowledged \|\| !captureCapability\.available\}/);
+  assert.match(workspaceSource, /disabled=\{!privacyAcknowledged \|\| !captureCapability\.available \|\| !canStartSelectedSource\}/);
+});
+
+test("native channel failure detail remains visible instead of only a generic degraded label", () => {
+  const event = { state: "degraded", detail: "สตรีมเสียงช่อง system ผิดพลาด", recordingId: "capture", micDevice: null, systemDevice: null };
+  assert.equal(panel.resolveLiveStatusError(event)?.message, event.detail);
+  assert.equal(panel.resolveLiveStatusError({ ...event, state: "error" })?.message, event.detail);
+  assert.equal(panel.resolveLiveStatusError({ ...event, state: "listening" }), null);
+  assert.equal(panel.resolveLiveStatusError({ ...event, detail: "  " }), null);
+  assert.match(panelSource, /const statusError = resolveLiveStatusError\(event\)/);
+  assert.match(panelSource, /if \(statusError\) addError\(statusError\)/);
 });
 
 test("live elapsed display advances from the native clock snapshot and freezes on stop", () => {
@@ -694,6 +706,38 @@ test("stop-and-leave waits for active=false and stopping=false", async () => {
   );
   assert.equal(reads, 4);
   assert.deepEqual(result, statuses[3]);
+});
+
+test("responsive CPU finalization can exceed two minutes without a false stop failure", async () => {
+  const originalNow = Date.now;
+  let clock = 0;
+  let reads = 0;
+  Date.now = () => clock;
+  try {
+    const result = await waitForCaptureInactive(async () => {
+      reads += 1;
+      return statusFor(keyA, { active: reads < 5, stopping: reads < 5 });
+    }, { pollMs: 60_000, sleep: async (ms) => { clock += ms; } });
+    assert.equal(clock, 240_000);
+    assert.equal(result.active, false);
+    assert.equal(reads, 5);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test("callers can still impose a bounded stop deadline", async () => {
+  const originalNow = Date.now;
+  let clock = 0;
+  Date.now = () => clock;
+  try {
+    await assert.rejects(() => waitForCaptureInactive(
+      async () => statusFor(keyA, { active: true, stopping: true }),
+      { timeoutMs: 500, pollMs: 250, sleep: async (ms) => { clock += ms; } },
+    ), (error) => error.code === "LEGACY_COMMAND_FAILED");
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
 test("visibility changes do not stop the lifecycle or remove listeners", async () => {

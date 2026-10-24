@@ -1,7 +1,7 @@
 ---
-version: "0.3.29v"
+version: "0.3.38b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-20,Codex"
+last_update: "2026-10-24,Codex"
 
 status: "beta"
 superseded_by: null
@@ -12,6 +12,82 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Installed 0.1.2 workflow and native follow-up — 2026-10-24
+
+The installed `9b2ed86` package records 21.35 seconds of populated system audio,
+produces eight transcript rows and summary output, supports playback and a saved
+transcript edit, and retains five recordings/17 transcript rows/46 unchanged
+chunk hashes after normal close/reopen. Archive correctly retains partial-track
+warnings and clears the detail warning when a clean recording is selected.
+Earlier packages separately proved spoken microphone output, data-preserving
+reinstall and durable-chunk crash recovery. Quality remains deferred.
+
+Source review, 683 Rust tests, Clippy, composed frontend checks, hosted frontend/
+Rust CI and an actual single-import developer MCP workflow pass at `9b2ed86`.
+The bounded native application writer preserves continuous and stalled-writer
+audio, but selected-process Stop/Resume still loses active samples (issue #96).
+Installed UAT also found microphone-only WAV export that omitted populated system
+audio (issue #97). The correction passes independent review, 692 Rust tests,
+Clippy, the 12-check native custody matrix and composed package checks. Rebuilt
+installed `40be411` now exports both channels with exact source PCM for system
+and application recordings; retries retain audio IDs/paths/hashes. Reinstall and
+normal reopen preserve six recordings, 21 transcript rows and 52 checksum-valid
+chunks, including the edited subtitles. Hosted frontend/Rust CI and the actual
+single-import developer MCP workflow pass at this source head. Issue #96 remains
+the release blocker; no new renderer-transition acceptance is claimed.
+No merge, tag or publication is claimed. See the
+[installed acceptance report](../verification/implementation-reports/2026-10-23-installed-releasefix-uat.md).
+
+## CPU capture reliability and microphone follow-up — 2026-10-23
+
+CPU recording now defers model decoding until Stop to prevent inference from
+blocking the bounded capture queues. Post-meeting jobs require transcript and
+optional-runtime readiness; fresh alternate app IDs isolate their media defaults.
+Headless ONIKUMA recording with input raised to 85% produced usable signal and
+three local CPU transcript segments. Rust 654 tests, 34 focused frontend tests,
+build and Clippy pass. Rebuilt installed-package acceptance remains open. See
+the [remediation evidence](../verification/implementation-reports/2026-10-23-capture-backpressure-remediation.md).
+
+## Desktop meeting workflow UI and capture source candidate — 2026-10-22
+
+The approved Home → Live → Archive flow now has explicit microphone-only,
+system-audio, and active-application source choices; Windows application audio
+uses process-loopback capture and retains source provenance in the existing
+system channel. Recording-scoped PCM measurements feed separate microphone and
+remote-source waveform lanes. Settings categories use a horizontal tab grid.
+Saved mockup PNGs, hashes, the design amendment, and implementation/design-QA
+reports are indexed in the docs tree.
+
+The full TypeScript unused-symbol check, production build, focused Desktop and
+audio/design suites, design-token check, full Cargo check, Rust format, and 26
+targeted Rust tests pass. The affected Desktop runtime surfaces contain no seeded sample meeting,
+person, task, or decorative waveform data. The unreachable legacy P1–P4
+dashboard was removed. These are source/build and browser-preview results: the
+preview reports `NATIVE_UNAVAILABLE`, and installed microphone, system-loopback,
+application-loopback, saved-recording, and reopen/review UAT remain NOT RUN for
+this change. Overall workflow acceptance stays **OPEN** until native UAT passes.
+See the [implementation report](../verification/implementation-reports/2026-10-22-desktop-meeting-workflow-mvp.md),
+[design QA](../verification/implementation-reports/2026-10-22-desktop-ui-design-qa.md),
+and [mockup evidence](../design/mockups/2026-10-22-desktop-mvp/README.md).
+
+## Product MCP bridge candidate — 2026-10-20
+
+MCP-00 inventory and MCP-01 contract v0.1.4b are accepted. The MCP-02 source
+candidate adds a default-off IPv4 loopback Streamable HTTP bridge, discovery,
+health/capability/permission reads, job list/get/control, and durable
+idempotent retry/cancel recovery through the existing Genesis/job paths. The
+candidate's Rust/frontend/workflow checks passed before implementation review.
+Review findings for notification dispatch and unbounded job-list reads have
+been patched in the current working tree; post-fix Rust library tests, frontend
+build, and workflow MCP acceptance pass. Independent re-review remains open.
+MCP-02 remains REVIEW. See the
+[implementation report](../verification/implementation-reports/2026-10-20-product-mcp-implementation.md).
+
+This is source/test evidence only. Independent implementation review,
+packaged app and third-party MCP client interoperability are pending; MCP-03+
+remain not started until MCP-02 is accepted. No microphone capture, provider
+egress, external write, or release claim follows from this candidate.
 
 ## Latest microphone capture and stop-timer finding — 2026-10-20
 
@@ -1556,7 +1632,7 @@ overlay does not promote Phase 3 to fully release-ready.
 - Source separation/layer generation.
 - Full transcript editor and evidence marking beyond the minimal correction/audit affordance.
 - Packaged audio-export click-through and close/relaunch artifact persistence.
-- Full product MCP server runtime for the broader FUNG API surface; the developer-only workflow acceptance MCP is scoped separately.
+- MCP-03 and later Product MCP feature families; MCP-02 is a source candidate under review and is not yet packaged/client-accepted.
 - Full local API beyond initial health/project/job surfaces.
 - Vendor-specific production connectors and all external write capabilities.
 
@@ -1627,6 +1703,39 @@ Screenshot artifacts from the latest UI validation:
 | CUDA redistribution | High | Treat NVIDIA redistribution terms as a release gate; stage only from an approved, version-pinned source. |
 
 ## Version Diff
+
+### `0.3.35b` → `0.3.36b`
+
+- Record ec494fd installed microphone output and successful active-PID inventory.
+- Reopen native acceptance after real application timing/startup failures and
+  newer hosted Clippy findings; retain failed runs and withdrawn review inference.
+- Record corrected system production probes while keeping installed/release gates open.
+
+### `0.3.34b` → `0.3.35b`
+
+Recorded installed workflow outputs, durable restart/reinstall/recovery evidence,
+native alignment/inventory follow-up and remaining exact-package capture gates.
+
+### `0.3.33v` → `0.3.34b`
+
+- Recorded CPU capture-first decoding, post-meeting prerequisites, isolated media
+  defaults and real ONIKUMA audio → CPU transcription evidence; installed-package
+  and release gates remain open.
+
+### `0.3.32v` → `0.3.33v`
+
+- Recorded passing post-remediation Rust library tests, frontend build, and
+  workflow MCP acceptance. Independent re-review remains open.
+
+### `0.3.31v` → `0.3.32v`
+
+- Recorded passing post-remediation Rust compile, formatting and whitespace
+  checks. Test suites and independent re-review remained open.
+
+### `0.3.30v` → `0.3.31v`
+
+- Recorded the implementation-review remediations for MCP notifications and
+  bounded job pagination. Previous candidate test results remain pre-fix.
 
 ### `0.3.29q` → `0.3.29r`
 
@@ -1853,6 +1962,10 @@ native/device/release acceptance.
 
 | Version | Change |
 | --- | --- |
+| 0.3.32v → 0.3.33v | Recorded passing post-remediation Rust library tests, frontend build, and workflow MCP acceptance; independent re-review remains open. |
+| 0.3.31v → 0.3.32v | Recorded passing post-remediation Rust compile, format and whitespace checks; tests and independent re-review remained open. |
+| 0.3.30v → 0.3.31v | Patched the MCP notification and unbounded job-list findings; earlier checks are marked pre-remediation. |
+| 0.3.29v → 0.3.30v | Recorded the MCP-02 source candidate and local regression evidence; independent implementation review, package/client UAT, and downstream feature nodes remain open. |
 | 0.3.1b → 0.3.2b | Source-froze local M1–M5 integration, People profile/review lifecycle and Windows AppContainer/Job Object PDF parser; integrated campaign and independent review remain pending. |
 | 0.2.36b | Synced current `main` with the bounded R3 foundation integration and independent bounded N4/G1 evidence; historical worktree paths are identified as custody references and broader gates remain open. |
 | 0.2.35b | Recorded candidate live/knowledge/Google Meet agent documentation separately from existing runtime and unrun provider/deployment proof. |
@@ -1893,6 +2006,13 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.36b | 2026-10-23 | beta | ec494fd installed mic output and active-PID inventory observed; native timing and partial-track reporting reopened with failed evidence retained; corrected system active/idle probes pass, final installed/release gates remain open. | working-tree | Codex |
+| 0.3.35b | 2026-10-23 | beta | Installed eae669a workflow outputs and restart/reinstall/recovery verified; native clock/inventory corrections independently reviewed with hardware probes; final package and spoken mic/app isolation gates remain open. | working-tree | Codex |
+| 0.3.34b | 2026-10-23 | beta | CPU decode deferred until Stop; post-meeting prerequisites and alternate media defaults corrected. Headless ONIKUMA audio produces 3 local CPU transcript segments; rebuilt installed acceptance remains open. | working-tree | Codex |
+| 0.3.33v | 2026-10-20 | beta | Post-remediation Rust library tests (649 passed, 6 ignored), frontend build and workflow MCP acceptance pass; independent re-review remains open. | working-tree | Codex |
+| 0.3.32v | 2026-10-20 | beta | Post-remediation Rust compile, format and whitespace checks pass; test suites and independent re-review remain open. | working-tree | Codex |
+| 0.3.31v | 2026-10-20 | beta | Recorded working-tree fixes for MCP notification acceptance, bounded grant-filtered job pagination and contract metadata; no post-fix tests or independent re-review are claimed. | working-tree | Codex |
+| 0.3.30v | 2026-10-20 | beta | Added Product MCP-02 source candidate evidence: loopback bridge, read/job tools, durable controls, 647 Rust tests plus frontend/workflow validation. Independent review and packaged/client acceptance remain open. | working-tree | Codex |
 | 0.3.29v | 2026-10-20 | beta | Registered developer workflow MCP; pinned synthetic import → CPU transcription → edit/export → orderly Genesis reopen passed. Workflow 30.46 s, transcription 28.85 s; transcript quality remains diagnostic only. | working-tree | Codex |
 | 0.3.29s | 2026-10-20 | beta | Participant notice now starts checked in every Live session per user request; loopback remains off. Focused tests 16/16; installed isolated UI confirmed the default. Mic sample awaits user readiness; core acceptance NOT PASSED. | working-tree | Codex |
 | 0.3.29r | 2026-10-20 | beta | Installed UAT-ID NSIS recovery retest passes orphan adoption, idempotent audit, SQLite integrity, and History persistence; ONIKUMA speech sample remains near-silent with no transcript. Package unsigned; core acceptance NOT PASSED. | working-tree | Codex |

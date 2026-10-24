@@ -919,7 +919,7 @@ fn file_name(path: &str) -> &str {
 /// `{channel}-{seq:05}.wav` (`live_meeting::cut_chunk`). Anything that does
 /// not follow that naming is a whole-file source (an import) and is served
 /// as-is under the pseudo-channel `file`.
-fn channel_of(path: &str) -> &'static str {
+pub(crate) fn channel_of(path: &str) -> &'static str {
     let name = file_name(path);
     if name.starts_with("mic-") && name.ends_with(".wav") {
         "mic"
@@ -931,14 +931,14 @@ fn channel_of(path: &str) -> &'static str {
 }
 
 /// The per-channel ordinal from `{channel}-{seq:05}.wav`, when present.
-fn chunk_ordinal(path: &str) -> Option<u32> {
+pub(crate) fn chunk_ordinal(path: &str) -> Option<u32> {
     let name = file_name(path);
     let stem = name.strip_suffix(".wav")?;
     let (_, ordinal) = stem.rsplit_once('-')?;
     ordinal.parse().ok()
 }
 
-fn channels_of(paths: &[String]) -> Vec<String> {
+pub(crate) fn channels_of(paths: &[String]) -> Vec<String> {
     ["mic", "system", "file"]
         .into_iter()
         .filter(|channel| paths.iter().any(|path| channel_of(path) == *channel))
@@ -1044,7 +1044,7 @@ pub(crate) struct Audio {
     pub(crate) missing_chunks: usize,
 }
 
-fn mime_for(path: &Path) -> &'static str {
+pub(crate) fn mime_for(path: &Path) -> &'static str {
     match path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -1174,6 +1174,14 @@ pub(crate) fn build_audio(
 }
 
 fn stitch_wav(root: &Path, chunks: &[(u32, String)]) -> Result<Audio, AudioError> {
+    stitch_wav_with_limit(root, chunks, None)
+}
+
+pub(crate) fn stitch_wav_with_limit(
+    root: &Path,
+    chunks: &[(u32, String)],
+    max_pcm_bytes: Option<usize>,
+) -> Result<Audio, AudioError> {
     let mut spec: Option<hound::WavSpec> = None;
     let mut samples: Vec<i16> = Vec::new();
     let mut missing_chunks = 0;
@@ -1205,6 +1213,13 @@ fn stitch_wav(root: &Path, chunks: &[(u32, String)]) -> Result<Audio, AudioError
             Some(_) => {}
         }
         for sample in reader.samples::<i16>() {
+            if max_pcm_bytes
+                .is_some_and(|limit| samples.len() >= limit / std::mem::size_of::<i16>())
+            {
+                return Err(AudioError::Unsupported(
+                    "audio PCM exceeds export byte ceiling".into(),
+                ));
+            }
             samples.push(sample.map_err(|error| AudioError::Internal(error.to_string()))?);
         }
     }

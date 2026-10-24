@@ -106,7 +106,7 @@ async function loadRecordingReviewProduction() {
 
 async function loadThemeHelpersProduction(appSource) {
   const helperStart = appSource.indexOf("type ResolvedTheme =");
-  const helperEnd = appSource.indexOf("\ntype LibraryItem", helperStart);
+  const helperEnd = appSource.indexOf("\nexport function App()", helperStart);
   assert.ok(helperStart >= 0, "App must expose the production theme helper region");
   assert.ok(helperEnd > helperStart, "App theme helper region must have a bounded end");
 
@@ -325,20 +325,21 @@ if (!fixtureMode) {
 
   test("integration keeps project identity separate from recording identity and preserves unavailable reads", () => {
     assert.match(appSource, /projects\.some\(\(project\) => project\.id === selectedRecording\)/);
-    assert.doesNotMatch(appSource, /libraryItems\.some\(\(item\) => item\.id === selectedRecording\)/);
     assert.match(appSource, /const \[reviewSelection, setReviewSelection\] = useState/);
     assert.match(appSource, /reviewSelection && reviewSelection\.projectId !== selectedProjectId/);
     assert.match(appSource, /NATIVE_UNAVAILABLE/);
     assert.match(appSource, /setProjectState\(createReadState<Project\[\]>\("unavailable"/);
     assert.match(appSource, /project=\{projectState\}/);
-    assert.match(appSource, /activeRecordingId/);
+    assert.match(appSource, /selectedProjectId=\{selectedProjectId\}/);
+    assert.match(appSource, /selection=\{reviewSelection\}/);
+    assert.doesNotMatch(appSource, /listTranscriptSegments\(/);
   });
 
   test("production paths keep close acknowledgement, true inactive stop, recovery mapping, and shell slots", () => {
     assert.match(liveSource, /runStartWithCloseAck\(/);
     assert.match(liveSource, /closeReviewPlayer\s*:/);
     assert.match(appSource, /return liveController\.stopAndLeave\(\)/);
-    assert.match(appSource, /active === true \|\| liveStatus\.data\?\.stopping === true/);
+    assert.match(appSource, /getCaptureLifecycle\(liveStatus, liveSnapshot\.phase\) !== "inactive"/);
     assert.match(appSource, /recoveryProjectByRecordingRef/);
     assert.match(appSource, /report\.interrupted/);
     assert.match(appSource, /adopted\?\.recordingId/);
@@ -352,18 +353,17 @@ if (!fixtureMode) {
 
   for (const scenario of ["no-native", "cancel", "picker-error", "project-error", "success"]) {
     test(`import recovery handles ${scenario} without silent failure`, async () => {
-      const callback = appSource.match(/const handleImportAndTranscribe = async \(\) => \{([\s\S]*?)\n  \};\n\n  const transcriptBlockedReason/);
+      const callback = appSource.match(/const handleImportAndTranscribe = async \(\) => \{([\s\S]*?)\n  \};\n\n  const handleStartApi/);
       assert.ok(callback, "production import handler must be inspectable");
       const events = [];
       const invoke = scenario === "no-native" ? undefined : () => {};
-      const run = new Function("nativeInvoke", "setActionNotice", "pickAudioOrVideoFile", "selectedProjectId", "handleNewProject", "activateAnchor", "activateTile", "setTranscribing", "importAndTranscribe", "setJobs", "pollJobUntilDone", "refresh", `return async () => {${callback[1]}}`)(
-        invoke, (notice) => events.push(["notice", notice]),
+      const run = new Function("setActionNotice", "nativeInvoke", "pickAudioOrVideoFile", "selectedProjectId", "handleNewProject", "importAndTranscribe", "pollJobUntilDone", "refresh", `return async () => {${callback[1]}}`)(
+        (notice) => events.push(["notice", notice]), invoke,
         async () => { events.push(["picker"]); if (scenario === "picker-error") throw Error("picker unavailable"); return scenario === "cancel" ? null : "fixture.wav"; },
         null,
         async () => { events.push(["project"]); if (scenario === "project-error") throw Error("project unavailable"); return { id: "fixture-project" }; },
-        () => {}, () => {}, (busy) => events.push(["busy", busy]),
         async (file, project) => { events.push(["import", file, project]); return { id: "fixture-job" }; },
-        () => {}, async () => ({ status: "completed" }), async () => events.push(["refresh"]),
+        async () => ({ status: "completed" }), async () => events.push(["refresh"]),
       );
       await run();
       const notices = events.filter(([kind]) => kind === "notice").map(([, value]) => value).filter(Boolean);
@@ -372,16 +372,15 @@ if (!fixtureMode) {
         assert.ok(!events.some(([kind]) => kind === "picker"));
       } else if (scenario.endsWith("error")) {
         assert.match(notices[0], /ไม่สำเร็จ/);
-      } else {
-        assert.equal(notices.length, 0);
       }
       if (scenario === "success") {
         assert.deepEqual(events.find(([kind]) => kind === "import"), ["import", "fixture.wav", "fixture-project"]);
+        assert.ok(notices.some((notice) => notice.includes("กำลังนำเข้า")));
+        assert.ok(notices.some((notice) => notice.includes("เสร็จแล้ว")));
         assert.ok(events.some(([kind]) => kind === "refresh"));
       } else {
         assert.ok(!events.some(([kind]) => kind === "import"));
       }
-      if (invoke) assert.deepEqual(events.at(-1), ["busy", false]);
     });
   }
 
@@ -389,9 +388,8 @@ if (!fixtureMode) {
     const callback = appSource.match(/exportMedia:\s*\(\) => \{([\s\S]*?)\},\s*exportDisabled:/);
     assert.ok(callback, "production shell must expose its export callback");
     const events = [];
-    const unexpectedQueue = () => { throw new Error("opening export must not create a job"); };
-    const openExport = new Function("openReviewSurface", "setActionNotice", "handleCreateJob", "createJob", callback[1]);
-    openExport(() => events.push("review"), (notice) => events.push(notice), unexpectedQueue, unexpectedQueue);
+    const openExport = new Function("openReviewSurface", "setActionNotice", callback[1]);
+    openExport(() => events.push("review"), (notice) => events.push(notice));
     assert.equal(events[0], "review");
     assert.match(events[1], /ส่งออกบันทึกนี้/);
     assert.equal(events.length, 2);
@@ -409,6 +407,12 @@ if (!fixtureMode) {
       /(^|\n)\s*\.callmd-desktop-content\s*\{/m,
       "integration styles must remain shell scoped",
     );
+  });
+
+  test("App no longer ships the unreachable P1-P4 dashboard prototype", () => {
+    assert.doesNotMatch(appSource, /const pageContent\s*=|const signalCards\s*=|const runtimeStats\s*=/);
+    assert.doesNotMatch(appSource, /side-notes|highlight-pass|action-register|runtime-archive/);
+    assert.match(appSource, /projects\.some\(\(project\) => project\.id === selectedRecording\)/);
   });
 
   test("integrated surfaces share the resolved theme owner and production system subscription follows cleanup", async () => {

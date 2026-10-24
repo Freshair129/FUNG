@@ -66,6 +66,18 @@ const A = { projectId: "project-a", recordingId: "recording-a" };
 const B = { projectId: "project-a", recordingId: "recording-b" };
 const NOW = "2026-09-17T00:00:00.000Z";
 
+test("export rows distinguish channel filenames without displaying parent paths", () => {
+  const microphone = production.exportArtifactFilename("G:\\private-workspace\\exports\\audio-r1-mic.wav");
+  const system = production.exportArtifactFilename("G:/private-workspace/exports/audio-r1-system.wav");
+  assert.equal(microphone, "audio-r1-mic.wav");
+  assert.equal(system, "audio-r1-system.wav");
+  assert.notEqual(microphone, system);
+  assert.equal(production.exportArtifactFilename("transcript-r1.srt"), "transcript-r1.srt");
+  assert.equal(production.exportArtifactFilename(""), "ไฟล์ส่งออก");
+  assert.match(sourceText, /exportArtifactFilename\(artifact\.filePath\)/);
+  assert.match(recordingReviewCssText, /\.recording-review__artifact-name[\s\S]*?overflow-wrap:\s*anywhere/);
+});
+
 function deferred() {
   let resolve;
   let reject;
@@ -105,6 +117,34 @@ function recording(key) {
     captureState: "inactive",
   };
 }
+
+test("completed recordings retain a scoped capture warning while legacy rows remain valid", async () => {
+  const warned = { ...recording(A), status: "completed", captureWarning: "capture_source_fault" };
+  assert.match(production.recordingCaptureWarning(warned), /ตรวจสอบเสียงแต่ละช่อง/);
+  assert.equal(production.recordingCaptureWarning(recording(B)), null);
+  const { bridge } = createBridge({ getRecording: (projectId, recordingId) => recordingId === A.recordingId ? warned : recording({ projectId, recordingId }) });
+  const controller = new RecordingReviewController(bridge);
+  controller.syncScope(A.projectId, A);
+  await settle();
+  assert.equal(controller.snapshot.recording.data.captureWarning, "capture_source_fault");
+  controller.syncScope(B.projectId, B);
+  await settle();
+  assert.equal(production.recordingCaptureWarning(controller.snapshot.recording.data), null);
+  controller.dispose();
+  assert.match(sourceText, /recordingCaptureWarning\(item\)/);
+  assert.match(sourceText, /recordingCaptureWarning\(recording\.data\)/);
+});
+
+test("unknown capture warning metadata fails closed", async () => {
+  const { bridge } = createBridge({ getRecording: () => ({ ...recording(A), captureWarning: "untrusted-value" }) });
+  const controller = new RecordingReviewController(bridge);
+  controller.syncScope(A.projectId, A);
+  await settle();
+  assert.equal(controller.snapshot.recording.status, "error");
+  assert.equal(controller.snapshot.recording.data, null);
+  assert.equal(controller.snapshot.recording.error.code, "INVALID_RECORDING_METADATA");
+  controller.dispose();
+});
 
 test("History refreshes its recording snapshot when the hidden page becomes visible again", async () => {
   let listCall = 0;

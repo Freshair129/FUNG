@@ -8,8 +8,31 @@ explicit output path supplied by the native caller.
 from __future__ import annotations
 
 import argparse
+import io
 import sys
 from pathlib import Path
+
+MAX_OUTPUT_BYTES = 512 * 1024 * 1024
+
+
+class BoundedOutput(io.FileIO):
+    """Enforce the export budget on every mux write, including header rewrites."""
+    def __init__(self, path: Path, max_bytes: int):
+        if not 0 < max_bytes <= MAX_OUTPUT_BYTES:
+            raise ValueError("invalid audio export byte ceiling")
+        self.max_bytes = max_bytes
+        super().__init__(path, "w+b")
+
+    def write(self, data):
+        if self.tell() + len(data) > self.max_bytes:
+            raise RuntimeError("audio export exceeds byte ceiling")
+        return super().write(data)
+
+    def truncate(self, size=None):
+        size = self.tell() if size is None else size
+        if size > self.max_bytes:
+            raise RuntimeError("audio export exceeds byte ceiling")
+        return super().truncate(size)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -17,10 +40,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--format", required=True, choices=("wav", "mp3"))
+    parser.add_argument("--max-output-bytes", type=int, default=MAX_OUTPUT_BYTES)
     return parser
 
 
-def transcode(input_path: Path, output_path: Path, output_format: str) -> None:
+def transcode(input_path: Path, output_path: Path, output_format: str, *, max_output_bytes: int = MAX_OUTPUT_BYTES) -> None:
     import av
 
     audio_format = "wav" if output_format == "wav" else "mp3"
@@ -41,7 +65,7 @@ def transcode(input_path: Path, output_path: Path, output_format: str) -> None:
                 layout="mono",
                 rate=sample_rate,
             )
-            with av.open(str(temporary_path), mode="w", format=audio_format) as destination:
+            with BoundedOutput(temporary_path, max_output_bytes) as bounded, av.open(bounded, mode="w", format=audio_format) as destination:
                 output_stream = destination.add_stream(codec, rate=sample_rate)
                 output_stream.layout = "mono"
 
@@ -67,7 +91,7 @@ def transcode(input_path: Path, output_path: Path, output_format: str) -> None:
 def main() -> int:
     args = _parser().parse_args()
     try:
-        transcode(args.input, args.output, args.format)
+        transcode(args.input, args.output, args.format, max_output_bytes=args.max_output_bytes)
     except Exception as error:  # pragma: no cover - exercised by the runtime smoke
         print(f"audio transcode failed: {error}", file=sys.stderr)
         return 1

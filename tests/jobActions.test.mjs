@@ -139,14 +139,13 @@ test("the active desktop shell routes work through surfaces instead of legacy ti
   assert.match(app, /mainContent=\{activeSurface === "output" \?/, "output content must follow the active surface");
 });
 
-test("queued jobs target the project's active recording", () => {
-  const app = readFileSync("src/App.tsx", "utf8");
-  // There is no recording picker in this shell; queueing against anything
-  // other than the active recording would summarise the wrong meeting.
-  assert.match(app, /activeRecordingId/);
+test("queued jobs target the recording selected in the review surface", () => {
+  const review = readFileSync("src/components/desktop/RecordingReview.tsx", "utf8");
+  // Selection is now owned by the review controller instead of App.tsx; queueing
+  // must still validate that exact project/recording pair before dispatch.
   assert.match(
-    app,
-    /createJob\(plan\.jobType, selectedProjectId, activeRecordingId\)/,
+    review,
+    /public async queueExistingJob\([\s\S]*if \(!sameKey\(selection, this\.currentSelection\)\)[\s\S]*this\.bridge\.createJob\(jobType, selection\.projectId, selection\.recordingId\)/,
   );
 });
 
@@ -228,7 +227,7 @@ test("an imported transcription success activates and finalizes its recording", 
 test("transcript retrieval is recording-scoped through the desktop bridge", () => {
   const api = readFileSync("src/tauri.ts", "utf8");
   const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
-  const app = readFileSync("src/App.tsx", "utf8");
+  const review = readFileSync("src/components/desktop/RecordingReview.tsx", "utf8");
 
   assert.match(
     api,
@@ -246,9 +245,9 @@ test("transcript retrieval is recording-scoped through the desktop bridge", () =
     "the backend query must filter by recording id",
   );
   assert.match(
-    app,
-    /listTranscriptSegments\(selectedProjectId, activeRecordingId\)/,
-    "the shell must load only the active recording transcript",
+    review,
+    /this\.bridge\.listTranscriptSegments\([\s\S]*selection\.projectId,[\s\S]*selection\.recordingId,/,
+    "the review controller must load only the selected recording transcript",
   );
 });
 
@@ -275,7 +274,7 @@ test("an import rejection is shown as a terminal failure with a next step", () =
 test("manual transcript corrections stay recording-scoped and auditable", () => {
   const api = readFileSync("src/tauri.ts", "utf8");
   const lib = readFileSync("src-tauri/src/lib.rs", "utf8");
-  const app = readFileSync("src/App.tsx", "utf8");
+  const review = readFileSync("src/components/desktop/RecordingReview.tsx", "utf8");
 
   assert.match(
     api,
@@ -298,14 +297,14 @@ test("manual transcript corrections stay recording-scoped and auditable", () => 
     "a correction must leave a local audit event",
   );
   assert.match(
-    app,
-    /แก้ไขข้อความ transcript/,
+    review,
+    /<textarea[\s\S]*value=\{draft\}[\s\S]*onChange=\{\(event\) => setDraft\(event\.target\.value\)\}/,
     "the review surface must expose an editable transcript control",
   );
   assert.match(
-    app,
-    /handleCorrectTranscriptSegment/,
-    "the review surface must call the native correction path",
+    review,
+    /actions\.correctSegment\(selection, segment\.id, draft\)/,
+    "the review surface must call the recording-scoped correction path",
   );
 });
 
@@ -315,13 +314,14 @@ test("export queue records source artifacts and transcodes supported imported fo
   const audioExport = readFileSync("src-tauri/src/audio_export.rs", "utf8");
   const transcode = readFileSync("scripts/transcode_audio.py", "utf8");
   const tauriConfig = readFileSync("src-tauri/tauri.conf.json", "utf8");
-  const app = readFileSync("src/App.tsx", "utf8");
+  const review = readFileSync("src/components/desktop/RecordingReview.tsx", "utf8");
 
   assert.match(
     engine,
-    /audio_export::render_source_audio.*ข้าม audio export/s,
-    "the durable export job must report unsupported audio formats truthfully",
+    /audio_export::render_source_audio_channels[\s\S]*map_err\([\s\S]*export_failed/,
+    "the durable export job must fail honestly when any audio channel fails",
   );
+  assert.doesNotMatch(engine, /ข้าม audio export/, "audio failure must not become subtitle-only success");
   assert.match(
     audioExport,
     /audio\/wav.*audio\/mpeg.*export_artifacts/s,
@@ -348,8 +348,8 @@ test("export queue records source artifacts and transcodes supported imported fo
     "the transcoder must be included in packaged resources",
   );
   assert.match(
-    app,
-    /\["srt", "vtt", "wav", "mp3"\]/,
-    "the export notice must include audio artifacts when available",
+    review,
+    /const artifacts = state\.data \?\? \[\][\s\S]*artifacts\.map\(\(artifact\) => \([\s\S]*\{artifact\.kind\.toUpperCase\(\)\}[\s\S]*exportArtifactFilename\(artifact\.filePath\)/,
+    "the review surface must display the persisted artifact kinds, including audio exports",
   );
 });

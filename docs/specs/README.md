@@ -30,6 +30,7 @@ Specifications refine requirements into observable behavior, technical boundarie
 | Meeting knowledge and agents | [Knowledge evidence](2026-09-21-meeting-knowledge-evidence-spec.md), [agent participation](2026-09-21-meeting-agent-participation-spec.md), [Lalin workflow adaptation](2026-09-25-lalin-meeting-agent-workflow-adaptation.md) |
 | Speakers and diarization | [Speaker identity domain](2026-09-21-speaker-identity-domain-design.md), [pyannote runtime](2026-09-21-pyannote-diarization-runtime.md) |
 | Thai ASR qualification | [Thai ASR model selection](2026-09-30-thai-asr-model-selection-qualification.md) |
+| Product MCP | [Desktop Product MCP v2 contract](2026-10-20-product-mcp-v2-contract.md) — v0.1.4b accepted; MCP-02 loopback bridge exists in source, while packaged/client UAT remains open |
 | Platform and external services | See dated Zoom, pairing, FUNGWIRE, backup, Google Drive and BYOM specs in this directory; check each file's status and source links. |
 
 ## Authoring rules
@@ -62,3 +63,4 @@ Specifications refine requirements into observable behavior, technical boundarie
 - [2026-08-26-phase-4-w2-e1-hyper-v-vm-provisioning-amendment](2026-08-26-phase-4-w2-e1-hyper-v-vm-provisioning-amendment.md) — `candidate`
 - [2026-08-26-phase-4-w2-external-evidence-execution-amendment](2026-08-26-phase-4-w2-external-evidence-execution-amendment.md) — `candidate`
 - [2026-10-01-python-runtime-dependabot-remediation](2026-10-01-python-runtime-dependabot-remediation.md) — `candidate`
+- [2026-10-20-product-mcp-v2-contract](2026-10-20-product-mcp-v2-contract.md) — `accepted`; paired with `contracts/product-mcp-v2.yaml`

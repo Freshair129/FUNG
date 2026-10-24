@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpenText, Check, ChevronDown, Merge, Pause, Play, Scissors, SlidersHorizontal, Sparkles, UserRoundPen, ZoomIn, ZoomOut } from "lucide-react";
 import { confirmSpeakerTurn, mergeSpeakers, queryTimeline, renameSpeaker, splitSpeakerTurn, startDiarization } from "./bridge";
-import type { DeviceState, Speaker, SpeakerTurn, TimelineData } from "./model";
+import type { DeviceState, Speaker, TimelineData } from "./model";
 import { ProcessingStudio, StoryEditor, useCreativeStudio } from "./CreativeStudio";
 
 const PREVIEW_DURATION = 180_000;

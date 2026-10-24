@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Activity, Cloud, Link2, LockKeyhole, SlidersHorizontal, UserCircle, Volume2, X } from "lucide-react";
+import { Activity, Cloud, Link2, LockKeyhole, SlidersHorizontal, UserCircle, Volume2, X, Workflow } from "lucide-react";
 import * as QRCode from "qrcode";
 import type { InvokeFn } from "../lib/backupFlow";
 import { setLocalApiLan, startLocalApi, type Job, type LocalApiInfo } from "../tauri";
@@ -11,6 +11,7 @@ import "./SettingsPanel.css";
 // without ever mounting the lazy AccountLoginPanel that normally pulls this
 // stylesheet in. DevicePairingPanel also loads it for its own overlay.
 import "./AccountLoginPanel.css";
+import { ProductMcpSettings } from "./ProductMcpSettings";
 
 const ExternalAccountPanel = lazy(() =>
   import("./ExternalAccountPanel").then((m) => ({ default: m.ExternalAccountPanel })),
@@ -30,7 +31,7 @@ const AccountLoginPanel = lazy(() =>
 );
 const BackupPanel = lazy(() => import("./BackupPanel").then((m) => ({ default: m.BackupPanel })));
 
-export type SettingsTab = "account" | "tts" | "cloud" | "fetch" | "zoom" | "runtime" | "account-login";
+export type SettingsTab = "account" | "tts" | "cloud" | "fetch" | "zoom" | "runtime" | "account-login" | "product-mcp";
 
 const TABS: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[] = [
   { id: "account", label: "การเชื่อมต่อ", icon: SlidersHorizontal },
@@ -40,6 +41,7 @@ const TABS: { id: SettingsTab; label: string; icon: typeof SlidersHorizontal }[]
   { id: "fetch", label: "นำเข้าจากลิงก์", icon: Link2 },
   { id: "zoom", label: "นำเข้า Zoom", icon: Cloud },
   { id: "runtime", label: "ระบบและประสิทธิภาพ", icon: Activity },
+  { id: "product-mcp", label: "Product MCP", icon: Workflow },
 ];
 
 interface SettingsPanelProps {
@@ -138,9 +140,9 @@ export function SettingsPanel({
 
   const handleTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentTab: SettingsTab) => {
     const index = TABS.findIndex((tab) => tab.id === currentTab);
-    const nextIndex = event.key === "ArrowDown" || event.key === "ArrowRight"
+    const nextIndex = event.key === "ArrowRight"
       ? (index + 1) % TABS.length
-      : event.key === "ArrowUp" || event.key === "ArrowLeft"
+      : event.key === "ArrowLeft"
         ? (index - 1 + TABS.length) % TABS.length
         : event.key === "Home"
           ? 0
@@ -226,7 +228,7 @@ export function SettingsPanel({
           </button>
         </header>
         <div className="settings-drawer__layout">
-          <nav className="settings-drawer__tabs" role="tablist" aria-orientation="vertical" aria-label="หมวดการตั้งค่า">
+          <nav className="settings-drawer__tabs" role="tablist" aria-orientation="horizontal" aria-label="หมวดการตั้งค่า">
             {TABS.map((tab) => (
               <button
                 key={tab.id}
@@ -348,6 +350,7 @@ export function SettingsPanel({
                   </section>
                 </div>
               )}
+              {activeTab === "product-mcp" && <ProductMcpSettings projectId={projectId} />}
             </Suspense>
           </div>
         </div>

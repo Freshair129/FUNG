@@ -1,7 +1,7 @@
 ---
-version: "0.1.6b"
+version: "0.1.7b"
 created_at: "2026-09-17T02:03:10+07:00"
-last_update: "2026-09-20T22:47:23+07:00,RWANG"
+last_update: "2026-10-23"
 status: "candidate"
 superseded_by: null
 base_sha: "376ef30db13670e4dea816ceff440f44ce73fffd"
@@ -205,7 +205,21 @@ three independent “recap/intent/actions” jobs. No job-engine vocabulary chan
 
 RecordingRow fields: id, projectId, source, status (raw stored string), durationMs,
 createdAt (RFC3339), updatedAt (RFC3339), language (string|null), channels
-(array of mic/system/file), captureState (active/stopping/inactive).
+(array of mic/system/file), captureState (active/stopping/inactive), and optional
+captureWarning (`capture_source_fault`|null; omitted legacy fields are accepted).
+The warning is a read projection of durable, exactly project/recording-scoped
+capture fault audits: stream failure, terminal source exit, source gap or chunk
+write failure. It does not expose native error text or paths. Read these audits
+once per project snapshot/detail using combined bounded paging; audit rows and
+metadata must respect the same 10,000-row / 8-MiB ceilings below. Exhaustion returns
+RESOURCE_LIMIT instead of silently labeling a truncated history as clean.
+Review displays the warning independently from the stored recording lifecycle;
+an inactive recording with a warning must not be presented as fully successful.
+Terminal source exit fails the capture job while preserving the recorded audio.
+Transient device warnings remain distinct from terminal exits. The current
+[installed acceptance report](../verification/implementation-reports/2026-10-23-installed-releasefix-uat.md)
+tracks implementation and package evidence; this amendment does not promote the
+entire candidate contract to accepted status.
 No absolute media path is returned. Channels describe ledger inventory, not verified
 file availability or people. playback readiness is checked only on explicit open.
 Invalid required IDs/times or negative duration reject INVALID_RECORDING_METADATA.
@@ -481,11 +495,14 @@ contracts and native/security gates remain unchanged.
 0.1.4b → 0.1.5b: add the approved live-capture device enumeration DTO/command and
 optional mic/system routing arguments, preserving the existing two-channel
 boundary and recording the real-device UAT as NOT_RUN.
+0.1.6b → 0.1.7b: add compatible, durable scoped capture-warning projection and
+honest terminal capture-job outcomes for the approved installed workflow fixes.
 0.1.5b → 0.1.6b: add the recording output destination DTOs/commands, the
 `output` active surface and capture-lock semantics; preserve AppData internals,
 legacy custody and the native output-path smoke as NOT_RUN.
 | Version | Date | Status | Summary | Commit | Agent |
 |---|---|---|---|---|---|
+| 0.1.7b | 2026-10-23 | candidate | Add optional captureWarning projection, bounded fault-audit reads and separate recording/capture-job outcomes; package acceptance tracked independently. | working-tree | Codex |
 | 0.1.6b | 2026-09-20 | candidate | Added recording output get/set/reset contracts, `output` surface reachability and capture-lock behavior; native output-path smoke remains open. | working-tree; docs and implementation | RWANG |
 | 0.1.5b | 2026-09-20 | candidate | Added `live_capture_devices` and optional source device IDs to the candidate IPC contract; native Windows device UAT remains open. | working-tree; docs and implementation | RWANG |
 | 0.1.4b | 2026-09-20 | candidate | Reconciled presentation/integration ownership with DesktopShell active surfaces; wire contracts and native/security scope unchanged | pending; docs reconciliation | RWANG |

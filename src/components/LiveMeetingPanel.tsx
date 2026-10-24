@@ -11,7 +11,9 @@ import {
   liveMeetingStop,
   meetingSummaries,
   type LiveSegmentEvent,
+  type LiveAudioLevelEvent,
   type LiveCaptureDevices,
+  type LiveAudioLevelSample,
   type LiveStartOutput,
   type LiveStatusEvent,
   type LiveStatusOutput,
@@ -27,7 +29,6 @@ import {
   type DesktopCapabilities,
   type LiveDevices,
   type LivePhase,
-  type LiveWorkspaceProps,
   type ReadState,
   type RecordingAnswer,
   type RecordingKey,
@@ -92,6 +93,12 @@ const LIVE_EVENT_PHASES: readonly LivePhase[] = [
 export function resolveLiveEventPhase(state: string): LivePhase | null {
   const next = state === "recording" ? "listening" : state;
   return LIVE_EVENT_PHASES.includes(next as LivePhase) ? next as LivePhase : null;
+}
+
+export function resolveLiveStatusError(event: LiveStatusEvent): ReviewError | null {
+  if (event.state !== "degraded" && event.state !== "error") return null;
+  const message = event.detail?.trim();
+  return message ? { code: "LEGACY_COMMAND_FAILED", message, retryable: false } : null;
 }
 
 export function resolveLivePhaseFromStatus(
@@ -312,11 +319,11 @@ export async function waitForCaptureInactive(
   } = {},
 ): Promise<LiveStatusOutput> {
   const pollMs = options.pollMs ?? 250;
-  // Final capture cleanup drains channel workers, seals WAV chunks, and may
-  // finish catch-up transcription before the native session is released.
-  // Use a generous limit so slow local transcription does not surface the old
-  // short-timeout error while the native session is still finalizing.
-  const timeoutMs = options.timeoutMs ?? 120_000;
+  // CPU catch-up scales with the recording length and can legitimately take
+  // longer than a fixed wall-clock deadline. A successful native status read
+  // remains authoritative: keep the capture guard until native releases it.
+  // Read failures still reject, and bounded callers may supply timeoutMs.
+  const timeoutMs = options.timeoutMs ?? Number.POSITIVE_INFINITY;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => {
     window.setTimeout(resolve, ms);
   }));
@@ -623,6 +630,10 @@ export function LiveMeetingPanel({
   const [captureDevices, setCaptureDevices] = useState<LiveCaptureDevices | null>(null);
   const [captureDevicesLoading, setCaptureDevicesLoading] = useState(false);
   const [captureDevicesError, setCaptureDevicesError] = useState<string | null>(null);
+  const [liveAudioLevels, setLiveAudioLevels] = useState<{
+    mic: LiveAudioLevelSample | null;
+    system: LiveAudioLevelSample | null;
+  }>({ mic: null, system: null });
   const [selection, setSelection] = useState<RecordingKey | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const elapsedClockRef = useRef<{ baseElapsedMs: number; observedAtMs: number } | null>(null);
@@ -680,6 +691,31 @@ export function LiveMeetingPanel({
   });
   const stopRequestRef = useRef<Promise<string> | null>(null);
   const inactiveWaitRef = useRef<Promise<LiveStatusOutput> | null>(null);
+
+  useEffect(() => {
+    if (!nativeAvailable) return;
+    let disposed = false;
+    let unlisten: UnlistenFn | null = null;
+    void listen<LiveAudioLevelEvent>("live-audio-level", (event) => {
+      const payload = event.payload;
+      const active = activeKeyRef.current;
+      if (!active || payload.recordingId !== active.recordingId) return;
+      if (payload.channel !== "mic" && payload.channel !== "system") return;
+      const sample = {
+        levelPercent: Math.max(0, Math.min(100, payload.levelPercent)),
+        waveform: payload.waveform.map((level) => Math.max(0, Math.min(100, level))),
+        observedAt: performance.now(),
+      };
+      setLiveAudioLevels((current) => ({ ...current, [payload.channel]: sample }));
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    }).catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [nativeAvailable]);
 
   const publishControllerSnapshot = useCallback(() => {
     controllerAdapterRef.current?.publish({
@@ -751,6 +787,7 @@ export function LiveMeetingPanel({
     activeKeyRef.current = next;
     activeProjectRef.current = next.projectId;
     setSelection(next);
+    setLiveAudioLevels({ mic: null, system: null });
     setSegments([]);
     setTopic(emptyReadState());
     setSummaries(EMPTY_MEETING_SUMMARIES);
@@ -905,6 +942,8 @@ export function LiveMeetingPanel({
   }, [phase]);
 
   const onStatusEvent = useCallback((event: LiveStatusEvent) => {
+    const statusError = resolveLiveStatusError(event);
+    if (statusError) addError(statusError);
     const next = resolveLiveEventPhase(event.state);
     if (next) {
       setPhaseSafe(next);
@@ -1085,6 +1124,7 @@ export function LiveMeetingPanel({
       transcriptProfile?: "chunked" | "revisioned";
       micDeviceId?: string;
       systemDeviceId?: string;
+      applicationProcessId?: number;
     },
     closePlayer: CloseReviewPlayer,
   ): Promise<LiveStartOutput> => {
@@ -1099,6 +1139,7 @@ export function LiveMeetingPanel({
           transcriptProfile: options.transcriptProfile,
           micDeviceId: options.micDeviceId,
           systemDeviceId: options.systemDeviceId,
+          applicationProcessId: options.applicationProcessId,
         }),
       );
       const key = { projectId: output.projectId, recordingId: output.recordingId };
@@ -1322,6 +1363,7 @@ export function LiveMeetingPanel({
           elapsedMs={elapsedMs}
           devices={devices}
           captureDevices={captureDevices}
+          liveAudioLevels={liveAudioLevels}
           captureDevicesLoading={captureDevicesLoading}
           captureDevicesError={captureDevicesError}
           refreshCaptureDevices={refreshCaptureDevices}

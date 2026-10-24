@@ -14,6 +14,7 @@ import {
   controlPlayback as bridgeControlPlayback,
   correctTranscriptSegment,
   createJob,
+  diarizationStatus,
   detailedTranscriptionReadiness,
   getPlayback as bridgeGetPlayback,
   getRecording as bridgeGetRecording,
@@ -29,6 +30,7 @@ import {
   type ExportArtifact,
   type DetailedTranscriptionReadiness,
   type DetailedTranscriptProposal,
+  type DiarizationReadiness,
   type Job,
   type TranscriptSegment,
   type TranscriptView,
@@ -46,7 +48,6 @@ import {
   type RecordingAnswer,
   type RecordingKey,
   type RecordingReviewActions,
-  type RecordingReviewProps,
   type RecordingRow,
   type RecordingReviewProps as FrozenRecordingReviewProps,
   type RecordingPage,
@@ -97,6 +98,7 @@ export type RecordingReviewBridge = {
   correctTranscriptSegment: typeof correctTranscriptSegment;
   renameSpeaker: typeof renameSpeaker;
   createJob: typeof createJob;
+  diarizationReadiness: typeof diarizationStatus;
   detailedTranscriptionReadiness: typeof detailedTranscriptionReadiness;
   listDetailedTranscriptProposals: typeof listDetailedTranscriptProposals;
   reviewDetailedTranscriptProposal: typeof reviewDetailedTranscriptProposal;
@@ -117,6 +119,7 @@ export const defaultRecordingReviewBridge: RecordingReviewBridge = {
   correctTranscriptSegment,
   renameSpeaker,
   createJob,
+  diarizationReadiness: diarizationStatus,
   detailedTranscriptionReadiness,
   listDetailedTranscriptProposals,
   reviewDetailedTranscriptProposal,
@@ -251,6 +254,10 @@ export function formatRecordingDuration(durationMs: number): string {
   return String(minutes) + ":" + String(seconds).padStart(2, "0");
 }
 
+export function exportArtifactFilename(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() || "ไฟล์ส่งออก";
+}
+
 export function clampPlaybackPosition(
   positionMs: number,
   durationMs: number,
@@ -325,6 +332,12 @@ export function isRecordingAnswerFor(
   );
 }
 
+export function recordingCaptureWarning(row: RecordingRow): string | null {
+  return row.captureWarning === "capture_source_fault"
+    ? "พบข้อขัดข้องระหว่างบันทึกเสียง กรุณาตรวจสอบเสียงแต่ละช่องก่อนใช้งาน"
+    : null;
+}
+
 function validateRecordingRow(
   row: RecordingRow,
   expectedProjectId: string,
@@ -344,7 +357,8 @@ function validateRecordingRow(
     !Number.isFinite(Date.parse(row.createdAt)) ||
     typeof row.updatedAt !== "string" ||
     !Number.isFinite(Date.parse(row.updatedAt)) ||
-    !Array.isArray(row.channels)
+    !Array.isArray(row.channels) ||
+    (row.captureWarning !== undefined && row.captureWarning !== null && row.captureWarning !== "capture_source_fault")
   ) {
     return reviewError(
       row.projectId !== expectedProjectId
@@ -587,7 +601,6 @@ export class RecordingReviewController {
     const selectionChanged = !sameKey(selection, this.currentSelection);
     if (!projectChanged && !selectionChanged) return;
 
-    const previousProjectId = this.projectId;
     this.projectId = selectedProjectId;
     this.currentSelection = selection;
 
@@ -1019,6 +1032,10 @@ export class RecordingReviewController {
 
   public detailedTranscriptionReadiness(): Promise<DetailedTranscriptionReadiness> {
     return this.startRequest(() => this.bridge.detailedTranscriptionReadiness());
+  }
+
+  public diarizationReadiness(): Promise<DiarizationReadiness | null> {
+    return this.startRequest(() => this.bridge.diarizationReadiness());
   }
 
   public async listDetailedTranscriptProposals(
@@ -2338,7 +2355,10 @@ function ExportPanel({
         <ul className="recording-review__artifact-list">
           {artifacts.map((artifact) => (
             <li key={artifact.id}>
-              <span>{artifact.kind}</span>
+              <span className="recording-review__artifact-name">
+                <strong>{artifact.kind.toUpperCase()}</strong>
+                <span>{exportArtifactFilename(artifact.filePath)}</span>
+              </span>
               <time dateTime={artifact.createdAt}>{formatReviewDate(artifact.createdAt)}</time>
             </li>
           ))}
@@ -2359,6 +2379,10 @@ function ReviewActionsPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [detailedReadiness, setDetailedReadiness] =
     useState<DetailedTranscriptionReadiness | null>(null);
+  const [diarizationReadiness, setDiarizationReadiness] =
+    useState<DiarizationReadiness | null>(null);
+  const [diarizationReadinessLoaded, setDiarizationReadinessLoaded] = useState(false);
+  const [diarizationReadinessError, setDiarizationReadinessError] = useState<string | null>(null);
   const [proposals, setProposals] = useState<DetailedTranscriptProposal[]>([]);
   const [proposalError, setProposalError] = useState<string | null>(null);
   const proposalEpoch = useRef(0);
@@ -2375,6 +2399,24 @@ function ReviewActionsPanel({
           accuracyQualified: false,
         });
       }
+    });
+    return () => {
+      active = false;
+    };
+  }, [actions]);
+
+  useEffect(() => {
+    let active = true;
+    void actions.diarizationReadiness().then((result) => {
+      if (!active) return;
+      setDiarizationReadiness(result);
+      setDiarizationReadinessLoaded(true);
+      setDiarizationReadinessError(null);
+    }).catch((error: unknown) => {
+      if (!active) return;
+      setDiarizationReadiness(null);
+      setDiarizationReadinessLoaded(true);
+      setDiarizationReadinessError(normalizeReviewError(error).message);
     });
     return () => {
       active = false;
@@ -2401,6 +2443,14 @@ function ReviewActionsPanel({
   };
 
   const queue = async (jobType: string, label: string) => {
+    if (jobType === "speakers.diarize" && diarizationReadiness?.available !== true) {
+      setNotice(
+        diarizationReadiness?.detail ??
+          diarizationReadinessError ??
+          "การแยกผู้พูดต้องใช้ FUNG Desktop และ runtime ที่พร้อมใช้งาน",
+      );
+      return;
+    }
     setPending(jobType);
     setNotice(null);
     try {
@@ -2461,13 +2511,23 @@ function ReviewActionsPanel({
           type="button"
           className="recording-review__button"
           onClick={() => void queue("speakers.diarize", "แยกผู้พูด")}
-          disabled={pending !== null}
+          disabled={pending !== null || !diarizationReadiness?.available}
+          title={diarizationReadiness?.detail ?? diarizationReadinessError ?? "กำลังตรวจสอบ runtime แยกผู้พูด"}
         >
           แยกผู้พูด
         </button>
       </div>
       {pending ? <p className="recording-review__muted" role="status">กำลังส่งคำขอ…</p> : null}
       {notice ? <p className="recording-review__notice" role="status">{notice}</p> : null}
+      <p className="recording-review__muted" role="status">
+        {diarizationReadiness?.available
+          ? `พร้อมแยกผู้พูดด้วย ${diarizationReadiness.model}`
+          : diarizationReadiness?.detail ??
+            diarizationReadinessError ??
+            (diarizationReadinessLoaded
+              ? "การแยกผู้พูดยังไม่พร้อมใน FUNG Desktop นี้"
+              : "กำลังตรวจสอบความพร้อมของ runtime แยกผู้พูด…")}
+      </p>
       <p className="recording-review__muted">
         โหมดทั่วไปใช้โปรไฟล์ปกติของ FUNG ซึ่งเริ่มต้นที่ large-v3-turbo; โหมดละเอียดสร้างข้อเสนอแยกและยังไม่มีหลักฐานว่าแม่นกว่าเสียงประชุมไทย
       </p>
@@ -2827,6 +2887,9 @@ export function RecordingReviewView({
                       <span className="recording-review__recording-row-meta">
                         {formatReviewDate(item.createdAt)} · {item.status}
                       </span>
+                      {recordingCaptureWarning(item) ? (
+                        <span className="recording-review__recording-row-meta">มีข้อขัดข้องของเสียง · ตรวจสอบแต่ละช่อง</span>
+                      ) : null}
                       <span className="recording-review__recording-row-meta">
                         {item.captureState === "inactive"
                           ? "หยุดแล้ว"
@@ -2891,10 +2954,13 @@ export function RecordingReviewView({
                     {formatRecordingDuration(recording.data.durationMs)} ·{" "}
                     {recording.data.status}
                   </p>
+                  {recordingCaptureWarning(recording.data) ? (
+                    <p className="recording-review__notice" role="status">{recordingCaptureWarning(recording.data)}</p>
+                  ) : null}
                 </div>
                 <span className="recording-review__capture-state">
                   {recording.data.captureState === "inactive"
-                    ? "บันทึกเสร็จแล้ว"
+                    ? recordingCaptureWarning(recording.data) ? "หยุดแล้ว · มีข้อขัดข้องของเสียง" : "บันทึกเสร็จแล้ว"
                     : recording.data.captureState === "stopping"
                       ? "กำลังหยุด"
                       : "ยังบันทึกอยู่"}
@@ -3110,6 +3176,7 @@ export function RecordingReview({
         controller.renameSpeaker(speakerId, displayName),
       queueExistingJob: (key, jobType) =>
         controller.queueExistingJob(key, jobType),
+      diarizationReadiness: () => controller.diarizationReadiness(),
       detailedTranscriptionReadiness: () =>
         controller.detailedTranscriptionReadiness(),
       listDetailedTranscriptProposals: (key) =>

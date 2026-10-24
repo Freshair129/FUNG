@@ -1,5 +1,5 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-25"
 last_update: "2026-10-25"
 status: "candidate"
@@ -73,3 +73,24 @@ stream; included-child silence does not repair arbitrary-target capture. No
 supported production fix has been established. Temporary diagnostic source is
 removed, installed retest remains NOT_RUN, and issue #96/release acceptance stays
 FAIL. The unchecked implementation/review/package/release tasks remain open.
+
+## User-authorized alternative capture investigation — 2026-10-25
+
+The user requested alternative capture approaches, then actual installed acceptance
+before release. Compare timer-driven process loopback (without EVENTCALLBACK) with
+the existing event-driven route, keeping identical PID isolation, PCM and ledger
+criteria. This tests whether the virtual event-buffer lifecycle causes loss; it
+does not assume polling has a larger native buffer. Temporary cfg(test) controls
+must be removed if unsuccessful. Research a supported different backend in parallel.
+No all-system fallback, target injection or driver installation is part of this scope.
+
+- [x] Freeze and run timer-driven and MF callback native candidates with simultaneous controls.
+- [x] Record actual buffer size, transition edges, faults and exact binary hashes.
+- [ ] Adopt only a demonstrated repair; otherwise retain FAIL and investigate the next supported alternative.
+
+The [alternative delivery report](../verification/implementation-reports/2026-10-25-issue-96-alternative-capture.md)
+records v23–v28. Timer delivery and true MF Capture callbacks still fail; the
+same-PID altered positive control passes. v25 has a failed system control and is
+excluded from causal comparisons. Source is restored, installed retest NOT_RUN,
+release FAIL. Dedicated-endpoint routing is a design candidate requiring explicit
+source-mode/isolation requirements; it has not been installed as a fallback.

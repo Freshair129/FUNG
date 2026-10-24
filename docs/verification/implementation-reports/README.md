@@ -145,3 +145,5 @@ attributes:
 - [2026-10-23-installed-releasefix-uat](2026-10-23-installed-releasefix-uat.md) — `candidate`; application packet-gap/tail corrections and 0.1.2 source checks pass; rebuilt installed-package acceptance in progress.
 - [2026-10-23-capture-backpressure-remediation](2026-10-23-capture-backpressure-remediation.md) — `beta`; CPU recording defers decode, post-meeting prerequisites and fresh alternate media roots corrected. Real ONIKUMA capture at 85% input yields usable signal and 3 CPU transcript segments; rebuilt installed acceptance remains open.
 - [2026-10-25-issue-96-render-lifecycle](2026-10-25-issue-96-render-lifecycle.md) — `candidate`; six native controls isolate a target-PID lifecycle hypothesis; no production fix, installed candidate or release acceptance.
+
+- [2026-10-25-issue-96-alternative-capture](2026-10-25-issue-96-alternative-capture.md) — `candidate`; timer/MF delivery still FAIL, installed retest NOT_RUN.

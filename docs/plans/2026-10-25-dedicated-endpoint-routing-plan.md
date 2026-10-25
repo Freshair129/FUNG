@@ -70,19 +70,19 @@ Create `src-tauri/src/capture_routing.rs`; register module in `src-tauri/src/lib
 Modify `live_meeting.rs` DTO dispatch and the native command registration only after
 pure policy/native inventory tests pass. Keep the old device preference format.
 
-- [ ] Define `EndpointDescriptor`, `ApplicationIdentity`, `CaptureRoutePlan` and
+- [x] Define `EndpointDescriptor`, `ApplicationIdentity`, `CaptureRoutePlan` and
   `ValidatedRoutePlan`, with opaque native ID, UUID source ID, process creation
   identity, policy version and explicitly allowed child identities. Native session
   instance IDs are recorded as provenance; same-process stream recreation remains
   allowed without expanding the authorized process set.
-- [ ] Failing policy tests: duplicate endpoint/source ID, stale or reused PID,
+- [x] Failing policy tests: duplicate endpoint/source ID, stale or reused PID,
   unknown session, PID-zero/cross-process ambiguity, inventory error, missing
   endpoint, and default-role-only routing. No failed check may choose a default.
-- [ ] Implement read-only native inventory and route preflight. Race revalidation
+- [x] Implement read-only native inventory and route preflight. Race revalidation
   occurs during admission, not only when a UI dropdown first loads.
-- [ ] Tests prove each route remains a distinct source, session monitoring is
+- [x] Tests prove each route remains a distinct source, session monitoring is
   diagnostic rather than a privacy guarantee, and capabilities fail explicitly.
-- [ ] Independent code review; test fixture errors cannot enter shipped defaults.
+- [x] Independent code review; test fixture errors cannot enter shipped defaults.
 
 ## Task 2 — authoritative source custody and endpoint capture
 
@@ -124,8 +124,8 @@ Use the established shell/grid/tabs and existing MCP authorization contracts.
 - [ ] Show each app→endpoint→track and endpoint-mix limitation clearly. Device routing
   is verified after the app plays; no undocumented arbitrary-PID routing setter.
 - [ ] Expose terminal/partial source statuses to Archive and MCP, no synthetic success.
-- [ ] Apply the user's explicit disposition of original failing PID capture. Pending
-  choice stays a release gate; do not infer approval to hide or waive the defect.
+- [x] Record the user's explicit disposition: keep PID mode and no release until
+  both PID and endpoint modes pass. Do not hide, disable or waive the original defect.
 - [ ] Independent UI/MCP review and meaningful contract tests.
 
 ## Task 4 — complete source and actual installed acceptance
@@ -150,11 +150,16 @@ Use the established shell/grid/tabs and existing MCP authorization contracts.
 
 Keep all old source rows, audio, preferences and failed receipts. Failed new routes
 stop explicitly and retain private evidence; no fallback or automatic user-device
-rerouting. Additive source tables can remain unused on rollback without destructive
-data migration. No normal-profile test or virtual-driver installation is implicit.
+rerouting. Feature rollback disables new routing in a schema-compatible build,
+leaving additive tables and new captured data intact. Do not assume an older binary
+can open the newer schema, drop tables to downgrade, or restore an old backup over
+new recordings. Binary rollback needs separately qualified recovery/backup handling.
+No normal-profile test or virtual-driver installation is implicit.
 
 Current state: bounded native feasibility and negative controls independently
 qualified; [evidence](../verification/implementation-reports/2026-10-25-dedicated-endpoint-feasibility.md).
 An external read-only admission draft is awaiting independent code review/integration.
-No product code, new FUNG installer,
-installed acceptance, merge or tag claimed by this plan.
+Read-only native admission source integration is separately verified in the
+[foundation report](../verification/implementation-reports/2026-10-25-route-admission-foundation.md).
+Multi-source capture integration, new FUNG installer, installed acceptance, merge
+and tag remain open. PID #96 is still a release blocker by user decision.

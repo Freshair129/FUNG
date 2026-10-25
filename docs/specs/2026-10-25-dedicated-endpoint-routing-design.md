@@ -246,11 +246,11 @@ Do not turn the synthetic developer workflow MCP into evidence of native capture
 
 No tag/release while these required gates remain open.
 
-Release-policy choice is pending the user's answer: recommended proposal is to
-disable the known-failing direct-PID mode on supported UI/MCP surfaces, with a
-clear capability reason and no fallback, once routed capture is accepted. Keeping
-PID mode supported retains #96 as a release blocker. Do not infer either decision
-from a successful native endpoint test.
+User release decision, 2026-10-25: **keep direct-PID mode and do not release until
+both PID and dedicated-endpoint modes pass**. Endpoint feasibility does not
+supersede, disable or waive the failing original route. Preserve both capabilities
+and their separate acceptance evidence; no tag while #96 remains open. The native
+source/producer/device investigation may continue without changing that criterion.
 
 ## Primary references
 

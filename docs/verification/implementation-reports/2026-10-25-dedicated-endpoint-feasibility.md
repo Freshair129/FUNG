@@ -16,7 +16,7 @@ attributes:
 ## Disposition
 
 **Native feasibility: bounded PASS for two owned sources on separate existing
-HDMI endpoints. Product integration and installed acceptance: NOT_RUN. Release
+HDMI endpoints. Multi-source capture integration and installed acceptance: NOT_RUN. Release
 remains blocked.** The user selected this alternative after the
 [failed PID-route delivery experiments](2026-10-25-issue-96-alternative-capture.md).
 Neither those historical failures nor original #96 are relabeled as passed.
@@ -25,7 +25,7 @@ The [routing design](../../specs/2026-10-25-dedicated-endpoint-routing-design.md
 and [task plan](../../plans/2026-10-25-dedicated-endpoint-routing-plan.md) define
 per-source custody, route verification and separate installed/release gates.
 A builder review found the updated design complete for implementation; the user's
-original PID-mode release disposition remains pending.
+original PID mode remains a release blocker by the user's decision to require both modes to pass.
 
 ## Host and inventory
 
@@ -158,5 +158,10 @@ there is no production capture change in this evidence-only checkpoint.
   notifications detect observed contamination but are not an OS security barrier.
 - A rebuilt isolated **installed FUNG** package must execute the complete native
   capture/output/export/reopen/recovery path with source identities intact.
-- Original direct-PID mode release disposition, exact-head CI/review/merge and
+- The user requires both original PID mode and endpoint mode to pass; exact-head CI/review/merge and
   versioned release gates remain open. No installer, tag or release was produced.
+
+Subsequent [read-only route-admission foundation](2026-10-25-route-admission-foundation.md)
+integrates inventory/validation APIs only; it does not change this native-capture
+checkpoint into installed acceptance. User subsequently chose to retain PID mode
+and block release until both modes pass.

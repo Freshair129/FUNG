@@ -22,6 +22,9 @@ mod auth_session;
 mod backup;
 mod backup_archive;
 mod backup_payload;
+/// Read-only route inventory/admission shared by native and developer adapters.
+pub mod capture_routing;
+mod capture_routing_commands;
 mod cloud_commands;
 mod cloud_config;
 mod cloud_executor;
@@ -7265,6 +7268,8 @@ pub fn run() {
             recording_output::recording_output_get,
             recording_output::recording_output_set,
             recording_output::recording_output_reset,
+            capture_routing_commands::capture_route_inventory,
+            capture_routing_commands::capture_route_validate,
             live_meeting::live_capture_devices,
             live_meeting::live_meeting_start,
             live_meeting::live_meeting_stop,

@@ -94,3 +94,14 @@ same-PID altered positive control passes. v25 has a failed system control and is
 excluded from causal comparisons. Source is restored, installed retest NOT_RUN,
 release FAIL. Dedicated-endpoint routing is a design candidate requiring explicit
 source-mode/isolation requirements; it has not been installed as a fallback.
+
+## Dedicated endpoint continuation — user direction 2026-10-25
+
+User chose the dedicated-endpoint direction: inspect existing devices, design
+per-application separation and verify the installed package before release.
+The [routing design](../specs/2026-10-25-dedicated-endpoint-routing-design.md)
+keeps native feasibility, source-model integration, installed acceptance and
+original PID-route disposition separate. Initial testing uses owned players and
+existing idle nondefault endpoints only; active Dota/Focusrite is excluded.
+No Windows default/per-app routing mutation or driver installation is performed
+by the inventory/prototype.

@@ -147,3 +147,5 @@ attributes:
 - [2026-10-25-issue-96-render-lifecycle](2026-10-25-issue-96-render-lifecycle.md) — `candidate`; six native controls isolate a target-PID lifecycle hypothesis; no production fix, installed candidate or release acceptance.
 
 - [2026-10-25-issue-96-alternative-capture](2026-10-25-issue-96-alternative-capture.md) — `candidate`; timer/MF delivery still FAIL, installed retest NOT_RUN.
+
+- [Dedicated endpoint native feasibility](2026-10-25-dedicated-endpoint-feasibility.md) — `candidate`; bounded owned two-route PASS, product/installed gates NOT_RUN.

@@ -62,3 +62,5 @@ attributes:
 - [2026-10-16-design-system-source-of-truth](2026-10-16-design-system-source-of-truth.md)
 - [2026-10-20-product-mcp-feature-roadmap](2026-10-20-product-mcp-feature-roadmap.md) — active execution
 - [2026-10-20-product-mcp-execution-dag](2026-10-20-product-mcp-execution-dag.json) — active checkpoint ledger, paired with the roadmap
+
+- [Dedicated endpoint routing plan](2026-10-25-dedicated-endpoint-routing-plan.md) — `candidate`; native qualification gates product integration and installed acceptance.

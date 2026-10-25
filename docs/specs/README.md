@@ -1,7 +1,7 @@
 ---
 version: "0.1.0b"
 created_at: "2026-10-19"
-last_update: "2026-10-19"
+last_update: "2026-10-25"
 status: "beta"
 superseded_by: null
 attributes:

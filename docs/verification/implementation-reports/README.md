@@ -151,3 +151,5 @@ attributes:
 - [Dedicated endpoint native feasibility](2026-10-25-dedicated-endpoint-feasibility.md) — `candidate`; bounded owned two-route PASS, product/installed gates NOT_RUN.
 
 - [Read-only route admission foundation](2026-10-25-route-admission-foundation.md) — `candidate`; source/native inventory verified, multi-source capture and installed acceptance remain open.
+
+- [PID producer/session lifecycle](2026-10-25-pid-producer-lifecycle.md) — `candidate`; six native PID studies FAIL, unexecuted 44.1-kHz candidate NOT_RUN, release blocked.

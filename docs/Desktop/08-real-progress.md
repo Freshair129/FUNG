@@ -1,7 +1,7 @@
 ---
-version: "0.3.38b"
+version: "0.3.39b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-24,Codex"
+last_update: "2026-10-25,Codex"
 
 status: "beta"
 superseded_by: null
@@ -12,6 +12,20 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Source routing checkpoint — 2026-10-25
+
+Branch source `607079f` adds read-only native inventory/admission and async Tauri
+inspection commands; 708 Rust library tests, the 16-policy subset, separate native
+inventory smoke and Clippy pass. [Foundation scope](../verification/implementation-reports/2026-10-25-route-admission-foundation.md)
+does not include a multi-source capture executor, UI/MCP capture control or a new
+installed package. Owned two-endpoint [native feasibility](../verification/implementation-reports/2026-10-25-dedicated-endpoint-feasibility.md)
+passes bounded source separation/Stop-recreate checks.
+
+The [PID follow-up](../verification/implementation-reports/2026-10-25-pid-producer-lifecycle.md)
+still fails. User explicitly retains PID mode and blocks release until both PID
+and endpoint modes pass. Existing installed evidence below remains compositional
+history; no new installer, merge, tag or release is claimed at this checkpoint.
 
 ## Installed 0.1.2 workflow and native follow-up — 2026-10-24
 

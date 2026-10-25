@@ -1,5 +1,5 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-25"
 last_update: "2026-10-25"
 status: "candidate"
@@ -176,6 +176,21 @@ binding in chunked and revisioned transcript modes. Existing meeting source-sess
 and transcript scope track IDs reference that same source UUID; they do not become
 a second audio owner. No direct SQLite writes or parallel authoritative JSON database.
 
+Source UUID lifetime is one recording/capture epoch, not the lifetime of a saved
+route preset. Generate a new source for a new recording and reject cross-recording
+reuse. The microphone in a routed recording also receives a native-created source
+UUID/binding: it cannot evade the new provenance rules through a legacy filename.
+An epoch is immutable; recovery may adopt verified orphan evidence into the old
+epoch but must not reactivate/reset a quarantined source. New capture needs a new
+epoch/source identity or recording.
+
+The source-aware append uses a fresh Genesis write attempt/frontier, validates
+project/recording/source/epoch scope, enforces unique source chunk sequence and
+exact-hash idempotent retries, and commits chunk, binding, source checkpoint,
+global checkpoint and maximum recording duration atomically. Audio sequence is
+distinct from revisioned transcript coverage sequence, which also counts gaps.
+Failed custody must not fall through into ASR/enrichment scheduling.
+
 Legacy `mic`/`system` recordings keep their identity and export behavior. New source
 UUIDs must not be derived from mutable labels or endpoint array positions. Use
 separate source-owned directories to avoid `system-00001.wav` collisions. Capture
@@ -194,6 +209,21 @@ Other sources retain their own custody but the aggregate recording is partial/FA
 Quarantined raw audio remains private local evidence under existing retention/access
 rules; no automatic deletion or upload. This containment policy does not erase the
 asynchronous-detection privacy limitation above.
+
+Existing chunked transcript rows lack source lineage. Until that is added, any
+quarantined routed source blocks the recording's combined transcript, summaries,
+tasks and agent/MCP text retrieval conservatively. Source-specific healthy raw
+audio access still requires its own binding/state check; aggregate export must
+not silently omit a failed source. Apply backend guards to media delivery,
+reprocessing, playback, mobile/local API and export prepublication, not just UI.
+
+Schema integration is additive v16 and must explicitly retain v15 in the migration
+chain. Genesis full-ledger backup includes source tables; audio inventory already
+uses chunk rows. Existing backup archives flatten file paths with collision
+disambiguation, and restored media relinking is not generally qualified. Bind by
+chunk UUID rather than restored filename; test same-basename source files and
+quarantine state through backup. Do not claim seamless path restore from a ledger
+backup test alone. Binary downgrade is not a safe schema rollback operation.
 
 ## UX and MCP
 

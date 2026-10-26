@@ -1,5 +1,5 @@
 ---
-version: "0.1.3b"
+version: "0.1.4b"
 created_at: "2026-10-25"
 last_update: "2026-10-27"
 status: "candidate"
@@ -124,6 +124,12 @@ owned `n01` run failed with persisted UnknownSession; a secondary SDK query-limi
 error was separately corrected. [Seam and n01 evidence](../verification/implementation-reports/2026-10-26-routed-native-seam-n01-diagnostic.md)
 records the primary/secondary distinction and unrun gates. This is incremental
 Task 2 work, not completed native/consumer/installed integration.
+
+The [n03 client-attribution follow-up](../verification/implementation-reports/2026-10-27-native-client-session-attribution.md)
+identifies the actual rejected client; strict runtime policy remains unchanged.
+Continue Task 2 through the [native session lifecycle subplan](2026-10-27-native-capture-session-lifecycle-plan.md),
+including authoritative registration, group startup, revocation and native
+render-negative gates before enabling a runtime exception.
 
 ## Task 3 — Live routing UX and Product MCP
 

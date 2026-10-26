@@ -1,5 +1,5 @@
 //! Explicit future-barrier private PCM seam. No hardware or custody activation.
-use std::sync::{mpsc, Arc, OnceLock};
+use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::time::Duration;
 use uuid::Uuid;
 pub const MAX_PACKET_QUEUE_CAPACITY: usize = 64;
@@ -156,6 +156,7 @@ pub enum SinkRead {
     Drained(StreamSummary),
 }
 struct Shared {
+    capture_session_audit: Mutex<Option<serde_json::Value>>,
     clock: OnceLock<StreamClock>,
     ready: OnceLock<u64>,
     witness: OnceLock<BarrierWitness>,
@@ -202,6 +203,7 @@ pub fn packet_channel(
     }
     let scope = Arc::new(scope);
     let shared = Arc::new(Shared {
+        capture_session_audit: Mutex::new(None),
         clock: OnceLock::new(),
         ready: OnceLock::new(),
         witness: OnceLock::new(),
@@ -246,6 +248,34 @@ fn visible_part(native: FrameSpan, cut: u64) -> Option<FrameSpan> {
     })
 }
 impl EndpointPacketProducer {
+    pub(crate) fn record_capture_session_audit(
+        &self,
+        value: serde_json::Value,
+    ) -> Result<(), String> {
+        if value
+            .pointer("/scope/sourceId")
+            .and_then(serde_json::Value::as_str)
+            != Some(self.scope.source_id().to_string().as_str())
+            || value
+                .pointer("/scope/epoch")
+                .and_then(serde_json::Value::as_i64)
+                != Some(self.scope.epoch())
+            || value
+                .pointer("/scope/endpointId")
+                .and_then(serde_json::Value::as_str)
+                != Some(self.scope.endpoint_id())
+            || serde_json::to_vec(&value).map_err(|e| e.to_string())?.len() > 131072
+        {
+            return Err("capture audit scope/bound mismatch".into());
+        }
+        *self
+            .shared
+            .capture_session_audit
+            .lock()
+            .map_err(|_| "capture audit mutex poisoned")? = Some(value);
+        Ok(())
+    }
+
     pub fn scope(&self) -> &SourcePacketScope {
         &self.scope
     }
@@ -566,6 +596,15 @@ impl Drop for EndpointPacketProducer {
     }
 }
 impl EndpointPacketReceiver {
+    #[cfg(test)]
+    pub(crate) fn capture_session_audit(&self) -> Result<Option<serde_json::Value>, String> {
+        self.shared
+            .capture_session_audit
+            .lock()
+            .map(|v| v.clone())
+            .map_err(|_| "capture audit mutex poisoned".into())
+    }
+
     fn pending_notice(&mut self) -> Option<SinkRead> {
         if !self.reported_startup {
             if let Some(missing) = self.shared.startup.get() {
@@ -1178,5 +1217,30 @@ mod tests {
                 ..
             })
         ));
+    }
+}
+
+#[cfg(test)]
+mod audit_diagnostic_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn passive_audit_pre_post_survives_drain_and_rejects_wrong_scope() {
+        let source = Uuid::new_v4();
+        let scope = SourcePacketScope::new(source, 1, "opaque".into(), 48000, 10000).unwrap();
+        let (p, r) = packet_channel(scope, 1).unwrap();
+        let mut value = json!({"scope":{"sourceId":source.to_string(),"epoch":1,"endpointId":"opaque"},"beforeStart":{"ownControl":{}},"afterStart":null,"authority":false});
+        p.record_capture_session_audit(value.clone()).unwrap();
+        assert_eq!(r.capture_session_audit().unwrap(), Some(value.clone()));
+        value["afterStart"] = json!({"ownControl":{"instanceId":{"value":"opaque-real-native"}}});
+        p.record_capture_session_audit(value.clone()).unwrap();
+        let mut bad = value.clone();
+        bad["scope"]["epoch"] = json!(2);
+        assert!(p.record_capture_session_audit(bad).is_err());
+        let mut big = value.clone();
+        big["oversize"] = json!("x".repeat(131073));
+        assert!(p.record_capture_session_audit(big).is_err());
+        p.finish(Err("unrelated strict guard rejection".into()));
+        assert_eq!(r.capture_session_audit().unwrap(), Some(value));
     }
 }

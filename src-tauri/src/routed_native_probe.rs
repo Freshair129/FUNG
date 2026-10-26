@@ -124,6 +124,19 @@ fn local_unaliased(path: &Path, must_exist: bool) -> R<PathBuf> {
     Ok(path.to_owned())
 }
 fn validate_input(root: &Path, bytes: &[u8], duration_ms: u64) -> R<Config> {
+    validate_input_in_authority(
+        root,
+        bytes,
+        duration_ms,
+        Path::new(r"G:\AI-Studio\verification"),
+    )
+}
+fn validate_input_in_authority(
+    root: &Path,
+    bytes: &[u8],
+    duration_ms: u64,
+    expected_authority: &Path,
+) -> R<Config> {
     local_unaliased(root, false)?;
     if root.exists() || !(3000..=120000).contains(&duration_ms) {
         return Err("fresh absent root and bounded duration required".into());
@@ -135,7 +148,7 @@ fn validate_input(root: &Path, bytes: &[u8], duration_ms: u64) -> R<Config> {
         return Err("probe root cannot be inside product repository".into());
     }
     // A private verification root is mandatory; rejects ordinary profile paths.
-    let authority = Path::new(r"G:\AI-Studio\verification");
+    let authority = expected_authority;
     if !root.starts_with(authority) || root == authority {
         return Err("root outside explicit verification authority".into());
     }
@@ -571,6 +584,7 @@ fn summary_value(summary: Option<&sink::StreamSummary>) -> Value {
     summary.map(|s|json!({"sourceId":s.scope.source_id(),"epoch":s.scope.epoch(),"endpointId":s.scope.endpoint_id(),"sampleRate":s.scope.sample_rate(),"commonOriginHns":s.scope.common_origin_hns(),"clock":s.clock.as_ref().map(|c|json!({"nativeOriginHns":c.native_origin_hns,"commonOriginHns":c.common_origin_hns,"sampleRate":c.sample_rate,"cutFrame":c.cut_frame,"phaseNumerator":c.phase_numerator})),"readyObservedHns":s.ready_observed_hns,"prebarrierWitness":s.prebarrier_witness.as_ref().map(|w|json!({"nativeFrames":span(Some(w.native_frames)),"nativeQpcHns":w.native_qpc_hns,"observedQpcHns":w.observed_qpc_hns,"nativeFlags":w.native_flags})),"acceptedPackets":s.accepted_packets,"lastAcceptedEndFrame":s.last_accepted_end_frame,"prerollPacketsDropped":s.preroll_packets_dropped,"prerollFramesDropped":s.preroll_frames_dropped,"quarantined":s.quarantined})).unwrap_or(Value::Null)
 }
 struct SourceResult {
+    native_capture_session_audit: Result<Option<Value>, String>,
     source: String,
     registration: custody::CaptureSourceRegistration,
     writer: SourceWriterReport,
@@ -586,7 +600,7 @@ struct SourceResult {
     diagnostics_persisted: bool,
 }
 fn source_diagnostic(r: &SourceResult) -> Value {
-    json!({"sourceId":r.source,"registration":r.registration,"writer":report_writer(&r.writer),"sink":summary_value(r.summary.as_ref()),"ready":r.ready,"errors":r.errors,"notices":r.notices,"packets":r.packets,"verifiedIdleSpans":r.idle_spans,"nativeTerminated":r.native_terminated,"diagnosticsPersisted":r.diagnostics_persisted,"diagnosticEvidence":{"durability":"bufferedDuringCaptureFinalSyncRequired","synced":r.evidence_synced,"metadataPath":r.metadata_path}})
+    json!({"sourceId":r.source,"nativeCaptureSessionAudit":r.native_capture_session_audit,"registration":r.registration,"writer":report_writer(&r.writer),"sink":summary_value(r.summary.as_ref()),"ready":r.ready,"errors":r.errors,"notices":r.notices,"packets":r.packets,"verifiedIdleSpans":r.idle_spans,"nativeTerminated":r.native_terminated,"diagnosticsPersisted":r.diagnostics_persisted,"diagnosticEvidence":{"durability":"bufferedDuringCaptureFinalSyncRequired","synced":r.evidence_synced,"metadataPath":r.metadata_path}})
 }
 struct CaptureCleanup {
     stop: Arc<AtomicBool>,
@@ -1056,6 +1070,7 @@ fn source_worker(input: SourceWorkerInput) -> SourceResult {
     drop(evidence);
     let report = writer.finish();
     let mut result = SourceResult {
+        native_capture_session_audit: rx.capture_session_audit(),
         source: reg.id.clone(),
         registration: reg,
         writer: report,
@@ -1921,19 +1936,34 @@ fn probe_environment_validates_explicit_binary_receipts_without_native_admission
     let owner = json!({"pid":pid,"parentPid":1,"creationFiletime":"1","imagePath":exe,"imageVolumeSerial":1,"imageFileId":"explicit-fixture-only"});
     let route = |endpoint: &str| json!({"sourceId":uuid::Uuid::new_v4().to_string(),"label":"validator only","endpointId":endpoint,"application":owner,"allowedChildren":[]});
     let input = json!({"plan":{"policyVersion":1,"routes":[route("opaque-A"),route("opaque-B")]},"ownedBinaries":[{"pid":pid,"imagePath":exe,"sha256":file_hash(&exe).unwrap(),"creationFiletime":"1"}]});
-    let root = PathBuf::from(r"G:\AI-Studio\verification")
-        .join(format!("env-only-{}", uuid::Uuid::new_v4()));
-    assert!(validate_input(&root, &serde_json::to_vec(&input).unwrap(), 3000).is_ok());
+    let authority = tempfile::tempdir().unwrap();
+    let canonical = authority.path().canonicalize().unwrap();
+    let authority_path = PathBuf::from(
+        canonical
+            .to_str()
+            .unwrap()
+            .strip_prefix(r"\\?\")
+            .unwrap_or(canonical.to_str().unwrap()),
+    );
+    let root = authority_path.join(format!("env-only-{}", uuid::Uuid::new_v4()));
+    let validate_fixture =
+        |bytes: &[u8]| validate_input_in_authority(&root, bytes, 3000, &authority_path);
+    let valid_bytes = serde_json::to_vec(&input).unwrap();
+    assert!(validate_fixture(&valid_bytes).is_ok());
+    assert!(
+        validate_input(&root, &valid_bytes, 3000).is_err(),
+        "native entrypoint must retain its explicit host authority"
+    );
     assert!(!root.exists());
     let mut bad = input.clone();
     bad["plan"]["routes"][1]["endpointId"] = json!("opaque-A");
-    assert!(validate_input(&root, &serde_json::to_vec(&bad).unwrap(), 3000).is_err());
+    assert!(validate_fixture(&serde_json::to_vec(&bad).unwrap()).is_err());
     let mut bad = input.clone();
     bad["ownedBinaries"][0]["sha256"] = json!("0".repeat(64));
-    assert!(validate_input(&root, &serde_json::to_vec(&bad).unwrap(), 3000).is_err());
+    assert!(validate_fixture(&serde_json::to_vec(&bad).unwrap()).is_err());
     let mut bad = input;
     bad["unexpected"] = json!(true);
-    assert!(validate_input(&root, &serde_json::to_vec(&bad).unwrap(), 3000).is_err());
+    assert!(validate_fixture(&serde_json::to_vec(&bad).unwrap()).is_err());
     assert!(!root.exists());
 }
 

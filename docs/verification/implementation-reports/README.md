@@ -1,5 +1,5 @@
 ---
-version: "0.1.1m"
+version: "0.1.2m"
 created_at: "2026-10-19"
 last_update: "2026-10-27"
 status: "beta"
@@ -161,3 +161,5 @@ attributes:
 - [Exact-frame source writer foundation](2026-10-26-source-writer-foundation.md) — `candidate`; bounded native Rust writer and real custody tests; capture/barrier/consumer/installed integration remains open.
 
 - [Routed native seam and n01 diagnostic](2026-10-26-routed-native-seam-n01-diagnostic.md) — `candidate`; exact-frame/recoverable source seams; n01 fails primary UnknownSession, secondary SDK query-limit reporting corrected; owner attribution and both installed gates open.
+
+- [Native client attribution and n03](2026-10-27-native-client-session-attribution.md) — actual capture-client binding with strict admission still failing; 783 local library passes/12 ignored; runtime and installed gates remain open.

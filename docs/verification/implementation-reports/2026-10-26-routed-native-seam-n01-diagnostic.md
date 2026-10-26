@@ -140,6 +140,10 @@ release pass follows from any of these source checks.
 
 ## Remaining gates
 
+The subsequent [n03 actual-client report](2026-10-27-native-client-session-attribution.md)
+establishes binding for that new experiment only. Historical n01/n02 attribution
+limits below remain unchanged; runtime handling and installed acceptance stay open.
+
 ### n02 exact rejected-owner follow-up — 2026-10-27 local
 
 The diagnostic-only successor obtains one fresh inventory and validates that

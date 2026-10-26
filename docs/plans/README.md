@@ -1,7 +1,7 @@
 ---
-version: "0.1.2b"
+version: "0.1.3b"
 created_at: "2026-10-19"
-last_update: "2026-10-25"
+last_update: "2026-10-27"
 status: "beta"
 superseded_by: null
 attributes:
@@ -16,6 +16,8 @@ attributes:
 แผนในโฟลเดอร์นี้ระบุขอบเขตและลำดับงาน ไม่ใช่หลักฐานว่างานเสร็จหรือฟีเจอร์ทำงานแล้ว
 
 ## จุดอ้างอิงหลัก
+
+- [Dedicated endpoint routing](2026-10-25-dedicated-endpoint-routing-plan.md) owns the capture-routing implementation sequence; the [native session lifecycle subplan](2026-10-27-native-capture-session-lifecycle-plan.md) is an unimplemented Task 2 candidate after n03 attribution.
 
 - [Application renderer-transition repair, issue 96](2026-10-25-issue-96-application-transition.md) tracks root-cause isolation, source regressions and installed-package release gates.
 

@@ -1,5 +1,5 @@
 ---
-version: "0.3.42b"
+version: "0.3.43b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-27,Codex"
 
@@ -12,6 +12,16 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Actual native-client attribution — 2026-10-27
+
+The [n03 report](../verification/implementation-reports/2026-10-27-native-client-session-attribution.md)
+identifies the exact rejected capture-client session while preserving strict
+rejection and failed-state custody. Passive audit plus portable CI fixtures pass
+783 library tests (12 ignored), strict Clippy, packet/adapter and scoped checks.
+Hosted successor CI remains separate. A [native lifecycle subplan](../plans/2026-10-27-native-capture-session-lifecycle-plan.md)
+records the next unimplemented authority/race/negative-test work; both installed
+capture modes and release remain open.
 
 ## Routed native seam and failed n01 checkpoint — 2026-10-26
 

@@ -1,5 +1,7 @@
 pub mod capture_source_custody;
 pub mod capture_source_writer;
+#[cfg(windows)]
+mod native_capture_session_audit;
 #[cfg(all(test, windows))]
 #[path = "routed_native_probe.rs"]
 mod routed_native_probe;

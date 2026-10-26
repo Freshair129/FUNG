@@ -550,18 +550,34 @@ fn capture_selected_inner(
         wBitsPerSample: 16,
         cbSize: 0,
     };
-    win(unsafe {
-        client.Initialize(
-            AUDCLNT_SHAREMODE_SHARED,
+    let mut session_audit = if let Some(sink) = packet_sink.as_ref() {
+        let audit = crate::native_capture_session_audit::NativeCaptureSessionAudit::initialize(
+            &client,
+            &device,
+            sink.scope(),
+            &format,
             AUDCLNT_STREAMFLAGS_LOOPBACK
                 | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
                 | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
             20_000_000,
-            0,
-            &format,
-            None,
-        )
-    })?;
+        )?;
+        sink.record_capture_session_audit(audit.receipt()?)?;
+        Some(audit)
+    } else {
+        win(unsafe {
+            client.Initialize(
+                AUDCLNT_SHAREMODE_SHARED,
+                AUDCLNT_STREAMFLAGS_LOOPBACK
+                    | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
+                    | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+                20_000_000,
+                0,
+                &format,
+                None,
+            )
+        })?;
+        None
+    };
     let packets: IAudioCaptureClient = win(unsafe { client.GetService() })?;
     let latency_hns = win(unsafe { client.GetStreamLatency() })?.max(0) as u64;
     let buffer_frames = win(unsafe { client.GetBufferSize() })?;
@@ -579,6 +595,10 @@ fn capture_selected_inner(
     }
     win(unsafe { client.Start() })?;
     let running = RunningClient(client);
+    if let (Some(audit), Some(sink)) = (session_audit.as_mut(), packet_sink.as_ref()) {
+        audit.observe_after_start(&running.0);
+        sink.record_capture_session_audit(audit.receipt()?)?;
+    }
     if let Some(sink) = packet_sink.as_mut() {
         sink.confirm_native_ready(qpc_hns(frequency)?)
             .map_err(|fault| format!("source missed native-ready deadline: {fault:?}"))?;

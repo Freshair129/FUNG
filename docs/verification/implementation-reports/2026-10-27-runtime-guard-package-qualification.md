@@ -1,5 +1,5 @@
 ---
-version: "0.1.1b"
+version: "0.1.2b"
 created_at: "2026-10-27"
 last_update: "2026-10-27"
 status: "beta"
@@ -280,6 +280,62 @@ current exact-toolchain targeted checks and actual package C evidence are distin
 Hosted full-library acceptance must be freshly checked on the resulting head.
 Neither the style correction nor a successful package negative test qualifies
 actual endpoint/PID capture.
+
+## Hosted Windows short-path fixture failure
+
+Run `40403177155` on `b8c1f658b756463314940872f82df88ae6c28dde`
+passed frontend, native compilation, formatting, 12 custody-contract checks and
+strict Rust 1.99.1 Clippy. The full library step then reported **853 passed,
+2 failed, 12 ignored**; the following integration suite did not run.
+The original decoded job log is retained as
+`ci/b8c1f65-rust-failure-decoded.log`.
+
+The two failures were `lazy_ledger_project_root_creates_exact_nested_directory_without_probe_residue`
+and `startup_rows_and_failed_finalization_preserve_project_and_source_marker`.
+Their fixture persisted the runner's short Temp ancestor `C:\Users\RUNNER~1`
+as a project root. Production correctly rejected its mismatch with the canonical
+long path (`project root alias rejected`). This is distinct from package A's
+lazy-directory defect: the actual installed package C used an ordinary G-drive
+project path and passed its negative/reopen checks. The first hosted failure is
+preserved; no green targeted/local result replaces full hosted acceptance.
+
+The correction normalizes only the owned temporary test fixture before persisting
+its ledger path. Its canonical base is used for the SDK database, project root,
+lazy nested directory and owned junction target. On Windows, only a verified
+`VerbatimDisk` prefix is converted to ordinary drive spelling; other namespaces
+fail. Two added tests assert the persisted canonical path and the unchanged real
+guard result for the raw Temp spelling. Existing assertions remain intact.
+
+Independent scoped review accepts test-source SHA-256
+`98EB7DF769294D2B3DEDD74DF913478658B0BFFEA67F417A00F522782249090C`.
+Production `routed_capture.rs` remains byte-identical to package C; the changed
+test module is included only under `#[cfg(test)]`. This does not rebuild or retest
+package C, change requested user paths or weaken alias/reparse policy. Fresh
+fixture regression and resulting-head hosted checks remain separate execution
+evidence; neither the correction nor those checks qualify actual audio capture.
+
+The freshly compiled Rust 1.99.1 unit executable was then run with process-local
+`TEMP`/`TMP` pointing to an owned directory's real Windows 8.3 spelling
+(`FUNG-O~2`). **32 routed-capture tests passed, 0 failed, 0 ignored** in 5.41 s.
+The raw-path regression logged `aliased=true`, proving actual short-name rejection
+alongside canonical-ledger acceptance, not just the non-aliased branch. No global
+environment or filesystem setting was changed. Evidence:
+`service/ci199-temp-alias/targeted32-real-short-temp.txt` and its executable/source
+provenance and result JSON. An initial test-wrapper Add-Type error and normal-Temp
+run remain distinct retained apparatus evidence; they are not this alias pass.
+`ci/fixture-runtime-parity.json` verifies that only the test module differs across
+the prior package's 23 source mappings, and installed C still has its original
+predicted SHA-256. No native audio was exercised.
+
+Fresh Rust **1.99.1** verification of this fixture source passes the full library:
+**857 passed, 0 failed, 12 ignored**, 307.73 s, and the meeting-knowledge integration
+suite: **17 passed, 0 failed, 0 ignored**, 2.56 s. Logs:
+`ci/fixture-final-local-library.log` and `ci/fixture-final-local-integration.log`.
+These are local results; the resulting commit's hosted checks require a separate
+read-back. The 12 ignored cases remain unexecuted, including hardware acceptance.
+Exact-toolchain formatting and strict all-target Clippy also pass; evidence is
+retained under `service/ci199-temp-alias/`. No lint suppression or test skip was
+introduced.
 
 ## Remaining gates
 

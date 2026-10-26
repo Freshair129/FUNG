@@ -3,17 +3,43 @@ use genesis_block_native::OpenOptions as GenesisOpenOptions;
 
 struct Fixture {
     _temp: tempfile::TempDir,
+    base: PathBuf,
     storage: Arc<Storage>,
     project: String,
     root: PathBuf,
 }
+fn ordinary_owned_temp(path: &Path) -> PathBuf {
+    let canonical = path.canonicalize().unwrap();
+    #[cfg(windows)]
+    let canonical = {
+        use std::path::{Component, Prefix};
+        match canonical.components().next() {
+            Some(Component::Prefix(prefix)) if matches!(prefix.kind(), Prefix::VerbatimDisk(_)) => {
+                PathBuf::from(
+                    canonical
+                        .to_str()
+                        .unwrap()
+                        .strip_prefix(r"\\?\")
+                        .expect("canonical local drive prefix"),
+                )
+            }
+            Some(Component::Prefix(prefix)) if matches!(prefix.kind(), Prefix::Disk(_)) => {
+                canonical
+            }
+            _ => panic!("owned fixture temp directory must be on an ordinary local drive"),
+        }
+    };
+    ordinary_local_path(&canonical).unwrap();
+    canonical
+}
 fn fixture() -> Fixture {
     let temp = tempfile::tempdir().unwrap();
-    let root = temp.path().join("project");
+    let base = ordinary_owned_temp(temp.path());
+    let root = base.join("project");
     fs::create_dir(&root).unwrap();
     let storage = Arc::new(
         Storage::open(GenesisOpenOptions {
-            path: temp.path().join("db").display().to_string(),
+            path: base.join("db").display().to_string(),
             page_cache_mb: Some(16),
             read_only: Some(false),
             vector_dim: Some(4),
@@ -26,10 +52,48 @@ fn fixture() -> Fixture {
     ga::commit_rows(&storage,vec![ga::upsert("projects",json!({"id":project,"name":"User project name","storage_path":root,"active_recording_id":null,"created_at":"t","updated_at":"t"}))]).unwrap();
     Fixture {
         _temp: temp,
+        base,
         storage,
         project,
         root,
     }
+}
+#[test]
+fn fixture_persists_canonical_owned_temp_root_as_ordinary_long_path() {
+    let f = fixture();
+    assert_eq!(f.base, ordinary_owned_temp(f._temp.path()));
+    assert_eq!(f.root, f.base.join("project"));
+    assert_eq!(local_root(&f.root).unwrap(), f.root);
+    let rows = ga::query(
+        &f.storage,
+        "projects",
+        &["storage_path"],
+        vec![ga::eq("projects", "id", json!(f.project))],
+        1,
+    )
+    .unwrap();
+    assert_eq!(rows[0]["projects.storage_path"], json!(f.root));
+}
+#[cfg(windows)]
+#[test]
+fn raw_temp_alias_cannot_bypass_unchanged_production_path_guard() {
+    let f = fixture();
+    let raw = f._temp.path().join("project");
+    let aliased = !raw
+        .to_string_lossy()
+        .eq_ignore_ascii_case(&f.root.to_string_lossy());
+    let expected = if aliased {
+        Err("project root alias rejected".into())
+    } else {
+        Ok(raw.clone())
+    };
+    eprintln!(
+        "fixture raw={} ordinary={} aliased={aliased}",
+        raw.display(),
+        f.root.display()
+    );
+    assert_eq!(local_root(&raw), expected);
+    assert_eq!(project_root(&f.storage, &f.project).unwrap(), f.root);
 }
 fn plan() -> CaptureRoutePlan {
     CaptureRoutePlan {
@@ -82,7 +146,7 @@ fn set_project_path(f: &Fixture, path: &Path) {
 #[test]
 fn lazy_ledger_project_root_creates_exact_nested_directory_without_probe_residue() {
     let f = fixture();
-    let root = f._temp.path().join("lazy").join("nested").join("project");
+    let root = f.base.join("lazy").join("nested").join("project");
     set_project_path(&f, &root);
     assert!(!root.parent().unwrap().exists());
     assert_eq!(project_root(&f.storage, &f.project).unwrap(), root);
@@ -212,7 +276,7 @@ fn test_junction(link: &Path, target: &Path) {
 #[test]
 fn lazy_ledger_root_under_reparse_ancestor_is_rejected_before_target_mutation() {
     let f = fixture();
-    let outside = f._temp.path().join("outside-project");
+    let outside = f.base.join("outside-project");
     fs::create_dir(&outside).unwrap();
     let junction = f.root.join("junction");
     test_junction(&junction, &outside);

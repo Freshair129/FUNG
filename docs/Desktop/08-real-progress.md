@@ -1,5 +1,5 @@
 ---
-version: "0.3.44b"
+version: "0.3.44c"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-27"
 
@@ -25,8 +25,15 @@ Pending/final routed media is fenced from unsupported legacy consumers.
 
 The broad local snapshot has **855 Rust library passes, 12 ignored**. A subsequent
 Rust 1.99.1 CI lint correction passes 30 targeted tests, exact-toolchain strict
-Clippy/formatting and actual frontend/NSIS build. Hosted full regression for the
-corrected head remains a separate gate. The rebuilt isolated package C
+Clippy/formatting and actual frontend/NSIS build. Hosted `b8c1f65` then passed
+frontend/Clippy but failed two library fixtures using the runner's short Temp
+ancestor: **853 passed, 2 failed, 12 ignored**. The integration suite did not run.
+The owned-fixture correction now passes
+**857 library tests, 12 ignored**, **17 integration tests** on Rust 1.99.1 and
+**32 routed tests under a real 8.3 Temp alias** (including `aliased=true`).
+Exact-head hosted verification remains a separate gate. Production alias/reparse
+policy remains strict; the fixture-only update leaves runtime package inputs
+unchanged. The rebuilt isolated package C
 preserves its actual project through upgrade and orderly
 reopen; **23 negative/metadata IPC calls pass** without desktop input control,
 real capture, WAV output or forced termination. Both installed processes exit 0.
@@ -2051,6 +2058,7 @@ native/device/release acceptance.
 
 | Version | Change |
 | --- | --- |
+| 0.3.44c | Retained the hosted short-Temp fixture failure and separated its correction from unchanged package runtime and open audio gates. |
 | 0.3.44b | Recorded reviewed native runtime ownership, scoped custody failures, legacy guard cleanup and lazy project-root correction; 855 library passes/12 ignored and actual installed negative/reopen evidence remain separate from both open audio gates. |
 | 0.3.32v → 0.3.33v | Recorded passing post-remediation Rust library tests, frontend build, and workflow MCP acceptance; independent re-review remains open. |
 | 0.3.31v → 0.3.32v | Recorded passing post-remediation Rust compile, format and whitespace checks; tests and independent re-review remained open. |
@@ -2096,6 +2104,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.44c | 2026-10-27 | beta | Retained b8c1f65 hosted853pass/2fail/12ignored short-Temp failure; fixture-only correction passes local857library/17integration and32real-alias checks, production/package C unchanged; resulting hosted and audio acceptance remain separate. | see Git history | Codex |
 | 0.3.44b | 2026-10-27 | beta | Native ownership/coordinator and source fences reviewed; lazy-root fault and Rust1.99 CI lint corrected; actual package C upgrade and 23 negative/reopen IPC calls pass. Broad local855/12ignored and exact-toolchain30 remain distinct from hosted full CI and both open audio gates. | see Git history | Codex |
 | 0.3.36b | 2026-10-23 | beta | ec494fd installed mic output and active-PID inventory observed; native timing and partial-track reporting reopened with failed evidence retained; corrected system active/idle probes pass, final installed/release gates remain open. | working-tree | Codex |
 | 0.3.35b | 2026-10-23 | beta | Installed eae669a workflow outputs and restart/reinstall/recovery verified; native clock/inventory corrections independently reviewed with hardware probes; final package and spoken mic/app isolation gates remain open. | working-tree | Codex |

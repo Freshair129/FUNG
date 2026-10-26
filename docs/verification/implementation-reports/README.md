@@ -155,3 +155,7 @@ attributes:
 - [PID producer/session lifecycle](2026-10-25-pid-producer-lifecycle.md) — `candidate`; six native PID studies FAIL; earlier 44.1-kHz NOT_RUN checkpoint links to the executed failing follow-up, release blocked.
 
 - [Source custody foundation and executed 44.1-kHz follow-up](2026-10-26-source-custody-foundation.md) — `candidate`; additive v16/native Rust custody verified by 722 library tests, Clippy and independent review; 44.1-kHz PID diagnostic FAIL, capture/installed gates remain open.
+
+- [Routed consumer guard audit](2026-10-26-routed-consumer-guard-audit.md) — `candidate`; read-only ownership/race map for playback, export, ASR, mobile, retrieval and MCP integration; no enforcement claim.
+
+- [Exact-frame source writer foundation](2026-10-26-source-writer-foundation.md) — `candidate`; bounded native Rust writer and real custody tests; capture/barrier/consumer/installed integration remains open.

@@ -1,5 +1,5 @@
 ---
-version: "0.1.1b"
+version: "0.1.2b"
 created_at: "2026-10-25"
 last_update: "2026-10-26"
 status: "candidate"
@@ -90,6 +90,9 @@ Create `src-tauri/src/live_endpoint_audio.rs` as a focused adapter; modify
 `live_system_audio.rs` shared reader helpers only as necessary. Modify
 `genesis_adapter.rs`, `live_meeting.rs`, `live_transcript.rs`, `audio_export.rs` and
 `recording_review.rs` in one coherent source-model change, preserving legacy paths.
+The independently staged `capture_source_custody.rs` and
+`capture_source_writer.rs` isolate storage/queue ownership from native readers;
+neither public Rust module is an enabled route or IPC feature.
 
 - [ ] Add failing Genesis tests for source/chunk FK ownership in both transcript
   modes, cross-recording mismatch, atomic binding/checkpoints and duplicate retry.
@@ -108,6 +111,12 @@ Create `src-tauri/src/live_endpoint_audio.rs` as a focused adapter; modify
 - [ ] Quarantine affected source epochs and invalidate dependent transcript,
   summary/task/retrieval artifacts; MCP/playback/export cannot bypass native state.
 - [ ] Independent review and targeted native/custody suites pass before Task 3.
+
+Incremental source check: the [bounded writer foundation](../verification/implementation-reports/2026-10-26-source-writer-foundation.md)
+retains exact-frame tails, first failures and private evidence. It does not close
+the larger native/consumer/recovery Task 2 gate. Review the
+[consumer ownership/race audit](../verification/implementation-reports/2026-10-26-routed-consumer-guard-audit.md)
+before exposing new recordings through existing read/export paths.
 
 ## Task 3 — Live routing UX and Product MCP
 

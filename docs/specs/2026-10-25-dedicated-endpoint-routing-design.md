@@ -1,5 +1,5 @@
 ---
-version: "0.1.2b"
+version: "0.1.3b"
 created_at: "2026-10-25"
 last_update: "2026-10-26"
 status: "candidate"
@@ -210,6 +210,38 @@ and registers no IPC command. Its access check returns a consistent storage
 frontier, not a reusable permission: consumers must verify the actual media and
 fence publication/cancel pending work after quarantine. An unconnected guard is
 not evidence of access enforcement in the existing readers.
+
+The separate trusted `capture_source_writer` accepts only exact common-origin
+frame spans and mono PCM16, with registration-owned source/epoch/rate. It never
+reconstructs frames from legacy milliseconds. One recording-scoped group shares
+a commit fence across source workers; each owns a bounded queue and independent
+files/tail. Producer fault signals perform no disk/DB work, and retain a first
+failure outside a full queue. Worker-side quarantine may follow an already
+in-flight append; this ordering must not be described as instantaneous cancellation.
+No writer publishes/enriches or closes the recording. The coordinator stops all
+native producers, drains/checks every worker and only then closes the source set.
+Uncertain durability or unpersisted quarantine prevents healthy completion.
+
+### Candidate startup barrier contract
+
+Source binding alone does not synchronize native devices. A future common meeting
+barrier is explicit; UI stays preparing until all native streams/guards are ready
+by that deadline. A native ready observation after the barrier fails the attempt,
+even if a pre-Start clock was earlier. Captured preroll remains private and may be
+excluded from the user-visible recording, with exact native frame/clip provenance.
+
+For an earlier native origin, the candidate transform clips at
+`ceil((common_origin - native_origin) * rate / 10_000_000)` native frames. Retain
+the original native span/stamp, discarded prefix and fractional sample-phase
+residue. The pure transform's sub-sample bound is separate from native timestamp
+quantization/device alignment, which still needs controlled native qualification.
+Do not rebase a genuinely late first sample to zero or manufacture initial PCM.
+An unexplained first post-barrier gap remains a failure even if legacy startup
+logic labelled a prefix idle. The first clock/media observation must establish
+post-barrier provenance; API Start/Ready alone is not audio-preservation proof.
+
+This barrier/packet seam is staged externally, not activated by the writer or
+registered in UI/MCP. Do not claim clean multi-source startup from pure transforms.
 
 Contamination quarantines the entire affected source epoch, not only frames after
 the observation. Before completion/release of derived data, source state is checked

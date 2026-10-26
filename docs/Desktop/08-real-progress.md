@@ -1,5 +1,5 @@
 ---
-version: "0.3.40b"
+version: "0.3.41b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-26,Codex"
 
@@ -12,6 +12,17 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Exact-frame writer checkpoint — 2026-10-26
+
+The [bounded source writer](../verification/implementation-reports/2026-10-26-source-writer-foundation.md)
+adds independent source queues, exact-frame chunks/tails, durable custody appends
+and explicit private failure/orphan handling. Eleven integrated writer tests and
+the full 733-test library suite pass (11 ignored), as do strict all-target Clippy,
+formatting and independent review. This is a trusted Rust API with no active
+capture/IPC caller. Native startup/barrier and the
+[consumer enforcement map](../verification/implementation-reports/2026-10-26-routed-consumer-guard-audit.md)
+remain integration work. PID #96 still fails; no new installed acceptance/release.
 
 ## Source custody checkpoint — 2026-10-26
 

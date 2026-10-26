@@ -1,4 +1,5 @@
 pub mod capture_source_custody;
+pub mod capture_source_writer;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;

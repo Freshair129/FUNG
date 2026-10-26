@@ -29,6 +29,22 @@ pub struct SourceWriterFailure {
     pub observed_frame: Option<i64>,
     pub packet_frames: Option<usize>,
 }
+/// Rejected packet ownership, never a new permission to persist or publish PCM.
+#[derive(Debug)]
+pub enum SourcePacketDisposition {
+    Returned(SourcePcmPacket),
+    RetainedTerminal {
+        source_id: String,
+        epoch: i64,
+        first_frame: i64,
+        frames: usize,
+    },
+}
+#[derive(Debug)]
+pub struct SourcePushRejection {
+    pub failure: SourceWriterFailure,
+    pub disposition: SourcePacketDisposition,
+}
 #[derive(Debug)]
 pub struct SourceWriterReport {
     pub source_id: String,
@@ -135,6 +151,25 @@ fn first_fault(shared: &Mutex<FaultState>, fault: SourceWriterFailure) {
     if s.first.is_none() {
         s.first = Some(fault);
     }
+}
+fn reject_packet(
+    failure: SourceWriterFailure,
+    disposition: SourcePacketDisposition,
+) -> Box<SourcePushRejection> {
+    Box::new(SourcePushRejection {
+        failure,
+        disposition,
+    })
+}
+fn retain_terminal(state: &mut FaultState, packet: SourcePcmPacket) -> SourcePacketDisposition {
+    let receipt = SourcePacketDisposition::RetainedTerminal {
+        source_id: packet.source_id.clone(),
+        epoch: packet.epoch,
+        first_frame: packet.first_frame,
+        frames: packet.pcm.len(),
+    };
+    state.terminal_packet = Some(packet);
+    receipt
 }
 fn local_ledger_path(path: PathBuf) -> Result<PathBuf, String> {
     #[cfg(windows)]
@@ -324,12 +359,20 @@ impl CaptureSourceWriter {
         first_fault(&self.shared, f);
         self.tx.take();
     }
-    /// Bounded copy admission only: no filesystem or Genesis calls run on this producer method.
-    pub fn try_push(&mut self, packet: SourcePcmPacket) -> Result<(), SourceWriterFailure> {
+    /// Zero PCM clones. Ok transfers ownership to the bounded queue. On Err inspect
+    /// disposition: Returned carries the ORIGINAL packet, whereas RetainedTerminal
+    /// means the writer owns that single packet and will drain it as private evidence.
+    /// Returned is ownership ONLY, not proof of identity, bounds, startup coverage or
+    /// permission to spool/publish. A previously faulted writer validates no new input.
+    /// Normal admission is never reopened. All producer paths are memory-only.
+    pub fn try_push_recoverable(
+        &mut self,
+        packet: SourcePcmPacket,
+    ) -> Result<(), Box<SourcePushRejection>> {
         let mut state = lock(&self.shared);
         if let Some(f) = state.first.clone() {
             self.tx.take();
-            return Err(f);
+            return Err(reject_packet(f, SourcePacketDisposition::Returned(packet)));
         }
         let reg = &self.context.registration;
         let size = packet.pcm.len();
@@ -381,7 +424,7 @@ impl CaptureSourceWriter {
             f.expected_frame = Some(self.next_frame);
             f.observed_frame = Some(packet.first_frame);
             f.packet_frames = Some(size);
-            if valid_id
+            let disposition = if valid_id
                 && size > 0
                 && size <= reg.sample_rate as usize * 2
                 && packet.pcm.capacity() <= reg.sample_rate as usize * 2
@@ -392,11 +435,13 @@ impl CaptureSourceWriter {
                     .filter(|end| *end <= MAX_MS * reg.sample_rate / 1000)
                     .is_some()
             {
-                state.terminal_packet = Some(packet)
-            }
+                retain_terminal(&mut state, packet)
+            } else {
+                SourcePacketDisposition::Returned(packet)
+            };
             state.first = Some(f.clone());
             self.tx.take();
-            return Err(f);
+            return Err(reject_packet(f, disposition));
         }
         let end = packet.first_frame + size as i64;
         match self
@@ -420,21 +465,27 @@ impl CaptureSourceWriter {
                 f.expected_frame = Some(self.next_frame);
                 f.observed_frame = Some(packet.first_frame);
                 f.packet_frames = Some(size);
-                state.terminal_packet = Some(packet);
+                let disposition = retain_terminal(&mut state, packet);
                 state.first = Some(f.clone());
                 self.tx.take();
-                Err(f)
+                Err(reject_packet(f, disposition))
             }
-            Err(TrySendError::Disconnected(_)) => {
+            Err(TrySendError::Disconnected(packet)) => {
                 let f = fail(
                     SourceWriterFailureKind::Persistence,
                     "source writer disconnected",
                 );
                 state.first = Some(f.clone());
                 self.tx.take();
-                Err(f)
+                Err(reject_packet(f, SourcePacketDisposition::Returned(packet)))
             }
         }
+    }
+    /// Legacy compatibility: returns first failure and DROPS any returned packet on Err.
+    /// Native bridges with upstream accepted queues must use try_push_recoverable instead.
+    pub fn try_push(&mut self, packet: SourcePcmPacket) -> Result<(), SourceWriterFailure> {
+        self.try_push_recoverable(packet)
+            .map_err(|rejected| rejected.failure)
     }
     /// Call only after native producer stop; drains accepted PCM. Coordinator closes ALL sources later.
     pub fn finish(mut self) -> SourceWriterReport {

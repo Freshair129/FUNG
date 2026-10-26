@@ -1,7 +1,7 @@
 ---
-version: "0.3.41b"
+version: "0.3.42b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-26,Codex"
+last_update: "2026-10-27,Codex"
 
 status: "beta"
 superseded_by: null
@@ -12,6 +12,23 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Routed native seam and failed n01 checkpoint — 2026-10-26
+
+The working-tree successor adds a private exact-frame/future-barrier packet seam,
+recoverable source-writer rejection and a test-only owned native probe. The
+[n01 diagnostic report](../verification/implementation-reports/2026-10-26-routed-native-seam-n01-diagnostic.md)
+records primary UnknownSession quarantine and a later no-visible-PCM consequence;
+the rejected runtime owner is not identified. A secondary 10,000-row SDK query
+failure was corrected with retained RED and 6 passing probe checks (1 ignored).
+The integrated successor library suite passed 777 tests (12 ignored). A subsequent
+diagnostic-only probe update passed 9 checks (1 native ignored) and strict Clippy;
+the earlier argument-count warning is corrected. Native n02 still failed before
+ready, now identifying the rejected process as the probe's own exact process
+generation. Actual client-bound proof and any narrow runtime policy remain open.
+Earlier totals below remain historical. No clean two-source native/installed pass or new Live/MCP
+capture execution is claimed. Both endpoint and original PID #96 release gates
+remain open.
 
 ## Exact-frame writer checkpoint — 2026-10-26
 

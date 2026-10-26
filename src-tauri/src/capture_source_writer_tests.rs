@@ -366,3 +366,236 @@ fn oversized_vector_allocation_cannot_bypass_copied_pcm_queue_budget() {
     assert_eq!(report.durable_frames, 0);
     assert!(report.quarantine_persisted);
 }
+
+struct ExpectedOwnership {
+    packet: SourcePcmPacket,
+    ptr: usize,
+    capacity: usize,
+}
+fn expect_ownership(p: &SourcePcmPacket) -> ExpectedOwnership {
+    ExpectedOwnership {
+        packet: p.clone(),
+        ptr: p.pcm.as_ptr() as usize,
+        capacity: p.pcm.capacity(),
+    }
+}
+fn returned(rejection: SourcePushRejection, expected: ExpectedOwnership) -> SourceWriterFailure {
+    let SourcePushRejection {
+        failure,
+        disposition,
+    } = rejection;
+    match disposition {
+        SourcePacketDisposition::Returned(packet) => {
+            assert_eq!(packet.source_id, expected.packet.source_id);
+            assert_eq!(packet.epoch, expected.packet.epoch);
+            assert_eq!(packet.first_frame, expected.packet.first_frame);
+            assert_eq!(packet.pcm, expected.packet.pcm);
+            assert_eq!(
+                packet.pcm.as_ptr() as usize,
+                expected.ptr,
+                "must return original allocation, not reconstruct a copy"
+            );
+            assert_eq!(packet.pcm.capacity(), expected.capacity);
+        }
+        other => panic!("expected ownership Returned, got {other:?}"),
+    };
+    failure
+}
+fn terminal(
+    rejection: SourcePushRejection,
+    source: &CaptureSourceRegistration,
+    first: i64,
+    frames: usize,
+) -> SourceWriterFailure {
+    let SourcePushRejection {
+        failure,
+        disposition,
+    } = rejection;
+    match disposition {
+        SourcePacketDisposition::RetainedTerminal {
+            source_id,
+            epoch,
+            first_frame,
+            frames: retained,
+        } => {
+            assert_eq!(source_id, source.id);
+            assert_eq!(epoch, source.epoch);
+            assert_eq!(first_frame, first);
+            assert_eq!(retained, frames)
+        }
+        other => panic!("expected RetainedTerminal, got {other:?}"),
+    };
+    failure
+}
+fn same_failure(a: &SourceWriterFailure, b: &SourceWriterFailure) {
+    assert_eq!(a.kind, b.kind);
+    assert_eq!(a.detail, b.detail);
+    assert_eq!(a.expected_frame, b.expected_frame);
+    assert_eq!(a.observed_frame, b.observed_frame);
+    assert_eq!(a.packet_frames, b.packet_frames);
+}
+#[test]
+fn recoverable_after_poison_returns_original_packet_and_immutable_first_fault() {
+    let f = fixture(1);
+    let mut g = group(&f);
+    let mut w = g
+        .spawn(SourceWriterOptions::new(f.regs[0].clone()))
+        .unwrap();
+    w.signal_failure("native source removed");
+    let p = packet(&f.regs[0], 0, 101);
+    let expected = expect_ownership(&p);
+    let first = returned(*w.try_push_recoverable(p).unwrap_err(), expected);
+    assert_eq!(first.kind, SourceWriterFailureKind::NativeSourceFailure);
+    assert_eq!(first.detail, "native source removed");
+    let mut p = packet(&f.regs[0], 1000, 19);
+    p.source_id = "WRONG_ID".into();
+    let expected = expect_ownership(&p);
+    let later = returned(*w.try_push_recoverable(p).unwrap_err(), expected);
+    same_failure(&first, &later);
+    let report = w.finish();
+    same_failure(&first, &report.first_failure.unwrap());
+    assert_eq!(report.durable_frames, 0);
+    assert!(report.quarantine_persisted);
+    assert!(audio(&f).is_empty());
+}
+#[test]
+fn recoverable_first_gap_retains_only_terminal_then_returns_later_same_kind_packet() {
+    let f = fixture(1);
+    let mut g = group(&f);
+    let mut w = g
+        .spawn(SourceWriterOptions::new(f.regs[0].clone()))
+        .unwrap();
+    let a = packet(&f.regs[0], 0, 1000);
+    let b = packet(&f.regs[0], 2000, 10);
+    let expected = [a.pcm.clone(), b.pcm.clone()].concat();
+    w.try_push_recoverable(a).unwrap();
+    let first = terminal(
+        *w.try_push_recoverable(b).unwrap_err(),
+        &f.regs[0],
+        2000,
+        10,
+    );
+    assert_eq!(first.kind, SourceWriterFailureKind::Gap);
+    let c = packet(&f.regs[0], 2010, 20);
+    let ownership = expect_ownership(&c);
+    let later = returned(*w.try_push_recoverable(c).unwrap_err(), ownership);
+    same_failure(&first, &later);
+    let report = w.finish();
+    assert_eq!(report.durable_frames, 1010);
+    assert!(report.quarantine_persisted);
+    let actual = audio(&f)
+        .iter()
+        .flat_map(|v| samples(&v["audio_chunks.file_path"]))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        actual, expected,
+        "retained terminal exactly once; returned later packet never bound"
+    );
+}
+#[test]
+fn recoverable_first_full_retains_exactly_once_and_later_full_cause_returns_new_ownership() {
+    let f = fixture(1);
+    let mut g = group(&f);
+    let gate = Arc::new(TestGate::default());
+    let mut options = SourceWriterOptions::new(f.regs[0].clone());
+    options.queue_capacity = 1;
+    options.gate = Some(gate.clone());
+    let mut w = g.spawn(options).unwrap();
+    let a = packet(&f.regs[0], 0, 100);
+    let b = packet(&f.regs[0], 100, 120);
+    let expected = [a.pcm.clone(), b.pcm.clone()].concat();
+    w.try_push_recoverable(a).unwrap();
+    let first = terminal(
+        *w.try_push_recoverable(b).unwrap_err(),
+        &f.regs[0],
+        100,
+        120,
+    );
+    assert_eq!(first.kind, SourceWriterFailureKind::QueueOverflow);
+    let c = packet(&f.regs[0], 220, 140);
+    let ownership = expect_ownership(&c);
+    let later = returned(*w.try_push_recoverable(c).unwrap_err(), ownership);
+    same_failure(&first, &later);
+    gate.release();
+    let report = w.finish();
+    assert_eq!(report.durable_frames, 220);
+    assert!(report.quarantine_persisted);
+    let actual = audio(&f)
+        .iter()
+        .flat_map(|v| samples(&v["audio_chunks.file_path"]))
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
+}
+#[test]
+fn recoverable_receiver_disconnected_returns_original_pcm_not_false_terminal_receipt() {
+    let f = fixture(1);
+    let mut g = group(&f);
+    let gate = Arc::new(TestGate::default());
+    let mut options = SourceWriterOptions::new(f.regs[0].clone());
+    options.gate = Some(gate.clone());
+    let mut w = g.spawn(options).unwrap();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    drop(rx);
+    drop(w.tx.replace(tx));
+    let p = packet(&f.regs[0], 0, 321);
+    let ownership = expect_ownership(&p);
+    let failure = returned(*w.try_push_recoverable(p).unwrap_err(), ownership);
+    assert_eq!(failure.kind, SourceWriterFailureKind::Persistence);
+    assert_eq!(failure.detail, "source writer disconnected");
+    gate.release();
+    let report = w.finish();
+    assert_eq!(report.durable_frames, 0);
+    assert!(report.quarantine_persisted);
+    assert!(audio(&f).is_empty());
+}
+#[test]
+fn recoverable_invalid_returns_are_ownership_only_never_custody_permission() {
+    let f = fixture(1);
+    let mut g = group(&f);
+    let mut w = g
+        .spawn(SourceWriterOptions::new(f.regs[0].clone()))
+        .unwrap();
+    let mut p = packet(&f.regs[0], 0, 17);
+    p.source_id = uuid::Uuid::new_v4().to_string();
+    let expected = expect_ownership(&p);
+    let failure = returned(*w.try_push_recoverable(p).unwrap_err(), expected);
+    assert_eq!(failure.kind, SourceWriterFailureKind::WrongIdentity);
+    assert_eq!(w.finish().durable_frames, 0);
+    assert!(audio(&f).is_empty());
+    let f = fixture(1);
+    let mut g = group(&f);
+    let mut w = g
+        .spawn(SourceWriterOptions::new(f.regs[0].clone()))
+        .unwrap();
+    let mut p = packet(&f.regs[0], 0, 1);
+    p.pcm.reserve(1_000_000);
+    let expected = expect_ownership(&p);
+    let failure = returned(*w.try_push_recoverable(p).unwrap_err(), expected);
+    assert_eq!(failure.kind, SourceWriterFailureKind::PacketTooLarge);
+    assert_eq!(w.finish().durable_frames, 0);
+    assert!(audio(&f).is_empty());
+}
+#[test]
+fn recoverable_overlap_returns_original_without_rewinding_valid_accepted_pcm() {
+    let f = fixture(1);
+    let mut g = group(&f);
+    let mut w = g
+        .spawn(SourceWriterOptions::new(f.regs[0].clone()))
+        .unwrap();
+    let a = packet(&f.regs[0], 0, 100);
+    let expected = a.pcm.clone();
+    w.try_push_recoverable(a).unwrap();
+    let p = packet(&f.regs[0], 50, 100);
+    let ownership = expect_ownership(&p);
+    let failure = returned(*w.try_push_recoverable(p).unwrap_err(), ownership);
+    assert_eq!(failure.kind, SourceWriterFailureKind::Overlap);
+    let report = w.finish();
+    assert_eq!(report.durable_frames, 100);
+    assert_eq!(
+        audio(&f)
+            .iter()
+            .flat_map(|v| samples(&v["audio_chunks.file_path"]))
+            .collect::<Vec<_>>(),
+        expected
+    );
+}

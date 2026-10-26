@@ -1,7 +1,7 @@
 ---
-version: "0.1.0m"
+version: "0.1.1m"
 created_at: "2026-10-19"
-last_update: "2026-10-25"
+last_update: "2026-10-27"
 status: "beta"
 superseded_by: null
 attributes:
@@ -159,3 +159,5 @@ attributes:
 - [Routed consumer guard audit](2026-10-26-routed-consumer-guard-audit.md) — `candidate`; read-only ownership/race map for playback, export, ASR, mobile, retrieval and MCP integration; no enforcement claim.
 
 - [Exact-frame source writer foundation](2026-10-26-source-writer-foundation.md) — `candidate`; bounded native Rust writer and real custody tests; capture/barrier/consumer/installed integration remains open.
+
+- [Routed native seam and n01 diagnostic](2026-10-26-routed-native-seam-n01-diagnostic.md) — `candidate`; exact-frame/recoverable source seams; n01 fails primary UnknownSession, secondary SDK query-limit reporting corrected; owner attribution and both installed gates open.

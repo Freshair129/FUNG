@@ -1,7 +1,7 @@
 ---
-version: "0.1.2b"
+version: "0.1.3b"
 created_at: "2026-10-25"
-last_update: "2026-10-26"
+last_update: "2026-10-27"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -117,6 +117,13 @@ retains exact-frame tails, first failures and private evidence. It does not clos
 the larger native/consumer/recovery Task 2 gate. Review the
 [consumer ownership/race audit](../verification/implementation-reports/2026-10-26-routed-consumer-guard-audit.md)
 before exposing new recordings through existing read/export paths.
+
+Current source successor also adds the exact-frame future-barrier packet seam,
+recoverable writer rejection and a test-only native coordinator probe. The first
+owned `n01` run failed with persisted UnknownSession; a secondary SDK query-limit
+error was separately corrected. [Seam and n01 evidence](../verification/implementation-reports/2026-10-26-routed-native-seam-n01-diagnostic.md)
+records the primary/secondary distinction and unrun gates. This is incremental
+Task 2 work, not completed native/consumer/installed integration.
 
 ## Task 3 — Live routing UX and Product MCP
 

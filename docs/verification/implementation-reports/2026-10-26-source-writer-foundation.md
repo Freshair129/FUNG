@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-26"
-last_update: "2026-10-26"
+last_update: "2026-10-27"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -73,9 +73,11 @@ was run by these commands.
 
 ## Open integration
 
-The native exact-frame packet/barrier seam is still external. Its native start
-must not be later than the chosen meeting origin without an explicit failure;
-legitimate private preroll clipping needs retained sample-phase provenance.
+At this report's original writer checkpoint the packet/barrier seam was external.
+The subsequent [source seam and n01 report](2026-10-26-routed-native-seam-n01-diagnostic.md)
+records its working-tree integration and recoverable writer ownership API. The
+first owned native probe failed; later source additions do not turn this writer
+foundation's historical test totals into a new native or full-tree pass.
 Different per-device origins or invented initial silence cannot establish sync.
 
 No session/device guard, native stop wiring, source-aware recovery, consumer

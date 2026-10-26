@@ -1,5 +1,8 @@
 pub mod capture_source_custody;
 pub mod capture_source_writer;
+#[cfg(all(test, windows))]
+#[path = "routed_native_probe.rs"]
+mod routed_native_probe;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -33,6 +36,8 @@ mod cloud_executor;
 mod desktop_playback;
 mod device_identity;
 mod diarization;
+/// Trusted in-process private PCM seam; no capture IPC is registered.
+pub mod endpoint_packet_sink;
 mod external_mcp;
 mod external_mcp_commands;
 mod external_mcp_transport;

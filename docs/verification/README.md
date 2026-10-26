@@ -1,7 +1,7 @@
 ---
-version: "0.1.0m"
+version: "0.1.1m"
 created_at: "2026-10-19"
-last_update: "2026-10-20"
+last_update: "2026-10-27"
 status: "beta"
 superseded_by: null
 attributes:
@@ -16,6 +16,8 @@ attributes:
 เอกสารในหมวดนี้บันทึกผลตรวจตามวันที่ revision และขอบเขตที่ระบุ รายงานหนึ่งฉบับไม่รับรอง feature อื่นหรือ revision ใหม่โดยอัตโนมัติ
 
 ## เริ่มจากหลักฐานปัจจุบัน
+
+- [Routed native seam and n01 diagnostic — 2026-10-26](implementation-reports/2026-10-26-routed-native-seam-n01-diagnostic.md) — failed owned probe and recovered first-cause evidence; source, native and installed claims remain separate.
 
 - [Desktop implementation truth](../Desktop/08-real-progress.md) สรุปผล Desktop และ remaining gates.
 - [Mobile implementation truth](../Mobile/IMPLEMENTATION_STATUS.md) สรุป build, automated checks และ physical-device gaps.

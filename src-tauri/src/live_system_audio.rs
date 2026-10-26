@@ -27,6 +27,20 @@ fn validate_sink_selection(
     }
     Ok(())
 }
+// Structural validation only. A matching scope never creates a prepared ticket.
+fn validate_capture_entry_shape(
+    selection: &EndpointSelection,
+    sink: &Option<EndpointPacketProducer>,
+    ticket_scope: Option<&crate::endpoint_packet_sink::SourcePacketScope>,
+) -> Result<(), String> {
+    validate_sink_selection(selection, sink)?;
+    match (sink.as_ref(), ticket_scope) {
+        (None, None) => Ok(()),
+        (Some(sink), Some(scope)) if sink.scope() == scope => Ok(()),
+        (Some(_), None) => Err("raw source sink requires a prepared native factory ticket".into()),
+        _ => Err("native ticket/sink scope mismatch".into()),
+    }
+}
 struct NativePacketObservation {
     index: u64,
     qpc: u64,
@@ -61,6 +75,27 @@ fn dispatch_endpoint_packet(
 mod packet_seam_tests {
     use super::*;
     use crate::endpoint_packet_sink::{packet_channel, FrameSpan, SinkRead, SourcePacketScope};
+    #[test]
+    fn raw_sink_without_factory_ticket_is_rejected_before_native_work() {
+        let scope =
+            SourcePacketScope::new(uuid::Uuid::new_v4(), 1, "opaque-A".into(), 48000, 1).unwrap();
+        let (producer, _receiver) = packet_channel(scope.clone(), 1).unwrap();
+        let sink = Some(producer);
+        let selected = EndpointSelection::ExactId("opaque-A".into());
+        assert!(validate_capture_entry_shape(&selected, &sink, None).is_err());
+        // This checks input shape only and cannot mint or run a native ticket.
+        assert!(validate_capture_entry_shape(&selected, &sink, Some(&scope)).is_ok());
+        let wrong_epoch =
+            SourcePacketScope::new(scope.source_id(), 2, "opaque-A".into(), 48000, 1).unwrap();
+        assert!(validate_capture_entry_shape(&selected, &sink, Some(&wrong_epoch)).is_err());
+        assert!(validate_capture_entry_shape(&selected, &None, Some(&scope)).is_err());
+        assert!(validate_capture_entry_shape(
+            &EndpointSelection::LegacyFriendlyName("Speakers".into()),
+            &None,
+            None
+        )
+        .is_ok());
+    }
     #[test]
     fn source_sink_requires_its_own_explicit_endpoint_before_native_activation() {
         let scope =
@@ -377,10 +412,26 @@ fn qpc_hns(frequency: i64) -> Result<u64, String> {
         .map_err(|_| "Windows capture clock overflow".into())
 }
 
-struct RunningClient(IAudioClient);
+// All native references stay on this MTA. The diagnostic owner also holds the
+// fresh private GUID and directly client-bound Control2, and is !Send/!Sync.
+struct RunningClient {
+    client: IAudioClient,
+    packets: IAudioCaptureClient,
+    audit: Option<crate::native_capture_session_audit::NativeCaptureSessionAudit>,
+    _device: IMMDevice,
+    ticket: Option<crate::native_capture_group::PreparedCapture>,
+}
+impl RunningClient {
+    fn stop(&self) -> Result<(), String> {
+        if let Some(ticket) = &self.ticket {
+            ticket.revoke();
+        }
+        win(unsafe { self.client.Stop() })
+    }
+}
 impl Drop for RunningClient {
     fn drop(&mut self) {
-        let _ = unsafe { self.0.Stop() };
+        let _ = self.stop();
     }
 }
 
@@ -421,11 +472,51 @@ pub(crate) fn spawn_selected_endpoint_capture_thread(
     fragment_ms: u64,
     packet_sink: Option<EndpointPacketProducer>,
 ) -> Result<CaptureReady, String> {
-    validate_sink_selection(&selection, &packet_sink)?;
+    spawn_endpoint_capture_thread(selection, stop, tx, root, fragment_ms, packet_sink, None)
+}
+
+pub(crate) fn spawn_owned_endpoint_capture_thread(
+    stop: Arc<AtomicBool>,
+    tx: mpsc::SyncSender<CaptureEvent>,
+    root: PathBuf,
+    fragment_ms: u64,
+    producer: EndpointPacketProducer,
+    ticket: crate::native_capture_group::PreparedCapture,
+) -> Result<CaptureReady, String> {
+    if producer.scope() != ticket.scope() {
+        return Err("native ticket/sink scope mismatch".into());
+    }
+    let selection = EndpointSelection::ExactId(ticket.scope().endpoint_id().to_owned());
+    spawn_endpoint_capture_thread(
+        selection,
+        stop,
+        tx,
+        root,
+        fragment_ms,
+        Some(producer),
+        Some(ticket),
+    )
+}
+
+fn spawn_endpoint_capture_thread(
+    selection: EndpointSelection,
+    stop: Arc<AtomicBool>,
+    tx: mpsc::SyncSender<CaptureEvent>,
+    root: PathBuf,
+    fragment_ms: u64,
+    packet_sink: Option<EndpointPacketProducer>,
+    ticket: Option<crate::native_capture_group::PreparedCapture>,
+) -> Result<CaptureReady, String> {
+    validate_capture_entry_shape(
+        &selection,
+        &packet_sink,
+        ticket.as_ref().map(|ticket| ticket.scope()),
+    )?;
     if fragment_ms == 0 || fragment_ms > 60_000 {
         return Err("endpoint fragment duration outside supported bounds".into());
     }
     let (ready_tx, ready_rx) = mpsc::channel();
+    let timeout_stop = stop.clone();
     std::thread::Builder::new()
         .name("fung-endpoint-loopback".into())
         .spawn(move || {
@@ -438,6 +529,7 @@ pub(crate) fn spawn_selected_endpoint_capture_thread(
                 fragment_ms,
                 &mut readiness,
                 packet_sink,
+                ticket,
             );
             if let Some(ready) = readiness {
                 let _ = ready.send(Err(result
@@ -454,9 +546,13 @@ pub(crate) fn spawn_selected_endpoint_capture_thread(
         .map_err(|error| format!("start endpoint capture thread: {error}"))?;
     ready_rx
         .recv_timeout(Duration::from_secs(10))
-        .map_err(|error| format!("endpoint capture readiness: {error}"))?
+        .map_err(|error| {
+            timeout_stop.store(true, Ordering::SeqCst);
+            format!("endpoint capture readiness: {error}")
+        })?
 }
 
+#[allow(clippy::too_many_arguments)]
 fn capture_selected(
     selection: &EndpointSelection,
     stop: &AtomicBool,
@@ -465,6 +561,7 @@ fn capture_selected(
     fragment_ms: u64,
     readiness: &mut Option<mpsc::Sender<Result<CaptureReady, String>>>,
     mut packet_sink: Option<EndpointPacketProducer>,
+    ticket: Option<crate::native_capture_group::PreparedCapture>,
 ) -> Result<(), String> {
     let result = capture_selected_inner(
         selection,
@@ -474,6 +571,7 @@ fn capture_selected(
         fragment_ms,
         readiness,
         &mut packet_sink,
+        ticket,
     );
     // The inner reader's native client has stopped/dropped before closing this
     // private queue. On any early setup or packet error preserve its real reason.
@@ -483,6 +581,7 @@ fn capture_selected(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn capture_selected_inner(
     selection: &EndpointSelection,
     stop: &AtomicBool,
@@ -491,11 +590,28 @@ fn capture_selected_inner(
     fragment_ms: u64,
     readiness: &mut Option<mpsc::Sender<Result<CaptureReady, String>>>,
     packet_sink: &mut Option<EndpointPacketProducer>,
+    ticket: Option<crate::native_capture_group::PreparedCapture>,
 ) -> Result<(), String> {
+    validate_capture_entry_shape(
+        selection,
+        packet_sink,
+        ticket.as_ref().map(|ticket| ticket.scope()),
+    )?;
+    if ticket.is_some() && stop.load(Ordering::SeqCst) {
+        return Err("native group cancelled before native setup".into());
+    }
     wasapi::initialize_mta()
         .ok()
         .map_err(|error| error.to_string())?;
     let _apartment = ComApartment;
+    if let Some(ticket) = &ticket {
+        ticket.before_start(
+            packet_sink
+                .as_ref()
+                .ok_or("owned native sink missing")?
+                .scope(),
+        )?;
+    }
     let enumerator: IMMDeviceEnumerator =
         win(unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) })?;
     let endpoint_id = resolve_endpoint_id(
@@ -550,7 +666,7 @@ fn capture_selected_inner(
         wBitsPerSample: 16,
         cbSize: 0,
     };
-    let mut session_audit = if let Some(sink) = packet_sink.as_ref() {
+    let session_audit = if let Some(sink) = packet_sink.as_ref() {
         let audit = crate::native_capture_session_audit::NativeCaptureSessionAudit::initialize(
             &client,
             &device,
@@ -593,11 +709,47 @@ fn capture_selected_inner(
         sink.bind_native_clock(origin_hns, RATE as u32)
             .map_err(|fault| format!("source packet clock binding failed: {fault:?}"))?;
     }
+    if ticket.is_some() && stop.load(Ordering::SeqCst) {
+        return Err("native group cancelled before Start".into());
+    }
+    if let Some(ticket) = &ticket {
+        ticket.ensure_starting()?;
+    }
     win(unsafe { client.Start() })?;
-    let running = RunningClient(client);
-    if let (Some(audit), Some(sink)) = (session_audit.as_mut(), packet_sink.as_ref()) {
-        audit.observe_after_start(&running.0);
+    let mut running = RunningClient {
+        client,
+        packets,
+        audit: session_audit,
+        _device: device,
+        ticket,
+    };
+    if running.ticket.is_some() && stop.load(Ordering::SeqCst) {
+        return Err("native group cancelled after Start".into());
+    }
+    if let (Some(audit), Some(sink)) = (running.audit.as_mut(), packet_sink.as_ref()) {
+        audit.observe_after_start(&running.client);
         sink.record_capture_session_audit(audit.receipt()?)?;
+    }
+    if let Some(ticket) = &running.ticket {
+        if stop.load(Ordering::SeqCst) {
+            return Err("native group cancelled before owner registration".into());
+        }
+        let proof = running
+            .audit
+            .as_ref()
+            .ok_or("owned direct native audit missing")?
+            .verify_live(&running.client)?;
+        ticket.activate(proof)?;
+        let remaining = ticket
+            .scope()
+            .common_origin_hns()
+            .checked_sub(qpc_hns(frequency)?)
+            .filter(|v| *v > 0)
+            .ok_or("native group missed original common origin")?;
+        ticket.wait_ready(Duration::from_nanos(remaining.saturating_mul(100)))?;
+        if stop.load(Ordering::SeqCst) {
+            return Err("native group cancelled before readiness".into());
+        }
     }
     if let Some(sink) = packet_sink.as_mut() {
         sink.confirm_native_ready(qpc_hns(frequency)?)
@@ -617,20 +769,20 @@ fn capture_selected_inner(
         loop {
             let stopping = stop.load(Ordering::SeqCst);
             if stopping {
-                win(unsafe { running.0.Stop() })?;
+                running.stop()?;
             }
             loop {
                 // Timestamp before querying: preemption after the API returns
                 // must not make an old empty observation look artificially fresh.
                 let before_query_hns = qpc_hns(frequency)?;
-                if win(unsafe { packets.GetNextPacketSize() })? == 0 {
+                if win(unsafe { running.packets.GetNextPacketSize() })? == 0 {
                     clock.observe_empty(before_query_hns)?;
                     break;
                 }
                 let mut ptr = std::ptr::null_mut();
                 let (mut frames, mut flags, mut index, mut timestamp) = (0, 0, 0, 0);
                 win(unsafe {
-                    packets.GetBuffer(
+                    running.packets.GetBuffer(
                         &mut ptr,
                         &mut frames,
                         &mut flags,
@@ -660,7 +812,7 @@ fn capture_selected_inner(
                         })
                         .collect())
                 };
-                win(unsafe { packets.ReleaseBuffer(frames) })?;
+                win(unsafe { running.packets.ReleaseBuffer(frames) })?;
                 let mono = mono?;
                 if frames == 0 {
                     continue;

@@ -2,7 +2,7 @@
 version: "0.1.0b"
 created_at: "2026-10-27"
 last_update: "2026-10-27"
-status: "candidate"
+status: "beta"
 superseded_by: null
 attributes:
   domain: "desktop-native-capture"
@@ -15,10 +15,24 @@ attributes:
 
 Parent authority: [dedicated endpoint design](../specs/2026-10-25-dedicated-endpoint-routing-design.md)
 and [implementation plan](2026-10-25-dedicated-endpoint-routing-plan.md).
-This is the next **unimplemented candidate**, following
+Implementation is in progress in the linked development checkout, following
 [n03 actual-client attribution](../verification/implementation-reports/2026-10-27-native-client-session-attribution.md).
 Attribution is established for n03 source A only. It is not a runtime exception,
 PCM/native-negative pass, PID repair or installed acceptance.
+
+Execution checkpoint: [runtime guard and package qualification](../verification/implementation-reports/2026-10-27-runtime-guard-package-qualification.md).
+Source verification and installed capture acceptance remain separate gates.
+
+### Bounded execution adjustment: microphone-free PID verification
+
+The existing `live_meeting_start` always opened the microphone. Add an optional
+`captureMicrophone` input, defaulting to `true` for existing callers, so explicit
+PID/system-only recording can be tested through the installed production command
+without capturing ambient microphone audio. Reject an empty input selection
+before writes; skip microphone validation and startup when disabled; expose
+`micDevice: null`, accurate source channels and audit metadata. A failed remote
+input cannot downgrade to a nonexistent microphone. This adds no microphone UI
+redesign, target-audio injection, hardware pass or PID transport repair.
 
 ## Authority and construction
 
@@ -69,13 +83,13 @@ rejects. No schema value or migration is invented by this plan.
 
 ## Test-first execution sequence
 
-1. [ ] Real SDK registration-read RED/GREEN: absent/wrong project, recording, source,
+1. [x] Real SDK registration-read RED/GREEN: absent/wrong project, recording, source,
    epoch, endpoint, origin/rate, quarantined/closed/completed and mutated bindings
    reject; ordinary PCM checkpoint updates remain valid.
-2. [ ] Sealed-state RED/GREEN: expired Weak, revoked/Starting/partial group, duplicate
+2. [x] Sealed-state RED/GREEN: expired Weak, revoked/Starting/partial group, duplicate
    activation, wrong scope/generation/instance, ambiguous PID and cross-process status
    reject. Test fixtures never stand in for native proof.
-3. [ ] Integrate the MTA owner and group startup without changing legacy sink-None
+3. [x] Integrate the MTA owner and group startup without changing legacy sink-None
    capture. Audit trusted render/TTS factories: neither receives the private GUID.
    Review constructor visibility, failure cleanup and runtime race handling.
 4. [ ] Frozen owned native negatives/positives: live exact instance only, same-PID
@@ -85,6 +99,18 @@ rejects. No schema value or migration is invented by this plan.
    played-edge and separation qualification; independent review and full checks.
 6. [ ] Only then proceed to product UI/MCP execution, consumer publication fencing,
    source-aware recovery/export and actual installed workflows in the parent plan.
+
+Checked items above denote reviewed source/SDK/fixture work only. Fresh final
+local verification after the installed lazy-project-path correction: **855 library
+tests passed, 12 ignored**, strict Clippy and
+formatting passed. Task 4 remains blocked by unavailable approved HDMI devices;
+selected source tests and installed API rejection checks cannot close it.
+The initial n05 observation was unavailable hardware; subsequent installed
+inventory changed, and the user explicitly deferred audio tests while source and
+package work continued. That later inventory does not close native acceptance.
+The registration frontier retry has not received a deterministic interleaving
+test. Source-aware consumer functionality and both installed capture modes are
+still open; no merge/tag/release follows from these checks.
 
 ## Explicit feasibility boundary
 

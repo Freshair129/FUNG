@@ -128,6 +128,285 @@ fn row(s: &Storage, t: &str, id: &str) -> Value {
     })
     .unwrap()
 }
+
+fn load_active(
+    f: &Fixture,
+    project: &str,
+    recording: &str,
+    source: &str,
+    epoch: i64,
+) -> Result<CaptureSourceRegistration, String> {
+    super::load_active_endpoint_registration(&f.s, project, recording, source, epoch)
+}
+
+#[test]
+fn active_registration_read_accepts_registered_and_checkpoint_advanced_sources() {
+    let f = fixture();
+    reg(&f);
+
+    assert_eq!(
+        load_active(&f, &f.project, &f.recording, &f.reg.id, f.reg.epoch).unwrap(),
+        f.reg
+    );
+
+    append_capture_source_chunk(
+        &f.s,
+        &begin_source_commit(&f.s),
+        &f.project,
+        &f.recording,
+        &chunk(&f, &f.reg, 1, 0, 4800),
+    )
+    .unwrap();
+
+    assert_eq!(
+        load_active(&f, &f.project, &f.recording, &f.reg.id, f.reg.epoch).unwrap(),
+        f.reg,
+        "ordinary checkpoint advancement must not invalidate the active binding"
+    );
+}
+
+#[test]
+fn active_registration_read_rejects_wrong_project_recording_source_and_epoch() {
+    let f = fixture();
+    reg(&f);
+
+    let other_project = uuid::Uuid::new_v4().to_string();
+    let other_recording = uuid::Uuid::new_v4().to_string();
+    ga::commit_rows(
+        &f.s,
+        vec![
+            ga::upsert(
+                "projects",
+                json!({"id":other_project,"name":"other","storage_path":f.root,"created_at":"t","updated_at":"t"}),
+            ),
+            ga::upsert(
+                "recordings",
+                json!({"id":other_recording,"project_id":f.project,"source":"routed_endpoint","canonical_audio_path":"unused","status":"recording","duration_ms":0,"created_at":"t","updated_at":"t"}),
+            ),
+        ],
+    )
+    .unwrap();
+
+    assert!(load_active(&f, &other_project, &f.recording, &f.reg.id, f.reg.epoch).is_err());
+    assert!(load_active(&f, &f.project, &other_recording, &f.reg.id, f.reg.epoch).is_err());
+    assert!(load_active(
+        &f,
+        &f.project,
+        &f.recording,
+        &uuid::Uuid::new_v4().to_string(),
+        f.reg.epoch
+    )
+    .is_err());
+    assert!(load_active(&f, &f.project, &f.recording, &f.reg.id, f.reg.epoch + 1).is_err());
+}
+
+#[test]
+fn active_registration_read_rejects_missing_quarantined_and_closed_sources() {
+    let missing = fixture();
+    assert!(load_active(
+        &missing,
+        &missing.project,
+        &missing.recording,
+        &missing.reg.id,
+        missing.reg.epoch
+    )
+    .is_err());
+
+    let quarantined = fixture();
+    reg(&quarantined);
+    quarantine_capture_source(
+        &quarantined.s,
+        &begin_source_commit(&quarantined.s),
+        &quarantined.reg.id,
+        "test-quarantine",
+    )
+    .unwrap();
+    assert!(load_active(
+        &quarantined,
+        &quarantined.project,
+        &quarantined.recording,
+        &quarantined.reg.id,
+        quarantined.reg.epoch
+    )
+    .is_err());
+
+    let closed = fixture();
+    reg(&closed);
+    let mut source = super::get(&closed.s, "capture_sources", &closed.reg.id).unwrap();
+    source["closed_at"] = json!("2026-10-27T00:00:00Z");
+    ga::commit_rows(&closed.s, vec![ga::upsert("capture_sources", source)]).unwrap();
+    assert!(load_active(
+        &closed,
+        &closed.project,
+        &closed.recording,
+        &closed.reg.id,
+        closed.reg.epoch
+    )
+    .is_err());
+}
+
+#[test]
+fn active_registration_read_rejects_completed_recording_and_source() {
+    let f = fixture();
+    reg(&f);
+    append_capture_source_chunk(
+        &f.s,
+        &begin_source_commit(&f.s),
+        &f.project,
+        &f.recording,
+        &chunk(&f, &f.reg, 1, 0, 4800),
+    )
+    .unwrap();
+    complete_capture_sources(&f.s, &begin_source_commit(&f.s), &f.recording).unwrap();
+
+    assert_eq!(
+        super::get(&f.s, "recordings", &f.recording).unwrap()["status"],
+        "completed"
+    );
+    assert_eq!(
+        super::get(&f.s, "capture_sources", &f.reg.id).unwrap()["state"],
+        "completed"
+    );
+    assert!(load_active(&f, &f.project, &f.recording, &f.reg.id, f.reg.epoch).is_err());
+}
+
+#[test]
+fn active_registration_read_rejects_completed_or_unknown_source_while_recording() {
+    let f = fixture();
+    reg(&f);
+    let original = super::get(&f.s, "capture_sources", &f.reg.id).unwrap();
+
+    for state in ["completed", "unrecognized-state"] {
+        let mut changed = original.clone();
+        changed["state"] = json!(state);
+        ga::commit_rows(&f.s, vec![ga::upsert("capture_sources", changed)]).unwrap();
+
+        assert_eq!(
+            super::get(&f.s, "recordings", &f.recording).unwrap()["status"],
+            "recording",
+            "the recording must stay active so rejection comes from the source state"
+        );
+        assert!(
+            load_active(&f, &f.project, &f.recording, &f.reg.id, f.reg.epoch).is_err(),
+            "source state must be rejected while the recording remains active: {state}"
+        );
+    }
+}
+
+#[test]
+fn registration_rejects_blank_or_nul_endpoint_ids() {
+    for endpoint_id in [" \t\r\n", "endpoint\0identity"] {
+        let f = fixture();
+        let mut invalid_registration = f.reg.clone();
+        invalid_registration.endpoint_id = Some(endpoint_id.into());
+        assert!(
+            register_capture_sources(
+                &f.s,
+                &begin_source_commit(&f.s),
+                &f.project,
+                &f.recording,
+                std::slice::from_ref(&invalid_registration),
+            )
+            .is_err(),
+            "registration must reject invalid endpoint identity {endpoint_id:?}"
+        );
+    }
+}
+
+#[test]
+fn active_registration_read_rejects_blank_or_nul_persisted_endpoint_ids() {
+    let f = fixture();
+    reg(&f);
+    let original = super::get(&f.s, "capture_sources", &f.reg.id).unwrap();
+
+    for endpoint_id in [" \t\r\n", "endpoint\0identity"] {
+        let mut changed = original.clone();
+        changed["registration_json"]["endpoint_id"] = json!(endpoint_id);
+        ga::commit_rows(&f.s, vec![ga::upsert("capture_sources", changed)]).unwrap();
+        assert!(
+            load_active(&f, &f.project, &f.recording, &f.reg.id, f.reg.epoch).is_err(),
+            "active read must reject persisted endpoint identity {endpoint_id:?}"
+        );
+    }
+}
+
+#[test]
+fn active_registration_read_rejects_mutated_row_and_registration_bindings() {
+    let f = fixture();
+    reg(&f);
+
+    let other_project = uuid::Uuid::new_v4().to_string();
+    let other_recording = uuid::Uuid::new_v4().to_string();
+    ga::commit_rows(
+        &f.s,
+        vec![
+            ga::upsert(
+                "projects",
+                json!({"id":other_project,"name":"other","storage_path":f.root,"created_at":"t","updated_at":"t"}),
+            ),
+            ga::upsert(
+                "recordings",
+                json!({"id":other_recording,"project_id":f.project,"source":"routed_endpoint","canonical_audio_path":"unused","status":"recording","duration_ms":0,"created_at":"t","updated_at":"t"}),
+            ),
+        ],
+    )
+    .unwrap();
+
+    let original = super::get(&f.s, "capture_sources", &f.reg.id).unwrap();
+    let mut changed = original.clone();
+    changed["project_id"] = json!(other_project);
+    ga::commit_rows(&f.s, vec![ga::upsert("capture_sources", changed)]).unwrap();
+    assert!(load_active(&f, &f.project, &f.recording, &f.reg.id, f.reg.epoch).is_err());
+
+    ga::commit_rows(&f.s, vec![ga::upsert("capture_sources", original.clone())]).unwrap();
+    let mut changed = original.clone();
+    changed["recording_id"] = json!(other_recording);
+    ga::commit_rows(&f.s, vec![ga::upsert("capture_sources", changed)]).unwrap();
+    assert!(load_active(&f, &f.project, &f.recording, &f.reg.id, f.reg.epoch).is_err());
+
+    ga::commit_rows(&f.s, vec![ga::upsert("capture_sources", original.clone())]).unwrap();
+    let mut changed = original.clone();
+    changed["capture_epoch"] = json!(f.reg.epoch + 1);
+    ga::commit_rows(&f.s, vec![ga::upsert("capture_sources", changed)]).unwrap();
+    assert!(load_active(&f, &f.project, &f.recording, &f.reg.id, f.reg.epoch).is_err());
+
+    let invalid_registration_fields = [
+        ("id", json!(uuid::Uuid::new_v4().to_string())),
+        ("epoch", json!(0)),
+        ("kind", json!("microphone")),
+        ("endpoint_id", Value::Null),
+        ("endpoint_id", json!("")),
+        ("sample_rate", json!(7999)),
+        ("sample_rate", json!(192001)),
+        ("clock_origin_qpc_hns", json!("0")),
+        ("clock_origin_qpc_hns", json!("not-a-number")),
+    ];
+    for (field, invalid_value) in invalid_registration_fields {
+        let mut changed = original.clone();
+        changed["registration_json"][field] = invalid_value;
+        ga::commit_rows(&f.s, vec![ga::upsert("capture_sources", changed)]).unwrap();
+        assert!(
+            load_active(&f, &f.project, &f.recording, &f.reg.id, f.reg.epoch).is_err(),
+            "invalid registration field must be rejected: {field}"
+        );
+    }
+}
+
+#[test]
+fn pending_routed_recording_is_not_admitted_as_an_unbound_legacy_recording() {
+    let f = fixture();
+    assert!(require_capture_source_access(&f.s, &f.recording).is_ok());
+
+    let mut recording = super::get(&f.s, "recordings", &f.recording).unwrap();
+    recording["source"] = json!("routed_endpoint_pending");
+    ga::commit_rows(&f.s, vec![ga::upsert("recordings", recording)]).unwrap();
+
+    assert!(
+        require_capture_source_access(&f.s, &f.recording).is_err(),
+        "pending routed recording with no registered sources must fail closed"
+    );
+}
+
 #[test]
 fn registers_additive_schema_preserves_legacy_recording() {
     let f = fixture();

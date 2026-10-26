@@ -1005,16 +1005,25 @@ pub(crate) fn list_recordings(storage: &genesis_block_native::Storage) -> Result
                 .get(&id)
                 .map(Vec::as_slice)
                 .unwrap_or(&[]);
+            let source = str_col(row, "recordings", "source");
+            let channels = if matches!(
+                source.as_deref(),
+                Some("routed_endpoint" | "routed_endpoint_pending")
+            ) {
+                Vec::new()
+            } else {
+                channels_of(paths)
+            };
             Some(json!({
                 "id": id,
                 "projectId": project_id,
                 "projectName": names.get(&project_id),
-                "source": str_col(row, "recordings", "source"),
+                "source": source,
                 "status": str_col(row, "recordings", "status"),
                 "durationMs": int_col(row, "recordings", "duration_ms").unwrap_or(0),
                 "createdAt": str_col(row, "recordings", "created_at"),
                 "language": str_col(row, "recordings", "language"),
-                "channels": channels_of(paths),
+                "channels": channels,
                 "chunkCount": paths.len(),
             }))
         })
@@ -1076,7 +1085,7 @@ pub(crate) fn build_audio(
     let rows = genesis_adapter::query(
         storage,
         "recordings",
-        &["id", "project_id"],
+        &["id", "project_id", "source"],
         vec![genesis_adapter::eq("recordings", "id", json!(recording_id))],
         1,
     )
@@ -1084,6 +1093,8 @@ pub(crate) fn build_audio(
     let row = rows
         .first()
         .ok_or_else(|| AudioError::NotFound("recording not found".to_string()))?;
+    crate::routed_media_access::require_legacy_media_source(storage, recording_id)
+        .map_err(AudioError::Unsupported)?;
     let project_id = str_col(row, "recordings", "project_id").unwrap_or_default();
 
     let project_rows = genesis_adapter::query(

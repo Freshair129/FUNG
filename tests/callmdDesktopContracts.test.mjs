@@ -552,3 +552,26 @@ test("native command/module presence is a separate expected-red gate", () => {
     `${EXPECTED_RED}: native B command/module presence is not implemented: ${missing.join(", ")}`,
   );
 });
+
+test("system-only start preserves an explicit disabled microphone at IPC", async () => {
+  resetIpc();
+  queueResponse("live_meeting_start", {
+    projectId: "project-a", recordingId: "recording-a1", jobId: "job-a1",
+    micDevice: null, systemDevice: "owned application", transcriptProfile: "chunked", warning: null,
+  });
+  await api.liveMeetingStart({ captureMicrophone: false, captureSystem: true, applicationProcessId: 42 });
+  const args = lastCall("live_meeting_start").args;
+  assert.equal(args.captureMicrophone, false);
+  assert.equal(args.captureSystem, true);
+  assert.equal(args.applicationProcessId, 42);
+});
+
+test("legacy start defaults retain the microphone across IPC", async () => {
+  resetIpc();
+  queueResponse("live_meeting_start", {
+    projectId: "project-a", recordingId: "recording-a1", jobId: "job-a1",
+    micDevice: "microphone", systemDevice: "system", transcriptProfile: "chunked", warning: null,
+  });
+  await api.liveMeetingStart();
+  assert.equal(lastCall("live_meeting_start").args.captureMicrophone, true);
+});

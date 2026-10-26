@@ -9,7 +9,8 @@ use crate::{
     endpoint_packet_sink::{self as sink, EndpointPacketReceiver, SinkRead, SourcePacketScope},
     genesis_adapter as ga,
     live_meeting::CaptureEvent,
-    live_system_audio::{spawn_selected_endpoint_capture_thread, EndpointSelection},
+    live_system_audio::spawn_owned_endpoint_capture_thread,
+    native_capture_group::{prepare_group, NativeGroupObserver, PreparedCapture},
 };
 use genesis_block_native::{OpenOptions, Storage};
 use serde::{Deserialize, Serialize};
@@ -371,7 +372,7 @@ fn runtime_admission(plan: &routing::CaptureRoutePlan) -> RuntimeAdmission {
     pids.push(own_pid);
     pids.sort_unstable();
     pids.dedup();
-    let snapshot = match routing::read_native_inventory(&pids) {
+    let snapshot = match routing::read_owned_native_inventory(&pids) {
         Ok(snapshot) => snapshot,
         Err(error) => return fail(error),
     };
@@ -389,6 +390,17 @@ fn runtime_admission(plan: &routing::CaptureRoutePlan) -> RuntimeAdmission {
         }
     };
     runtime_snapshot(plan, &snapshot, now_ms, guard_qpc_hns, own_pid)
+}
+fn owned_runtime_admission(
+    plan: &routing::CaptureRoutePlan,
+    observer: &NativeGroupObserver,
+) -> RuntimeAdmission {
+    let (validation, projection) = observer.validate_source_with_receipt(&plan.routes[0].source_id);
+    let error = validation.as_ref().err().cloned();
+    RuntimeAdmission {
+        receipt: json!({"kind":"nativeOwnedRuntimeDecision","authority":false,"context":runtime_context(plan,qpc().ok(),std::process::id()),"accepted":validation.is_ok(),"sameInputSnapshotProjection":projection,"validation":validation.as_ref().ok(),"rejection":error}),
+        error,
+    }
 }
 fn open_store(root: &Path) -> R<Arc<Storage>> {
     Storage::open(OpenOptions {
@@ -716,6 +728,7 @@ fn admit(
     }
 }
 struct SourceWorkerInput {
+    ticket: PreparedCapture,
     reg: custody::CaptureSourceRegistration,
     writer: CaptureSourceWriter,
     rx: EndpointPacketReceiver,
@@ -728,6 +741,7 @@ struct SourceWorkerInput {
 }
 fn source_worker(input: SourceWorkerInput) -> SourceResult {
     let SourceWorkerInput {
+        ticket,
         reg,
         mut writer,
         mut rx,
@@ -746,13 +760,13 @@ fn source_worker(input: SourceWorkerInput) -> SourceResult {
     let mut idle_spans = vec![];
     let mut notices = vec![];
     let (events_tx, events_rx) = mpsc::sync_channel(64);
-    if let Err(e) = spawn_selected_endpoint_capture_thread(
-        EndpointSelection::ExactId(reg.endpoint_id.clone().unwrap()),
+    if let Err(e) = spawn_owned_endpoint_capture_thread(
         stop.clone(),
         events_tx,
         private.clone(),
         2000,
-        Some(producer),
+        producer,
+        ticket,
     ) {
         poison(
             &mut errors,
@@ -1384,12 +1398,24 @@ fn owned_two_endpoint_exact_frame_custody_probe() -> R<()> {
         let (producer, rx) = sink::packet_channel(scope, 64).map_err(|e| format!("{e:?}"))?;
         prepared.push((reg, writer, rx, producer, private, evidence));
     }
-    let preactivation = armed(&c.plan)?;
+    let epochs = prepared
+        .iter()
+        .map(|(reg, ..)| (reg.id.clone(), reg.epoch))
+        .collect::<Vec<_>>();
+    let (tickets, native_observer) = prepare_group(
+        storage.clone(),
+        project.clone(),
+        recording.clone(),
+        c.plan.clone(),
+        &epochs,
+    )?;
     durable_json(
         &c.root.join("preactivation.json"),
-        &serde_json::to_value(preactivation).map_err(|e| e.to_string())?,
+        &json!({"kind":"nativeGroupPrepared","authority":false,"sourceCount":tickets.len(),"freshStrictWholeGroupAdmission":true,"realBindingsVerified":true}),
     )?;
-    for (reg, writer, rx, producer, private, evidence) in prepared {
+    for ((reg, writer, rx, producer, private, evidence), ticket) in
+        prepared.into_iter().zip(tickets)
+    {
         let stop = stop.clone();
         let ready_tx = ready_tx.clone();
         let fault = faults.clone();
@@ -1398,6 +1424,7 @@ fn owned_two_endpoint_exact_frame_custody_probe() -> R<()> {
             source,
             thread::spawn(move || {
                 source_worker(SourceWorkerInput {
+                    ticket,
                     reg,
                     writer,
                     rx,
@@ -1462,7 +1489,7 @@ fn owned_two_endpoint_exact_frame_custody_probe() -> R<()> {
                 .push("both native prebarrier witnesses were not published before deadline".into());
             break;
         }
-        if Instant::now() >= next_guard {
+        if native_observer.ready() && Instant::now() >= next_guard {
             let started = Instant::now();
             let since_previous = previous_guard.map(|p| started.duration_since(p).as_micros());
             previous_guard = Some(started);
@@ -1474,7 +1501,7 @@ fn owned_two_endpoint_exact_frame_custody_probe() -> R<()> {
                     policy_version: c.plan.policy_version,
                     routes: vec![route.clone()],
                 };
-                let admission = runtime_admission(&plan);
+                let admission = owned_runtime_admission(&plan, &native_observer);
                 source_receipts.push(admission.receipt);
                 if let Some(error) = admission.error {
                     let e = runtime_failure_message(&error);
@@ -1490,26 +1517,7 @@ fn owned_two_endpoint_exact_frame_custody_probe() -> R<()> {
         }
         thread::sleep(Duration::from_millis(5));
     }
-    // A final fresh identity/endpoint check records target liveness even if a
-    // marker is momentarily Waiting during an externally controlled Stop.
-    for route in &c.plan.routes {
-        let plan = routing::CaptureRoutePlan {
-            policy_version: c.plan.policy_version,
-            routes: vec![route.clone()],
-        };
-        let admission = runtime_admission(&plan);
-        guard_receipts.push(json!({"final":true,"source":admission.receipt}));
-        if let Some(error) = admission.error {
-            let e = runtime_failure_message(&error);
-            register_fault(
-                &faults,
-                Some(&route.source_id),
-                "finalRouteAdmission",
-                e.clone(),
-            );
-            errors.push(format!("final source {} admission: {e}", route.source_id));
-        }
-    }
+    native_observer.revoke_all();
     stop.store(true, Ordering::SeqCst);
     let mut results = vec![];
     for (source, h) in std::mem::take(&mut cleanup.handles) {
@@ -1525,6 +1533,31 @@ fn owned_two_endpoint_exact_frame_custody_probe() -> R<()> {
                 errors.push("source coordinator panic; completion blocked".into());
             }
         }
+    }
+    if results.len() == c.plan.routes.len() && results.iter().all(|r| r.native_terminated) {
+        // All source joins and native drops precede this final strict inventory.
+        // A fresh identity/endpoint check records target liveness even if a
+        // marker is momentarily Waiting during an externally controlled Stop.
+        for route in &c.plan.routes {
+            let plan = routing::CaptureRoutePlan {
+                policy_version: c.plan.policy_version,
+                routes: vec![route.clone()],
+            };
+            let admission = runtime_admission(&plan);
+            guard_receipts.push(json!({"final":true,"source":admission.receipt}));
+            if let Some(error) = admission.error {
+                let e = runtime_failure_message(&error);
+                register_fault(
+                    &faults,
+                    Some(&route.source_id),
+                    "finalRouteAdmission",
+                    e.clone(),
+                );
+                errors.push(format!("final source {} admission: {e}", route.source_id));
+            }
+        }
+    } else {
+        errors.push("final strict inventory blocked: native quiescence unproven".into());
     }
     // This collection is a durable first-cause boundary. Nothing below may
     // discard it or replace source failures with a secondary SDK error.

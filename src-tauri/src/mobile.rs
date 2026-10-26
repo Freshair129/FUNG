@@ -641,15 +641,26 @@ pub(crate) fn mobile_capture_playback_segment(
     sequence: i64,
     state: State<'_, AppState>,
 ) -> AppResult<PlaybackSegment> {
+    playback_segment(&state.genesis, &state.data_root, &recording_id, sequence)
+}
+
+pub(crate) fn playback_segment(
+    storage: &genesis_block_native::Storage,
+    data_root: &std::path::Path,
+    recording_id: &str,
+    sequence: i64,
+) -> AppResult<PlaybackSegment> {
+    crate::routed_media_access::require_legacy_media_source(storage, recording_id)
+        .map_err(AppError::InvalidInput)?;
     if sequence <= 0 {
         return Err(AppError::InvalidInput(
             "playback sequence must be positive".to_string(),
         ));
     }
-    let capture = crate::genesis_adapter::capture(&state.genesis, &recording_id)
-        .map_err(AppError::Genesis)?;
+    let capture =
+        crate::genesis_adapter::capture(storage, recording_id).map_err(AppError::Genesis)?;
     let row = crate::genesis_adapter::query(
-        &state.genesis,
+        storage,
         "audio_chunks",
         &["sequence_no", "file_path", "start_ms", "end_ms", "checksum"],
         vec![
@@ -667,12 +678,11 @@ pub(crate) fn mobile_capture_playback_segment(
     .next()
     .ok_or_else(|| AppError::InvalidInput("playback segment not found".to_string()))?;
     let path = std::path::PathBuf::from(text_value(&row, "audio_chunks.file_path")?);
-    let root = state
-        .data_root
+    let root = data_root
         .join("projects")
         .join(&capture.project_id)
         .join("recordings")
-        .join(&recording_id);
+        .join(recording_id);
     if !path.starts_with(&root) || !path.is_file() {
         return Err(AppError::InvalidInput(
             "playback segment escaped the recording sandbox or is missing".to_string(),
@@ -723,6 +733,8 @@ pub(crate) fn playback_manifest(
     storage: &genesis_block_native::Storage,
     recording_id: &str,
 ) -> AppResult<PlaybackManifest> {
+    crate::routed_media_access::require_legacy_media_source(storage, recording_id)
+        .map_err(AppError::InvalidInput)?;
     let rows = crate::genesis_adapter::query_all(
         storage,
         "audio_chunks",
@@ -3250,6 +3262,41 @@ mod tests {
     }
 
     #[test]
+    fn legacy_playback_segment_retains_exact_bytes_and_checksum_validation() {
+        let (path, storage) = open_genesis();
+        let data_root = path.join("isolated-data");
+        let project_root = data_root.join("projects").join("p");
+        let segment_path = project_root.join("recordings/r/segment-000001.m4a");
+        std::fs::create_dir_all(segment_path.parent().unwrap()).unwrap();
+        let bytes = b"existing-mobile-format-fixture";
+        std::fs::write(&segment_path, bytes).unwrap();
+        let checksum = sha256(bytes);
+        let mut mutations = crate::genesis_adapter::ensure_project_mutations(
+            "p",
+            &project_root.display().to_string(),
+            "t",
+        );
+        mutations.extend([
+            crate::genesis_adapter::upsert("recordings", serde_json::json!({"id":"r","project_id":"p","source":"microphone","input_path":null,"canonical_audio_path":"r/manifest.json","status":"recording","duration_ms":100,"created_at":"t","updated_at":"t"})),
+            crate::genesis_adapter::upsert("mobile_recording_checkpoints", serde_json::json!({"id":"r","recording_id":"r","safe_offset_ms":100,"segment_count":1,"last_checksum":checksum,"updated_at":"t"})),
+            crate::genesis_adapter::upsert("audio_chunks", serde_json::json!({"id":"c","recording_id":"r","sequence_no":1,"file_path":segment_path,"start_ms":0,"end_ms":100,"byte_size":bytes.len(),"checksum":checksum,"created_at":"t"})),
+        ]);
+        crate::genesis_adapter::commit_rows(&storage, mutations).unwrap();
+        let segment = playback_segment(&storage, &data_root, "r", 1).unwrap();
+        assert_eq!(segment.bytes, bytes);
+        assert_eq!(segment.mime_type, "audio/mp4");
+        assert_eq!(segment.duration_ms, 100);
+        assert!(!segment.has_next);
+        assert!(playback_segment(&storage, &data_root, "r", 0).is_err());
+        std::fs::write(&segment_path, b"tampered").unwrap();
+        assert!(
+            matches!(playback_segment(&storage, &data_root, "r", 1), Err(AppError::InvalidInput(ref reason)) if reason.contains("checksum"))
+        );
+        drop(storage);
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
     fn playback_manifest_lists_segments_in_order_with_total_duration() {
         let (path, storage) = open_genesis();
         let mut mutations =
@@ -3271,9 +3318,10 @@ mod tests {
         assert_eq!(manifest.segments[1].duration_ms, 4000);
         assert_eq!(manifest.segments[1].byte_size, 40);
 
-        let empty = playback_manifest(&storage, "missing").expect("no rows is not an error");
-        assert_eq!(empty.duration_ms, 0);
-        assert!(empty.segments.is_empty());
+        assert!(
+            playback_manifest(&storage, "missing").is_err(),
+            "missing recording ownership must fail closed"
+        );
         drop(storage);
         let _ = std::fs::remove_dir_all(path);
     }

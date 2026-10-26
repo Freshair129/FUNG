@@ -1,5 +1,5 @@
 ---
-version: "0.1.2m"
+version: "0.1.2n"
 created_at: "2026-10-19"
 last_update: "2026-10-27"
 status: "beta"
@@ -163,3 +163,5 @@ attributes:
 - [Routed native seam and n01 diagnostic](2026-10-26-routed-native-seam-n01-diagnostic.md) — `candidate`; exact-frame/recoverable source seams; n01 fails primary UnknownSession, secondary SDK query-limit reporting corrected; owner attribution and both installed gates open.
 
 - [Native client attribution and n03](2026-10-27-native-client-session-attribution.md) — actual capture-client binding with strict admission still failing; 783 local library passes/12 ignored; runtime and installed gates remain open.
+
+- [Runtime guard and package qualification](2026-10-27-runtime-guard-package-qualification.md) — `beta`; source review accepted, 855 library tests pass/12 ignored, strict Clippy passes. Actual package upgrade, 23 negative/reopen IPC calls and preserved project pass after fixing lazy project-root creation. Both audio capture modes remain unqualified; no merge/release.

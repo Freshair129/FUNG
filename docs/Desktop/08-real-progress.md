@@ -1,7 +1,7 @@
 ---
-version: "0.3.43b"
+version: "0.3.44b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-27,Codex"
+last_update: "2026-10-27"
 
 status: "beta"
 superseded_by: null
@@ -13,7 +13,30 @@ attributes:
 
 # 08 - Real Progress
 
-## Actual native-client attribution — 2026-10-27
+## Current runtime guard and installed negative checks — 2026-10-27
+
+The [runtime guard checkpoint](../verification/implementation-reports/2026-10-27-runtime-guard-package-qualification.md)
+adds a production native-owned endpoint group, authoritative Storage binding
+reads, revocable runtime observers and Tauri start/status/stop. Source-scoped
+failure/drain handling, old-cleanup guard ownership and lazy project-directory
+creation are corrected and independently reviewed. Legacy PID mode remains;
+explicit microphone-disabled input is additive and defaults preserve existing UI.
+Pending/final routed media is fenced from unsupported legacy consumers.
+
+Fresh local verification: **855 Rust library tests pass, 12 ignored**, strict
+Clippy/formatting and actual frontend/NSIS build pass. The rebuilt isolated
+installed package preserves its actual project through upgrade and orderly
+reopen; **23 negative/metadata IPC calls pass** without desktop input control,
+real capture, WAV output or forced termination. Both installed processes exit 0.
+Original package failures and the corrected test-apparatus failures remain in
+the linked report; earlier checkpoints below are historical and compositional.
+
+This does not qualify two-source native PCM, actual endpoint/PID audio capture,
+source-aware UI/MCP/recovery/export or release. User deferred audio tests while
+source/package work continued. **Keep PID mode; no merge/tag/release until both
+installed capture modes pass.**
+
+## Earlier native-client attribution checkpoint — 2026-10-27
 
 The [n03 report](../verification/implementation-reports/2026-10-27-native-client-session-attribution.md)
 identifies the exact rejected capture-client session while preserving strict
@@ -2026,6 +2049,7 @@ native/device/release acceptance.
 
 | Version | Change |
 | --- | --- |
+| 0.3.44b | Recorded reviewed native runtime ownership, scoped custody failures, legacy guard cleanup and lazy project-root correction; 855 library passes/12 ignored and actual installed negative/reopen evidence remain separate from both open audio gates. |
 | 0.3.32v → 0.3.33v | Recorded passing post-remediation Rust library tests, frontend build, and workflow MCP acceptance; independent re-review remains open. |
 | 0.3.31v → 0.3.32v | Recorded passing post-remediation Rust compile, format and whitespace checks; tests and independent re-review remained open. |
 | 0.3.30v → 0.3.31v | Patched the MCP notification and unbounded job-list findings; earlier checks are marked pre-remediation. |
@@ -2070,6 +2094,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.44b | 2026-10-27 | beta | Native ownership/coordinator and source fences reviewed; lazy-root fault found in actual package then fixed; rebuilt isolated upgrade and 23 negative/reopen IPC calls pass. Both audio modes, source-aware consumers and release remain open. | see Git history | Codex |
 | 0.3.36b | 2026-10-23 | beta | ec494fd installed mic output and active-PID inventory observed; native timing and partial-track reporting reopened with failed evidence retained; corrected system active/idle probes pass, final installed/release gates remain open. | working-tree | Codex |
 | 0.3.35b | 2026-10-23 | beta | Installed eae669a workflow outputs and restart/reinstall/recovery verified; native clock/inventory corrections independently reviewed with hardware probes; final package and spoken mic/app isolation gates remain open. | working-tree | Codex |
 | 0.3.34b | 2026-10-23 | beta | CPU decode deferred until Stop; post-meeting prerequisites and alternate media defaults corrected. Headless ONIKUMA audio produces 3 local CPU transcript segments; rebuilt installed acceptance remains open. | working-tree | Codex |

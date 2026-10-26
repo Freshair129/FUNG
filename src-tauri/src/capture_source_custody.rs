@@ -165,6 +165,90 @@ fn scope(s: &Storage, p: &str, r: &str) -> Result<(Value, Value), String> {
 fn registration(v: &Value) -> Result<CaptureSourceRegistration, String> {
     serde_json::from_value(v["registration_json"].clone()).map_err(|e| e.to_string())
 }
+fn valid_endpoint_identity(id: &str) -> bool {
+    !id.trim().is_empty() && id.len() <= 4096 && !id.contains('\0')
+}
+/// Reads the persisted endpoint binding for a live routed recording.
+/// This is an authoritative Storage read only; it grants no native execution authority.
+pub(crate) fn load_active_endpoint_registration(
+    s: &Storage,
+    p: &str,
+    r: &str,
+    source: &str,
+    epoch: i64,
+) -> Result<CaptureSourceRegistration, String> {
+    if epoch <= 0 {
+        return Err("active source epoch must be positive".into());
+    }
+    uuid(p)?;
+    uuid(r)?;
+    uuid(source)?;
+
+    for _ in 0..3 {
+        let frontier = s.txn_frontier();
+        let result = (|| {
+            let (_, recording) = scope(s, p, r)?;
+            if text(&recording, "status")? != "recording"
+                || text(&recording, "source")? != "routed_endpoint"
+            {
+                return Err("active endpoint source requires routed recording".into());
+            }
+
+            let row = get(s, "capture_sources", source)?;
+            if text(&row, "id")? != source
+                || text(&row, "project_id")? != p
+                || text(&row, "recording_id")? != r
+                || int(&row, "capture_epoch")? != epoch
+            {
+                return Err("active source ownership/epoch mismatch".into());
+            }
+            if !matches!(text(&row, "state")?, "registered" | "capturing")
+                || !row["closed_at"].is_null()
+                || !row["quarantine_json"].is_null()
+            {
+                return Err("active source is closed, quarantined, or not live".into());
+            }
+
+            let registration = registration(&row)?;
+            let registration_json =
+                serde_json::to_value(&registration).map_err(|e| e.to_string())?;
+            if registration_json != row["registration_json"]
+                || registration.id != source
+                || registration.epoch != epoch
+                || registration.kind != "endpoint"
+                || registration
+                    .endpoint_id
+                    .as_deref()
+                    .filter(|id| valid_endpoint_identity(id))
+                    .is_none()
+                || !(8000..=192000).contains(&registration.sample_rate)
+                || registration
+                    .clock_origin_qpc_hns
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|origin| *origin > 0)
+                    .is_none()
+                || registration.label.is_empty()
+                || registration.label.len() > 256
+                || serde_json::to_vec(&registration.metadata)
+                    .map_err(|e| e.to_string())?
+                    .len()
+                    > 16384
+            {
+                return Err("invalid or mismatched active endpoint registration".into());
+            }
+            uuid(&registration.id)?;
+            Ok(registration)
+        })();
+
+        if s.txn_frontier() != frontier {
+            continue;
+        }
+        return result;
+    }
+
+    Err("custody changed during all three active registration reads".into())
+}
 /// Native caller supplies already admitted identities; this API grants no Windows authority.
 pub fn register_capture_sources(
     s: &Storage,
@@ -218,7 +302,7 @@ pub fn register_capture_sources(
                 let id = x
                     .endpoint_id
                     .as_deref()
-                    .filter(|id| !id.is_empty() && id.len() <= 4096)
+                    .filter(|id| valid_endpoint_identity(id))
                     .ok_or("missing endpoint identity")?;
                 if !endpoints.insert(id) || endpoints.len() > 2 {
                     return Err("duplicate or too many endpoints".into());
@@ -516,7 +600,11 @@ pub fn require_capture_source_access(s: &Storage, r: &str) -> Result<u64, String
     let frontier = s.txn_frontier();
     let rec = get(s, "recordings", r)?;
     let sources = rows(s, "capture_sources", "recording_id", r)?;
-    if text(&rec, "source")? != "routed_endpoint" {
+    let source_marker = text(&rec, "source")?;
+    if source_marker == "routed_endpoint_pending" {
+        return Err("pending routed source registration cannot use legacy access".into());
+    }
+    if source_marker != "routed_endpoint" {
         return if sources.is_empty() && s.txn_frontier() == frontier {
             Ok(frontier)
         } else {

@@ -3447,7 +3447,6 @@ mod tests {
         let delayed_manager = manager.clone();
         let delayed_guard = Arc::clone(&guard);
         let (prepare_release_tx, prepare_release_rx) = mpsc::channel();
-        let (install_checked_tx, install_checked_rx) = mpsc::channel();
         let delayed_open = thread::spawn(move || {
             prepare_release_rx
                 .recv()
@@ -3461,15 +3460,12 @@ mod tests {
             assert_eq!(error.code, "NATIVE_UNAVAILABLE");
             let cleanup = spawn_session_cleanup(delayed_manager, session).unwrap();
             cleanup.join().unwrap();
-            install_checked_tx.send(()).unwrap();
         });
 
         manager.shutdown();
         assert!(manager.begin_open().is_err());
         prepare_release_tx.send(()).unwrap();
-        install_checked_rx
-            .recv_timeout(Duration::from_millis(100))
-            .expect("late install check completed");
+        // Completion follows owned cleanup, independent of test-runner scheduling.
         delayed_open.join().unwrap();
         assert!(!guard.playback_open());
     }

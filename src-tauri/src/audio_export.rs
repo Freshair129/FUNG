@@ -421,29 +421,16 @@ fn source_channels(
     project_id: &str,
     recording_id: &str,
 ) -> Result<SourceSnapshot, String> {
-    let rows = genesis_adapter::query(
-        storage,
-        "recordings",
-        &["project_id", "source", "status"],
-        vec![genesis_adapter::eq(
-            "recordings",
-            "id",
-            serde_json::json!(recording_id),
-        )],
-        1,
-    )?;
-    let recording = rows
-        .first()
-        .ok_or_else(|| format!("ไม่พบการบันทึก {recording_id}"))?;
-    if genesis_adapter::string(recording, "recordings.project_id")? != project_id {
+    let recording = crate::routed_media_access::require_legacy_media_source(storage, recording_id)?;
+    if genesis_adapter::string(&recording, "recordings.project_id")? != project_id {
         return Err("การบันทึกไม่ได้อยู่ในโปรเจกต์นี้".into());
     }
-    if genesis_adapter::string(recording, "recordings.status")? != "completed" {
+    if genesis_adapter::string(&recording, "recordings.status")? != "completed" {
         return Err(
             "audio source is still changing; stop and finish the recording before exporting".into(),
         );
     }
-    let source = genesis_adapter::string(recording, "recordings.source")?;
+    let source = genesis_adapter::string(&recording, "recordings.source")?;
     let project = project_row(storage, project_id)?;
     let root = PathBuf::from(genesis_adapter::string(&project, "projects.storage_path")?);
     let rows = genesis_adapter::query_all(

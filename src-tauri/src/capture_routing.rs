@@ -232,6 +232,27 @@ pub fn validate_route_plan(
     inventory: &NativeInventory,
     now_ms: u64,
 ) -> Result<ValidatedRoutePlan, RouteError> {
+    validate_route_policy(plan, inventory, now_ms, |_, _, _| false)
+}
+
+#[cfg(windows)]
+pub(crate) fn validate_owned_route_plan(
+    plan: &CaptureRoutePlan,
+    inventory: &NativeInventory,
+    now_ms: u64,
+    evidence: &crate::native_capture_group::RuntimeEvidence,
+) -> Result<ValidatedRoutePlan, RouteError> {
+    validate_route_policy(plan, inventory, now_ms, |route, instance, owner| {
+        evidence.matches(route, instance, owner)
+    })
+}
+
+fn validate_route_policy(
+    plan: &CaptureRoutePlan,
+    inventory: &NativeInventory,
+    now_ms: u64,
+    infrastructure: impl Fn(&CaptureRoute, &str, &ApplicationIdentity) -> bool,
+) -> Result<ValidatedRoutePlan, RouteError> {
     if plan.policy_version != ROUTE_POLICY_VERSION {
         return Err(error(Rejection::PolicyVersion, "unsupported route policy"));
     }
@@ -387,12 +408,6 @@ pub fn validate_route_plan(
             if known(&session.state)? != &SessionState::Active {
                 continue;
             }
-            if active.len() >= 64 {
-                return Err(error(
-                    Rejection::InvalidInput,
-                    "too many active source sessions",
-                ));
-            }
             let instance = known(&session.instance_id)?;
             if instance.is_empty()
                 || instance.len() > 8192
@@ -413,10 +428,19 @@ pub fn validate_route_plan(
                     ))
                 }
             };
+            if infrastructure(route, instance, owner) {
+                continue;
+            }
             if identities.get(&owner.pid).is_none_or(|a| *a != owner) {
                 return Err(error(
                     Rejection::UnknownSession,
                     "active session is not an explicitly allowed current renderer",
+                ));
+            }
+            if active.len() >= 64 {
+                return Err(error(
+                    Rejection::InvalidInput,
+                    "too many active source sessions",
                 ));
             }
             active.push(instance.clone());
@@ -546,6 +570,67 @@ pub fn read_native_inventory(pids: &[u32]) -> Result<NativeInventory, RouteError
 }
 
 #[cfg(windows)]
+pub(crate) fn current_native_process_identity() -> Result<ApplicationIdentity, String> {
+    native::current_process()
+}
+
+/// The owned runtime cannot let a stalled endpoint query hang its coordinator.
+/// A timed-out inventory worker owns only read-only MTA observations and never
+/// receives an activation ticket. No registry/lifecycle mutex spans COM calls.
+#[cfg(windows)]
+pub(crate) fn read_owned_native_inventory(pids: &[u32]) -> Result<NativeInventory, RouteError> {
+    if pids.len() > 128 {
+        return Err(error(
+            Rejection::InvalidInput,
+            "too many process identities",
+        ));
+    }
+    let pids = pids.to_vec();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::Builder::new()
+        .name("fung-owned-routing-inventory".into())
+        .spawn(move || {
+            let _ = tx.send(native::read(&pids));
+        })
+        .map_err(|e| error(Rejection::InventoryError, e.to_string()))?;
+    rx.recv_timeout(std::time::Duration::from_secs(2))
+        .map_err(|e| {
+            error(
+                Rejection::InventoryError,
+                format!("owned native inventory deadline: {e}"),
+            )
+        })?
+        .map_err(|e| error(Rejection::InventoryError, e))
+}
+
+#[cfg(windows)]
+pub(crate) fn admit_owned_route_plan(
+    plan: &CaptureRoutePlan,
+) -> Result<ValidatedRoutePlan, RouteError> {
+    if plan.policy_version != ROUTE_POLICY_VERSION {
+        return Err(error(Rejection::PolicyVersion, "unsupported route policy"));
+    }
+    if plan.routes.is_empty()
+        || plan.routes.len() > 2
+        || plan.routes.iter().any(|r| r.allowed_children.len() > 32)
+    {
+        return Err(error(
+            Rejection::RouteCount,
+            "route/child count exceeds admission bounds",
+        ));
+    }
+    let pids = plan
+        .routes
+        .iter()
+        .flat_map(|r| {
+            std::iter::once(r.application.pid).chain(r.allowed_children.iter().map(|a| a.pid))
+        })
+        .collect::<Vec<_>>();
+    let inventory = read_owned_native_inventory(&pids)?;
+    validate_route_plan(plan, &inventory, now_ms()?)
+}
+
+#[cfg(windows)]
 mod native {
     use super::*;
     use windows::{
@@ -626,6 +711,9 @@ mod native {
             parents: map,
             cutoff_filetime,
         })
+    }
+    pub(super) fn current_process() -> Result<ApplicationIdentity, String> {
+        identity(std::process::id(), &parents()?)
     }
     fn identity(pid: u32, parent_map: &ParentSnapshot) -> Result<ApplicationIdentity, String> {
         if pid == 0 {
@@ -873,6 +961,80 @@ mod native {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn exact_infrastructure_never_arms_even_when_its_process_is_an_allowed_target() {
+        let (p, mut i) = fixture();
+        i.endpoints[0].sessions = Observation::Known(vec![session(10, "capture-private")]);
+        let infrastructure = |_: &CaptureRoute, id: &str, owner: &ApplicationIdentity| {
+            id == "capture-private" && *owner == app(10, 1)
+        };
+        assert_eq!(
+            validate_route_policy(&p, &i, 101, infrastructure)
+                .unwrap()
+                .routes()[0]
+                .readiness(),
+            &RouteReadiness::WaitingForTarget
+        );
+        if let Observation::Known(rows) = &mut i.endpoints[0].sessions {
+            rows.push(session(10, "actual-renderer"));
+        }
+        let valid = validate_route_policy(&p, &i, 101, infrastructure).unwrap();
+        assert_eq!(valid.routes()[0].readiness(), &RouteReadiness::Armed);
+        assert_eq!(
+            valid.routes()[0].observed_active_session_ids(),
+            &["actual-renderer"]
+        );
+    }
+    #[test]
+    fn infrastructure_does_not_consume_renderer_capacity_or_depend_on_inventory_order() {
+        let (p, mut i) = fixture();
+        let infrastructure = |_: &CaptureRoute, id: &str, owner: &ApplicationIdentity| {
+            id == "capture-private" && *owner == app(99, 1)
+        };
+        for first in [true, false] {
+            let mut rows = (0..64)
+                .map(|n| session(10, &format!("render-{n}")))
+                .collect::<Vec<_>>();
+            rows.insert(
+                if first { 0 } else { rows.len() },
+                session(99, "capture-private"),
+            );
+            i.endpoints[0].sessions = Observation::Known(rows);
+            assert_eq!(
+                validate_route_policy(&p, &i, 101, infrastructure)
+                    .unwrap()
+                    .routes()[0]
+                    .observed_active_session_ids()
+                    .len(),
+                64
+            );
+        }
+    }
+    #[test]
+    fn exact_native_infrastructure_is_not_a_renderer_and_duplicates_stay_closed() {
+        let (p, mut i) = fixture();
+        i.endpoints[0].sessions = Observation::Known(vec![session(99, "capture-private")]);
+        let infrastructure = |_: &CaptureRoute, id: &str, owner: &ApplicationIdentity| {
+            id == "capture-private" && *owner == app(99, 1)
+        };
+        let valid = validate_route_policy(&p, &i, 101, infrastructure).unwrap();
+        assert_eq!(
+            valid.routes()[0].readiness(),
+            &RouteReadiness::WaitingForTarget
+        );
+        assert!(validate_route_plan(&p, &i, 101).is_err());
+        if let Observation::Known(rows) = &mut i.endpoints[0].sessions {
+            rows.push(session(99, "capture-private"));
+        }
+        assert_eq!(
+            validate_route_policy(&p, &i, 101, infrastructure)
+                .unwrap_err()
+                .code,
+            Rejection::AmbiguousSession
+        );
+        i.endpoints[0].sessions = Observation::Known(vec![session(99, "process-default")]);
+        assert!(validate_route_policy(&p, &i, 101, infrastructure).is_err());
+    }
     #[test]
     fn session_provenance_is_bounded_and_cannot_expand_owner_identity() {
         let (p, mut i) = fixture();

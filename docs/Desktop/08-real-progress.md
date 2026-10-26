@@ -23,9 +23,11 @@ creation are corrected and independently reviewed. Legacy PID mode remains;
 explicit microphone-disabled input is additive and defaults preserve existing UI.
 Pending/final routed media is fenced from unsupported legacy consumers.
 
-Fresh local verification: **855 Rust library tests pass, 12 ignored**, strict
-Clippy/formatting and actual frontend/NSIS build pass. The rebuilt isolated
-installed package preserves its actual project through upgrade and orderly
+The broad local snapshot has **855 Rust library passes, 12 ignored**. A subsequent
+Rust 1.99.1 CI lint correction passes 30 targeted tests, exact-toolchain strict
+Clippy/formatting and actual frontend/NSIS build. Hosted full regression for the
+corrected head remains a separate gate. The rebuilt isolated package C
+preserves its actual project through upgrade and orderly
 reopen; **23 negative/metadata IPC calls pass** without desktop input control,
 real capture, WAV output or forced termination. Both installed processes exit 0.
 Original package failures and the corrected test-apparatus failures remain in
@@ -2094,7 +2096,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
-| 0.3.44b | 2026-10-27 | beta | Native ownership/coordinator and source fences reviewed; lazy-root fault found in actual package then fixed; rebuilt isolated upgrade and 23 negative/reopen IPC calls pass. Both audio modes, source-aware consumers and release remain open. | see Git history | Codex |
+| 0.3.44b | 2026-10-27 | beta | Native ownership/coordinator and source fences reviewed; lazy-root fault and Rust1.99 CI lint corrected; actual package C upgrade and 23 negative/reopen IPC calls pass. Broad local855/12ignored and exact-toolchain30 remain distinct from hosted full CI and both open audio gates. | see Git history | Codex |
 | 0.3.36b | 2026-10-23 | beta | ec494fd installed mic output and active-PID inventory observed; native timing and partial-track reporting reopened with failed evidence retained; corrected system active/idle probes pass, final installed/release gates remain open. | working-tree | Codex |
 | 0.3.35b | 2026-10-23 | beta | Installed eae669a workflow outputs and restart/reinstall/recovery verified; native clock/inventory corrections independently reviewed with hardware probes; final package and spoken mic/app isolation gates remain open. | working-tree | Codex |
 | 0.3.34b | 2026-10-23 | beta | CPU decode deferred until Stop; post-meeting prerequisites and alternate media defaults corrected. Headless ONIKUMA audio produces 3 local CPU transcript segments; rebuilt installed acceptance remains open. | working-tree | Codex |

@@ -405,7 +405,9 @@ fn private_pcm_spool_streams_exact_bytes_and_bounded_metadata_without_publicatio
     spool.sync().unwrap();
     let bytes = fs::read(&spool.pcm_path).unwrap();
     let actual = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|bytes| i16::from_le_bytes([bytes[0], bytes[1]]))
         .collect::<Vec<_>>();
     assert_eq!(actual, samples);
@@ -710,7 +712,9 @@ fn exercise_packet_panic(stage: &'static str, expect_complete: bool) {
     let report = finish_source(&reg, writer, spool, drained, &shared);
     let bytes = fs::read(&pcm_path).unwrap();
     let pcm = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|b| i16::from_le_bytes([b[0], b[1]]))
         .collect::<Vec<_>>();
     if expect_complete {

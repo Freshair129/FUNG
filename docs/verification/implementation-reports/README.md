@@ -164,4 +164,4 @@ attributes:
 
 - [Native client attribution and n03](2026-10-27-native-client-session-attribution.md) — actual capture-client binding with strict admission still failing; 783 local library passes/12 ignored; runtime and installed gates remain open.
 
-- [Runtime guard and package qualification](2026-10-27-runtime-guard-package-qualification.md) — `beta`; source review accepted, 855 library tests pass/12 ignored, strict Clippy passes. Actual package upgrade, 23 negative/reopen IPC calls and preserved project pass after fixing lazy project-root creation. Both audio capture modes remain unqualified; no merge/release.
+- [Runtime guard and package qualification](2026-10-27-runtime-guard-package-qualification.md) — `beta`; broad local855/12ignored, subsequent Rust1.99 lint correction30/30 and exact Clippy pass. Actual package C upgrade and 23 negative/reopen calls preserve the real project. Hosted full CI for the corrected head and both audio capture gates remain separate; no merge/release.

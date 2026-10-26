@@ -1152,7 +1152,7 @@ impl PrivateSpool {
         // Constant-sized buffer, no packet clones or unbounded in-memory receipts.
         let mut buffer = [0u8; 8192];
         for chunk in packet.samples.chunks(buffer.len() / 2) {
-            for (sample, bytes) in chunk.iter().zip(buffer.chunks_exact_mut(2)) {
+            for (sample, bytes) in chunk.iter().zip(buffer.as_chunks_mut::<2>().0.iter_mut()) {
                 bytes.copy_from_slice(&sample.to_le_bytes());
             }
             self.pcm

@@ -1,5 +1,5 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-27"
 last_update: "2026-10-27"
 status: "beta"
@@ -234,11 +234,58 @@ Primary external receipts: `package/installed-package-rootfix-verification-repor
 negative/metadata checks. They establish no successful capture, PCM separation,
 microphone, PID transitions, UI visual acceptance, MCP execution or source export.
 
+## Rust 1.99.1 CI correction and actual installed package C
+
+Hosted run `40398105477` for source `6375631` passed frontend, native compilation,
+formatting and 12 custody-contract tests, then **failed Clippy** on three new
+`chunks_exact_to_as_chunks` diagnostics. The runner uses Rust **1.99.1**; the
+earlier local strict check used **1.96.0**. The hosted library regression was
+**SKIPPED**, not passed. The original job log is retained at
+`ci/6375631-rust-failure-decoded.log`.
+
+Exactly three iterator expressions were replaced with the stable fixed-array
+chunk APIs: one PCM encoder and two test decoders. The 8192-byte buffer, 2-byte
+little-endian conversion, write lengths and final short tail are unchanged.
+No lint suppression, dependency/toolchain pin or audio criterion was changed.
+Scoped independent review accepts source SHA-256
+`58088035D1B6186FBC8A483C6974E70904A5539FCC55000DDDFBA771404B58B5`
+and tests SHA-256
+`BE1AD3B9A42D4E0FB00C4FD3D78E8E62AA9695CB337A5C0BE1CB912F6D8AB219`.
+
+Fresh exact-toolchain checks: `cargo +1.99.1 test --manifest-path
+src-tauri/Cargo.toml --lib routed_capture -- --nocapture` passes **30/30**;
+`cargo +1.99.1 clippy --manifest-path src-tauri/Cargo.toml --lib --all-targets
+-- -D warnings` and `cargo +1.99.1 fmt --manifest-path src-tauri/Cargo.toml
+--all --check` pass. The existing 9001-sample oracle retains its final 809-sample
+tail and exact bytes. Evidence: `service/ci199-lint/`.
+
+The source correction was rebuilt into actual package C and installed over the
+exact owned B installation with the same UAT profile/project:
+
+- Installer C: **2,116,986,714 bytes**; SHA-256
+  `52797D028469FE25C364E947641AF06EE5D574784F985597134AEEA5E10FF516`.
+- Unpatched C: SHA-256
+  `E5A40B9860BA0AB47E29F4D79471C6AD6F2557EE817FA9313EE76BFD71E7619B`.
+- Independently predicted before installation and matching installed C: SHA-256
+  `BA73B5A6517480A7BA95C8F01718B038787C81379F80A9BCE12C13EAC984BE89`.
+- **16 negative/metadata IPC calls and 7 orderly reopen calls pass again**;
+  both processes exit 0, no forced termination or cleanup errors, same real
+  project remains and no WAVs/debug listener/FUNG process remain.
+
+Primary C receipts: `package/artifact-ci199-receipt.json`,
+`nsis-ci199-marker-prediction.json`, `installed-package-ci199-report.json`,
+`ci199-installed-verify-receipt.json` and `ci199-installed-reopen-receipt.json`.
+The broad 855-pass local snapshot above belongs to the pre-lint-correction source;
+current exact-toolchain targeted checks and actual package C evidence are distinct.
+Hosted full-library acceptance must be freshly checked on the resulting head.
+Neither the style correction nor a successful package negative test qualifies
+actual endpoint/PID capture.
+
 ## Remaining gates
 
 - Keep the reviewed runtime source frozen; any later code change requires
   relevant fresh review/verification.
-- Preserve package B and its verified profile for the next native-audio stage;
+- Preserve package C and its verified profile for the next native-audio stage;
   installed negative/reopen checks do not replace successful capture acceptance.
 - With the approved HDMI devices present, run native exact-instance and negative
   observations, two-source PCM/separation, transitions, tails and reopen evidence.

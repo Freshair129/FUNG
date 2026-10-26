@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-25"
-last_update: "2026-10-25"
+last_update: "2026-10-26"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -93,7 +93,7 @@ Create `src-tauri/src/live_endpoint_audio.rs` as a focused adapter; modify
 
 - [ ] Add failing Genesis tests for source/chunk FK ownership in both transcript
   modes, cross-recording mismatch, atomic binding/checkpoints and duplicate retry.
-- [ ] Add additive `capture_sources` and `capture_source_chunks` schema via the
+- [x] Add additive `capture_sources` and `capture_source_chunks` schema via the
   existing adapter migration owner. Old audio rows remain unchanged and readable.
 - [ ] Generalize capture events/track maps to owned source identity; never leak
   unbounded static strings. New chunks live in source-owned directories; independent
@@ -158,8 +158,11 @@ No normal-profile test or virtual-driver installation is implicit.
 
 Current state: bounded native feasibility and negative controls independently
 qualified; [evidence](../verification/implementation-reports/2026-10-25-dedicated-endpoint-feasibility.md).
-An external read-only admission draft is awaiting independent code review/integration.
 Read-only native admission source integration is separately verified in the
 [foundation report](../verification/implementation-reports/2026-10-25-route-admission-foundation.md).
+Task 2 now includes the additive schema and trusted in-process source-custody
+foundation; [scope and checks](../verification/implementation-reports/2026-10-26-source-custody-foundation.md).
+This is not a registered capture executor. Consumer fencing, derived-output
+invalidation, source-aware recovery/export and native UI/MCP execution remain open.
 Multi-source capture integration, new FUNG installer, installed acceptance, merge
 and tag remain open. PID #96 is still a release blocker by user decision.

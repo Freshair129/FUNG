@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-25"
-last_update: "2026-10-25"
+last_update: "2026-10-26"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -12,6 +12,11 @@ attributes:
 ---
 
 # PID capture — producer and session lifecycle checkpoint
+
+Follow-up, 2026-10-26: the owned 44.1-kHz diagnostic was subsequently executed
+with a corrected readiness controller; [p08 evidence](2026-10-26-source-custody-foundation.md)
+records FAIL. The NOT_RUN section below preserves the earlier checkpoint, not the
+current execution status. Production PID capture remains unchanged/failing.
 
 ## Disposition
 
@@ -97,7 +102,7 @@ Primary configuration reference:
 The test is an owned Rust diagnostic, not execution of the previously blocked
 Microsoft sample executable or a wrapper around it.
 
-## Unexecuted 44.1-kHz candidate
+## Historical unexecuted 44.1-kHz checkpoint — 2026-10-25
 
 An owned MF Capture-queue diagnostic matching the sample's requested PCM16 stereo
 44,100-Hz format and `0x80060000` flags was built, but runtime is **NOT_RUN**.
@@ -131,8 +136,8 @@ No failure receipt was overwritten with a passing verdict.
 
 ## Next gates
 
-The 44.1-kHz configuration still requires an actual execution and
-unchanged-bound analysis. A demonstrated native PID correction is required before
+A subsequent actual 44.1-kHz execution/unchanged-bound analysis still fails, as
+linked above. A demonstrated native PID correction is required before
 claiming #96 repaired. Source-custody integration, rebuilt installed endpoint/PID
 workflows, exact-head CI/review/merge and release remain separately open. Neither
 a read-only API pass nor another endpoint-only PASS is release qualification.

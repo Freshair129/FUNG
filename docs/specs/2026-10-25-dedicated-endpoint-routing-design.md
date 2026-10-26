@@ -1,7 +1,7 @@
 ---
-version: "0.1.1b"
+version: "0.1.2b"
 created_at: "2026-10-25"
-last_update: "2026-10-25"
+last_update: "2026-10-26"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -198,6 +198,18 @@ events, buffers, revisioned transcript tracks, recovery inventory, playback and
 export all carry source identity; path parsing must not substitute for provenance.
 Source clock origins are synchronized for meeting alignment while retaining each
 device's independent sample clock/drift. No resampling claim without evidence.
+Registration rejects different meeting QPC origins; projected source frame zero
+must refer to the same meeting instant. Preserve nonempty sub-millisecond PCM
+tails using exact frames even when the legacy millisecond interval rounds to zero.
+Source closure is independent of trust: quarantine is monotonic, queued private
+evidence may drain before closure, and new chunks are rejected after closure.
+
+The trusted in-process `capture_source_custody` Rust API owns registration,
+atomic append, quarantine and completion. It grants no Windows route authority
+and registers no IPC command. Its access check returns a consistent storage
+frontier, not a reusable permission: consumers must verify the actual media and
+fence publication/cancel pending work after quarantine. An unconnected guard is
+not evidence of access enforcement in the existing readers.
 
 Contamination quarantines the entire affected source epoch, not only frames after
 the observation. Before completion/release of derived data, source state is checked

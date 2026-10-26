@@ -152,4 +152,6 @@ attributes:
 
 - [Read-only route admission foundation](2026-10-25-route-admission-foundation.md) — `candidate`; source/native inventory verified, multi-source capture and installed acceptance remain open.
 
-- [PID producer/session lifecycle](2026-10-25-pid-producer-lifecycle.md) — `candidate`; six native PID studies FAIL, unexecuted 44.1-kHz candidate NOT_RUN, release blocked.
+- [PID producer/session lifecycle](2026-10-25-pid-producer-lifecycle.md) — `candidate`; six native PID studies FAIL; earlier 44.1-kHz NOT_RUN checkpoint links to the executed failing follow-up, release blocked.
+
+- [Source custody foundation and executed 44.1-kHz follow-up](2026-10-26-source-custody-foundation.md) — `candidate`; additive v16/native Rust custody verified by 722 library tests, Clippy and independent review; 44.1-kHz PID diagnostic FAIL, capture/installed gates remain open.

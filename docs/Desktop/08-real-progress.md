@@ -1,7 +1,7 @@
 ---
-version: "0.3.39b"
+version: "0.3.40b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-25,Codex"
+last_update: "2026-10-26,Codex"
 
 status: "beta"
 superseded_by: null
@@ -12,6 +12,18 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Source custody checkpoint — 2026-10-26
+
+The [source-custody foundation](../verification/implementation-reports/2026-10-26-source-custody-foundation.md)
+adds schema v16 and trusted in-process Rust registration, atomic append/checkpoints,
+quarantine/closure and ledger access validation. Thirteen integrated custody tests
+and v15-to-v16 install/reinstall/reopen pass. The full library suite passes 722
+tests (11 ignored), strict all-target Clippy and formatting pass, and independent
+review accepts the foundation scope.
+This does not activate source-aware capture, guard existing consumers, or add
+UI/MCP execution. The actually executed owned MF44.1 diagnostic still FAILS
+transition preservation. No new installer, installed acceptance, merge or tag.
 
 ## Source routing checkpoint — 2026-10-25
 

@@ -1,5 +1,5 @@
 ---
-version: "0.1.2n"
+version: "0.1.2o"
 created_at: "2026-10-19"
 last_update: "2026-10-27"
 status: "beta"
@@ -164,4 +164,6 @@ attributes:
 
 - [Native client attribution and n03](2026-10-27-native-client-session-attribution.md) — actual capture-client binding with strict admission still failing; 783 local library passes/12 ignored; runtime and installed gates remain open.
 
-- [Runtime guard and package qualification](2026-10-27-runtime-guard-package-qualification.md) — `beta`; broad local855/12ignored, subsequent Rust1.99 lint correction30/30 and exact Clippy pass. Actual package C upgrade and 23 negative/reopen calls preserve the real project. Hosted full CI for the corrected head and both audio capture gates remain separate; no merge/release.
+- [Runtime guard and package qualification](2026-10-27-runtime-guard-package-qualification.md) — `beta`; source/package checkpoint including retained failures and package C upgrade with 23 negative/reopen calls preserving its project. Follow-up source `6981de4` passed hosted857library/17integration; that CI result and both actual audio capture gates remain separate. No merge/release.
+
+- [PID packet lifecycle candidate](2026-10-27-pid-packet-lifecycle-candidate.md) — `beta`; offline progress/cancellation corrections and build-only candidate. Actual audio tests and both installed release gates wait; original PID transition failure remains open.

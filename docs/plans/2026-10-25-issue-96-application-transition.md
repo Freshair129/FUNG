@@ -1,7 +1,7 @@
 ---
-version: "0.1.1b"
+version: "0.1.2b"
 created_at: "2026-10-25"
-last_update: "2026-10-25"
+last_update: "2026-10-27"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -105,3 +105,19 @@ original PID-route disposition separate. Initial testing uses owned players and
 existing idle nondefault endpoints only; active Dota/Focusrite is excluded.
 No Windows default/per-app routing mutation or driver installation is performed
 by the inventory/prototype.
+
+## Offline PID packet lifecycle continuation — 2026-10-27
+
+The user explicitly requested continued PID source correction and a new package,
+while deferring all real audio tests and retaining both installed audio gates
+before merge/tag. The [bounded packet lifecycle subplan](2026-10-27-pid-packet-lifecycle-plan.md)
+addresses independently testable reader progress and cancellation defects:
+Stop starvation while packets remain available, empty acquisition hot retry,
+abandoned readiness/late activation and masked event-wait failures.
+
+These component corrections are not evidence that Windows delivered the active
+frames missing in historical renderer transitions. Previous timer/MF/format/flag
+failures remain FAIL; the original native cause and installed PID acceptance
+remain open. Do not promote an offline regression or build-only package to a
+successful native capture. No candidate installation/launch or native audio test
+is authorized in this source/build stage.

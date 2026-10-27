@@ -1,5 +1,5 @@
 ---
-version: "0.1.3b"
+version: "0.1.3c"
 created_at: "2026-10-19"
 last_update: "2026-10-27"
 status: "beta"
@@ -66,3 +66,5 @@ attributes:
 - [2026-10-20-product-mcp-execution-dag](2026-10-20-product-mcp-execution-dag.json) — active checkpoint ledger, paired with the roadmap
 
 - [Dedicated endpoint routing plan](2026-10-25-dedicated-endpoint-routing-plan.md) — `candidate`; native qualification gates product integration and installed acceptance.
+
+- [PID packet lifecycle plan](2026-10-27-pid-packet-lifecycle-plan.md) — `beta`; offline component corrections and build-only candidate, with actual audio and both installed release gates deferred.

@@ -6,6 +6,10 @@
 
 use serde::Serialize;
 
+#[cfg(windows)]
+#[path = "application_packet_driver.rs"]
+mod packet_driver;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LiveCaptureApplication {
@@ -32,10 +36,11 @@ mod windows_impl {
         IAudioCaptureClient, AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY, AUDCLNT_BUFFERFLAGS_SILENT,
         AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR,
     };
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, WAIT_FAILED};
     use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
     use windows_sys::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, QueryFullProcessImageNameW, WaitForSingleObject,
+        PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
     use crate::live_meeting::{
@@ -43,6 +48,7 @@ mod windows_impl {
         CaptureReady, CaptureSampleBatch, CHANNEL_SYSTEM,
     };
 
+    use super::packet_driver::{self, PacketSource, PacketWait};
     use super::LiveCaptureApplication;
 
     const MIN_PROCESS_LOOPBACK_BUILD: u32 = 20_348;
@@ -421,6 +427,117 @@ mod windows_impl {
     #[cfg(test)]
     mod capture_regression_tests {
         use super::*;
+
+        #[test]
+        fn shared_driver_stop_and_read_failure_flush_exact_accepted_pcm_with_real_writer() {
+            struct ScriptedPackets {
+                sender: mpsc::SyncSender<CaptureSampleBatch>,
+                expected: u64,
+                cancelled: bool,
+                stopped: bool,
+                stops: usize,
+                reads: usize,
+                fail_read: bool,
+            }
+            impl PacketSource for ScriptedPackets {
+                type Packet = CaptureSampleBatch;
+                fn cancelled(&self) -> bool {
+                    self.cancelled
+                }
+                fn start(&mut self) -> Result<(), String> {
+                    Ok(())
+                }
+                fn ready(&mut self) -> Result<(), String> {
+                    Ok(())
+                }
+                fn stop(&mut self) -> Result<(), String> {
+                    self.stops += 1;
+                    self.stopped = true;
+                    Ok(())
+                }
+                fn wait(&mut self) -> Result<PacketWait, String> {
+                    Ok(PacketWait::Signaled)
+                }
+                fn next_packet_size(&mut self) -> Result<u32, String> {
+                    if self.reads > 2 {
+                        return Err("script operation bound: Stop starved".into());
+                    }
+                    // Production is unbounded until the real shared driver calls Stop.
+                    Ok(u32::from(!self.stopped || self.reads < 2))
+                }
+                fn read(&mut self) -> Result<Option<Self::Packet>, String> {
+                    self.reads += 1;
+                    if self.fail_read && self.reads == 2 {
+                        return Err("script packet read failed".into());
+                    }
+                    Ok(Some(CaptureSampleBatch {
+                        first_sample: self.expected,
+                        silence_before: None,
+                        samples: if self.reads == 1 {
+                            vec![1200; 480]
+                        } else {
+                            vec![2400; 7]
+                        },
+                    }))
+                }
+                fn accept(&mut self, packet: Self::Packet) -> Result<(), String> {
+                    queue_application_packet(&self.sender, &mut self.expected, packet)
+                        .map_err(|failure| failure.reason.to_string())?;
+                    self.cancelled = true;
+                    Ok(())
+                }
+            }
+            for fail_read in [false, true] {
+                let root = tempfile::tempdir().unwrap();
+                let (event_tx, event_rx) = mpsc::sync_channel(8);
+                thread::scope(|scope| {
+                    let (sender, receiver) = mpsc::sync_channel(APP_WRITER_QUEUE_PACKETS);
+                    let writer = scope.spawn(|| {
+                        write_application_packets(
+                            receiver,
+                            APP_CAPTURE_FORMAT_RATE,
+                            48000,
+                            root.path(),
+                            &event_tx,
+                        )
+                    });
+                    let mut source = ScriptedPackets {
+                        sender,
+                        expected: 0,
+                        cancelled: false,
+                        stopped: false,
+                        stops: 0,
+                        reads: 0,
+                        fail_read,
+                    };
+                    let result = packet_driver::run(&mut source);
+                    if fail_read {
+                        assert_eq!(result.unwrap_err(), "script packet read failed");
+                    } else {
+                        result.unwrap();
+                    }
+                    assert_eq!(source.stops, 1);
+                    assert_eq!(source.reads, 2);
+                    drop(source); // The actual writer drains accepted packets and flushes its tail.
+                    writer.join().unwrap().unwrap();
+                });
+                let CaptureEvent::Chunk(chunk) = event_rx.recv().unwrap() else {
+                    panic!("accepted PCM tail lost");
+                };
+                let samples: Vec<i16> = hound::WavReader::open(chunk.file_path)
+                    .unwrap()
+                    .into_samples::<i16>()
+                    .map(Result::unwrap)
+                    .collect();
+                let mut expected = vec![1200; 480];
+                if !fail_read {
+                    expected.extend([2400; 7]);
+                }
+                assert_eq!(samples, expected);
+                assert_eq!(chunk.start_ms, 0);
+                assert!(event_rx.try_recv().is_err());
+            }
+        }
 
         #[test]
         fn application_event_reader_uses_bounded_writer_queue() {
@@ -1067,6 +1184,8 @@ mod windows_impl {
         fragment_ms: u64,
     ) -> Result<CaptureReady, String> {
         let (ready_tx, ready_rx) = mpsc::channel::<Result<String, String>>();
+        let startup_cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = Arc::clone(&startup_cancel);
         thread::Builder::new()
             .name(format!("fung-audio-app-{process_id}"))
             .spawn(move || {
@@ -1075,6 +1194,7 @@ mod windows_impl {
                     process_id,
                     &application_name,
                     stop,
+                    &worker_cancel,
                     &chunk_tx,
                     &chunks_dir,
                     fragment_ms,
@@ -1097,10 +1217,100 @@ mod windows_impl {
             })
             .map_err(|error| format!("เปิด thread จับเสียงแอปไม่สำเร็จ: {error}"))?;
 
-        match ready_rx.recv_timeout(Duration::from_secs(10)) {
-            Ok(Ok(device_name)) => Ok(CaptureReady { device_name }),
-            Ok(Err(error)) => Err(error),
-            Err(error) => Err(format!("เตรียมจับเสียงแอปไม่ทันเวลา: {error}")),
+        packet_driver::receive_readiness(&ready_rx, &startup_cancel, Duration::from_secs(10))
+            .map(|device_name| CaptureReady { device_name })
+    }
+
+    struct NativePacketSource<'a> {
+        client: &'a AudioClient,
+        capture: &'a IAudioCaptureClient,
+        event: &'a wasapi::Handle,
+        stop: &'a AtomicBool,
+        startup_cancel: &'a AtomicBool,
+        readiness: &'a mut Option<mpsc::Sender<Result<String, String>>>,
+        application_name: &'a str,
+        packet_tx: &'a mpsc::SyncSender<CaptureSampleBatch>,
+        queue_failure: &'a mut Option<ApplicationQueueFailure>,
+        expected_sample: u64,
+        packet_clock: ApplicationPacketClock,
+        packet_number: u64,
+        capture_started: Instant,
+    }
+
+    impl PacketSource for NativePacketSource<'_> {
+        type Packet = (Vec<i16>, u64, u32, u64);
+        fn cancelled(&self) -> bool {
+            self.stop.load(Ordering::SeqCst) || self.startup_cancel.load(Ordering::SeqCst)
+        }
+        fn start(&mut self) -> Result<(), String> {
+            self.client
+                .start_stream()
+                .map_err(|error| format!("เริ่ม stream ของแอปไม่สำเร็จ: {error}"))
+        }
+        fn ready(&mut self) -> Result<(), String> {
+            if let Some(ready) = self.readiness.take() {
+                packet_driver::send_readiness(ready, self.startup_cancel, self.application_name)?;
+            }
+            Ok(())
+        }
+        fn stop(&mut self) -> Result<(), String> {
+            self.client
+                .stop_stream()
+                .map_err(|error| format!("หยุด stream แอปไม่สำเร็จ: {error}"))
+        }
+        fn wait(&mut self) -> Result<PacketWait, String> {
+            // wasapi 0.26 masks every non-signaled status as EventTimeout.
+            // Borrow its handle and preserve native timeout versus failure.
+            let status = unsafe {
+                WaitForSingleObject(self.event.as_handle().0 as HANDLE, APP_CAPTURE_WAIT_MS)
+            };
+            let last_error = if status == WAIT_FAILED {
+                unsafe { GetLastError() }
+            } else {
+                0
+            };
+            packet_driver::classify_wait(status, last_error)
+        }
+        fn next_packet_size(&mut self) -> Result<u32, String> {
+            unsafe { self.capture.GetNextPacketSize() }
+                .map_err(|error| format!("อ่านขนาด packet จากแอปไม่สำเร็จ: {error}"))
+        }
+        fn read(&mut self) -> Result<Option<Self::Packet>, String> {
+            let packet = read_application_packet(self.capture)?;
+            Ok(if packet.0.is_empty() {
+                None
+            } else {
+                Some(packet)
+            })
+        }
+        fn accept(
+            &mut self,
+            (mono, packet_index, packet_flags, packet_qpc): Self::Packet,
+        ) -> Result<(), String> {
+            self.packet_number += 1;
+            let first_sample = self.packet_clock.position(
+                packet_index, packet_qpc, mono.len() as u64, packet_flags,
+                self.expected_sample, self.capture_started.elapsed(),
+            ).map_err(|error| format!(
+                "{error}; packet={}, frames={}, flags=0x{packet_flags:x}, index={packet_index}, clock={:?}, expected={}, qpc_hns={packet_qpc}",
+                self.packet_number, mono.len(), self.packet_clock, self.expected_sample,
+            ))?;
+            let batch = CaptureSampleBatch {
+                silence_before: None,
+                first_sample,
+                samples: mono,
+            };
+            if let Err(failure) =
+                queue_application_packet(self.packet_tx, &mut self.expected_sample, batch)
+            {
+                let error = format!(
+                    "{}; captured_samples={}..{}",
+                    failure.reason, failure.start, failure.end
+                );
+                *self.queue_failure = Some(failure);
+                return Err(error);
+            }
+            Ok(())
         }
     }
 
@@ -1109,6 +1319,7 @@ mod windows_impl {
         process_id: u32,
         application_name: &str,
         stop: Arc<AtomicBool>,
+        startup_cancel: &AtomicBool,
         chunk_tx: &mpsc::SyncSender<CaptureEvent>,
         chunks_dir: &Path,
         fragment_ms: u64,
@@ -1149,19 +1360,8 @@ mod windows_impl {
         // their flags. Use its public native interface to read/release safely.
         let capture: IAudioCaptureClient = unsafe { client.as_iaudioclient().GetService() }
             .map_err(|error| format!("เปิด audio capture client ของแอปไม่สำเร็จ: {error}"))?;
-        client
-            .start_stream()
-            .map_err(|error| format!("เริ่ม stream ของแอปไม่สำเร็จ: {error}"))?;
-        if let Some(ready) = readiness.take() {
-            let _ = ready.send(Ok(application_name.to_string()));
-        }
-
         let sample_rate = APP_CAPTURE_FORMAT_RATE;
         let samples_per_chunk = (sample_rate as u64 * fragment_ms / 1000) as usize;
-        let mut expected_sample = 0u64;
-        let mut packet_clock = ApplicationPacketClock::default();
-        let mut packet_number = 0u64;
-        let mut stop_attempted = false;
         let mut queue_failure = None;
 
         thread::scope(|scope| {
@@ -1175,80 +1375,21 @@ mod windows_impl {
                     chunk_tx,
                 )
             });
-            let capture_result = (|| -> Result<(), String> {
-                loop {
-                    if stop.load(Ordering::SeqCst) {
-                        // Stop production before draining the last native buffer;
-                        // otherwise a normal stop can discard accepted final PCM.
-                        stop_attempted = true;
-                        client
-                            .stop_stream()
-                            .map_err(|error| format!("หยุด stream แอปไม่สำเร็จ: {error}"))?;
-                    } else {
-                        if let Err(error) = event.wait_for_event(APP_CAPTURE_WAIT_MS) {
-                            if matches!(error, wasapi::WasapiError::EventTimeout) {
-                                continue;
-                            }
-                            return Err(format!("รอสัญญาณเสียงจากแอปไม่สำเร็จ: {error}"));
-                        }
-                    }
-
-                    loop {
-                        let packet_frames = unsafe { capture.GetNextPacketSize() }
-                            .map_err(|error| format!("อ่านขนาด packet จากแอปไม่สำเร็จ: {error}"))?;
-                        if packet_frames == 0 {
-                            break;
-                        }
-                        let (mono, packet_index, packet_flags, packet_qpc) =
-                            read_application_packet(&capture)?;
-                        if mono.is_empty() {
-                            continue;
-                        }
-                        packet_number += 1;
-                        let first_sample = packet_clock.position(
-                        packet_index,
-                        packet_qpc,
-                        mono.len() as u64,
-                        packet_flags,
-                        expected_sample,
-                        capture_started.elapsed(),
-                    )
-                    .map_err(|error| {
-                        format!(
-                            "{error}; packet={packet_number}, frames={}, flags=0x{packet_flags:x}, index={packet_index}, clock={packet_clock:?}, expected={expected_sample}, qpc_hns={packet_qpc}",
-                            mono.len()
-                        )
-                    })?;
-                        let batch = CaptureSampleBatch {
-                            silence_before: None,
-                            first_sample,
-                            samples: mono,
-                        };
-                        if let Err(failure) =
-                            queue_application_packet(&packet_tx, &mut expected_sample, batch)
-                        {
-                            let error = format!(
-                                "{}; captured_samples={}..{}",
-                                failure.reason, failure.start, failure.end
-                            );
-                            queue_failure = Some(failure);
-                            return Err(error);
-                        }
-                    }
-                    if stop_attempted {
-                        break;
-                    }
-                }
-
-                Ok(())
-            })();
-            let stop_result = if stop_attempted {
-                Ok(())
-            } else {
-                client
-                    .stop_stream()
-                    .map_err(|error| format!("หยุด stream แอปไม่สำเร็จ: {error}"))
-            };
+            let capture_result = packet_driver::run(&mut NativePacketSource {
+                client: &client,
+                capture: &capture,
+                event: &event,
+                stop: &stop,
+                startup_cancel,
+                readiness,
+                application_name,
+                packet_tx: &packet_tx,
+                queue_failure: &mut queue_failure,
+                expected_sample: 0,
+                packet_clock: ApplicationPacketClock::default(),
+                packet_number: 0,
+                capture_started,
+            });
             // Stop native production before potentially waiting on disk/event work.
             // Closing the queue drains every accepted packet and flushes its tail.
             drop(packet_tx);
@@ -1266,7 +1407,7 @@ mod windows_impl {
                     });
                 }
             }
-            capture_result.and(stop_result).and(writer_result)
+            packet_driver::combine(capture_result, writer_result)
         })
     }
 }

@@ -1,5 +1,5 @@
 ---
-version: "0.3.44c"
+version: "0.3.45b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-27"
 
@@ -13,7 +13,30 @@ attributes:
 
 # 08 - Real Progress
 
-## Current runtime guard and installed negative checks — 2026-10-27
+## PID packet lifecycle candidate — 2026-10-27
+
+The [offline PID lifecycle checkpoint](../verification/implementation-reports/2026-10-27-pid-packet-lifecycle-candidate.md)
+corrects independently reproduced packet-progress/cancellation defects: Stop
+starvation inside continuous draining, empty acquisition hot retry, abandoned
+readiness/late activation, wait-failure masking and cleanup-error ownership.
+The native adapter uses the same private driver exercised by scripted tests;
+backend, decoder, clock, format, flags, wait duration and PCM/gap criteria remain.
+
+Characterization passes once; six intended RED regressions fail against the
+extracted baseline before correction. Frozen corrected source passes **31 focused
+tests (2 native probes ignored)**, **873 full library tests (12 ignored)**,
+**17 integration tests**, **12 custody-contract checks**, Rust 1.99.1 formatting
+and strict all-target Clippy. Independent source review has no blocking findings.
+Suite counts overlap. Actual device audio has not been tested by this work.
+
+A new isolated NSIS candidate (2,116,581,508 bytes) was built with Rust 1.99.1 and
+app ID `dev.fung.uat.pidguard20261027`; its installer/executable hashes are frozen
+and independently checked. Package evidence is separate from source tests.
+The user explicitly deferred audio tests; this stage does not install or launch
+the candidate. **Original #96 transition loss remains unqualified.** Both PID and
+dedicated-endpoint installed audio must pass before merge/tag/release.
+
+## Runtime guard and installed negative checks — 2026-10-27
 
 The [runtime guard checkpoint](../verification/implementation-reports/2026-10-27-runtime-guard-package-qualification.md)
 adds a production native-owned endpoint group, authoritative Storage binding
@@ -2058,6 +2081,7 @@ native/device/release acceptance.
 
 | Version | Change |
 | --- | --- |
+| 0.3.45b | Recorded independently reviewed PID packet progress/cancellation corrections and local873library/17integration/12custody evidence; new isolated package is build-only, actual endpoint/PID acceptance stays open. |
 | 0.3.44c | Retained the hosted short-Temp fixture failure and separated its correction from unchanged package runtime and open audio gates. |
 | 0.3.44b | Recorded reviewed native runtime ownership, scoped custody failures, legacy guard cleanup and lazy project-root correction; 855 library passes/12 ignored and actual installed negative/reopen evidence remain separate from both open audio gates. |
 | 0.3.32v → 0.3.33v | Recorded passing post-remediation Rust library tests, frontend build, and workflow MCP acceptance; independent re-review remains open. |
@@ -2104,6 +2128,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.45b | 2026-10-27 | beta | PID shared lifecycle driver has bounded RED/GREEN and independent source acceptance; local873library/12ignored,17integration,12custody and strict checks pass. New candidate build is separate from deferred actual audio; no install/merge/tag. | see Git history | Codex |
 | 0.3.44c | 2026-10-27 | beta | Retained b8c1f65 hosted853pass/2fail/12ignored short-Temp failure; fixture-only correction passes local857library/17integration and32real-alias checks, production/package C unchanged; resulting hosted and audio acceptance remain separate. | see Git history | Codex |
 | 0.3.44b | 2026-10-27 | beta | Native ownership/coordinator and source fences reviewed; lazy-root fault and Rust1.99 CI lint corrected; actual package C upgrade and 23 negative/reopen IPC calls pass. Broad local855/12ignored and exact-toolchain30 remain distinct from hosted full CI and both open audio gates. | see Git history | Codex |
 | 0.3.36b | 2026-10-23 | beta | ec494fd installed mic output and active-PID inventory observed; native timing and partial-track reporting reopened with failed evidence retained; corrected system active/idle probes pass, final installed/release gates remain open. | working-tree | Codex |

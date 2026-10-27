@@ -1,5 +1,5 @@
 ---
-version: "0.1.2o"
+version: "0.1.2p"
 created_at: "2026-10-19"
 last_update: "2026-10-27"
 status: "beta"
@@ -166,4 +166,6 @@ attributes:
 
 - [Runtime guard and package qualification](2026-10-27-runtime-guard-package-qualification.md) — `beta`; source/package checkpoint including retained failures and package C upgrade with 23 negative/reopen calls preserving its project. Follow-up source `6981de4` passed hosted857library/17integration; that CI result and both actual audio capture gates remain separate. No merge/release.
 
-- [PID packet lifecycle candidate](2026-10-27-pid-packet-lifecycle-candidate.md) — `beta`; offline progress/cancellation corrections and build-only candidate. Actual audio tests and both installed release gates wait; original PID transition failure remains open.
+- [PID packet lifecycle candidate](2026-10-27-pid-packet-lifecycle-candidate.md) — `beta`; earlier offline progress/cancellation and build-only snapshot; later installed results are recorded separately below.
+
+- [Installed PID / endpoint audio UAT](2026-10-27-installed-pid-endpoint-audio-uat.md) — `beta`; actual candidate installed and tested: PID edge FAIL, endpoint NOT_PROVEN; export rejection and orderly reopen preserved. Both merge/release gates remain open.

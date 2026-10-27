@@ -1,5 +1,5 @@
 ---
-version: "0.3.45b"
+version: "0.3.46b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-27"
 
@@ -12,6 +12,23 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Installed PID / endpoint audio UAT — 2026-10-27
+
+The [installed audio campaign](../verification/implementation-reports/2026-10-27-installed-pid-endpoint-audio-uat.md)
+installed the actual `f06c9f1` UAT candidate in its isolated profile after the user
+announced readiness. PID still loses **1,984 frames before Stop and 441 after
+Resume in both cycles** against a fault-free independent control; its capture
+job fails with four lost intervals. Dedicated endpoints finalize two separate
+source streams, but one cycle has an unbounded 457-frame fading tail; aggregate
+endpoint acceptance remains **NOT_PROVEN**. Independent offline reanalysis
+reproduces the results; source tests do not override these installed observations.
+
+Actual subtitle-export probes reject missing transcripts. Orderly close/reopen
+preserves the project, four recording metadata rows and all 13 selected WAV
+chunk hashes; both app runs exit 0. This does not prove crash recovery, source-aware
+consumers or UI acceptance. The two apparatus-invalid endpoint attempts and
+monitor timeout remain documented. **Original #96 stays open; no merge/tag/release.**
 
 ## PID packet lifecycle candidate — 2026-10-27
 
@@ -2081,6 +2098,7 @@ native/device/release acceptance.
 
 | Version | Change |
 | --- | --- |
+| 0.3.46b | Recorded actual installed PID edge FAIL and endpoint NOT_PROVEN, export rejection, independent analysis and orderly persistence; both installed release gates remain open. |
 | 0.3.45b | Recorded independently reviewed PID packet progress/cancellation corrections and local873library/17integration/12custody evidence; new isolated package is build-only, actual endpoint/PID acceptance stays open. |
 | 0.3.44c | Retained the hosted short-Temp fixture failure and separated its correction from unchanged package runtime and open audio gates. |
 | 0.3.44b | Recorded reviewed native runtime ownership, scoped custody failures, legacy guard cleanup and lazy project-root correction; 855 library passes/12 ignored and actual installed negative/reopen evidence remain separate from both open audio gates. |
@@ -2128,6 +2146,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.46b | 2026-10-27 | beta | Installed f06c9f1 candidate: PID FAIL, endpoint NOT_PROVEN, actual export rejection and orderly reopen persistence; independent reanalysis agrees. No merge/tag/release. | see Git history | Codex |
 | 0.3.45b | 2026-10-27 | beta | PID shared lifecycle driver has bounded RED/GREEN and independent source acceptance; local873library/12ignored,17integration,12custody and strict checks pass. New candidate build is separate from deferred actual audio; no install/merge/tag. | see Git history | Codex |
 | 0.3.44c | 2026-10-27 | beta | Retained b8c1f65 hosted853pass/2fail/12ignored short-Temp failure; fixture-only correction passes local857library/17integration and32real-alias checks, production/package C unchanged; resulting hosted and audio acceptance remain separate. | see Git history | Codex |
 | 0.3.44b | 2026-10-27 | beta | Native ownership/coordinator and source fences reviewed; lazy-root fault and Rust1.99 CI lint corrected; actual package C upgrade and 23 negative/reopen IPC calls pass. Broad local855/12ignored and exact-toolchain30 remain distinct from hosted full CI and both open audio gates. | see Git history | Codex |

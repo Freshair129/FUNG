@@ -1,5 +1,5 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-27"
 last_update: "2026-10-27"
 status: "beta"
@@ -7,7 +7,7 @@ superseded_by: null
 attributes:
   domain: "desktop-native-capture"
   doc_type: "plan"
-  scope: "PID packet progress and cancellation; offline candidate only"
+  scope: "PID packet lifecycle candidate and subsequent installed qualification"
   language: "Thai-first"
 ---
 
@@ -65,6 +65,26 @@ Review stop during continuously nonempty buffers; empty-after-peek without spinn
 - [x] Do not install/launch or execute native audio tests. Keep package C and previous evidence intact.
 - [x] Update owning docs/index and record exact verification commands, source revision, failures, package paths and native/installed NOT_RUN status.
 - [x] Commit/push source and evidence to the existing Draft PR after verification; no merge/tag/release.
+
+## Task 3 — later user-authorized installed qualification
+
+After completion of the earlier build-only stage, the user announced readiness
+and explicitly authorized installing the candidate and testing both real audio
+modes. The earlier deferral above remains historical evidence. This later stage
+does not permit merge/tag until both installed modes pass.
+
+- [x] Install the hash-frozen isolated UAT package, verify actual installed image
+  and profile, and retain the normal profile and previous package evidence.
+- [x] Test actual installed PID and two dedicated endpoints with owned native
+  renderers, preserving device settings, frozen policy and failed apparatus attempts.
+- [x] Independently analyze real output, probe export, verify orderly close/reopen
+  persistence, and document the results in the
+  [installed UAT report](../verification/implementation-reports/2026-10-27-installed-pid-endpoint-audio-uat.md).
+- [ ] PID installed acceptance: FAIL, active frames missing at both transitions.
+- [ ] Endpoint installed acceptance: NOT_PROVEN, fading-tail bound and
+  authoritative custody/source-aware consumer gates remain open.
+- [ ] Merge/tag/release only after both modes pass; not authorized by execution
+  completion, component checks or orderly reopen alone.
 
 ## External references
 

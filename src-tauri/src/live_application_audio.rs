@@ -10,6 +10,10 @@ use serde::Serialize;
 #[path = "application_packet_driver.rs"]
 mod packet_driver;
 
+#[cfg(all(windows, test))]
+#[path = "application_native_payload_diagnostic.rs"]
+mod native_payload_diagnostic;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LiveCaptureApplication {
@@ -48,6 +52,8 @@ mod windows_impl {
         CaptureReady, CaptureSampleBatch, CHANNEL_SYSTEM,
     };
 
+    #[cfg(test)]
+    use super::native_payload_diagnostic::{self, NativePayloadDiagnostic};
     use super::packet_driver::{self, PacketSource, PacketWait};
     use super::LiveCaptureApplication;
 
@@ -724,6 +730,16 @@ mod windows_impl {
         #[test]
         #[ignore = "records the explicitly selected process into a fresh isolated directory"]
         fn native_application_loopback_probe() {
+            run_native_application_loopback_probe(false);
+        }
+
+        #[test]
+        #[ignore = "owned selected-process 20-second probe retaining bounded decoded native mono; explicit native authorization required"]
+        fn native_application_loopback_payload_probe() {
+            run_native_application_loopback_probe(true);
+        }
+
+        fn run_native_application_loopback_probe(retain_native_payload: bool) {
             let process_id: u32 = std::env::var("FUNG_APPLICATION_PROBE_PID")
                 .expect("set the controlled audio fixture PID")
                 .parse()
@@ -736,6 +752,9 @@ mod windows_impl {
             std::fs::create_dir_all(&root).unwrap();
             let stop = Arc::new(AtomicBool::new(false));
             let (tx, rx) = mpsc::sync_channel(256);
+            let duration_secs = if retain_native_payload { 20 } else { 12 };
+            let diagnostic_request =
+                retain_native_payload.then(|| native_payload_diagnostic::request(root.clone()));
             let ready = spawn_application_capture_thread(
                 process_id,
                 application.name,
@@ -745,13 +764,14 @@ mod windows_impl {
                 2_000,
             )
             .unwrap();
+            drop(diagnostic_request);
             std::fs::write(root.join("ready.txt"), &ready.device_name).unwrap();
-            eprintln!("APPLICATION_CAPTURE_READY: PID {process_id}, 12-second isolated probe");
+            eprintln!("APPLICATION_CAPTURE_READY: PID {process_id}, {duration_secs}-second isolated probe");
             let started = Instant::now();
             let mut chunks = Vec::new();
             let mut faults = Vec::new();
             loop {
-                if started.elapsed() >= Duration::from_secs(12) {
+                if started.elapsed() >= Duration::from_secs(duration_secs) {
                     stop.store(true, Ordering::SeqCst);
                 }
                 match rx.recv_timeout(Duration::from_millis(100)) {
@@ -767,7 +787,7 @@ mod windows_impl {
                     Ok(CaptureEvent::ChunkWriteFailed { error, .. }) => faults.push(error),
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     Err(mpsc::RecvTimeoutError::Timeout) => {
-                        assert!(started.elapsed() < Duration::from_secs(22));
+                        assert!(started.elapsed() < Duration::from_secs(duration_secs + 10));
                     }
                 }
             }
@@ -794,6 +814,17 @@ mod windows_impl {
             eprintln!("{report}");
             assert!(faults.is_empty());
             assert!(nonzero > 0, "controlled fixture must produce actual audio");
+            if retain_native_payload {
+                let receipt: serde_json::Value = serde_json::from_slice(
+                    &std::fs::read(root.join("decoded-native-mono.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    receipt["diagnosticValid"], true,
+                    "bounded payload collection overran; no complete reconciliation claim"
+                );
+                assert_eq!(receipt["nativeStopResult"], serde_json::json!({"Ok": null}));
+            }
         }
 
         #[test]
@@ -1186,6 +1217,8 @@ mod windows_impl {
         let (ready_tx, ready_rx) = mpsc::channel::<Result<String, String>>();
         let startup_cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = Arc::clone(&startup_cancel);
+        #[cfg(test)]
+        let diagnostic = native_payload_diagnostic::take_request();
         thread::Builder::new()
             .name(format!("fung-audio-app-{process_id}"))
             .spawn(move || {
@@ -1199,6 +1232,8 @@ mod windows_impl {
                     &chunks_dir,
                     fragment_ms,
                     &mut readiness,
+                    #[cfg(test)]
+                    diagnostic,
                 );
                 if let Some(ready) = readiness {
                     let message = result
@@ -1235,6 +1270,8 @@ mod windows_impl {
         packet_clock: ApplicationPacketClock,
         packet_number: u64,
         capture_started: Instant,
+        #[cfg(test)]
+        diagnostic: Option<&'a mut NativePayloadDiagnostic>,
     }
 
     impl PacketSource for NativePacketSource<'_> {
@@ -1254,9 +1291,15 @@ mod windows_impl {
             Ok(())
         }
         fn stop(&mut self) -> Result<(), String> {
-            self.client
+            let result = self
+                .client
                 .stop_stream()
-                .map_err(|error| format!("หยุด stream แอปไม่สำเร็จ: {error}"))
+                .map_err(|error| format!("หยุด stream แอปไม่สำเร็จ: {error}"));
+            #[cfg(test)]
+            if let Some(diagnostic) = self.diagnostic.as_deref_mut() {
+                diagnostic.stopped(&result);
+            }
+            result
         }
         fn wait(&mut self) -> Result<PacketWait, String> {
             // wasapi 0.26 masks every non-signaled status as EventTimeout.
@@ -1277,6 +1320,16 @@ mod windows_impl {
         }
         fn read(&mut self) -> Result<Option<Self::Packet>, String> {
             let packet = read_application_packet(self.capture)?;
+            #[cfg(test)]
+            if let Some(diagnostic) = self.diagnostic.as_deref_mut() {
+                diagnostic.record(
+                    &packet.0,
+                    packet.1,
+                    packet.2,
+                    packet.3,
+                    self.capture_started.elapsed(),
+                );
+            }
             Ok(if packet.0.is_empty() {
                 None
             } else {
@@ -1324,6 +1377,7 @@ mod windows_impl {
         chunks_dir: &Path,
         fragment_ms: u64,
         readiness: &mut Option<mpsc::Sender<Result<String, String>>>,
+        #[cfg(test)] mut diagnostic: Option<NativePayloadDiagnostic>,
     ) -> Result<(), String> {
         initialize_mta()
             .ok()
@@ -1389,6 +1443,8 @@ mod windows_impl {
                 packet_clock: ApplicationPacketClock::default(),
                 packet_number: 0,
                 capture_started,
+                #[cfg(test)]
+                diagnostic: diagnostic.as_mut(),
             });
             // Stop native production before potentially waiting on disk/event work.
             // Closing the queue drains every accepted packet and flushes its tail.
@@ -1397,6 +1453,15 @@ mod windows_impl {
                 .join()
                 .map_err(|_| "thread บันทึกเสียงแอปหยุดทำงาน".to_string())
                 .and_then(|result| result);
+            #[cfg(test)]
+            if let Some(diagnostic) = diagnostic {
+                // Evidence errors never replace native/queue/writer capture failures.
+                if let Err(error) =
+                    diagnostic.flush_after_stop(process_id, &capture_result, &writer_result)
+                {
+                    eprintln!("APPLICATION_NATIVE_PAYLOAD_DIAGNOSTIC_FAILED: {error}");
+                }
+            }
             if let Some(failure) = queue_failure {
                 if failure.end > failure.start {
                     let _ = chunk_tx.send(CaptureEvent::SourceGap {

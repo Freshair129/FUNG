@@ -1,5 +1,5 @@
 ---
-version: "0.1.2p"
+version: "0.1.2q"
 created_at: "2026-10-19"
 last_update: "2026-10-27"
 status: "beta"
@@ -169,3 +169,5 @@ attributes:
 - [PID packet lifecycle candidate](2026-10-27-pid-packet-lifecycle-candidate.md) — `beta`; earlier offline progress/cancellation and build-only snapshot; later installed results are recorded separately below.
 
 - [Installed PID / endpoint audio UAT](2026-10-27-installed-pid-endpoint-audio-uat.md) — `beta`; actual candidate installed and tested: PID edge FAIL, endpoint NOT_PROVEN; export rejection and orderly reopen preserved. Both merge/release gates remain open.
+
+- [Installed audio remediation](2026-10-27-installed-audio-remediation.md) — `beta`; routed lifecycle metadata and fresh desktop source admission corrected, test-only pre-clock PCM seam reviewed; 885 library/17 integration pass. New audio attempt is NOT_RUN because both HDMI devices became NotPresent; original PID/endpoint gates remain open.

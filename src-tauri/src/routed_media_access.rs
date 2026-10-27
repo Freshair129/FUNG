@@ -84,8 +84,8 @@ mod tests {
 
         fn routed(state: &str) -> Self {
             let temp = tempfile::tempdir().unwrap();
-            let root = temp.path().join("project");
-            fs::create_dir(&root).unwrap();
+            let root = temp.path().join("projects").join("project");
+            fs::create_dir_all(&root).unwrap();
             let storage = Storage::open(OpenOptions {
                 path: temp.path().join("db").display().to_string(),
                 page_cache_mb: Some(16),
@@ -227,6 +227,36 @@ mod tests {
     }
 
     #[test]
+    fn desktop_playback_rejects_routed_sources_before_path_or_pcm_inspection() {
+        for state in ["recording", "quarantined", "completed"] {
+            let f = Fixture::routed(state);
+            let mut stale_legacy_row = crate::recording_review::validate_recording_pair(
+                &f.storage,
+                &f.project,
+                &f.recording,
+            )
+            .unwrap();
+            // The fresh SDK owner must win over the caller's stale legacy row.
+            stale_legacy_row.source = "import".into();
+            for data_root in [
+                f._temp.path().to_path_buf(),
+                f._temp.path().join("absent-root"),
+            ] {
+                let result = crate::desktop_playback::tests::prepare_source_without_output(
+                    &f.storage,
+                    &data_root,
+                    &stale_legacy_row,
+                );
+                assert_eq!(
+                    result.unwrap_err().code,
+                    "PLAYBACK_SOURCE_UNSUPPORTED",
+                    "state={state}, root={data_root:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn pending_routed_recording_never_enters_legacy_media_before_registration() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project");
@@ -250,6 +280,17 @@ mod tests {
         assert!(ga::query_all(&storage, "capture_sources", &["id"], vec![])
             .unwrap()
             .is_empty());
+        let mut stale_legacy_row =
+            crate::recording_review::validate_recording_pair(&storage, &project, &recording)
+                .unwrap();
+        stale_legacy_row.source = "import".into();
+        let error = crate::desktop_playback::tests::prepare_source_without_output(
+            &storage,
+            &temp.path().join("absent-root"),
+            &stale_legacy_row,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "PLAYBACK_SOURCE_UNSUPPORTED");
         assert!(
             matches!(crate::local_api::build_audio(&storage, &recording, None), Err(crate::local_api::AudioError::Unsupported(ref reason)) if reason.contains("routed_endpoint_pending"))
         );
@@ -377,10 +418,23 @@ mod tests {
         let f = Fixture::routed("completed");
         ga::commit_rows(&f.storage, vec![ga::upsert("recordings", json!({
             "id":f.recording,"project_id":f.project,"source":"import","canonical_audio_path":f.wav,
-            "status":"completed","duration_ms":100,"created_at":"t","updated_at":"t"
+            "status":"completed","duration_ms":100,"created_at":AT,"updated_at":AT
         }))]).unwrap();
         let result = super::require_legacy_media_source(&f.storage, &f.recording);
         assert!(matches!(result, Err(ref reason) if reason.contains("bindings conflict")));
+        let row =
+            crate::recording_review::validate_recording_pair(&f.storage, &f.project, &f.recording)
+                .unwrap();
+        for data_root in [
+            f._temp.path().to_path_buf(),
+            f._temp.path().join("absent-root"),
+        ] {
+            let error = crate::desktop_playback::tests::prepare_source_without_output(
+                &f.storage, &data_root, &row,
+            )
+            .unwrap_err();
+            assert_eq!(error.code, "PLAYBACK_SOURCE_UNSUPPORTED");
+        }
         assert!(crate::local_api::build_audio(&f.storage, &f.recording, None).is_err());
         assert!(crate::audio_export::render_source_audio_channels(
             &f.storage,

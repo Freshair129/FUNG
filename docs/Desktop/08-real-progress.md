@@ -1,5 +1,5 @@
 ---
-version: "0.3.46b"
+version: "0.3.47b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-27"
 
@@ -12,6 +12,26 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Installed audio remediation — 2026-10-27
+
+The [remediation checkpoint](../verification/implementation-reports/2026-10-27-installed-audio-remediation.md)
+corrects routed recordings appearing inactive while their native owner is
+recording/draining, and adds fresh Genesis source admission to desktop playback
+before any media path/PCM inspection. Real legacy preparation still works;
+unsupported routed consumers remain fenced. A test-only bounded decoded-native
+mono tap is ready before PID clock/queue/writer processing; it is diagnostic
+evidence infrastructure, not a repair of the original transition loss.
+
+Independent source review has no blocking findings. Rust 1.99.1 full library
+**885 passed / 13 ignored**, integration **17 passed**, formatting and strict
+Clippy pass. The new native attempt stopped before any child/capture/render
+because both selected HDMI endpoints became **NotPresent**. Latest actual audio
+remains PID FAIL and endpoint NOT_PROVEN; package/native/installed acceptance
+must be read separately. The new isolated NSIS candidate installs with its actual
+hash verified; two hidden API boot/close cycles preserve a fresh project and exit
+0. This is non-audio installed smoke, not active-source/UI acceptance.
+No merge/tag/release.
 
 ## Installed PID / endpoint audio UAT — 2026-10-27
 
@@ -2098,6 +2118,7 @@ native/device/release acceptance.
 
 | Version | Change |
 | --- | --- |
+| 0.3.47b | Corrected routed lifecycle and desktop playback admission; reviewed test-only native payload seam and 885 library/17 integration evidence, with new audio blocked before launch by absent HDMI devices. |
 | 0.3.46b | Recorded actual installed PID edge FAIL and endpoint NOT_PROVEN, export rejection, independent analysis and orderly persistence; both installed release gates remain open. |
 | 0.3.45b | Recorded independently reviewed PID packet progress/cancellation corrections and local873library/17integration/12custody evidence; new isolated package is build-only, actual endpoint/PID acceptance stays open. |
 | 0.3.44c | Retained the hosted short-Temp fixture failure and separated its correction from unchanged package runtime and open audio gates. |
@@ -2146,6 +2167,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.47b | 2026-10-27 | beta | Source GO for truthful routed metadata, desktop source guard and test-only pre-clock evidence; 885 library/17 integration and strict checks pass. Native n01 NOT_RUN at missing-device admission; no merge/tag/release. | see Git history | Codex |
 | 0.3.46b | 2026-10-27 | beta | Installed f06c9f1 candidate: PID FAIL, endpoint NOT_PROVEN, actual export rejection and orderly reopen persistence; independent reanalysis agrees. No merge/tag/release. | see Git history | Codex |
 | 0.3.45b | 2026-10-27 | beta | PID shared lifecycle driver has bounded RED/GREEN and independent source acceptance; local873library/12ignored,17integration,12custody and strict checks pass. New candidate build is separate from deferred actual audio; no install/merge/tag. | see Git history | Codex |
 | 0.3.44c | 2026-10-27 | beta | Retained b8c1f65 hosted853pass/2fail/12ignored short-Temp failure; fixture-only correction passes local857library/17integration and32real-alias checks, production/package C unchanged; resulting hosted and audio acceptance remain separate. | see Git history | Codex |

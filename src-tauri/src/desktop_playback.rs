@@ -1018,6 +1018,14 @@ fn prepare_playback(
     if !matches!(channel.as_str(), "mic" | "system" | "file") {
         return Err(ReviewError::invalid("channel is invalid."));
     }
+    crate::routed_media_access::require_legacy_media_source(storage, &row.identity.recording_id)
+        .map_err(|_| {
+            playback_error(
+                "PLAYBACK_SOURCE_UNSUPPORTED",
+                "This recording requires source-aware playback.",
+                false,
+            )
+        })?;
     let project_root = project_root_for(storage, data_root, &row.identity.project_id)?;
     check_open_cancelled(&cancel)?;
     let rows = genesis_adapter::query_all(
@@ -2266,8 +2274,25 @@ async fn dispatch_close_playback(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    // Shared by source-custody regression fixtures; exercises preparation without
+    // creating a CPAL stream or accessing any output device.
+    pub(crate) fn prepare_source_without_output(
+        storage: &genesis_block_native::Storage,
+        data_root: &Path,
+        row: &RecordingStorageRow,
+    ) -> Result<(), ReviewError> {
+        prepare_playback(
+            storage,
+            data_root,
+            row,
+            "file".into(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .map(|_| ())
+    }
 
     #[test]
     fn output_rate_falls_back_to_a_device_supported_rate() {
@@ -3019,6 +3044,54 @@ mod tests {
             !guard.playback_open(),
             "owned cleanup did not release admission"
         );
+    }
+
+    #[test]
+    fn healthy_legacy_import_prepares_without_an_output_device() {
+        let (directory, storage) = open_storage();
+        let project_root = directory.path().join("projects").join("p1");
+        std::fs::create_dir_all(&project_root).unwrap();
+        let path = project_root.join("part-a.wav");
+        let mut writer = hound::WavWriter::create(
+            &path,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 8_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for _ in 0..80 {
+            writer.write_sample(1_i16).unwrap();
+        }
+        writer.finalize().unwrap();
+        let byte_size = std::fs::metadata(&path).unwrap().len();
+        genesis_adapter::commit_rows(&storage, vec![
+            genesis_adapter::upsert("projects", serde_json::json!({
+                "id":"p1","name":"P1","storage_path":project_root,"created_at":"t","updated_at":"t"
+            })),
+            genesis_adapter::upsert("recordings", serde_json::json!({
+                "id":"r1","project_id":"p1","source":"import","canonical_audio_path":path,
+                "status":"completed","duration_ms":10,"created_at":"t","updated_at":"t"
+            })),
+            genesis_adapter::upsert("audio_chunks", serde_json::json!({
+                "id":"a","recording_id":"r1","sequence_no":1,"file_path":path,
+                "start_ms":0,"end_ms":10,"byte_size":byte_size,"checksum":"x","created_at":"t"
+            })),
+        ]).unwrap();
+        let prepared = prepare_playback(
+            &storage,
+            directory.path(),
+            &recording_row("p1", "r1", 10),
+            "file".into(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+        assert!(!prepared.degraded);
+        assert!(prepared.missing_ranges.is_empty());
+        assert_eq!(prepared.duration_frames, 80);
+        assert_eq!(prepared.descriptors.len(), 1);
     }
 
     #[test]

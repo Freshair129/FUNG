@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-27"
-last_update: "2026-10-27"
+last_update: "2026-10-28"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -69,9 +69,9 @@ and file/event timing remain unchanged.
 - [x] Implement the minimal test-only in-memory packet tap before clock/queue;
   emit owned raw PCM and metadata only after capture stops. No production switch.
 - [x] Verify RED/GREEN and focused tests; independently review the source seam.
-- [ ] Root runs a fresh owned PID probe with simultaneous explicit-endpoint
+- [x] Root runs a fresh owned PID probe with simultaneous explicit-endpoint
   control and two renderer transitions, after fresh idle/muted identity checks.
-- [ ] Reconcile native payload to writer WAV and compare real transition edges;
+- [x] Reconcile native payload to writer WAV and compare real transition edges;
   adopt a production repair only if an actual application-side cause is shown.
   If missing frames are already absent natively, document that boundary and the
   architectural decision required; do not repeat failed timer/flag/format guesses.
@@ -113,3 +113,11 @@ Checkpoint: [source/package evidence](../verification/implementation-reports/202
 records source GO, 885 library/17 integration passes and two installed orderly
 boots. Native n01 starts no children: both exact HDMI devices are NotPresent.
 The original PID FAIL and endpoint NOT_PROVEN remain in force.
+
+Follow-up: [2026-10-28 installed retest](../verification/implementation-reports/2026-10-28-installed-audio-retest.md)
+executes n02 after hardware returns. All retained mono bytes reach the writer,
+but PID native and installed edges still fail. Two installed endpoint runs pass
+bounded PCM/separation components, while routed consumers/custody/recovery remain
+unqualified. Actual routed active/completed projection and playback admission are
+observed; installed stopping transient remains unobserved, so Task 3's combined
+active/stopping item stays unchecked. No production PID repair or release closure.

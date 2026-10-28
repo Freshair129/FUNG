@@ -1,7 +1,7 @@
 ---
-version: "0.3.47b"
+version: "0.3.48b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-27"
+last_update: "2026-10-28"
 
 status: "beta"
 superseded_by: null
@@ -12,6 +12,21 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Installed audio retest — 2026-10-28
+
+The [fresh retest](../verification/implementation-reports/2026-10-28-installed-audio-retest.md)
+runs after both HDMI devices return. Native pre-clock mono matches all writer
+PCM bytes, but missing active PID bands already exist at that boundary. Actual
+installed PID still loses 1,984 frames before Stop and 441 after Resume in both
+cycles. Two installed dual-endpoint runs pass PCM/separation components; full
+source-aware playback/export/custody/recovery acceptance remains open. Actual
+routed recording metadata shows active then inactive; the stopping transient is
+not observed. Playback rejects unsupported routed sources. Three explicit export
+jobs fail; automatic PID postprocessing outputs do not override capture failure.
+Orderly reopen preserves project/recording metadata; a later full extended-path
+seal preserves 32 files. No merge/tag/release; both complete installed gates are
+not passed. Earlier failures and hardware-blocked n01 remain historical evidence.
 
 ## Installed audio remediation — 2026-10-27
 

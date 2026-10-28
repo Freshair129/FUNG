@@ -1,7 +1,7 @@
 ---
-version: "0.1.2q"
+version: "0.1.2r"
 created_at: "2026-10-19"
-last_update: "2026-10-27"
+last_update: "2026-10-28"
 status: "beta"
 superseded_by: null
 attributes:
@@ -12,6 +12,8 @@ attributes:
 ---
 
 # Implementation and review report index
+
+- [Installed audio retest after HDMI return](2026-10-28-installed-audio-retest.md) — `beta`; installed PID FAIL, two endpoint PCM/separation component passes, full consumer/custody/recovery acceptance open; no merge/tag/release.
 
 รายงานด้านล่างเป็นหลักฐานตามวันที่และ scope ของแต่ละฉบับ ให้ดู revision, environment และข้อจำกัดในตัวรายงานก่อนนำไปอ้างอิง; รายงานเก่าไม่ยืนยันสถานะปัจจุบันโดยอัตโนมัติ.
 

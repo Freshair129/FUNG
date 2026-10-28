@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-28"
-last_update: "2026-10-28"
+last_update: "2026-10-29"
 status: "beta"
 superseded_by: null
 attributes:
@@ -76,7 +76,7 @@ The bounded collector is valid: 1,995 packets / 957,600 mono frames; native Stop
 capture and writer each return Ok. All 13 explicitly reported WAV chunks retain
 every decoded-native mono byte, combined PCM SHA-256
 `F071D8F246749FB6EFB55AFA06788D2D62559E16892D7482BE7C31A93AA77016`.
-The subject exits 101 because four discontinuity assertions fail; renderer and
+The subject exits 101 because one final assertion reports four discontinuity intervals; renderer and
 fault-free reference exit 0. No force termination or cleanup failure.
 
 | Cycle | Native Stop minus reference | Native Resume minus reference |

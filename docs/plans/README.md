@@ -1,7 +1,7 @@
 ---
-version: "0.1.3c"
+version: "0.1.3d"
 created_at: "2026-10-19"
-last_update: "2026-10-27"
+last_update: "2026-10-29"
 status: "beta"
 superseded_by: null
 attributes:
@@ -16,6 +16,8 @@ attributes:
 แผนในโฟลเดอร์นี้ระบุขอบเขตและลำดับงาน ไม่ใช่หลักฐานว่างานเสร็จหรือฟีเจอร์ทำงานแล้ว
 
 ## จุดอ้างอิงหลัก
+
+- [PID original-buffer diagnostic](2026-10-28-pid-original-buffer-diagnostic.md) extends the test-only pre-clock evidence to original stereo before decode; it does not implement a production PID repair or close either installed gate.
 
 - [Dedicated endpoint routing](2026-10-25-dedicated-endpoint-routing-plan.md) owns the capture-routing implementation sequence; the [native session lifecycle subplan](2026-10-27-native-capture-session-lifecycle-plan.md) is an unimplemented Task 2 candidate after n03 attribution.
 

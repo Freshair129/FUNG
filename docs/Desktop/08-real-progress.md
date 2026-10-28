@@ -1,7 +1,7 @@
 ---
-version: "0.3.48b"
+version: "0.3.49b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-28"
+last_update: "2026-10-29"
 
 status: "beta"
 superseded_by: null
@@ -12,6 +12,19 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## PID original-buffer boundary — 2026-10-28/29
+
+The [original stereo diagnostic](../verification/implementation-reports/2026-10-28-pid-original-buffer-diagnostic.md)
+retains bytes before decode/ReleaseBuffer. Both raw channels still lack 1,984
+active frames before Stop and 441 after Resume in both cycles. Independent
+scalar downmix reproduces all decoded mono, and all 12 writer chunks retain
+those bytes. Loss is present in delivered GetBuffer content; Windows internals
+and unretrieved packets remain unproved. No production PID repair is established.
+The test-only seam has two meaningful RED tests, 40 focused passes, 890 full
+library passes (13 native ignored), fmt/strict Clippy and a non-test release build
+with diagnostic markers absent. That build is not installed or launched. Both
+full installed gates remain open; no merge/tag/release.
 
 ## Installed audio retest — 2026-10-28
 

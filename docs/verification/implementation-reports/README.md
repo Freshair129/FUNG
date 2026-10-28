@@ -1,7 +1,7 @@
 ---
-version: "0.1.2r"
+version: "0.1.2s"
 created_at: "2026-10-19"
-last_update: "2026-10-28"
+last_update: "2026-10-29"
 status: "beta"
 superseded_by: null
 attributes:
@@ -12,6 +12,8 @@ attributes:
 ---
 
 # Implementation and review report index
+
+- [PID original-buffer diagnostic](2026-10-28-pid-original-buffer-diagnostic.md) — `beta`; original stereo already lacks active bands before decode; scalar downmix/all-writer byte custody verified, test-only source checks pass; PID/full installed gates stay open.
 
 - [Installed audio retest after HDMI return](2026-10-28-installed-audio-retest.md) — `beta`; installed PID FAIL, two endpoint PCM/separation component passes, full consumer/custody/recovery acceptance open; no merge/tag/release.
 

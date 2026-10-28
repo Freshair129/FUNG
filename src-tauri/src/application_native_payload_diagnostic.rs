@@ -1,4 +1,4 @@
-//! Test-only bounded custody of decoded native mono, before clock/queue/writer.
+//! Test-only bounded original stereo and decoded mono custody before clock/queue/writer.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -45,6 +45,38 @@ struct PacketReceipt {
     observed_elapsed_ns: u64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OriginalPacketReceipt {
+    offset_bytes: usize,
+    byte_length: usize,
+    frames: u32,
+    flags: u32,
+    device_index: u64,
+    qpc_hns: u64,
+    observed_elapsed_ns: u64,
+    kind: &'static str,
+}
+
+pub(super) struct OriginalPacketObservation<'a> {
+    pub(super) trace: &'a mut NativePayloadDiagnostic,
+    pub(super) index: u64,
+    pub(super) qpc: u64,
+    // Read-entry observation sampled before GetBuffer, not native QPC or exact copy time.
+    pub(super) elapsed: Duration,
+}
+
+impl OriginalPacketObservation<'_> {
+    /// Same valid acquired-buffer contract as the native decoder. Never reads
+    /// empty, SILENT, null or oversized pointers.
+    pub(super) unsafe fn record(self, pointer: *const u8, frames: u32, flags: u32) {
+        unsafe {
+            self.trace
+                .record_original(pointer, frames, flags, self.index, self.qpc, self.elapsed);
+        }
+    }
+}
+
 pub(super) struct NativePayloadDiagnostic {
     samples: Vec<i16>,
     packets: Vec<PacketReceipt>,
@@ -55,6 +87,12 @@ pub(super) struct NativePayloadDiagnostic {
     observed_frames: u64,
     native_stop: Option<Result<(), String>>,
     root: Option<PathBuf>,
+    original_bytes: Vec<u8>,
+    original_packets: Vec<OriginalPacketReceipt>,
+    original_invalid_reason: Option<&'static str>,
+    original_observed_frames: u64,
+    original_observed_packets: u64,
+    original_retained_frames: usize,
 }
 
 impl NativePayloadDiagnostic {
@@ -69,6 +107,76 @@ impl NativePayloadDiagnostic {
             observed_frames: 0,
             native_stop: None,
             root: None,
+            original_bytes: Vec::with_capacity(max_frames * 4),
+            original_packets: Vec::with_capacity(max_packets),
+            original_invalid_reason: None,
+            original_observed_frames: 0,
+            original_observed_packets: 0,
+            original_retained_frames: 0,
+        }
+    }
+
+    /// Copies original interleaved PCM16 stereo while WASAPI still owns the
+    /// acquired buffer. No allocation, I/O, serialization or hashing here.
+    unsafe fn record_original(
+        &mut self,
+        pointer: *const u8,
+        frames: u32,
+        flags: u32,
+        index: u64,
+        qpc: u64,
+        elapsed: Duration,
+    ) {
+        self.original_observed_packets = self.original_observed_packets.saturating_add(1);
+        self.original_observed_frames = self
+            .original_observed_frames
+            .saturating_add(u64::from(frames));
+        if self.original_invalid_reason.is_some() {
+            return;
+        }
+        let kind = if frames > 96_000 {
+            "invalid_oversize"
+        } else if frames == 0 {
+            "empty"
+        } else if flags & 2 != 0 {
+            "silent"
+        } else if pointer.is_null() {
+            "invalid_null"
+        } else {
+            "payload"
+        };
+        if self.original_packets.len() == self.max_packets
+            || frames as usize > self.max_frames - self.original_retained_frames
+        {
+            self.original_invalid_reason =
+                Some("bounded_original_payload_overrun; retained prefix is not complete evidence");
+            return;
+        }
+        let offset_bytes = self.original_bytes.len();
+        let byte_length = if kind == "payload" {
+            frames as usize * 4
+        } else {
+            0
+        };
+        if byte_length != 0 {
+            // Native contract guarantees a valid 4-byte stereo frame span only
+            // for the bounded non-SILENT/non-null case checked above.
+            let bytes = unsafe { std::slice::from_raw_parts(pointer, byte_length) };
+            self.original_bytes.extend_from_slice(bytes);
+        }
+        self.original_packets.push(OriginalPacketReceipt {
+            offset_bytes,
+            byte_length,
+            frames,
+            flags,
+            device_index: index,
+            qpc_hns: qpc,
+            observed_elapsed_ns: elapsed.as_nanos().min(u128::from(u64::MAX)) as u64,
+            kind,
+        });
+        self.original_retained_frames += frames as usize;
+        if kind == "invalid_null" || kind == "invalid_oversize" {
+            self.original_invalid_reason = Some("invalid_original_packet; no bytes dereferenced");
         }
     }
 
@@ -156,6 +264,40 @@ impl NativePayloadDiagnostic {
             root,
             "decoded-native-mono.json",
             &serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?,
+        )?;
+        let original_report = serde_json::json!({
+            "schema": "fung-original-native-stereo-v1",
+            "boundary": "successful GetBuffer while acquired buffer is valid; copied before decoder/downmix and ReleaseBuffer",
+            "format": {"encoding": "pcm-s16le", "sampleRate":48000,"channels":2,"bytesPerFrame":4},
+            "processId": process_id,
+            "pcmFile": "original-native-stereo.pcm",
+            "pcmSha256": format!("{:x}", Sha256::digest(&self.original_bytes)),
+            "pcmByteLength": self.original_bytes.len(),
+            "diagnosticValid": self.original_invalid_reason.is_none(),
+            "invalidReason": self.original_invalid_reason,
+            "maxFrames": self.max_frames,
+            "maxBytes": self.max_frames * 4,
+            "maxPackets": self.max_packets,
+            "observedPackets": self.original_observed_packets,
+            "observedFrames": self.original_observed_frames,
+            "retainedFrames": self.original_retained_frames,
+            "packets": self.original_packets,
+            "nativeStopResult": self.native_stop,
+            "captureResult": capture_result,
+            "writerResult": writer_result,
+            "probeBinary": binary,
+            "probeBinarySha256": binary_hash,
+            "captureSourceSha256": format!("{:x}", Sha256::digest(include_bytes!("live_application_audio.rs"))),
+            "diagnosticSourceSha256": format!("{:x}", Sha256::digest(include_bytes!("application_native_payload_diagnostic.rs"))),
+            "association": "one raw receipt per successful GetBuffer; mono receipt follows only successful decode/release; pair ordinals only with matching headers/counts and successful lifecycle outcomes",
+            "observedElapsedNsMeaning": "capture-thread elapsed sampled at read entry before GetBuffer; not exact buffer-copy time or native packet clock",
+            "scope": "test-only original buffer custody; SILENT has metadata only and no invented raw zero bytes; no native or installed acceptance/PID repair claim"
+        });
+        write_new(root, "original-native-stereo.pcm", &self.original_bytes)?;
+        write_new(
+            root,
+            "original-native-stereo.json",
+            &serde_json::to_vec_pretty(&original_report).map_err(|error| error.to_string())?,
         )
     }
 }
@@ -187,6 +329,85 @@ fn write_new(root: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn original_payload_bounds_include_silent_frames_and_empty_packet_floods() {
+        for (max_frames, max_packets, frames, flags) in [(2, 3, 2, 0), (2, 3, 2, 2), (20, 1, 0, 0)]
+        {
+            let mut trace = NativePayloadDiagnostic::new(max_frames, max_packets);
+            let bytes = [1u8, 2, 3, 4, 5, 6, 7, 8];
+            unsafe {
+                trace.record_original(bytes.as_ptr(), 1, 0, 10, 100, Duration::ZERO);
+                trace.record_original(bytes.as_ptr(), frames, flags, 11, 200, Duration::ZERO);
+                trace.record_original(bytes.as_ptr(), 1, 0, 12, 300, Duration::ZERO);
+            }
+            assert!(trace.original_invalid_reason.is_some());
+            assert_eq!(trace.original_bytes, [1, 2, 3, 4]);
+            assert_eq!(trace.original_packets.len(), 1);
+            assert_eq!(trace.original_retained_frames, 1);
+            assert_eq!(trace.original_observed_packets, 3);
+            assert!(trace.original_bytes.capacity() <= max_frames * 4);
+            assert!(trace.original_packets.capacity() <= max_packets);
+            assert!(
+                trace.invalid_reason.is_none(),
+                "raw overrun must not invalidate decoded collection"
+            );
+        }
+    }
+
+    #[test]
+    fn original_payload_offsets_hash_and_silent_semantics_remain_independent() {
+        let root = tempfile::tempdir().unwrap();
+        let mut trace = NativePayloadDiagnostic::new(8, 4);
+        trace.root = Some(root.path().to_path_buf());
+        let a = [0, 128, 255, 127, 255, 255, 1, 0];
+        let b = [0, 1, 0, 2];
+        unsafe {
+            trace.record_original(a.as_ptr(), 2, 1, 10, 100, Duration::from_nanos(7));
+            trace.record_original(std::ptr::dangling(), 2, 2, 12, 200, Duration::from_nanos(8));
+            trace.record_original(std::ptr::dangling(), 0, 4, 14, 300, Duration::from_nanos(9));
+            trace.record_original(b.as_ptr(), 1, 0, 14, 400, Duration::from_nanos(10));
+        }
+        assert_eq!(trace.original_bytes, [a.to_vec(), b.to_vec()].concat());
+        assert_eq!(
+            trace
+                .original_packets
+                .iter()
+                .map(|p| (p.offset_bytes, p.byte_length, p.kind))
+                .collect::<Vec<_>>(),
+            [
+                (0, 8, "payload"),
+                (8, 0, "silent"),
+                (8, 0, "empty"),
+                (8, 4, "payload")
+            ]
+        );
+        trace.stopped(&Err("native stop failed".into()));
+        trace
+            .flush_after_stop(77, &Err("release failed".into()), &Ok(()))
+            .unwrap();
+        let bytes = std::fs::read(root.path().join("original-native-stereo.pcm")).unwrap();
+        let report: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(root.path().join("original-native-stereo.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(report["pcmSha256"], format!("{:x}", Sha256::digest(&bytes)));
+        assert_eq!(report["pcmByteLength"], 12);
+        assert_eq!(report["observedFrames"], 5);
+        assert_eq!(report["retainedFrames"], 5);
+        assert_eq!(
+            report["nativeStopResult"],
+            serde_json::json!({"Err":"native stop failed"})
+        );
+        assert_eq!(
+            report["captureResult"],
+            serde_json::json!({"Err":"release failed"})
+        );
+        assert_eq!(
+            report["diagnosticValid"], true,
+            "collector completeness is not a native success result"
+        );
+    }
 
     #[test]
     fn native_payload_diagnostic_request_is_single_use_scoped_and_thread_local() {

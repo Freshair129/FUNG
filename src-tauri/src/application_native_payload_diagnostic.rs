@@ -7,11 +7,23 @@ use std::time::Duration;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-thread_local! {
-    static REQUEST: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum AcquisitionStrategy {
+    SizeHintGated,
+    DirectGetBuffer,
 }
 
-pub(super) struct ProbeRequestGuard(Option<PathBuf>);
+struct ProbeRequest {
+    root: PathBuf,
+    strategy: AcquisitionStrategy,
+}
+
+thread_local! {
+    static REQUEST: RefCell<Option<ProbeRequest>> = const { RefCell::new(None) };
+}
+
+pub(super) struct ProbeRequestGuard(Option<ProbeRequest>);
 
 impl Drop for ProbeRequestGuard {
     fn drop(&mut self) {
@@ -21,15 +33,25 @@ impl Drop for ProbeRequestGuard {
 
 /// Only the explicitly ignored owned probe arms this caller-local, single-use request.
 pub(super) fn request(root: PathBuf) -> ProbeRequestGuard {
-    ProbeRequestGuard(REQUEST.with(|request| request.replace(Some(root))))
+    request_with_strategy(root, AcquisitionStrategy::SizeHintGated)
+}
+
+pub(super) fn request_with_strategy(
+    root: PathBuf,
+    strategy: AcquisitionStrategy,
+) -> ProbeRequestGuard {
+    ProbeRequestGuard(
+        REQUEST.with(|request| request.replace(Some(ProbeRequest { root, strategy }))),
+    )
 }
 
 pub(super) fn take_request() -> Option<NativePayloadDiagnostic> {
     REQUEST
         .with(|request| request.borrow_mut().take())
-        .map(|root| {
+        .map(|request| {
             let mut trace = NativePayloadDiagnostic::new(24 * 48_000, 8192);
-            trace.root = Some(root);
+            trace.root = Some(request.root);
+            trace.acquisition_strategy = request.strategy;
             trace
         })
 }
@@ -93,6 +115,7 @@ pub(super) struct NativePayloadDiagnostic {
     original_observed_frames: u64,
     original_observed_packets: u64,
     original_retained_frames: usize,
+    acquisition_strategy: AcquisitionStrategy,
 }
 
 impl NativePayloadDiagnostic {
@@ -113,7 +136,12 @@ impl NativePayloadDiagnostic {
             original_observed_frames: 0,
             original_observed_packets: 0,
             original_retained_frames: 0,
+            acquisition_strategy: AcquisitionStrategy::SizeHintGated,
         }
+    }
+
+    pub(super) fn acquisition_strategy(&self) -> AcquisitionStrategy {
+        self.acquisition_strategy
     }
 
     /// Copies original interleaved PCM16 stereo while WASAPI still owns the
@@ -236,6 +264,7 @@ impl NativePayloadDiagnostic {
         let binary_hash = hash_file(&binary)?;
         let report = serde_json::json!({
             "schema": "fung-decoded-native-mono-v1",
+            "acquisitionStrategy": self.acquisition_strategy,
             "boundary": "read_application_packet returned after decode/ReleaseBuffer; before empty filtering, ApplicationPacketClock, queue and writer",
             "format": { "encoding": "pcm-s16le", "sampleRate": 48000, "channels": 1, "sourceChannels": 2, "downmix": "(i32(left)+i32(right))/2; SILENT decoded to zero" },
             "processId": process_id,
@@ -257,6 +286,7 @@ impl NativePayloadDiagnostic {
             "probeBinarySha256": binary_hash,
             "captureSourceSha256": format!("{:x}", Sha256::digest(include_bytes!("live_application_audio.rs"))),
             "diagnosticSourceSha256": format!("{:x}", Sha256::digest(include_bytes!("application_native_payload_diagnostic.rs"))),
+            "packetDriverSourceSha256": format!("{:x}", Sha256::digest(include_bytes!("application_packet_driver.rs"))),
             "scope": "test-only decoded native mono custody; no raw stereo byte, installed audio acceptance or PID repair claim"
         });
         write_new(root, "decoded-native-mono.pcm", &pcm)?;
@@ -267,6 +297,7 @@ impl NativePayloadDiagnostic {
         )?;
         let original_report = serde_json::json!({
             "schema": "fung-original-native-stereo-v1",
+            "acquisitionStrategy": self.acquisition_strategy,
             "boundary": "successful GetBuffer while acquired buffer is valid; copied before decoder/downmix and ReleaseBuffer",
             "format": {"encoding": "pcm-s16le", "sampleRate":48000,"channels":2,"bytesPerFrame":4},
             "processId": process_id,
@@ -289,6 +320,7 @@ impl NativePayloadDiagnostic {
             "probeBinarySha256": binary_hash,
             "captureSourceSha256": format!("{:x}", Sha256::digest(include_bytes!("live_application_audio.rs"))),
             "diagnosticSourceSha256": format!("{:x}", Sha256::digest(include_bytes!("application_native_payload_diagnostic.rs"))),
+            "packetDriverSourceSha256": format!("{:x}", Sha256::digest(include_bytes!("application_packet_driver.rs"))),
             "association": "one raw receipt per successful GetBuffer; mono receipt follows only successful decode/release; pair ordinals only with matching headers/counts and successful lifecycle outcomes",
             "observedElapsedNsMeaning": "capture-thread elapsed sampled at read entry before GetBuffer; not exact buffer-copy time or native packet clock",
             "scope": "test-only original buffer custody; SILENT has metadata only and no invented raw zero bytes; no native or installed acceptance/PID repair claim"
@@ -329,6 +361,66 @@ fn write_new(root: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_acquisition_request_is_scoped_single_use_and_strategy_is_receipted() {
+        assert!(take_request().is_none());
+        let root = tempfile::tempdir().unwrap();
+        {
+            let _outer = request(PathBuf::from("outer-size-hint"));
+            {
+                let _direct = request_with_strategy(
+                    root.path().to_path_buf(),
+                    AcquisitionStrategy::DirectGetBuffer,
+                );
+                let mut trace = take_request().unwrap();
+                assert_eq!(
+                    trace.acquisition_strategy(),
+                    AcquisitionStrategy::DirectGetBuffer
+                );
+                assert!(take_request().is_none());
+                std::thread::spawn(|| assert!(take_request().is_none()))
+                    .join()
+                    .unwrap();
+                let bytes = [1u8, 0, 255, 255];
+                unsafe {
+                    trace.record_original(bytes.as_ptr(), 1, 0, 7, 12, Duration::ZERO);
+                }
+                trace.record(&[0], 7, 0, 12, Duration::ZERO);
+                // Direct drain's terminal empty acquisition has no native packet
+                // timestamp; both collectors retain that explicit empty receipt.
+                unsafe {
+                    trace.record_original(std::ptr::null(), 0, 0, 0, 0, Duration::ZERO);
+                }
+                trace.record(&[], 0, 0, 0, Duration::ZERO);
+                trace.stopped(&Ok(()));
+                trace.flush_after_stop(42, &Ok(()), &Ok(())).unwrap();
+                for file in ["decoded-native-mono.json", "original-native-stereo.json"] {
+                    let receipt: serde_json::Value =
+                        serde_json::from_slice(&std::fs::read(root.path().join(file)).unwrap())
+                            .unwrap();
+                    assert_eq!(receipt["acquisitionStrategy"], "direct_get_buffer");
+                    assert_eq!(receipt["observedPackets"], 2);
+                    assert_eq!(receipt["packets"][1]["frames"], 0);
+                    assert_eq!(receipt["packets"][1]["qpcHns"], 0);
+                    assert_eq!(
+                        receipt["packetDriverSourceSha256"],
+                        format!(
+                            "{:x}",
+                            Sha256::digest(include_bytes!("application_packet_driver.rs"))
+                        )
+                    );
+                }
+            }
+            let restored = take_request().unwrap();
+            assert_eq!(
+                restored.acquisition_strategy(),
+                AcquisitionStrategy::SizeHintGated
+            );
+            assert_eq!(restored.root.as_deref(), Some(Path::new("outer-size-hint")));
+        }
+        assert!(take_request().is_none());
+    }
 
     #[test]
     fn original_payload_bounds_include_silent_frames_and_empty_packet_floods() {

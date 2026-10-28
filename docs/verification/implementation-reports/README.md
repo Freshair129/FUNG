@@ -1,5 +1,5 @@
 ---
-version: "0.1.2s"
+version: "0.1.2t"
 created_at: "2026-10-19"
 last_update: "2026-10-29"
 status: "beta"
@@ -12,6 +12,8 @@ attributes:
 ---
 
 # Implementation and review report index
+
+- [Capture backend investigation and recovery guard](2026-10-29-capture-backend-and-recovery-guard.md) — `beta`; matched direct acquisition still fails; real legacy recovery source-admission defect has RED5/GREEN15. No new installed repair or two-mode acceptance; merge/tag gates stay open.
 
 - [PID original-buffer diagnostic](2026-10-28-pid-original-buffer-diagnostic.md) — `beta`; original stereo already lacks active bands before decode; scalar downmix/all-writer byte custody verified, test-only source checks pass; PID/full installed gates stay open.
 

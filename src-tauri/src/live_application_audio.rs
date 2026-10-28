@@ -54,7 +54,7 @@ mod windows_impl {
 
     #[cfg(test)]
     use super::native_payload_diagnostic::{
-        self, NativePayloadDiagnostic, OriginalPacketObservation,
+        self, AcquisitionStrategy, NativePayloadDiagnostic, OriginalPacketObservation,
     };
     use super::packet_driver::{self, PacketSource, PacketWait};
     use super::LiveCaptureApplication;
@@ -761,16 +761,25 @@ mod windows_impl {
         #[test]
         #[ignore = "records the explicitly selected process into a fresh isolated directory"]
         fn native_application_loopback_probe() {
-            run_native_application_loopback_probe(false);
+            run_native_application_loopback_probe(false, AcquisitionStrategy::SizeHintGated);
         }
 
         #[test]
         #[ignore = "owned selected-process 20-second probe retaining bounded decoded native mono; explicit native authorization required"]
         fn native_application_loopback_payload_probe() {
-            run_native_application_loopback_probe(true);
+            run_native_application_loopback_probe(true, AcquisitionStrategy::SizeHintGated);
         }
 
-        fn run_native_application_loopback_probe(retain_native_payload: bool) {
+        #[test]
+        #[ignore = "owned 20-second direct-GetBuffer candidate; explicit native authorization and fresh control required"]
+        fn native_application_loopback_direct_acquisition_payload_probe() {
+            run_native_application_loopback_probe(true, AcquisitionStrategy::DirectGetBuffer);
+        }
+
+        fn run_native_application_loopback_probe(
+            retain_native_payload: bool,
+            strategy: AcquisitionStrategy,
+        ) {
             let process_id: u32 = std::env::var("FUNG_APPLICATION_PROBE_PID")
                 .expect("set the controlled audio fixture PID")
                 .parse()
@@ -784,8 +793,8 @@ mod windows_impl {
             let stop = Arc::new(AtomicBool::new(false));
             let (tx, rx) = mpsc::sync_channel(256);
             let duration_secs = if retain_native_payload { 20 } else { 12 };
-            let diagnostic_request =
-                retain_native_payload.then(|| native_payload_diagnostic::request(root.clone()));
+            let diagnostic_request = retain_native_payload
+                .then(|| native_payload_diagnostic::request_with_strategy(root.clone(), strategy));
             let ready = spawn_application_capture_thread(
                 process_id,
                 application.name,
@@ -1802,23 +1811,41 @@ mod windows_impl {
                     chunk_tx,
                 )
             });
-            let capture_result = packet_driver::run(&mut NativePacketSource {
-                client: &client,
-                capture: &capture,
-                event: &event,
-                stop: &stop,
-                startup_cancel,
-                readiness,
-                application_name,
-                packet_tx: &packet_tx,
-                queue_failure: &mut queue_failure,
-                expected_sample: 0,
-                packet_clock: ApplicationPacketClock::default(),
-                packet_number: 0,
-                capture_started,
+            #[cfg(test)]
+            let strategy = diagnostic.as_ref().map_or(
+                AcquisitionStrategy::SizeHintGated,
+                NativePayloadDiagnostic::acquisition_strategy,
+            );
+            let capture_result = {
+                let mut source = NativePacketSource {
+                    client: &client,
+                    capture: &capture,
+                    event: &event,
+                    stop: &stop,
+                    startup_cancel,
+                    readiness,
+                    application_name,
+                    packet_tx: &packet_tx,
+                    queue_failure: &mut queue_failure,
+                    expected_sample: 0,
+                    packet_clock: ApplicationPacketClock::default(),
+                    packet_number: 0,
+                    capture_started,
+                    #[cfg(test)]
+                    diagnostic: diagnostic.as_mut(),
+                };
                 #[cfg(test)]
-                diagnostic: diagnostic.as_mut(),
-            });
+                {
+                    match strategy {
+                        AcquisitionStrategy::SizeHintGated => packet_driver::run(&mut source),
+                        AcquisitionStrategy::DirectGetBuffer => {
+                            packet_driver::run_direct(&mut source)
+                        }
+                    }
+                }
+                #[cfg(not(test))]
+                packet_driver::run(&mut source)
+            };
             // Stop native production before potentially waiting on disk/event work.
             // Closing the queue drains every accepted packet and flushes its tail.
             drop(packet_tx);

@@ -1,5 +1,5 @@
 ---
-version: "0.3.49b"
+version: "0.3.50b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-29"
 
@@ -12,6 +12,21 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## Direct acquisition rejected; legacy recovery admission fixed — 2026-10-29
+
+The [backend/guard checkpoint](../verification/implementation-reports/2026-10-29-capture-backend-and-recovery-guard.md)
+finds no verified independent direct-PID replacement in the inspected primary
+sources. A matched, cfg(test)-only direct GetBuffer experiment still loses
+1,504 frames before Stop and441 after Resume in both cycles; baseline itself
+also produces1,504, so this is not a demonstrated improvement. Original/mono/
+writer byte custody and fault-free controls are independently checked. No new
+PID method is enabled in production or presented as a repair package.
+Legacy recovery is separately corrected to reject routed ownership before paths/
+adoption/finish/gap-fill; RED5 and recovery GREEN15 preserve SDK frontier, seven
+tables and media. This source guard is not implemented source-aware recovery or
+an installed five-state acceptance. Both full installed gates remain open;
+the user has only this host. No merge/tag/release.
 
 ## PID original-buffer boundary — 2026-10-28/29
 
@@ -1888,6 +1903,12 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.49b` → `0.3.50b`
+
+- Retain fresh baseline/direct-GetBuffer native FAIL; do not adopt the candidate.
+- Record RED5/GREEN15 and source review for the legacy recovery source guard;
+  source-aware recovery and both full installed audio gates remain open.
+
 ### `0.3.35b` → `0.3.36b`
 
 - Record ec494fd installed microphone output and successful active-PID inventory.
@@ -2195,6 +2216,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.50b | 2026-10-29 | beta | Direct acquisition and matched baseline retain native FAIL; no production adoption. Legacy recovery source guard has RED5/GREEN15 and source GO; fresh serial library902pass/14ignored follows retained Winsock10055 failure. Both installed audio gates remain open. | see Git history | Codex |
 | 0.3.47b | 2026-10-27 | beta | Source GO for truthful routed metadata, desktop source guard and test-only pre-clock evidence; 885 library/17 integration and strict checks pass. Native n01 NOT_RUN at missing-device admission; no merge/tag/release. | see Git history | Codex |
 | 0.3.46b | 2026-10-27 | beta | Installed f06c9f1 candidate: PID FAIL, endpoint NOT_PROVEN, actual export rejection and orderly reopen persistence; independent reanalysis agrees. No merge/tag/release. | see Git history | Codex |
 | 0.3.45b | 2026-10-27 | beta | PID shared lifecycle driver has bounded RED/GREEN and independent source acceptance; local873library/12ignored,17integration,12custody and strict checks pass. New candidate build is separate from deferred actual audio; no install/merge/tag. | see Git history | Codex |

@@ -106,6 +106,52 @@ pub(super) fn run<S: PacketSource>(source: &mut S) -> Result<(), String> {
     combine(result, cleanup)
 }
 
+#[cfg(test)]
+pub(super) fn run_direct<S: PacketSource>(source: &mut S) -> Result<(), String> {
+    // Explicit ignored-probe candidate only. GetBuffer's empty result, rather
+    // than an optional size hint, closes this drain. Production run is unchanged.
+    let mut started = false;
+    let mut stopped = false;
+    let result = catch_failure(|| {
+        if source.cancelled() {
+            return Err("application capture cancelled before Start".into());
+        }
+        source.start()?;
+        started = true;
+        if source.cancelled() {
+            return Err("application capture cancelled before readiness".into());
+        }
+        source.ready()?;
+        loop {
+            if source.cancelled() {
+                stop_once(source, &mut stopped)?;
+            } else if matches!(source.wait()?, PacketWait::Timeout) {
+                continue;
+            }
+            loop {
+                if !stopped && source.cancelled() {
+                    stop_once(source, &mut stopped)?;
+                }
+                let Some(packet) = source.read()? else {
+                    // No packet was acquired: native reader does not Release.
+                    // After Stop this is the normal final-drain terminator.
+                    break;
+                };
+                source.accept(packet)?;
+            }
+            if stopped {
+                return Ok(());
+            }
+        }
+    });
+    let cleanup = if started && !stopped {
+        catch_failure(|| stop_once(source, &mut stopped))
+    } else {
+        Ok(())
+    };
+    combine(result, cleanup)
+}
+
 pub(super) fn receive_readiness(
     receiver: &mpsc::Receiver<Result<String, String>>,
     cancelled: &AtomicBool,
@@ -173,6 +219,8 @@ mod tests {
         local_cancel: Option<std::sync::Arc<AtomicBool>>,
         actions: Vec<&'static str>,
         owner: Option<std::thread::ThreadId>,
+        zero_hint: bool,
+        direct_empty_after: Option<usize>,
     }
 
     impl PacketSource for Script {
@@ -225,13 +273,16 @@ mod tests {
             if self.first_wait_timeout && self.waits == 1 {
                 return Ok(PacketWait::Timeout);
             }
-            if self.empty && self.waits == 2 {
+            if (self.empty || self.zero_hint) && self.waits == 2 {
                 self.cancelled = true;
             }
             Ok(PacketWait::Signaled)
         }
         fn next_packet_size(&mut self) -> Result<u32, String> {
             self.actions.push("peek");
+            if self.zero_hint {
+                return Ok(0);
+            }
             if self.peek_failure && self.reads == 1 {
                 return Err("peek failed".into());
             }
@@ -248,6 +299,12 @@ mod tests {
         fn read(&mut self) -> Result<Option<u8>, String> {
             self.reads += 1;
             self.actions.push("read");
+            if self
+                .direct_empty_after
+                .is_some_and(|last| self.reads > last)
+            {
+                return Ok(None);
+            }
             if self.panic_read && self.reads == 2 {
                 panic!("script read panic");
             }
@@ -279,6 +336,131 @@ mod tests {
         assert_eq!(source.accepted, [1, 2]);
         assert_eq!(source.stops, 1);
         assert_eq!(source.waits, 1);
+    }
+
+    #[test]
+    fn direct_acquisition_reads_payload_without_consulting_zero_size_hint() {
+        let mut source = Script {
+            zero_hint: true,
+            direct_empty_after: Some(2),
+            ..Script::default()
+        };
+        run_direct(&mut source).unwrap();
+        assert_eq!(source.accepted, [1, 2]);
+        assert!(!source.actions.contains(&"peek"));
+        assert_eq!((source.stops, source.reads), (1, 3));
+    }
+
+    #[test]
+    fn direct_acquisition_empty_read_yields_and_empty_after_stop_is_complete() {
+        let mut source = Script {
+            empty: true,
+            ..Script::default()
+        };
+        run_direct(&mut source).unwrap();
+        assert_eq!((source.waits, source.reads, source.stops), (2, 2, 1));
+        assert!(!source.actions.contains(&"peek"));
+        assert!(source.accepted.is_empty());
+    }
+
+    #[test]
+    fn direct_acquisition_drains_actual_final_packet_after_stop() {
+        let mut source = Script {
+            direct_empty_after: Some(3),
+            ..Script::default()
+        };
+        run_direct(&mut source).unwrap();
+        assert_eq!(source.accepted, [1, 2, 3]);
+        assert_eq!((source.waits, source.reads, source.stops), (1, 4, 1));
+        assert!(!source.actions.contains(&"peek"));
+    }
+
+    #[test]
+    fn direct_acquisition_stop_interrupts_continuous_drain_once() {
+        let mut source = Script {
+            continuous: true,
+            direct_empty_after: Some(2),
+            ..Script::default()
+        };
+        run_direct(&mut source).unwrap();
+        assert_eq!(source.accepted, [1, 2]);
+        assert_eq!((source.stops, source.reads), (1, 3));
+        assert_eq!(
+            source.actions,
+            ["start", "ready", "wait", "read", "accept", "stop", "read", "accept", "read"]
+        );
+    }
+
+    #[test]
+    fn direct_acquisition_retains_read_panic_queue_wait_start_and_cleanup_errors() {
+        for (point, expected, accepted, stops) in [
+            ("read", "packet read failed", vec![1], 1),
+            ("panic", "script read panic", vec![1], 1),
+            ("queue", "queue full", vec![1], 1),
+            ("wait", "wait failed", vec![], 1),
+            ("ready", "ready receiver abandoned", vec![], 1),
+            ("start", "Start failed", vec![], 0),
+            ("stop", "native Stop failed", vec![1, 2], 1),
+        ] {
+            let mut source = Script {
+                direct_empty_after: Some(2),
+                read_failure: point == "read",
+                panic_read: point == "panic",
+                queue_failure: point == "queue",
+                wait_failure: point == "wait",
+                abandoned: point == "ready",
+                start_failure: point == "start",
+                stop_failure: point != "start",
+                ..Script::default()
+            };
+            let error = run_direct(&mut source).unwrap_err();
+            assert!(error.contains(expected), "{point}: {error}");
+            if point != "start" {
+                assert!(error.contains("native Stop failed"), "{point}: {error}");
+            }
+            assert_eq!(source.accepted, accepted, "{point}");
+            assert_eq!(source.stops, stops, "{point}");
+        }
+    }
+
+    #[test]
+    fn direct_acquisition_cancellation_and_timeout_keep_control_semantics() {
+        let mut pre_cancel = Script {
+            cancelled: true,
+            ..Script::default()
+        };
+        assert!(run_direct(&mut pre_cancel).unwrap_err().contains("cancel"));
+        assert_eq!(
+            (pre_cancel.starts, pre_cancel.stops, pre_cancel.reads),
+            (0, 0, 0)
+        );
+        let mut during_start = Script {
+            cancel_during_start: true,
+            ..Script::default()
+        };
+        assert!(run_direct(&mut during_start)
+            .unwrap_err()
+            .contains("cancel"));
+        assert_eq!(
+            (
+                during_start.starts,
+                during_start.stops,
+                during_start.ready_calls
+            ),
+            (1, 1, 0)
+        );
+        let mut timeout = Script {
+            first_wait_timeout: true,
+            direct_empty_after: Some(2),
+            ..Script::default()
+        };
+        run_direct(&mut timeout).unwrap();
+        assert_eq!(
+            &timeout.actions[..5],
+            ["start", "ready", "wait", "wait", "read"]
+        );
+        assert_eq!(timeout.accepted, [1, 2]);
+        assert_eq!(timeout.stops, 1);
     }
 
     #[test]

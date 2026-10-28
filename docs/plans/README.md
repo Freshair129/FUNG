@@ -1,5 +1,5 @@
 ---
-version: "0.1.3d"
+version: "0.1.3e"
 created_at: "2026-10-19"
 last_update: "2026-10-29"
 status: "beta"
@@ -16,6 +16,8 @@ attributes:
 แผนในโฟลเดอร์นี้ระบุขอบเขตและลำดับงาน ไม่ใช่หลักฐานว่างานเสร็จหรือฟีเจอร์ทำงานแล้ว
 
 ## จุดอ้างอิงหลัก
+
+- [Direct acquisition experiment and recovery guard](2026-10-29-direct-acquisition-and-recovery-guard.md) tests the remaining size-hint admission hypothesis and fences legacy recovery from routed sources. Native failure does not unlock production adoption or package acceptance.
 
 - [PID original-buffer diagnostic](2026-10-28-pid-original-buffer-diagnostic.md) extends the test-only pre-clock evidence to original stereo before decode; it does not implement a production PID repair or close either installed gate.
 

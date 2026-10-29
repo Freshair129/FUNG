@@ -1,7 +1,7 @@
 ---
 version: "0.1.0b"
 created_at: "2026-10-19"
-last_update: "2026-10-19"
+last_update: "2026-10-25"
 status: "beta"
 superseded_by: null
 attributes:
@@ -64,3 +64,5 @@ Specifications refine requirements into observable behavior, technical boundarie
 - [2026-08-26-phase-4-w2-external-evidence-execution-amendment](2026-08-26-phase-4-w2-external-evidence-execution-amendment.md) — `candidate`
 - [2026-10-01-python-runtime-dependabot-remediation](2026-10-01-python-runtime-dependabot-remediation.md) — `candidate`
 - [2026-10-20-product-mcp-v2-contract](2026-10-20-product-mcp-v2-contract.md) — `accepted`; paired with `contracts/product-mcp-v2.yaml`
+
+- [Dedicated endpoint routing design](2026-10-25-dedicated-endpoint-routing-design.md) — `candidate`; existing-device inventory and native feasibility before product integration or release.

@@ -6,6 +6,14 @@
 
 use serde::Serialize;
 
+#[cfg(windows)]
+#[path = "application_packet_driver.rs"]
+mod packet_driver;
+
+#[cfg(all(windows, test))]
+#[path = "application_native_payload_diagnostic.rs"]
+mod native_payload_diagnostic;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LiveCaptureApplication {
@@ -32,10 +40,11 @@ mod windows_impl {
         IAudioCaptureClient, AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY, AUDCLNT_BUFFERFLAGS_SILENT,
         AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR,
     };
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, WAIT_FAILED};
     use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
     use windows_sys::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, QueryFullProcessImageNameW, WaitForSingleObject,
+        PROCESS_QUERY_LIMITED_INFORMATION,
     };
 
     use crate::live_meeting::{
@@ -43,6 +52,11 @@ mod windows_impl {
         CaptureReady, CaptureSampleBatch, CHANNEL_SYSTEM,
     };
 
+    #[cfg(test)]
+    use super::native_payload_diagnostic::{
+        self, AcquisitionStrategy, NativePayloadDiagnostic, OriginalPacketObservation,
+    };
+    use super::packet_driver::{self, PacketSource, PacketWait};
     use super::LiveCaptureApplication;
 
     const MIN_PROCESS_LOOPBACK_BUILD: u32 = 20_348;
@@ -80,7 +94,14 @@ mod windows_impl {
         frames: u32,
         flags: u32,
         release: impl FnOnce() -> Result<(), String>,
+        #[cfg(test)] original: Option<OriginalPacketObservation<'_>>,
     ) -> Result<Vec<i16>, String> {
+        #[cfg(test)]
+        if let Some(original) = original {
+            unsafe {
+                original.record(pointer, frames, flags);
+            }
+        }
         let decoded = (|| {
             if frames > APP_CAPTURE_FORMAT_RATE * 2 {
                 return Err("audio packet จากแอปเกินขนาด buffer ที่อนุญาต".to_string());
@@ -116,6 +137,8 @@ mod windows_impl {
 
     fn read_application_packet(
         capture: &IAudioCaptureClient,
+        #[cfg(test)] diagnostic: Option<&mut NativePayloadDiagnostic>,
+        #[cfg(test)] elapsed: Duration,
     ) -> Result<(Vec<i16>, u64, u32, u64), String> {
         let mut pointer = std::ptr::null_mut();
         let (mut frames, mut flags, mut index, mut timestamp) = (0, 0, 0, 0);
@@ -129,16 +152,36 @@ mod windows_impl {
             )
         }
         .map_err(|error| format!("อ่าน audio packet จากแอปไม่สำเร็จ: {error}"))?;
+        #[cfg(test)]
+        let original = diagnostic.map(|trace| OriginalPacketObservation {
+            trace,
+            index,
+            qpc: timestamp,
+            elapsed,
+        });
         // A successful empty read has no packet to release.
         if frames == 0 {
+            #[cfg(test)]
+            if let Some(original) = original {
+                unsafe {
+                    original.record(pointer, frames, flags);
+                }
+            }
             return Ok((Vec::new(), index, flags, timestamp));
         }
         let samples = unsafe {
-            decode_and_release_application_packet(pointer, frames, flags, || {
-                capture
-                    .ReleaseBuffer(frames)
-                    .map_err(|error| format!("คืน audio packet จากแอปไม่สำเร็จ: {error}"))
-            })
+            decode_and_release_application_packet(
+                pointer,
+                frames,
+                flags,
+                || {
+                    capture
+                        .ReleaseBuffer(frames)
+                        .map_err(|error| format!("คืน audio packet จากแอปไม่สำเร็จ: {error}"))
+                },
+                #[cfg(test)]
+                original,
+            )
         }?;
         Ok((samples, index, flags, timestamp))
     }
@@ -423,6 +466,117 @@ mod windows_impl {
         use super::*;
 
         #[test]
+        fn shared_driver_stop_and_read_failure_flush_exact_accepted_pcm_with_real_writer() {
+            struct ScriptedPackets {
+                sender: mpsc::SyncSender<CaptureSampleBatch>,
+                expected: u64,
+                cancelled: bool,
+                stopped: bool,
+                stops: usize,
+                reads: usize,
+                fail_read: bool,
+            }
+            impl PacketSource for ScriptedPackets {
+                type Packet = CaptureSampleBatch;
+                fn cancelled(&self) -> bool {
+                    self.cancelled
+                }
+                fn start(&mut self) -> Result<(), String> {
+                    Ok(())
+                }
+                fn ready(&mut self) -> Result<(), String> {
+                    Ok(())
+                }
+                fn stop(&mut self) -> Result<(), String> {
+                    self.stops += 1;
+                    self.stopped = true;
+                    Ok(())
+                }
+                fn wait(&mut self) -> Result<PacketWait, String> {
+                    Ok(PacketWait::Signaled)
+                }
+                fn next_packet_size(&mut self) -> Result<u32, String> {
+                    if self.reads > 2 {
+                        return Err("script operation bound: Stop starved".into());
+                    }
+                    // Production is unbounded until the real shared driver calls Stop.
+                    Ok(u32::from(!self.stopped || self.reads < 2))
+                }
+                fn read(&mut self) -> Result<Option<Self::Packet>, String> {
+                    self.reads += 1;
+                    if self.fail_read && self.reads == 2 {
+                        return Err("script packet read failed".into());
+                    }
+                    Ok(Some(CaptureSampleBatch {
+                        first_sample: self.expected,
+                        silence_before: None,
+                        samples: if self.reads == 1 {
+                            vec![1200; 480]
+                        } else {
+                            vec![2400; 7]
+                        },
+                    }))
+                }
+                fn accept(&mut self, packet: Self::Packet) -> Result<(), String> {
+                    queue_application_packet(&self.sender, &mut self.expected, packet)
+                        .map_err(|failure| failure.reason.to_string())?;
+                    self.cancelled = true;
+                    Ok(())
+                }
+            }
+            for fail_read in [false, true] {
+                let root = tempfile::tempdir().unwrap();
+                let (event_tx, event_rx) = mpsc::sync_channel(8);
+                thread::scope(|scope| {
+                    let (sender, receiver) = mpsc::sync_channel(APP_WRITER_QUEUE_PACKETS);
+                    let writer = scope.spawn(|| {
+                        write_application_packets(
+                            receiver,
+                            APP_CAPTURE_FORMAT_RATE,
+                            48000,
+                            root.path(),
+                            &event_tx,
+                        )
+                    });
+                    let mut source = ScriptedPackets {
+                        sender,
+                        expected: 0,
+                        cancelled: false,
+                        stopped: false,
+                        stops: 0,
+                        reads: 0,
+                        fail_read,
+                    };
+                    let result = packet_driver::run(&mut source);
+                    if fail_read {
+                        assert_eq!(result.unwrap_err(), "script packet read failed");
+                    } else {
+                        result.unwrap();
+                    }
+                    assert_eq!(source.stops, 1);
+                    assert_eq!(source.reads, 2);
+                    drop(source); // The actual writer drains accepted packets and flushes its tail.
+                    writer.join().unwrap().unwrap();
+                });
+                let CaptureEvent::Chunk(chunk) = event_rx.recv().unwrap() else {
+                    panic!("accepted PCM tail lost");
+                };
+                let samples: Vec<i16> = hound::WavReader::open(chunk.file_path)
+                    .unwrap()
+                    .into_samples::<i16>()
+                    .map(Result::unwrap)
+                    .collect();
+                let mut expected = vec![1200; 480];
+                if !fail_read {
+                    expected.extend([2400; 7]);
+                }
+                assert_eq!(samples, expected);
+                assert_eq!(chunk.start_ms, 0);
+                assert!(event_rx.try_recv().is_err());
+            }
+        }
+
+        #[test]
         fn application_event_reader_uses_bounded_writer_queue() {
             assert!(
                 matches!(
@@ -607,6 +761,25 @@ mod windows_impl {
         #[test]
         #[ignore = "records the explicitly selected process into a fresh isolated directory"]
         fn native_application_loopback_probe() {
+            run_native_application_loopback_probe(false, AcquisitionStrategy::SizeHintGated);
+        }
+
+        #[test]
+        #[ignore = "owned selected-process 20-second probe retaining bounded decoded native mono; explicit native authorization required"]
+        fn native_application_loopback_payload_probe() {
+            run_native_application_loopback_probe(true, AcquisitionStrategy::SizeHintGated);
+        }
+
+        #[test]
+        #[ignore = "owned 20-second direct-GetBuffer candidate; explicit native authorization and fresh control required"]
+        fn native_application_loopback_direct_acquisition_payload_probe() {
+            run_native_application_loopback_probe(true, AcquisitionStrategy::DirectGetBuffer);
+        }
+
+        fn run_native_application_loopback_probe(
+            retain_native_payload: bool,
+            strategy: AcquisitionStrategy,
+        ) {
             let process_id: u32 = std::env::var("FUNG_APPLICATION_PROBE_PID")
                 .expect("set the controlled audio fixture PID")
                 .parse()
@@ -619,6 +792,9 @@ mod windows_impl {
             std::fs::create_dir_all(&root).unwrap();
             let stop = Arc::new(AtomicBool::new(false));
             let (tx, rx) = mpsc::sync_channel(256);
+            let duration_secs = if retain_native_payload { 20 } else { 12 };
+            let diagnostic_request = retain_native_payload
+                .then(|| native_payload_diagnostic::request_with_strategy(root.clone(), strategy));
             let ready = spawn_application_capture_thread(
                 process_id,
                 application.name,
@@ -628,13 +804,14 @@ mod windows_impl {
                 2_000,
             )
             .unwrap();
+            drop(diagnostic_request);
             std::fs::write(root.join("ready.txt"), &ready.device_name).unwrap();
-            eprintln!("APPLICATION_CAPTURE_READY: PID {process_id}, 12-second isolated probe");
+            eprintln!("APPLICATION_CAPTURE_READY: PID {process_id}, {duration_secs}-second isolated probe");
             let started = Instant::now();
             let mut chunks = Vec::new();
             let mut faults = Vec::new();
             loop {
-                if started.elapsed() >= Duration::from_secs(12) {
+                if started.elapsed() >= Duration::from_secs(duration_secs) {
                     stop.store(true, Ordering::SeqCst);
                 }
                 match rx.recv_timeout(Duration::from_millis(100)) {
@@ -650,7 +827,7 @@ mod windows_impl {
                     Ok(CaptureEvent::ChunkWriteFailed { error, .. }) => faults.push(error),
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     Err(mpsc::RecvTimeoutError::Timeout) => {
-                        assert!(started.elapsed() < Duration::from_secs(22));
+                        assert!(started.elapsed() < Duration::from_secs(duration_secs + 10));
                     }
                 }
             }
@@ -677,6 +854,336 @@ mod windows_impl {
             eprintln!("{report}");
             assert!(faults.is_empty());
             assert!(nonzero > 0, "controlled fixture must produce actual audio");
+            if retain_native_payload {
+                let receipt: serde_json::Value = serde_json::from_slice(
+                    &std::fs::read(root.join("decoded-native-mono.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(
+                    receipt["diagnosticValid"], true,
+                    "bounded payload collection overran; no complete reconciliation claim"
+                );
+                assert_eq!(receipt["nativeStopResult"], serde_json::json!({"Ok": null}));
+            }
+        }
+
+        #[test]
+        fn application_original_bytes_are_retained_before_release_mutates_buffer() {
+            let root = tempfile::tempdir().unwrap();
+            let _request = native_payload_diagnostic::request(root.path().to_path_buf());
+            let mut diagnostic = native_payload_diagnostic::take_request().unwrap();
+            let frames = [
+                [i16::MIN, i16::MIN],
+                [i16::MAX, i16::MAX],
+                [i16::MIN, i16::MAX],
+                [-501, 1000],
+                [501, -1000],
+            ];
+            let mut bytes: Vec<u8> = frames
+                .into_iter()
+                .flatten()
+                .flat_map(i16::to_le_bytes)
+                .collect();
+            let expected = bytes.clone();
+            let pointer = bytes.as_ptr();
+            let mut releases = 0;
+            let mono = unsafe {
+                decode_and_release_application_packet(
+                    pointer,
+                    5,
+                    0,
+                    || {
+                        releases += 1;
+                        bytes.fill(0);
+                        Ok(())
+                    },
+                    Some(OriginalPacketObservation {
+                        trace: &mut diagnostic,
+                        index: 700,
+                        qpc: 9000,
+                        elapsed: Duration::from_nanos(9),
+                    }),
+                )
+            }
+            .unwrap();
+            assert_eq!(mono, [i16::MIN, i16::MAX, 0, 249, -249]);
+            assert_eq!(releases, 1);
+            diagnostic.record(&mono, 700, 0, 9000, Duration::from_nanos(9));
+            assert!(!root.path().join("original-native-stereo.pcm").exists());
+            diagnostic.stopped(&Ok(()));
+            diagnostic.flush_after_stop(42, &Ok(()), &Ok(())).unwrap();
+            assert!(
+                root.path().join("original-native-stereo.pcm").is_file(),
+                "predecode original byte evidence is missing"
+            );
+            assert_eq!(
+                std::fs::read(root.path().join("original-native-stereo.pcm")).unwrap(),
+                expected
+            );
+        }
+
+        // This is an in-process COM vtable fixture, not a device/client activation.
+        // It exercises the real read_application_packet GetBuffer/empty/ReleaseBuffer seam.
+        #[repr(C)]
+        struct OriginalBufferCaptureFixture {
+            vtable: *const windows::Win32::Media::Audio::IAudioCaptureClient_Vtbl,
+            frames: u32,
+            flags: u32,
+            bytes: Vec<u8>,
+            bad_pointer: bool,
+            null_pointer: bool,
+            acquire_failure: bool,
+            release_failure: bool,
+            releases: Arc<std::sync::atomic::AtomicU32>,
+        }
+
+        impl OriginalBufferCaptureFixture {
+            const VTABLE: windows::Win32::Media::Audio::IAudioCaptureClient_Vtbl =
+                windows::Win32::Media::Audio::IAudioCaptureClient_Vtbl {
+                    base__: windows::core::IUnknown_Vtbl {
+                        QueryInterface: Self::query,
+                        AddRef: Self::add_ref,
+                        Release: Self::release,
+                    },
+                    GetBuffer: Self::get_buffer,
+                    ReleaseBuffer: Self::release_buffer,
+                    GetNextPacketSize: Self::next_size,
+                };
+            unsafe extern "system" fn query(
+                this: *mut std::ffi::c_void,
+                iid: *const windows::core::GUID,
+                out: *mut *mut std::ffi::c_void,
+            ) -> windows::core::HRESULT {
+                use windows::core::Interface;
+                if iid.is_null() || out.is_null() {
+                    return windows::core::HRESULT(0x80004003u32 as i32);
+                }
+                unsafe {
+                    *out = std::ptr::null_mut();
+                    if *iid == IAudioCaptureClient::IID || *iid == windows::core::IUnknown::IID {
+                        *out = this;
+                        windows::core::HRESULT(0)
+                    } else {
+                        windows::core::HRESULT(0x80004002u32 as i32)
+                    }
+                }
+            }
+            // Fixture storage is externally owned; the test borrows the interface
+            // and does not transfer a COM allocation or use native activation.
+            unsafe extern "system" fn add_ref(_: *mut std::ffi::c_void) -> u32 {
+                1
+            }
+            unsafe extern "system" fn release(_: *mut std::ffi::c_void) -> u32 {
+                1
+            }
+            unsafe extern "system" fn get_buffer(
+                this: *mut std::ffi::c_void,
+                data: *mut *mut u8,
+                frames: *mut u32,
+                flags: *mut u32,
+                index: *mut u64,
+                qpc: *mut u64,
+            ) -> windows::core::HRESULT {
+                let fixture = unsafe { &*this.cast::<Self>() };
+                if fixture.acquire_failure {
+                    return windows::core::HRESULT(0x80004005u32 as i32);
+                }
+                unsafe {
+                    *data = if fixture.null_pointer {
+                        std::ptr::null_mut()
+                    } else if fixture.bad_pointer {
+                        std::ptr::dangling_mut()
+                    } else {
+                        fixture.bytes.as_ptr().cast_mut()
+                    };
+                    *frames = fixture.frames;
+                    *flags = fixture.flags;
+                    *index = 17;
+                    *qpc = 1900;
+                }
+                windows::core::HRESULT(0)
+            }
+            unsafe extern "system" fn release_buffer(
+                this: *mut std::ffi::c_void,
+                frames: u32,
+            ) -> windows::core::HRESULT {
+                let fixture = unsafe { &*this.cast::<Self>() };
+                fixture.releases.fetch_add(1, Ordering::SeqCst);
+                if frames != fixture.frames || fixture.release_failure {
+                    windows::core::HRESULT(0x80004005u32 as i32)
+                } else {
+                    windows::core::HRESULT(0)
+                }
+            }
+            unsafe extern "system" fn next_size(
+                this: *mut std::ffi::c_void,
+                frames: *mut u32,
+            ) -> windows::core::HRESULT {
+                unsafe {
+                    *frames = (*this.cast::<Self>()).frames;
+                }
+                windows::core::HRESULT(0)
+            }
+        }
+
+        #[test]
+        fn application_original_actual_acquisition_seam_preserves_empty_silent_errors_and_release()
+        {
+            // frames, flags, invalid non-null pointer, null pointer, acquire fail,
+            // release fail, successful read, expected release count, raw kind.
+            for (
+                frames,
+                flags,
+                bad_pointer,
+                null_pointer,
+                acquire_failure,
+                release_failure,
+                success,
+                releases_expected,
+                kind,
+            ) in [
+                (0, 0, true, false, false, false, true, 0, "empty"),
+                (2, 2, true, false, false, false, true, 1, "silent"),
+                (1, 0, false, true, false, false, false, 1, "invalid_null"),
+                (
+                    96_001,
+                    2,
+                    true,
+                    false,
+                    false,
+                    false,
+                    false,
+                    1,
+                    "invalid_oversize",
+                ),
+                (2, 0, false, false, false, true, false, 1, "payload"),
+                (1, 0, false, true, false, true, false, 1, "invalid_null"),
+                (2, 0, false, false, true, false, false, 0, "not_acquired"),
+            ] {
+                let root = tempfile::tempdir().unwrap();
+                let _request = native_payload_diagnostic::request(root.path().to_path_buf());
+                let mut diagnostic = native_payload_diagnostic::take_request().unwrap();
+                let releases = Arc::new(std::sync::atomic::AtomicU32::new(0));
+                let bytes = [
+                    1000i16.to_le_bytes(),
+                    (-501i16).to_le_bytes(),
+                    i16::MIN.to_le_bytes(),
+                    i16::MAX.to_le_bytes(),
+                ]
+                .concat();
+                let fixture = Box::new(OriginalBufferCaptureFixture {
+                    vtable: &OriginalBufferCaptureFixture::VTABLE,
+                    frames,
+                    flags,
+                    bytes: bytes.clone(),
+                    bad_pointer,
+                    null_pointer,
+                    acquire_failure,
+                    release_failure,
+                    releases: releases.clone(),
+                });
+                use windows::core::Interface;
+                let raw = (&*fixture as *const OriginalBufferCaptureFixture)
+                    .cast_mut()
+                    .cast();
+                let capture = unsafe { IAudioCaptureClient::from_raw_borrowed(&raw) }.unwrap();
+                let result = read_application_packet(
+                    capture,
+                    Some(&mut diagnostic),
+                    Duration::from_nanos(99),
+                );
+                assert_eq!(result.is_ok(), success, "{kind}");
+                assert_eq!(releases.load(Ordering::SeqCst), releases_expected, "{kind}");
+                if null_pointer {
+                    assert!(
+                        result.as_ref().unwrap_err().contains("null"),
+                        "decode error must retain precedence over release error"
+                    );
+                }
+                if kind == "empty" {
+                    assert!(result.as_ref().unwrap().0.is_empty());
+                }
+                if kind == "silent" {
+                    assert_eq!(result.as_ref().unwrap().0, [0, 0]);
+                }
+                diagnostic.stopped(&Ok(()));
+                diagnostic
+                    .flush_after_stop(
+                        42,
+                        &result.as_ref().map(|_| ()).map_err(Clone::clone),
+                        &Ok(()),
+                    )
+                    .unwrap();
+                let report: serde_json::Value = serde_json::from_slice(
+                    &std::fs::read(root.path().join("original-native-stereo.json")).unwrap(),
+                )
+                .unwrap();
+                let raw = std::fs::read(root.path().join("original-native-stereo.pcm")).unwrap();
+                if kind == "not_acquired" {
+                    assert_eq!(report["observedPackets"], 0);
+                    assert_eq!(report["packets"], serde_json::json!([]));
+                } else {
+                    assert_eq!(report["packets"][0]["kind"], kind);
+                    assert_eq!(report["packets"][0]["frames"], frames);
+                    assert_eq!(report["packets"][0]["flags"], flags);
+                    assert_eq!(report["packets"][0]["deviceIndex"], 17);
+                    assert_eq!(report["packets"][0]["qpcHns"], 1900);
+                    assert_eq!(report["packets"][0]["observedElapsedNs"], 99);
+                }
+                assert_eq!(report["diagnosticValid"], !kind.starts_with("invalid"));
+                if kind == "payload" {
+                    assert_eq!(raw, bytes, "raw bytes must survive release failure");
+                } else {
+                    assert!(
+                        raw.is_empty(),
+                        "{kind} must not dereference or fabricate payload"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn application_original_silent_null_retains_semantics_without_fabricated_raw_bytes() {
+            let root = tempfile::tempdir().unwrap();
+            let _request = native_payload_diagnostic::request(root.path().to_path_buf());
+            let mut diagnostic = native_payload_diagnostic::take_request().unwrap();
+            let flags = AUDCLNT_BUFFERFLAGS_SILENT.0 as u32;
+            let mut releases = 0;
+            let mono = unsafe {
+                decode_and_release_application_packet(
+                    std::ptr::null(),
+                    480,
+                    flags,
+                    || {
+                        releases += 1;
+                        Ok(())
+                    },
+                    Some(OriginalPacketObservation {
+                        trace: &mut diagnostic,
+                        index: 12,
+                        qpc: 3456,
+                        elapsed: Duration::ZERO,
+                    }),
+                )
+            }
+            .unwrap();
+            assert_eq!(mono, vec![0; 480]);
+            assert_eq!(releases, 1);
+            diagnostic.record(&mono, 12, flags, 3456, Duration::ZERO);
+            diagnostic.stopped(&Ok(()));
+            diagnostic.flush_after_stop(42, &Ok(()), &Ok(())).unwrap();
+            assert!(
+                root.path().join("original-native-stereo.json").is_file(),
+                "silent acquisition receipt is missing"
+            );
+            let receipt: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(root.path().join("original-native-stereo.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(receipt["pcmByteLength"], 0);
+            assert_eq!(receipt["packets"][0]["kind"], "silent");
+            assert_eq!(receipt["packets"][0]["frames"], 480);
+            assert_eq!(receipt["packets"][0]["byteLength"], 0);
         }
 
         #[test]
@@ -691,6 +1198,7 @@ mod windows_impl {
                         releases += 1;
                         Ok(())
                     },
+                    None,
                 )
             }
             .unwrap();
@@ -709,10 +1217,16 @@ mod windows_impl {
             ] {
                 let mut releases = 0;
                 let result = unsafe {
-                    decode_and_release_application_packet(std::ptr::null(), frames, flags, || {
-                        releases += 1;
-                        Ok(())
-                    })
+                    decode_and_release_application_packet(
+                        std::ptr::null(),
+                        frames,
+                        flags,
+                        || {
+                            releases += 1;
+                            Ok(())
+                        },
+                        None,
+                    )
                 };
                 assert!(result.is_err());
                 assert_eq!(releases, 1);
@@ -724,18 +1238,28 @@ mod windows_impl {
             let bytes = [1000i16.to_le_bytes(), (-500i16).to_le_bytes()].concat();
             let mut releases = 0;
             let samples = unsafe {
-                decode_and_release_application_packet(bytes.as_ptr(), 1, 0, || {
-                    releases += 1;
-                    Ok(())
-                })
+                decode_and_release_application_packet(
+                    bytes.as_ptr(),
+                    1,
+                    0,
+                    || {
+                        releases += 1;
+                        Ok(())
+                    },
+                    None,
+                )
             }
             .unwrap();
             assert_eq!(samples, vec![250]);
             assert_eq!(releases, 1);
             let result = unsafe {
-                decode_and_release_application_packet(bytes.as_ptr(), 1, 0, || {
-                    Err("native release failed".into())
-                })
+                decode_and_release_application_packet(
+                    bytes.as_ptr(),
+                    1,
+                    0,
+                    || Err("native release failed".into()),
+                    None,
+                )
             };
             assert_eq!(result.unwrap_err(), "native release failed");
         }
@@ -1067,6 +1591,10 @@ mod windows_impl {
         fragment_ms: u64,
     ) -> Result<CaptureReady, String> {
         let (ready_tx, ready_rx) = mpsc::channel::<Result<String, String>>();
+        let startup_cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = Arc::clone(&startup_cancel);
+        #[cfg(test)]
+        let diagnostic = native_payload_diagnostic::take_request();
         thread::Builder::new()
             .name(format!("fung-audio-app-{process_id}"))
             .spawn(move || {
@@ -1075,10 +1603,13 @@ mod windows_impl {
                     process_id,
                     &application_name,
                     stop,
+                    &worker_cancel,
                     &chunk_tx,
                     &chunks_dir,
                     fragment_ms,
                     &mut readiness,
+                    #[cfg(test)]
+                    diagnostic,
                 );
                 if let Some(ready) = readiness {
                     let message = result
@@ -1097,10 +1628,124 @@ mod windows_impl {
             })
             .map_err(|error| format!("เปิด thread จับเสียงแอปไม่สำเร็จ: {error}"))?;
 
-        match ready_rx.recv_timeout(Duration::from_secs(10)) {
-            Ok(Ok(device_name)) => Ok(CaptureReady { device_name }),
-            Ok(Err(error)) => Err(error),
-            Err(error) => Err(format!("เตรียมจับเสียงแอปไม่ทันเวลา: {error}")),
+        packet_driver::receive_readiness(&ready_rx, &startup_cancel, Duration::from_secs(10))
+            .map(|device_name| CaptureReady { device_name })
+    }
+
+    struct NativePacketSource<'a> {
+        client: &'a AudioClient,
+        capture: &'a IAudioCaptureClient,
+        event: &'a wasapi::Handle,
+        stop: &'a AtomicBool,
+        startup_cancel: &'a AtomicBool,
+        readiness: &'a mut Option<mpsc::Sender<Result<String, String>>>,
+        application_name: &'a str,
+        packet_tx: &'a mpsc::SyncSender<CaptureSampleBatch>,
+        queue_failure: &'a mut Option<ApplicationQueueFailure>,
+        expected_sample: u64,
+        packet_clock: ApplicationPacketClock,
+        packet_number: u64,
+        capture_started: Instant,
+        #[cfg(test)]
+        diagnostic: Option<&'a mut NativePayloadDiagnostic>,
+    }
+
+    impl PacketSource for NativePacketSource<'_> {
+        type Packet = (Vec<i16>, u64, u32, u64);
+        fn cancelled(&self) -> bool {
+            self.stop.load(Ordering::SeqCst) || self.startup_cancel.load(Ordering::SeqCst)
+        }
+        fn start(&mut self) -> Result<(), String> {
+            self.client
+                .start_stream()
+                .map_err(|error| format!("เริ่ม stream ของแอปไม่สำเร็จ: {error}"))
+        }
+        fn ready(&mut self) -> Result<(), String> {
+            if let Some(ready) = self.readiness.take() {
+                packet_driver::send_readiness(ready, self.startup_cancel, self.application_name)?;
+            }
+            Ok(())
+        }
+        fn stop(&mut self) -> Result<(), String> {
+            let result = self
+                .client
+                .stop_stream()
+                .map_err(|error| format!("หยุด stream แอปไม่สำเร็จ: {error}"));
+            #[cfg(test)]
+            if let Some(diagnostic) = self.diagnostic.as_deref_mut() {
+                diagnostic.stopped(&result);
+            }
+            result
+        }
+        fn wait(&mut self) -> Result<PacketWait, String> {
+            // wasapi 0.26 masks every non-signaled status as EventTimeout.
+            // Borrow its handle and preserve native timeout versus failure.
+            let status = unsafe {
+                WaitForSingleObject(self.event.as_handle().0 as HANDLE, APP_CAPTURE_WAIT_MS)
+            };
+            let last_error = if status == WAIT_FAILED {
+                unsafe { GetLastError() }
+            } else {
+                0
+            };
+            packet_driver::classify_wait(status, last_error)
+        }
+        fn next_packet_size(&mut self) -> Result<u32, String> {
+            unsafe { self.capture.GetNextPacketSize() }
+                .map_err(|error| format!("อ่านขนาด packet จากแอปไม่สำเร็จ: {error}"))
+        }
+        fn read(&mut self) -> Result<Option<Self::Packet>, String> {
+            let packet = read_application_packet(
+                self.capture,
+                #[cfg(test)]
+                self.diagnostic.as_deref_mut(),
+                #[cfg(test)]
+                self.capture_started.elapsed(),
+            )?;
+            #[cfg(test)]
+            if let Some(diagnostic) = self.diagnostic.as_deref_mut() {
+                diagnostic.record(
+                    &packet.0,
+                    packet.1,
+                    packet.2,
+                    packet.3,
+                    self.capture_started.elapsed(),
+                );
+            }
+            Ok(if packet.0.is_empty() {
+                None
+            } else {
+                Some(packet)
+            })
+        }
+        fn accept(
+            &mut self,
+            (mono, packet_index, packet_flags, packet_qpc): Self::Packet,
+        ) -> Result<(), String> {
+            self.packet_number += 1;
+            let first_sample = self.packet_clock.position(
+                packet_index, packet_qpc, mono.len() as u64, packet_flags,
+                self.expected_sample, self.capture_started.elapsed(),
+            ).map_err(|error| format!(
+                "{error}; packet={}, frames={}, flags=0x{packet_flags:x}, index={packet_index}, clock={:?}, expected={}, qpc_hns={packet_qpc}",
+                self.packet_number, mono.len(), self.packet_clock, self.expected_sample,
+            ))?;
+            let batch = CaptureSampleBatch {
+                silence_before: None,
+                first_sample,
+                samples: mono,
+            };
+            if let Err(failure) =
+                queue_application_packet(self.packet_tx, &mut self.expected_sample, batch)
+            {
+                let error = format!(
+                    "{}; captured_samples={}..{}",
+                    failure.reason, failure.start, failure.end
+                );
+                *self.queue_failure = Some(failure);
+                return Err(error);
+            }
+            Ok(())
         }
     }
 
@@ -1109,10 +1754,12 @@ mod windows_impl {
         process_id: u32,
         application_name: &str,
         stop: Arc<AtomicBool>,
+        startup_cancel: &AtomicBool,
         chunk_tx: &mpsc::SyncSender<CaptureEvent>,
         chunks_dir: &Path,
         fragment_ms: u64,
         readiness: &mut Option<mpsc::Sender<Result<String, String>>>,
+        #[cfg(test)] mut diagnostic: Option<NativePayloadDiagnostic>,
     ) -> Result<(), String> {
         initialize_mta()
             .ok()
@@ -1149,19 +1796,8 @@ mod windows_impl {
         // their flags. Use its public native interface to read/release safely.
         let capture: IAudioCaptureClient = unsafe { client.as_iaudioclient().GetService() }
             .map_err(|error| format!("เปิด audio capture client ของแอปไม่สำเร็จ: {error}"))?;
-        client
-            .start_stream()
-            .map_err(|error| format!("เริ่ม stream ของแอปไม่สำเร็จ: {error}"))?;
-        if let Some(ready) = readiness.take() {
-            let _ = ready.send(Ok(application_name.to_string()));
-        }
-
         let sample_rate = APP_CAPTURE_FORMAT_RATE;
         let samples_per_chunk = (sample_rate as u64 * fragment_ms / 1000) as usize;
-        let mut expected_sample = 0u64;
-        let mut packet_clock = ApplicationPacketClock::default();
-        let mut packet_number = 0u64;
-        let mut stop_attempted = false;
         let mut queue_failure = None;
 
         thread::scope(|scope| {
@@ -1175,79 +1811,40 @@ mod windows_impl {
                     chunk_tx,
                 )
             });
-            let capture_result = (|| -> Result<(), String> {
-                loop {
-                    if stop.load(Ordering::SeqCst) {
-                        // Stop production before draining the last native buffer;
-                        // otherwise a normal stop can discard accepted final PCM.
-                        stop_attempted = true;
-                        client
-                            .stop_stream()
-                            .map_err(|error| format!("หยุด stream แอปไม่สำเร็จ: {error}"))?;
-                    } else {
-                        if let Err(error) = event.wait_for_event(APP_CAPTURE_WAIT_MS) {
-                            if matches!(error, wasapi::WasapiError::EventTimeout) {
-                                continue;
-                            }
-                            return Err(format!("รอสัญญาณเสียงจากแอปไม่สำเร็จ: {error}"));
+            #[cfg(test)]
+            let strategy = diagnostic.as_ref().map_or(
+                AcquisitionStrategy::SizeHintGated,
+                NativePayloadDiagnostic::acquisition_strategy,
+            );
+            let capture_result = {
+                let mut source = NativePacketSource {
+                    client: &client,
+                    capture: &capture,
+                    event: &event,
+                    stop: &stop,
+                    startup_cancel,
+                    readiness,
+                    application_name,
+                    packet_tx: &packet_tx,
+                    queue_failure: &mut queue_failure,
+                    expected_sample: 0,
+                    packet_clock: ApplicationPacketClock::default(),
+                    packet_number: 0,
+                    capture_started,
+                    #[cfg(test)]
+                    diagnostic: diagnostic.as_mut(),
+                };
+                #[cfg(test)]
+                {
+                    match strategy {
+                        AcquisitionStrategy::SizeHintGated => packet_driver::run(&mut source),
+                        AcquisitionStrategy::DirectGetBuffer => {
+                            packet_driver::run_direct(&mut source)
                         }
-                    }
-
-                    loop {
-                        let packet_frames = unsafe { capture.GetNextPacketSize() }
-                            .map_err(|error| format!("อ่านขนาด packet จากแอปไม่สำเร็จ: {error}"))?;
-                        if packet_frames == 0 {
-                            break;
-                        }
-                        let (mono, packet_index, packet_flags, packet_qpc) =
-                            read_application_packet(&capture)?;
-                        if mono.is_empty() {
-                            continue;
-                        }
-                        packet_number += 1;
-                        let first_sample = packet_clock.position(
-                        packet_index,
-                        packet_qpc,
-                        mono.len() as u64,
-                        packet_flags,
-                        expected_sample,
-                        capture_started.elapsed(),
-                    )
-                    .map_err(|error| {
-                        format!(
-                            "{error}; packet={packet_number}, frames={}, flags=0x{packet_flags:x}, index={packet_index}, clock={packet_clock:?}, expected={expected_sample}, qpc_hns={packet_qpc}",
-                            mono.len()
-                        )
-                    })?;
-                        let batch = CaptureSampleBatch {
-                            silence_before: None,
-                            first_sample,
-                            samples: mono,
-                        };
-                        if let Err(failure) =
-                            queue_application_packet(&packet_tx, &mut expected_sample, batch)
-                        {
-                            let error = format!(
-                                "{}; captured_samples={}..{}",
-                                failure.reason, failure.start, failure.end
-                            );
-                            queue_failure = Some(failure);
-                            return Err(error);
-                        }
-                    }
-                    if stop_attempted {
-                        break;
                     }
                 }
-
-                Ok(())
-            })();
-            let stop_result = if stop_attempted {
-                Ok(())
-            } else {
-                client
-                    .stop_stream()
-                    .map_err(|error| format!("หยุด stream แอปไม่สำเร็จ: {error}"))
+                #[cfg(not(test))]
+                packet_driver::run(&mut source)
             };
             // Stop native production before potentially waiting on disk/event work.
             // Closing the queue drains every accepted packet and flushes its tail.
@@ -1256,6 +1853,15 @@ mod windows_impl {
                 .join()
                 .map_err(|_| "thread บันทึกเสียงแอปหยุดทำงาน".to_string())
                 .and_then(|result| result);
+            #[cfg(test)]
+            if let Some(diagnostic) = diagnostic {
+                // Evidence errors never replace native/queue/writer capture failures.
+                if let Err(error) =
+                    diagnostic.flush_after_stop(process_id, &capture_result, &writer_result)
+                {
+                    eprintln!("APPLICATION_NATIVE_PAYLOAD_DIAGNOSTIC_FAILED: {error}");
+                }
+            }
             if let Some(failure) = queue_failure {
                 if failure.end > failure.start {
                     let _ = chunk_tx.send(CaptureEvent::SourceGap {
@@ -1266,7 +1872,7 @@ mod windows_impl {
                     });
                 }
             }
-            capture_result.and(stop_result).and(writer_result)
+            packet_driver::combine(capture_result, writer_result)
         })
     }
 }

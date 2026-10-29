@@ -394,6 +394,8 @@ pub(crate) fn recover_recording(
     storage: &genesis_block_native::Storage,
     recording_id: &str,
 ) -> Result<RecoveryOutcome, String> {
+    // Legacy adoption cannot infer or close source-owned routed epochs.
+    crate::routed_media_access::require_legacy_media_source(storage, recording_id)?;
     let mut record = genesis_adapter::capture(storage, recording_id)?;
     let (_, orphans, _) = reconcile_recording(storage, recording_id, &record.canonical_audio_path)?;
 
@@ -506,6 +508,293 @@ pub(crate) fn recover_recording(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capture_source_custody as custody;
+    use sha2::{Digest, Sha256};
+
+    const ROUTED_AT: &str = "2026-10-29T00:00:00Z";
+
+    struct RoutedRecoveryFixture {
+        storage: genesis_block_native::Storage,
+        _directory: tempfile::TempDir,
+        recording: String,
+        project_root: PathBuf,
+    }
+
+    impl RoutedRecoveryFixture {
+        fn attempt(&self) -> custody::SourceCommitAttempt {
+            custody::begin_source_commit(&self.storage, &Uuid::new_v4().to_string(), ROUTED_AT)
+                .unwrap()
+        }
+
+        fn routed(state: &str) -> Self {
+            let directory = tempfile::tempdir().unwrap();
+            let storage = open_recovery_storage(&directory.path().join("genesisdb"));
+            let project = Uuid::new_v4().to_string();
+            let recording = Uuid::new_v4().to_string();
+            let project_root = directory.path().join("projects").join(&project);
+            let session = project_root.join("live").join(&recording);
+            std::fs::create_dir_all(&session).unwrap();
+            genesis_adapter::commit_rows(
+                &storage,
+                vec![
+                    genesis_adapter::upsert(
+                        "projects",
+                        serde_json::json!({"id":project,"name":"Routed recovery fixture","storage_path":project_root,"created_at":ROUTED_AT,"updated_at":ROUTED_AT}),
+                    ),
+                    genesis_adapter::upsert(
+                        "recordings",
+                        serde_json::json!({"id":recording,"project_id":project,"source":if state=="pending" {"routed_endpoint_pending"} else {"microphone"},"input_path":null,"canonical_audio_path":session,"status":"recording","duration_ms":0,"created_at":ROUTED_AT,"updated_at":ROUTED_AT}),
+                    ),
+                    genesis_adapter::upsert(
+                        "mobile_recording_checkpoints",
+                        serde_json::json!({"id":recording,"recording_id":recording,"safe_offset_ms":0,"segment_count":0,"last_checksum":null,"updated_at":ROUTED_AT}),
+                    ),
+                ],
+            )
+            .unwrap();
+            let fixture = Self {
+                storage,
+                _directory: directory,
+                recording,
+                project_root,
+            };
+            let sources = ["one", "two"].map(|label| custody::CaptureSourceRegistration {
+                id: Uuid::new_v4().to_string(),
+                epoch: 1,
+                kind: "endpoint".into(),
+                endpoint_id: Some(format!("fixture-endpoint-{label}")),
+                label: format!("Fixture source {label}"),
+                sample_rate: 48_000,
+                clock_origin_qpc_hns: "1234000".into(),
+                metadata: serde_json::json!({"policyVersion":1}),
+            });
+            if state != "pending" {
+                custody::register_capture_sources(
+                    &fixture.storage,
+                    &fixture.attempt(),
+                    &project,
+                    &fixture.recording,
+                    &sources,
+                )
+                .unwrap();
+            }
+            for (ordinal, source) in sources.iter().enumerate() {
+                let path = session
+                    .join("sources")
+                    .join(&source.id)
+                    .join("epoch-1")
+                    .join("chunk-1.wav");
+                write_routed_fixture_wav(&path, ordinal as i16);
+                if state != "pending" {
+                    custody::append_capture_source_chunk(
+                        &fixture.storage,
+                        &fixture.attempt(),
+                        &project,
+                        &fixture.recording,
+                        &custody::CaptureSourceChunk {
+                            id: Uuid::new_v4().to_string(),
+                            source_id: source.id.clone(),
+                            epoch: 1,
+                            sequence: 1,
+                            path: path.clone(),
+                            start_frame: 0,
+                            end_frame: 4_800,
+                            start_ms: 0,
+                            end_ms: 100,
+                            checksum: format!(
+                                "{:x}",
+                                Sha256::digest(std::fs::read(&path).unwrap())
+                            ),
+                        },
+                    )
+                    .unwrap();
+                }
+            }
+            match state {
+                "completed" | "hidden_binding" => {
+                    custody::complete_capture_sources(
+                        &fixture.storage,
+                        &fixture.attempt(),
+                        &fixture.recording,
+                    )
+                    .unwrap();
+                    custody::require_capture_source_access(&fixture.storage, &fixture.recording)
+                        .expect("the completed source fixture must be valid");
+                }
+                "quarantined" => {
+                    custody::quarantine_capture_source(
+                        &fixture.storage,
+                        &fixture.attempt(),
+                        &sources[0].id,
+                        "fixture contamination",
+                    )
+                    .unwrap();
+                    custody::complete_capture_sources(
+                        &fixture.storage,
+                        &fixture.attempt(),
+                        &fixture.recording,
+                    )
+                    .unwrap();
+                }
+                "pending" | "recording" => (),
+                other => panic!("unknown fixture state {other}"),
+            }
+            if state == "hidden_binding" {
+                // Restore the full schema-owned row before changing only the marker.
+                let row = recovery_table_snapshot(&fixture.storage, "recordings")
+                    .pop()
+                    .unwrap();
+                let full = row.as_object().unwrap();
+                let mut mutation = serde_json::Map::new();
+                for (key, value) in full {
+                    mutation.insert(
+                        key.strip_prefix("recordings.").unwrap().to_string(),
+                        value.clone(),
+                    );
+                }
+                mutation.insert("source".into(), serde_json::json!("microphone"));
+                genesis_adapter::commit_rows(
+                    &fixture.storage,
+                    vec![genesis_adapter::upsert(
+                        "recordings",
+                        serde_json::Value::Object(mutation),
+                    )],
+                )
+                .unwrap();
+            }
+            // A legacy-looking orphan is deliberately present as synthetic bait.
+            // A routed denial must happen before it could be adopted or audited.
+            write_routed_fixture_wav(&session.join("chunks").join("mic-00001.wav"), 9);
+            fixture
+        }
+    }
+
+    fn write_routed_fixture_wav(path: &Path, phase: i16) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut writer = hound::WavWriter::create(
+            path,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 48_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for frame in 0..4_800 {
+            writer.write_sample((frame % 1000) as i16 + phase).unwrap();
+        }
+        writer.finalize().unwrap();
+    }
+
+    fn recovery_table_snapshot(
+        storage: &genesis_block_native::Storage,
+        table: &str,
+    ) -> Vec<serde_json::Value> {
+        let names = genesis_adapter::schema()
+            .tables
+            .into_iter()
+            .find(|candidate| candidate.name == table)
+            .unwrap()
+            .columns
+            .into_iter()
+            .map(|column| column.name)
+            .collect::<Vec<_>>();
+        let columns = names.iter().map(String::as_str).collect::<Vec<_>>();
+        let mut rows = genesis_adapter::query_all(storage, table, &columns, vec![]).unwrap();
+        rows.sort_by_key(|row| serde_json::to_string(row).unwrap());
+        rows
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct RoutedRecoverySnapshot {
+        frontier: u64,
+        rows: BTreeMap<String, Vec<serde_json::Value>>,
+        files: Vec<(String, u64, String)>,
+    }
+
+    impl RoutedRecoverySnapshot {
+        fn take(fixture: &RoutedRecoveryFixture) -> Self {
+            fn media_files(root: &Path, directory: &Path, rows: &mut Vec<(String, u64, String)>) {
+                for entry in std::fs::read_dir(directory).unwrap() {
+                    let path = entry.unwrap().path();
+                    if path.is_dir() {
+                        media_files(root, &path, rows);
+                    } else {
+                        let bytes = std::fs::read(&path).unwrap();
+                        rows.push((
+                            path.strip_prefix(root).unwrap().display().to_string(),
+                            bytes.len() as u64,
+                            format!("{:x}", Sha256::digest(&bytes)),
+                        ));
+                    }
+                }
+            }
+            let frontier = fixture.storage.txn_frontier();
+            let rows = [
+                "recordings",
+                "audio_chunks",
+                "capture_sources",
+                "capture_source_chunks",
+                "mobile_recording_checkpoints",
+                "audit_events",
+                "jobs",
+            ]
+            .into_iter()
+            .map(|table| {
+                (
+                    table.to_string(),
+                    recovery_table_snapshot(&fixture.storage, table),
+                )
+            })
+            .collect();
+            let mut files = Vec::new();
+            media_files(&fixture.project_root, &fixture.project_root, &mut files);
+            files.sort();
+            assert_eq!(fixture.storage.txn_frontier(), frontier);
+            Self {
+                frontier,
+                rows,
+                files,
+            }
+        }
+    }
+
+    fn assert_routed_recovery_denied(state: &str) {
+        let fixture = RoutedRecoveryFixture::routed(state);
+        let before = RoutedRecoverySnapshot::take(&fixture);
+        let result = recover_recording(&fixture.storage, &fixture.recording);
+        assert!(
+            result.is_err(),
+            "legacy recovery must reject {state} routed media before repair; got {result:?}"
+        );
+        assert_eq!(RoutedRecoverySnapshot::take(&fixture), before);
+    }
+
+    #[test]
+    fn routed_recovery_pending_is_rejected_without_mutation() {
+        assert_routed_recovery_denied("pending");
+    }
+
+    #[test]
+    fn routed_recovery_recording_is_rejected_without_mutation() {
+        assert_routed_recovery_denied("recording");
+    }
+
+    #[test]
+    fn routed_recovery_quarantined_is_rejected_without_mutation() {
+        assert_routed_recovery_denied("quarantined");
+    }
+
+    #[test]
+    fn routed_recovery_completed_is_rejected_without_mutation() {
+        assert_routed_recovery_denied("completed");
+    }
+
+    #[test]
+    fn routed_recovery_hidden_bindings_are_rejected_without_mutation() {
+        assert_routed_recovery_denied("hidden_binding");
+    }
 
     fn open_recovery_storage(path: &Path) -> genesis_block_native::Storage {
         let storage = genesis_block_native::Storage::open(genesis_block_native::OpenOptions {

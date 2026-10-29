@@ -1,7 +1,7 @@
 ---
-version: "0.3.38b"
+version: "0.3.52b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-24,Codex"
+last_update: "2026-10-29"
 
 status: "beta"
 superseded_by: null
@@ -12,6 +12,226 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## PID Stop versus destruction — 2026-10-29
+
+The [owned native comparison](../verification/implementation-reports/2026-10-29-pid-stop-hold-diagnostic.md)
+finds immediately destroying the renderer loses measured edges, whereas holding
+the stopped actual client during the pause yields near-zero edge deltas in both
+cycles. The held subject still reports three timeline gaps and exits101; both
+whole-run verdicts FAIL. This identifies a meaningful fixture lifetime boundary,
+not a supported way to retain arbitrary third-party clients. Product repair,
+full installed PID/endpoint acceptance, merge and tag remain open.
+
+## HDMI engine-period admission — 2026-10-29
+
+The [actual read-only query](../verification/implementation-reports/2026-10-29-hdmi-engine-period-admission.md)
+succeeds on both explicit HDMI endpoints with fresh Active/nondefault/idle/muted
+guards. Default/fundamental/min/max and current period are all480frames at48kHz
+(10ms) in their current stereo Float32 format with API-default client properties.
+No smaller period is advertised; the conditional audio study is NOT_RUN. No
+product source, stream initialization or host setting changes. Baselinefff68af
+hosted CI succeeds; this does not close original PID or full endpoint acceptance.
+No new repair installer, merge/tag/release.
+
+## Direct acquisition rejected; legacy recovery admission fixed — 2026-10-29
+
+The [backend/guard checkpoint](../verification/implementation-reports/2026-10-29-capture-backend-and-recovery-guard.md)
+finds no verified independent direct-PID replacement in the inspected primary
+sources. A matched, cfg(test)-only direct GetBuffer experiment still loses
+1,504 frames before Stop and441 after Resume in both cycles; baseline itself
+also produces1,504, so this is not a demonstrated improvement. Original/mono/
+writer byte custody and fault-free controls are independently checked. No new
+PID method is enabled in production or presented as a repair package.
+Legacy recovery is separately corrected to reject routed ownership before paths/
+adoption/finish/gap-fill; RED5 and recovery GREEN15 preserve SDK frontier, seven
+tables and media. This source guard is not implemented source-aware recovery or
+an installed five-state acceptance. Both full installed gates remain open;
+the user has only this host. No merge/tag/release.
+
+## PID original-buffer boundary — 2026-10-28/29
+
+The [original stereo diagnostic](../verification/implementation-reports/2026-10-28-pid-original-buffer-diagnostic.md)
+retains bytes before decode/ReleaseBuffer. Both raw channels still lack 1,984
+active frames before Stop and 441 after Resume in both cycles. Independent
+scalar downmix reproduces all decoded mono, and all 12 writer chunks retain
+those bytes. Loss is present in delivered GetBuffer content; Windows internals
+and unretrieved packets remain unproved. No production PID repair is established.
+The test-only seam has two meaningful RED tests, 40 focused passes, 890 full
+library passes (13 native ignored), fmt/strict Clippy and a non-test release build
+with diagnostic markers absent. That build is not installed or launched. Both
+full installed gates remain open; no merge/tag/release.
+
+## Installed audio retest — 2026-10-28
+
+The [fresh retest](../verification/implementation-reports/2026-10-28-installed-audio-retest.md)
+runs after both HDMI devices return. Native pre-clock mono matches all writer
+PCM bytes, but missing active PID bands already exist at that boundary. Actual
+installed PID still loses 1,984 frames before Stop and 441 after Resume in both
+cycles. Two installed dual-endpoint runs pass PCM/separation components; full
+source-aware playback/export/custody/recovery acceptance remains open. Actual
+routed recording metadata shows active then inactive; the stopping transient is
+not observed. Playback rejects unsupported routed sources. Three explicit export
+jobs fail; automatic PID postprocessing outputs do not override capture failure.
+Orderly reopen preserves project/recording metadata; a later full extended-path
+seal preserves 32 files. No merge/tag/release; both complete installed gates are
+not passed. Earlier failures and hardware-blocked n01 remain historical evidence.
+
+## Installed audio remediation — 2026-10-27
+
+The [remediation checkpoint](../verification/implementation-reports/2026-10-27-installed-audio-remediation.md)
+corrects routed recordings appearing inactive while their native owner is
+recording/draining, and adds fresh Genesis source admission to desktop playback
+before any media path/PCM inspection. Real legacy preparation still works;
+unsupported routed consumers remain fenced. A test-only bounded decoded-native
+mono tap is ready before PID clock/queue/writer processing; it is diagnostic
+evidence infrastructure, not a repair of the original transition loss.
+
+Independent source review has no blocking findings. Rust 1.99.1 full library
+**885 passed / 13 ignored**, integration **17 passed**, formatting and strict
+Clippy pass. The new native attempt stopped before any child/capture/render
+because both selected HDMI endpoints became **NotPresent**. Latest actual audio
+remains PID FAIL and endpoint NOT_PROVEN; package/native/installed acceptance
+must be read separately. The new isolated NSIS candidate installs with its actual
+hash verified; two hidden API boot/close cycles preserve a fresh project and exit
+0. This is non-audio installed smoke, not active-source/UI acceptance.
+No merge/tag/release.
+
+## Installed PID / endpoint audio UAT — 2026-10-27
+
+The [installed audio campaign](../verification/implementation-reports/2026-10-27-installed-pid-endpoint-audio-uat.md)
+installed the actual `f06c9f1` UAT candidate in its isolated profile after the user
+announced readiness. PID still loses **1,984 frames before Stop and 441 after
+Resume in both cycles** against a fault-free independent control; its capture
+job fails with four lost intervals. Dedicated endpoints finalize two separate
+source streams, but one cycle has an unbounded 457-frame fading tail; aggregate
+endpoint acceptance remains **NOT_PROVEN**. Independent offline reanalysis
+reproduces the results; source tests do not override these installed observations.
+
+Actual subtitle-export probes reject missing transcripts. Orderly close/reopen
+preserves the project, four recording metadata rows and all 13 selected WAV
+chunk hashes; both app runs exit 0. This does not prove crash recovery, source-aware
+consumers or UI acceptance. The two apparatus-invalid endpoint attempts and
+monitor timeout remain documented. **Original #96 stays open; no merge/tag/release.**
+
+## PID packet lifecycle candidate — 2026-10-27
+
+The [offline PID lifecycle checkpoint](../verification/implementation-reports/2026-10-27-pid-packet-lifecycle-candidate.md)
+corrects independently reproduced packet-progress/cancellation defects: Stop
+starvation inside continuous draining, empty acquisition hot retry, abandoned
+readiness/late activation, wait-failure masking and cleanup-error ownership.
+The native adapter uses the same private driver exercised by scripted tests;
+backend, decoder, clock, format, flags, wait duration and PCM/gap criteria remain.
+
+Characterization passes once; six intended RED regressions fail against the
+extracted baseline before correction. Frozen corrected source passes **31 focused
+tests (2 native probes ignored)**, **873 full library tests (12 ignored)**,
+**17 integration tests**, **12 custody-contract checks**, Rust 1.99.1 formatting
+and strict all-target Clippy. Independent source review has no blocking findings.
+Suite counts overlap. Actual device audio has not been tested by this work.
+
+A new isolated NSIS candidate (2,116,581,508 bytes) was built with Rust 1.99.1 and
+app ID `dev.fung.uat.pidguard20261027`; its installer/executable hashes are frozen
+and independently checked. Package evidence is separate from source tests.
+The user explicitly deferred audio tests; this stage does not install or launch
+the candidate. **Original #96 transition loss remains unqualified.** Both PID and
+dedicated-endpoint installed audio must pass before merge/tag/release.
+
+## Runtime guard and installed negative checks — 2026-10-27
+
+The [runtime guard checkpoint](../verification/implementation-reports/2026-10-27-runtime-guard-package-qualification.md)
+adds a production native-owned endpoint group, authoritative Storage binding
+reads, revocable runtime observers and Tauri start/status/stop. Source-scoped
+failure/drain handling, old-cleanup guard ownership and lazy project-directory
+creation are corrected and independently reviewed. Legacy PID mode remains;
+explicit microphone-disabled input is additive and defaults preserve existing UI.
+Pending/final routed media is fenced from unsupported legacy consumers.
+
+The broad local snapshot has **855 Rust library passes, 12 ignored**. A subsequent
+Rust 1.99.1 CI lint correction passes 30 targeted tests, exact-toolchain strict
+Clippy/formatting and actual frontend/NSIS build. Hosted `b8c1f65` then passed
+frontend/Clippy but failed two library fixtures using the runner's short Temp
+ancestor: **853 passed, 2 failed, 12 ignored**. The integration suite did not run.
+The owned-fixture correction now passes
+**857 library tests, 12 ignored**, **17 integration tests** on Rust 1.99.1 and
+**32 routed tests under a real 8.3 Temp alias** (including `aliased=true`).
+Exact-head hosted verification remains a separate gate. Production alias/reparse
+policy remains strict; the fixture-only update leaves runtime package inputs
+unchanged. The rebuilt isolated package C
+preserves its actual project through upgrade and orderly
+reopen; **23 negative/metadata IPC calls pass** without desktop input control,
+real capture, WAV output or forced termination. Both installed processes exit 0.
+Original package failures and the corrected test-apparatus failures remain in
+the linked report; earlier checkpoints below are historical and compositional.
+
+This does not qualify two-source native PCM, actual endpoint/PID audio capture,
+source-aware UI/MCP/recovery/export or release. User deferred audio tests while
+source/package work continued. **Keep PID mode; no merge/tag/release until both
+installed capture modes pass.**
+
+## Earlier native-client attribution checkpoint — 2026-10-27
+
+The [n03 report](../verification/implementation-reports/2026-10-27-native-client-session-attribution.md)
+identifies the exact rejected capture-client session while preserving strict
+rejection and failed-state custody. Passive audit plus portable CI fixtures pass
+783 library tests (12 ignored), strict Clippy, packet/adapter and scoped checks.
+Hosted successor CI remains separate. A [native lifecycle subplan](../plans/2026-10-27-native-capture-session-lifecycle-plan.md)
+records the next unimplemented authority/race/negative-test work; both installed
+capture modes and release remain open.
+
+## Routed native seam and failed n01 checkpoint — 2026-10-26
+
+The working-tree successor adds a private exact-frame/future-barrier packet seam,
+recoverable source-writer rejection and a test-only owned native probe. The
+[n01 diagnostic report](../verification/implementation-reports/2026-10-26-routed-native-seam-n01-diagnostic.md)
+records primary UnknownSession quarantine and a later no-visible-PCM consequence;
+the rejected runtime owner is not identified. A secondary 10,000-row SDK query
+failure was corrected with retained RED and 6 passing probe checks (1 ignored).
+The integrated successor library suite passed 777 tests (12 ignored). A subsequent
+diagnostic-only probe update passed 9 checks (1 native ignored) and strict Clippy;
+the earlier argument-count warning is corrected. Native n02 still failed before
+ready, now identifying the rejected process as the probe's own exact process
+generation. Actual client-bound proof and any narrow runtime policy remain open.
+Earlier totals below remain historical. No clean two-source native/installed pass or new Live/MCP
+capture execution is claimed. Both endpoint and original PID #96 release gates
+remain open.
+
+## Exact-frame writer checkpoint — 2026-10-26
+
+The [bounded source writer](../verification/implementation-reports/2026-10-26-source-writer-foundation.md)
+adds independent source queues, exact-frame chunks/tails, durable custody appends
+and explicit private failure/orphan handling. Eleven integrated writer tests and
+the full 733-test library suite pass (11 ignored), as do strict all-target Clippy,
+formatting and independent review. This is a trusted Rust API with no active
+capture/IPC caller. Native startup/barrier and the
+[consumer enforcement map](../verification/implementation-reports/2026-10-26-routed-consumer-guard-audit.md)
+remain integration work. PID #96 still fails; no new installed acceptance/release.
+
+## Source custody checkpoint — 2026-10-26
+
+The [source-custody foundation](../verification/implementation-reports/2026-10-26-source-custody-foundation.md)
+adds schema v16 and trusted in-process Rust registration, atomic append/checkpoints,
+quarantine/closure and ledger access validation. Thirteen integrated custody tests
+and v15-to-v16 install/reinstall/reopen pass. The full library suite passes 722
+tests (11 ignored), strict all-target Clippy and formatting pass, and independent
+review accepts the foundation scope.
+This does not activate source-aware capture, guard existing consumers, or add
+UI/MCP execution. The actually executed owned MF44.1 diagnostic still FAILS
+transition preservation. No new installer, installed acceptance, merge or tag.
+
+## Source routing checkpoint — 2026-10-25
+
+Branch source `607079f` adds read-only native inventory/admission and async Tauri
+inspection commands; 708 Rust library tests, the 16-policy subset, separate native
+inventory smoke and Clippy pass. [Foundation scope](../verification/implementation-reports/2026-10-25-route-admission-foundation.md)
+does not include a multi-source capture executor, UI/MCP capture control or a new
+installed package. Owned two-endpoint [native feasibility](../verification/implementation-reports/2026-10-25-dedicated-endpoint-feasibility.md)
+passes bounded source separation/Stop-recreate checks.
+
+The [PID follow-up](../verification/implementation-reports/2026-10-25-pid-producer-lifecycle.md)
+still fails. User explicitly retains PID mode and blocks release until both PID
+and endpoint modes pass. Existing installed evidence below remains compositional
+history; no new installer, merge, tag or release is claimed at this checkpoint.
 
 ## Installed 0.1.2 workflow and native follow-up — 2026-10-24
 
@@ -1704,6 +1924,23 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.51b` → `0.3.52b`
+
+- Record matched native Stop/hold versus immediate-destruction results and their
+  independent byte/guard audit; do not promote edge-only results to full acceptance.
+
+### `0.3.50b` → `0.3.51b`
+
+- Record two real HDMI engine-period queries and preserved before/after guards.
+- Keep smaller-period audio study NOT_RUN at minimum=default480frames; no repair
+  adoption or package/release promotion.
+
+### `0.3.49b` → `0.3.50b`
+
+- Retain fresh baseline/direct-GetBuffer native FAIL; do not adopt the candidate.
+- Record RED5/GREEN15 and source review for the legacy recovery source guard;
+  source-aware recovery and both full installed audio gates remain open.
+
 ### `0.3.35b` → `0.3.36b`
 
 - Record ec494fd installed microphone output and successful active-PID inventory.
@@ -1962,6 +2199,11 @@ native/device/release acceptance.
 
 | Version | Change |
 | --- | --- |
+| 0.3.47b | Corrected routed lifecycle and desktop playback admission; reviewed test-only native payload seam and 885 library/17 integration evidence, with new audio blocked before launch by absent HDMI devices. |
+| 0.3.46b | Recorded actual installed PID edge FAIL and endpoint NOT_PROVEN, export rejection, independent analysis and orderly persistence; both installed release gates remain open. |
+| 0.3.45b | Recorded independently reviewed PID packet progress/cancellation corrections and local873library/17integration/12custody evidence; new isolated package is build-only, actual endpoint/PID acceptance stays open. |
+| 0.3.44c | Retained the hosted short-Temp fixture failure and separated its correction from unchanged package runtime and open audio gates. |
+| 0.3.44b | Recorded reviewed native runtime ownership, scoped custody failures, legacy guard cleanup and lazy project-root correction; 855 library passes/12 ignored and actual installed negative/reopen evidence remain separate from both open audio gates. |
 | 0.3.32v → 0.3.33v | Recorded passing post-remediation Rust library tests, frontend build, and workflow MCP acceptance; independent re-review remains open. |
 | 0.3.31v → 0.3.32v | Recorded passing post-remediation Rust compile, format and whitespace checks; tests and independent re-review remained open. |
 | 0.3.30v → 0.3.31v | Patched the MCP notification and unbounded job-list findings; earlier checks are marked pre-remediation. |
@@ -2006,6 +2248,14 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.52b | 2026-10-29 | beta | Matched native stopped-client retention removes measured edges in the owned fixture, but three timeline gaps and exit101 keep the overall run FAIL; no arbitrary-PID repair or installed gate closure. | see Git history | Codex |
+| 0.3.51b | 2026-10-29 | beta | Readonly exact-HDMI engine-period admission finds only480frames/10ms at current48kHz; conditional audio study NOT_RUN. Productfff68af CI succeeds; PID/full endpoint installed gates stay open. | see Git history | Codex |
+| 0.3.50b | 2026-10-29 | beta | Direct acquisition and matched baseline retain native FAIL; no production adoption. Legacy recovery source guard has RED5/GREEN15 and source GO; fresh serial library902pass/14ignored follows retained Winsock10055 failure. Both installed audio gates remain open. | see Git history | Codex |
+| 0.3.47b | 2026-10-27 | beta | Source GO for truthful routed metadata, desktop source guard and test-only pre-clock evidence; 885 library/17 integration and strict checks pass. Native n01 NOT_RUN at missing-device admission; no merge/tag/release. | see Git history | Codex |
+| 0.3.46b | 2026-10-27 | beta | Installed f06c9f1 candidate: PID FAIL, endpoint NOT_PROVEN, actual export rejection and orderly reopen persistence; independent reanalysis agrees. No merge/tag/release. | see Git history | Codex |
+| 0.3.45b | 2026-10-27 | beta | PID shared lifecycle driver has bounded RED/GREEN and independent source acceptance; local873library/12ignored,17integration,12custody and strict checks pass. New candidate build is separate from deferred actual audio; no install/merge/tag. | see Git history | Codex |
+| 0.3.44c | 2026-10-27 | beta | Retained b8c1f65 hosted853pass/2fail/12ignored short-Temp failure; fixture-only correction passes local857library/17integration and32real-alias checks, production/package C unchanged; resulting hosted and audio acceptance remain separate. | see Git history | Codex |
+| 0.3.44b | 2026-10-27 | beta | Native ownership/coordinator and source fences reviewed; lazy-root fault and Rust1.99 CI lint corrected; actual package C upgrade and 23 negative/reopen IPC calls pass. Broad local855/12ignored and exact-toolchain30 remain distinct from hosted full CI and both open audio gates. | see Git history | Codex |
 | 0.3.36b | 2026-10-23 | beta | ec494fd installed mic output and active-PID inventory observed; native timing and partial-track reporting reopened with failed evidence retained; corrected system active/idle probes pass, final installed/release gates remain open. | working-tree | Codex |
 | 0.3.35b | 2026-10-23 | beta | Installed eae669a workflow outputs and restart/reinstall/recovery verified; native clock/inventory corrections independently reviewed with hardware probes; final package and spoken mic/app isolation gates remain open. | working-tree | Codex |
 | 0.3.34b | 2026-10-23 | beta | CPU decode deferred until Stop; post-meeting prerequisites and alternate media defaults corrected. Headless ONIKUMA audio produces 3 local CPU transcript segments; rebuilt installed acceptance remains open. | working-tree | Codex |

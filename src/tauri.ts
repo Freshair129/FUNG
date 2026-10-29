@@ -902,7 +902,7 @@ export type LiveStartOutput = {
   projectId: string;
   recordingId: string;
   jobId: string;
-  micDevice: string;
+  micDevice: string | null;
   systemDevice: string | null;
   warning: string | null;
 };
@@ -1019,6 +1019,7 @@ export async function liveCaptureDevices(): Promise<LiveCaptureDevices> {
 export async function liveMeetingStart(options?: {
   projectId?: string;
   captureSystem?: boolean;
+  captureMicrophone?: boolean;
   language?: string;
   transcriptProfile?: "chunked" | "revisioned";
   micDeviceId?: string;
@@ -1029,6 +1030,7 @@ export async function liveMeetingStart(options?: {
   return invoke<LiveStartOutput>("live_meeting_start", {
     projectId: options?.projectId ?? null,
     captureSystem: options?.captureSystem ?? true,
+    captureMicrophone: options?.captureMicrophone ?? true,
     language: options?.language ?? null,
     transcriptProfile: options?.transcriptProfile ?? "chunked",
     micDeviceId: options?.micDeviceId ?? null,

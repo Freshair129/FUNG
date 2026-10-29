@@ -1,7 +1,7 @@
 ---
-version: "0.1.0l"
+version: "0.1.2v"
 created_at: "2026-10-19"
-last_update: "2026-10-23"
+last_update: "2026-10-29"
 status: "beta"
 superseded_by: null
 attributes:
@@ -12,6 +12,16 @@ attributes:
 ---
 
 # Implementation and review report index
+
+- [PID Stop versus destruction diagnostic](2026-10-29-pid-stop-hold-diagnostic.md) — `candidate`; retaining the stopped owned client removes measured edge deltas but reports three timeline gaps and exits101. No production repair or installed acceptance.
+
+- [Actual HDMI engine-period admission](2026-10-29-hdmi-engine-period-admission.md) — `beta`; both exact-ID48kHz queries succeed but advertise only480frames/10ms. Smaller-period study NOT_RUN; no PID fix or installed acceptance.
+
+- [Capture backend investigation and recovery guard](2026-10-29-capture-backend-and-recovery-guard.md) — `beta`; matched direct acquisition still fails; real legacy recovery source-admission defect has RED5/GREEN15. No new installed repair or two-mode acceptance; merge/tag gates stay open.
+
+- [PID original-buffer diagnostic](2026-10-28-pid-original-buffer-diagnostic.md) — `beta`; original stereo already lacks active bands before decode; scalar downmix/all-writer byte custody verified, test-only source checks pass; PID/full installed gates stay open.
+
+- [Installed audio retest after HDMI return](2026-10-28-installed-audio-retest.md) — `beta`; installed PID FAIL, two endpoint PCM/separation component passes, full consumer/custody/recovery acceptance open; no merge/tag/release.
 
 รายงานด้านล่างเป็นหลักฐานตามวันที่และ scope ของแต่ละฉบับ ให้ดู revision, environment และข้อจำกัดในตัวรายงานก่อนนำไปอ้างอิง; รายงานเก่าไม่ยืนยันสถานะปัจจุบันโดยอัตโนมัติ.
 
@@ -144,3 +154,30 @@ attributes:
 - [progress](progress.md)
 - [2026-10-23-installed-releasefix-uat](2026-10-23-installed-releasefix-uat.md) — `candidate`; application packet-gap/tail corrections and 0.1.2 source checks pass; rebuilt installed-package acceptance in progress.
 - [2026-10-23-capture-backpressure-remediation](2026-10-23-capture-backpressure-remediation.md) — `beta`; CPU recording defers decode, post-meeting prerequisites and fresh alternate media roots corrected. Real ONIKUMA capture at 85% input yields usable signal and 3 CPU transcript segments; rebuilt installed acceptance remains open.
+- [2026-10-25-issue-96-render-lifecycle](2026-10-25-issue-96-render-lifecycle.md) — `candidate`; six native controls isolate a target-PID lifecycle hypothesis; no production fix, installed candidate or release acceptance.
+
+- [2026-10-25-issue-96-alternative-capture](2026-10-25-issue-96-alternative-capture.md) — `candidate`; timer/MF delivery still FAIL, installed retest NOT_RUN.
+
+- [Dedicated endpoint native feasibility](2026-10-25-dedicated-endpoint-feasibility.md) — `candidate`; bounded owned two-route PASS, product/installed gates NOT_RUN.
+
+- [Read-only route admission foundation](2026-10-25-route-admission-foundation.md) — `candidate`; source/native inventory verified, multi-source capture and installed acceptance remain open.
+
+- [PID producer/session lifecycle](2026-10-25-pid-producer-lifecycle.md) — `candidate`; six native PID studies FAIL; earlier 44.1-kHz NOT_RUN checkpoint links to the executed failing follow-up, release blocked.
+
+- [Source custody foundation and executed 44.1-kHz follow-up](2026-10-26-source-custody-foundation.md) — `candidate`; additive v16/native Rust custody verified by 722 library tests, Clippy and independent review; 44.1-kHz PID diagnostic FAIL, capture/installed gates remain open.
+
+- [Routed consumer guard audit](2026-10-26-routed-consumer-guard-audit.md) — `candidate`; read-only ownership/race map for playback, export, ASR, mobile, retrieval and MCP integration; no enforcement claim.
+
+- [Exact-frame source writer foundation](2026-10-26-source-writer-foundation.md) — `candidate`; bounded native Rust writer and real custody tests; capture/barrier/consumer/installed integration remains open.
+
+- [Routed native seam and n01 diagnostic](2026-10-26-routed-native-seam-n01-diagnostic.md) — `candidate`; exact-frame/recoverable source seams; n01 fails primary UnknownSession, secondary SDK query-limit reporting corrected; owner attribution and both installed gates open.
+
+- [Native client attribution and n03](2026-10-27-native-client-session-attribution.md) — actual capture-client binding with strict admission still failing; 783 local library passes/12 ignored; runtime and installed gates remain open.
+
+- [Runtime guard and package qualification](2026-10-27-runtime-guard-package-qualification.md) — `beta`; source/package checkpoint including retained failures and package C upgrade with 23 negative/reopen calls preserving its project. Follow-up source `6981de4` passed hosted857library/17integration; that CI result and both actual audio capture gates remain separate. No merge/release.
+
+- [PID packet lifecycle candidate](2026-10-27-pid-packet-lifecycle-candidate.md) — `beta`; earlier offline progress/cancellation and build-only snapshot; later installed results are recorded separately below.
+
+- [Installed PID / endpoint audio UAT](2026-10-27-installed-pid-endpoint-audio-uat.md) — `beta`; actual candidate installed and tested: PID edge FAIL, endpoint NOT_PROVEN; export rejection and orderly reopen preserved. Both merge/release gates remain open.
+
+- [Installed audio remediation](2026-10-27-installed-audio-remediation.md) — `beta`; routed lifecycle metadata and fresh desktop source admission corrected, test-only pre-clock PCM seam reviewed; 885 library/17 integration pass. New audio attempt is NOT_RUN because both HDMI devices became NotPresent; original PID/endpoint gates remain open.

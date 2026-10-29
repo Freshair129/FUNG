@@ -8,12 +8,293 @@ use crate::live_meeting::{
     flush_capture_tail, process_capture_sample_batch_with_gap_reason, CaptureEvent, CaptureReady,
     CaptureSampleBatch, CHANNEL_SYSTEM,
 };
-use windows::core::PCWSTR;
+use windows::core::{Interface, PCWSTR};
 use windows::Win32::Media::Audio::*;
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 
 const RATE: u64 = 48_000;
+
+use crate::endpoint_packet_sink::{EndpointPacketProducer, PacketStamp};
+fn validate_sink_selection(
+    selection: &EndpointSelection,
+    sink: &Option<EndpointPacketProducer>,
+) -> Result<(), String> {
+    if let Some(sink) = sink {
+        if *selection != EndpointSelection::ExactId(sink.scope().endpoint_id().to_owned()) {
+            return Err("source packet sink must use its own explicitly bound endpoint ID".into());
+        }
+    }
+    Ok(())
+}
+// Structural validation only. A matching scope never creates a prepared ticket.
+fn validate_capture_entry_shape(
+    selection: &EndpointSelection,
+    sink: &Option<EndpointPacketProducer>,
+    ticket_scope: Option<&crate::endpoint_packet_sink::SourcePacketScope>,
+) -> Result<(), String> {
+    validate_sink_selection(selection, sink)?;
+    match (sink.as_ref(), ticket_scope) {
+        (None, None) => Ok(()),
+        (Some(sink), Some(scope)) if sink.scope() == scope => Ok(()),
+        (Some(_), None) => Err("raw source sink requires a prepared native factory ticket".into()),
+        _ => Err("native ticket/sink scope mismatch".into()),
+    }
+}
+struct NativePacketObservation {
+    index: u64,
+    qpc: u64,
+    observed_now_hns: u64,
+    flags: u32,
+}
+fn dispatch_endpoint_packet(
+    packet_sink: &mut Option<EndpointPacketProducer>,
+    batch: CaptureSampleBatch,
+    observation: NativePacketObservation,
+    legacy: impl FnOnce(CaptureSampleBatch),
+) -> Result<(), String> {
+    if let Some(sink) = packet_sink.as_mut() {
+        sink.push_native(
+            PacketStamp {
+                first_sample: batch.first_sample,
+                silence_before: batch.silence_before,
+                native_index: observation.index,
+                native_qpc_hns: observation.qpc,
+                observed_qpc_hns: observation.observed_now_hns,
+                native_flags: observation.flags,
+            },
+            batch.samples,
+        )
+        .map_err(|fault| format!("source packet sink failed: {fault:?}"))
+    } else {
+        legacy(batch);
+        Ok(())
+    }
+}
+#[cfg(test)]
+mod packet_seam_tests {
+    use super::*;
+    use crate::endpoint_packet_sink::{packet_channel, FrameSpan, SinkRead, SourcePacketScope};
+    #[test]
+    fn raw_sink_without_factory_ticket_is_rejected_before_native_work() {
+        let scope =
+            SourcePacketScope::new(uuid::Uuid::new_v4(), 1, "opaque-A".into(), 48000, 1).unwrap();
+        let (producer, _receiver) = packet_channel(scope.clone(), 1).unwrap();
+        let sink = Some(producer);
+        let selected = EndpointSelection::ExactId("opaque-A".into());
+        assert!(validate_capture_entry_shape(&selected, &sink, None).is_err());
+        // This checks input shape only and cannot mint or run a native ticket.
+        assert!(validate_capture_entry_shape(&selected, &sink, Some(&scope)).is_ok());
+        let wrong_epoch =
+            SourcePacketScope::new(scope.source_id(), 2, "opaque-A".into(), 48000, 1).unwrap();
+        assert!(validate_capture_entry_shape(&selected, &sink, Some(&wrong_epoch)).is_err());
+        assert!(validate_capture_entry_shape(&selected, &None, Some(&scope)).is_err());
+        assert!(validate_capture_entry_shape(
+            &EndpointSelection::LegacyFriendlyName("Speakers".into()),
+            &None,
+            None
+        )
+        .is_ok());
+    }
+    #[test]
+    fn source_sink_requires_its_own_explicit_endpoint_before_native_activation() {
+        let scope =
+            SourcePacketScope::new(uuid::Uuid::new_v4(), 1, "opaque-A".into(), 48000, 1).unwrap();
+        let (producer, _receiver) = packet_channel(scope, 1).unwrap();
+        let sink = Some(producer);
+        assert!(validate_sink_selection(
+            &EndpointSelection::LegacyFriendlyName("Speakers".into()),
+            &sink
+        )
+        .is_err());
+        assert!(
+            validate_sink_selection(&EndpointSelection::ExactId("opaque-B".into()), &sink).is_err()
+        );
+        assert!(
+            validate_sink_selection(&EndpointSelection::ExactId("opaque-A".into()), &sink).is_ok()
+        );
+        assert!(validate_sink_selection(
+            &EndpointSelection::LegacyFriendlyName("Speakers".into()),
+            &None
+        )
+        .is_ok());
+    }
+    #[test]
+    fn raw_source_sink_retains_one_frame_tail_and_native_flags_off_legacy_writer() {
+        const N: u64 = 10_000_000;
+        const B: u64 = N + 10_000;
+        let scope =
+            SourcePacketScope::new(uuid::Uuid::new_v4(), 1, "opaque".into(), 48000, B).unwrap();
+        let (mut producer, mut receiver) = packet_channel(scope, 2).unwrap();
+        producer.bind_native_clock(N, 48000).unwrap();
+        producer.confirm_native_ready(N + 1000).unwrap();
+        producer
+            .push_native(
+                PacketStamp {
+                    first_sample: 0,
+                    silence_before: None,
+                    native_index: 1,
+                    native_qpc_hns: N,
+                    observed_qpc_hns: B - 1,
+                    native_flags: 0,
+                },
+                vec![9; 48],
+            )
+            .unwrap();
+        let mut sink = Some(producer);
+        dispatch_endpoint_packet(
+            &mut sink,
+            CaptureSampleBatch {
+                first_sample: 48,
+                samples: vec![0],
+                silence_before: None,
+            },
+            NativePacketObservation {
+                index: 777,
+                qpc: B,
+                observed_now_hns: B + 1,
+                flags: 2,
+            },
+            |_| panic!("source packets must not enter legacy disk writer"),
+        )
+        .unwrap();
+        sink.take().unwrap().finish(Ok(()));
+        let SinkRead::Packet(packet) = receiver.recv_timeout(Duration::ZERO).unwrap() else {
+            panic!()
+        };
+        assert_eq!(packet.frames, FrameSpan { start: 0, end: 1 });
+        assert_eq!(packet.samples, vec![0]);
+        assert_eq!(packet.native_stamp.native_flags, 2);
+        assert_eq!(packet.native_stamp.native_index, 777);
+        assert_eq!(packet.native_stamp.native_qpc_hns, B);
+        assert_eq!(packet.native_stamp.observed_qpc_hns, B + 1);
+    }
+    #[test]
+    fn no_source_sink_keeps_existing_legacy_batch_and_idle_metadata() {
+        let mut called = false;
+        dispatch_endpoint_packet(
+            &mut None,
+            CaptureSampleBatch {
+                first_sample: 960,
+                samples: vec![9; 480],
+                silence_before: Some(480),
+            },
+            NativePacketObservation {
+                index: 7,
+                qpc: 8,
+                observed_now_hns: 9,
+                flags: 0,
+            },
+            |batch| {
+                called = true;
+                assert_eq!(batch.first_sample, 960);
+                assert_eq!(batch.samples, vec![9; 480]);
+                assert_eq!(batch.silence_before, Some(480));
+            },
+        )
+        .unwrap();
+        assert!(called);
+    }
+}
+
+/// A legacy display-name choice is deliberately distinct from a native opaque ID.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum EndpointSelection {
+    LegacyFriendlyName(String),
+    ExactId(String),
+}
+
+fn resolve_endpoint_id(
+    selection: &EndpointSelection,
+    legacy_matches: impl FnOnce(&str) -> Result<Vec<String>, String>,
+    exact_lookup: impl FnOnce(&str) -> Result<String, String>,
+) -> Result<String, String> {
+    match selection {
+        EndpointSelection::LegacyFriendlyName(name) => {
+            let ids = legacy_matches(name)?;
+            if ids.len() != 1 {
+                return Err(
+                    "selected system audio endpoint is absent or its name is ambiguous".into(),
+                );
+            }
+            Ok(ids[0].clone())
+        }
+        EndpointSelection::ExactId(id) => {
+            if id.is_empty() || id.len() > 4096 || id.contains('\0') {
+                return Err("invalid opaque audio endpoint ID".into());
+            }
+            let observed = exact_lookup(id)?;
+            if observed != *id {
+                return Err("native endpoint identity changed during lookup".into());
+            }
+            Ok(observed)
+        }
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+    #[test]
+    fn legacy_duplicate_name_still_fails_and_never_uses_default() {
+        let result = resolve_endpoint_id(
+            &EndpointSelection::LegacyFriendlyName("Speakers".into()),
+            |_| Ok(vec!["id-A".into(), "id-B".into()]),
+            |_| panic!("no exact fallback"),
+        );
+        assert!(result.is_err());
+    }
+    #[test]
+    fn exact_id_bypasses_duplicate_or_broken_friendly_name_inventory() {
+        let result = resolve_endpoint_id(
+            &EndpointSelection::ExactId("opaque-A".into()),
+            |_| panic!("opaque selection must not enumerate/match names"),
+            |id| Ok(id.into()),
+        );
+        assert_eq!(result.unwrap(), "opaque-A");
+    }
+    #[test]
+    fn exact_missing_id_never_falls_back_to_a_name_or_default() {
+        let result = resolve_endpoint_id(
+            &EndpointSelection::ExactId("missing".into()),
+            |_| panic!("no name fallback"),
+            |_| Err("native GetDevice: absent".into()),
+        );
+        assert_eq!(result.unwrap_err(), "native GetDevice: absent");
+    }
+    #[test]
+    fn exact_alias_roundtrip_mismatch_is_not_silently_accepted() {
+        let result = resolve_endpoint_id(
+            &EndpointSelection::ExactId("opaque-A".into()),
+            |_| panic!("no enumeration"),
+            |_| Ok("opaque-B".into()),
+        );
+        assert!(result.unwrap_err().contains("identity"));
+    }
+    #[test]
+    fn exact_invalid_ids_are_rejected_before_native_lookup() {
+        for id in ["".into(), "bad\0id".into(), "x".repeat(4097)] {
+            assert!(resolve_endpoint_id(
+                &EndpointSelection::ExactId(id),
+                |_| Ok(vec!["wrong".into()]),
+                |_| panic!("invalid input must not reach native lookup")
+            )
+            .is_err());
+        }
+    }
+    #[test]
+    fn legacy_unique_friendly_name_preserves_existing_selection() {
+        let result = resolve_endpoint_id(
+            &EndpointSelection::LegacyFriendlyName("Speakers".into()),
+            |name| {
+                assert_eq!(name, "Speakers");
+                Ok(vec!["old-ID".into()])
+            },
+            |_| panic!("legacy selection must retain old unique-name behavior"),
+        );
+        assert_eq!(result.unwrap(), "old-ID");
+    }
+}
 
 struct PacketClock {
     origin_hns: u64,
@@ -131,10 +412,26 @@ fn qpc_hns(frequency: i64) -> Result<u64, String> {
         .map_err(|_| "Windows capture clock overflow".into())
 }
 
-struct RunningClient(IAudioClient);
+// All native references stay on this MTA. The diagnostic owner also holds the
+// fresh private GUID and directly client-bound Control2, and is !Send/!Sync.
+struct RunningClient {
+    client: IAudioClient,
+    packets: IAudioCaptureClient,
+    audit: Option<crate::native_capture_session_audit::NativeCaptureSessionAudit>,
+    _device: IMMDevice,
+    ticket: Option<crate::native_capture_group::PreparedCapture>,
+}
+impl RunningClient {
+    fn stop(&self) -> Result<(), String> {
+        if let Some(ticket) = &self.ticket {
+            ticket.revoke();
+        }
+        win(unsafe { self.client.Stop() })
+    }
+}
 impl Drop for RunningClient {
     fn drop(&mut self) {
-        let _ = unsafe { self.0.Stop() };
+        let _ = self.stop();
     }
 }
 
@@ -152,16 +449,92 @@ pub(crate) fn spawn_system_capture_thread(
     root: PathBuf,
     fragment_ms: u64,
 ) -> Result<CaptureReady, String> {
+    spawn_selected_endpoint_capture_thread(
+        EndpointSelection::LegacyFriendlyName(name),
+        stop,
+        tx,
+        root,
+        fragment_ms,
+        None,
+    )
+    .map(|ready| CaptureReady {
+        device_name: ready.device_name,
+    })
+}
+
+/// Shared reader entry point. Exact selection never enumerates display names or
+/// follows a current default. A routed caller must provide a source-private root.
+pub(crate) fn spawn_selected_endpoint_capture_thread(
+    selection: EndpointSelection,
+    stop: Arc<AtomicBool>,
+    tx: mpsc::SyncSender<CaptureEvent>,
+    root: PathBuf,
+    fragment_ms: u64,
+    packet_sink: Option<EndpointPacketProducer>,
+) -> Result<CaptureReady, String> {
+    spawn_endpoint_capture_thread(selection, stop, tx, root, fragment_ms, packet_sink, None)
+}
+
+pub(crate) fn spawn_owned_endpoint_capture_thread(
+    stop: Arc<AtomicBool>,
+    tx: mpsc::SyncSender<CaptureEvent>,
+    root: PathBuf,
+    fragment_ms: u64,
+    producer: EndpointPacketProducer,
+    ticket: crate::native_capture_group::PreparedCapture,
+) -> Result<CaptureReady, String> {
+    if producer.scope() != ticket.scope() {
+        return Err("native ticket/sink scope mismatch".into());
+    }
+    let selection = EndpointSelection::ExactId(ticket.scope().endpoint_id().to_owned());
+    spawn_endpoint_capture_thread(
+        selection,
+        stop,
+        tx,
+        root,
+        fragment_ms,
+        Some(producer),
+        Some(ticket),
+    )
+}
+
+fn spawn_endpoint_capture_thread(
+    selection: EndpointSelection,
+    stop: Arc<AtomicBool>,
+    tx: mpsc::SyncSender<CaptureEvent>,
+    root: PathBuf,
+    fragment_ms: u64,
+    packet_sink: Option<EndpointPacketProducer>,
+    ticket: Option<crate::native_capture_group::PreparedCapture>,
+) -> Result<CaptureReady, String> {
+    validate_capture_entry_shape(
+        &selection,
+        &packet_sink,
+        ticket.as_ref().map(|ticket| ticket.scope()),
+    )?;
+    if fragment_ms == 0 || fragment_ms > 60_000 {
+        return Err("endpoint fragment duration outside supported bounds".into());
+    }
     let (ready_tx, ready_rx) = mpsc::channel();
+    let timeout_stop = stop.clone();
     std::thread::Builder::new()
-        .name("fung-system-loopback".into())
+        .name("fung-endpoint-loopback".into())
         .spawn(move || {
             let mut readiness = Some(ready_tx);
-            let result = capture(&name, &stop, &tx, &root, fragment_ms, &mut readiness);
+            let result = capture_selected(
+                &selection,
+                &stop,
+                &tx,
+                &root,
+                fragment_ms,
+                &mut readiness,
+                packet_sink,
+                ticket,
+            );
             if let Some(ready) = readiness {
                 let _ = ready.send(Err(result
                     .err()
-                    .unwrap_or_else(|| "system loopback stopped before start".into())));
+                    .unwrap_or_else(|| "endpoint capture stopped before start".into())));
             } else if let Err(error) = result {
                 let _ = tx.send(CaptureEvent::StreamFailed {
                     channel: CHANNEL_SYSTEM,
@@ -170,47 +543,119 @@ pub(crate) fn spawn_system_capture_thread(
                 });
             }
         })
-        .map_err(|error| format!("start system capture thread: {error}"))?;
+        .map_err(|error| format!("start endpoint capture thread: {error}"))?;
     ready_rx
         .recv_timeout(Duration::from_secs(10))
-        .map_err(|error| format!("system capture readiness: {error}"))?
-        .map(|device_name| CaptureReady { device_name })
+        .map_err(|error| {
+            timeout_stop.store(true, Ordering::SeqCst);
+            format!("endpoint capture readiness: {error}")
+        })?
 }
 
-fn capture(
-    name: &str,
+#[allow(clippy::too_many_arguments)]
+fn capture_selected(
+    selection: &EndpointSelection,
     stop: &AtomicBool,
     tx: &mpsc::SyncSender<CaptureEvent>,
     root: &std::path::Path,
     fragment_ms: u64,
-    readiness: &mut Option<mpsc::Sender<Result<String, String>>>,
+    readiness: &mut Option<mpsc::Sender<Result<CaptureReady, String>>>,
+    mut packet_sink: Option<EndpointPacketProducer>,
+    ticket: Option<crate::native_capture_group::PreparedCapture>,
 ) -> Result<(), String> {
+    let result = capture_selected_inner(
+        selection,
+        stop,
+        tx,
+        root,
+        fragment_ms,
+        readiness,
+        &mut packet_sink,
+        ticket,
+    );
+    // The inner reader's native client has stopped/dropped before closing this
+    // private queue. On any early setup or packet error preserve its real reason.
+    if let Some(sink) = packet_sink {
+        sink.finish(result.clone());
+    }
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn capture_selected_inner(
+    selection: &EndpointSelection,
+    stop: &AtomicBool,
+    tx: &mpsc::SyncSender<CaptureEvent>,
+    root: &std::path::Path,
+    fragment_ms: u64,
+    readiness: &mut Option<mpsc::Sender<Result<CaptureReady, String>>>,
+    packet_sink: &mut Option<EndpointPacketProducer>,
+    ticket: Option<crate::native_capture_group::PreparedCapture>,
+) -> Result<(), String> {
+    validate_capture_entry_shape(
+        selection,
+        packet_sink,
+        ticket.as_ref().map(|ticket| ticket.scope()),
+    )?;
+    if ticket.is_some() && stop.load(Ordering::SeqCst) {
+        return Err("native group cancelled before native setup".into());
+    }
     wasapi::initialize_mta()
         .ok()
         .map_err(|error| error.to_string())?;
     let _apartment = ComApartment;
-    // Keep the CPAL-selected endpoint. Equal friendly names are ambiguous;
-    // fail instead of broadening capture to a different/default endpoint.
-    let collection = wasapi::DeviceEnumerator::new()
-        .map_err(|e| e.to_string())?
-        .get_device_collection(&wasapi::Direction::Render)
-        .map_err(|e| e.to_string())?;
-    let mut ids = Vec::new();
-    for index in 0..collection.get_nbr_devices().map_err(|e| e.to_string())? {
-        let device = collection
-            .get_device_at_index(index)
-            .map_err(|e| e.to_string())?;
-        if device.get_friendlyname().map_err(|e| e.to_string())? == name {
-            ids.push(device.get_id().map_err(|e| e.to_string())?);
-        }
+    if let Some(ticket) = &ticket {
+        ticket.before_start(
+            packet_sink
+                .as_ref()
+                .ok_or("owned native sink missing")?
+                .scope(),
+        )?;
     }
-    if ids.len() != 1 {
-        return Err("selected system audio endpoint is absent or its name is ambiguous".into());
-    }
-    let id: Vec<u16> = ids[0].encode_utf16().chain(Some(0)).collect();
     let enumerator: IMMDeviceEnumerator =
         win(unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) })?;
+    let endpoint_id = resolve_endpoint_id(
+        selection,
+        |name| {
+            // Preserve the legacy unique-friendly-name behavior, including errors.
+            let collection = wasapi::DeviceEnumerator::new()
+                .map_err(|e| e.to_string())?
+                .get_device_collection(&wasapi::Direction::Render)
+                .map_err(|e| e.to_string())?;
+            let mut ids = Vec::new();
+            for index in 0..collection.get_nbr_devices().map_err(|e| e.to_string())? {
+                let device = collection
+                    .get_device_at_index(index)
+                    .map_err(|e| e.to_string())?;
+                if device.get_friendlyname().map_err(|e| e.to_string())? == name {
+                    ids.push(device.get_id().map_err(|e| e.to_string())?);
+                }
+            }
+            Ok(ids)
+        },
+        |id| {
+            let id: Vec<u16> = id.encode_utf16().chain(Some(0)).collect();
+            let device = win(unsafe { enumerator.GetDevice(PCWSTR(id.as_ptr())) })?;
+            wasapi::Device::from_immdevice(device)
+                .map_err(|e| e.to_string())?
+                .get_id()
+                .map_err(|e| e.to_string())
+        },
+    )?;
+    let id: Vec<u16> = endpoint_id.encode_utf16().chain(Some(0)).collect();
     let device = win(unsafe { enumerator.GetDevice(PCWSTR(id.as_ptr())) })?;
+    if win(unsafe { device.GetState() })? != DEVICE_STATE_ACTIVE {
+        return Err("selected endpoint is not active".into());
+    }
+    let flow: IMMEndpoint = win(device.cast())?;
+    if win(unsafe { flow.GetDataFlow() })? != eRender {
+        return Err("selected endpoint is not a render device".into());
+    }
+    let wrapper = wasapi::Device::from_immdevice(device.clone()).map_err(|e| e.to_string())?;
+    if wrapper.get_id().map_err(|e| e.to_string())? != endpoint_id {
+        return Err("selected endpoint identity changed".into());
+    }
+    let device_name = wrapper.get_friendlyname().map_err(|e| e.to_string())?;
     let client: IAudioClient = win(unsafe { device.Activate(CLSCTX_ALL, None) })?;
     let format = WAVEFORMATEX {
         wFormatTag: 1,
@@ -221,18 +666,34 @@ fn capture(
         wBitsPerSample: 16,
         cbSize: 0,
     };
-    win(unsafe {
-        client.Initialize(
-            AUDCLNT_SHAREMODE_SHARED,
+    let session_audit = if let Some(sink) = packet_sink.as_ref() {
+        let audit = crate::native_capture_session_audit::NativeCaptureSessionAudit::initialize(
+            &client,
+            &device,
+            sink.scope(),
+            &format,
             AUDCLNT_STREAMFLAGS_LOOPBACK
                 | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
                 | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
             20_000_000,
-            0,
-            &format,
-            None,
-        )
-    })?;
+        )?;
+        sink.record_capture_session_audit(audit.receipt()?)?;
+        Some(audit)
+    } else {
+        win(unsafe {
+            client.Initialize(
+                AUDCLNT_SHAREMODE_SHARED,
+                AUDCLNT_STREAMFLAGS_LOOPBACK
+                    | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
+                    | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+                20_000_000,
+                0,
+                &format,
+                None,
+            )
+        })?;
+        None
+    };
     let packets: IAudioCaptureClient = win(unsafe { client.GetService() })?;
     let latency_hns = win(unsafe { client.GetStreamLatency() })?.max(0) as u64;
     let buffer_frames = win(unsafe { client.GetBufferSize() })?;
@@ -244,10 +705,58 @@ fn capture(
     let mut frequency = 0;
     win(unsafe { QueryPerformanceFrequency(&mut frequency) })?;
     let origin_hns = qpc_hns(frequency)?;
+    if let Some(sink) = packet_sink.as_mut() {
+        sink.bind_native_clock(origin_hns, RATE as u32)
+            .map_err(|fault| format!("source packet clock binding failed: {fault:?}"))?;
+    }
+    if ticket.is_some() && stop.load(Ordering::SeqCst) {
+        return Err("native group cancelled before Start".into());
+    }
+    if let Some(ticket) = &ticket {
+        ticket.ensure_starting()?;
+    }
     win(unsafe { client.Start() })?;
-    let running = RunningClient(client);
+    let mut running = RunningClient {
+        client,
+        packets,
+        audit: session_audit,
+        _device: device,
+        ticket,
+    };
+    if running.ticket.is_some() && stop.load(Ordering::SeqCst) {
+        return Err("native group cancelled after Start".into());
+    }
+    if let (Some(audit), Some(sink)) = (running.audit.as_mut(), packet_sink.as_ref()) {
+        audit.observe_after_start(&running.client);
+        sink.record_capture_session_audit(audit.receipt()?)?;
+    }
+    if let Some(ticket) = &running.ticket {
+        if stop.load(Ordering::SeqCst) {
+            return Err("native group cancelled before owner registration".into());
+        }
+        let proof = running
+            .audit
+            .as_ref()
+            .ok_or("owned direct native audit missing")?
+            .verify_live(&running.client)?;
+        ticket.activate(proof)?;
+        let remaining = ticket
+            .scope()
+            .common_origin_hns()
+            .checked_sub(qpc_hns(frequency)?)
+            .filter(|v| *v > 0)
+            .ok_or("native group missed original common origin")?;
+        ticket.wait_ready(Duration::from_nanos(remaining.saturating_mul(100)))?;
+        if stop.load(Ordering::SeqCst) {
+            return Err("native group cancelled before readiness".into());
+        }
+    }
+    if let Some(sink) = packet_sink.as_mut() {
+        sink.confirm_native_ready(qpc_hns(frequency)?)
+            .map_err(|fault| format!("source missed native-ready deadline: {fault:?}"))?;
+    }
     if let Some(ready) = readiness.take() {
-        let _ = ready.send(Ok(name.to_string()));
+        let _ = ready.send(Ok(CaptureReady { device_name }));
     }
     let mut clock = PacketClock::new(origin_hns, max_future_hns, buffer_duration_hns);
     let mut samples = Vec::new();
@@ -260,20 +769,20 @@ fn capture(
         loop {
             let stopping = stop.load(Ordering::SeqCst);
             if stopping {
-                win(unsafe { running.0.Stop() })?;
+                running.stop()?;
             }
             loop {
                 // Timestamp before querying: preemption after the API returns
                 // must not make an old empty observation look artificially fresh.
                 let before_query_hns = qpc_hns(frequency)?;
-                if win(unsafe { packets.GetNextPacketSize() })? == 0 {
+                if win(unsafe { running.packets.GetNextPacketSize() })? == 0 {
                     clock.observe_empty(before_query_hns)?;
                     break;
                 }
                 let mut ptr = std::ptr::null_mut();
                 let (mut frames, mut flags, mut index, mut timestamp) = (0, 0, 0, 0);
                 win(unsafe {
-                    packets.GetBuffer(
+                    running.packets.GetBuffer(
                         &mut ptr,
                         &mut frames,
                         &mut flags,
@@ -303,7 +812,7 @@ fn capture(
                         })
                         .collect())
                 };
-                win(unsafe { packets.ReleaseBuffer(frames) })?;
+                win(unsafe { running.packets.ReleaseBuffer(frames) })?;
                 let mono = mono?;
                 if frames == 0 {
                     continue;
@@ -320,24 +829,36 @@ fn capture(
                     flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY.0 as u32 != 0,
                     flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR.0 as u32 != 0,
                 ).map_err(|error| format!("{error}; timestamp={timestamp} now={observed_now_hns} origin={origin_hns} index={index} frames={frames} flags={flags:#x} latency_hns={latency_hns} buffer_frames={buffer_frames} last_empty_hns={} startup_buffer_hns={buffer_duration_hns}", clock.latest_empty_hns))?;
-                process_capture_sample_batch_with_gap_reason(
+                dispatch_endpoint_packet(
+                    packet_sink,
                     CaptureSampleBatch {
                         first_sample,
                         samples: mono,
                         silence_before,
                     },
-                    CHANNEL_SYSTEM,
-                    RATE as u32,
-                    samples_per_chunk,
-                    root,
-                    tx,
-                    &mut samples,
-                    &mut timeline,
-                    &mut expected,
-                    &mut sequence,
-                    &mut level,
-                    "system_loopback_discontinuity",
-                );
+                    NativePacketObservation {
+                        index,
+                        qpc: timestamp,
+                        observed_now_hns,
+                        flags,
+                    },
+                    |batch| {
+                        process_capture_sample_batch_with_gap_reason(
+                            batch,
+                            CHANNEL_SYSTEM,
+                            RATE as u32,
+                            samples_per_chunk,
+                            root,
+                            tx,
+                            &mut samples,
+                            &mut timeline,
+                            &mut expected,
+                            &mut sequence,
+                            &mut level,
+                            "system_loopback_discontinuity",
+                        )
+                    },
+                )?;
             }
             if stopping {
                 break;
@@ -346,16 +867,19 @@ fn capture(
         }
         Ok(())
     })();
-    // Preserve every accepted sample on both normal stop and source failure.
-    flush_capture_tail(
-        CHANNEL_SYSTEM,
-        RATE as u32,
-        root,
-        tx,
-        &mut samples,
-        &mut timeline,
-        &mut sequence,
-    );
+    // Preserve legacy tails exactly as before. Source PCM packets have already
+    // transferred ownership into the bounded sink, including a one-frame tail.
+    if packet_sink.is_none() {
+        flush_capture_tail(
+            CHANNEL_SYSTEM,
+            RATE as u32,
+            root,
+            tx,
+            &mut samples,
+            &mut timeline,
+            &mut sequence,
+        );
+    }
     result
 }
 

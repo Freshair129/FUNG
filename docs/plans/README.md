@@ -1,7 +1,7 @@
 ---
-version: "0.1.1b"
+version: "0.1.3g"
 created_at: "2026-10-19"
-last_update: "2026-10-24"
+last_update: "2026-10-29"
 status: "beta"
 superseded_by: null
 attributes:
@@ -16,6 +16,18 @@ attributes:
 แผนในโฟลเดอร์นี้ระบุขอบเขตและลำดับงาน ไม่ใช่หลักฐานว่างานเสร็จหรือฟีเจอร์ทำงานแล้ว
 
 ## จุดอ้างอิงหลัก
+
+- [PID Stop versus renderer destruction](2026-10-29-pid-stop-versus-destruction.md) — `candidate`; owned fixture study, not yet evidence of an arbitrary-application repair or installed acceptance.
+
+- [PID engine-period admission](2026-10-29-pid-engine-period-admission.md) — readonly two-HDMI capability gate; actual minimum=default480frames blocks the conditional smaller-period audio study. No repair/package acceptance.
+
+- [Direct acquisition experiment and recovery guard](2026-10-29-direct-acquisition-and-recovery-guard.md) tests the remaining size-hint admission hypothesis and fences legacy recovery from routed sources. Native failure does not unlock production adoption or package acceptance.
+
+- [PID original-buffer diagnostic](2026-10-28-pid-original-buffer-diagnostic.md) extends the test-only pre-clock evidence to original stereo before decode; it does not implement a production PID repair or close either installed gate.
+
+- [Dedicated endpoint routing](2026-10-25-dedicated-endpoint-routing-plan.md) owns the capture-routing implementation sequence; the [native session lifecycle subplan](2026-10-27-native-capture-session-lifecycle-plan.md) is an unimplemented Task 2 candidate after n03 attribution.
+
+- [Application renderer-transition repair, issue 96](2026-10-25-issue-96-application-transition.md) tracks root-cause isolation, source regressions and installed-package release gates.
 
 - [Multichannel source-export repair, issue 97](2026-10-24-multichannel-source-export-fix.md) specifies all-channel custody, atomic media publication, timeline fail-closed behavior and honest job outcomes; acceptance evidence remains separate.
 
@@ -60,3 +72,7 @@ attributes:
 - [2026-10-16-design-system-source-of-truth](2026-10-16-design-system-source-of-truth.md)
 - [2026-10-20-product-mcp-feature-roadmap](2026-10-20-product-mcp-feature-roadmap.md) — active execution
 - [2026-10-20-product-mcp-execution-dag](2026-10-20-product-mcp-execution-dag.json) — active checkpoint ledger, paired with the roadmap
+
+- [Dedicated endpoint routing plan](2026-10-25-dedicated-endpoint-routing-plan.md) — `candidate`; native qualification gates product integration and installed acceptance.
+
+- [PID packet lifecycle plan](2026-10-27-pid-packet-lifecycle-plan.md) — `beta`; offline component corrections and build-only candidate, with actual audio and both installed release gates deferred.

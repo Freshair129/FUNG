@@ -1,3 +1,15 @@
+pub mod capture_source_custody;
+pub mod capture_source_writer;
+#[cfg(windows)]
+mod native_capture_group;
+#[cfg(windows)]
+mod native_capture_session_audit;
+#[cfg(windows)]
+mod routed_capture;
+mod routed_media_access;
+#[cfg(all(test, windows))]
+#[path = "routed_native_probe.rs"]
+mod routed_native_probe;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -22,12 +34,17 @@ mod auth_session;
 mod backup;
 mod backup_archive;
 mod backup_payload;
+/// Read-only route inventory/admission shared by native and developer adapters.
+pub mod capture_routing;
+mod capture_routing_commands;
 mod cloud_commands;
 mod cloud_config;
 mod cloud_executor;
 mod desktop_playback;
 mod device_identity;
 mod diarization;
+/// Trusted in-process private PCM seam; no capture IPC is registered.
+pub mod endpoint_packet_sink;
 mod external_mcp;
 mod external_mcp_commands;
 mod external_mcp_transport;
@@ -1050,7 +1067,7 @@ pub(crate) struct AppState {
     pub(crate) recording_output: Arc<Mutex<recording_output::RecordingOutputManager>>,
     pub(crate) genesis: Arc<genesis_block_native::Storage>,
     pub(crate) genesis_path: PathBuf,
-    shutdown_started: AtomicBool,
+    shutdown_started: Arc<AtomicBool>,
     genesis_checkpoint_started: AtomicBool,
     pub(crate) meeting_owner_session: Mutex<Option<genesis_adapter::NativeOwnerUnlockSession>>,
     pub(crate) meeting_intelligence:
@@ -1060,6 +1077,8 @@ pub(crate) struct AppState {
     pub(crate) mobile_gateway: Mutex<Option<mobile::MobileGatewayControl>>,
     pub(crate) fungwire: Mutex<Option<fungwire_server::FungwireServerControl>>,
     pub(crate) live: Arc<Mutex<Option<live_meeting::LiveSessionControl>>>,
+    #[cfg(windows)]
+    pub(crate) routed_live: Arc<Mutex<Option<routed_capture::RoutedCaptureHandle>>>,
     pub(crate) review_registry: Mutex<recording_review::ReviewRegistry>,
     pub(crate) playback: desktop_playback::PlaybackManager,
     pub(crate) native_capture: Arc<recording_review::NativeCaptureGuard>,
@@ -1718,7 +1737,7 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         jobs: job_engine::JobEngine::new(Arc::clone(&genesis)),
         genesis,
         genesis_path,
-        shutdown_started: AtomicBool::new(false),
+        shutdown_started: Arc::new(AtomicBool::new(false)),
         genesis_checkpoint_started: AtomicBool::new(false),
         meeting_owner_session: Mutex::new(None),
         meeting_intelligence: Mutex::new(
@@ -1729,6 +1748,8 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         mobile_gateway: Mutex::new(None),
         fungwire: Mutex::new(None),
         live: Arc::new(Mutex::new(None)),
+        #[cfg(windows)]
+        routed_live: Arc::new(Mutex::new(None)),
         review_registry: Mutex::new(recording_review::ReviewRegistry::default()),
         playback: desktop_playback::PlaybackManager::new(),
         native_capture: Arc::new(recording_review::NativeCaptureGuard::default()),
@@ -7061,6 +7082,10 @@ fn shutdown_native_state(state: &AppState) {
     // Stop accepting MCP work and drain authenticated requests before any
     // capture/job shutdown or Genesis checkpoint begins.
     product_mcp::shutdown(&state.product_mcp);
+    #[cfg(windows)]
+    let routed_quiescent = capture_routing_commands::shutdown_routed_capture(state);
+    #[cfg(not(windows))]
+    let routed_quiescent = true;
     live_meeting::shutdown(state);
     state.playback.shutdown();
     state
@@ -7069,6 +7094,10 @@ fn shutdown_native_state(state: &AppState) {
         .expect("review registry mutex poisoned")
         .clear();
     state.jobs.shutdown_and_wait();
+    if !routed_quiescent {
+        eprintln!("[storage] orderly checkpoint deferred: routed capture termination unproven");
+        return;
+    }
     match checkpoint_genesis_once(&state.genesis, &state.genesis_checkpoint_started) {
         Ok(true) => eprintln!(
             "[storage] Genesis shutdown checkpoint completed at frontier {}",
@@ -7265,6 +7294,11 @@ pub fn run() {
             recording_output::recording_output_get,
             recording_output::recording_output_set,
             recording_output::recording_output_reset,
+            capture_routing_commands::capture_route_inventory,
+            capture_routing_commands::capture_route_validate,
+            capture_routing_commands::capture_route_start,
+            capture_routing_commands::capture_route_status,
+            capture_routing_commands::capture_route_stop,
             live_meeting::live_capture_devices,
             live_meeting::live_meeting_start,
             live_meeting::live_meeting_stop,

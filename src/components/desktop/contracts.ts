@@ -287,6 +287,7 @@ export type LiveDevices = {
 export type LiveStartOptions = {
   projectId?: string;
   captureSystem?: boolean;
+  captureMicrophone?: boolean;
   language?: string;
   transcriptProfile?: "chunked" | "revisioned";
   micDeviceId?: string;

@@ -1722,7 +1722,74 @@ fn schema_v11() -> RelationalSchemaPackage {
 }
 
 pub(crate) fn schema() -> RelationalSchemaPackage {
-    schema_v15()
+    schema_v16()
+}
+
+/// Source UUID custody is additive: legacy audio_chunks remain unbound.
+fn schema_v16() -> RelationalSchemaPackage {
+    use RelationalColumnType::{Integer, Json, Text};
+    let mut p = schema_v15();
+    p.schema_version = 16;
+    p.previous_version = Some(15);
+    p.package_id = "cb4ed1e7-5989-44e9-8b9f-54711cd357cb".into();
+    p.tables.extend([
+        table(
+            "capture_sources",
+            vec![
+                required("id", Text),
+                required("project_id", Text),
+                required("recording_id", Text),
+                required("capture_epoch", Integer),
+                required("registration_json", Json),
+                required("registration_attempt", Text),
+                required("state", Text),
+                nullable("closed_at", Text),
+                required("last_sequence", Integer),
+                required("last_end_frame", Integer),
+                required("last_end_ms", Integer),
+                required("checkpoint_revision", Integer),
+                nullable("quarantine_json", Json),
+                required("created_at", Text),
+                required("updated_at", Text),
+            ],
+            vec![
+                fk("project_id", "projects"),
+                fk("recording_id", "recordings"),
+            ],
+            vec![],
+        ),
+        table(
+            "capture_source_chunks",
+            vec![
+                required("id", Text),
+                required("source_id", Text),
+                required("recording_id", Text),
+                required("capture_epoch", Integer),
+                required("source_sequence", Integer),
+                required("global_sequence", Integer),
+                required("chunk_json", Json),
+                required("payload_hash", Text),
+                required("byte_size", Integer),
+                required("attempt_id", Text),
+                required("created_at", Text),
+            ],
+            vec![
+                fk("id", "audio_chunks"),
+                fk("source_id", "capture_sources"),
+                fk("recording_id", "recordings"),
+            ],
+            vec![RelationalIndex {
+                name: "idx_source_epoch_sequence".into(),
+                columns: vec![
+                    "source_id".into(),
+                    "capture_epoch".into(),
+                    "source_sequence".into(),
+                ],
+                unique: true,
+            }],
+        ),
+    ]);
+    p
 }
 
 /// Add persisted operation intents so Product MCP can reconcile an interrupted
@@ -2031,6 +2098,7 @@ pub(crate) fn install(storage: &Storage) -> Result<(), String> {
         schema_v12(),
         schema_v13(),
         schema_v14(),
+        schema_v15(),
         schema(),
     ];
     let last_index = packages.len() - 1;
@@ -14943,6 +15011,7 @@ mod tests {
             schema_v12(),
             schema_v13(),
             schema_v14(),
+            schema_v15(),
             schema(),
         ];
         for (index, package) in chain.iter().enumerate() {
@@ -15200,6 +15269,82 @@ mod tests {
     }
 
     #[test]
+    fn schema_v16_upgrades_v15_without_rewriting_legacy_audio() {
+        let temp = tempfile::tempdir().unwrap();
+        let options = OpenOptions {
+            path: temp.path().join("db").display().to_string(),
+            page_cache_mb: Some(16),
+            read_only: Some(false),
+            vector_dim: Some(4),
+            retention: None,
+        };
+        let storage = Storage::open(options.clone()).unwrap();
+        for package in [
+            schema_v1(),
+            schema_v2(),
+            schema_v3(),
+            schema_v4(),
+            schema_v5(),
+            schema_v6(),
+            schema_v7(),
+            schema_v8(),
+            schema_v9(),
+            schema_v10(),
+            schema_v11(),
+            schema_v12(),
+            schema_v13(),
+            schema_v14(),
+            schema_v15(),
+        ] {
+            storage.register_relational_schema(package).unwrap();
+        }
+        commit_rows(&storage, vec![
+            upsert("projects", json!({"id":"legacy-v15-project", "name":"preserved", "storage_path":"historical", "created_at":"t", "updated_at":"t"})),
+            upsert("recordings", json!({"id":"legacy-v15-recording", "project_id":"legacy-v15-project", "source":"microphone", "canonical_audio_path":"historical.wav", "status":"completed", "duration_ms":1000, "created_at":"t", "updated_at":"t"})),
+            upsert("audio_chunks", json!({"id":"legacy-v15-chunk", "recording_id":"legacy-v15-recording", "sequence_no":1, "file_path":"historical.wav", "start_ms":0, "end_ms":1000, "byte_size":2044, "checksum":"historical-checksum", "created_at":"t"})),
+        ]).unwrap();
+        let before = query(
+            &storage,
+            "audio_chunks",
+            &["id", "file_path", "checksum", "start_ms", "end_ms"],
+            vec![],
+            10,
+        )
+        .unwrap();
+        install(&storage).unwrap();
+        install(&storage).unwrap();
+        assert_eq!(schema().schema_version, 16);
+        assert_eq!(
+            query(
+                &storage,
+                "audio_chunks",
+                &["id", "file_path", "checksum", "start_ms", "end_ms"],
+                vec![],
+                10
+            )
+            .unwrap(),
+            before
+        );
+        assert!(query(&storage, "capture_sources", &["id"], vec![], 10)
+            .unwrap()
+            .is_empty());
+        drop(storage);
+        let storage = Storage::open(options).unwrap();
+        install(&storage).unwrap();
+        assert_eq!(
+            query(
+                &storage,
+                "audio_chunks",
+                &["id", "file_path", "checksum", "start_ms", "end_ms"],
+                vec![],
+                10
+            )
+            .unwrap(),
+            before
+        );
+    }
+
+    #[test]
     fn schema_v9_adds_controlled_external_tool_tables_and_upgrade_is_idempotent() {
         let (path, storage) = open();
         commit_rows(&storage, vec![
@@ -15296,7 +15441,7 @@ mod tests {
         assert_eq!(schema_v12().schema_version, 12);
         assert_eq!(schema_v13().schema_version, 13);
         assert_eq!(schema_v14().schema_version, 14);
-        assert_eq!(schema().schema_version, 15);
+        assert_eq!(schema().schema_version, 16);
         let old_runs = schema_v12()
             .tables
             .into_iter()

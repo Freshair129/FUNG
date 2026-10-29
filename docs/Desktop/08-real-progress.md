@@ -1,5 +1,5 @@
 ---
-version: "0.3.51b"
+version: "0.3.52b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-29"
 
@@ -12,6 +12,16 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## PID Stop versus destruction — 2026-10-29
+
+The [owned native comparison](../verification/implementation-reports/2026-10-29-pid-stop-hold-diagnostic.md)
+finds immediately destroying the renderer loses measured edges, whereas holding
+the stopped actual client during the pause yields near-zero edge deltas in both
+cycles. The held subject still reports three timeline gaps and exits101; both
+whole-run verdicts FAIL. This identifies a meaningful fixture lifetime boundary,
+not a supported way to retain arbitrary third-party clients. Product repair,
+full installed PID/endpoint acceptance, merge and tag remain open.
 
 ## HDMI engine-period admission — 2026-10-29
 
@@ -1914,6 +1924,11 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.51b` → `0.3.52b`
+
+- Record matched native Stop/hold versus immediate-destruction results and their
+  independent byte/guard audit; do not promote edge-only results to full acceptance.
+
 ### `0.3.50b` → `0.3.51b`
 
 - Record two real HDMI engine-period queries and preserved before/after guards.
@@ -2233,6 +2248,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.52b | 2026-10-29 | beta | Matched native stopped-client retention removes measured edges in the owned fixture, but three timeline gaps and exit101 keep the overall run FAIL; no arbitrary-PID repair or installed gate closure. | see Git history | Codex |
 | 0.3.51b | 2026-10-29 | beta | Readonly exact-HDMI engine-period admission finds only480frames/10ms at current48kHz; conditional audio study NOT_RUN. Productfff68af CI succeeds; PID/full endpoint installed gates stay open. | see Git history | Codex |
 | 0.3.50b | 2026-10-29 | beta | Direct acquisition and matched baseline retain native FAIL; no production adoption. Legacy recovery source guard has RED5/GREEN15 and source GO; fresh serial library902pass/14ignored follows retained Winsock10055 failure. Both installed audio gates remain open. | see Git history | Codex |
 | 0.3.47b | 2026-10-27 | beta | Source GO for truthful routed metadata, desktop source guard and test-only pre-clock evidence; 885 library/17 integration and strict checks pass. Native n01 NOT_RUN at missing-device admission; no merge/tag/release. | see Git history | Codex |

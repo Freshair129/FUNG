@@ -1,5 +1,5 @@
 ---
-version: "0.1.3f"
+version: "0.1.3g"
 created_at: "2026-10-19"
 last_update: "2026-10-29"
 status: "beta"
@@ -16,6 +16,8 @@ attributes:
 แผนในโฟลเดอร์นี้ระบุขอบเขตและลำดับงาน ไม่ใช่หลักฐานว่างานเสร็จหรือฟีเจอร์ทำงานแล้ว
 
 ## จุดอ้างอิงหลัก
+
+- [PID Stop versus renderer destruction](2026-10-29-pid-stop-versus-destruction.md) — `candidate`; owned fixture study, not yet evidence of an arbitrary-application repair or installed acceptance.
 
 - [PID engine-period admission](2026-10-29-pid-engine-period-admission.md) — readonly two-HDMI capability gate; actual minimum=default480frames blocks the conditional smaller-period audio study. No repair/package acceptance.
 

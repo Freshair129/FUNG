@@ -1,5 +1,5 @@
 ---
-version: "0.1.2u"
+version: "0.1.2v"
 created_at: "2026-10-19"
 last_update: "2026-10-29"
 status: "beta"
@@ -12,6 +12,8 @@ attributes:
 ---
 
 # Implementation and review report index
+
+- [PID Stop versus destruction diagnostic](2026-10-29-pid-stop-hold-diagnostic.md) — `candidate`; retaining the stopped owned client removes measured edge deltas but reports three timeline gaps and exits101. No production repair or installed acceptance.
 
 - [Actual HDMI engine-period admission](2026-10-29-hdmi-engine-period-admission.md) — `beta`; both exact-ID48kHz queries succeed but advertise only480frames/10ms. Smaller-period study NOT_RUN; no PID fix or installed acceptance.
 

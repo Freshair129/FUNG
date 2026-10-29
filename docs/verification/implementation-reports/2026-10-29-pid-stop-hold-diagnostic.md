@@ -1,5 +1,5 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-29"
 last_update: "2026-10-29"
 status: "candidate"
@@ -39,6 +39,26 @@ device indices do not establish the missing intervals' contents. These observed
 neighbors are not evidence that all missing PCM was silent, so the gaps and
 overall FAIL remain. `stop-hold-fault-audit/receipt.json` SHA-256
 `2044C037FB374E26B21D8543C57DEE0BE2E407A9D15720847A9790E1844D3A9A`.
+
+### Further lifetime and timestamp investigation
+
+At the three held-case anomalies, consecutive native QPC intervals are
+19.9876/15.7956/33.3844 ms; the recorded read-entry elapsed intervals are
+19.2156/16.0306/33.1742 ms. Longer QPC intervals coincide with longer observed
+read-entry intervals in these packets. Read-entry is a scheduling observation,
+not a measurement of when the native packet became available or the contents of
+unobserved audio: this does not distinguish delayed retrieval, missing packets,
+or timestamp behavior. No gap was suppressed or filled based on this comparison.
+
+The inspected Microsoft [render-stream lifecycle documentation](https://learn.microsoft.com/en-us/windows/win32/coreaudio/rendering-a-stream)
+describes lifetime through references to the stream's client and its services.
+[IAudioSessionControl2](https://learn.microsoft.com/en-us/windows/win32/api/audiopolicy/nn-audiopolicy-iaudiosessioncontrol2)
+provides session information but does not document retrieving another process's
+existing IAudioClient from its PID. No supported general-purpose mechanism to
+retain that foreign client was established in the interfaces inspected. This
+is a bounded research result, not proof no such mechanism exists elsewhere.
+The producer retaining its own client is cooperative and does not resolve
+arbitrary-PID capture. No product repair or new installed test follows here.
 
 The original L/R packets downmix exactly to retained mono, and every writer PCM
 byte matches that mono in both runs. Independent offline review recomputes edge

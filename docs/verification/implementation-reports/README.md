@@ -1,5 +1,5 @@
 ---
-version: "0.1.2t"
+version: "0.1.2u"
 created_at: "2026-10-19"
 last_update: "2026-10-29"
 status: "beta"
@@ -12,6 +12,8 @@ attributes:
 ---
 
 # Implementation and review report index
+
+- [Actual HDMI engine-period admission](2026-10-29-hdmi-engine-period-admission.md) — `beta`; both exact-ID48kHz queries succeed but advertise only480frames/10ms. Smaller-period study NOT_RUN; no PID fix or installed acceptance.
 
 - [Capture backend investigation and recovery guard](2026-10-29-capture-backend-and-recovery-guard.md) — `beta`; matched direct acquisition still fails; real legacy recovery source-admission defect has RED5/GREEN15. No new installed repair or two-mode acceptance; merge/tag gates stay open.
 

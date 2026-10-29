@@ -1,5 +1,5 @@
 ---
-version: "0.1.3e"
+version: "0.1.3f"
 created_at: "2026-10-19"
 last_update: "2026-10-29"
 status: "beta"
@@ -16,6 +16,8 @@ attributes:
 แผนในโฟลเดอร์นี้ระบุขอบเขตและลำดับงาน ไม่ใช่หลักฐานว่างานเสร็จหรือฟีเจอร์ทำงานแล้ว
 
 ## จุดอ้างอิงหลัก
+
+- [PID engine-period admission](2026-10-29-pid-engine-period-admission.md) — readonly two-HDMI capability gate; actual minimum=default480frames blocks the conditional smaller-period audio study. No repair/package acceptance.
 
 - [Direct acquisition experiment and recovery guard](2026-10-29-direct-acquisition-and-recovery-guard.md) tests the remaining size-hint admission hypothesis and fences legacy recovery from routed sources. Native failure does not unlock production adoption or package acceptance.
 

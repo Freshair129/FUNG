@@ -1,5 +1,5 @@
 ---
-version: "0.3.50b"
+version: "0.3.51b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
 last_update: "2026-10-29"
 
@@ -12,6 +12,17 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## HDMI engine-period admission — 2026-10-29
+
+The [actual read-only query](../verification/implementation-reports/2026-10-29-hdmi-engine-period-admission.md)
+succeeds on both explicit HDMI endpoints with fresh Active/nondefault/idle/muted
+guards. Default/fundamental/min/max and current period are all480frames at48kHz
+(10ms) in their current stereo Float32 format with API-default client properties.
+No smaller period is advertised; the conditional audio study is NOT_RUN. No
+product source, stream initialization or host setting changes. Baselinefff68af
+hosted CI succeeds; this does not close original PID or full endpoint acceptance.
+No new repair installer, merge/tag/release.
 
 ## Direct acquisition rejected; legacy recovery admission fixed — 2026-10-29
 
@@ -1903,6 +1914,12 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.50b` → `0.3.51b`
+
+- Record two real HDMI engine-period queries and preserved before/after guards.
+- Keep smaller-period audio study NOT_RUN at minimum=default480frames; no repair
+  adoption or package/release promotion.
+
 ### `0.3.49b` → `0.3.50b`
 
 - Retain fresh baseline/direct-GetBuffer native FAIL; do not adopt the candidate.
@@ -2216,6 +2233,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.51b | 2026-10-29 | beta | Readonly exact-HDMI engine-period admission finds only480frames/10ms at current48kHz; conditional audio study NOT_RUN. Productfff68af CI succeeds; PID/full endpoint installed gates stay open. | see Git history | Codex |
 | 0.3.50b | 2026-10-29 | beta | Direct acquisition and matched baseline retain native FAIL; no production adoption. Legacy recovery source guard has RED5/GREEN15 and source GO; fresh serial library902pass/14ignored follows retained Winsock10055 failure. Both installed audio gates remain open. | see Git history | Codex |
 | 0.3.47b | 2026-10-27 | beta | Source GO for truthful routed metadata, desktop source guard and test-only pre-clock evidence; 885 library/17 integration and strict checks pass. Native n01 NOT_RUN at missing-device admission; no merge/tag/release. | see Git history | Codex |
 | 0.3.46b | 2026-10-27 | beta | Installed f06c9f1 candidate: PID FAIL, endpoint NOT_PROVEN, actual export rejection and orderly reopen persistence; independent reanalysis agrees. No merge/tag/release. | see Git history | Codex |

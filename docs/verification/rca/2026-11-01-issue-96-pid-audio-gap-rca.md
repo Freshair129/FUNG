@@ -1,7 +1,7 @@
 ---
 id: FUNG-RCA-000096-01
 title: "PID stream lifecycle gaps — causal boundary investigation"
-version: "0.1.0"
+version: "0.1.1"
 created_at: "2026-11-01"
 last_update: "2026-11-01"
 status: candidate
@@ -43,6 +43,12 @@ annotations:
     text: "Source-client retention is controlled by the source app; no demonstrated arbitrary-PID repair."
     evidence_refs:
       - FUNG-RCA-000096-01-E02
+  - id: FUNG-RCA-000096-01-N03
+    target: FUNG-RCA-000096-01-F04
+    kind: evidence-boundary
+    text: "B matches its endpoint reference but both share source-coordinate overlap; no nonreplayed-source or full-mode PASS."
+    evidence_refs:
+      - FUNG-RCA-000096-01-E04
 ---
 
 # RCA FUNG-RCA-000096-01 — PID stream lifecycle gaps
@@ -99,6 +105,11 @@ The separate C++ receiver copies native bytes before ReleaseBuffer and bypasses 
 
 [E01](#FUNG-RCA-000096-01-E01) also audits 25 gaps from the earlier six recordings. No gap has independently matched active-marker windows on both immediately adjacent 480-frame packets. In 24/25 events read-entry spacing tracks QPC spacing within 1.85 ms; read-entry is before GetBuffer, so native production and scheduling are not isolated. This does not justify either zero-filling presumed silence or equating every QPC leap with exact lost active PCM.
 
+<a id="FUNG-RCA-000096-01-F04"></a>
+### FUNG-RCA-000096-01-F04 — Same-client state preservation changes the measured outcome
+
+[E04](#FUNG-RCA-000096-01-E04) compares frozen destruction/recreation against same-client Stop/Start with queued PCM/cursor preserved. Both B runs have credible PID/reference edges within 1 frame and zero QPC gaps; both A runs still fail. B remains NOT_PROVEN for full mode acceptance. Source-coordinate overlap can be present in both reference and PID, so parity does not establish nonreplayed source continuity. Client identity, queue retention and source-position continuation change together; the experiment narrows lifecycle conditions without uniquely isolating those factors or repairing arbitrary external apps.
+
 ## Hypothesis / experiment matrix
 
 | ID | Hypothesis | Experiment / result | State and limit |
@@ -107,6 +118,7 @@ The separate C++ receiver copies native bytes before ReleaseBuffer and bypasses 
 | <a id="FUNG-RCA-000096-01-H02"></a>FUNG-RCA-000096-01-H02 | AUTO/SRC conversion alone causes restart loss | PCM16 versus no-AUTO Float32 both fail; E01 | not_supported_in_tested_scope; this changes representation and flags together |
 | <a id="FUNG-RCA-000096-01-H03"></a>FUNG-RCA-000096-01-H03 | Source-client lifetime affects upstream retention/delivery | 0/10/50 ms delayed destruction; E02 | supported for measured Stop component; restart mechanism unconfirmed |
 | <a id="FUNG-RCA-000096-01-H04"></a>FUNG-RCA-000096-01-H04 | One specific Windows queue or scheduling mechanism explains all gaps | ETW schema query exists, StartTrace returns access denied; no attributable runtime trace; E01 | open; no unique internal cause established |
+| <a id="FUNG-RCA-000096-01-H05"></a>FUNG-RCA-000096-01-H05 | Same-client state-preserving Stop/Start differs from destruction/recreation at the capture boundary | Four serial A/B/B/A runs; B edge parity/no QPC gaps, A loss/gaps; E04 | supported for this combined lifecycle intervention; identity versus queue/reset effects still open |
 
 ## Causal analysis and unknowns
 
@@ -144,6 +156,16 @@ All paths beginning `E:\` below are **machine-local**, not portable repository d
 - Installed PID recording `c47e1fb7-c35c-4849-8a36-a1c9f347d9e5` FAIL. Endpoint recording `ffda653e-21d4-47f8-8c7c-6ae9f62a929a`: measured source PCM/separation/transition components pass; exported PCM correspondence/reuse and bounded committed-prefix crash recovery have separate positive results.
 - Overall endpoint analyzer remains NOT_PROVEN for full workflow. Audible/rendered UI playback, transcription/enrichment and independent journal replay are not qualified by these checks; committed-prefix recovery is not power-loss/volatile-tail recovery. Subsequent formatting did not receive a new installed retest.
 
+<a id="FUNG-RCA-000096-01-E04"></a>
+### FUNG-RCA-000096-01-E04 — Same-client lifecycle A/B/B/A
+
+- Report: [same-client follow-up](../implementation-reports/2026-11-01-pid-upstream-boundary.md#same-client-stopstart-discriminator--follow-up-after-documentation-commit); collected 2026-11-01 after documentation commit `17a01fb`.
+- Machine-local root `E:\verification\fung-pid96-same-client-20261101`; prospective `PLAN.md`, `build-receipt.json`, `study-summary.json`, four `*-analysis.json` and immutable native run directories. Commands/protocol are `run-lifecycle.py` and `analyze-lifecycle.py` under that root.
+- B renderer SHA-256 `EDE740C19B766BD757902C7900E66D0BDE7356ACF7F122C384C094AD1DE1BD20`; source `30B1E948146443824F6E4032692612156DBB4130A8BDAA4796BD854B748A8C9A`. Frozen A and Float32 receiver retain E01 identities. Root verified all 358 recorded per-run input hashes.
+- `recreate-b` and `recreate-c`: FAIL; Stop −1504 or −1984, Resume +441, 4 gaps each. `same-client-a` and `same-client-b`: measured edges within 1 frame, 0 gaps, overall NOT_PROVEN. All four actual collections exit cleanly. Initial `recreate-a` pre-GO tree-guard refusal is not an audio run.
+- No Reset/rewind/paused feed in B; valid frozen clock and counters verified, event order and binary/mode binding checked. Nine analyzer tests pass. Native lifecycle discrimination only; not an installed repair, nonreplayed source proof or release gate closure.
+- Independent audit `review/independent-audit.json` verifies 117 inventory snapshots, native byte custody and local source-anchor correlations; root replay is identical. B shares approximately 400–428 frames of source overlap with the endpoint across its four cycles. `completed-study-manifest.json` hashes 388 artifact files (excluding build target/cache); SHA-256 `546C9964C312795D96ECCF9ECF229B094F5B4021FE1B45D827C3F0655EDECDE5`.
+
 <a id="actions"></a>
 ## Corrective and preventive actions
 
@@ -151,7 +173,7 @@ Owners/deadlines remain unassigned/null; no execution is implied by registration
 
 | ID | Action and trace | Status | Verification / exit |
 | --- | --- | --- | --- |
-| <a id="FUNG-RCA-000096-01-A01"></a>FUNG-RCA-000096-01-A01 | Audit prior lifecycle tests and define a genuinely new discriminating experiment for S01/S02/H03 | proposed | Reuse existing evidence first; predeclare same-stream versus recreation hypothesis, immutable inputs and unchanged ±48-frame gate; no redundant capture |
+| <a id="FUNG-RCA-000096-01-A01"></a>FUNG-RCA-000096-01-A01 | Audit prior lifecycle tests and run a new discriminator for S01/S02/H03/H05 | diagnostic-complete | E04 establishes bounded parity for same-client preservation; product root cause and general remedy remain open |
 | <a id="FUNG-RCA-000096-01-A02"></a>FUNG-RCA-000096-01-A02 | Repair only a demonstrated mechanism; retain S03 uncertainty in timeline handling | pending-root-cause | Regression proves actual PCM custody and timeline behavior; no fabricated samples or hidden fallback |
 | <a id="FUNG-RCA-000096-01-A03"></a>FUNG-RCA-000096-01-A03 | Qualify both actual installed modes and representative external apps | blocked-by-pid-failure | Traceable package/source, PID plus endpoint capture/playback/export/recovery, independent review; no merge/tag until all required gates pass |
 | <a id="FUNG-RCA-000096-01-A04"></a>FUNG-RCA-000096-01-A04 | Maintain symptom/evidence IDs and failed-run provenance | ongoing | ADR/templates/indexes and link checks; does not close audio defect |
@@ -161,6 +183,8 @@ Owners/deadlines remain unassigned/null; no execution is implied by registration
 Keep ±48-frame edge and 0.001 leakage gates unchanged for their applicable protocols; retain whole-run faults and NOT_PROVEN coverage. No format variant, endpoint substitution, parent PID substitution, native helper pass or exit code can qualify an installed PID repair. Required two-mode acceptance remains open. Review of this documentation checks faithful evidence interpretation only.
 
 ## Changelog and navigation
+
+- 2026-11-01 — 0.1.1: add F04/H05/E04 after same-client native comparison; keep root cause unconfirmed and release blocked.
 
 - 2026-11-01 — 0.1.0: existing evidence consolidated with stable IDs; root cause stays unconfirmed. No new audio, source fix, package build, merge or tag.
 

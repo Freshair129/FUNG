@@ -1,5 +1,5 @@
 ---
-version: "0.1.3b"
+version: "0.1.4b"
 created_at: "2026-11-01"
 last_update: "2026-11-01"
 status: "candidate"
@@ -97,3 +97,13 @@ The original six-arm artifacts remain immutable. The receiver is diagnostic,
 not a product capture replacement. Its successful process exit means collection
 completed, not that continuity passed. Product changes and installed acceptance
 still require a demonstrated repair under the original criteria.
+
+## Same-client lifecycle follow-up
+
+- [x] Check existing hold fixture: it releases the retained client before recreating; it is not same-client Stop/Start.
+- [x] Prepare independently reviewed B renderer preserving client/queue/cursor; resume calls Start directly with no Reset or paused feeding. Keep pinned A as destruction/recreation control.
+- [x] Run guarded serial A/B/B/A with unchanged Float32 receiver/reference and edge criteria. One pre-GO tree-identity refusal is retained separately; four actual captures complete.
+- [x] Analyze source-coordinate edges, native gaps, lifecycle identity/counters/clocks and raw input hashes. B edges within 1 frame and zero QPC gaps; A retains loss and four gaps. B overall remains NOT_PROVEN, not installed PASS.
+- [ ] Isolate remaining identity/queue/source-position effects or establish a supported source-independent remedy before product changes. Same-client preservation cannot be imposed on arbitrary source apps by this fixture.
+
+Evidence: `E:\verification\fung-pid96-same-client-20261101`; [report](../verification/implementation-reports/2026-11-01-pid-upstream-boundary.md). Product repair and both installed-mode gates above remain open.

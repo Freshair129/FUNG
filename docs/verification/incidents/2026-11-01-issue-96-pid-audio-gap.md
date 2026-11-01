@@ -1,7 +1,7 @@
 ---
 id: FUNG-INC-000096
 title: "PID audio gaps at source stream lifecycle transitions"
-version: "0.1.0"
+version: "0.1.1"
 created_at: "2026-11-01"
 last_update: "2026-11-01"
 status: candidate
@@ -54,7 +54,7 @@ annotations:
 
 ## Summary and current state
 
-สถานะ **investigating**: PID capture ยังไม่ผ่านความต่อเนื่องบริเวณเปลี่ยนอายุ source stream. ชุด native diagnostic ล่าสุด 4 รอบล้มเหลวทั้งหมด; มี installed PID failure แยกต่างหาก. ผล endpoint บางส่วนผ่าน แต่ไม่ใช่ full two-mode acceptance. ยังไม่มี repair ที่รับรองใช้กับโปรแกรมอื่นได้จริง และยังไม่ merge/tag จากหลักฐานนี้.
+สถานะ **investigating**: PID capture ยังไม่ผ่านความต่อเนื่องบริเวณเปลี่ยนอายุ source stream. ชุดเปรียบเทียบรูปแบบเสียง E01 ทั้ง 4 รอบล้มเหลว; การเปรียบเทียบ lifecycle E04 เพิ่มเติมพบว่า same-client Stop/Start มี measured edge parity และไม่มี QPC gaps ทั้งสองรอบ แต่ destruction/recreation ยังล้มเหลวทั้งสองรอบ. B ยังเป็น NOT_PROVEN สำหรับ full acceptance; มี installed PID failure แยกต่างหาก. ผล endpoint บางส่วนผ่าน แต่ไม่ใช่ full two-mode acceptance. ยังไม่มี repair ที่รับรองใช้กับโปรแกรมอื่นได้จริง และยังไม่ merge/tag จากหลักฐานนี้.
 
 วันที่เริ่มเหตุ/ตรวจพบครั้งแรก, severity และผู้รับผิดชอบ/reviewer ยังไม่ได้ยืนยัน จึงเป็น `null`. วันที่ 2026-11-01 คือวันสร้างรายงานรวม ไม่ใช่วันเริ่มบั๊ก. ผู้เขียนเอกสาร: Codex; ไม่อ้างว่าเป็นเจ้าของ incident ที่ได้รับมอบหมาย.
 
@@ -92,6 +92,8 @@ annotations:
 
 ## Impact and boundaries
 
+ขอบเขตเพิ่มเติมของ S01–S03: [E04 / F04](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md#FUNG-RCA-000096-01-F04) แสดงความต่างระหว่างคง client/queue/cursor กับทำลายแล้วสร้างใหม่. อัตราเกิดและตัวเลขใน Symptoms ข้างต้นเป็นผลชุด E01 ตามชื่อ run; ไม่เหมารวมเป็นทุกวิธี Pause/Resume. Matching endpoint reference ไม่รับรองว่า source ไม่เล่นข้อมูลซ้ำ.
+
 ปิด release gate ของ PID #96 และ two-mode installed acceptance. ไม่พบหลักฐานยืนยัน production outage, จำนวนผู้ใช้ที่ได้รับผล หรือข้อมูลประชุมจริงสูญหายจากชุดทดลองนี้. Endpoint control ที่ใช้เปรียบเทียบไม่ใช่การรับรอง endpoint workflow ทั้งหมด.
 
 ## Detection and timeline
@@ -105,6 +107,7 @@ annotations:
 | 2026-11-01, date-only | User reconnects displays; four actual A/B/B/A captures complete, all FAIL | E01 |
 | 2026-11-01T13:23:25.248350+00:00 | Completed-study manifest creation (not capture start time) | E01 |
 | 2026-11-01, Asia/Bangkok date | User authorizes ADR/templates and consolidated records | Chat instruction; documentation approval only |
+| 2026-11-01, date-only | Documentation committed; fresh lifecycle A/B/B/A narrows trigger without product repair | [E04](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md#FUNG-RCA-000096-01-E04) |
 
 ## Containment and workaround
 
@@ -121,3 +124,4 @@ Closure requires a supported repair, regression checks, actual installed PID and
 [RCA](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md), [incident index](README.md), [ADR](../../decisions/2026-11-01-incident-rca-records.md).
 
 - 2026-11-01 — 0.1.0: consolidated existing evidence, allocated S01–S03; no new native or installed test.
+- 2026-11-01 — 0.1.1: add scope qualification from fresh same-client lifecycle study; incident stays investigating.

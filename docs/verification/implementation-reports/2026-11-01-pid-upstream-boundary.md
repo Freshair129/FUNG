@@ -1,5 +1,5 @@
 ---
-version: "0.1.3b"
+version: "0.1.4b"
 created_at: "2026-11-01"
 last_update: "2026-11-01"
 status: "candidate"
@@ -333,6 +333,33 @@ The latest [installed PID failure and bounded endpoint/export/recovery
 observations](2026-11-01-endpoint-export-recovery.md) remain separate. No product
 code, FUNG installer, installed-package acceptance, merge or tag changed in this
 experiment. Both complete installed modes must pass before merge/tag.
+
+## Same-client Stop/Start discriminator — follow-up after documentation commit
+
+Source context is documentation-only commit `17a01fb0439770b57e1f15abf18fbb7e5e61e037` plus the preserved dirty product tree. New diagnostic artifacts are under `E:\verification\fung-pid96-same-client-20261101`; production code is unchanged. The prospective `PLAN.md` distinguishes source Stop/Start on the same client from the prior destruction/recreation fixture. This is not a package repair.
+
+The B renderer preserves the exact client, queued PCM and continuous source cursor. It calls Start directly on resume, before ordinary feeding, without Reset/reinitialization/rewind or feeding during the pause. The A renderer is the unchanged frozen destruction/recreation binary. Both use the same pinned raw Float32 receiver, supervisor, marker and independent explicit-endpoint reference. Keeping queued PCM and source position is part of the lifecycle intervention; client identity alone is not isolated from those state changes.
+
+The initial `recreate-a` attempt was refused before GO/capture because the process-tree guard saw another process with the newly allocated renderer PID as its parent. That process's creation time preceded the suspended renderer by about four minutes, consistent with stale parent-PID reuse. No subject/reference capture launched, supervisor exited 9 cleanly, and no unrelated process was modified. The strict guard was retained unchanged; the refused receipt remains separate from actual audio runs.
+
+Four actual runs completed serially A/B/B/A:
+
+| Run | Source lifecycle | Stop difference, cycles 1 / 2 | Resume difference, cycles 1 / 2 | QPC gaps | Whole diagnostic |
+| --- | --- | --- | --- | --- | --- |
+| `recreate-b` | Destroy/recreate | −1504 / −1504 frames | +441 / +441 frames | 4 | FAIL |
+| `same-client-a` | Same-client Stop/Start | approximately 0 / 0 | approximately 0 / 0 | 0 | NOT_PROVEN |
+| `same-client-b` | Same-client Stop/Start | +1 / approximately 0 | −1 / −1 frames | 0 | NOT_PROVEN |
+| `recreate-c` | Destroy/recreate | −1984 / −1984 frames | +441 / +441 frames | 4 | FAIL |
+
+All eight transition alignments are credible; B's four measured edge pairs meet the unchanged ±48-frame gate. All actual controller processes exit 0 with no forced cleanup or reported reference faults. These exit codes mean collection completed. B remains NOT_PROVEN because edge parity/no QPC gaps do not prove full PCM custody, nonreplayed source continuity, isolation or installed workflow acceptance. In particular, source-coordinate overlap across B's Stop/Start can occur in both PID and endpoint reference; matching the reference does not prove that the renderer replayed no source samples.
+
+Analyzer checks bind lifecycle label to renderer path/hash, ordered events and monotonic transition QPC brackets. B retains epoch 1, unchanged submission/source counters and a valid frozen source clock during pause; wrapped source markers are rejected. Nine analyzer tests pass, including invalid clocks, feeding during pause, reordered events and wrap rejection. New renderer builds with `cargo +1.99.1 build --locked --offline --release` into its separate target (final build exit 0, no warnings).
+
+Renderer SHA-256: `EDE740C19B766BD757902C7900E66D0BDE7356ACF7F122C384C094AD1DE1BD20`; source SHA-256: `30B1E948146443824F6E4032692612156DBB4130A8BDAA4796BD854B748A8C9A`. `build-receipt.json` pins controller/analyzer; `study-summary.json` records the four runs and refusal. Root rechecks all 358 per-run input hashes. Guards remain sampled, final receiver tails censored and raw native observations separate from application qualification.
+
+Inference: preserving source-client state removes the observed PID/reference edge deficit and QPC leaps in these bounded comparisons; destruction/recreation is a materially different case from same-client pause. This narrows the trigger/conditions but does not establish an internal Windows root cause or a mechanism FUNG can impose on arbitrary external applications. A follow-up could isolate Reset/queue/source-position effects while preserving identity; it has not been run. No production fix, new installed acceptance, merge or tag follows this study.
+
+Independent offline audit (`review/independent-audit.json`) verifies all four runs' hashes, target PID/creation time, 117 inventory snapshots and mute guards, native Float32 format, packet/raw-byte custody, write continuity and source anchor correlations (minimum 0.999957). Root replay in `root-review-replay` produces identical JSON. B's endpoint source-coordinate overlap is approximately 424, 418, 400 and 428 frames across its four cycles, also reflected in PID. This is explicitly a parity result, not proof of uninterrupted/nonreplayed source delivery. No owned diagnostic/reference process remains at final inspection.
 
 ## API interpretation
 

@@ -1,7 +1,7 @@
 ---
-version: "0.1.3g"
+version: "0.1.3h"
 created_at: "2026-10-19"
-last_update: "2026-10-29"
+last_update: "2026-11-01"
 status: "beta"
 superseded_by: null
 attributes:
@@ -16,6 +16,8 @@ attributes:
 แผนในโฟลเดอร์นี้ระบุขอบเขตและลำดับงาน ไม่ใช่หลักฐานว่างานเสร็จหรือฟีเจอร์ทำงานแล้ว
 
 ## จุดอ้างอิงหลัก
+
+- [Incident/RCA documentation](2026-11-01-incident-rca-documentation.md) — approved documentation structure, templates and #96 records; no audio acceptance change.
 
 - [PID Stop versus renderer destruction](2026-10-29-pid-stop-versus-destruction.md) — `candidate`; owned fixture study, not yet evidence of an arbitrary-application repair or installed acceptance.
 

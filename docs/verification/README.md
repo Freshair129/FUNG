@@ -1,7 +1,7 @@
 ---
-version: "0.1.2m"
+version: "0.1.3"
 created_at: "2026-10-19"
-last_update: "2026-10-27"
+last_update: "2026-11-01"
 status: "beta"
 superseded_by: null
 attributes:
@@ -16,6 +16,8 @@ attributes:
 เอกสารในหมวดนี้บันทึกผลตรวจตามวันที่ revision และขอบเขตที่ระบุ รายงานหนึ่งฉบับไม่รับรอง feature อื่นหรือ revision ใหม่โดยอัตโนมัติ
 
 ## เริ่มจากหลักฐานปัจจุบัน
+
+- [Incident register](incidents/README.md) / [RCA register](rca/README.md) — stable IDs, canonical Symptoms and evidence-linked causal analysis. Initial #96 investigation remains open; document creation is not acceptance.
 
 - [Native client attribution and n03 — 2026-10-27](implementation-reports/2026-10-27-native-client-session-attribution.md) — actual-client diagnosis, strict native failure, portable CI fixtures and remaining runtime/installed gates.
 
@@ -44,6 +46,9 @@ attributes:
 | Provider/production | integration กับ service/environment ที่ระบุ | platform/feature อื่นนอก scope |
 
 ## ที่เก็บรายงาน
+
+- `incidents/` — canonical symptoms, impact, timeline and response; [template](incidents/TEMPLATE.md).
+- `rca/` — findings, hypotheses, causal status and actions linked to incident symptoms; [template](rca/TEMPLATE.md).
 
 - `implementation-reports/` — dated implementation, test, review, layout และ UAT reports; `progress.md` เป็น ledger ตามเวลาที่บันทึก ไม่ใช่ source of truth ปัจจุบัน.
 - `preflight/` — documentation preflight snapshots.

@@ -1,7 +1,7 @@
 ---
-version: "0.2.0b"
+version: "0.2.1"
 created_at: "2026-08-23T01:15:22+07:00,ATHER"
-last_update: "2026-10-16,Codex"
+last_update: "2026-11-01"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -27,6 +27,8 @@ requirements, a design specification, or verification evidence.
 Use [`TEMPLATE.md`](TEMPLATE.md) for new records.
 
 ## Existing records
+
+- [Incident/RCA identity and evidence records](2026-11-01-incident-rca-records.md) — decision approved by owner; document beta; canonical Symptoms, metadata, annotations and templates. Does not approve #96 release.
 
 | Record | Recorded status / scope |
 | --- | --- |

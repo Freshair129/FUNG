@@ -1,7 +1,7 @@
 ---
 id: FUNG-RCA-000096-01
 title: "PID stream lifecycle gaps — causal boundary investigation"
-version: "0.1.1"
+version: "0.1.2"
 created_at: "2026-11-01"
 last_update: "2026-11-01"
 status: candidate
@@ -31,6 +31,12 @@ investigation:
   status: investigating
   root_cause_status: unconfirmed
 annotations:
+  - id: FUNG-RCA-000096-01-N04
+    target: FUNG-RCA-000096-01-F05
+    kind: evidence-boundary
+    text: "Reset/recreation comparison intentionally discards queued source data; no foreign-app remedy or full source-continuity proof."
+    evidence_refs:
+      - FUNG-RCA-000096-01-E05
   - id: FUNG-RCA-000096-01-N01
     target: FUNG-RCA-000096-01-F01
     kind: evidence-boundary
@@ -57,14 +63,14 @@ annotations:
 
 **Root cause: unconfirmed.** หลักฐานระบุ failure boundary ได้ว่าข้อมูลที่ต้องการไม่ครบเมื่อมาถึง PID packet receiver ในชุดทดลองนี้. C++ receiver แยกจาก FUNG ทำให้เกิดซ้ำได้ จึงไม่จำเป็นต้องมี Rust downmix/writer/timeline ของ FUNG จึงจะเกิดอาการ. ยังระบุ Windows internal component, queue หรือกลไกที่เป็นเหตุแน่นอนไม่ได้.
 
-เอกสารนี้รวมผลเดิม ไม่ใช่ผล capture ใหม่หรือ patch. Owner/reviewer ยังไม่ถูกแต่งตั้ง (`null`); วันที่สร้างไม่ใช่วันเริ่มเหตุ.
+เอกสารนี้เชื่อมหลักฐานแต่ละรอบตาม evidence register; การแก้เอกสารไม่ใช่ product patch หรือ installed acceptance. Owner/reviewer ของ incident ยังไม่ถูกแต่งตั้ง (`null`); วันที่สร้างไม่ใช่วันเริ่มเหตุ.
 
 ## Symptoms — references to canonical Incident
 
 | Symptom | Investigation question | Findings |
 | --- | --- | --- |
 | [FUNG-INC-000096-S01](../incidents/2026-11-01-issue-96-pid-audio-gap.md#FUNG-INC-000096-S01) | Stream lifetime changes delivery at which boundary? | [F01](#FUNG-RCA-000096-01-F01), [F02](#FUNG-RCA-000096-01-F02) |
-| [FUNG-INC-000096-S02](../incidents/2026-11-01-issue-96-pid-audio-gap.md#FUNG-INC-000096-S02) | Is restart prefix absent before FUNG processing? | [F01](#FUNG-RCA-000096-01-F01) |
+| [FUNG-INC-000096-S02](../incidents/2026-11-01-issue-96-pid-audio-gap.md#FUNG-INC-000096-S02) | Is restart prefix absent before FUNG processing? | [F01](#FUNG-RCA-000096-01-F01), [F05](#FUNG-RCA-000096-01-F05) |
 | [FUNG-INC-000096-S03](../incidents/2026-11-01-issue-96-pid-audio-gap.md#FUNG-INC-000096-S03) | Which QPC gaps contain provable missing signal? | [F03](#FUNG-RCA-000096-01-F03) |
 
 Descriptions, frequency and reproduction prerequisites are maintained only in Incident. Results below are experiment observations supporting the analysis.
@@ -73,7 +79,7 @@ Descriptions, frequency and reproduction prerequisites are maintained only in In
 
 - One Windows host; no second host comparison available. Exact OS/device inventory belongs to each immutable run receipt; this document does not re-query or imply a new device run.
 - LM22 endpoint `{0.0.0.00000000}.{c7033d7f-b081-40c6-a5ff-1df83a87d352}`; Mi Monitor `{0.0.0.00000000}.{febdb10f-94d3-4af8-af69-b3ac1e887122}`. Admission checks required Active, explicit nondefault muted route, owned renderer and sampled foreign-session guards.
-- Latest diagnostic: 48 kHz stereo, actual 480-frame buffer; PCM16 flags `0x88060000`, Float32 flags `0x60000` without AUTO/SRC. Owned renderer destroys/recreates streams. Tests ran serially A/B/B/A without this investigation's builds/FFT running concurrently.
+- E01 format comparison: 48 kHz stereo, actual 480-frame capture buffer; PCM16 flags `0x88060000`, Float32 flags `0x60000` without AUTO/SRC. Owned renderer destroys/recreates streams. E04 and E05 add lifecycle controls below. Each study runs serially without this investigation's builds/FFT running concurrently with capture.
 - Source context HEAD `4950696c607c5b77eaba3840b2413ab4702beee2`, dirty branch `fix/issue-96-app-loopback-transition`; HEAD alone does not identify product bytes. 258 current product inputs matched `E:\verification\fung-source-workflow3-20261101\postformat-inputs.json` at completion of E01. That does not retroactively qualify the formatted tree as installed.
 - Raw receiver SHA-256 `5BADEFA043865723B8931837E505B07CCEBDF51A59576514B7406C8BE0F3C4B2`; source `C0E272D1336161A9F4C0FE6EC242051C846EC0B9BAF1CC2D8DB8FB48E6662E13`; controller `E3D94F7CB879268460B4B29E9B85800410B9EB9A4A87B226080A0128367C5F27`.
 - E03 installed exe SHA-256 `0CEB57CF6500E2CC4DC99A9FDF831348885FFE617EC8C885818F1836F4303CFD`; installer `65932D86B55B7771F0A706133B87258A8AF1D22CE16A4A043BF614F2595BA12A`. Isolated app ID `dev.fung.uat.issue9620261101`; later formatting is not a new installed candidate.
@@ -108,7 +114,12 @@ The separate C++ receiver copies native bytes before ReleaseBuffer and bypasses 
 <a id="FUNG-RCA-000096-01-F04"></a>
 ### FUNG-RCA-000096-01-F04 — Same-client state preservation changes the measured outcome
 
-[E04](#FUNG-RCA-000096-01-E04) compares frozen destruction/recreation against same-client Stop/Start with queued PCM/cursor preserved. Both B runs have credible PID/reference edges within 1 frame and zero QPC gaps; both A runs still fail. B remains NOT_PROVEN for full mode acceptance. Source-coordinate overlap can be present in both reference and PID, so parity does not establish nonreplayed source continuity. Client identity, queue retention and source-position continuation change together; the experiment narrows lifecycle conditions without uniquely isolating those factors or repairing arbitrary external apps.
+[E04](#FUNG-RCA-000096-01-E04) compares frozen destruction/recreation against same-client Stop/Start with queued PCM/cursor preserved. Both B runs have credible PID/reference edges within 1 frame and zero QPC gaps; both A runs still fail. B remains NOT_PROVEN for full mode acceptance. Source-coordinate overlap can be present in both reference and PID, so parity does not establish nonreplayed source continuity. In E04, client identity, queue retention and source-position continuation change together. E05 subsequently controls queue discard/cursor/priming while comparing Reset versus recreation, with remaining timing/resource differences explicit.
+
+<a id="FUNG-RCA-000096-01-F05"></a>
+### FUNG-RCA-000096-01-F05 — Reset and recreation differ under matched reprime
+
+[E05](#FUNG-RCA-000096-01-E05) controls submitted-end cursor, pending-queue discard, full-capacity priming and stopped-client retention until Resume. Both same-client Reset runs have zero recorded QPC gaps and edges within approximately 1 frame; both recreation runs have gaps and first-Resume deficits of 449/441 frames. Second recreation Resume agrees within 1 frame. Reset/queue clearing alone is therefore not sufficient for this observed deficit under the tested protocol. Creation duration and identity/resource changes remain coupled; root cause is still unconfirmed. Both arms intentionally skip queued source content, so no uninterrupted source-delivery claim follows.
 
 ## Hypothesis / experiment matrix
 
@@ -118,7 +129,8 @@ The separate C++ receiver copies native bytes before ReleaseBuffer and bypasses 
 | <a id="FUNG-RCA-000096-01-H02"></a>FUNG-RCA-000096-01-H02 | AUTO/SRC conversion alone causes restart loss | PCM16 versus no-AUTO Float32 both fail; E01 | not_supported_in_tested_scope; this changes representation and flags together |
 | <a id="FUNG-RCA-000096-01-H03"></a>FUNG-RCA-000096-01-H03 | Source-client lifetime affects upstream retention/delivery | 0/10/50 ms delayed destruction; E02 | supported for measured Stop component; restart mechanism unconfirmed |
 | <a id="FUNG-RCA-000096-01-H04"></a>FUNG-RCA-000096-01-H04 | One specific Windows queue or scheduling mechanism explains all gaps | ETW schema query exists, StartTrace returns access denied; no attributable runtime trace; E01 | open; no unique internal cause established |
-| <a id="FUNG-RCA-000096-01-H05"></a>FUNG-RCA-000096-01-H05 | Same-client state-preserving Stop/Start differs from destruction/recreation at the capture boundary | Four serial A/B/B/A runs; B edge parity/no QPC gaps, A loss/gaps; E04 | supported for this combined lifecycle intervention; identity versus queue/reset effects still open |
+| <a id="FUNG-RCA-000096-01-H05"></a>FUNG-RCA-000096-01-H05 | Same-client state-preserving Stop/Start differs from destruction/recreation at the capture boundary | Four serial A/B/B/A runs; B edge parity/no QPC gaps, A loss/gaps; E04 | supported for this combined intervention; E05 controls queue/cursor/prime, with identity/duration still coupled |
+| <a id="FUNG-RCA-000096-01-H06"></a>FUNG-RCA-000096-01-H06 | Reset/clearing queued PCM alone explains the PID deficit | Same-client Reset versus recreation, equal cursor/prime; E05 | not_supported_in_tested_scope; recreation duration/identity remain coupled |
 
 ## Causal analysis and unknowns
 
@@ -166,6 +178,17 @@ All paths beginning `E:\` below are **machine-local**, not portable repository d
 - No Reset/rewind/paused feed in B; valid frozen clock and counters verified, event order and binary/mode binding checked. Nine analyzer tests pass. Native lifecycle discrimination only; not an installed repair, nonreplayed source proof or release gate closure.
 - Independent audit `review/independent-audit.json` verifies 117 inventory snapshots, native byte custody and local source-anchor correlations; root replay is identical. B shares approximately 400–428 frames of source overlap with the endpoint across its four cycles. `completed-study-manifest.json` hashes 388 artifact files (excluding build target/cache); SHA-256 `546C9964C312795D96ECCF9ECF229B094F5B4021FE1B45D827C3F0655EDECDE5`.
 
+<a id="FUNG-RCA-000096-01-E05"></a>
+### FUNG-RCA-000096-01-E05 — Reset versus recreation C/D/D/C
+
+- Report: [matched reprime follow-up](../implementation-reports/2026-11-01-pid-upstream-boundary.md#reset-versus-recreation-with-matched-reprime--cddc); machine-local root `E:\verification\fung-pid96-reset-recreate-20261101`.
+- Completed order `reset-b`, `recreate-a`, `recreate-b`, `reset-c`: NOT_PROVEN / FAIL / FAIL / NOT_PROVEN. Thirteen analyzer tests pass; both compiled renderers build without warnings. Protocol/source/controller/analyzer/binary hashes are recorded in the report and analysis receipts.
+- Eight credible cycles; Reset has no recorded QPC gaps and all edges within 1 frame. Recreation has 4/3 gaps, first Resume +449/+441 frames, second −1/0 frames. Intentional endpoint source skips ~3914–4406 frames and operation-time differences remain explicit.
+- Independent audit verifies 113 inventory snapshots, packet custody, clearing/priming/cursor/epoch/write timing and source anchors. Root replay JSON is identical, SHA-256 `8BA50A8A08D385A6069B565D67875FCAF0E860C3CD8CBBB922C58E3B17B491B0`.
+- Completed-study manifest seals 468 artifacts, SHA-256 `D24765A0B9B3A1A111BAD56996AFD11663CCF0A7F7EDFCEC6C0FB8FA626E08C3`; 258 product inputs and 360 analysis/input pins verify unchanged. Strict current-tree all-target clippy exits 0 after capture; no installed acceptance follows.
+- `reset-a` is guard-interrupted after capture began, subject exit 0/reference forced. Snapshot retains the subject's Active session; exact process-exit time relative to enumeration is not established by these receipts. It is excluded from the completed comparison and retained separately.
+- Limits: owned source intervention, one host, API duration differences, deliberate queue discard, sampled guards, censored final receiver tails. No arbitrary-app repair or new installed qualification.
+
 <a id="actions"></a>
 ## Corrective and preventive actions
 
@@ -173,7 +196,7 @@ Owners/deadlines remain unassigned/null; no execution is implied by registration
 
 | ID | Action and trace | Status | Verification / exit |
 | --- | --- | --- | --- |
-| <a id="FUNG-RCA-000096-01-A01"></a>FUNG-RCA-000096-01-A01 | Audit prior lifecycle tests and run a new discriminator for S01/S02/H03/H05 | diagnostic-complete | E04 establishes bounded parity for same-client preservation; product root cause and general remedy remain open |
+| <a id="FUNG-RCA-000096-01-A01"></a>FUNG-RCA-000096-01-A01 | Audit prior lifecycle tests and run discriminators for S01/S02/H03/H05/H06 | diagnostic-complete | E04/E05 narrow lifecycle sensitivity; product root cause and general remedy remain open |
 | <a id="FUNG-RCA-000096-01-A02"></a>FUNG-RCA-000096-01-A02 | Repair only a demonstrated mechanism; retain S03 uncertainty in timeline handling | pending-root-cause | Regression proves actual PCM custody and timeline behavior; no fabricated samples or hidden fallback |
 | <a id="FUNG-RCA-000096-01-A03"></a>FUNG-RCA-000096-01-A03 | Qualify both actual installed modes and representative external apps | blocked-by-pid-failure | Traceable package/source, PID plus endpoint capture/playback/export/recovery, independent review; no merge/tag until all required gates pass |
 | <a id="FUNG-RCA-000096-01-A04"></a>FUNG-RCA-000096-01-A04 | Maintain symptom/evidence IDs and failed-run provenance | ongoing | ADR/templates/indexes and link checks; does not close audio defect |
@@ -183,6 +206,8 @@ Owners/deadlines remain unassigned/null; no execution is implied by registration
 Keep ±48-frame edge and 0.001 leakage gates unchanged for their applicable protocols; retain whole-run faults and NOT_PROVEN coverage. No format variant, endpoint substitution, parent PID substitution, native helper pass or exit code can qualify an installed PID repair. Required two-mode acceptance remains open. Review of this documentation checks faithful evidence interpretation only.
 
 ## Changelog and navigation
+
+- 2026-11-01 — 0.1.2: add F05/H06/E05 from matched Reset/recreation study; preserve interrupted evidence and installed release gates.
 
 - 2026-11-01 — 0.1.1: add F04/H05/E04 after same-client native comparison; keep root cause unconfirmed and release blocked.
 

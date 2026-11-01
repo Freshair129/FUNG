@@ -1,5 +1,5 @@
 ---
-version: "0.1.4b"
+version: "0.1.5b"
 created_at: "2026-11-01"
 last_update: "2026-11-01"
 status: "candidate"
@@ -357,9 +357,44 @@ Analyzer checks bind lifecycle label to renderer path/hash, ordered events and m
 
 Renderer SHA-256: `EDE740C19B766BD757902C7900E66D0BDE7356ACF7F122C384C094AD1DE1BD20`; source SHA-256: `30B1E948146443824F6E4032692612156DBB4130A8BDAA4796BD854B748A8C9A`. `build-receipt.json` pins controller/analyzer; `study-summary.json` records the four runs and refusal. Root rechecks all 358 per-run input hashes. Guards remain sampled, final receiver tails censored and raw native observations separate from application qualification.
 
-Inference: preserving source-client state removes the observed PID/reference edge deficit and QPC leaps in these bounded comparisons; destruction/recreation is a materially different case from same-client pause. This narrows the trigger/conditions but does not establish an internal Windows root cause or a mechanism FUNG can impose on arbitrary external applications. A follow-up could isolate Reset/queue/source-position effects while preserving identity; it has not been run. No production fix, new installed acceptance, merge or tag follows this study.
+Inference: preserving source-client state removes the observed PID/reference edge deficit and QPC leaps in these bounded comparisons; destruction/recreation is a materially different case from same-client pause. This narrows the trigger/conditions but does not establish an internal Windows root cause or a mechanism FUNG can impose on arbitrary external applications. At the time of this E04 study, Reset/queue/source-position effects were not isolated; the subsequent C/D/D/C follow-up below records the new comparison. No production fix, new installed acceptance, merge or tag follows this study.
 
 Independent offline audit (`review/independent-audit.json`) verifies all four runs' hashes, target PID/creation time, 117 inventory snapshots and mute guards, native Float32 format, packet/raw-byte custody, write continuity and source anchor correlations (minimum 0.999957). Root replay in `root-review-replay` produces identical JSON. B's endpoint source-coordinate overlap is approximately 424, 418, 400 and 428 frames across its four cycles, also reflected in PID. This is explicitly a parity result, not proof of uninterrupted/nonreplayed source delivery. No owned diagnostic/reference process remains at final inspection.
+
+## Reset versus recreation with matched reprime — C/D/D/C
+
+Source context: documentation HEAD `02e39d9deb06811124b972661ad8e409b6bc4978`, with the same 258 product input hashes as `E:\verification\fung-source-workflow3-20261101\postformat-inputs.json`. The two earlier documentation commits are pushed; native experiments remain machine-local under `E:\verification\fung-pid96-reset-recreate-20261101`. No product patch is represented by this experiment.
+
+The prospective protocol separates Reset from client recreation. Both arms Stop and retain the exact client throughout the pause. At Resume, C calls Reset on that client; D drops it and opens a new one with identical format/capacity. Both discard pending queued PCM, continue the previous **submitted-end** source cursor, refill the entire 4800-frame render buffer and Start through the same function. Thus source rewind and different priming policy are removed from this comparison. Both intentionally skip content previously queued but not consumed; this is not uninterrupted source delivery. Drop/open takes longer than Reset, so operation duration and identity/resource changes remain part of the intervention.
+
+The original `reset-a` attempt is guard-interrupted after capture began. Snapshot `inventory-0027.json` still lists the subject receiver PID 6428 as Active; the controller reports `Foreign active endpoint session`, subject exit 0 and forced reference shutdown. These receipts do not independently timestamp process exit against enumeration. This attempt is excluded from audio qualification, not relabeled a clean refusal or silently discarded. The strict controller guards are unchanged; no unrelated process is modified.
+
+Four completed captures run serially C/D/D/C, without this investigation's build/FFT workload during capture:
+
+| Run | Resume operation | Stop difference, cycles 1 / 2 | Resume difference, cycles 1 / 2 | Native QPC gaps | Whole diagnostic |
+| --- | --- | --- | --- | --- | --- |
+| `reset-b` | Same-client Reset | approximately 0 / 0 | approximately 0 / 0 | 0 | NOT_PROVEN |
+| `recreate-a` | Drop/open | +1 / 0 | +449 / −1 frames | 4 | FAIL |
+| `recreate-b` | Drop/open | approximately 0 / 0 | +441 / 0 frames | 3 | FAIL |
+| `reset-c` | Same-client Reset | approximately 0 / 0 | −1 / approximately 0 | 0 | NOT_PROVEN |
+
+All eight cycle alignments are credible. Reset's four cycles meet the unchanged ±48-frame edge criterion, while the first recreation Resume exceeds it in each run. The second recreation Resume does **not** reproduce the same deficit; that variability remains in the result. Every completed supervisor, receiver and reference exits 0 with no forced cleanup or reference faults. Exit codes establish collection completion only.
+
+Protocol v2 verifies no submission during pause; valid frozen clock; zero clock/padding after Reset/open; identical 4800-frame priming; source cursor continuation; expected client epochs (C 1/1/1, D 1/2/3); and no source wrap. Write traces are contiguous within each epoch, with priming writes bracketed before Start and all writes bounded before the next Stop. Thirteen analyzer tests pass, including rejection of paused writes, clock/queue/cursor mismatches and invalid epochs/timing. Both final renderer builds exit 0 without warnings.
+
+- C renderer SHA-256: `216F21C672B39B5DF748ED8B562E9CB07842539285EB39820D46D62524E8587C`.
+- D renderer SHA-256: `B6940B8AAEB3EA6044940FB7D4D4D3A7EA44394806DA009B2CDC1C4EAA16114D`.
+- Shared source SHA-256: `F14373F29F88EE1029FF5BCFB0FE1D83787362EE903B3A8A37797B64F59080DC`.
+- Controller SHA-256: `095B3A23E4C16791CFC40B972927664D6B941E9F71255333C2968A16AF926A77`.
+- Analyzer SHA-256: `D906B09760EE1B5A215AF873A3F1DB57B9DF9852D1FDF243AD73B026D92C8CE2`.
+
+Independent `review/independent-audit.json` checks hashes, PID/creation chain, 113 inventory snapshots and mute receipts, native Float32 packet/raw custody, lifecycle/trace invariants and independently reproduced source anchors (minimum cosine 0.9999728). Root replays its exact script in `root-review-replay`; JSON bytes match (SHA-256 `8BA50A8A08D385A6069B565D67875FCAF0E860C3CD8CBBB922C58E3B17B491B0`). Source-coordinate skips in the endpoint are approximately 3914–4406 frames in both arms, consistent with intentionally discarded pending data. Reset operations take roughly 0.0006–0.0009 ms; drop/open takes 12.37–15.59 ms in the measured brackets.
+
+Inference: clearing pending PCM and resetting the clock on the **same** client is not sufficient to reproduce the measured PID deficit in this controlled protocol. Recreation differs even with matched source cursor and reprime. This narrows the lifecycle boundary, without uniquely identifying an OS-internal component or separating identity from operation duration. The finding is not a source-independent repair: FUNG does not own another application's render client. Final receiver tails remain censored, guards sampled, and neither diagnostic parity nor Reset is promoted to installed PID/endpoint acceptance. No new package pass, merge or tag follows.
+
+Microsoft documents that [Reset](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-reset) flushes pending data and resets a stopped stream's audio clock to zero. This contract explains the control design; it does not establish the cause of the PID-only discrepancy.
+
+After all audio runs, `cargo +1.99.1 clippy --manifest-path src-tauri/Cargo.toml --locked --offline --all-targets -- -D warnings` passes on the preserved product tree (exit 0, 2m 52s; target `E:\FUNG-codex-package-target-20261101`). `completion-verification.json` verifies all 258 product inputs and 360 distinct analysis/input pins. This static result does not qualify the installed app. Independent document review reports no material findings and checks 48 local links/anchors; the scoped register checker also passes. `completed-study-manifest.json` seals 468 artifact files excluding build/cache; SHA-256 `D24765A0B9B3A1A111BAD56996AFD11663CCF0A7F7EDFCEC6C0FB8FA626E08C3`. No owned audio process remains after completion.
 
 ## API interpretation
 

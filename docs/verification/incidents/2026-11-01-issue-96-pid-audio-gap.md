@@ -1,7 +1,7 @@
 ---
 id: FUNG-INC-000096
 title: "PID audio gaps at source stream lifecycle transitions"
-version: "0.1.1"
+version: "0.1.2"
 created_at: "2026-11-01"
 last_update: "2026-11-01"
 status: candidate
@@ -108,6 +108,7 @@ annotations:
 | 2026-11-01T13:23:25.248350+00:00 | Completed-study manifest creation (not capture start time) | E01 |
 | 2026-11-01, Asia/Bangkok date | User authorizes ADR/templates and consolidated records | Chat instruction; documentation approval only |
 | 2026-11-01, date-only | Documentation committed; fresh lifecycle A/B/B/A narrows trigger without product repair | [E04](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md#FUNG-RCA-000096-01-E04) |
+| 2026-11-01, date-only | Matched Reset/recreation C/D/D/C narrows lifecycle sensitivity; no product remedy | [E05](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md#FUNG-RCA-000096-01-E05) |
 
 ## Containment and workaround
 
@@ -125,3 +126,5 @@ Closure requires a supported repair, regression checks, actual installed PID and
 
 - 2026-11-01 — 0.1.0: consolidated existing evidence, allocated S01–S03; no new native or installed test.
 - 2026-11-01 — 0.1.1: add scope qualification from fresh same-client lifecycle study; incident stays investigating.
+
+- 2026-11-01 — 0.1.2: reference Reset/recreation comparison and retain ongoing incident status; no installed gate promoted.

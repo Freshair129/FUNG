@@ -1,5 +1,5 @@
 ---
-version: "0.1.4b"
+version: "0.1.5b"
 created_at: "2026-11-01"
 last_update: "2026-11-01"
 status: "candidate"
@@ -107,3 +107,14 @@ still require a demonstrated repair under the original criteria.
 - [ ] Isolate remaining identity/queue/source-position effects or establish a supported source-independent remedy before product changes. Same-client preservation cannot be imposed on arbitrary source apps by this fixture.
 
 Evidence: `E:\verification\fung-pid96-same-client-20261101`; [report](../verification/implementation-reports/2026-11-01-pid-upstream-boundary.md). Product repair and both installed-mode gates above remain open.
+
+## Reset versus recreation follow-up
+
+- [x] Freeze a prospective C/D/D/C protocol with equal submitted-end source cursor, full-capacity reprime and stopped-client retention until Resume.
+- [x] Build separately pinned C Reset and D drop/open binaries from one source; independently review protocol and guards.
+- [x] Run four completed serial captures and retain interrupted `reset-a` separately. Both Reset runs have edge parity/no recorded QPC gaps; both recreation runs retain first-Resume loss and 4/3 gaps, with second-Resume variability preserved.
+- [x] Verify queue/clock clearing, 4800-frame prime, cursor/client epochs and write/API time boundaries; 13 analyzer tests and independent audit/root replay agree.
+- [ ] Identify a supported FUNG-controlled mechanism for arbitrary source apps. Reset on an owned source is a discriminator, not a foreign-app repair; creation latency and identity are not individually isolated.
+- [ ] After a demonstrated product fix, rebuild and qualify actual installed PID and endpoint capture/playback/export/recovery on the same candidate before merge/tag.
+
+Evidence: `E:\verification\fung-pid96-reset-recreate-20261101`; [report](../verification/implementation-reports/2026-11-01-pid-upstream-boundary.md#reset-versus-recreation-with-matched-reprime--cddc). Source-owned queue discard is not missing-PID reconstruction or full source continuity.

@@ -1,7 +1,7 @@
 ---
 id: FUNG-INC-000096
 title: "PID audio gaps at source stream lifecycle transitions"
-version: "0.1.2"
+version: "0.1.3"
 created_at: "2026-11-01"
 last_update: "2026-11-01"
 status: candidate
@@ -96,6 +96,8 @@ annotations:
 
 ปิด release gate ของ PID #96 และ two-mode installed acceptance. ไม่พบหลักฐานยืนยัน production outage, จำนวนผู้ใช้ที่ได้รับผล หรือข้อมูลประชุมจริงสูญหายจากชุดทดลองนี้. Endpoint control ที่ใช้เปรียบเทียบไม่ใช่การรับรอง endpoint workflow ทั้งหมด.
 
+E06's matched 15.5 ms Reset-to-prime timing did not reproduce the recreation arm's first-Resume deficit in the controlled fixture. Its edges still do not establish whole-source continuity: queued source PCM was intentionally discarded, source coordinates skipped, and final receiver tails were censored. Keep the incident and both installed release gates open.
+
 ## Detection and timeline
 
 | Date / precision | Event | Evidence |
@@ -109,6 +111,7 @@ annotations:
 | 2026-11-01, Asia/Bangkok date | User authorizes ADR/templates and consolidated records | Chat instruction; documentation approval only |
 | 2026-11-01, date-only | Documentation committed; fresh lifecycle A/B/B/A narrows trigger without product repair | [E04](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md#FUNG-RCA-000096-01-E04) |
 | 2026-11-01, date-only | Matched Reset/recreation C/D/D/C narrows lifecycle sensitivity; no product remedy | [E05](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md#FUNG-RCA-000096-01-E05) |
+| 2026-11-01, date-only | Matched Reset-to-prime timing discriminator does not reproduce first-Resume deficit; diagnostic remains NOT_PROVEN | [E06](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md#FUNG-RCA-000096-01-E06) |
 
 ## Containment and workaround
 
@@ -128,3 +131,4 @@ Closure requires a supported repair, regression checks, actual installed PID and
 - 2026-11-01 — 0.1.1: add scope qualification from fresh same-client lifecycle study; incident stays investigating.
 
 - 2026-11-01 — 0.1.2: reference Reset/recreation comparison and retain ongoing incident status; no installed gate promoted.
+- 2026-11-01 — 0.1.3: reference matched timing discriminator; retain unknown cause and dual-mode release gate.

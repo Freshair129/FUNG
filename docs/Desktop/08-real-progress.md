@@ -1,7 +1,7 @@
 ---
-version: "0.3.52b"
+version: "0.3.56b"
 created_at: "2026-07-05T13:15:00+07:00,ATHER"
-last_update: "2026-10-29"
+last_update: "2026-11-01"
 
 status: "beta"
 superseded_by: null
@@ -12,6 +12,75 @@ attributes:
 ---
 
 # 08 - Real Progress
+
+## PID Resume packet localization — 2026-11-01
+
+The [upstream report](../verification/implementation-reports/2026-11-01-pid-upstream-boundary.md)
+now distinguishes observed near-zero restart PCM from unverified coverage in QPC
+gaps. All twelve historical first-active packets contain 64 near-zero frames
+then marker frames 480–895; this does not identify the responsible component.
+Native no-capture configuration queries return only 480 buffer frames for requested
+0/1/5 seconds. The first raw-receiver attempt is refused while HDMI is NotPresent;
+after user confirmation, four actual PCM16/Float32 runs complete in A/B/B/A order.
+All four fail: +441-frame Resume deficits, four QPC gaps each, and Stop deficits.
+Independent raw Float32 has the same near-zero prefix without AUTO/SRC flags or
+FUNG's Rust/writer path. Independent audit is replayed exactly; this still does
+not identify an OS-internal cause or establish a product repair. Both installed
+mode gates remain open; no new application package/merge/tag.
+
+## PID upstream boundary — 2026-11-01
+
+The [packet-boundary investigation](../verification/implementation-reports/2026-11-01-pid-upstream-boundary.md)
+searches original received stereo within each rendering epoch, with documented
+correlation/timestamp limitations. A new isolated renderer records successful
+submission boundaries and supports 0/10/50 ms Stop-to-destruction comparisons.
+After both HDMI devices return, six native runs in forward/reverse order find
+that retaining the stopped source client roughly 50 ms brings Stop-edge deltas
+within 48 frames, while all Restart edges remain approximately 441 frames and
+timeline gaps persist. All six whole runs fail. A no-provider ETW session probe
+returns access denied. No product fix, new application package acceptance, merge
+or release is established.
+
+## PID root attribution — 2026-11-01
+
+The [owned root/child comparison](../verification/implementation-reports/2026-11-01-pid-root-attribution.md)
+finds that both selecting the renderer directly and selecting its silent supervisor
+still lose transition samples. Both native readers exit 101 while independent
+endpoint references exit 0 without reported faults. This does not support a
+parent-PID substitution or establish an OS-internal cause. No production fix or
+new installed acceptance follows; merge/tag remain gated on both full modes.
+
+## Routed export/recovery and remaining capture gates — 2026-11-01
+
+The [source-aware consumer report](../verification/implementation-reports/2026-11-01-endpoint-export-recovery.md)
+records installed two-source WAV export, repeat artifact reuse, paused playback
+commands and exact source-to-export PCM correspondence. Candidate 3 also recovers
+a six-second committed prefix after deliberate process termination; two reopen
+runs preserve all six WAV hashes and return the same verified result. This is
+bounded committed-prefix recovery, not power-loss or uncommitted-tail recovery.
+Legacy filename-based consumers still reject routed sources.
+
+Candidate 3's separate 180-second-marker endpoint run completes 74,974 ms with
+both sources passing two Stop/Resume cycles and the unchanged PCM/leakage gates.
+Export from that same recording matches every source PCM sample. The earlier
+candidate 2 overflow and candidate 3 repeated-marker NOT_PROVEN results remain
+preserved. These are bounded installed backend checks, not full UI qualification.
+Full installed acceptance remains open: PID Stop/Resume still fails the unchanged
+48-frame edge bound (Stop −1,504/−1,984; Resume +441/+441 frames). Earlier dated entries
+below are historical checkpoints, not the current implementation inventory.
+No merge/tag/release is authorized by these partial results.
+
+## Routed playback owner boundaries — 2026-10-29
+
+The [candidate playback/quarantine contract](../specs/2026-10-29-routed-playback-quarantine-contract.md)
+and [verification checkpoint](../verification/implementation-reports/2026-10-29-routed-playback-owner-boundaries.md)
+record a private reader with 12 fixture tests passing and a quarantine lease
+with 17 targeted tests passing. A private queue prototype has three passing tests;
+independent review found remaining queue contention and memory-accounting
+risks. Follow-up changes still require verification and review. The
+isolated SDK lock test is not installed acceptance. Source-aware playback is
+not exposed in the product. Subsequent PID call-trace runs recorded four and
+three discontinuities with clean reference probes; both installed gates remain open.
 
 ## PID Stop versus destruction — 2026-10-29
 
@@ -1924,6 +1993,11 @@ Screenshot artifacts from the latest UI validation:
 
 ## Version Diff
 
+### `0.3.52b` → `0.3.53b`
+
+- Record candidate routed playback/quarantine boundaries, reader RED and the
+  isolated cooperative SDK cross-process ownership result without promoting UAT.
+
 ### `0.3.51b` → `0.3.52b`
 
 - Record matched native Stop/hold versus immediate-destruction results and their
@@ -2248,6 +2322,7 @@ native/device/release acceptance.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 0.3.53b | 2026-10-29 | beta | Routed playback candidate and source-reader RED remain at SDK query/authority boundary; isolated cross-process SDK lock test passes, but playback/quarantine and both full installed gates remain open. | see Git history | Codex |
 | 0.3.52b | 2026-10-29 | beta | Matched native stopped-client retention removes measured edges in the owned fixture, but three timeline gaps and exit101 keep the overall run FAIL; no arbitrary-PID repair or installed gate closure. | see Git history | Codex |
 | 0.3.51b | 2026-10-29 | beta | Readonly exact-HDMI engine-period admission finds only480frames/10ms at current48kHz; conditional audio study NOT_RUN. Productfff68af CI succeeds; PID/full endpoint installed gates stay open. | see Git history | Codex |
 | 0.3.50b | 2026-10-29 | beta | Direct acquisition and matched baseline retain native FAIL; no production adoption. Legacy recovery source guard has RED5/GREEN15 and source GO; fresh serial library902pass/14ignored follows retained Winsock10055 failure. Both installed audio gates remain open. | see Git history | Codex |

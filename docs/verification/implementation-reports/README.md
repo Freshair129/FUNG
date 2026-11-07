@@ -1,7 +1,7 @@
 ---
-version: "0.1.2v"
+version: "0.1.2z"
 created_at: "2026-10-19"
-last_update: "2026-10-29"
+last_update: "2026-11-01"
 status: "beta"
 superseded_by: null
 attributes:
@@ -12,6 +12,17 @@ attributes:
 ---
 
 # Implementation and review report index
+
+- [Issue 96 WIP verification](2026-11-07-issue-96-wip-verification.md) — `candidate`; W1b interrupted by unbudgeted concurrent build growth, with Rust, frontend build and PostgreSQL checks outstanding; installed PID/endpoint acceptance remains open.
+
+
+- [PID upstream packet boundary](2026-11-01-pid-upstream-boundary.md) — `candidate`; six release-delay runs still fail. Four subsequent PCM16/Float32 collections after HDMI reconnection also fail Resume/Stop/continuity; independently audited raw Float32 reproduces the prefix without AUTO/SRC. No product fix or installed retest.
+
+- [PID root attribution investigation](2026-11-01-pid-root-attribution.md) — `candidate`; owned silent-parent versus renderer-child diagnostic, with unchanged audio gates. Not a product repair or release qualification.
+
+- [Routed export and recovery candidate](2026-11-01-endpoint-export-recovery.md) — `candidate`; installed endpoint PCM/export and committed-prefix recovery checks pass within documented limits; source tests/clippy pass. PID still fails and full two-mode release acceptance remains open.
+
+- [Routed playback owner boundaries](2026-10-29-routed-playback-owner-boundaries.md) — `candidate`; isolated SDK cross-process lock test passes, but bounded reader and quarantine-safe public playback remain unimplemented.
 
 - [PID Stop versus destruction diagnostic](2026-10-29-pid-stop-hold-diagnostic.md) — `candidate`; retaining the stopped owned client removes measured edge deltas but reports three timeline gaps and exits101. No production repair or installed acceptance.
 

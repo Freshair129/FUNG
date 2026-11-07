@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-19"
-last_update: "2026-10-25"
+last_update: "2026-10-29"
 status: "beta"
 superseded_by: null
 attributes:
@@ -16,6 +16,8 @@ attributes:
 Specifications refine requirements into observable behavior, technical boundaries and acceptance criteria. A dated spec marked `draft` or `candidate` is a proposal; it does not authorize implementation by itself.
 
 ## Sources and authority
+
+- [Routed playback and quarantine contract](2026-10-29-routed-playback-quarantine-contract.md) — `candidate`; selector, bounded query authority and revocation ownership require review before public activation.
 
 - Start with [requirements](../requirements/README.md) for cross-platform canonical IDs.
 - Some existing Desktop requirement IDs remain owned by [Live Meeting External Retrieval Requirements](../Desktop/LIVE_MEETING_EXTERNAL_RETRIEVAL_REQUIREMENTS.md); that file identifies its scope and migration boundary.

@@ -1,5 +1,5 @@
 ---
-version: "0.1.3h"
+version: "0.1.3l"
 created_at: "2026-10-19"
 last_update: "2026-11-01"
 status: "beta"
@@ -17,7 +17,21 @@ attributes:
 
 ## จุดอ้างอิงหลัก
 
+- [Backlog closure and gap plan](2026-11-07-backlog-closure-and-gap-plan.md) — candidate; secures the uncommitted #96 branch work, closes evidenced issues, and lists Boss stop points. Not completion evidence.
+
 - [Incident/RCA documentation](2026-11-01-incident-rca-documentation.md) — approved documentation structure, templates and #96 records; no audio acceptance change.
+
+- [PID upstream boundary investigation](2026-11-01-pid-upstream-boundary.md) — candidate; raw epoch/onset/cadence analysis, TDH admission and release-boundary study. Four actual PCM16/Float32 comparisons also fail; no product repair or installed acceptance inferred.
+
+- [PID root attribution diagnostic](2026-11-01-pid-root-attribution.md) — candidate; compare owned silent-parent and rendering-child capture roots before further product changes. Both installed release gates remain required.
+
+- [Routed-source export](2026-11-01-routed-source-export.md) — candidate; installed typed source/epoch WAV correspondence and repeat reuse verified; broader acceptance remains open.
+- [Routed recovery](2026-11-01-routed-recovery.md) — candidate; installed six-second committed-prefix recovery verified across two reopen runs; no power-loss or uncommitted-tail claim.
+- [Routed writer buffering](2026-11-01-routed-writer-buffering.md) — candidate; bounded 250 ms coalescing, write-stage measurements and sustained installed capture gate.
+
+- [Playback close ownership](2026-10-30-playback-close-ownership.md) — `candidate`; retained cleanup owner and fail-closed close lifecycle, with CPU-only verification before hardware acceptance.
+
+- [Completed routed-source playback](2026-10-29-completed-source-playback.md) — `candidate`; bounded source access, reviewed selection and quarantine cancellation remain prerequisites for installed endpoint playback.
 
 - [PID Stop versus renderer destruction](2026-10-29-pid-stop-versus-destruction.md) — `candidate`; owned fixture study, not yet evidence of an arbitrary-application repair or installed acceptance.
 

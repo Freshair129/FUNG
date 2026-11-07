@@ -976,6 +976,20 @@ fn capture_selected_inner(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn microphone_and_loopback_stream_flags_preserve_flow() {
+        use super::*;
+        let capture = EndpointCaptureFlow::Capture.stream_flags();
+        let render = EndpointCaptureFlow::RenderLoopback.stream_flags();
+        assert_eq!(capture & AUDCLNT_STREAMFLAGS_LOOPBACK, 0);
+        assert_eq!(
+            render,
+            AUDCLNT_STREAMFLAGS_LOOPBACK
+                | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
+                | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY
+        );
+    }
+
     use super::*;
 
     #[test]

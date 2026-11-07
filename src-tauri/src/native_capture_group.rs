@@ -419,6 +419,45 @@ impl NativeGroupObserver {
 mod tests {
     use super::*;
     #[test]
+    fn planned_sources_assign_capture_flow_to_microphone_only() {
+        let identity = routing::ApplicationIdentity {
+            pid: 10,
+            parent_pid: 1,
+            creation_filetime: "123".into(),
+            image_path: "app".into(),
+            image_volume_serial: 1,
+            image_file_id: "0000000000000001".into(),
+        };
+        let route = routing::CaptureRoute {
+            source_id: uuid::Uuid::new_v4().to_string(),
+            label: "route".into(),
+            endpoint_id: "render-1".into(),
+            application: identity,
+            allowed_children: vec![],
+        };
+        let mut second = route.clone();
+        second.source_id = uuid::Uuid::new_v4().to_string();
+        second.endpoint_id = "render-2".into();
+        let mic = routing::CaptureMicrophone {
+            source_id: uuid::Uuid::new_v4().to_string(),
+            label: "mic".into(),
+            endpoint_id: "capture".into(),
+        };
+        let plan = routing::CaptureRoutePlan {
+            policy_version: 1,
+            routes: vec![route, second],
+            microphone: Some(mic),
+        };
+        let sources = planned_sources(&plan);
+        assert_eq!(sources.len(), 3);
+        assert!(sources[..2]
+            .iter()
+            .all(|source| source.flow == EndpointCaptureFlow::RenderLoopback
+                && source.kind == "endpoint"));
+        assert_eq!(sources[2].flow, EndpointCaptureFlow::Capture);
+        assert_eq!(sources[2].kind, "microphone");
+    }
+    #[test]
     fn duplicate_global_reservation_is_rejected_and_drop_releases_exact_keys() {
         let key = format!("test:{}", uuid::Uuid::new_v4());
         let first = Reservation::acquire(vec![key.clone()]).unwrap();

@@ -5586,6 +5586,20 @@ pub(crate) fn live_meeting_status(state: State<'_, AppState>) -> AppResult<LiveS
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn routed_unknown_source_kind_cannot_be_transcribed() {
+        let source = crate::completed_source_media::CompletedSource {
+            id: "source".into(),
+            epoch: 1,
+            label: "unknown".into(),
+            kind: "unknown".into(),
+            sample_rate: 48000,
+            chunks: vec![],
+        };
+        assert!(super::routed_speaker_key(&source).is_err());
+        assert!(super::routed_worker_channel(&source).is_err());
+    }
+
     use super::*;
     use genesis_block_native::{OpenOptions, Storage};
 

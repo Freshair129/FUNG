@@ -56,6 +56,16 @@ test("routed bridge sends the exact validation and project-scoped start plans an
     { command: "capture_route_stop", args: {} },
   ]);
 });
+test("routed bridge preserves the selected microphone in both requests", async () => {
+  resetIpc();
+  const plan = { policyVersion: 1, routes: [], microphone: { sourceId: "mic-id", label: "Mic", endpointId: "input-id" } };
+  await api.captureRouteValidate(plan);
+  await api.captureRouteStart("project-a", plan);
+  assert.deepEqual(calls, [
+    { command: "capture_route_validate", args: { plan } },
+    { command: "capture_route_start", args: { projectId: "project-a", plan } },
+  ]);
+});
 const pairB3 = { projectId: "project-b", recordingId: "recording-b3" };
 
 const recordingA1 = {

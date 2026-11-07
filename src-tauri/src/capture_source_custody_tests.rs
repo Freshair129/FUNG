@@ -1169,3 +1169,58 @@ fn playback_quarantine_callback_contention_returns_without_waiting() {
     assert!(denied_before_release.unwrap());
     assert!(lease.try_output().is_some());
 }
+
+#[test]
+fn microphone_registration_limits_and_loader_kind_are_enforced() {
+    let f = fixture();
+    let mic = CaptureSourceRegistration {
+        id: uuid::Uuid::new_v4().to_string(),
+        kind: "microphone".into(),
+        endpoint_id: Some("capture-id".into()),
+        ..f.reg.clone()
+    };
+    let register = |sources: &[CaptureSourceRegistration]| {
+        register_capture_sources(
+            &f.s,
+            &begin_source_commit(&f.s),
+            &f.project,
+            &f.recording,
+            sources,
+        )
+    };
+    let mut same_id = mic.clone();
+    same_id.id = f.reg.id.clone();
+    assert!(register(&[f.reg.clone(), same_id]).is_err());
+    let mut second = mic.clone();
+    second.id = uuid::Uuid::new_v4().to_string();
+    second.endpoint_id = Some("another-mic".into());
+    assert!(register(&[f.reg.clone(), mic.clone(), second.clone()]).is_err());
+    let mut route2 = f.reg.clone();
+    route2.id = uuid::Uuid::new_v4().to_string();
+    route2.endpoint_id = Some("second-render".into());
+    assert!(register(&[f.reg.clone(), route2, mic.clone(), second]).is_err());
+    let mut no_endpoint = mic.clone();
+    no_endpoint.endpoint_id = None;
+    assert!(register(&[f.reg.clone(), no_endpoint]).is_err());
+    register(&[f.reg.clone(), mic.clone()]).unwrap();
+    assert_eq!(
+        super::load_active_microphone_registration(
+            &f.s,
+            &f.project,
+            &f.recording,
+            &mic.id,
+            mic.epoch
+        )
+        .unwrap(),
+        mic
+    );
+    assert!(load_active(&f, &f.project, &f.recording, &mic.id, mic.epoch).is_err());
+    assert!(super::load_active_microphone_registration(
+        &f.s,
+        &f.project,
+        &f.recording,
+        &f.reg.id,
+        f.reg.epoch
+    )
+    .is_err());
+}

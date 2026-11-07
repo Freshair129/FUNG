@@ -1503,6 +1503,52 @@ mod tests {
         );
     }
     #[test]
+    fn microphone_validation_and_legacy_plan() {
+        let (mut plan, mut inventory) = fixture();
+        let mic = CaptureMicrophone {
+            source_id: uuid::Uuid::new_v4().to_string(),
+            label: "Mic".into(),
+            endpoint_id: "capture-A".into(),
+        };
+        inventory.inputs.push(InputEndpointDescriptor {
+            id: mic.endpoint_id.clone(),
+            name: Observation::Known("Mic".into()),
+            state: Observation::Known(EndpointState::Active),
+            mix_format: inventory.endpoints[0].mix_format.clone(),
+        });
+        plan.microphone = Some(mic.clone());
+        assert!(validate_route_plan(&plan, &inventory, 101).is_ok());
+        let mut no_routes = plan.clone();
+        no_routes.routes.clear();
+        reject(&no_routes, &inventory, Rejection::RouteCount);
+        let mut missing = inventory.clone();
+        missing.inputs.clear();
+        reject(&plan, &missing, Rejection::MicrophoneUnavailable);
+        let mut inactive = inventory.clone();
+        inactive.inputs[0].state = Observation::Known(EndpointState::Disabled);
+        reject(&plan, &inactive, Rejection::MicrophoneUnavailable);
+        let mut render_mic = plan.clone();
+        render_mic.microphone.as_mut().unwrap().endpoint_id = "opaque-A".into();
+        let mut no_duplicate = inventory.clone();
+        no_duplicate.endpoints[0].id = "other-render".into();
+        render_mic.routes[0].endpoint_id = "other-render".into();
+        reject(&render_mic, &no_duplicate, Rejection::MicrophoneUnavailable);
+        let mut capture_route = plan.clone();
+        capture_route.routes[0].endpoint_id = "capture-A".into();
+        assert!(validate_route_plan(&capture_route, &inventory, 101).is_err());
+        let mut duplicate = plan.clone();
+        duplicate.microphone.as_mut().unwrap().source_id = duplicate.routes[0].source_id.clone();
+        reject(&duplicate, &inventory, Rejection::DuplicateSource);
+        duplicate = plan.clone();
+        duplicate.microphone.as_mut().unwrap().endpoint_id =
+            duplicate.routes[0].endpoint_id.clone();
+        reject(&duplicate, &inventory, Rejection::DuplicateEndpoint);
+        let mut json = serde_json::to_value(&plan).unwrap();
+        json.as_object_mut().unwrap().remove("microphone");
+        let legacy: CaptureRoutePlan = serde_json::from_value(json).unwrap();
+        assert!(legacy.microphone.is_none());
+    }
+    #[test]
     fn version_and_capacity() {
         let (mut p, i) = fixture();
         p.policy_version = 99;

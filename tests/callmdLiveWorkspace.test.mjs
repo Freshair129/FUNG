@@ -194,6 +194,20 @@ test("route plans require one or two complete routes with v4 identifiers and bou
   assert.equal(workspace.routePlanForDrafts([first], new Map()), null);
 });
 
+test("routed microphone plan and visible labels preserve the optional contract", () => {
+  const identity = { pid: 41, creationFiletime: "123", imagePath: "app", imageFileId: "1" };
+  const route = { ...workspace.createRoutedRouteDraft(), processId: 41, endpointId: "out", label: "Meeting" };
+  const identities = new Map([[41, identity]]);
+  const none = workspace.routePlanForDrafts([route], identities, { endpointId: "", sourceId: "" });
+  assert.equal(none.microphone, null);
+  const microphone = { endpointId: "input", sourceId: "mic-source" };
+  const selected = workspace.routePlanForDrafts([route], identities, microphone);
+  assert.deepEqual({ ...selected.microphone }, { ...microphone, label: "ไมโครโฟน" });
+  assert.match(workspaceSource, /<option value="">ไม่บันทึกไมโครโฟน<\/option>/);
+  assert.match(workspaceSource, /source\.kind === "microphone" \? "ไมโครโฟน"/);
+  assert.equal(contracts.ROUTE_ERROR_MESSAGES.MicrophoneUnavailable, "ไม่พบไมโครโฟนที่เลือก หรือไมโครโฟนไม่พร้อมใช้งาน");
+});
+
 test("route rejection messages match the native enum exactly", async () => {
   const rust = await readFile(new URL("../src-tauri/src/capture_routing.rs", import.meta.url), "utf8");
   const body = rust.match(/pub enum Rejection\s*\{([^}]*)\}/)?.[1];

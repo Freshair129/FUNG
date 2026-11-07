@@ -95,6 +95,10 @@ mod tests {
         }
 
         fn routed(state: &str) -> Self {
+            Self::routed_with_mic(state, false)
+        }
+
+        fn routed_with_mic(state: &str, mic: bool) -> Self {
             let temp = tempfile::tempdir().unwrap();
             let root = temp.path().join("projects").join("project");
             fs::create_dir_all(&root).unwrap();
@@ -146,6 +150,7 @@ mod tests {
                 id: Uuid::new_v4().to_string(),
                 endpoint_id: Some("fixture-other-endpoint".into()),
                 label: "Other private routed source".into(),
+                kind: if mic { "microphone" } else { "endpoint" }.into(),
                 ..f.source.clone()
             };
             let sources = [f.source.clone(), other_source];
@@ -305,6 +310,55 @@ mod tests {
             "job-fixture",
             worker,
         )
+    }
+
+    #[test]
+    fn routed_worker_assigns_microphone_and_route_and_retry_is_idempotent() {
+        let f = Fixture::routed_with_mic("completed", true);
+        routed_job(&f);
+        let mut channels = Vec::new();
+        run_fake(&f, &mut |chunk| {
+            if let Some(chunk) = chunk {
+                channels.push(chunk.channel.to_string());
+                Ok(vec![worker_segment()])
+            } else {
+                Ok(vec![])
+            }
+        })
+        .unwrap();
+        channels.sort();
+        assert_eq!(
+            channels,
+            vec![
+                crate::live_meeting::CHANNEL_MIC,
+                crate::live_meeting::CHANNEL_SYSTEM
+            ]
+        );
+        let speakers =
+            ga::query_all(&f.storage, "speakers", &["key", "display_name"], vec![]).unwrap();
+        assert_eq!(speakers.len(), 2);
+        assert!(speakers
+            .iter()
+            .any(|s| s["speakers.key"] == "me" && s["speakers.display_name"] == "เรา"));
+        assert!(speakers
+            .iter()
+            .any(|s| s["speakers.key"] == format!("route:{}", f.source.id)
+                && s["speakers.display_name"] == f.source.label));
+        let mut calls = 0;
+        run_fake(&f, &mut |chunk| {
+            if chunk.is_some() {
+                calls += 1;
+            }
+            Ok(vec![worker_segment()])
+        })
+        .unwrap();
+        assert_eq!(calls, 0);
+        assert_eq!(
+            ga::query_all(&f.storage, "transcript_segments", &["id"], vec![])
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[test]

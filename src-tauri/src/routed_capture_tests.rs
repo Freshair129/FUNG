@@ -1751,3 +1751,97 @@ fn late_final_peer_rejection_is_scoped_and_not_masked_by_earlier_writer_failure(
 fn later_global_execution_error_is_recorded_despite_prior_source_cause() {
     exercise_post_runtime_finalization(false, true);
 }
+
+fn exercise_three_source_closure(fault: bool) {
+    let f = fixture();
+    let recording = Uuid::new_v4().to_string();
+    start_rows(
+        &f.storage,
+        &f.project,
+        &recording,
+        &Uuid::new_v4().to_string(),
+        &f.root,
+    )
+    .unwrap();
+    let regs = (0..3)
+        .map(|i| CaptureSourceRegistration {
+            id: Uuid::new_v4().to_string(),
+            epoch: 1,
+            kind: if i == 2 { "microphone" } else { "endpoint" }.into(),
+            endpoint_id: Some(format!("device-{i}")),
+            label: format!("source-{i}"),
+            sample_rate: i64::from(RATE),
+            clock_origin_qpc_hns: "10010000".into(),
+            metadata: json!({}),
+        })
+        .collect::<Vec<_>>();
+    custody::register_capture_sources(
+        &f.storage,
+        &attempt(&f.storage).unwrap(),
+        &f.project,
+        &recording,
+        &regs,
+    )
+    .unwrap();
+    let mut writers =
+        CaptureSourceWriterGroup::new(f.storage.clone(), f.project.clone(), recording.clone())
+            .unwrap();
+    for reg in &regs {
+        let mut writer = writers
+            .spawn(SourceWriterOptions::new(reg.clone()))
+            .unwrap();
+        writer
+            .try_push(SourcePcmPacket {
+                source_id: reg.id.clone(),
+                epoch: 1,
+                first_frame: 0,
+                pcm: vec![7; 96000],
+            })
+            .unwrap();
+        let report = writer.finish();
+        assert!(report.first_failure.is_none());
+        assert!(report.durable_frames > 0);
+    }
+    let shared = recovery_shared(&regs[2].id);
+    if fault {
+        shared.fail(Some(&regs[2].id), "microphone fault");
+    }
+    let ids = regs.iter().map(|r| r.id.clone()).collect::<Vec<_>>();
+    close_registered_sources(&f.storage, &f.project, &recording, &ids, &shared);
+    let rows = ga::query(
+        &f.storage,
+        "capture_sources",
+        &["id", "state"],
+        vec![ga::eq("capture_sources", "recording_id", json!(recording))],
+        10,
+    )
+    .unwrap();
+    assert_eq!(rows.len(), 3);
+    for reg in &regs {
+        let row = rows
+            .iter()
+            .find(|row| row["capture_sources.id"] == reg.id)
+            .unwrap();
+        assert_eq!(
+            row["capture_sources.state"],
+            if fault && reg.kind == "microphone" {
+                "quarantined"
+            } else {
+                "completed"
+            }
+        );
+    }
+    assert_eq!(
+        ga::capture(&f.storage, &recording).unwrap().status,
+        if fault { "partial" } else { "completed" }
+    );
+}
+
+#[test]
+fn three_source_closure_completes_two_routes_and_microphone() {
+    exercise_three_source_closure(false);
+}
+#[test]
+fn microphone_fault_quarantines_it_and_makes_three_source_recording_partial() {
+    exercise_three_source_closure(true);
+}

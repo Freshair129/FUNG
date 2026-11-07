@@ -336,7 +336,7 @@ where
     let outcome = (|| -> Result<Vec<AudioExport>, String> {
         let cancel = AtomicBool::new(false);
         let mut prepared = Vec::new();
-        let mut held_sources = Vec::new();
+        let mut held_source_files = Vec::new();
         let mut locked_outputs = Vec::new();
         let mut total = 0u64;
         for source in &manifest.sources {

@@ -248,15 +248,152 @@ change.
 epoch lineage table, and mic in routed mode (decision B-04; the routing design
 already anticipates a native-created mic source UUID).
 
-### E6 — Microphone in routed mode (decided 2026-11-07; spec after E4)
+### E6 — Microphone in routed mode (spec, 2026-11-07)
 
-Decision B-04 was delegated to the lead by the owner on 2026-11-07: routed
-recordings include one microphone source. The routing design already scopes
-"at most two remote application routes plus one microphone". The custody
-layer already accepts one `microphone` registration
-(`capture_source_custody.rs` ~L310). The work is in the routed coordinator
-and the plan or UI. The spec will be written after E4 lands. E4 then maps the
-microphone source to the `me` speaker.
+Decision B-04 was delegated to the lead by the owner on 2026-11-07: a routed
+recording may include one microphone source. The routing design scopes "at
+most two remote application routes plus one microphone". It also says the
+microphone in a routed recording "receives a native-created source
+UUID/binding". This spec is based on a lead survey of `main` after PR #103.
+
+**Scope v1:** one optional microphone source per routed recording. It is
+captured as a WASAPI capture endpoint, chosen explicitly by its endpoint id,
+and stored with the same custody, spool, writer and failure rules as routed
+application sources. After Stop it is transcribed as speaker `me`. The legacy
+Live pipeline and the `live_capture_devices` command stay unchanged.
+
+1. **Contract.**
+   - Add `microphone: Option<CaptureMicrophone>` to `CaptureRoutePlan`, with
+     `#[serde(default)]`. The type is
+     `CaptureMicrophone { source_id, label, endpoint_id }` (camelCase,
+     `deny_unknown_fields`). `policy_version` stays `1`, because v1 is
+     unreleased and the field is optional.
+   - The route cap stays `1..=2` in all five places that enforce it
+     (`capture_routing.rs` ~L259, ~L500, ~L613; `routed_capture.rs` ~L250;
+     `native_capture_group.rs` ~L117). The microphone is not a route. A plan
+     with a microphone and no route is rejected with `RouteCount`; mic-only
+     recording is legacy mode.
+   - Microphone `sourceId` follows the route rules: a canonical, non-nil UUID,
+     unique across all routes and the microphone (`DuplicateSource`). The
+     frontend creates it with `crypto.randomUUID()` and regenerates it when the
+     device changes.
+   - New `Rejection` variant `MicrophoneUnavailable`. It covers a microphone
+     endpoint that is missing, inactive, not a capture-flow endpoint, or whose
+     identity changed between validation and start. Update the TypeScript
+     mirror and `ROUTE_ERROR_MESSAGES` with the Thai message
+     `ไม่พบไมโครโฟนที่เลือก หรือไมโครโฟนไม่พร้อมใช้งาน`.
+2. **Inventory.** Add `inputs: Vec<InputEndpointDescriptor>` to
+   `NativeInventory`, where `InputEndpointDescriptor { id, name, state,
+   mixFormat }` uses the same `Observation` wrapping as `EndpointDescriptor`.
+   Enumerate it with `EnumAudioEndpoints(eCapture, …)`. Keep it separate from
+   `endpoints`, which are render-only, so a capture endpoint can never satisfy
+   a route and a render endpoint can never satisfy the microphone.
+3. **No fallback.** Never use a default capture role or a default input device.
+   If no microphone is selected, the plan carries `microphone: null` and the
+   recording has no microphone source. If the selected endpoint is unavailable
+   at validate or start, reject with `MicrophoneUnavailable`. Never record
+   without it, and never substitute another device.
+4. **Native capture.** Generalize
+   `live_system_audio::spawn_owned_endpoint_capture_thread` with an explicit
+   flow parameter, `RenderLoopback` or `Capture`:
+   - `RenderLoopback` keeps today's behaviour exactly: `eRender` check and
+     `LOOPBACK | AUTOCONVERTPCM | SRC_DEFAULT_QUALITY`.
+   - `Capture` requires `eCapture` and initializes with
+     `AUTOCONVERTPCM | SRC_DEFAULT_QUALITY`, without `LOOPBACK`. It uses the
+     same 48 kHz, 2-channel, 16-bit format, the same identity re-check, the
+     same packet, QPC and session-audit path, and the same buffer duration.
+   - If `NativeCaptureSessionAudit` encodes the loopback flag or assumes render
+     flow, extend its receipt to record the flow. Do not weaken any existing
+     audit check for render sources.
+   - Record the device mix format observed at start and
+     `"conversion": "wasapi-autoconvertpcm"` in the source registration
+     metadata. Make no other resampling claim.
+5. **Custody.**
+   - Register the microphone with `kind: "microphone"`, the shared clock
+     origin, `sample_rate: 48000`, and its capture endpoint id in
+     `endpoint_id`. Change the microphone rule in `register_capture_sources`
+     (~L309) from "endpoint_id must be None" to:
+     - the endpoint identity must be valid (`valid_endpoint_identity`);
+     - it must differ from every route endpoint id;
+     - it is not counted toward the 2-endpoint cap.
+     The limits of at most one microphone and 1–3 sources total stay.
+   - No microphone row exists today, because no code path ever creates one, so
+     no data migration is needed.
+   - The active-registration loader used by `native_capture_group` (today
+     `load_active_endpoint_registration`, ~L233, which requires
+     `kind == "endpoint"`) must also accept `kind == "microphone"` for the
+     microphone ticket only, and return the kind. Choose between a sibling
+     loader and a kind-returning loader. Either way, the caller declares the
+     expected kind and a mismatch is a hard error. The existing test that
+     rejects a microphone row through the endpoint path
+     (`capture_source_custody_tests.rs` ~L446) must keep passing for the
+     endpoint path.
+   - `native_capture_group::prepare_group` admits at most two endpoint tickets
+     plus at most one microphone ticket. A microphone ticket opens the
+     `Capture` flow, and an endpoint ticket opens `RenderLoopback`.
+   - `append_capture_source_chunk` keeps requiring
+     `recording.source == "routed_endpoint"`.
+6. **Coordinator (`routed_capture.rs`).**
+   - The microphone source gets its own writer, private spool, sink, coalescer
+     and `source_worker`, exactly like a route.
+   - It has no target and no `WaitingForTarget` state. It is ready once its
+     stream delivers its first valid packet.
+   - Failure rules are unchanged: any source fault cancels the group, the
+     recording becomes `partial`, and the faulted source is quarantined. A
+     microphone fault therefore blocks transcription (E4 eligibility).
+   - `RoutedSourceStatus` gains `kind: "endpoint" | "microphone"`. The source
+     label remains in the plan and frontend state.
+7. **Transcription (E4 delta).** In `transcribe_routed_recording`, a
+   `microphone` source maps to the legacy self speaker: key `me`, id
+   `speaker_id_for(project, "me")`, display name `เรา`, and worker `channel`
+   `CHANNEL_MIC`. Endpoint sources keep `route:<sourceId>` and `CHANNEL_SYSTEM`.
+   Coverage and idempotence are keyed on that speaker id. Read the kind from
+   the custody registration, never from the label.
+8. **Frontend (`LiveWorkspace.tsx`).**
+   - In routed mode, show a microphone select labelled `ไมโครโฟน`. Its options
+     come from inventory `inputs` with state active, using WASAPI ids, not the
+     legacy cpal ids from `live_capture_devices`.
+   - The first option is `ไม่บันทึกไมโครโฟน` (value `""`), and it is the
+     default. Selection is never automatic.
+   - `routePlanForDrafts` adds `microphone` when one is selected, using the
+     label `ไมโครโฟน`.
+   - Show the microphone source in the routed status list with its label. The
+     legacy mic picker stays hidden in routed mode.
+   - Refresh the inventory with the existing inventory refresh. Add no new
+     polling.
+9. **Not in v1:**
+   - more than one microphone;
+   - live (during-recording) transcription;
+   - echo cancellation, or mixing the microphone into a route;
+   - Product MCP adapters (E3b);
+   - level meters.
+10. **Tests (Terra round).**
+    - Validation:
+      - a microphone with zero routes;
+      - a missing, inactive or render-flow id used as the microphone;
+      - a capture id used as a route;
+      - a duplicate source id between a route and the microphone;
+      - an identity change between validate and start.
+    - Custody: register a microphone with a capture id; reject a microphone id
+      equal to a route id, a second microphone, and four sources; check the
+      loader's kind mismatch in both directions.
+    - Group and coordinator, using the existing fakes in
+      `routed_capture_tests.rs`:
+      - two routes plus a microphone complete;
+      - a microphone fault leaves the recording `partial` and quarantines the
+        microphone source;
+      - a microphone ticket opens the `Capture` flow.
+    - Transcription: the microphone maps to `me` and `CHANNEL_MIC`, the route
+      maps to `route:<id>`, and a retry is idempotent across both.
+    - Node contract tests:
+      - the plan shape with and without a microphone;
+      - the default is no microphone;
+      - the new rejection message;
+      - the microphone row in status.
+
+Native WASAPI capture-flow behaviour on real hardware is verified in E5. The
+E5 runbook adds a step: record two apps plus a microphone, then check that the
+three tracks and the `เรา` transcript are present.
 
 ### E5 — Installed endpoint acceptance (owner, hardware)
 
@@ -273,7 +410,7 @@ runbook and the candidate, and the owner runs or approves the session.
 - Routed status carries `sourceId` but no label. After a webview reload during
   a routed recording, the UI can show only the source id.
 
-- Routed mode records no microphone yet. Decided 2026-11-07: add it (E6).
+- Routed mode records no microphone yet. Decided 2026-11-07: add it (E6, spec above).
 - No live waveform for routed sources (native exposes no levels).
 
 ## Exit

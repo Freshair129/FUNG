@@ -42,7 +42,7 @@ function appendLivePeak(history: readonly number[], value: number, limit: number
 
 export type LiveWorkspaceAdapterProps = {
   projectId: string | null;
-  onRoutedCaptureStopped?: (selection: { projectId: string; recordingId: string }) => void;
+  onRoutedCaptureStopped?: (status: RoutedCaptureStatus) => void;
   closeReviewPlayer?: CloseReviewPlayer;
   transcriptLoading?: boolean;
   transcriptIncomplete?: boolean;
@@ -741,11 +741,16 @@ export function LiveWorkspace({
     try {
       const finalStatus = await captureRouteStop();
       setRoutedStatus(finalStatus);
-      setRoutedCompletedMessage("บันทึกเสียงแล้ว · การถอดความสำหรับโหมดนี้ยังไม่พร้อม");
-      onRoutedCaptureStopped?.({
-        projectId: finalStatus.projectId,
-        recordingId: finalStatus.recordingId,
-      });
+      setRoutedCompletedMessage(
+        finalStatus.transcriptionJobId
+          ? "บันทึกเสียงแล้ว · กำลังเข้าคิวถอดความจากแหล่งเสียงที่บันทึก"
+          : finalStatus.transcriptionJobError
+            ? "บันทึกเสียงแล้ว · ส่งงานถอดความเข้าคิวไม่สำเร็จ"
+            : finalStatus.phase === "completed"
+              ? "บันทึกเสียงแล้ว · ยังไม่มีงานถอดความในคิว"
+              : `บันทึกสิ้นสุดสถานะ ${finalStatus.phase} · ไม่เริ่มถอดความอัตโนมัติ`,
+      );
+      onRoutedCaptureStopped?.(finalStatus);
     } catch (error) {
       setRouteError(routeErrorText(error));
       setRoutedActive(true);

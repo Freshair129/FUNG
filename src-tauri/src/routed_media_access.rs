@@ -269,6 +269,60 @@ mod tests {
     }
 
     #[test]
+    fn routed_transcription_admits_completed_and_blocks_partial_quarantine_and_pending() {
+        use crate::live_meeting::{transcribe_routed_recording, RoutedTranscriptionError};
+
+        let completed = Fixture::routed("completed");
+        let result = transcribe_routed_recording(
+            &completed.storage,
+            completed._temp.path(),
+            &runtime(),
+            None,
+            &completed.project,
+            &completed.recording,
+            "job-fixture",
+        );
+        // The deliberately nonexistent worker is reached only after admission.
+        assert!(matches!(result, Err(RoutedTranscriptionError::Failed(_))));
+        let speakers = ga::query_all(
+            &completed.storage,
+            "speakers",
+            &["id", "key", "display_name"],
+            vec![ga::eq("speakers", "project_id", json!(completed.project))],
+        )
+        .unwrap();
+        assert_eq!(speakers.len(), 2);
+        for speaker in speakers {
+            let key = speaker["speakers.key"].as_str().unwrap();
+            assert!(key.starts_with("route:"));
+            assert_eq!(
+                speaker["speakers.id"].as_str().unwrap(),
+                format!("{}::speaker::{key}", completed.project)
+            );
+            assert!(matches!(
+                speaker["speakers.display_name"].as_str().unwrap(),
+                "Private routed source" | "Other private routed source"
+            ));
+        }
+
+        for fixture in [
+            Fixture::routed("quarantined"),
+            routed_with_source("routed_endpoint_pending"),
+        ] {
+            let result = transcribe_routed_recording(
+                &fixture.storage,
+                fixture._temp.path(),
+                &runtime(),
+                None,
+                &fixture.project,
+                &fixture.recording,
+                "job-fixture",
+            );
+            assert!(matches!(result, Err(RoutedTranscriptionError::Blocked)));
+        }
+    }
+
+    #[test]
     fn transcript_gap_fill_rejects_routed_media_before_legacy_chunk_lookup() {
         for source in ["routed_endpoint_pending", "routed_endpoint"] {
             let fixture = routed_with_source(source);

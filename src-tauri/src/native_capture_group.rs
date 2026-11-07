@@ -5,7 +5,8 @@
 mod lifecycle;
 use crate::{
     capture_routing as routing, capture_source_custody as custody,
-    endpoint_packet_sink::SourcePacketScope, native_capture_session_audit::NativeProof,
+    endpoint_packet_sink::SourcePacketScope, live_system_audio::EndpointCaptureFlow,
+    native_capture_session_audit::NativeProof,
 };
 use genesis_block_native::Storage;
 use std::{
@@ -49,6 +50,52 @@ struct Context {
     _reservation: Reservation,
 }
 #[derive(Clone)]
+struct PlannedSource {
+    source_id: String,
+    endpoint_id: String,
+    kind: &'static str,
+    flow: EndpointCaptureFlow,
+}
+fn planned_sources(plan: &routing::CaptureRoutePlan) -> Vec<PlannedSource> {
+    let mut sources = plan
+        .routes
+        .iter()
+        .map(|route| PlannedSource {
+            source_id: route.source_id.clone(),
+            endpoint_id: route.endpoint_id.clone(),
+            kind: "endpoint",
+            flow: EndpointCaptureFlow::RenderLoopback,
+        })
+        .collect::<Vec<_>>();
+    if let Some(microphone) = &plan.microphone {
+        sources.push(PlannedSource {
+            source_id: microphone.source_id.clone(),
+            endpoint_id: microphone.endpoint_id.clone(),
+            kind: "microphone",
+            flow: EndpointCaptureFlow::Capture,
+        });
+    }
+    sources
+}
+fn load_source_registration(
+    storage: &Storage,
+    project: &str,
+    recording: &str,
+    source: &str,
+    epoch: i64,
+    expected_kind: &str,
+) -> Result<custody::CaptureSourceRegistration, String> {
+    match expected_kind {
+        "endpoint" => {
+            custody::load_active_endpoint_registration(storage, project, recording, source, epoch)
+        }
+        "microphone" => {
+            custody::load_active_microphone_registration(storage, project, recording, source, epoch)
+        }
+        _ => Err("unsupported native capture source kind".into()),
+    }
+}
+#[derive(Clone)]
 pub(crate) struct RuntimeEvidence {
     scope: SourcePacketScope,
     proof: NativeProof,
@@ -68,6 +115,8 @@ impl RuntimeEvidence {
 pub(crate) struct PreparedCapture {
     context: Arc<Context>,
     scope: SourcePacketScope,
+    kind: &'static str,
+    flow: EndpointCaptureFlow,
     lease: lifecycle::Lease<RuntimeEvidence>,
 }
 pub(crate) struct NativeGroupObserver {
@@ -89,13 +138,18 @@ fn route_error(message: impl Into<String>) -> routing::RouteError {
         message: message.into(),
     }
 }
-fn binding(context: &Context, scope: &SourcePacketScope) -> Result<(), String> {
-    let row = custody::load_active_endpoint_registration(
+fn binding(
+    context: &Context,
+    scope: &SourcePacketScope,
+    expected_kind: &str,
+) -> Result<(), String> {
+    let row = load_source_registration(
         &context.storage,
         &context.project,
         &context.recording,
         &scope.source_id().to_string(),
         scope.epoch(),
+        expected_kind,
     )?;
     if row.endpoint_id.as_deref() != Some(scope.endpoint_id())
         || row.sample_rate != i64::from(scope.sample_rate())
@@ -114,44 +168,52 @@ pub(crate) fn prepare_group(
     plan: routing::CaptureRoutePlan,
     epochs: &[(String, i64)],
 ) -> Result<(Vec<PreparedCapture>, NativeGroupObserver), String> {
-    if epochs.len() != plan.routes.len() || plan.routes.is_empty() || plan.routes.len() > 2 {
+    let sources = planned_sources(&plan);
+    if epochs.len() != sources.len()
+        || plan.routes.is_empty()
+        || plan.routes.len() > 2
+        || sources.len() > 3
+    {
         return Err("native source epoch count mismatch".into());
     }
-    let keys = plan
-        .routes
+    let keys = sources
         .iter()
-        .flat_map(|r| {
+        .flat_map(|source| {
             [
-                format!("source:{}", r.source_id),
-                format!("endpoint:{}", r.endpoint_id),
+                format!("source:{}", source.source_id),
+                format!("endpoint:{}", source.endpoint_id),
             ]
         })
         .collect();
     let reservation = Reservation::acquire(keys)?;
     routing::admit_owned_route_plan(&plan).map_err(|e| e.message)?;
     let mut scopes = Vec::new();
-    for route in &plan.routes {
+    for source in &sources {
         let matches = epochs
             .iter()
-            .filter(|(id, _)| id == &route.source_id)
+            .filter(|(id, _)| id == &source.source_id)
             .collect::<Vec<_>>();
         if matches.len() != 1 {
             return Err("native source epoch missing/ambiguous".into());
         }
-        let row = custody::load_active_endpoint_registration(
+        let row = load_source_registration(
             &storage,
             &project,
             &recording,
-            &route.source_id,
+            &source.source_id,
             matches[0].1,
+            source.kind,
         )?;
-        if row.endpoint_id.as_deref() != Some(&route.endpoint_id) || row.sample_rate != 48_000 {
+        if row.endpoint_id.as_deref() != Some(&source.endpoint_id)
+            || row.sample_rate != 48_000
+            || row.kind != source.kind
+        {
             return Err("native registration route mismatch".into());
         }
         let scope = SourcePacketScope::new(
             uuid::Uuid::parse_str(&row.id).map_err(|e| e.to_string())?,
             row.epoch,
-            route.endpoint_id.clone(),
+            source.endpoint_id.clone(),
             row.sample_rate as u32,
             row.clock_origin_qpc_hns
                 .parse()
@@ -166,8 +228,12 @@ pub(crate) fn prepare_group(
     {
         return Err("native group common origins differ".into());
     }
-    let (leases, observer) =
-        lifecycle::prepare(plan.routes.iter().map(|r| r.source_id.clone()).collect())?;
+    let (leases, observer) = lifecycle::prepare(
+        sources
+            .iter()
+            .map(|source| source.source_id.clone())
+            .collect(),
+    )?;
     let context = Arc::new(Context {
         storage,
         project,
@@ -179,12 +245,15 @@ pub(crate) fn prepare_group(
         context: Arc::downgrade(&context),
         observer,
     };
-    let tickets = scopes
+    let tickets = sources
         .into_iter()
+        .zip(scopes)
         .zip(leases)
-        .map(|(scope, lease)| PreparedCapture {
+        .map(|((source, scope), lease)| PreparedCapture {
             context: context.clone(),
             scope,
+            kind: source.kind,
+            flow: source.flow,
             lease,
         })
         .collect();
@@ -197,24 +266,42 @@ impl PreparedCapture {
     pub(crate) fn scope(&self) -> &SourcePacketScope {
         &self.scope
     }
+    pub(crate) fn flow(&self) -> EndpointCaptureFlow {
+        self.flow
+    }
     pub(crate) fn before_start(&self, scope: &SourcePacketScope) -> Result<(), String> {
         self.ensure_starting()?;
         if scope != &self.scope {
             return Err("native worker scope mismatch".into());
         }
-        binding(&self.context, &self.scope)?;
-        let route = self
-            .context
-            .plan
-            .routes
-            .iter()
-            .find(|r| r.source_id == self.source_id())
-            .ok_or("native route missing")?;
-        routing::admit_owned_route_plan(&routing::CaptureRoutePlan {
-            policy_version: self.context.plan.policy_version,
-            routes: vec![route.clone()],
-        })
-        .map_err(|e| e.message)?;
+        binding(&self.context, &self.scope, self.kind)?;
+        match self.flow {
+            EndpointCaptureFlow::RenderLoopback => {
+                let route = self
+                    .context
+                    .plan
+                    .routes
+                    .iter()
+                    .find(|route| route.source_id == self.source_id())
+                    .ok_or("native route missing")?;
+                routing::admit_owned_route_plan(&routing::CaptureRoutePlan {
+                    policy_version: self.context.plan.policy_version,
+                    routes: vec![route.clone()],
+                    microphone: None,
+                })
+                .map_err(|error| error.message)?;
+            }
+            EndpointCaptureFlow::Capture => {
+                let microphone = self
+                    .context
+                    .plan
+                    .microphone
+                    .as_ref()
+                    .filter(|microphone| microphone.source_id == self.source_id())
+                    .ok_or("native microphone missing")?;
+                routing::admit_owned_microphone(microphone).map_err(|error| error.message)?;
+            }
+        }
         self.ensure_starting()?;
         Ok(())
     }
@@ -225,7 +312,7 @@ impl PreparedCapture {
         if !proof.bound_to(&self.scope) {
             return Err("native proof source/epoch/endpoint binding mismatch".into());
         }
-        binding(&self.context, &self.scope)?;
+        binding(&self.context, &self.scope, self.kind)?;
         self.lease.register(RuntimeEvidence {
             scope: self.scope.clone(),
             proof,
@@ -273,7 +360,7 @@ impl NativeGroupObserver {
             .context
             .upgrade()
             .ok_or_else(|| route_error("native group expired"))?;
-        binding(&context, &snapshot.value.scope).map_err(route_error)?;
+        binding(&context, &snapshot.value.scope, "endpoint").map_err(route_error)?;
         let route = context
             .plan
             .routes
@@ -283,6 +370,7 @@ impl NativeGroupObserver {
         let plan = routing::CaptureRoutePlan {
             policy_version: context.plan.policy_version,
             routes: vec![route.clone()],
+            microphone: None,
         };
         let pids = std::iter::once(route.application.pid)
             .chain(route.allowed_children.iter().map(|a| a.pid))
@@ -316,7 +404,7 @@ impl NativeGroupObserver {
             clock_ms().map_err(route_error)?,
             &snapshot.value,
         );
-        binding(&context, &snapshot.value.scope).map_err(route_error)?;
+        binding(&context, &snapshot.value.scope, "endpoint").map_err(route_error)?;
         if !self.observer.unchanged(&snapshot) {
             return Err(route_error("native owner revoked during decision"));
         }

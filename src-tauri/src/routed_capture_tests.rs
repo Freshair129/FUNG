@@ -145,6 +145,7 @@ fn plan() -> CaptureRoutePlan {
             },
             allowed_children: vec![],
         }],
+        microphone: None,
     }
 }
 #[test]
@@ -433,6 +434,7 @@ fn group_failure_is_monotonic_and_source_failure_remains_original() {
             sources: vec![RoutedSourceStatus {
                 source_id: "s".into(),
                 epoch: 1,
+                kind: RoutedSourceKind::Endpoint,
                 ready: false,
                 native_terminated: false,
                 drained: false,
@@ -618,6 +620,7 @@ fn recovery_shared(source: &str) -> Arc<Shared> {
             sources: vec![RoutedSourceStatus {
                 source_id: source.into(),
                 epoch: 1,
+                kind: RoutedSourceKind::Endpoint,
                 ready: true,
                 native_terminated: true,
                 drained: true,

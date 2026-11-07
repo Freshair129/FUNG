@@ -74,6 +74,14 @@ pub struct EndpointDescriptor {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct InputEndpointDescriptor {
+    pub id: String,
+    pub name: Observation<String>,
+    pub state: Observation<EndpointState>,
+    pub mix_format: Observation<MixFormat>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DefaultRoles {
     pub console: String,
     pub multimedia: String,
@@ -91,9 +99,11 @@ pub struct NativeInventory {
     pub captured_at_ms: u64,
     pub process_snapshot_cutoff_filetime: String,
     pub endpoints: Vec<EndpointDescriptor>,
+    pub inputs: Vec<InputEndpointDescriptor>,
     pub defaults: Observation<DefaultRoles>,
     pub processes: Vec<ProcessObservation>,
     pub errors: Vec<String>,
+    pub input_errors: Vec<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -106,9 +116,18 @@ pub struct CaptureRoute {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CaptureMicrophone {
+    pub source_id: String,
+    pub label: String,
+    pub endpoint_id: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CaptureRoutePlan {
     pub policy_version: u32,
     pub routes: Vec<CaptureRoute>,
+    #[serde(default)]
+    pub microphone: Option<CaptureMicrophone>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -124,14 +143,23 @@ pub struct ValidatedRoutePlan {
     request: CaptureRoutePlan,
     validated_at_ms: u64,
     routes: Vec<ValidatedRoute>,
+    microphone: Option<ValidatedMicrophone>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidatedRoute {
     source_id: uuid::Uuid,
     endpoint_id: String,
+    mix_format: MixFormat,
     readiness: RouteReadiness,
     observed_active_session_ids: Vec<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidatedMicrophone {
+    source_id: uuid::Uuid,
+    endpoint_id: String,
+    mix_format: MixFormat,
 }
 impl ValidatedRoutePlan {
     pub fn routes(&self) -> &[ValidatedRoute] {
@@ -139,6 +167,9 @@ impl ValidatedRoutePlan {
     }
     pub fn validated_at_ms(&self) -> u64 {
         self.validated_at_ms
+    }
+    pub fn microphone(&self) -> Option<&ValidatedMicrophone> {
+        self.microphone.as_ref()
     }
 }
 impl ValidatedRoute {
@@ -151,8 +182,22 @@ impl ValidatedRoute {
     pub fn endpoint_id(&self) -> &str {
         &self.endpoint_id
     }
+    pub fn mix_format(&self) -> &MixFormat {
+        &self.mix_format
+    }
     pub fn readiness(&self) -> &RouteReadiness {
         &self.readiness
+    }
+}
+impl ValidatedMicrophone {
+    pub fn source_id(&self) -> uuid::Uuid {
+        self.source_id
+    }
+    pub fn endpoint_id(&self) -> &str {
+        &self.endpoint_id
+    }
+    pub fn mix_format(&self) -> &MixFormat {
+        &self.mix_format
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -169,6 +214,7 @@ pub enum Rejection {
     AmbiguousEndpoint,
     DefaultEndpoint,
     EndpointInactive,
+    MicrophoneUnavailable,
     StaleProcess,
     InvalidChild,
     AmbiguousSession,
@@ -178,6 +224,29 @@ pub enum Rejection {
 pub struct RouteError {
     pub code: Rejection,
     pub message: String,
+}
+/// Routed start preserves typed admission failures for the UI while keeping
+/// existing operational failures on their established string wire shape.
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum RouteStartError {
+    Rejection(RouteError),
+    Message(String),
+}
+impl From<String> for RouteStartError {
+    fn from(message: String) -> Self {
+        Self::Message(message)
+    }
+}
+impl From<RouteError> for RouteStartError {
+    fn from(error: RouteError) -> Self {
+        Self::Rejection(error)
+    }
+}
+impl From<&str> for RouteStartError {
+    fn from(message: &str) -> Self {
+        Self::Message(message.into())
+    }
 }
 fn error(code: Rejection, message: impl Into<String>) -> RouteError {
     RouteError {
@@ -226,6 +295,85 @@ fn current_identity(
         ));
     }
     Ok(())
+}
+fn microphone_unavailable(message: impl Into<String>) -> RouteError {
+    error(Rejection::MicrophoneUnavailable, message)
+}
+fn validate_microphone(
+    microphone: &CaptureMicrophone,
+    inventory: &NativeInventory,
+    sources: &mut BTreeSet<uuid::Uuid>,
+    endpoints: &mut BTreeSet<String>,
+) -> Result<ValidatedMicrophone, RouteError> {
+    let source = uuid::Uuid::parse_str(&microphone.source_id).map_err(|_| {
+        error(
+            Rejection::InvalidSourceId,
+            "microphone source UUID required",
+        )
+    })?;
+    if source.is_nil() || source.to_string() != microphone.source_id {
+        return Err(error(
+            Rejection::InvalidSourceId,
+            "microphone source UUID must be canonical and non-nil",
+        ));
+    }
+    if !sources.insert(source) {
+        return Err(error(Rejection::DuplicateSource, "source reused"));
+    }
+    if microphone.endpoint_id.is_empty()
+        || microphone.endpoint_id.len() > 4096
+        || microphone.endpoint_id.contains('\0')
+        || microphone.label.trim().is_empty()
+        || microphone.label.chars().count() > 128
+        || microphone.label.contains('\0')
+    {
+        return Err(error(
+            Rejection::InvalidInput,
+            "microphone input bounds invalid",
+        ));
+    }
+    if !endpoints.insert(microphone.endpoint_id.clone()) {
+        return Err(error(
+            Rejection::DuplicateEndpoint,
+            "one native endpoint cannot be assigned to multiple sources",
+        ));
+    }
+    let found = inventory
+        .inputs
+        .iter()
+        .filter(|endpoint| endpoint.id == microphone.endpoint_id)
+        .collect::<Vec<_>>();
+    if found.len() != 1 {
+        return Err(microphone_unavailable(
+            "selected capture endpoint is absent or ambiguous; no default substitution",
+        ));
+    }
+    let endpoint = found[0];
+    if !matches!(&endpoint.state, Observation::Known(EndpointState::Active)) {
+        return Err(microphone_unavailable(
+            "selected microphone is inactive or its capture flow is unavailable",
+        ));
+    }
+    let mix_format = match &endpoint.mix_format {
+        Observation::Known(format)
+            if format.rate > 0
+                && format.channels > 0
+                && format.bits > 0
+                && !format.sample_type.is_empty() =>
+        {
+            format.clone()
+        }
+        _ => {
+            return Err(microphone_unavailable(
+                "selected microphone identity or mix format changed/unavailable",
+            ))
+        }
+    };
+    Ok(ValidatedMicrophone {
+        source_id: source,
+        endpoint_id: microphone.endpoint_id.clone(),
+        mix_format,
+    })
 }
 pub fn validate_route_plan(
     plan: &CaptureRoutePlan,
@@ -448,6 +596,7 @@ fn validate_route_policy(
         admitted.push(ValidatedRoute {
             source_id: source,
             endpoint_id: route.endpoint_id.clone(),
+            mix_format: mix.clone(),
             readiness: if active.is_empty() {
                 RouteReadiness::WaitingForTarget
             } else {
@@ -456,10 +605,16 @@ fn validate_route_policy(
             observed_active_session_ids: active,
         });
     }
+    let microphone = plan
+        .microphone
+        .as_ref()
+        .map(|microphone| validate_microphone(microphone, inventory, &mut sources, &mut endpoints))
+        .transpose()?;
     Ok(ValidatedRoutePlan {
         request: plan.clone(),
         validated_at_ms: now_ms,
         routes: admitted,
+        microphone,
     })
 }
 
@@ -628,6 +783,24 @@ pub(crate) fn admit_owned_route_plan(
         .collect::<Vec<_>>();
     let inventory = read_owned_native_inventory(&pids)?;
     validate_route_plan(plan, &inventory, now_ms()?)
+}
+
+#[cfg(windows)]
+pub(crate) fn admit_owned_microphone(
+    microphone: &CaptureMicrophone,
+) -> Result<ValidatedMicrophone, RouteError> {
+    let inventory = read_owned_native_inventory(&[]).map_err(|error| {
+        microphone_unavailable(format!(
+            "selected capture endpoint could not be revalidated: {}",
+            error.message
+        ))
+    })?;
+    validate_microphone(
+        microphone,
+        &inventory,
+        &mut BTreeSet::new(),
+        &mut BTreeSet::new(),
+    )
 }
 
 #[cfg(windows)]
@@ -937,6 +1110,104 @@ mod native {
                 sessions,
             });
         }
+        let (mut inputs, mut input_errors) = (Vec::new(), Vec::new());
+        match unsafe { enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE(DEVICE_STATEMASK_ALL)) }
+        {
+            Err(error) => input_errors.push(format!("capture endpoint enumeration: {error}")),
+            Ok(collection) => match unsafe { collection.GetCount() } {
+                Err(error) => input_errors.push(format!("capture endpoint count: {error}")),
+                Ok(count) if count > 4096 => {
+                    input_errors.push("capture endpoint inventory exceeds bound".into());
+                }
+                Ok(count) => {
+                    for index in 0..count {
+                        let device = match unsafe { collection.Item(index) } {
+                            Ok(device) => device,
+                            Err(error) => {
+                                input_errors.push(format!("capture endpoint {index}: {error}"));
+                                continue;
+                            }
+                        };
+                        let id = match unsafe { device.GetId() }
+                            .map_err(|error| error.to_string())
+                            .and_then(wide)
+                        {
+                            Ok(id) => id,
+                            Err(error) => {
+                                input_errors.push(format!("capture endpoint ID {index}: {error}"));
+                                continue;
+                            }
+                        };
+                        let native_endpoint: IMMEndpoint = match device.cast() {
+                            Ok(endpoint) => endpoint,
+                            Err(error) => {
+                                input_errors
+                                    .push(format!("capture endpoint flow {index}: {error}"));
+                                continue;
+                            }
+                        };
+                        match unsafe { native_endpoint.GetDataFlow() } {
+                            Ok(eCapture) => {}
+                            Ok(_) => {
+                                input_errors.push(format!(
+                                    "capture endpoint {index} did not report capture flow"
+                                ));
+                                continue;
+                            }
+                            Err(error) => {
+                                input_errors
+                                    .push(format!("capture endpoint flow {index}: {error}"));
+                                continue;
+                            }
+                        }
+                        let state =
+                            observe(unsafe { device.GetState() }.map(|state| match state {
+                                DEVICE_STATE_ACTIVE => EndpointState::Active,
+                                DEVICE_STATE_DISABLED => EndpointState::Disabled,
+                                DEVICE_STATE_NOTPRESENT => EndpointState::NotPresent,
+                                DEVICE_STATE_UNPLUGGED => EndpointState::Unplugged,
+                                _ => EndpointState::Unknown(state.0),
+                            }));
+                        let wrapper = wasapi::Device::from_immdevice(device.clone());
+                        let name = match &wrapper {
+                            Ok(wrapper) => observe(wrapper.get_friendlyname()),
+                            Err(error) => Observation::Unavailable(error.to_string()),
+                        };
+                        let mix_format = if state == Observation::Known(EndpointState::Active) {
+                            match &wrapper {
+                                Ok(wrapper) => observe(
+                                    wrapper
+                                        .get_iaudioclient()
+                                        .and_then(|client| client.get_mixformat())
+                                        .and_then(|format| {
+                                            Ok(MixFormat {
+                                                rate: format.get_samplespersec(),
+                                                channels: format.get_nchannels(),
+                                                bits: format.get_bitspersample(),
+                                                sample_type: format!(
+                                                    "{:?}",
+                                                    format.get_subformat()?
+                                                ),
+                                            })
+                                        }),
+                                ),
+                                Err(error) => Observation::Unavailable(error.to_string()),
+                            }
+                        } else {
+                            Observation::Unavailable(
+                                "inactive capture endpoint; audio client not activated".into(),
+                            )
+                        };
+                        inputs.push(InputEndpointDescriptor {
+                            id,
+                            name,
+                            state,
+                            mix_format,
+                        });
+                    }
+                }
+            },
+        }
         let processes = pids
             .iter()
             .copied()
@@ -951,9 +1222,11 @@ mod native {
             captured_at_ms,
             process_snapshot_cutoff_filetime: parent_map.cutoff_filetime.to_string(),
             endpoints,
+            inputs,
             defaults,
             processes,
             errors,
+            input_errors,
         })
     }
 }
@@ -1194,11 +1467,13 @@ mod tests {
             CaptureRoutePlan {
                 policy_version: 1,
                 routes: vec![route],
+                microphone: None,
             },
             NativeInventory {
                 captured_at_ms: 100,
                 process_snapshot_cutoff_filetime: "100000000000001000".into(),
                 endpoints: vec![endpoint],
+                inputs: vec![],
                 defaults: Observation::Known(DefaultRoles {
                     console: "default-C".into(),
                     multimedia: "default-M".into(),
@@ -1209,6 +1484,7 @@ mod tests {
                     identity: Observation::Known(identity),
                 }],
                 errors: vec![],
+                input_errors: vec![],
             },
         )
     }

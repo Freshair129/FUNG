@@ -46,7 +46,7 @@ const pairA1 = { projectId: "project-a", recordingId: "recording-a1" };
 
 test("routed bridge sends the exact validation and project-scoped start plans and stops without transcription", async () => {
   resetIpc();
-  const plan = { policyVersion: 1, routes: [{ sourceId: "d6d5ff64-c80e-4dd6-a4de-5d7f9f0caea2", label: "Meeting", endpointId: "device-1", application: { pid: 41, creationFiletime: "123", imagePath: "C:\\app.exe", imageFileId: "0000000000000001" }, allowedChildren: [] }] };
+  const plan = { policyVersion: 1, routes: [{ sourceId: "d6d5ff64-c80e-4dd6-a4de-5d7f9f0caea2", label: "Meeting", endpointId: "device-1", application: { pid: 41, creationFiletime: "123", imagePath: "C:\\app.exe", imageFileId: "0000000000000001" }, allowedChildren: [] }], microphone: null };
   await api.captureRouteValidate(plan);
   await api.captureRouteStart("project-a", plan);
   await api.captureRouteStop();

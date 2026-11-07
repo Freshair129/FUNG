@@ -23,6 +23,7 @@ fn comparison(a: &Value, b: &Value) -> Value {
 
 use crate::capture_routing::{current_native_process_identity, ApplicationIdentity};
 use crate::endpoint_packet_sink::SourcePacketScope;
+use crate::live_system_audio::EndpointCaptureFlow;
 use sha2::{Digest, Sha256};
 use std::{marker::PhantomData, rc::Rc};
 use windows::{
@@ -247,12 +248,13 @@ impl NativeCaptureSessionAudit {
         client: &IAudioClient,
         device: &IMMDevice,
         scope: &SourcePacketScope,
+        flow: EndpointCaptureFlow,
         format: &WAVEFORMATEX,
         flags: u32,
         duration: i64,
     ) -> Result<Self, String> {
-        if flags & windows::Win32::Media::Audio::AUDCLNT_STREAMFLAGS_LOOPBACK == 0 {
-            return Err("private native session construction is capture-only".into());
+        if flags != flow.stream_flags() {
+            return Err("private native session flow/stream flags mismatch".into());
         }
         let actual_endpoint = wasapi::Device::from_immdevice(device.clone())
             .map_err(|e| e.to_string())?
@@ -291,7 +293,7 @@ impl NativeCaptureSessionAudit {
         let channels = format.nChannels;
         let rate = format.nSamplesPerSec;
         let bits = format.wBitsPerSample;
-        let receipt = json!({"schemaVersion":1,"kind":"passiveNativeCaptureSessionAudit","authority":false,"scope":{"sourceId":scope.source_id().to_string(),"epoch":scope.epoch(),"endpointId":scope.endpoint_id(),"sampleRate":scope.sample_rate(),"commonOriginHns":scope.common_origin_hns().to_string()},"captureProcess":process_identity(),"initialize":{"hresult":hr(HRESULT(0)),"sessionGuidMode":"freshPrivatePerClient","privateGuidFingerprint":format!("{:x}",Sha256::digest(format!("{guid:?}").as_bytes())),"flags":flags,"durationHns":duration,"channels":channels,"sampleRate":rate,"bits":bits},"beforeStart":{"ownControl":own,"managerPrivate":private,"managerProcessDefault":default,"ownEqualsPrivate":comparison(&own,&private),"ownEqualsProcessDefault":comparison(&own,&default),"privateEqualsProcessDefault":comparison(&private,&default)},"afterStart":null,"beforeAfterInstanceEqual":null});
+        let receipt = json!({"schemaVersion":1,"kind":"passiveNativeCaptureSessionAudit","authority":false,"flow":flow.audit_name(),"scope":{"sourceId":scope.source_id().to_string(),"epoch":scope.epoch(),"endpointId":scope.endpoint_id(),"sampleRate":scope.sample_rate(),"commonOriginHns":scope.common_origin_hns().to_string()},"captureProcess":process_identity(),"initialize":{"hresult":hr(HRESULT(0)),"sessionGuidMode":"freshPrivatePerClient","privateGuidFingerprint":format!("{:x}",Sha256::digest(format!("{guid:?}").as_bytes())),"flags":flags,"durationHns":duration,"channels":channels,"sampleRate":rate,"bits":bits},"beforeStart":{"ownControl":own,"managerPrivate":private,"managerProcessDefault":default,"ownEqualsPrivate":comparison(&own,&private),"ownEqualsProcessDefault":comparison(&own,&default),"privateEqualsProcessDefault":comparison(&private,&default)},"afterStart":null,"beforeAfterInstanceEqual":null});
         Ok(Self {
             guid,
             scope: scope.clone(),

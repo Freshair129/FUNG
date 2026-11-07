@@ -3869,7 +3869,8 @@ fn routed_transcript_coverage(
 
     let mut covered = HashSet::new();
     for source in &manifest.sources {
-        let speaker_id = speaker_id_for(project_id, &format!("route:{}", source.id));
+        let speaker_key = routed_speaker_key(source)?;
+        let speaker_id = speaker_id_for(project_id, &speaker_key);
         let ranges = ranges_by_speaker.get(&speaker_id);
         for descriptor in &source.chunks {
             let chunk = &descriptor.chunk;
@@ -3883,6 +3884,26 @@ fn routed_transcript_coverage(
         }
     }
     Ok(covered)
+}
+
+fn routed_speaker_key(
+    source: &crate::completed_source_media::CompletedSource,
+) -> Result<String, String> {
+    match source.kind.as_str() {
+        "microphone" => Ok("me".into()),
+        "endpoint" => Ok(format!("route:{}", source.id)),
+        _ => Err("unsupported routed source kind in custody registration".into()),
+    }
+}
+
+fn routed_worker_channel(
+    source: &crate::completed_source_media::CompletedSource,
+) -> Result<&'static str, String> {
+    match source.kind.as_str() {
+        "microphone" => Ok(CHANNEL_MIC),
+        "endpoint" => Ok(CHANNEL_SYSTEM),
+        _ => Err("unsupported routed source kind in custody registration".into()),
+    }
 }
 
 fn current_routed_frontier(
@@ -3940,21 +3961,26 @@ impl RoutedTranscriptPublisher<'_> {
             .sources
             .iter()
             .map(|source| {
-                let key = format!("route:{}", source.id);
-                genesis_adapter::upsert(
+                let key = routed_speaker_key(source).map_err(RoutedTranscriptionError::Failed)?;
+                let display_name = if source.kind == "microphone" {
+                    "เรา"
+                } else {
+                    source.label.as_str()
+                };
+                Ok(genesis_adapter::upsert(
                     "speakers",
                     serde_json::json!({
                         "id": speaker_id_for(self.project_id, &key),
                         "project_id": self.project_id,
                         "key": key,
-                        "display_name": source.label,
+                        "display_name": display_name,
                         "confidence": null,
                         "created_at": timestamp,
                         "updated_at": timestamp,
                     }),
-                )
+                ))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, RoutedTranscriptionError>>()?;
         let mut next_frontier = None;
         let result = crate::capture_source_custody::with_source_custody_gate(|| {
             current_routed_frontier(
@@ -3990,7 +4016,14 @@ impl RoutedTranscriptPublisher<'_> {
         start_ms: i64,
         segments: Vec<WorkerSegment>,
     ) -> Result<(), RoutedTranscriptionError> {
-        let speaker_id = speaker_id_for(self.project_id, &format!("route:{source_id}"));
+        let source = self
+            .manifest
+            .sources
+            .iter()
+            .find(|source| source.id == source_id)
+            .ok_or_else(|| RoutedTranscriptionError::Failed("routed source missing".into()))?;
+        let speaker_key = routed_speaker_key(source).map_err(RoutedTranscriptionError::Failed)?;
+        let speaker_id = speaker_id_for(self.project_id, &speaker_key);
         let timestamp = now();
         let mut mutations = Vec::with_capacity(segments.len());
         for segment in segments {
@@ -4261,7 +4294,8 @@ pub(crate) fn transcribe_routed_with_worker(
                     )
                 })?;
                 let chunk = RawChunk {
-                    channel: CHANNEL_SYSTEM,
+                    channel: routed_worker_channel(&publisher.manifest.sources[source_index])
+                        .map_err(RoutedTranscriptionError::Failed)?,
                     chunk_id: chunk_id.clone(),
                     file_path: temporary.path.to_string_lossy().into_owned(),
                     start_ms,

@@ -41,11 +41,19 @@ const COALESCE_FRAMES: usize = RATE as usize / 4;
 const MAX_SOURCE_FRAMES: u64 = RATE as u64 * 86400;
 const GUARD_INTERVAL: Duration = Duration::from_millis(100);
 
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum RoutedSourceKind {
+    Endpoint,
+    Microphone,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RoutedSourceStatus {
     pub(crate) source_id: String,
     pub(crate) epoch: i64,
+    pub(crate) kind: RoutedSourceKind,
     pub(crate) ready: bool,
     pub(crate) native_terminated: bool,
     pub(crate) drained: bool,
@@ -267,10 +275,27 @@ fn validate_plan(plan: &CaptureRoutePlan) -> Result<(), String> {
             return Err("ambiguous source, endpoint, label, or owner selection".into());
         }
     }
+    if let Some(microphone) = &plan.microphone {
+        canonical_uuid(&microphone.source_id)?;
+        if !sources.insert(&microphone.source_id)
+            || !endpoints.insert(&microphone.endpoint_id)
+            || microphone.endpoint_id.is_empty()
+            || microphone.endpoint_id.len() > 4096
+            || microphone.endpoint_id.contains('\0')
+            || microphone.label.trim().is_empty()
+            || microphone.label.len() > 256
+            || microphone.label.contains('\0')
+        {
+            return Err("ambiguous microphone source, endpoint, or label".into());
+        }
+    }
     Ok(())
 }
-fn strict(plan: &CaptureRoutePlan) -> Result<(), String> {
-    let admission = routing::admit_owned_route_plan(plan).map_err(|error| error.message)?;
+fn strict(
+    plan: &CaptureRoutePlan,
+) -> Result<routing::ValidatedRoutePlan, routing::RouteStartError> {
+    let admission =
+        routing::admit_owned_route_plan(plan).map_err(routing::RouteStartError::Rejection)?;
     if admission.routes().len() != plan.routes.len()
         || admission
             .routes()
@@ -279,7 +304,42 @@ fn strict(plan: &CaptureRoutePlan) -> Result<(), String> {
     {
         return Err("all selected routes must contain their active authorized target".into());
     }
-    Ok(())
+    Ok(admission)
+}
+fn source_count(plan: &CaptureRoutePlan) -> usize {
+    plan.routes.len() + usize::from(plan.microphone.is_some())
+}
+fn source_ids(plan: &CaptureRoutePlan) -> Vec<String> {
+    let mut sources = plan
+        .routes
+        .iter()
+        .map(|route| route.source_id.clone())
+        .collect::<Vec<_>>();
+    if let Some(microphone) = &plan.microphone {
+        sources.push(microphone.source_id.clone());
+    }
+    sources
+}
+fn route_mix_format<'a>(
+    admission: &'a routing::ValidatedRoutePlan,
+    source_id: &str,
+) -> Result<&'a routing::MixFormat, String> {
+    admission
+        .routes()
+        .iter()
+        .find(|route| route.source_id().to_string() == source_id)
+        .map(routing::ValidatedRoute::mix_format)
+        .ok_or_else(|| "validated route mix format missing".into())
+}
+fn microphone_mix_format<'a>(
+    admission: &'a routing::ValidatedRoutePlan,
+    source_id: &str,
+) -> Result<&'a routing::MixFormat, String> {
+    admission
+        .microphone()
+        .filter(|microphone| microphone.source_id().to_string() == source_id)
+        .map(routing::ValidatedMicrophone::mix_format)
+        .ok_or_else(|| "validated microphone mix format missing".into())
 }
 fn final_admission(plan: &CaptureRoutePlan) -> Result<(), String> {
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -546,7 +606,7 @@ pub(crate) fn start(
     project_id: String,
     plan: CaptureRoutePlan,
     capture_guard: Arc<NativeCaptureGuard>,
-) -> Result<RoutedCaptureHandle, String> {
+) -> Result<RoutedCaptureHandle, routing::RouteStartError> {
     canonical_uuid(&project_id)?;
     validate_plan(&plan)?;
     let reservation = NativeCaptureGuard::reserve_capture(capture_guard.clone())
@@ -556,15 +616,51 @@ pub(crate) fn start(
         return Err("project already has an unfinished recording".into());
     }
     // Fresh native facts, never a client-supplied inventory/validated token.
-    strict(&plan)?;
+    let admission = strict(&plan)?;
     let recording = Uuid::new_v4().to_string();
     let job = Uuid::new_v4().to_string();
     let session = root.join("live").join(&recording);
     checked_create_dir(&session)?;
     start_rows(&storage, &project_id, &recording, &job, &session)?;
+    let mut initial_sources = plan
+        .routes
+        .iter()
+        .map(|route| RoutedSourceStatus {
+            source_id: route.source_id.clone(),
+            epoch: 1,
+            kind: RoutedSourceKind::Endpoint,
+            ready: false,
+            native_terminated: false,
+            drained: false,
+            durable_counts_known: false,
+            durable_frames: 0,
+            durable_chunks: 0,
+            accepted_packets: 0,
+            private_orphans: vec![],
+            first_failure: None,
+            timing_diagnostics: None,
+        })
+        .collect::<Vec<_>>();
+    if let Some(microphone) = &plan.microphone {
+        initial_sources.push(RoutedSourceStatus {
+            source_id: microphone.source_id.clone(),
+            epoch: 1,
+            kind: RoutedSourceKind::Microphone,
+            ready: false,
+            native_terminated: false,
+            drained: false,
+            durable_counts_known: false,
+            durable_frames: 0,
+            durable_chunks: 0,
+            accepted_packets: 0,
+            private_orphans: vec![],
+            first_failure: None,
+            timing_diagnostics: None,
+        });
+    }
     let shared = Arc::new(Shared {
         status: Mutex::new(RoutedCaptureStatus { project_id:project_id.clone(), recording_id:recording.clone(), phase:"starting".into(), duration_ms:0,
-            sources:plan.routes.iter().map(|route| RoutedSourceStatus { source_id:route.source_id.clone(), epoch:1, ready:false,native_terminated:false,drained:false,durable_counts_known:false,durable_frames:0,durable_chunks:0,accepted_packets:0,private_orphans:vec![],first_failure:None,timing_diagnostics:None }).collect(), first_failure:None,
+            sources:initial_sources, first_failure:None,
             warnings:vec!["Capture custody only; source-aware consumer UI, export, recovery and enrichment acceptance remain open.".into()] }),
         first:Mutex::new(state::FailureLedger::default()), armed: AtomicBool::new(false), cancel_requested:AtomicBool::new(false), stop:Arc::new(AtomicBool::new(false)),observer:Mutex::new(None),
     });
@@ -583,6 +679,7 @@ pub(crate) fn start(
                 coordinate(
                     thread_storage.clone(),
                     plan,
+                    admission,
                     root,
                     thread_job.clone(),
                     thread_shared.clone(),
@@ -647,6 +744,7 @@ impl Drop for Workers {
 fn coordinate(
     storage: Arc<Storage>,
     plan: CaptureRoutePlan,
+    admission: routing::ValidatedRoutePlan,
     project_root: PathBuf,
     job: String,
     shared: Arc<Shared>,
@@ -659,12 +757,48 @@ fn coordinate(
     };
     let mut registered = false;
     let mut reports = vec![];
+    let expected_sources = source_count(&plan);
     let execution = (|| -> Result<(), ExecutionFailure> {
         let origin = qpc()?.checked_add(ORIGIN_LEAD_HNS).ok_or("QPC overflow")?;
-        let registrations = plan.routes.iter().map(|route| CaptureSourceRegistration {
-            id:route.source_id.clone(), epoch:1,kind:"endpoint".into(),endpoint_id:Some(route.endpoint_id.clone()),label:route.label.clone(),sample_rate:i64::from(RATE),clock_origin_qpc_hns:origin.to_string(),
-            metadata:json!({"routePolicyVersion":plan.policy_version,"application":route.application,"allowedChildren":route.allowed_children,"origin":"native-routed-capture"}),
-        }).collect::<Vec<_>>();
+        let mut registrations = Vec::with_capacity(source_count(&plan));
+        for route in &plan.routes {
+            let mix_format = route_mix_format(&admission, &route.source_id)?;
+            registrations.push(CaptureSourceRegistration {
+                id: route.source_id.clone(),
+                epoch: 1,
+                kind: "endpoint".into(),
+                endpoint_id: Some(route.endpoint_id.clone()),
+                label: route.label.clone(),
+                sample_rate: i64::from(RATE),
+                clock_origin_qpc_hns: origin.to_string(),
+                metadata: json!({
+                    "routePolicyVersion": plan.policy_version,
+                    "application": route.application,
+                    "allowedChildren": route.allowed_children,
+                    "origin": "native-routed-capture",
+                    "deviceMixFormat": mix_format,
+                    "conversion": "wasapi-autoconvertpcm"
+                }),
+            });
+        }
+        if let Some(microphone) = &plan.microphone {
+            let mix_format = microphone_mix_format(&admission, &microphone.source_id)?;
+            registrations.push(CaptureSourceRegistration {
+                id: microphone.source_id.clone(),
+                epoch: 1,
+                kind: "microphone".into(),
+                endpoint_id: Some(microphone.endpoint_id.clone()),
+                label: microphone.label.clone(),
+                sample_rate: i64::from(RATE),
+                clock_origin_qpc_hns: origin.to_string(),
+                metadata: json!({
+                    "routePolicyVersion": plan.policy_version,
+                    "origin": "native-routed-capture",
+                    "deviceMixFormat": mix_format,
+                    "conversion": "wasapi-autoconvertpcm"
+                }),
+            });
+        }
         custody::register_capture_sources(
             &storage,
             &attempt(&storage)?,
@@ -752,7 +886,7 @@ fn coordinate(
     let complete = state::can_complete(
         all_ready,
         all_stopped,
-        reports.len() == plan.routes.len() && reports.iter().all(|report| report.drained),
+        reports.len() == expected_sources && reports.iter().all(|report| report.drained),
         reports.iter().all(|report| report.durable_counts_known),
         reports.iter().all(|report| report.durable_frames > 0),
         shared.failed() || reports.iter().any(|report| report.first_failure.is_some()),
@@ -766,11 +900,7 @@ fn coordinate(
             &storage,
             &ids.project_id,
             &ids.recording_id,
-            &plan
-                .routes
-                .iter()
-                .map(|route| route.source_id.clone())
-                .collect::<Vec<_>>(),
+            &source_ids(&plan),
             &shared,
         );
         if complete && !shared.failed() {
@@ -824,11 +954,7 @@ fn coordinate(
             &storage,
             &ids.project_id,
             &ids.recording_id,
-            &plan
-                .routes
-                .iter()
-                .map(|route| route.source_id.clone())
-                .collect::<Vec<_>>(),
+            &source_ids(&plan),
             &shared,
         );
         let reason = lock(&shared.status).first_failure.clone();
@@ -976,6 +1102,7 @@ fn check_final_sources(
         let selected = CaptureRoutePlan {
             policy_version: plan.policy_version,
             routes: vec![route.clone()],
+            microphone: None,
         };
         if let Err(error) = check(&selected) {
             // This fresh strict observation selects exactly this source; an
@@ -1003,7 +1130,7 @@ fn drain_and_finalize(
         Err(ExecutionFailure::Global(reason)) => shared.fail(None, reason),
     }
     let mut final_sources_passed = false;
-    let gate = join_then_snapshot(joins, reports, shared, plan.routes.len(), || {
+    let gate = join_then_snapshot(joins, reports, shared, source_count(plan), || {
         final_sources_passed = check_final_sources(plan, shared, check);
         Ok(())
     });
@@ -1576,7 +1703,8 @@ fn drain_source(
     let processing = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         loop {
             native_terminated |= events(&native.events, writer, shared, &reg.id);
-            if receiver.clock().is_some()
+            if reg.kind == "endpoint"
+                && receiver.clock().is_some()
                 && receiver.ready_observed_hns().is_some()
                 && receiver.prebarrier_witness().is_some()
             {
@@ -1643,6 +1771,31 @@ fn drain_source(
                     }
                     if !inflight_spooled {
                         continue;
+                    }
+                    if reg.kind == "microphone"
+                        && receiver.ready_observed_hns().is_some()
+                        && receiver.prebarrier_witness().is_some()
+                    {
+                        if let Some(status) = lock(&shared.status)
+                            .sources
+                            .iter_mut()
+                            .find(|source| source.source_id == reg.id)
+                        {
+                            status.ready = true;
+                        }
+                    }
+                    // Startup needs a valid microphone packet as readiness
+                    // evidence, but the common-origin barrier may not arm the
+                    // group until every route is ready. Keep this packet in
+                    // the private spool and retain its in-flight ownership
+                    // until the coordinator arms or cancels the group.
+                    if reg.kind == "microphone"
+                        && !shared.armed.load(Ordering::SeqCst)
+                        && !shared.cancelling()
+                    {
+                        while !shared.armed.load(Ordering::SeqCst) && !shared.cancelling() {
+                            thread::sleep(Duration::from_millis(1));
+                        }
                     }
                     // Private bytes are synced at batch admission, before any
                     // coalesced PCM is transferred to the writer.
@@ -1889,6 +2042,7 @@ fn source_worker(
         events_tx,
         private,
         2000,
+        ticket.flow(),
         producer,
         ticket,
     );

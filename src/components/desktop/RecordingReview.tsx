@@ -40,6 +40,7 @@ import {
   type TranscriptView,
 } from "../../tauri.ts";
 import type { MeetingSummaries } from "../../lib/meetingSummaries.ts";
+import { routedTranscriptionBlockReason } from "../../lib/jobActions.ts";
 import {
   normalizeReviewError,
   isPlaybackSource,
@@ -2468,9 +2469,11 @@ function ExportPanel({
 
 function ReviewActionsPanel({
   selection,
+  recordingSource,
   actions,
 }: {
   selection: RecordingKey;
+  recordingSource: string;
   actions: RecordingReviewActions;
 }) {
   const [pending, setPending] = useState<string | null>(null);
@@ -2484,6 +2487,18 @@ function ReviewActionsPanel({
   const [proposals, setProposals] = useState<DetailedTranscriptProposal[]>([]);
   const [proposalError, setProposalError] = useState<string | null>(null);
   const proposalEpoch = useRef(0);
+  const routedTranscriptionReason = routedTranscriptionBlockReason(
+    "transcript.retry",
+    recordingSource,
+  );
+  const detailedTranscriptionReason = routedTranscriptionBlockReason(
+    "transcript.detailed",
+    recordingSource,
+  );
+  const diarizationBlockReason = routedTranscriptionBlockReason(
+    "speakers.diarize",
+    recordingSource,
+  );
 
   useEffect(() => {
     let active = true;
@@ -2541,6 +2556,11 @@ function ReviewActionsPanel({
   };
 
   const queue = async (jobType: string, label: string) => {
+    const routedBlockReason = routedTranscriptionBlockReason(jobType, recordingSource);
+    if (routedBlockReason) {
+      setNotice(routedBlockReason);
+      return;
+    }
     if (jobType === "speakers.diarize" && diarizationReadiness?.available !== true) {
       setNotice(
         diarizationReadiness?.detail ??
@@ -2592,7 +2612,8 @@ function ReviewActionsPanel({
           type="button"
           className="recording-review__button"
           onClick={() => void queue("transcript.retry", "ถอดเสียงใหม่")}
-          disabled={pending !== null}
+          disabled={pending !== null || routedTranscriptionReason !== null}
+          title={routedTranscriptionReason ?? undefined}
         >
           ถอดส่วนที่ขาด · ทั่วไป
         </button>
@@ -2600,8 +2621,8 @@ function ReviewActionsPanel({
           type="button"
           className="recording-review__button"
           onClick={() => void queue("transcript.detailed", "ถอดละเอียด")}
-          disabled={pending !== null || !detailedReadiness?.available}
-          title={detailedReadiness?.reason ?? "กำลังตรวจสอบ runtime โหมดละเอียด"}
+          disabled={pending !== null || detailedTranscriptionReason !== null || !detailedReadiness?.available}
+          title={detailedTranscriptionReason ?? detailedReadiness?.reason ?? "กำลังตรวจสอบ runtime โหมดละเอียด"}
         >
           ถอดละเอียด · Thai candidate
         </button>
@@ -2609,14 +2630,17 @@ function ReviewActionsPanel({
           type="button"
           className="recording-review__button"
           onClick={() => void queue("speakers.diarize", "แยกผู้พูด")}
-          disabled={pending !== null || !diarizationReadiness?.available}
-          title={diarizationReadiness?.detail ?? diarizationReadinessError ?? "กำลังตรวจสอบ runtime แยกผู้พูด"}
+          disabled={pending !== null || diarizationBlockReason !== null || !diarizationReadiness?.available}
+          title={diarizationBlockReason ?? diarizationReadiness?.detail ?? diarizationReadinessError ?? "กำลังตรวจสอบ runtime แยกผู้พูด"}
         >
           แยกผู้พูด
         </button>
       </div>
       {pending ? <p className="recording-review__muted" role="status">กำลังส่งคำขอ…</p> : null}
       {notice ? <p className="recording-review__notice" role="status">{notice}</p> : null}
+      {routedTranscriptionReason ? (
+        <p className="recording-review__muted" role="status">{routedTranscriptionReason}</p>
+      ) : null}
       <p className="recording-review__muted" role="status">
         {diarizationReadiness?.available
           ? `พร้อมแยกผู้พูดด้วย ${diarizationReadiness.model}`
@@ -3191,7 +3215,11 @@ export function RecordingReviewView({
                 hidden={activeDetailTab !== "files"}
               >
                 <ExportPanel state={exportState} selection={selection} />
-                <ReviewActionsPanel selection={selection} actions={actions} />
+                <ReviewActionsPanel
+                  selection={selection}
+                  recordingSource={recording.data.source}
+                  actions={actions}
+                />
               </div>
             </div>
           ) : null}

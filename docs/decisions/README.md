@@ -43,6 +43,9 @@ decision or replace newer implementation/recovery evidence in platform status.
 - [CPU capture priority](2026-10-23-desktop-cpu-capture-priority.md) — CPU transcripts
   follow Stop; source-audio preservation and installed acceptance remain required.
 
+- [Endpoint-first release; PID experimental](2026-11-07-endpoint-first-release-pid-experimental.md) — approved 2026-11-07;
+  dedicated-endpoint mode is the per-app release gate, and PID capture stays available as experimental.
+
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |

@@ -117,3 +117,18 @@ export function jobActionBlockedReason(
   }
   return null;
 }
+
+/** Legacy transcription readers cannot consume routed application audio. */
+export function routedTranscriptionBlockReason(
+  value: string,
+  recordingSource: string | null | undefined,
+): string | null {
+  if (
+    ["transcript.retry", "transcript.detailed", "speakers.diarize"].includes(value) &&
+    (recordingSource === "routed_endpoint" ||
+      recordingSource === "routed_endpoint_pending")
+  ) {
+    return "การถอดความสำหรับการบันทึกแบบอุปกรณ์เฉพาะต่อแอปยังไม่พร้อม";
+  }
+  return null;
+}

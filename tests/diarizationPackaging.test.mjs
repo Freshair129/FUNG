@@ -148,7 +148,7 @@ test("the shell checks readiness before queueing a diarization", () => {
   );
   assert.match(
     review,
-    /disabled=\{pending !== null \|\| !diarizationReadiness\?\.available\}/,
+    /disabled=\{pending !== null \|\| diarizationBlockReason !== null \|\| !diarizationReadiness\?\.available\}/,
     "the diarization action must stay disabled until readiness is confirmed",
   );
 });

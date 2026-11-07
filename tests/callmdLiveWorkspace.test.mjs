@@ -117,7 +117,7 @@ const panel = runCommonJs(
 );
 
 const workspace = runCommonJs(
-  transpile(workspaceSource, liveWorkspacePath),
+  transpile(`${workspaceSource}\nexport { routePlanForDrafts, createRoutedRouteDraft, routedSourceState, routedDuration, routeStatusIsActive };`, liveWorkspacePath),
   liveWorkspacePath,
   {
     react: reactStub,
@@ -155,15 +155,143 @@ assert.equal(typeof createLiveControllerAdapter, "function");
 assert.equal(typeof workspace.getLiveSummaryPresentation, "function");
 
 test("microphone-only is the default and system or app capture is explicit", () => {
-  assert.match(workspaceSource, /const \[captureSourceMode, setCaptureSourceMode\] = useState<"mic" \| "system" \| "application">\("mic"\)/);
+  assert.match(workspaceSource, /const \[captureSourceMode, setCaptureSourceMode\] = useState<CaptureSourceMode>\("mic"\)/);
   assert.match(workspaceSource, /captureSystem: captureSourceMode !== "mic"/);
   assert.match(workspaceSource, /applicationProcessId: captureSourceMode === "application" \? applicationProcessId \?\? undefined : undefined/);
   assert.match(panelSource, /captureSystem: options\.captureSystem \?\? false/);
 });
 
+test("PID source tab is experimental and its warning is scoped to application mode", () => {
+  assert.match(workspaceSource, /id="live-source-tab-application"/);
+  assert.match(workspaceSource, />เลือกรายแอป \(ทดลอง\)<\/button>/);
+  assert.match(
+    workspaceSource,
+    /captureSourceMode === "application" \? \(\s*<p className="live-workspace__experimental-note" role="note">\s*โหมดทดลอง: เสียงอาจขาดหายช่วงสั้น ๆ เมื่อแอปที่เลือกหยุดหรือเริ่มเล่นเสียงใหม่ สำหรับงานสำคัญให้ใช้โหมด "อุปกรณ์เฉพาะต่อแอป"\s*<\/p>\s*\) : null/,
+  );
+});
+
+test("route plans require one or two complete routes with v4 identifiers and bounded trimmed labels", () => {
+  const identity = { pid: 41, creationFiletime: "123", imagePath: "C:\\app.exe", imageFileId: "0000000000000001" };
+  const identities = new Map([[41, identity]]);
+  const first = { ...workspace.createRoutedRouteDraft(), processId: 41, endpointId: "out-1", label: `  ${"x".repeat(80)}  ` };
+  const second = { ...workspace.createRoutedRouteDraft(), processId: 41, endpointId: "out-2", label: " Second " };
+  for (const drafts of [[first], [first, second]]) {
+    const plan = workspace.routePlanForDrafts(drafts, identities);
+    assert.equal(plan.policyVersion, 1);
+    assert.equal(plan.routes.length, drafts.length);
+    for (const route of plan.routes) {
+      assert.match(route.sourceId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+      assert.equal(route.label, route.label.trim());
+      assert.ok(route.label.length <= 64);
+      assert.equal(route.allowedChildren.length, 0);
+      assert.equal(route.application, identity);
+    }
+  }
+  assert.equal(workspace.routePlanForDrafts([], identities), null);
+  assert.equal(workspace.routePlanForDrafts([first, second, first], identities), null);
+  assert.equal(workspace.routePlanForDrafts([{ ...first, endpointId: "" }], identities), null);
+  assert.equal(workspace.routePlanForDrafts([{ ...first, label: "  " }], identities), null);
+  assert.equal(workspace.routePlanForDrafts([first], new Map()), null);
+});
+
+test("route rejection messages match the native enum exactly", async () => {
+  const rust = await readFile(new URL("../src-tauri/src/capture_routing.rs", import.meta.url), "utf8");
+  const body = rust.match(/pub enum Rejection\s*\{([^}]*)\}/)?.[1];
+  assert.ok(body, "native Rejection enum must exist");
+  const variants = body.split(",").map((v) => v.trim()).filter(Boolean);
+  assert.equal(variants.length, 16);
+  assert.deepEqual(Object.keys(contracts.ROUTE_ERROR_MESSAGES).sort(), variants.sort());
+  for (const variant of variants) assert.ok(contracts.ROUTE_ERROR_MESSAGES[variant].trim());
+});
+
+test("routed source failure and unknown durable duration stay visible", () => {
+  assert.match(workspace.routedSourceState({ firstFailure: "device failure", drained: false, ready: false }), /device failure/);
+  assert.equal(workspace.routedDuration({ durableCountsKnown: false, durableFrames: 96000 }), "—");
+  assert.equal(workspace.routedDuration({ durableCountsKnown: true, durableFrames: 96000 }), "2.00 วินาที");
+  assert.match(workspaceSource, /status\.firstFailure\s*\?\s*\(\s*<p[^>]*role="alert">\{status\.firstFailure\}/);
+  for (const phase of ["starting", "recording", "stopping"]) assert.equal(workspace.routeStatusIsActive({ phase }), true);
+  for (const phase of ["completed", "partial", "failed"]) assert.equal(workspace.routeStatusIsActive({ phase }), false);
+});
+
+test("routed polling clears its fake interval on stop and unmount", async () => {
+  const ast = ts.createSourceFile(liveWorkspacePath, workspaceSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let effect;
+  function visit(node) {
+    if (ts.isCallExpression(node) && node.expression.getText(ast) === "useEffect"
+      && node.arguments[1]?.getText(ast) === "[routedActive, routedStopping]") effect = node.arguments[0].getText(ast);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(effect, "routed polling effect must exist");
+  for (const reason of ["stop", "unmount"]) {
+    const timers = new Map();
+    let reads = 0;
+    const context = {
+      routedActive: true, routedStopping: false,
+      captureRouteStatus: async () => { reads++; return null; },
+      setRoutedStatus() {}, setRouteError() {}, routeErrorText: String,
+      window: { setInterval(fn, ms) { assert.equal(ms, 1000); timers.set(1, fn); return 1; }, clearInterval(id) { timers.delete(id); } },
+    };
+    const js = transpile(`const effect = ${effect};`, "poll.ts");
+    const cleanup = vm.runInNewContext(`${js}\neffect()`, context);
+    assert.equal(timers.size, 1, reason);
+    timers.get(1)();
+    await Promise.resolve();
+    assert.equal(reads, 1);
+    cleanup();
+    assert.equal(timers.size, 0, reason);
+  }
+});
+
+test("route UI restricts choices, invalidates edits and disables competing start paths", () => {
+  assert.match(workspaceSource, /routeIdentityByPid\.has\(application\.processId\)/);
+  assert.match(workspaceSource, /knownObservation\(endpoint\.state\) === "active"/);
+  assert.match(workspaceSource, /disabled=\{isDefault \|\| usedInOtherRoute\}/);
+  assert.match(workspaceSource, /activeRoutePlanKey && routeValidation && routeValidationPlanKey === activeRoutePlanKey/);
+  assert.match(workspaceSource, /if \(applicationChanged \|\| endpointChanged\)\s*\{\s*try\s*\{\s*sourceId = crypto\.randomUUID\(\)/);
+  assert.match(workspaceSource, /invalidateRouteValidation\(\);\s*\};\s*\r?\n\s*const addRouteDraft/);
+  assert.match(workspaceSource, /const captureBusy = running \|\| stopPending \|\| routedActive/);
+  for (const tab of ["mic", "system", "application", "routed"]) {
+    const tag = workspaceSource.match(new RegExp(`id="live-source-tab-${tab}"[\\s\\S]*?</button>`))?.[0];
+    assert.ok(tag);
+    assert.match(tag, /disabled=\{captureBusy\}/);
+  }
+  assert.match(workspaceSource, /captureSourceMode === "routed" \|\| captureBusy/);
+});
+
+test("routed stop calls the native stop and reports transcription is not ready", async () => {
+  const ast = ts.createSourceFile(liveWorkspacePath, workspaceSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let stop;
+  function visit(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(ast) === "handleRoutedStop") stop = node.initializer.getText(ast);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(stop);
+  const calls = [];
+  const finalStatus = { projectId: "project-a", recordingId: "recording-a" };
+  const context = {
+    routedActive: true, routedStopping: false,
+    setRoutedActive: (value) => calls.push(["active", value]),
+    setRoutedStopping: (value) => calls.push(["stopping", value]),
+    setRouteError: (value) => calls.push(["error", value]),
+    captureRouteStop: async () => { calls.push(["capture_route_stop"]); return finalStatus; },
+    setRoutedStatus: (value) => calls.push(["status", value]),
+    setRoutedCompletedMessage: (value) => calls.push(["message", value]),
+    onRoutedCaptureStopped: (value) => calls.push(["selection", value]),
+    routeErrorText: String,
+  };
+  const js = transpile(`const stop = ${stop};`, "stop.ts");
+  await vm.runInNewContext(`${js}\nstop()`, context);
+  assert.equal(calls.filter(([name]) => name === "capture_route_stop").length, 1);
+  assert.ok(calls.some(([name, value]) => name === "message" && value.includes("การถอดความสำหรับโหมดนี้ยังไม่พร้อม")));
+  assert.equal(calls.find(([name]) => name === "selection")[1].recordingId, "recording-a");
+  assert.deepEqual(calls.map(([name]) => name), ["active", "stopping", "error", "capture_route_stop", "status", "message", "selection", "stopping"]);
+});
+
 test("participant notice acknowledgement starts checked for each live session", () => {
   assert.match(workspaceSource, /const \[privacyAcknowledged, setPrivacyAcknowledged\] = useState\(true\)/);
-  assert.match(workspaceSource, /disabled=\{!privacyAcknowledged \|\| !captureCapability\.available \|\| !canStartSelectedSource\}/);
+  assert.match(workspaceSource, /disabled=\{captureBusy \|\| !privacyAcknowledged \|\| !captureCapability\.available \|\| !canStartSelectedSource\}/);
 });
 
 test("native channel failure detail remains visible instead of only a generic degraded label", () => {

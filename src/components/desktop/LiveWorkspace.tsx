@@ -1,14 +1,32 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { ExternalMeetingToolsPanel } from "../ExternalMeetingToolsPanel";
+import {
+  captureRouteInventory,
+  captureRouteStart,
+  captureRouteStatus,
+  captureRouteStop,
+  captureRouteValidate,
+} from "../../tauri";
 import type { LiveSegmentEvent } from "../../tauri";
 import type { MeetingSummaries, SummaryRow } from "../../lib/meetingSummaries";
 import type {
+  ApplicationIdentity,
+  CaptureRoute,
+  CaptureRoutePlan,
   CloseReviewPlayer,
   LiveWorkspaceProps,
+  NativeCaptureInventory,
+  RoutedCaptureStatus,
+  RouteErrorCode,
+  ValidatedRoutePlan,
+  RouteReadiness,
+  CaptureDefaultRoles,
+  NativeObservation,
   RecordingAnswerSource,
   ReviewError,
   ReviewErrorCode,
 } from "./contracts";
+import { ROUTE_ERROR_MESSAGES as routeErrorMessages } from "./contracts";
 import "./LiveWorkspace.css";
 
 function scaleLivePeak(value: number): number {
@@ -23,11 +41,136 @@ function appendLivePeak(history: readonly number[], value: number, limit: number
 }
 
 export type LiveWorkspaceAdapterProps = {
+  projectId: string | null;
+  onRoutedCaptureStopped?: (selection: { projectId: string; recordingId: string }) => void;
   closeReviewPlayer?: CloseReviewPlayer;
   transcriptLoading?: boolean;
   transcriptIncomplete?: boolean;
   visible?: boolean;
 };
+
+type CaptureSourceMode = "mic" | "system" | "application" | "routed";
+
+type RoutedRouteDraft = {
+  processId: number | null;
+  endpointId: string;
+  label: string;
+  sourceId: string;
+};
+
+function createRoutedRouteDraft(): RoutedRouteDraft {
+  return {
+    processId: null,
+    endpointId: "",
+    label: "",
+    sourceId: crypto.randomUUID(),
+  };
+}
+
+function knownObservation<T>(observation: NativeObservation<T> | null | undefined): T | null {
+  return observation?.status === "known" ? observation.value : null;
+}
+
+function routePlanForDrafts(
+  drafts: RoutedRouteDraft[],
+  identities: ReadonlyMap<number, ApplicationIdentity>,
+): CaptureRoutePlan | null {
+  if (drafts.length < 1 || drafts.length > 2) return null;
+  const routes: CaptureRoute[] = [];
+  for (const draft of drafts) {
+    const application = draft.processId === null ? undefined : identities.get(draft.processId);
+    const label = draft.label.trim().slice(0, 64);
+    if (!application || !draft.endpointId || !label) return null;
+    routes.push({
+      sourceId: draft.sourceId,
+      label,
+      endpointId: draft.endpointId,
+      application,
+      allowedChildren: [],
+    });
+  }
+  return { policyVersion: 1, routes };
+}
+
+function routeErrorText(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as Record<string, unknown>;
+    if (typeof candidate.code === "string" && typeof candidate.message === "string") {
+      const translated = routeErrorMessages[candidate.code as RouteErrorCode];
+      return translated
+        ? `${translated} — ${candidate.message}`
+        : `การทำงานของเส้นทางไม่สำเร็จ — ${candidate.message}`;
+    }
+    if (typeof candidate.message === "string") return candidate.message;
+  }
+  return "การทำงานของเส้นทางไม่สำเร็จ";
+}
+
+function routeStatusIsActive(status: RoutedCaptureStatus): boolean {
+  return status.phase === "starting" || status.phase === "recording" || status.phase === "stopping";
+}
+
+function routedPhaseLabel(phase: string): string {
+  const labels: Record<string, string> = {
+    starting: "กำลังเตรียมเส้นทาง",
+    recording: "กำลังบันทึกผ่านอุปกรณ์เฉพาะ",
+    stopping: "กำลังหยุดบันทึกผ่านอุปกรณ์เฉพาะ",
+    completed: "บันทึกเสร็จแล้ว",
+    partial: "บันทึกได้บางส่วน",
+    failed: "การบันทึกล้มเหลว",
+  };
+  return labels[phase] ?? "สถานะการบันทึกเส้นทาง";
+}
+
+function routedSourceState(source: RoutedCaptureStatus["sources"][number]): string {
+  if (source.firstFailure) return `ล้มเหลว — ${source.firstFailure}`;
+  if (source.drained) return "ระบายข้อมูลเสร็จแล้ว";
+  if (source.ready) return "พร้อมบันทึก";
+  return "รอให้แอปเริ่มเล่นเสียงผ่านอุปกรณ์นี้";
+}
+
+function routedDuration(source: RoutedCaptureStatus["sources"][number]): string {
+  return source.durableCountsKnown ? `${(source.durableFrames / 48000).toFixed(2)} วินาที` : "—";
+}
+
+function RoutedCaptureStatusView({
+  status,
+  drafts,
+}: {
+  status: RoutedCaptureStatus;
+  drafts: RoutedRouteDraft[];
+}) {
+  return (
+    <section className="live-workspace__routed-status" aria-label="สถานะการบันทึกผ่านอุปกรณ์เฉพาะ">
+      <div role="status" aria-live="polite">
+        <p><strong>สถานะ:</strong> {routedPhaseLabel(status.phase)} · {status.phase}</p>
+        <p><strong>ระยะเวลา:</strong> {formatClock(status.durationMs)} ({status.durationMs} ms)</p>
+        {status.sources.map((source) => {
+          const draft = drafts.find((row) => row.sourceId === source.sourceId);
+          return (
+            <p key={`${source.sourceId}:${source.epoch}`}>
+              <strong>{draft?.label.trim() || source.sourceId}</strong>
+              {" · "}{routedSourceState(source)}
+              {" · เสียงที่บันทึกได้ "}{routedDuration(source)}
+            </p>
+          );
+        })}
+        <p className="live-workspace__muted">
+          แสดงสถานะเป็นข้อความเท่านั้น — native ยังไม่มีข้อมูลระดับเสียงสำหรับ waveform
+        </p>
+      </div>
+      {status.firstFailure ? (
+        <p className="live-workspace__device-issue" role="alert">{status.firstFailure}</p>
+      ) : null}
+      {status.warnings.length > 0 ? (
+        <ul className="live-workspace__routed-warnings" aria-label="คำเตือนการบันทึก">
+          {status.warnings.map((warning, index) => <li key={`route-warning-${index}`}>{warning}</li>)}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
 
 export type LiveSummaryDisclosure = {
   key: string;
@@ -305,14 +448,32 @@ export function LiveWorkspace({
   transcriptLoading = false,
   transcriptIncomplete = false,
   visible = true,
+  projectId,
+  onRoutedCaptureStopped,
 }: LiveWorkspaceProps & LiveWorkspaceAdapterProps) {
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
   const nearBottomRef = useRef(true);
   const previousSegmentCountRef = useRef(segmentFeed.length);
   const [activeTab, setActiveTab] = useState<"capture" | "transcript" | "insights">("capture");
-  const [captureSourceMode, setCaptureSourceMode] = useState<"mic" | "system" | "application">("mic");
+  const [captureSourceMode, setCaptureSourceMode] = useState<CaptureSourceMode>("mic");
   const [applicationProcessId, setApplicationProcessId] = useState<number | null>(null);
+  const [routeDrafts, setRouteDrafts] = useState<RoutedRouteDraft[]>([]);
+  const [routeInventory, setRouteInventory] = useState<NativeCaptureInventory | null>(null);
+  const [routeInventoryLoading, setRouteInventoryLoading] = useState(false);
+  const [routeInventoryError, setRouteInventoryError] = useState<string | null>(null);
+  const [routeValidation, setRouteValidation] = useState<ValidatedRoutePlan | null>(null);
+  const [routeValidationPlanKey, setRouteValidationPlanKey] = useState<string | null>(null);
+  const [routeValidationLoading, setRouteValidationLoading] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  const [routedStatus, setRoutedStatus] = useState<RoutedCaptureStatus | null>(null);
+  const [routedActive, setRoutedActive] = useState(false);
+  const [routedStarting, setRoutedStarting] = useState(false);
+  const [routedStopping, setRoutedStopping] = useState(false);
+  const [routeStatusLoading, setRouteStatusLoading] = useState(true);
+  const [routedCompletedMessage, setRoutedCompletedMessage] = useState<string | null>(null);
+  const routeInventoryInitialReadRef = useRef(false);
+  const routeInventoryRequestRef = useRef(0);
   const [waveformHistory, setWaveformHistory] = useState<{ mic: number[]; system: number[] }>({
     mic: [],
     system: [],
@@ -329,6 +490,95 @@ export function LiveWorkspace({
   const [question, setQuestion] = useState("");
   const [leavePrompt, setLeavePrompt] = useState(false);
   const [showReturnToLatest, setShowReturnToLatest] = useState(false);
+
+  const selectCaptureSourceMode = (mode: CaptureSourceMode) => {
+    if (mode === "routed" && routeDrafts.length === 0) {
+      try {
+        setRouteDrafts([createRoutedRouteDraft()]);
+      } catch {
+        setRouteError("เบราว์เซอร์นี้สร้างรหัสเส้นทางแบบ UUID ไม่ได้");
+      }
+    }
+    setCaptureSourceMode(mode);
+    setRoutedCompletedMessage(null);
+  };
+
+  const readRouteInventory = useCallback(async (processIds: number[]) => {
+    const request = ++routeInventoryRequestRef.current;
+    setRouteInventoryLoading(true);
+    setRouteInventoryError(null);
+    try {
+      const inventory = await captureRouteInventory(Array.from(new Set(processIds)));
+      if (request !== routeInventoryRequestRef.current) return;
+      setRouteInventory(inventory);
+      if (inventory.errors.length > 0) setRouteInventoryError(null);
+    } catch (error) {
+      if (request === routeInventoryRequestRef.current) {
+        setRouteInventory(null);
+        setRouteInventoryError(routeErrorText(error));
+      }
+    } finally {
+      if (request === routeInventoryRequestRef.current) setRouteInventoryLoading(false);
+    }
+  }, []);
+
+  const refreshRoutedInventories = async () => {
+    setRouteValidation(null);
+    setRouteValidationPlanKey(null);
+    setRouteError(null);
+    setRouteInventoryError(null);
+    setRouteInventoryLoading(true);
+    const devicesNow = await refreshCaptureDevices();
+    if (!devicesNow) {
+      setRouteInventoryLoading(false);
+      setRouteInventoryError("อ่านรายการแอปไม่สำเร็จ โปรดลองรีเฟรชอีกครั้ง");
+      return;
+    }
+    await readRouteInventory(devicesNow.applications.map((application) => application.processId));
+  };
+
+  useEffect(() => {
+    if (!captureDevices || routeInventoryInitialReadRef.current) return;
+    routeInventoryInitialReadRef.current = true;
+    void readRouteInventory(captureDevices.applications.map((application) => application.processId));
+  }, [captureDevices, readRouteInventory]);
+
+  useEffect(() => {
+    let current = true;
+    void captureRouteStatus().then((status) => {
+      if (!current || !status || !routeStatusIsActive(status)) return;
+      setRoutedStatus(status);
+      setRoutedActive(true);
+      setCaptureSourceMode("routed");
+      setRouteDrafts((drafts) => drafts.length > 0 ? drafts : [createRoutedRouteDraft()]);
+    }).catch(() => undefined).finally(() => {
+      if (current) setRouteStatusLoading(false);
+    });
+    return () => { current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!routedActive || routedStopping) return undefined;
+    let current = true;
+    let inFlight = false;
+    const poll = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const status = await captureRouteStatus();
+        if (current && status) setRoutedStatus(status);
+      } catch (error) {
+        if (current) setRouteError(routeErrorText(error));
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 1000);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+    };
+  }, [routedActive, routedStopping]);
 
   const handleTabKeyDown = (
     event: ReactKeyboardEvent<HTMLButtonElement>,
@@ -355,9 +605,9 @@ export function LiveWorkspace({
 
   const handleSourceTabKeyDown = (
     event: ReactKeyboardEvent<HTMLButtonElement>,
-    current: "mic" | "system" | "application",
+    current: CaptureSourceMode,
   ) => {
-    const tabs = ["mic", "system", "application"] as const;
+    const tabs = ["mic", "system", "application", "routed"] as const;
     const currentIndex = tabs.indexOf(current);
     const nextIndex = event.key === "ArrowRight"
       ? (currentIndex + 1) % tabs.length
@@ -372,7 +622,7 @@ export function LiveWorkspace({
     event.preventDefault();
     const next = tabs[nextIndex];
     if (!next) return;
-    setCaptureSourceMode(next);
+    selectCaptureSourceMode(next);
     document.getElementById(`live-source-tab-${next}`)?.focus();
   };
 
@@ -416,6 +666,7 @@ export function LiveWorkspace({
     : null;
   const running = isRunning(phase);
   const stopPending = phase === "stopping" || phase === "transcribing";
+  const captureBusy = running || stopPending || routedActive || routedStarting || routedStopping || routeStatusLoading;
   const hasSelection = selection !== null;
 
   useEffect(() => {
@@ -463,7 +714,7 @@ export function LiveWorkspace({
   };
 
   const handleStart = async () => {
-    if (!privacyAcknowledged || !captureCapability.available || !canStartSelectedSource) return;
+    if (captureSourceMode === "routed" || captureBusy || !privacyAcknowledged || !captureCapability.available || !canStartSelectedSource) return;
     try {
       await actions.start(
         {
@@ -482,8 +733,33 @@ export function LiveWorkspace({
     }
   };
 
+  const handleRoutedStop = async () => {
+    if (!routedActive || routedStopping) return;
+    setRoutedActive(false);
+    setRoutedStopping(true);
+    setRouteError(null);
+    try {
+      const finalStatus = await captureRouteStop();
+      setRoutedStatus(finalStatus);
+      setRoutedCompletedMessage("บันทึกเสียงแล้ว · การถอดความสำหรับโหมดนี้ยังไม่พร้อม");
+      onRoutedCaptureStopped?.({
+        projectId: finalStatus.projectId,
+        recordingId: finalStatus.recordingId,
+      });
+    } catch (error) {
+      setRouteError(routeErrorText(error));
+      setRoutedActive(true);
+    } finally {
+      setRoutedStopping(false);
+    }
+  };
+
   const handleStop = async () => {
-    if (stopPending) return;
+    if (routedActive) {
+      await handleRoutedStop();
+      return;
+    }
+    if (stopPending || routedStopping) return;
     try {
       await actions.stop();
     } catch {
@@ -511,7 +787,7 @@ export function LiveWorkspace({
   };
 
   const handleClose = () => {
-    if (running || stopPending) {
+    if (captureBusy) {
       setLeavePrompt(true);
       return;
     }
@@ -524,6 +800,11 @@ export function LiveWorkspace({
   };
 
   const handleStopAndLeave = async () => {
+    if (routeStatusLoading || routedStarting || routedStopping) return;
+    if (routedActive) {
+      await handleRoutedStop();
+      return;
+    }
     try {
       await actions.stopAndLeave();
       setLeavePrompt(false);
@@ -562,6 +843,143 @@ export function LiveWorkspace({
   const canStartSelectedSource = captureSourceMode !== "application" || (
     applicationCaptureAvailable && applicationProcessId !== null && !applicationSelectionUnavailable
   );
+  const routeIdentityByPid = new Map<number, ApplicationIdentity>();
+  for (const process of routeInventory?.processes ?? []) {
+    const identity = knownObservation(process.identity);
+    if (identity) routeIdentityByPid.set(process.pid, identity);
+  }
+  const routedApplicationOptions = applicationOptions.filter((application) => routeIdentityByPid.has(application.processId));
+  const routedEndpointOptions = (routeInventory?.endpoints ?? []).filter((endpoint) => (
+    knownObservation(endpoint.state) === "active"
+  ));
+  const routeDefaultRoles: CaptureDefaultRoles | null = knownObservation(routeInventory?.defaults);
+  const defaultEndpointIds = new Set(routeDefaultRoles ? Object.values(routeDefaultRoles) : []);
+  const activeRoutePlan = routePlanForDrafts(routeDrafts, routeIdentityByPid);
+  const activeRoutePlanKey = activeRoutePlan ? JSON.stringify(activeRoutePlan) : null;
+  const routePlanIsValidated = Boolean(
+    activeRoutePlanKey && routeValidation && routeValidationPlanKey === activeRoutePlanKey,
+  );
+  const canValidateRoute = Boolean(
+    activeRoutePlan && !captureBusy && !routeInventoryLoading && !captureDevicesLoading && !routeValidationLoading,
+  );
+  const canStartRoutedCapture = Boolean(
+    projectId && activeRoutePlan && routePlanIsValidated && !captureBusy && !routeValidationLoading,
+  );
+  const routeReadinessBySourceId = new Map<string, RouteReadiness>(
+    (routeValidation?.routes ?? []).map((route): [string, RouteReadiness] => [route.sourceId, route.readiness]),
+  );
+  const routePlanKeyRef = useRef<string | null>(activeRoutePlanKey);
+  routePlanKeyRef.current = activeRoutePlanKey;
+  const routeCaptureBusy = routedActive || routedStarting || routedStopping;
+  const headerPhaseLabel = routeCaptureBusy
+    ? routedStatus ? routedPhaseLabel(routedStatus.phase) : "กำลังเริ่มบันทึกผ่านอุปกรณ์เฉพาะ"
+    : routeStatusLoading
+      ? "กำลังตรวจสถานะการบันทึก"
+    : phase === "idle" && !capabilities.capture.available
+      ? "เปิด FUNG Desktop เพื่อบันทึก"
+      : PHASE_LABELS[phase] ?? "สถานะการบันทึก";
+  const headerElapsedMs = routedStatus?.durationMs ?? elapsedMs;
+
+  const invalidateRouteValidation = () => {
+    setRouteValidation(null);
+    setRouteValidationPlanKey(null);
+    setRouteError(null);
+    setRoutedCompletedMessage(null);
+  };
+
+  const updateRouteDraft = (
+    index: number,
+    patch: Partial<Pick<RoutedRouteDraft, "processId" | "endpointId" | "label">>,
+  ) => {
+    const current = routeDrafts[index];
+    if (!current) return;
+    const applicationChanged = Object.prototype.hasOwnProperty.call(patch, "processId")
+      && patch.processId !== current.processId;
+    const endpointChanged = Object.prototype.hasOwnProperty.call(patch, "endpointId")
+      && patch.endpointId !== current.endpointId;
+    let sourceId = current.sourceId;
+    if (applicationChanged || endpointChanged) {
+      try {
+        sourceId = crypto.randomUUID();
+      } catch {
+        setRouteError("เบราว์เซอร์นี้สร้างรหัสเส้นทางแบบ UUID ไม่ได้");
+        return;
+      }
+    }
+    const selectedApplication = applicationChanged && patch.processId !== null && patch.processId !== undefined
+      ? applicationOptions.find((application) => application.processId === patch.processId)
+      : undefined;
+    const defaultLabel = selectedApplication?.name.slice(0, 64) ?? "";
+    setRouteDrafts((drafts) => drafts.map((draft, rowIndex) => {
+      if (rowIndex !== index) return draft;
+      const next = { ...draft, ...patch, sourceId };
+      if (applicationChanged) {
+        next.label = defaultLabel;
+      }
+      if (patch.label !== undefined) {
+        next.label = patch.label.slice(0, 64);
+      }
+      return next;
+    }));
+    invalidateRouteValidation();
+  };
+
+  const addRouteDraft = () => {
+    if (routeDrafts.length >= 2 || captureBusy) return;
+    try {
+      setRouteDrafts((drafts) => drafts.length < 2 ? [...drafts, createRoutedRouteDraft()] : drafts);
+      invalidateRouteValidation();
+    } catch {
+      setRouteError("เบราว์เซอร์นี้สร้างรหัสเส้นทางแบบ UUID ไม่ได้");
+    }
+  };
+
+  const removeSecondRouteDraft = () => {
+    if (routeDrafts.length !== 2 || captureBusy) return;
+    setRouteDrafts((drafts) => drafts.slice(0, 1));
+    invalidateRouteValidation();
+  };
+
+  const validateRoutePlan = async () => {
+    if (!activeRoutePlan || !canValidateRoute || !activeRoutePlanKey) return;
+    const plan = activeRoutePlan;
+    const planKey = activeRoutePlanKey;
+    setRouteValidation(null);
+    setRouteValidationPlanKey(null);
+    setRouteValidationLoading(true);
+    setRouteError(null);
+    try {
+      const validated = await captureRouteValidate(plan);
+      if (routePlanKeyRef.current !== planKey) return;
+      setRouteValidation(validated);
+      setRouteValidationPlanKey(planKey);
+    } catch (error) {
+      if (routePlanKeyRef.current === planKey) setRouteError(routeErrorText(error));
+    } finally {
+      setRouteValidationLoading(false);
+    }
+  };
+
+  const startRoutedCapture = async () => {
+    if (!projectId || !activeRoutePlan || !canStartRoutedCapture) return;
+    setRoutedStarting(true);
+    setRouteError(null);
+    setRoutedCompletedMessage(null);
+    try {
+      const closeAck = await (closeReviewPlayer ?? (async () => ({ closed: false })))();
+      if (!closeAck.closed) {
+        throw new Error("ปิดเครื่องเล่นเสียงก่อนเริ่มบันทึก");
+      }
+      const status = await captureRouteStart(projectId, activeRoutePlan);
+      setRoutedStatus(status);
+      setRoutedActive(true);
+      setCaptureSourceMode("routed");
+    } catch (error) {
+      setRouteError(routeErrorText(error));
+    } finally {
+      setRoutedStarting(false);
+    }
+  };
 
   return (
     <div className="live-workspace">
@@ -572,19 +990,22 @@ export function LiveWorkspace({
             บันทึกเสียงการประชุม
           </h2>
           <div className="live-workspace__status" role="status" aria-live="polite">
-            <span className={"live-workspace__phase live-workspace__phase--" + phase}>
-              {phase === "idle" && !capabilities.capture.available
-                ? "เปิด FUNG Desktop เพื่อบันทึก"
-                : PHASE_LABELS[phase] ?? "สถานะการบันทึก"}
+            <span className={"live-workspace__phase live-workspace__phase--" + (routeCaptureBusy ? "listening" : phase)}>
+              {headerPhaseLabel}
             </span>
-            {(running || stopPending) ? (
-              <span className="live-workspace__elapsed">{formatClock(elapsedMs)}</span>
+            {(running || stopPending || routeCaptureBusy) ? (
+              <span className="live-workspace__elapsed">{formatClock(headerElapsedMs)}</span>
             ) : null}
           </div>
         </div>
         <div className="live-workspace__header-actions">
-          {running ? (
-            <button type="button" className="live-btn live-btn-danger" onClick={() => void handleStop()}>
+          {(running || routedActive) ? (
+            <button
+              type="button"
+              className="live-btn live-btn-danger"
+              onClick={() => void handleStop()}
+              disabled={stopPending || routedStopping}
+            >
               หยุดบันทึก
             </button>
           ) : null}
@@ -653,14 +1074,14 @@ export function LiveWorkspace({
         <div>
           <p className="live-workspace__eyebrow">การบันทึกในเครื่อง</p>
           <h3 id="live-capture-title">
-            {running ? "กำลังเก็บเสียงอย่างต่อเนื่อง" : "เริ่มการบันทึกเมื่อพร้อม"}
+            {routeCaptureBusy ? "กำลังบันทึกผ่านอุปกรณ์เฉพาะ" : running ? "กำลังเก็บเสียงอย่างต่อเนื่อง" : "เริ่มการบันทึกเมื่อพร้อม"}
           </h3>
           <p className="live-workspace__copy">
             เสียงถูกบันทึกและประมวลผลในเครื่องนี้เท่านั้น โปรดแจ้งผู้ร่วมประชุมก่อนเริ่มอัด
           </p>
         </div>
         <div className="live-workspace__capture-controls">
-          {!running ? (
+          {!captureBusy ? (
             <>
               <label className="live-workspace__check">
                 <input
@@ -676,10 +1097,12 @@ export function LiveWorkspace({
                   <button
                     type="button"
                     className="live-btn live-btn-subtle"
-                    onClick={() => void refreshCaptureDevices()}
-                    disabled={captureDevicesLoading}
+                    onClick={() => void (captureSourceMode === "routed" ? refreshRoutedInventories() : refreshCaptureDevices())}
+                    disabled={captureDevicesLoading || routeInventoryLoading || captureBusy}
                   >
-                    {captureDevicesLoading ? "กำลังอ่านรายการ…" : "รีเฟรชอุปกรณ์"}
+                    {captureDevicesLoading || routeInventoryLoading
+                      ? "กำลังอ่านรายการ…"
+                      : captureSourceMode === "routed" ? "รีเฟรช" : "รีเฟรชอุปกรณ์"}
                   </button>
                 </div>
                 <div className="live-workspace__source-tabs" role="tablist" aria-label="เลือกช่องเสียงเพิ่มเติม">
@@ -691,8 +1114,9 @@ export function LiveWorkspace({
                     aria-controls="live-source-route-options"
                     tabIndex={captureSourceMode === "mic" ? 0 : -1}
                     className={captureSourceMode === "mic" ? "is-active" : ""}
+                    disabled={captureBusy}
                     onKeyDown={(event) => handleSourceTabKeyDown(event, "mic")}
-                    onClick={() => setCaptureSourceMode("mic")}
+                    onClick={() => selectCaptureSourceMode("mic")}
                   >ไมค์อย่างเดียว</button>
                   <button
                     id="live-source-tab-system"
@@ -702,8 +1126,9 @@ export function LiveWorkspace({
                     aria-controls="live-source-route-options"
                     tabIndex={captureSourceMode === "system" ? 0 : -1}
                     className={captureSourceMode === "system" ? "is-active" : ""}
+                    disabled={captureBusy}
                     onKeyDown={(event) => handleSourceTabKeyDown(event, "system")}
-                    onClick={() => setCaptureSourceMode("system")}
+                    onClick={() => selectCaptureSourceMode("system")}
                   >เสียงระบบ</button>
                   <button
                     id="live-source-tab-application"
@@ -713,11 +1138,24 @@ export function LiveWorkspace({
                     aria-controls="live-source-route-options"
                     tabIndex={captureSourceMode === "application" ? 0 : -1}
                     className={captureSourceMode === "application" ? "is-active" : ""}
+                    disabled={captureBusy}
                     onKeyDown={(event) => handleSourceTabKeyDown(event, "application")}
-                    onClick={() => setCaptureSourceMode("application")}
-                  >เลือกรายแอป</button>
+                    onClick={() => selectCaptureSourceMode("application")}
+                  >เลือกรายแอป (ทดลอง)</button>
+                  <button
+                    id="live-source-tab-routed"
+                    type="button"
+                    role="tab"
+                    aria-selected={captureSourceMode === "routed"}
+                    aria-controls="live-source-route-options"
+                    tabIndex={captureSourceMode === "routed" ? 0 : -1}
+                    className={captureSourceMode === "routed" ? "is-active" : ""}
+                    disabled={captureBusy}
+                    onKeyDown={(event) => handleSourceTabKeyDown(event, "routed")}
+                    onClick={() => selectCaptureSourceMode("routed")}
+                  >อุปกรณ์เฉพาะต่อแอป</button>
                 </div>
-                <label className="live-workspace__field live-workspace__field--stacked">
+                {captureSourceMode !== "routed" ? <label className="live-workspace__field live-workspace__field--stacked">
                   <span>ไมโครโฟน</span>
                   <select
                     aria-label="อุปกรณ์ไมโครโฟน"
@@ -735,7 +1173,7 @@ export function LiveWorkspace({
                       </option>
                     ))}
                   </select>
-                </label>
+                </label> : null}
                 <div
                   id="live-source-route-options"
                   role="tabpanel"
@@ -773,7 +1211,7 @@ export function LiveWorkspace({
                       aria-label="แอปที่กำลังส่งเสียง"
                       value={applicationProcessId === null ? "" : String(applicationProcessId)}
                       onChange={(event) => setApplicationProcessId(event.target.value ? Number(event.target.value) : null)}
-                      disabled={!applicationCaptureAvailable || captureDevicesLoading}
+                      disabled={!applicationCaptureAvailable || captureDevicesLoading || captureBusy}
                     >
                       <option value="">เลือกแอปที่กำลังส่งเสียง</option>
                       {applicationSelectionUnavailable ? (
@@ -795,6 +1233,135 @@ export function LiveWorkspace({
                     ) : null}
                   </label>
                 ) : null}
+                {captureSourceMode === "routed" ? (
+                  <div className="live-workspace__routed-setup">
+                    <p className="live-workspace__muted">
+                      บันทึกเสียงของแอปผ่านอุปกรณ์เสียงที่แยกไว้ให้แอปนั้นโดยเฉพาะ ตั้งค่าใน Windows: การตั้งค่า &gt; ระบบ &gt; เสียง &gt; Volume mixer แล้วเลือกอุปกรณ์เอาต์พุตของแอปเป็นอุปกรณ์ที่เลือกด้านล่าง เสียงทุกอย่างที่ออกอุปกรณ์นั้นจะถูกบันทึก โหมดนี้ไม่บันทึกไมโครโฟน
+                    </p>
+                    {routeInventoryLoading ? (
+                      <p className="live-workspace__muted" role="status">กำลังอ่านรายการแอปและอุปกรณ์เสียง…</p>
+                    ) : null}
+                    {routeInventoryError ? (
+                      <p className="live-workspace__device-issue" role="alert">{routeInventoryError}</p>
+                    ) : null}
+                    {routeInventory?.errors.map((error, index) => (
+                      <p key={`route-inventory-error-${index}`} className="live-workspace__device-issue" role="alert">
+                        {error}
+                      </p>
+                    ))}
+                    {routeDrafts.map((draft, index) => {
+                      const otherEndpointIds = new Set(routeDrafts
+                        .filter((_, rowIndex) => rowIndex !== index)
+                        .map((row) => row.endpointId)
+                        .filter(Boolean));
+                      const selectedAppUnavailable = draft.processId !== null
+                        && !routedApplicationOptions.some((application) => application.processId === draft.processId);
+                      const selectedEndpointUnavailable = Boolean(draft.endpointId)
+                        && !routedEndpointOptions.some((endpoint) => endpoint.id === draft.endpointId);
+                      const rowDisabled = captureBusy || routedStarting || routedStopping || routeValidationLoading;
+                      return (
+                        <div className="live-workspace__route-row" key={`route-${index}`}>
+                          <div className="live-workspace__route-row-heading">
+                            <strong>เส้นทาง {index + 1}</strong>
+                            {index === 1 ? (
+                              <button
+                                type="button"
+                                className="live-btn live-btn-subtle"
+                                aria-label="ลบเส้นทาง 2"
+                                disabled={rowDisabled}
+                                onClick={removeSecondRouteDraft}
+                              >ลบเส้นทาง</button>
+                            ) : null}
+                          </div>
+                          <label className="live-workspace__field live-workspace__field--stacked">
+                            <span>แอป</span>
+                            <select
+                              aria-label={`แอปของเส้นทาง ${index + 1}`}
+                              value={draft.processId === null ? "" : String(draft.processId)}
+                              disabled={rowDisabled || routeInventoryLoading}
+                              onChange={(event) => updateRouteDraft(index, {
+                                processId: event.target.value ? Number(event.target.value) : null,
+                              })}
+                            >
+                              <option value="">เลือกแอปที่กำลังส่งเสียง</option>
+                              {selectedAppUnavailable ? (
+                                <option value={String(draft.processId)} disabled>แอปเดิม PID {draft.processId} — ยืนยันตัวตนไม่ได้</option>
+                              ) : null}
+                              {routedApplicationOptions.map((application) => (
+                                <option key={application.processId} value={String(application.processId)}>
+                                  {application.name} · PID {application.processId}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="live-workspace__field live-workspace__field--stacked">
+                            <span>อุปกรณ์เสียงปลายทาง</span>
+                            <select
+                              aria-label={`อุปกรณ์เสียงของเส้นทาง ${index + 1}`}
+                              value={draft.endpointId}
+                              disabled={rowDisabled || routeInventoryLoading}
+                              onChange={(event) => updateRouteDraft(index, { endpointId: event.target.value })}
+                            >
+                              <option value="">เลือกอุปกรณ์เสียง</option>
+                              {selectedEndpointUnavailable ? (
+                                <option value={draft.endpointId} disabled>อุปกรณ์เดิม — ไม่พร้อมใช้งาน</option>
+                              ) : null}
+                              {routedEndpointOptions.map((endpoint) => {
+                                const isDefault = defaultEndpointIds.has(endpoint.id);
+                                const usedInOtherRoute = otherEndpointIds.has(endpoint.id);
+                                const endpointName = knownObservation(endpoint.name) ?? endpoint.id;
+                                return (
+                                  <option
+                                    key={endpoint.id}
+                                    value={endpoint.id}
+                                    disabled={isDefault || usedInOtherRoute}
+                                  >
+                                    {endpointName}
+                                    {isDefault ? " · อุปกรณ์เริ่มต้นของระบบ" : usedInOtherRoute ? " · เลือกแล้วในเส้นทางอื่น" : ""}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </label>
+                          <label className="live-workspace__field live-workspace__field--stacked">
+                            <span>ชื่อแหล่งเสียง</span>
+                            <input
+                              type="text"
+                              aria-label={`ชื่อแหล่งเสียงของเส้นทาง ${index + 1}`}
+                              value={draft.label}
+                              maxLength={64}
+                              disabled={rowDisabled}
+                              onChange={(event) => updateRouteDraft(index, { label: event.target.value })}
+                            />
+                          </label>
+                          {routePlanIsValidated ? (
+                            <p className="live-workspace__muted" role="status">
+                              {routeReadinessBySourceId.get(draft.sourceId) === "waitingForTarget"
+                                ? "รอให้แอปเริ่มเล่นเสียงผ่านอุปกรณ์นี้"
+                                : routeReadinessBySourceId.get(draft.sourceId) === "armed"
+                                  ? "พร้อมบันทึก"
+                                  : "ยังไม่มีสถานะเส้นทาง"}
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                    {routeDrafts.length < 2 ? (
+                      <button
+                        type="button"
+                        className="live-btn live-btn-subtle"
+                        disabled={captureBusy || routedStarting || routedStopping || routeValidationLoading}
+                        onClick={addRouteDraft}
+                      >เพิ่มเส้นทาง</button>
+                    ) : null}
+                    {routeDrafts.some((draft) => !draft.processId || !draft.endpointId || !draft.label.trim()) ? (
+                      <p className="live-workspace__disabled-reason">เลือกแอป อุปกรณ์เสียง และชื่อแหล่งเสียงให้ครบก่อนตรวจเส้นทาง</p>
+                    ) : null}
+                    {!projectId ? (
+                      <p className="live-workspace__disabled-reason">เลือกโครงการก่อนเริ่มบันทึก</p>
+                    ) : null}
+                  </div>
+                ) : null}
                 {captureDevicesError ? (
                   <p className="live-workspace__device-issue" role="alert">{captureDevicesError}</p>
                 ) : null}
@@ -802,61 +1369,117 @@ export function LiveWorkspace({
                   <p className="live-workspace__device-issue" role="status">{captureDevices.issue}</p>
                 ) : null}
               </div>
-              <label className="live-workspace__field">
-                <span>ภาษา</span>
-                <select value={language} onChange={(event) => setLanguage(event.target.value)}>
-                  <option value="auto">ตรวจอัตโนมัติ</option>
-                  <option value="th">ไทย</option>
-                  <option value="en">อังกฤษ</option>
-                </select>
-              </label>
-              <label className="live-workspace__field">
-                <span>รูปแบบ transcript สด</span>
-                <select
-                  value={transcriptProfile}
-                  onChange={(event) => setTranscriptProfile(event.target.value as "chunked" | "revisioned")}
-                >
-                  <option value="chunked">ช่วงเสียงเดิม (เสถียร)</option>
-                  <option value="revisioned">แสดงข้อความระหว่างพูด (revisioned)</option>
-                </select>
-              </label>
-              {transcriptProfile === "revisioned" ? (
-                <p className="live-workspace__device-issue" role="note">
-                  ข้อความระหว่างพูดอาจเปลี่ยนได้ · ข้อความยืนยันจะแสดงหลังบันทึกสำเร็จ
-                </p>
-              ) : null}
-              <button
-                type="button"
-                className="live-btn live-btn-primary"
-                disabled={!privacyAcknowledged || !captureCapability.available || !canStartSelectedSource}
-                onClick={() => void handleStart()}
-              >
-                ● เริ่มประชุม
-              </button>
-              {!privacyAcknowledged ? (
-                <p className="live-workspace__disabled-reason">ต้องยืนยันการแจ้งผู้ร่วมประชุมก่อนเริ่ม</p>
-              ) : null}
-              {!canStartSelectedSource && captureSourceMode === "application" ? (
-                <p className="live-workspace__disabled-reason">เลือกแอปที่กำลังส่งเสียงและรองรับการจับเสียงรายแอปก่อนเริ่ม</p>
-              ) : null}
-              <CapabilityNotice capability={captureCapability}>
-                เริ่มบันทึกไม่ได้ในสถานะนี้
-              </CapabilityNotice>
+              {captureSourceMode !== "routed" ? (
+                <>
+                  <label className="live-workspace__field">
+                    <span>ภาษา</span>
+                    <select value={language} onChange={(event) => setLanguage(event.target.value)}>
+                      <option value="auto">ตรวจอัตโนมัติ</option>
+                      <option value="th">ไทย</option>
+                      <option value="en">อังกฤษ</option>
+                    </select>
+                  </label>
+                  <label className="live-workspace__field">
+                    <span>รูปแบบ transcript สด</span>
+                    <select
+                      value={transcriptProfile}
+                      onChange={(event) => setTranscriptProfile(event.target.value as "chunked" | "revisioned")}
+                    >
+                      <option value="chunked">ช่วงเสียงเดิม (เสถียร)</option>
+                      <option value="revisioned">แสดงข้อความระหว่างพูด (revisioned)</option>
+                    </select>
+                  </label>
+                  {transcriptProfile === "revisioned" ? (
+                    <p className="live-workspace__device-issue" role="note">
+                      ข้อความระหว่างพูดอาจเปลี่ยนได้ · ข้อความยืนยันจะแสดงหลังบันทึกสำเร็จ
+                    </p>
+                  ) : null}
+                  {captureSourceMode === "application" ? (
+                    <p className="live-workspace__experimental-note" role="note">
+                      โหมดทดลอง: เสียงอาจขาดหายช่วงสั้น ๆ เมื่อแอปที่เลือกหยุดหรือเริ่มเล่นเสียงใหม่ สำหรับงานสำคัญให้ใช้โหมด "อุปกรณ์เฉพาะต่อแอป"
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="live-btn live-btn-primary"
+                    disabled={captureBusy || !privacyAcknowledged || !captureCapability.available || !canStartSelectedSource}
+                    onClick={() => void handleStart()}
+                  >
+                    ● เริ่มประชุม
+                  </button>
+                  {!canStartSelectedSource && captureSourceMode === "application" ? (
+                    <p className="live-workspace__disabled-reason">เลือกแอปที่กำลังส่งเสียงและรองรับการจับเสียงรายแอปก่อนเริ่ม</p>
+                  ) : null}
+                  <CapabilityNotice capability={captureCapability}>
+                    เริ่มบันทึกไม่ได้ในสถานะนี้
+                  </CapabilityNotice>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="live-btn"
+                    disabled={!canValidateRoute}
+                    onClick={() => void validateRoutePlan()}
+                  >
+                    {routeValidationLoading ? "กำลังตรวจเส้นทาง…" : "ตรวจเส้นทาง"}
+                  </button>
+                  {routePlanIsValidated ? (
+                    <p className="live-workspace__muted" role="status">ตรวจเส้นทางสำเร็จ · ตรวจใหม่หากแก้ไขรายการนี้</p>
+                  ) : null}
+                  {routeError ? (
+                    <p className="live-workspace__device-issue" role="alert">{routeError}</p>
+                  ) : null}
+                  {routedCompletedMessage ? (
+                    <p className="live-workspace__notice" role="status">{routedCompletedMessage}</p>
+                  ) : null}
+                  {routedStatus && !routeCaptureBusy ? (
+                    <RoutedCaptureStatusView status={routedStatus} drafts={routeDrafts} />
+                  ) : null}
+                  <button
+                    type="button"
+                    className="live-btn live-btn-primary"
+                    disabled={!privacyAcknowledged || !canStartRoutedCapture || routedStarting}
+                    onClick={() => void startRoutedCapture()}
+                  >
+                    {routedStarting ? "กำลังเริ่มบันทึก…" : "● เริ่มบันทึก"}
+                  </button>
+                  {!privacyAcknowledged ? (
+                    <p className="live-workspace__disabled-reason">ต้องยืนยันการแจ้งผู้ร่วมประชุมก่อนเริ่ม</p>
+                  ) : null}
+                  {!activeRoutePlan ? (
+                    <p className="live-workspace__disabled-reason">เลือกแอป อุปกรณ์เสียง และชื่อแหล่งเสียงให้ครบก่อนเริ่ม</p>
+                  ) : null}
+                  {!routePlanIsValidated ? (
+                    <p className="live-workspace__disabled-reason">ตรวจเส้นทางและยืนยันสถานะปัจจุบันก่อนเริ่มบันทึก</p>
+                  ) : null}
+                </>
+              )}
             </>
           ) : (
             <div className="live-workspace__capture-monitor" aria-label="เสียงที่กำลังบันทึก">
-              <LiveChannelWaveform label="ไมโครโฟน" sample={liveAudioLevels.mic} history={waveformHistory.mic} />
-              {devices.system ? (
-                <LiveChannelWaveform
-                  label={`เสียงที่เลือก · ${devices.system}`}
-                  sample={liveAudioLevels.system}
-                  history={waveformHistory.system}
-                />
-              ) : null}
-              <div className="live-workspace__device-list" aria-label="อุปกรณ์ที่ใช้บันทึก">
-                <span>ไมค์: {devices.mic ?? "กำลังตรวจสอบ"}</span>
-                <span>ระบบ: {devices.system ?? "ไม่ได้จับเสียงระบบ"}</span>
-              </div>
+              {routeCaptureBusy && routedStatus ? (
+                <RoutedCaptureStatusView status={routedStatus} drafts={routeDrafts} />
+              ) : routeStatusLoading ? (
+                <p className="live-workspace__muted" role="status">กำลังตรวจสถานะการบันทึกผ่านอุปกรณ์เฉพาะ…</p>
+              ) : routedStarting ? (
+                <p className="live-workspace__muted" role="status">กำลังเริ่มบันทึกผ่านอุปกรณ์เฉพาะ…</p>
+              ) : (
+                <>
+                  <LiveChannelWaveform label="ไมโครโฟน" sample={liveAudioLevels.mic} history={waveformHistory.mic} />
+                  {devices.system ? (
+                    <LiveChannelWaveform
+                      label={`เสียงที่เลือก · ${devices.system}`}
+                      sample={liveAudioLevels.system}
+                      history={waveformHistory.system}
+                    />
+                  ) : null}
+                  <div className="live-workspace__device-list" aria-label="อุปกรณ์ที่ใช้บันทึก">
+                    <span>ไมค์: {devices.mic ?? "กำลังตรวจสอบ"}</span>
+                    <span>ระบบ: {devices.system ?? "ไม่ได้จับเสียงระบบ"}</span>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1098,11 +1721,19 @@ export function LiveWorkspace({
             <p className="live-workspace__eyebrow">กำลังบันทึกเสียงอยู่</p>
             <h3 id="live-leave-title">ยังบันทึกเสียงอยู่</h3>
             <p>การปิดหน้านี้จะไม่หยุดเสียงโดยอัตโนมัติ เลือกการกระทำที่ต้องการ</p>
+            {routeStatusLoading || routedStarting || routedStopping ? (
+              <p className="live-workspace__muted" role="status">กำลังตรวจหรือเปลี่ยนสถานะการบันทึก โปรดรอสักครู่ก่อนหยุดแล้วออก</p>
+            ) : null}
             <div className="live-workspace__leave-actions">
               <button type="button" className="live-btn" autoFocus onClick={handleContinueAndLeave}>
                 อัดต่อและออกจากหน้านี้
               </button>
-              <button type="button" className="live-btn live-btn-danger" onClick={() => void handleStopAndLeave()}>
+              <button
+                type="button"
+                className="live-btn live-btn-danger"
+                disabled={routeStatusLoading || routedStarting || routedStopping}
+                onClick={() => void handleStopAndLeave()}
+              >
                 หยุดแล้วออก
               </button>
               <button type="button" className="live-btn live-btn-subtle" onClick={() => setLeavePrompt(false)}>

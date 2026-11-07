@@ -42,6 +42,7 @@ Product scope อยู่ใน [PRODUCT.md](../PRODUCT.md); RCA ย้อน�
 | `architecture/` | สารบัญมุมมอง architecture ข้ามโดเมน; architecture ปัจจุบันของ Desktop อยู่ใน `Desktop/ARCHITECTURE.md` |
 | `requirements/` | Requirement ที่กำกับข้าม Desktop, Mobile, API, CLI, MCP และ AI |
 | `specs/` | Feature specification และ technical design ที่ refine requirement; proposal ไม่เท่ากับอนุมัติ |
+| `delivery/` | [Roadmap](delivery/ROADMAP.md) (milestones, gates, target windows) and [backlog](delivery/BACKLOG.md) (ordered work list) |
 | `decisions/` | Decision records และเหตุผลของทางเลือกที่ตัดสินแล้ว |
 | `plans/` | Master plan และแผนลงมือทำแบบมีวันที่; อ่านสถานะปัจจุบันจากเอกสารสถานะของแต่ละ platform |
 | `ai-system/` | Data pipeline, model lifecycle, evaluation และ governance ของ AI |

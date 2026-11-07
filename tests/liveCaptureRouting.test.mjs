@@ -39,7 +39,7 @@ test("the start contract carries opaque per-source route ids into native capture
 
 test("the live preflight surface exposes explicit mic and loopback selectors", () => {
   assert.match(contracts, /captureDevices: LiveCaptureDevices \| null/);
-  assert.match(contracts, /refreshCaptureDevices: \(\) => void \| Promise<void>/);
+  assert.match(contracts, /refreshCaptureDevices: \(\) => Promise<LiveCaptureDevices \| null>/);
   assert.match(workspace, /aria-label="อุปกรณ์ไมโครโฟน"/);
   assert.match(workspace, /aria-label="อุปกรณ์เสียงระบบ"/);
   assert.match(workspace, /รีเฟรชอุปกรณ์/);

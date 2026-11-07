@@ -187,7 +187,7 @@
 
 .live-workspace__source-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   padding: 4px;
   border: 1px solid var(--fung-border-subtle);
@@ -225,6 +225,11 @@
   outline-offset: 2px;
 }
 
+.live-workspace__source-tabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .live-workspace__field--stacked {
   align-items: stretch;
   flex-direction: column;
@@ -242,7 +247,64 @@
   line-height: 1.4;
 }
 
+.live-workspace__experimental-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--fung-state-danger-fg);
+  border-radius: 6px;
+  color: var(--fung-text-primary);
+  background: var(--fung-bg-inset);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.live-workspace__routed-setup,
+.live-workspace__routed-status {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.live-workspace__route-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--fung-border-subtle);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--fung-bg-surface) 52%, transparent);
+}
+
+.live-workspace__route-row-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--fung-text-primary);
+  font-size: 12px;
+}
+
+.live-workspace__routed-status {
+  padding: 10px;
+  border: 1px solid var(--fung-border-subtle);
+  border-radius: 9px;
+  color: var(--fung-text-primary);
+  background: color-mix(in srgb, var(--fung-bg-surface) 52%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.live-workspace__routed-status p {
+  margin: 0;
+}
+
+.live-workspace__routed-warnings {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--fung-text-secondary);
+}
+
 .live-workspace__field select,
+.live-workspace__field input,
 .live-workspace textarea {
   border: 1px solid var(--fung-border-strong);
   border-radius: 8px;
@@ -252,6 +314,11 @@
 }
 
 .live-workspace__field select {
+  min-height: 34px;
+  padding: 5px 8px;
+}
+
+.live-workspace__field input {
   min-height: 34px;
   padding: 5px 8px;
 }
@@ -700,6 +767,7 @@
 }
 
 .theme-dark .live-workspace__field select,
+.theme-dark .live-workspace__field input,
 .theme-dark .live-workspace textarea,
 .theme-dark .live-workspace__leave-card {
   border-color: var(--fung-border-strong);

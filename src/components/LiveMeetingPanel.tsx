@@ -613,6 +613,7 @@ function scopeMeetingSummaries(
 export type LiveMeetingPanelProps = {
   onClose: () => void;
   projectId: string | null;
+  onRoutedCaptureStopped?: (selection: RecordingKey) => void;
   visible?: boolean;
   closeReviewPlayer?: CloseReviewPlayer;
   onControllerChange?: (controller: LiveMeetingController | null) => void;
@@ -621,6 +622,7 @@ export type LiveMeetingPanelProps = {
 export function LiveMeetingPanel({
   onClose,
   projectId,
+  onRoutedCaptureStopped,
   visible = true,
   closeReviewPlayer,
   onControllerChange,
@@ -647,14 +649,17 @@ export function LiveMeetingPanel({
   const [transcriptIncomplete, setTranscriptIncomplete] = useState(false);
   const nativeAvailable = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-  const refreshCaptureDevices = useCallback(async () => {
-    if (!nativeAvailable) return;
+  const refreshCaptureDevices = useCallback(async (): Promise<LiveCaptureDevices | null> => {
+    if (!nativeAvailable) return null;
     setCaptureDevicesLoading(true);
     setCaptureDevicesError(null);
     try {
-      setCaptureDevices(await liveCaptureDevices());
+      const devices = await liveCaptureDevices();
+      setCaptureDevices(devices);
+      return devices;
     } catch (error) {
       setCaptureDevicesError(normalizeReviewError(error).message);
+      return null;
     } finally {
       setCaptureDevicesLoading(false);
     }
@@ -1360,6 +1365,7 @@ export function LiveMeetingPanel({
     >
       <div className="live-panel" role="region" aria-labelledby="live-workspace-title">
         <LiveWorkspace
+          projectId={projectId}
           selection={selection}
           phase={phase}
           elapsedMs={elapsedMs}
@@ -1383,6 +1389,7 @@ export function LiveMeetingPanel({
             generateSummary,
             closeView,
           }}
+          onRoutedCaptureStopped={onRoutedCaptureStopped}
           closeReviewPlayer={closeReviewPlayer}
           transcriptLoading={transcriptLoading}
           transcriptIncomplete={transcriptIncomplete}

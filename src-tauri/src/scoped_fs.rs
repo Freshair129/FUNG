@@ -212,3 +212,58 @@ pub(crate) fn pin_ancestors(path: &Path) -> Result<Vec<std::fs::File>, String> {
     }
     Ok(handles)
 }
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::{pin_ancestors, pin_directory};
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::{Path, PathBuf};
+    use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+
+    fn short_path(path: &Path) -> PathBuf {
+        let input = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let required = unsafe { GetShortPathNameW(input.as_ptr(), std::ptr::null_mut(), 0) };
+        assert_ne!(
+            required, 0,
+            "GetShortPathNameW must query the existing fixture"
+        );
+
+        let mut output = vec![0u16; required as usize];
+        let length =
+            unsafe { GetShortPathNameW(input.as_ptr(), output.as_mut_ptr(), output.len() as u32) };
+        assert_ne!(length, 0, "GetShortPathNameW must return the fixture path");
+        assert!((length as usize) < output.len());
+        output.truncate(length as usize);
+        PathBuf::from(OsString::from_wide(&output))
+    }
+
+    #[test]
+    fn pin_directory_and_ancestors_accept_8dot3_paths() {
+        let temporary = tempfile::tempdir().unwrap();
+        let long_path = temporary
+            .path()
+            .join("fung short path identity fixture with spaces");
+        std::fs::create_dir(&long_path).unwrap();
+
+        let short = short_path(&long_path);
+        if short
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&long_path.to_string_lossy())
+        {
+            println!(
+                "skipping 8.3 identity assertions: this volume returned no short-name alias for a long fixture path"
+            );
+            return;
+        }
+
+        let directory = pin_directory(&short).expect("pin_directory must accept the 8.3 path");
+        drop(directory);
+        let ancestors = pin_ancestors(&short).expect("pin_ancestors must accept the 8.3 path");
+        drop(ancestors);
+    }
+}

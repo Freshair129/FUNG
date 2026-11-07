@@ -4544,11 +4544,43 @@ fn reject_untrusted_path(raw: &str) -> Result<(), ReviewError> {
 pub(crate) fn normalized_path_inside(path: &Path, root: &Path) -> bool {
     #[cfg(windows)]
     fn comparable(path: &Path) -> PathBuf {
-        let value = path.to_string_lossy();
-        value
-            .strip_prefix(r"\\?\")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| path.to_path_buf())
+        use std::ffi::OsString;
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
+
+        if !path.is_absolute() {
+            return path.to_path_buf();
+        }
+
+        let mut input = path.as_os_str().encode_wide().collect::<Vec<_>>();
+        input.push(0);
+        let mut buffer = vec![0u16; input.len()];
+        let expanded = loop {
+            let Ok(capacity) = u32::try_from(buffer.len()) else {
+                break path.to_path_buf();
+            };
+            let length = unsafe { GetLongPathNameW(input.as_ptr(), buffer.as_mut_ptr(), capacity) };
+            if length == 0 {
+                break path.to_path_buf();
+            }
+            if (length as usize) < buffer.len() {
+                buffer.truncate(length as usize);
+                break PathBuf::from(OsString::from_wide(&buffer));
+            }
+            let Some(required) = (length as usize).checked_add(1) else {
+                break path.to_path_buf();
+            };
+            if required <= buffer.len() {
+                break path.to_path_buf();
+            }
+            buffer.resize(required, 0);
+        };
+        let value = expanded.to_string_lossy().into_owned();
+        if let Some(value) = value.strip_prefix(r"\\?\") {
+            PathBuf::from(value)
+        } else {
+            expanded
+        }
     }
 
     #[cfg(not(windows))]

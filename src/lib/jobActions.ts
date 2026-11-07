@@ -118,17 +118,23 @@ export function jobActionBlockedReason(
   return null;
 }
 
-/** Legacy transcription readers cannot consume routed application audio. */
+/** Routed general retry is available only for completed recordings. */
 export function routedTranscriptionBlockReason(
   value: string,
   recordingSource: string | null | undefined,
+  recordingStatus?: string | null,
 ): string | null {
-  if (
-    ["transcript.retry", "transcript.detailed", "speakers.diarize"].includes(value) &&
-    (recordingSource === "routed_endpoint" ||
-      recordingSource === "routed_endpoint_pending")
-  ) {
-    return "การถอดความสำหรับการบันทึกแบบอุปกรณ์เฉพาะต่อแอปยังไม่พร้อม";
+  const isRouted = recordingSource === "routed_endpoint" ||
+    recordingSource === "routed_endpoint_pending";
+  if (!isRouted || !["transcript.retry", "transcript.detailed", "speakers.diarize"].includes(value)) {
+    return null;
   }
-  return null;
+  if (
+    value === "transcript.retry" &&
+    recordingSource === "routed_endpoint" &&
+    recordingStatus === "completed"
+  ) {
+    return null;
+  }
+  return "การถอดความสำหรับการบันทึกแบบอุปกรณ์เฉพาะต่อแอปยังไม่พร้อม";
 }

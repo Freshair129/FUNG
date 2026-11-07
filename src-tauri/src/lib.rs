@@ -5346,6 +5346,17 @@ pub(crate) fn set_job_status(
     progress: Option<i64>,
     error_message: Option<&str>,
 ) -> AppResult<()> {
+    set_job_status_with_error_code(storage, job_id, status, progress, None, error_message)
+}
+
+pub(crate) fn set_job_status_with_error_code(
+    storage: &genesis_block_native::Storage,
+    job_id: &str,
+    status: &str,
+    progress: Option<i64>,
+    error_code: Option<&str>,
+    error_message: Option<&str>,
+) -> AppResult<()> {
     let timestamp = now();
     let row = genesis_adapter::query(
         storage,
@@ -5384,7 +5395,7 @@ pub(crate) fn set_job_status(
         optional("jobs.finished_at")
     };
     genesis_adapter::commit_rows(storage, vec![
-        genesis_adapter::upsert("jobs", serde_json::json!({"id":job_id,"project_id":genesis_adapter::string(&row,"jobs.project_id").map_err(AppError::Genesis)?,"type":genesis_adapter::string(&row,"jobs.type").map_err(AppError::Genesis)?,"status":status,"progress":progress.unwrap_or(genesis_adapter::integer(&row,"jobs.progress").map_err(AppError::Genesis)?),"input_refs_json":optional("jobs.input_refs_json"),"output_refs_json":optional("jobs.output_refs_json"),"provider_id":optional("jobs.provider_id"),"error_code":optional("jobs.error_code"),"error_message":error_message.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null),"attempt_no":genesis_adapter::integer(&row,"jobs.attempt_no").map_err(AppError::Genesis)?,"started_at":started_at,"finished_at":finished_at,"created_at":genesis_adapter::string(&row,"jobs.created_at").map_err(AppError::Genesis)?,"updated_at":timestamp})),
+        genesis_adapter::upsert("jobs", serde_json::json!({"id":job_id,"project_id":genesis_adapter::string(&row,"jobs.project_id").map_err(AppError::Genesis)?,"type":genesis_adapter::string(&row,"jobs.type").map_err(AppError::Genesis)?,"status":status,"progress":progress.unwrap_or(genesis_adapter::integer(&row,"jobs.progress").map_err(AppError::Genesis)?),"input_refs_json":optional("jobs.input_refs_json"),"output_refs_json":optional("jobs.output_refs_json"),"provider_id":optional("jobs.provider_id"),"error_code":error_code.map(serde_json::Value::from).unwrap_or_else(|| optional("jobs.error_code")),"error_message":error_message.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null),"attempt_no":genesis_adapter::integer(&row,"jobs.attempt_no").map_err(AppError::Genesis)?,"started_at":started_at,"finished_at":finished_at,"created_at":genesis_adapter::string(&row,"jobs.created_at").map_err(AppError::Genesis)?,"updated_at":timestamp})),
         genesis_adapter::upsert("job_events", serde_json::json!({"id":Uuid::new_v4().to_string(),"job_id":job_id,"status":status,"message":error_message.unwrap_or(status),"created_at":timestamp})),
     ]).map_err(AppError::Genesis)?;
     Ok(())

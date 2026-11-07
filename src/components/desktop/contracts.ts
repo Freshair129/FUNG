@@ -499,6 +499,8 @@ export type RoutedCaptureStatus = {
   sources: RoutedSourceStatus[];
   firstFailure: string | null;
   warnings: string[];
+  transcriptionJobId?: string | null;
+  transcriptionJobError?: string | null;
 };
 
 export type CapabilityState = {

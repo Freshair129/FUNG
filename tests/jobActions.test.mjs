@@ -82,29 +82,26 @@ test("an unimplemented action is disabled even when a recording exists", () => {
   );
 });
 
-test("routed recordings block legacy transcription actions with the user-facing reason", () => {
+test("routed retry is available only for completed recordings while detailed and diarization stay blocked", () => {
   const reason = "การถอดความสำหรับการบันทึกแบบอุปกรณ์เฉพาะต่อแอปยังไม่พร้อม";
-  const guardedActions = [
-    "transcript.retry",
-    "transcript.detailed",
-    "speakers.diarize",
-  ];
-  const routedSources = ["routed_endpoint", "routed_endpoint_pending"];
-
-  for (const source of routedSources) {
-    for (const action of guardedActions) {
-      assert.equal(routedTranscriptionBlockReason(action, source), reason);
-    }
+  for (const action of ["transcript.detailed", "speakers.diarize"]) {
+    assert.equal(routedTranscriptionBlockReason(action, "routed_endpoint", "completed"), reason);
+    assert.equal(routedTranscriptionBlockReason(action, "routed_endpoint", "partial"), reason);
+    assert.equal(routedTranscriptionBlockReason(action, "routed_endpoint_pending", "completed"), reason);
   }
+  assert.equal(routedTranscriptionBlockReason("transcript.retry", "routed_endpoint", "completed"), null);
+  assert.equal(routedTranscriptionBlockReason("transcript.retry", "routed_endpoint", "partial"), reason);
+  assert.equal(routedTranscriptionBlockReason("transcript.retry", "routed_endpoint_pending", "completed"), reason);
   for (const source of ["microphone", "system", "import", "file"]) {
-    for (const action of guardedActions) {
-      assert.equal(routedTranscriptionBlockReason(action, source), null);
-    }
+    assert.equal(routedTranscriptionBlockReason("transcript.retry", source, "completed"), null);
+    assert.equal(routedTranscriptionBlockReason("transcript.detailed", source, "completed"), null);
+    assert.equal(routedTranscriptionBlockReason("speakers.diarize", source, "completed"), null);
   }
   assert.equal(routedTranscriptionBlockReason("export.render", "routed_endpoint"), null);
 
   const review = readFileSync("src/components/desktop/RecordingReview.tsx", "utf8");
   assert.match(review, /recordingSource=\{recording\.data\.source\}/);
+  assert.match(review, /recordingStatus=\{recording\.data\.status\}/);
   const blockReasons = new Map([
     ["transcript.retry", "routedTranscriptionReason"],
     ["transcript.detailed", "detailedTranscriptionReason"],
@@ -122,6 +119,25 @@ test("routed recordings block legacy transcription actions with the user-facing 
   }
   assert.match(review, /routedTranscriptionReason[\s\S]*role="status"/);
   assert.match(review, /if \(routedBlockReason\)\s*\{\s*setNotice\(routedBlockReason\);\s*return;/);
+});
+
+test("routed transcript labels flow from speaker records to the review", () => {
+  const live = readFileSync("src-tauri/src/live_meeting.rs", "utf8");
+  const native = readFileSync("src-tauri/src/lib.rs", "utf8");
+  const review = readFileSync("src/components/desktop/RecordingReview.tsx", "utf8");
+  const publisher = live.slice(live.indexOf("impl RoutedTranscriptPublisher"), live.indexOf("/// Transcribes only completed"));
+  assert.match(publisher, /format!\("route:\{\}", source\.id\)/);
+  assert.match(publisher, /"display_name": source\.label/);
+  assert.match(publisher, /"speaker_id": speaker_id/);
+  assert.match(native, /speaker_names\.get\(id\)\.cloned\(\)/);
+  assert.match(review, /segment\.speakerName\s*\?\?\s*segment\.speakerId/);
+});
+
+test("routed post-stop surfaces no longer claim transcription is not ready", () => {
+  const oldNotice = "บันทึกเสียงแล้ว · การถอดความสำหรับโหมดนี้ยังไม่พร้อม";
+  for (const file of ["src/App.tsx", "src/components/desktop/LiveWorkspace.tsx"]) {
+    assert.ok(!readFileSync(file, "utf8").includes(oldNotice), file);
+  }
 });
 
 test("a runnable action waits for a recording rather than queueing nothing", () => {

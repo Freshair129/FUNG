@@ -32,6 +32,7 @@ import {
   type ReadState,
   type RecordingAnswer,
   type RecordingKey,
+  type RoutedCaptureStatus,
   type ReviewError,
   type ReviewRequestIdentity,
   type StopAndLeaveAction,
@@ -613,7 +614,7 @@ function scopeMeetingSummaries(
 export type LiveMeetingPanelProps = {
   onClose: () => void;
   projectId: string | null;
-  onRoutedCaptureStopped?: (selection: RecordingKey) => void;
+  onRoutedCaptureStopped?: (status: RoutedCaptureStatus) => void;
   visible?: boolean;
   closeReviewPlayer?: CloseReviewPlayer;
   onControllerChange?: (controller: LiveMeetingController | null) => void;

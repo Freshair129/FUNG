@@ -33,6 +33,7 @@ import {
   type DesktopSurface,
   type ReadState,
   type RecordingKey,
+  type RoutedCaptureStatus,
   type ReviewError,
   type ThemeChoice,
 } from "./components/desktop/contracts";
@@ -299,15 +300,6 @@ export function App() {
     return liveController.stopAndLeave();
   }, [liveController]);
 
-  const handleRoutedCaptureStopped = useCallback((selection: RecordingKey) => {
-    if (!projects.some((project) => project.id === selection.projectId)) return;
-    setMeetingIntelligenceOpen(false);
-    setSelectedRecording(selection.projectId);
-    setReviewSelection(selection);
-    setActionNotice("บันทึกเสียงแล้ว · การถอดความสำหรับโหมดนี้ยังไม่พร้อม");
-    setActiveSurface("review");
-  }, [projects]);
-
   const handleStopCapture = useCallback(async () => {
     try {
       await stopAndLeave();
@@ -358,16 +350,63 @@ export function App() {
   // Returns the job as it finished, so a caller can tell "done" from "failed"
   // rather than refreshing and hoping. `null` means it stopped being visible
   // or outlasted the poll.
-  const pollJobUntilDone = async (jobId: string): Promise<Job | null> => {
+  const pollJobUntilDone = useCallback(async (
+    jobId: string,
+    onUpdate?: (job: Job) => void,
+  ): Promise<Job | null> => {
     for (let attempt = 0; attempt < 600; attempt += 1) {
       const nextJobs = await listJobs();
       const job = nextJobs.find((entry) => entry.id === jobId);
       if (!job) return null;
+      onUpdate?.(job);
       if (job.status === "completed" || job.status === "failed") return job;
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     return null;
-  };
+  }, []);
+
+  const handleRoutedCaptureStopped = useCallback((status: RoutedCaptureStatus) => {
+    const selection: RecordingKey = {
+      projectId: status.projectId,
+      recordingId: status.recordingId,
+    };
+    if (!projects.some((project) => project.id === selection.projectId)) return;
+    setMeetingIntelligenceOpen(false);
+    setSelectedRecording(selection.projectId);
+    setReviewSelection(selection);
+    setActiveSurface("review");
+
+    if (status.transcriptionJobId) {
+      setActionNotice("บันทึกเสียงแล้ว · กำลังรอเริ่มถอดความจากแหล่งเสียงที่บันทึก");
+      void pollJobUntilDone(status.transcriptionJobId, (job) => {
+        if (job.status === "running") {
+          setActionNotice(`กำลังถอดความเสียงจากการบันทึก… ${job.progress}%`);
+        } else if (job.status === "queued" || job.status === "retrying") {
+          setActionNotice("บันทึกเสียงแล้ว · งานถอดความอยู่ในคิว");
+        }
+      }).then(async (job) => {
+        if (job?.status === "completed") {
+          setActionNotice("ถอดความเสร็จแล้ว · กำลังโหลด transcript ในบันทึกย้อนหลัง");
+          await recoveryRefreshRef.current?.(selection);
+          setActionNotice("ถอดความเสร็จแล้ว · ตรวจสอบ transcript ในบันทึกย้อนหลังได้");
+        } else if (job?.status === "failed") {
+          setActionNotice(job.errorMessage
+            ? `ถอดความไม่สำเร็จ: ${job.errorMessage}`
+            : "ถอดความไม่สำเร็จ · เปิดบันทึกย้อนหลังเพื่อตรวจสถานะงาน");
+        } else {
+          setActionNotice("งานถอดความยังไม่รายงานผลสุดท้าย · ตรวจสถานะจากรายการงาน");
+        }
+      }).catch((error: unknown) => {
+        setActionNotice(`อ่านสถานะงานถอดความไม่สำเร็จ: ${String(error)}`);
+      });
+    } else if (status.transcriptionJobError) {
+      setActionNotice(`บันทึกเสียงแล้ว แต่ส่งงานถอดความเข้าคิวไม่สำเร็จ: ${status.transcriptionJobError}`);
+    } else if (status.phase === "completed") {
+      setActionNotice("บันทึกเสียงแล้ว · ยังไม่มีงานถอดความในคิว");
+    } else {
+      setActionNotice(`บันทึกสิ้นสุดสถานะ ${status.phase} · ไม่เริ่มถอดความอัตโนมัติ`);
+    }
+  }, [pollJobUntilDone, projects]);
 
   const handleImportAndTranscribe = async () => {
     setActionNotice(null);

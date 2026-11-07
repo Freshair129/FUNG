@@ -2470,10 +2470,12 @@ function ExportPanel({
 function ReviewActionsPanel({
   selection,
   recordingSource,
+  recordingStatus,
   actions,
 }: {
   selection: RecordingKey;
   recordingSource: string;
+  recordingStatus: string;
   actions: RecordingReviewActions;
 }) {
   const [pending, setPending] = useState<string | null>(null);
@@ -2490,14 +2492,17 @@ function ReviewActionsPanel({
   const routedTranscriptionReason = routedTranscriptionBlockReason(
     "transcript.retry",
     recordingSource,
+    recordingStatus,
   );
   const detailedTranscriptionReason = routedTranscriptionBlockReason(
     "transcript.detailed",
     recordingSource,
+    recordingStatus,
   );
   const diarizationBlockReason = routedTranscriptionBlockReason(
     "speakers.diarize",
     recordingSource,
+    recordingStatus,
   );
 
   useEffect(() => {
@@ -2556,7 +2561,11 @@ function ReviewActionsPanel({
   };
 
   const queue = async (jobType: string, label: string) => {
-    const routedBlockReason = routedTranscriptionBlockReason(jobType, recordingSource);
+    const routedBlockReason = routedTranscriptionBlockReason(
+      jobType,
+      recordingSource,
+      recordingStatus,
+    );
     if (routedBlockReason) {
       setNotice(routedBlockReason);
       return;
@@ -3218,6 +3227,7 @@ export function RecordingReviewView({
                 <ReviewActionsPanel
                   selection={selection}
                   recordingSource={recording.data.source}
+                  recordingStatus={recording.data.status}
                   actions={actions}
                 />
               </div>

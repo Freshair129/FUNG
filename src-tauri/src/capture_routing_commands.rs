@@ -138,12 +138,38 @@ pub(crate) async fn capture_route_stop(
     #[cfg(windows)]
     {
         let sessions = std::sync::Arc::clone(&state.routed_live);
+        let jobs = state.jobs.clone();
         tauri::async_runtime::spawn_blocking(move || {
             let mut slot = sessions
                 .lock()
                 .map_err(|_| "routed session mutex poisoned")?;
             let session = slot.as_mut().ok_or("no routed recording is active")?;
-            serde_json::to_value(session.stop_and_join()).map_err(|e| e.to_string())
+            let status = session.stop_and_join();
+            let (transcription_job_id, transcription_job_error) = if status.phase == "completed" {
+                match jobs.enqueue(
+                    crate::job_engine::JobKind::TranscriptRetry,
+                    &status.project_id,
+                    Some(&status.recording_id),
+                ) {
+                    Ok(job_id) => (Some(job_id), None),
+                    Err(error) => (None, Some(error)),
+                }
+            } else {
+                (None, None)
+            };
+            let mut value = serde_json::to_value(status).map_err(|e| e.to_string())?;
+            let object = value
+                .as_object_mut()
+                .ok_or("routed capture status was not an object")?;
+            object.insert(
+                "transcriptionJobId".into(),
+                serde_json::to_value(transcription_job_id).map_err(|e| e.to_string())?,
+            );
+            object.insert(
+                "transcriptionJobError".into(),
+                serde_json::to_value(transcription_job_error).map_err(|e| e.to_string())?,
+            );
+            Ok(value)
         })
         .await
         .map_err(|e| format!("routed stop worker: {e}"))?

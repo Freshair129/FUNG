@@ -1,5 +1,5 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-11-07"
 last_update: "2026-11-07"
 status: "beta"
@@ -45,10 +45,10 @@ needs no mic integration and installed acceptance passes in one session.
 | Gate | Owner | State (2026-11-07) | Plan |
 | --- | --- | --- | --- |
 | Routed custody, playback, recovery, export on `main` | Lead/Codex | Done (PR #98, #100) | [Close ownership](../plans/2026-10-30-playback-close-ownership.md) |
-| PID mode marked experimental (E2) | Lead/Codex | In progress | [Endpoint-first](../plans/2026-11-07-endpoint-first-release-plan.md) |
-| Live endpoint-routing UI (E3) | Lead/Codex | In progress | same |
-| Transcription of routed recordings (E4) | Lead/Codex | Spec pending | same |
-| Mic in routed mode | **Owner decision** | Open question | same, "Open gaps" |
+| PID mode marked experimental (E2) | Lead/Codex | Done (PR #102) | [Endpoint-first](../plans/2026-11-07-endpoint-first-release-plan.md) |
+| Live endpoint-routing UI (E3) | Lead/Codex | Done (PR #102) | same |
+| Transcription of routed recordings (E4) | Lead/Codex | Done (PR #103), post-Stop only | same |
+| Mic in routed mode (E6) | Lead/Codex | Decided: include; spec next | same |
 | Installed endpoint acceptance (E5) | **Owner + lead** | Not started; needs hardware | [Routing plan Task 4](../plans/2026-10-25-dedicated-endpoint-routing-plan.md) |
 | System loopback delayed-playback retest (#94) | Owner + lead | Open | [Installed UAT](../verification/implementation-reports/2026-10-23-installed-releasefix-uat.md) |
 | Standalone transcription durable restart (#79) | Lead/Codex + owner | Open | Issue #79 |
@@ -86,4 +86,5 @@ Plan: [master implementation plan](../plans/2026-08-09-fung-master-implementatio
 
 | Version | Date | Summary | Agent |
 | --- | --- | --- | --- |
+| 0.1.1b | 2026-11-07 | E2, E3, E4 done; mic in routed mode decided (E6). | Claude (lead) |
 | 0.1.0b | 2026-11-07 | First consolidated roadmap: M1 v0.1.2 endpoint-first, M2 MCP, M3 platform phases. | Claude (lead) |

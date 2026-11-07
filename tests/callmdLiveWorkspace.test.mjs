@@ -259,7 +259,7 @@ test("route UI restricts choices, invalidates edits and disables competing start
   assert.match(workspaceSource, /captureSourceMode === "routed" \|\| captureBusy/);
 });
 
-test("routed stop calls the native stop and reports transcription is not ready", async () => {
+test("routed stop reports the final status and queued transcription job", async () => {
   const ast = ts.createSourceFile(liveWorkspacePath, workspaceSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let stop;
   function visit(node) {
@@ -269,7 +269,11 @@ test("routed stop calls the native stop and reports transcription is not ready",
   visit(ast);
   assert.ok(stop);
   const calls = [];
-  const finalStatus = { projectId: "project-a", recordingId: "recording-a" };
+  const finalStatus = {
+    projectId: "project-a", recordingId: "recording-a", phase: "completed",
+    durationMs: 1500, sources: [], firstFailure: null, warnings: [],
+    transcriptionJobId: "job-a", transcriptionJobError: null,
+  };
   const context = {
     routedActive: true, routedStopping: false,
     setRoutedActive: (value) => calls.push(["active", value]),
@@ -278,15 +282,15 @@ test("routed stop calls the native stop and reports transcription is not ready",
     captureRouteStop: async () => { calls.push(["capture_route_stop"]); return finalStatus; },
     setRoutedStatus: (value) => calls.push(["status", value]),
     setRoutedCompletedMessage: (value) => calls.push(["message", value]),
-    onRoutedCaptureStopped: (value) => calls.push(["selection", value]),
+    onRoutedCaptureStopped: (value) => calls.push(["capture", value]),
     routeErrorText: String,
   };
   const js = transpile(`const stop = ${stop};`, "stop.ts");
   await vm.runInNewContext(`${js}\nstop()`, context);
   assert.equal(calls.filter(([name]) => name === "capture_route_stop").length, 1);
-  assert.ok(calls.some(([name, value]) => name === "message" && value.includes("การถอดความสำหรับโหมดนี้ยังไม่พร้อม")));
-  assert.equal(calls.find(([name]) => name === "selection")[1].recordingId, "recording-a");
-  assert.deepEqual(calls.map(([name]) => name), ["active", "stopping", "error", "capture_route_stop", "status", "message", "selection", "stopping"]);
+  assert.ok(calls.some(([name, value]) => name === "message" && value.includes("เข้าคิวถอดความ")));
+  assert.equal(calls.find(([name]) => name === "capture")[1].transcriptionJobId, "job-a");
+  assert.deepEqual(calls.map(([name]) => name), ["active", "stopping", "error", "capture_route_stop", "status", "message", "capture", "stopping"]);
 });
 
 test("participant notice acknowledgement starts checked for each live session", () => {

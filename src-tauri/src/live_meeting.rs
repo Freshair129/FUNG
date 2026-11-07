@@ -14,7 +14,7 @@
 //!    project speaker `me` (เรา) and WASAPI loopback `system` maps to `them`
 //!    (อีกฝ่าย). These are editable speaker labels, not verified identities.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -3725,6 +3725,573 @@ pub(crate) fn fill_transcript_gaps<R: tauri::Runtime>(
     }
 }
 
+pub(crate) const ROUTED_TRANSCRIPTION_BLOCKED_REASON: &str =
+    "มีแหล่งเสียงที่ถูกกักกัน จึงไม่สร้างคำถอดความรวมสำหรับการบันทึกนี้";
+
+pub(crate) const ROUTED_TRANSCRIPTION_REVOKED_REASON: &str =
+    "สิทธิ์เข้าถึงแหล่งเสียงถูกเพิกถอนระหว่างถอดความ จึงหยุดเผยแพร่คำถอดความเพิ่มเติม";
+const ROUTED_TRANSCRIPTION_REVOKED_SENTINEL: &str = "ROUTED_TRANSCRIPTION_REVOKED";
+
+#[derive(Debug)]
+pub(crate) enum RoutedTranscriptionError {
+    Blocked,
+    Revoked,
+    Failed(String),
+}
+
+struct TemporaryAsrWav {
+    path: PathBuf,
+}
+
+impl Drop for TemporaryAsrWav {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn ensure_routed_asr_directory(path: &Path, data_root: &Path) -> Result<PathBuf, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "routed ASR directory has no parent".to_string())?
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    if !crate::desktop_playback::normalized_path_inside(&parent, data_root) {
+        return Err("routed ASR temporary directory escaped the application data root".into());
+    }
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err("routed ASR temporary directory cannot be a symlink".into());
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err("routed ASR temporary path is not a directory".into());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::create_dir(path).map_err(|error| error.to_string())?;
+        }
+        Err(error) => return Err(error.to_string()),
+    }
+    let canonical = path.canonicalize().map_err(|error| error.to_string())?;
+    if !crate::desktop_playback::normalized_path_inside(&canonical, data_root) {
+        return Err("routed ASR temporary directory escaped the application data root".into());
+    }
+    Ok(canonical)
+}
+
+fn materialize_routed_asr_wav(
+    data_root: &Path,
+    project_id: &str,
+    recording_id: &str,
+    mut reader: hound::WavReader<BufReader<std::fs::File>>,
+) -> Result<(TemporaryAsrWav, u64), String> {
+    let root = std::fs::canonicalize(data_root).map_err(|error| error.to_string())?;
+    if Uuid::parse_str(project_id).is_err() || Uuid::parse_str(recording_id).is_err() {
+        return Err("routed ASR path identifiers are invalid".into());
+    }
+    let project = ensure_routed_asr_directory(&root.join(project_id), &root)?;
+    let derived = ensure_routed_asr_directory(&project.join("derived"), &root)?;
+    let recording = ensure_routed_asr_directory(&derived.join(recording_id), &root)?;
+    let directory = ensure_routed_asr_directory(&recording.join("asr-tmp"), &root)?;
+
+    let path = directory.join(format!("{}.wav", Uuid::new_v4()));
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|error| error.to_string())?;
+    let temporary = TemporaryAsrWav { path };
+    let spec = reader.spec();
+    let expected_frames = u64::from(reader.duration());
+    let mut writer = hound::WavWriter::new(file, spec).map_err(|error| error.to_string())?;
+    let mut frames = 0u64;
+    for sample in reader.samples::<i16>() {
+        writer
+            .write_sample(sample.map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+        frames = frames
+            .checked_add(1)
+            .ok_or_else(|| "routed ASR temporary WAV frame count overflow".to_string())?;
+    }
+    if frames != expected_frames {
+        return Err("verified routed source chunk ended before its declared frame count".into());
+    }
+    writer.finalize().map_err(|error| error.to_string())?;
+    let byte_size = std::fs::metadata(&temporary.path)
+        .map_err(|error| error.to_string())?
+        .len();
+    Ok((temporary, byte_size))
+}
+
+fn routed_transcript_coverage(
+    storage: &genesis_block_native::Storage,
+    manifest: &crate::completed_source_media::Manifest,
+    project_id: &str,
+) -> Result<HashSet<String>, String> {
+    let segment_rows = genesis_adapter::query_all(
+        storage,
+        "transcript_segments",
+        &["speaker_id", "start_ms", "end_ms"],
+        vec![
+            genesis_adapter::eq(
+                "transcript_segments",
+                "project_id",
+                serde_json::json!(project_id),
+            ),
+            genesis_adapter::eq(
+                "transcript_segments",
+                "recording_id",
+                serde_json::json!(&manifest.recording_id),
+            ),
+        ],
+    )?;
+    let mut ranges_by_speaker: HashMap<String, Vec<(i64, i64)>> = HashMap::new();
+    for row in segment_rows {
+        let Some(speaker_id) = row
+            .get("transcript_segments.speaker_id")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let start_ms = row
+            .get("transcript_segments.start_ms")
+            .and_then(serde_json::Value::as_i64)
+            .ok_or("routed transcript segment has invalid start time")?;
+        let end_ms = row
+            .get("transcript_segments.end_ms")
+            .and_then(serde_json::Value::as_i64)
+            .filter(|end_ms| *end_ms >= start_ms)
+            .ok_or("routed transcript segment has invalid end time")?;
+        ranges_by_speaker
+            .entry(speaker_id.to_string())
+            .or_default()
+            .push((start_ms, end_ms));
+    }
+
+    let mut covered = HashSet::new();
+    for source in &manifest.sources {
+        let speaker_id = speaker_id_for(project_id, &format!("route:{}", source.id));
+        let ranges = ranges_by_speaker.get(&speaker_id);
+        for descriptor in &source.chunks {
+            let chunk = &descriptor.chunk;
+            if ranges.is_some_and(|ranges| {
+                ranges
+                    .iter()
+                    .any(|(start_ms, end_ms)| *start_ms < chunk.end_ms && *end_ms > chunk.start_ms)
+            }) {
+                covered.insert(chunk.id.clone());
+            }
+        }
+    }
+    Ok(covered)
+}
+
+fn current_routed_frontier(
+    storage: &genesis_block_native::Storage,
+    lease: &crate::source_playback_lease::SourcePlaybackLease,
+    recording_id: &str,
+    expected_frontier: u64,
+) -> Result<u64, String> {
+    if !lease.is_available() {
+        return Err(ROUTED_TRANSCRIPTION_REVOKED_SENTINEL.into());
+    }
+    let frontier =
+        crate::capture_source_custody::require_capture_source_access(storage, recording_id)
+            .map_err(|_| ROUTED_TRANSCRIPTION_REVOKED_SENTINEL.to_string())?;
+    if frontier != expected_frontier || !lease.is_available() {
+        return Err(ROUTED_TRANSCRIPTION_REVOKED_SENTINEL.into());
+    }
+    Ok(frontier)
+}
+
+fn routed_transcription_error(error: String) -> RoutedTranscriptionError {
+    if error == ROUTED_TRANSCRIPTION_REVOKED_SENTINEL {
+        RoutedTranscriptionError::Revoked
+    } else {
+        RoutedTranscriptionError::Failed(error)
+    }
+}
+
+struct RoutedTranscriptPublisher<'a> {
+    storage: &'a genesis_block_native::Storage,
+    lease: &'a crate::source_playback_lease::SourcePlaybackLease,
+    manifest: &'a mut crate::completed_source_media::Manifest,
+    project_id: &'a str,
+    recording_id: &'a str,
+}
+
+impl RoutedTranscriptPublisher<'_> {
+    fn check_access(&self) -> Result<(), RoutedTranscriptionError> {
+        crate::capture_source_custody::with_source_custody_gate(|| {
+            current_routed_frontier(
+                self.storage,
+                self.lease,
+                self.recording_id,
+                self.manifest.frontier,
+            )?;
+            Ok(())
+        })
+        .map_err(routed_transcription_error)
+    }
+
+    fn upsert_speakers(&mut self) -> Result<(), RoutedTranscriptionError> {
+        let timestamp = now();
+        let mutations = self
+            .manifest
+            .sources
+            .iter()
+            .map(|source| {
+                let key = format!("route:{}", source.id);
+                genesis_adapter::upsert(
+                    "speakers",
+                    serde_json::json!({
+                        "id": speaker_id_for(self.project_id, &key),
+                        "project_id": self.project_id,
+                        "key": key,
+                        "display_name": source.label,
+                        "confidence": null,
+                        "created_at": timestamp,
+                        "updated_at": timestamp,
+                    }),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut next_frontier = None;
+        let result = crate::capture_source_custody::with_source_custody_gate(|| {
+            current_routed_frontier(
+                self.storage,
+                self.lease,
+                self.recording_id,
+                self.manifest.frontier,
+            )?;
+            genesis_adapter::commit_rows(self.storage, mutations)?;
+            next_frontier = Some(
+                crate::capture_source_custody::require_capture_source_access(
+                    self.storage,
+                    self.recording_id,
+                )
+                .map_err(|_| ROUTED_TRANSCRIPTION_REVOKED_SENTINEL.to_string())?,
+            );
+            if !self.lease.is_available() {
+                return Err(ROUTED_TRANSCRIPTION_REVOKED_SENTINEL.into());
+            }
+            Ok(())
+        });
+        result.map_err(routed_transcription_error)?;
+        self.manifest.frontier = next_frontier.ok_or_else(|| {
+            RoutedTranscriptionError::Failed("source frontier was not refreshed".into())
+        })?;
+        Ok(())
+    }
+
+    fn publish_chunk(
+        &mut self,
+        source_id: &str,
+        chunk_id: &str,
+        start_ms: i64,
+        segments: Vec<WorkerSegment>,
+    ) -> Result<(), RoutedTranscriptionError> {
+        let speaker_id = speaker_id_for(self.project_id, &format!("route:{source_id}"));
+        let timestamp = now();
+        let mut mutations = Vec::with_capacity(segments.len());
+        for segment in segments {
+            let segment_start_ms = start_ms.checked_add(segment.start_ms).ok_or_else(|| {
+                RoutedTranscriptionError::Failed("routed transcript segment start overflow".into())
+            })?;
+            let segment_end_ms = start_ms.checked_add(segment.end_ms).ok_or_else(|| {
+                RoutedTranscriptionError::Failed("routed transcript segment end overflow".into())
+            })?;
+            mutations.push(genesis_adapter::upsert(
+                "transcript_segments",
+                serde_json::json!({
+                    "id": Uuid::new_v4().to_string(),
+                    "project_id": self.project_id,
+                    "recording_id": self.recording_id,
+                    "speaker_id": speaker_id,
+                    "start_ms": segment_start_ms,
+                    "end_ms": segment_end_ms,
+                    "text": segment.text,
+                    "confidence": segment.confidence,
+                    "created_at": timestamp,
+                    "updated_at": timestamp,
+                }),
+            ));
+        }
+
+        let mut next_frontier = None;
+        let result = crate::capture_source_custody::with_source_custody_gate(|| {
+            current_routed_frontier(
+                self.storage,
+                self.lease,
+                self.recording_id,
+                self.manifest.frontier,
+            )?;
+            if !mutations.is_empty() {
+                genesis_adapter::commit_rows(self.storage, mutations)?;
+            }
+            genesis_adapter::mark_chunk_transcribed(self.storage, chunk_id, &timestamp)?;
+            next_frontier = Some(
+                crate::capture_source_custody::require_capture_source_access(
+                    self.storage,
+                    self.recording_id,
+                )
+                .map_err(|_| ROUTED_TRANSCRIPTION_REVOKED_SENTINEL.to_string())?,
+            );
+            if !self.lease.is_available() {
+                return Err(ROUTED_TRANSCRIPTION_REVOKED_SENTINEL.into());
+            }
+            Ok(())
+        });
+        result.map_err(routed_transcription_error)?;
+        self.manifest.frontier = next_frontier.ok_or_else(|| {
+            RoutedTranscriptionError::Failed("source frontier was not refreshed".into())
+        })?;
+        Ok(())
+    }
+
+    fn update_progress(
+        &mut self,
+        job_id: &str,
+        progress: i64,
+    ) -> Result<(), RoutedTranscriptionError> {
+        let mut next_frontier = None;
+        let result = crate::capture_source_custody::with_source_custody_gate(|| {
+            current_routed_frontier(
+                self.storage,
+                self.lease,
+                self.recording_id,
+                self.manifest.frontier,
+            )?;
+            crate::set_job_status(self.storage, job_id, "running", Some(progress), None)
+                .map_err(|error| error.to_string())?;
+            next_frontier = Some(
+                crate::capture_source_custody::require_capture_source_access(
+                    self.storage,
+                    self.recording_id,
+                )
+                .map_err(|_| ROUTED_TRANSCRIPTION_REVOKED_SENTINEL.to_string())?,
+            );
+            if !self.lease.is_available() {
+                return Err(ROUTED_TRANSCRIPTION_REVOKED_SENTINEL.into());
+            }
+            Ok(())
+        });
+        result.map_err(routed_transcription_error)?;
+        self.manifest.frontier = next_frontier.ok_or_else(|| {
+            RoutedTranscriptionError::Failed("source frontier was not refreshed".into())
+        })?;
+        Ok(())
+    }
+}
+
+/// Transcribes only completed, custody-verified routed recordings. The worker
+/// receives private temporary WAVs, never the registered custody paths.
+pub(crate) fn transcribe_routed_recording(
+    storage: &Arc<genesis_block_native::Storage>,
+    data_root: &Path,
+    runtime: &WhisperRuntime,
+    language: Option<&str>,
+    project_id: &str,
+    recording_id: &str,
+    job_id: &str,
+) -> Result<(), RoutedTranscriptionError> {
+    let mut worker: Option<LiveWorker> = None;
+    let result = transcribe_routed_with_worker(
+        storage,
+        data_root,
+        project_id,
+        recording_id,
+        job_id,
+        &mut |chunk| {
+            if let Some(chunk) = chunk {
+                let response = match worker
+                    .as_mut()
+                    .expect("worker initialized")
+                    .transcribe_chunk(chunk)
+                {
+                    Ok(response) => response,
+                    Err(error) => {
+                        if let Some(worker) = worker.take() {
+                            worker.shutdown();
+                        }
+                        return Err(error);
+                    }
+                };
+                match response.error {
+                    Some(error) => Err(error),
+                    None => Ok(response.segments),
+                }
+            } else {
+                let mut started = LiveWorker::spawn(runtime, language)?;
+                if let Err(error) = started.wait_ready() {
+                    started.shutdown();
+                    return Err(error);
+                }
+                worker = Some(started);
+                Ok(Vec::new())
+            }
+        },
+    );
+    if let Some(worker) = worker {
+        worker.shutdown();
+    }
+    result
+}
+
+pub(crate) type RoutedWorker<'a> =
+    dyn FnMut(Option<&RawChunk>) -> Result<Vec<WorkerSegment>, String> + 'a;
+
+pub(crate) fn transcribe_routed_with_worker(
+    storage: &Arc<genesis_block_native::Storage>,
+    data_root: &Path,
+    project_id: &str,
+    recording_id: &str,
+    job_id: &str,
+    worker: &mut RoutedWorker<'_>,
+) -> Result<(), RoutedTranscriptionError> {
+    let lease = crate::source_playback_lease::SourcePlaybackLease::register(
+        Arc::clone(storage),
+        recording_id,
+    )
+    .map_err(|error| {
+        if error == "source playback recording revoked" {
+            RoutedTranscriptionError::Blocked
+        } else {
+            RoutedTranscriptionError::Failed(error)
+        }
+    })?;
+    let recording = genesis_adapter::capture(storage, recording_id)
+        .map_err(RoutedTranscriptionError::Failed)?;
+    if recording.project_id != project_id
+        || recording.source != "routed_endpoint"
+        || recording.status != "completed"
+    {
+        return Err(RoutedTranscriptionError::Blocked);
+    }
+
+    let mut manifest = match crate::completed_source_media::completed_manifest(
+        storage,
+        project_id,
+        recording_id,
+    ) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            if !lease.is_available()
+                || crate::capture_source_custody::require_capture_source_access(
+                    storage,
+                    recording_id,
+                )
+                .is_err()
+            {
+                return Err(RoutedTranscriptionError::Revoked);
+            }
+            return Err(RoutedTranscriptionError::Failed(error));
+        }
+    };
+    if !lease.is_available() {
+        return Err(RoutedTranscriptionError::Revoked);
+    }
+
+    let covered = routed_transcript_coverage(storage, &manifest, project_id)
+        .map_err(RoutedTranscriptionError::Failed)?;
+    let total_chunks = manifest
+        .sources
+        .iter()
+        .map(|source| source.chunks.len())
+        .sum::<usize>();
+    let uncovered_chunks = total_chunks.saturating_sub(covered.len());
+    let mut publisher = RoutedTranscriptPublisher {
+        storage,
+        lease: &lease,
+        manifest: &mut manifest,
+        project_id,
+        recording_id,
+    };
+    publisher.upsert_speakers()?;
+
+    if uncovered_chunks > 0 {
+        worker(None).map_err(RoutedTranscriptionError::Failed)?;
+    }
+
+    let cancel = AtomicBool::new(false);
+    let mut processed = 0usize;
+    let mut last_progress = 0i64;
+    for source_index in 0..publisher.manifest.sources.len() {
+        let chunk_count = publisher.manifest.sources[source_index].chunks.len();
+        for chunk_index in 0..chunk_count {
+            publisher.check_access()?;
+            let (source_id, epoch, chunk_id, sequence, start_ms, end_ms) = {
+                let source = &publisher.manifest.sources[source_index];
+                let descriptor = &source.chunks[chunk_index];
+                (
+                    source.id.clone(),
+                    source.epoch,
+                    descriptor.chunk.id.clone(),
+                    descriptor.chunk.sequence,
+                    descriptor.chunk.start_ms,
+                    descriptor.chunk.end_ms,
+                )
+            };
+            if !covered.contains(&chunk_id) {
+                if !lease.is_available() {
+                    return Err(RoutedTranscriptionError::Revoked);
+                }
+                let reader = crate::completed_source_media::open_verified_chunk(
+                    storage,
+                    data_root,
+                    publisher.manifest,
+                    &source_id,
+                    epoch,
+                    sequence,
+                    &cancel,
+                )
+                .map_err(|error| {
+                    if !lease.is_available() {
+                        RoutedTranscriptionError::Revoked
+                    } else {
+                        RoutedTranscriptionError::Failed(error)
+                    }
+                })?;
+                let (temporary, byte_size) =
+                    materialize_routed_asr_wav(data_root, project_id, recording_id, reader)
+                        .map_err(RoutedTranscriptionError::Failed)?;
+                publisher.check_access()?;
+                let byte_size = i64::try_from(byte_size).map_err(|_| {
+                    RoutedTranscriptionError::Failed(
+                        "routed ASR temporary WAV exceeds supported size".into(),
+                    )
+                })?;
+                let chunk = RawChunk {
+                    channel: CHANNEL_SYSTEM,
+                    chunk_id: chunk_id.clone(),
+                    file_path: temporary.path.to_string_lossy().into_owned(),
+                    start_ms,
+                    end_ms,
+                    byte_size,
+                    checksum: String::new(),
+                };
+                let response = worker(Some(&chunk));
+                drop(temporary);
+                let segments = response.map_err(RoutedTranscriptionError::Failed)?;
+                publisher.publish_chunk(&source_id, &chunk_id, start_ms, segments)?;
+            }
+
+            processed += 1;
+            let progress = (processed.saturating_mul(100) / total_chunks.max(1)) as i64;
+            if progress > last_progress {
+                publisher.update_progress(job_id, progress)?;
+                last_progress = progress;
+            }
+        }
+    }
+
+    crate::capture_source_custody::with_source_custody_gate(|| {
+        current_routed_frontier(storage, &lease, recording_id, publisher.manifest.frontier)?;
+        Ok(())
+    })
+    .map_err(routed_transcription_error)?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct DetailedDraftOutcome {
     pub(crate) proposals_created: usize,
@@ -4987,6 +5554,68 @@ pub(crate) fn live_meeting_status(state: State<'_, AppState>) -> AppResult<LiveS
 mod tests {
     use super::*;
     use genesis_block_native::{OpenOptions, Storage};
+
+    #[test]
+    fn routed_asr_temporary_wav_is_private_and_removed_after_success() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("custody.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 48_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&source, spec).unwrap();
+        writer.write_sample(42_i16).unwrap();
+        writer.finalize().unwrap();
+        let project = Uuid::new_v4().to_string();
+        let recording = Uuid::new_v4().to_string();
+        let reader = hound::WavReader::open(&source).unwrap();
+        let (temporary, size) =
+            materialize_routed_asr_wav(root.path(), &project, &recording, reader).unwrap();
+        let path = temporary.path.clone();
+        assert!(path.starts_with(root.path().canonicalize().unwrap()));
+        assert_eq!(path.parent().unwrap().file_name().unwrap(), "asr-tmp");
+        assert_ne!(path, source);
+        assert!(size > 0 && path.is_file());
+        drop(temporary);
+        assert!(!path.exists());
+        assert!(source.is_file());
+    }
+
+    #[test]
+    fn routed_asr_temporary_wav_is_removed_when_copy_fails() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("custody.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 48_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&source, spec).unwrap();
+        for _ in 0..8192 {
+            writer.write_sample(42_i16).unwrap();
+        }
+        writer.finalize().unwrap();
+        let reader = hound::WavReader::open(&source).unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&source)
+            .unwrap()
+            .set_len(44)
+            .unwrap();
+        let project = Uuid::new_v4().to_string();
+        let recording = Uuid::new_v4().to_string();
+        assert!(materialize_routed_asr_wav(root.path(), &project, &recording, reader).is_err());
+        let directory = root
+            .path()
+            .join(project)
+            .join("derived")
+            .join(recording)
+            .join("asr-tmp");
+        assert_eq!(std::fs::read_dir(directory).unwrap().count(), 0);
+    }
 
     #[test]
     #[ignore = "records default native system loopback; explicit isolated UAT only"]

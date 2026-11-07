@@ -176,7 +176,7 @@ test("route plans require one or two complete routes with v4 identifiers and bou
   const first = { ...workspace.createRoutedRouteDraft(), processId: 41, endpointId: "out-1", label: `  ${"x".repeat(80)}  ` };
   const second = { ...workspace.createRoutedRouteDraft(), processId: 41, endpointId: "out-2", label: " Second " };
   for (const drafts of [[first], [first, second]]) {
-    const plan = workspace.routePlanForDrafts(drafts, identities);
+    const plan = workspace.routePlanForDrafts(drafts, identities, { endpointId: "", sourceId: "" });
     assert.equal(plan.policyVersion, 1);
     assert.equal(plan.routes.length, drafts.length);
     for (const route of plan.routes) {
@@ -194,12 +194,26 @@ test("route plans require one or two complete routes with v4 identifiers and bou
   assert.equal(workspace.routePlanForDrafts([first], new Map()), null);
 });
 
+test("routed microphone plan and visible labels preserve the optional contract", () => {
+  const identity = { pid: 41, creationFiletime: "123", imagePath: "app", imageFileId: "1" };
+  const route = { ...workspace.createRoutedRouteDraft(), processId: 41, endpointId: "out", label: "Meeting" };
+  const identities = new Map([[41, identity]]);
+  const none = workspace.routePlanForDrafts([route], identities, { endpointId: "", sourceId: "" });
+  assert.equal(none.microphone, null);
+  const microphone = { endpointId: "input", sourceId: "mic-source" };
+  const selected = workspace.routePlanForDrafts([route], identities, microphone);
+  assert.deepEqual({ ...selected.microphone }, { ...microphone, label: "ไมโครโฟน" });
+  assert.match(workspaceSource, /<option value="">ไม่บันทึกไมโครโฟน<\/option>/);
+  assert.match(workspaceSource, /source\.kind === "microphone" \? "ไมโครโฟน"/);
+  assert.equal(contracts.ROUTE_ERROR_MESSAGES.MicrophoneUnavailable, "ไม่พบไมโครโฟนที่เลือก หรือไมโครโฟนไม่พร้อมใช้งาน");
+});
+
 test("route rejection messages match the native enum exactly", async () => {
   const rust = await readFile(new URL("../src-tauri/src/capture_routing.rs", import.meta.url), "utf8");
   const body = rust.match(/pub enum Rejection\s*\{([^}]*)\}/)?.[1];
   assert.ok(body, "native Rejection enum must exist");
   const variants = body.split(",").map((v) => v.trim()).filter(Boolean);
-  assert.equal(variants.length, 16);
+  assert.equal(variants.length, 17);
   assert.deepEqual(Object.keys(contracts.ROUTE_ERROR_MESSAGES).sort(), variants.sort());
   for (const variant of variants) assert.ok(contracts.ROUTE_ERROR_MESSAGES[variant].trim());
 });
@@ -249,7 +263,9 @@ test("route UI restricts choices, invalidates edits and disables competing start
   assert.match(workspaceSource, /disabled=\{isDefault \|\| usedInOtherRoute\}/);
   assert.match(workspaceSource, /activeRoutePlanKey && routeValidation && routeValidationPlanKey === activeRoutePlanKey/);
   assert.match(workspaceSource, /if \(applicationChanged \|\| endpointChanged\)\s*\{\s*try\s*\{\s*sourceId = crypto\.randomUUID\(\)/);
-  assert.match(workspaceSource, /invalidateRouteValidation\(\);\s*\};\s*\r?\n\s*const addRouteDraft/);
+  assert.match(workspaceSource, /const updateRouteDraft = \([\s\S]*?invalidateRouteValidation\(\);\s*\};/);
+  assert.match(workspaceSource, /const updateRoutedMicrophone = \([\s\S]*?invalidateRouteValidation\(\);\s*\};/);
+  assert.match(workspaceSource, /const addRouteDraft = \(/);
   assert.match(workspaceSource, /const captureBusy = running \|\| stopPending \|\| routedActive/);
   for (const tab of ["mic", "system", "application", "routed"]) {
     const tag = workspaceSource.match(new RegExp(`id="live-source-tab-${tab}"[\\s\\S]*?</button>`))?.[0];

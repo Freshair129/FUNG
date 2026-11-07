@@ -28,6 +28,7 @@ import type {
 } from "./lib/externalMeetingTools.ts";
 import { isPlaybackSourceCatalog } from "./components/desktop/contracts.ts";
 import type {
+  CaptureMicrophone,
   CaptureRoutePlan,
   PlaybackAction,
   PlaybackChannel,
@@ -45,6 +46,7 @@ import type {
 } from "./components/desktop/contracts.ts";
 
 export type {
+  CaptureMicrophone,
   CaptureRoutePlan,
   PlaybackAction,
   PlaybackChannel,

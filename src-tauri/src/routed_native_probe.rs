@@ -765,6 +765,7 @@ fn source_worker(input: SourceWorkerInput) -> SourceResult {
         events_tx,
         private.clone(),
         2000,
+        ticket.flow(),
         producer,
         ticket,
     ) {
@@ -1500,6 +1501,7 @@ fn owned_two_endpoint_exact_frame_custody_probe() -> R<()> {
                 let plan = routing::CaptureRoutePlan {
                     policy_version: c.plan.policy_version,
                     routes: vec![route.clone()],
+                    microphone: None,
                 };
                 let admission = owned_runtime_admission(&plan, &native_observer);
                 source_receipts.push(admission.receipt);
@@ -1542,6 +1544,7 @@ fn owned_two_endpoint_exact_frame_custody_probe() -> R<()> {
             let plan = routing::CaptureRoutePlan {
                 policy_version: c.plan.policy_version,
                 routes: vec![route.clone()],
+                microphone: None,
             };
             let admission = runtime_admission(&plan);
             guard_receipts.push(json!({"final":true,"source":admission.receipt}));
@@ -1790,11 +1793,13 @@ fn synthetic_runtime_fixture() -> (routing::CaptureRoutePlan, routing::NativeInv
                 application: app.clone(),
                 allowed_children: vec![],
             }],
+            microphone: None,
         },
         NativeInventory {
             captured_at_ms: 100,
             process_snapshot_cutoff_filetime: "1000".into(),
             endpoints: vec![selected, unrelated],
+            inputs: vec![],
             defaults: Observation::Known(DefaultRoles {
                 console: "default-c".into(),
                 multimedia: "default-m".into(),
@@ -1811,6 +1816,7 @@ fn synthetic_runtime_fixture() -> (routing::CaptureRoutePlan, routing::NativeInv
                 },
             ],
             errors: vec![],
+            input_errors: vec![],
         },
     )
 }

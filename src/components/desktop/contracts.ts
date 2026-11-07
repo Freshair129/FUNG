@@ -374,6 +374,13 @@ export type CaptureEndpoint = {
   sessions: NativeObservation<RouteSessionDescriptor[]>;
 };
 
+export type CaptureInputEndpoint = {
+  id: string;
+  name: NativeObservation<string>;
+  state: NativeObservation<EndpointState>;
+  mixFormat: NativeObservation<CaptureMixFormat>;
+};
+
 export type CaptureDefaultRoles = {
   console: string;
   multimedia: string;
@@ -389,9 +396,11 @@ export type NativeCaptureInventory = {
   capturedAtMs: number;
   processSnapshotCutoffFiletime: string;
   endpoints: CaptureEndpoint[];
+  inputs: CaptureInputEndpoint[];
   defaults: NativeObservation<CaptureDefaultRoles>;
   processes: CaptureProcessObservation[];
   errors: string[];
+  inputErrors: string[];
 };
 
 export type CaptureRoute = {
@@ -402,9 +411,16 @@ export type CaptureRoute = {
   allowedChildren: ApplicationIdentity[];
 };
 
+export type CaptureMicrophone = {
+  sourceId: string;
+  label: string;
+  endpointId: string;
+};
+
 export type CaptureRoutePlan = {
   policyVersion: 1;
   routes: CaptureRoute[];
+  microphone: CaptureMicrophone | null;
 };
 
 export type RouteReadiness = "waitingForTarget" | "armed";
@@ -412,14 +428,22 @@ export type RouteReadiness = "waitingForTarget" | "armed";
 export type ValidatedRoute = {
   sourceId: string;
   endpointId: string;
+  mixFormat: CaptureMixFormat;
   readiness: RouteReadiness;
   observedActiveSessionIds: string[];
+};
+
+export type ValidatedMicrophone = {
+  sourceId: string;
+  endpointId: string;
+  mixFormat: CaptureMixFormat;
 };
 
 export type ValidatedRoutePlan = {
   request: CaptureRoutePlan;
   validatedAtMs: number;
   routes: ValidatedRoute[];
+  microphone: ValidatedMicrophone | null;
 };
 
 // Rejection has no serde rename attribute in Rust, so these wire values retain
@@ -437,6 +461,7 @@ export type RouteErrorCode =
   | "AmbiguousEndpoint"
   | "DefaultEndpoint"
   | "EndpointInactive"
+  | "MicrophoneUnavailable"
   | "StaleProcess"
   | "InvalidChild"
   | "AmbiguousSession"
@@ -460,6 +485,7 @@ export const ROUTE_ERROR_MESSAGES: Readonly<Record<RouteErrorCode, string>> = {
   AmbiguousEndpoint: "พบอุปกรณ์เสียงที่เลือกมากกว่าหนึ่งรายการ",
   DefaultEndpoint: "เลือกอุปกรณ์เริ่มต้นของระบบไม่ได้ โปรดเลือกอุปกรณ์เฉพาะ",
   EndpointInactive: "อุปกรณ์เสียงที่เลือกไม่พร้อมใช้งาน",
+  MicrophoneUnavailable: "ไม่พบไมโครโฟนที่เลือก หรือไมโครโฟนไม่พร้อมใช้งาน",
   StaleProcess: "แอปที่เลือกเปลี่ยนไปแล้ว โปรดกดรีเฟรชและเลือกใหม่",
   InvalidChild: "ข้อมูลแอปย่อยไม่ถูกต้อง",
   AmbiguousSession: "ระบุเซสชันเสียงของแอปได้ไม่ชัดเจน",
@@ -469,6 +495,7 @@ export const ROUTE_ERROR_MESSAGES: Readonly<Record<RouteErrorCode, string>> = {
 export type RoutedSourceStatus = {
   sourceId: string;
   epoch: number;
+  kind: "endpoint" | "microphone";
   ready: boolean;
   nativeTerminated: boolean;
   drained: boolean;

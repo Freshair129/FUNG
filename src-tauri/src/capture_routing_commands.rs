@@ -58,7 +58,7 @@ pub(crate) async fn capture_route_start(
     project_id: String,
     plan: CaptureRoutePlan,
     state: tauri::State<'_, crate::AppState>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, capture_routing::RouteStartError> {
     #[cfg(windows)]
     {
         if state
@@ -98,6 +98,7 @@ pub(crate) async fn capture_route_start(
                     .map_err(|e| e.to_string())
                 },
             )
+            .map_err(capture_routing::RouteStartError::from)
         })
         .await
         .map_err(|e| format!("routed capture worker: {e}"))?

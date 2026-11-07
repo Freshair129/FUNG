@@ -58,6 +58,11 @@ type RoutedRouteDraft = {
   sourceId: string;
 };
 
+type RoutedMicrophoneDraft = {
+  endpointId: string;
+  sourceId: string;
+};
+
 function createRoutedRouteDraft(): RoutedRouteDraft {
   return {
     processId: null,
@@ -74,6 +79,7 @@ function knownObservation<T>(observation: NativeObservation<T> | null | undefine
 function routePlanForDrafts(
   drafts: RoutedRouteDraft[],
   identities: ReadonlyMap<number, ApplicationIdentity>,
+  microphoneDraft: RoutedMicrophoneDraft,
 ): CaptureRoutePlan | null {
   if (drafts.length < 1 || drafts.length > 2) return null;
   const routes: CaptureRoute[] = [];
@@ -89,7 +95,18 @@ function routePlanForDrafts(
       allowedChildren: [],
     });
   }
-  return { policyVersion: 1, routes };
+  if (microphoneDraft.endpointId && !microphoneDraft.sourceId) return null;
+  return {
+    policyVersion: 1,
+    routes,
+    microphone: microphoneDraft.endpointId
+      ? {
+        sourceId: microphoneDraft.sourceId,
+        label: "ไมโครโฟน",
+        endpointId: microphoneDraft.endpointId,
+      }
+      : null,
+  };
 }
 
 function routeErrorText(error: unknown): string {
@@ -127,6 +144,7 @@ function routedSourceState(source: RoutedCaptureStatus["sources"][number]): stri
   if (source.firstFailure) return `ล้มเหลว — ${source.firstFailure}`;
   if (source.drained) return "ระบายข้อมูลเสร็จแล้ว";
   if (source.ready) return "พร้อมบันทึก";
+  if (source.kind === "microphone") return "รอเสียงจากไมโครโฟน";
   return "รอให้แอปเริ่มเล่นเสียงผ่านอุปกรณ์นี้";
 }
 
@@ -150,7 +168,7 @@ function RoutedCaptureStatusView({
           const draft = drafts.find((row) => row.sourceId === source.sourceId);
           return (
             <p key={`${source.sourceId}:${source.epoch}`}>
-              <strong>{draft?.label.trim() || source.sourceId}</strong>
+              <strong>{source.kind === "microphone" ? "ไมโครโฟน" : draft?.label.trim() || source.sourceId}</strong>
               {" · "}{routedSourceState(source)}
               {" · เสียงที่บันทึกได้ "}{routedDuration(source)}
             </p>
@@ -459,6 +477,10 @@ export function LiveWorkspace({
   const [captureSourceMode, setCaptureSourceMode] = useState<CaptureSourceMode>("mic");
   const [applicationProcessId, setApplicationProcessId] = useState<number | null>(null);
   const [routeDrafts, setRouteDrafts] = useState<RoutedRouteDraft[]>([]);
+  const [routedMicrophone, setRoutedMicrophone] = useState<RoutedMicrophoneDraft>({
+    endpointId: "",
+    sourceId: "",
+  });
   const [routeInventory, setRouteInventory] = useState<NativeCaptureInventory | null>(null);
   const [routeInventoryLoading, setRouteInventoryLoading] = useState(false);
   const [routeInventoryError, setRouteInventoryError] = useState<string | null>(null);
@@ -857,9 +879,16 @@ export function LiveWorkspace({
   const routedEndpointOptions = (routeInventory?.endpoints ?? []).filter((endpoint) => (
     knownObservation(endpoint.state) === "active"
   ));
+  const routedInputOptions = (routeInventory?.inputs ?? []).filter((endpoint) => (
+    knownObservation(endpoint.state) === "active"
+  ));
+  const routedMicrophoneUnavailable = Boolean(
+    routedMicrophone.endpointId
+      && !routedInputOptions.some((endpoint) => endpoint.id === routedMicrophone.endpointId),
+  );
   const routeDefaultRoles: CaptureDefaultRoles | null = knownObservation(routeInventory?.defaults);
   const defaultEndpointIds = new Set(routeDefaultRoles ? Object.values(routeDefaultRoles) : []);
-  const activeRoutePlan = routePlanForDrafts(routeDrafts, routeIdentityByPid);
+  const activeRoutePlan = routePlanForDrafts(routeDrafts, routeIdentityByPid, routedMicrophone);
   const activeRoutePlanKey = activeRoutePlan ? JSON.stringify(activeRoutePlan) : null;
   const routePlanIsValidated = Boolean(
     activeRoutePlanKey && routeValidation && routeValidationPlanKey === activeRoutePlanKey,
@@ -927,6 +956,19 @@ export function LiveWorkspace({
       return next;
     }));
     invalidateRouteValidation();
+  };
+
+  const updateRoutedMicrophone = (endpointId: string) => {
+    if (endpointId === routedMicrophone.endpointId) return;
+    try {
+      setRoutedMicrophone({
+        endpointId,
+        sourceId: endpointId ? crypto.randomUUID() : "",
+      });
+      invalidateRouteValidation();
+    } catch {
+      setRouteError("เบราว์เซอร์นี้สร้างรหัสไมโครโฟนแบบ UUID ไม่ได้");
+    }
   };
 
   const addRouteDraft = () => {
@@ -1241,7 +1283,7 @@ export function LiveWorkspace({
                 {captureSourceMode === "routed" ? (
                   <div className="live-workspace__routed-setup">
                     <p className="live-workspace__muted">
-                      บันทึกเสียงของแอปผ่านอุปกรณ์เสียงที่แยกไว้ให้แอปนั้นโดยเฉพาะ ตั้งค่าใน Windows: การตั้งค่า &gt; ระบบ &gt; เสียง &gt; Volume mixer แล้วเลือกอุปกรณ์เอาต์พุตของแอปเป็นอุปกรณ์ที่เลือกด้านล่าง เสียงทุกอย่างที่ออกอุปกรณ์นั้นจะถูกบันทึก โหมดนี้ไม่บันทึกไมโครโฟน
+                      บันทึกเสียงของแอปผ่านอุปกรณ์เสียงที่แยกไว้ให้แอปนั้นโดยเฉพาะ ตั้งค่าใน Windows: การตั้งค่า &gt; ระบบ &gt; เสียง &gt; Volume mixer แล้วเลือกอุปกรณ์เอาต์พุตของแอปเป็นอุปกรณ์ที่เลือกด้านล่าง เสียงทุกอย่างที่ออกอุปกรณ์นั้นจะถูกบันทึก ไมโครโฟนจะบันทึกแยกเมื่อเลือกอุปกรณ์ด้านล่าง
                     </p>
                     {routeInventoryLoading ? (
                       <p className="live-workspace__muted" role="status">กำลังอ่านรายการแอปและอุปกรณ์เสียง…</p>
@@ -1254,6 +1296,30 @@ export function LiveWorkspace({
                         {error}
                       </p>
                     ))}
+                    {routeInventory?.inputErrors.map((error, index) => (
+                      <p key={`route-input-inventory-error-${index}`} className="live-workspace__device-issue" role="alert">
+                        {error}
+                      </p>
+                    ))}
+                    <label className="live-workspace__field live-workspace__field--stacked">
+                      <span>ไมโครโฟน</span>
+                      <select
+                        aria-label="ไมโครโฟน"
+                        value={routedMicrophone.endpointId}
+                        disabled={routeInventoryLoading || captureBusy || routeValidationLoading}
+                        onChange={(event) => updateRoutedMicrophone(event.target.value)}
+                      >
+                        <option value="">ไม่บันทึกไมโครโฟน</option>
+                        {routedMicrophoneUnavailable ? (
+                          <option value={routedMicrophone.endpointId} disabled>ไมโครโฟนเดิม — ไม่พร้อมใช้งาน</option>
+                        ) : null}
+                        {routedInputOptions.map((endpoint) => (
+                          <option key={endpoint.id} value={endpoint.id}>
+                            {knownObservation(endpoint.name) ?? endpoint.id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     {routeDrafts.map((draft, index) => {
                       const otherEndpointIds = new Set(routeDrafts
                         .filter((_, rowIndex) => rowIndex !== index)

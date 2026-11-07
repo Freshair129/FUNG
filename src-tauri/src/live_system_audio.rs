@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use crate::live_meeting::{
     flush_capture_tail, process_capture_sample_batch_with_gap_reason, CaptureEvent, CaptureReady,
-    CaptureSampleBatch, CHANNEL_SYSTEM,
+    CaptureSampleBatch, CHANNEL_MIC, CHANNEL_SYSTEM,
 };
 use windows::core::{Interface, PCWSTR};
 use windows::Win32::Media::Audio::*;
@@ -14,6 +14,64 @@ use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 
 const RATE: u64 = 48_000;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EndpointCaptureFlow {
+    RenderLoopback,
+    Capture,
+}
+
+#[derive(Clone, Copy)]
+struct EndpointCaptureConfig {
+    fragment_ms: u64,
+    flow: EndpointCaptureFlow,
+}
+
+impl EndpointCaptureFlow {
+    fn data_flow(self) -> EDataFlow {
+        match self {
+            Self::RenderLoopback => eRender,
+            Self::Capture => eCapture,
+        }
+    }
+
+    pub(crate) fn stream_flags(self) -> u32 {
+        let conversion =
+            AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
+        match self {
+            Self::RenderLoopback => conversion | AUDCLNT_STREAMFLAGS_LOOPBACK,
+            Self::Capture => conversion,
+        }
+    }
+
+    fn channel(self) -> &'static str {
+        match self {
+            Self::RenderLoopback => CHANNEL_SYSTEM,
+            Self::Capture => CHANNEL_MIC,
+        }
+    }
+
+    pub(crate) fn audit_name(self) -> &'static str {
+        match self {
+            Self::RenderLoopback => "renderLoopback",
+            Self::Capture => "capture",
+        }
+    }
+
+    fn thread_name(self) -> &'static str {
+        match self {
+            Self::RenderLoopback => "fung-endpoint-loopback",
+            Self::Capture => "fung-microphone-capture",
+        }
+    }
+
+    fn discontinuity_reason(self) -> &'static str {
+        match self {
+            Self::RenderLoopback => "system_loopback_discontinuity",
+            Self::Capture => "microphone_capture_discontinuity",
+        }
+    }
+}
 
 use crate::endpoint_packet_sink::{EndpointPacketProducer, PacketStamp};
 fn validate_sink_selection(
@@ -472,7 +530,18 @@ pub(crate) fn spawn_selected_endpoint_capture_thread(
     fragment_ms: u64,
     packet_sink: Option<EndpointPacketProducer>,
 ) -> Result<CaptureReady, String> {
-    spawn_endpoint_capture_thread(selection, stop, tx, root, fragment_ms, packet_sink, None)
+    spawn_endpoint_capture_thread(
+        selection,
+        stop,
+        tx,
+        root,
+        EndpointCaptureConfig {
+            fragment_ms,
+            flow: EndpointCaptureFlow::RenderLoopback,
+        },
+        packet_sink,
+        None,
+    )
 }
 
 pub(crate) fn spawn_owned_endpoint_capture_thread(
@@ -480,11 +549,15 @@ pub(crate) fn spawn_owned_endpoint_capture_thread(
     tx: mpsc::SyncSender<CaptureEvent>,
     root: PathBuf,
     fragment_ms: u64,
+    flow: EndpointCaptureFlow,
     producer: EndpointPacketProducer,
     ticket: crate::native_capture_group::PreparedCapture,
 ) -> Result<CaptureReady, String> {
     if producer.scope() != ticket.scope() {
         return Err("native ticket/sink scope mismatch".into());
+    }
+    if ticket.flow() != flow {
+        return Err("native ticket/capture flow mismatch".into());
     }
     let selection = EndpointSelection::ExactId(ticket.scope().endpoint_id().to_owned());
     spawn_endpoint_capture_thread(
@@ -492,7 +565,7 @@ pub(crate) fn spawn_owned_endpoint_capture_thread(
         stop,
         tx,
         root,
-        fragment_ms,
+        EndpointCaptureConfig { fragment_ms, flow },
         Some(producer),
         Some(ticket),
     )
@@ -503,7 +576,7 @@ fn spawn_endpoint_capture_thread(
     stop: Arc<AtomicBool>,
     tx: mpsc::SyncSender<CaptureEvent>,
     root: PathBuf,
-    fragment_ms: u64,
+    config: EndpointCaptureConfig,
     packet_sink: Option<EndpointPacketProducer>,
     ticket: Option<crate::native_capture_group::PreparedCapture>,
 ) -> Result<CaptureReady, String> {
@@ -512,13 +585,13 @@ fn spawn_endpoint_capture_thread(
         &packet_sink,
         ticket.as_ref().map(|ticket| ticket.scope()),
     )?;
-    if fragment_ms == 0 || fragment_ms > 60_000 {
+    if config.fragment_ms == 0 || config.fragment_ms > 60_000 {
         return Err("endpoint fragment duration outside supported bounds".into());
     }
     let (ready_tx, ready_rx) = mpsc::channel();
     let timeout_stop = stop.clone();
     std::thread::Builder::new()
-        .name("fung-endpoint-loopback".into())
+        .name(config.flow.thread_name().into())
         .spawn(move || {
             let mut readiness = Some(ready_tx);
             let result = capture_selected(
@@ -526,7 +599,8 @@ fn spawn_endpoint_capture_thread(
                 &stop,
                 &tx,
                 &root,
-                fragment_ms,
+                config.fragment_ms,
+                config.flow,
                 &mut readiness,
                 packet_sink,
                 ticket,
@@ -537,7 +611,7 @@ fn spawn_endpoint_capture_thread(
                     .unwrap_or_else(|| "endpoint capture stopped before start".into())));
             } else if let Err(error) = result {
                 let _ = tx.send(CaptureEvent::StreamFailed {
-                    channel: CHANNEL_SYSTEM,
+                    channel: config.flow.channel(),
                     error,
                     terminal: true,
                 });
@@ -559,6 +633,7 @@ fn capture_selected(
     tx: &mpsc::SyncSender<CaptureEvent>,
     root: &std::path::Path,
     fragment_ms: u64,
+    flow: EndpointCaptureFlow,
     readiness: &mut Option<mpsc::Sender<Result<CaptureReady, String>>>,
     mut packet_sink: Option<EndpointPacketProducer>,
     ticket: Option<crate::native_capture_group::PreparedCapture>,
@@ -569,6 +644,7 @@ fn capture_selected(
         tx,
         root,
         fragment_ms,
+        flow,
         readiness,
         &mut packet_sink,
         ticket,
@@ -588,6 +664,7 @@ fn capture_selected_inner(
     tx: &mpsc::SyncSender<CaptureEvent>,
     root: &std::path::Path,
     fragment_ms: u64,
+    flow: EndpointCaptureFlow,
     readiness: &mut Option<mpsc::Sender<Result<CaptureReady, String>>>,
     packet_sink: &mut Option<EndpointPacketProducer>,
     ticket: Option<crate::native_capture_group::PreparedCapture>,
@@ -618,9 +695,13 @@ fn capture_selected_inner(
         selection,
         |name| {
             // Preserve the legacy unique-friendly-name behavior, including errors.
+            let direction = match flow {
+                EndpointCaptureFlow::RenderLoopback => wasapi::Direction::Render,
+                EndpointCaptureFlow::Capture => wasapi::Direction::Capture,
+            };
             let collection = wasapi::DeviceEnumerator::new()
                 .map_err(|e| e.to_string())?
-                .get_device_collection(&wasapi::Direction::Render)
+                .get_device_collection(&direction)
                 .map_err(|e| e.to_string())?;
             let mut ids = Vec::new();
             for index in 0..collection.get_nbr_devices().map_err(|e| e.to_string())? {
@@ -647,9 +728,14 @@ fn capture_selected_inner(
     if win(unsafe { device.GetState() })? != DEVICE_STATE_ACTIVE {
         return Err("selected endpoint is not active".into());
     }
-    let flow: IMMEndpoint = win(device.cast())?;
-    if win(unsafe { flow.GetDataFlow() })? != eRender {
-        return Err("selected endpoint is not a render device".into());
+    let native_flow: IMMEndpoint = win(device.cast())?;
+    if win(unsafe { native_flow.GetDataFlow() })? != flow.data_flow() {
+        return Err(match flow {
+            EndpointCaptureFlow::RenderLoopback => {
+                "selected endpoint is not a render device".into()
+            }
+            EndpointCaptureFlow::Capture => "selected endpoint is not a capture device".into(),
+        });
     }
     let wrapper = wasapi::Device::from_immdevice(device.clone()).map_err(|e| e.to_string())?;
     if wrapper.get_id().map_err(|e| e.to_string())? != endpoint_id {
@@ -666,15 +752,15 @@ fn capture_selected_inner(
         wBitsPerSample: 16,
         cbSize: 0,
     };
+    let stream_flags = flow.stream_flags();
     let session_audit = if let Some(sink) = packet_sink.as_ref() {
         let audit = crate::native_capture_session_audit::NativeCaptureSessionAudit::initialize(
             &client,
             &device,
             sink.scope(),
+            flow,
             &format,
-            AUDCLNT_STREAMFLAGS_LOOPBACK
-                | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
-                | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+            stream_flags,
             20_000_000,
         )?;
         sink.record_capture_session_audit(audit.receipt()?)?;
@@ -683,9 +769,7 @@ fn capture_selected_inner(
         win(unsafe {
             client.Initialize(
                 AUDCLNT_SHAREMODE_SHARED,
-                AUDCLNT_STREAMFLAGS_LOOPBACK
-                    | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
-                    | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+                stream_flags,
                 20_000_000,
                 0,
                 &format,
@@ -699,7 +783,14 @@ fn capture_selected_inner(
     let buffer_frames = win(unsafe { client.GetBufferSize() })?;
     let buffer_duration_hns = u64::from(buffer_frames) * 10_000_000 / RATE;
     if buffer_duration_hns == 0 {
-        return Err("system loopback reported zero buffer capacity".into());
+        return Err(match flow {
+            EndpointCaptureFlow::RenderLoopback => {
+                "system loopback reported zero buffer capacity".into()
+            }
+            EndpointCaptureFlow::Capture => {
+                "microphone capture reported zero buffer capacity".into()
+            }
+        });
     }
     let max_future_hns = latency_hns.max(buffer_duration_hns);
     let mut frequency = 0;
@@ -845,7 +936,7 @@ fn capture_selected_inner(
                     |batch| {
                         process_capture_sample_batch_with_gap_reason(
                             batch,
-                            CHANNEL_SYSTEM,
+                            flow.channel(),
                             RATE as u32,
                             samples_per_chunk,
                             root,
@@ -855,7 +946,7 @@ fn capture_selected_inner(
                             &mut expected,
                             &mut sequence,
                             &mut level,
-                            "system_loopback_discontinuity",
+                            flow.discontinuity_reason(),
                         )
                     },
                 )?;
@@ -871,7 +962,7 @@ fn capture_selected_inner(
     // transferred ownership into the bounded sink, including a one-frame tail.
     if packet_sink.is_none() {
         flush_capture_tail(
-            CHANNEL_SYSTEM,
+            flow.channel(),
             RATE as u32,
             root,
             tx,
@@ -885,6 +976,20 @@ fn capture_selected_inner(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn microphone_and_loopback_stream_flags_preserve_flow() {
+        use super::*;
+        let capture = EndpointCaptureFlow::Capture.stream_flags();
+        let render = EndpointCaptureFlow::RenderLoopback.stream_flags();
+        assert_eq!(capture & AUDCLNT_STREAMFLAGS_LOOPBACK, 0);
+        assert_eq!(
+            render,
+            AUDCLNT_STREAMFLAGS_LOOPBACK
+                | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
+                | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY
+        );
+    }
+
     use super::*;
 
     #[test]

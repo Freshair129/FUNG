@@ -125,9 +125,12 @@ test("routed transcript labels flow from speaker records to the review", () => {
   const live = readFileSync("src-tauri/src/live_meeting.rs", "utf8");
   const native = readFileSync("src-tauri/src/lib.rs", "utf8");
   const review = readFileSync("src/components/desktop/RecordingReview.tsx", "utf8");
+  const speakerKey = live.slice(live.indexOf("fn routed_speaker_key"), live.indexOf("fn routed_worker_channel"));
   const publisher = live.slice(live.indexOf("impl RoutedTranscriptPublisher"), live.indexOf("/// Transcribes only completed"));
-  assert.match(publisher, /format!\("route:\{\}", source\.id\)/);
-  assert.match(publisher, /"display_name": source\.label/);
+  assert.match(speakerKey, /"microphone"\s*=>\s*Ok\("me"\.into\(\)\)/);
+  assert.match(speakerKey, /"endpoint"\s*=>\s*Ok\(format!\("route:\{\}", source\.id\)\)/);
+  assert.match(publisher, /let display_name = if source\.kind == "microphone"/);
+  assert.match(publisher, /"display_name": display_name/);
   assert.match(publisher, /"speaker_id": speaker_id/);
   assert.match(native, /speaker_names\.get\(id\)\.cloned\(\)/);
   assert.match(review, /segment\.speakerName\s*\?\?\s*segment\.speakerId/);

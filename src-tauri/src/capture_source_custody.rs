@@ -192,6 +192,30 @@ pub(crate) fn load_active_endpoint_registration(
     source: &str,
     epoch: i64,
 ) -> Result<CaptureSourceRegistration, String> {
+    load_active_registration(s, p, r, source, epoch, "endpoint")
+}
+
+pub(crate) fn load_active_microphone_registration(
+    s: &Storage,
+    p: &str,
+    r: &str,
+    source: &str,
+    epoch: i64,
+) -> Result<CaptureSourceRegistration, String> {
+    load_active_registration(s, p, r, source, epoch, "microphone")
+}
+
+fn load_active_registration(
+    s: &Storage,
+    p: &str,
+    r: &str,
+    source: &str,
+    epoch: i64,
+    expected_kind: &str,
+) -> Result<CaptureSourceRegistration, String> {
+    if !matches!(expected_kind, "endpoint" | "microphone") {
+        return Err("unsupported expected capture source kind".into());
+    }
     if epoch <= 0 {
         return Err("active source epoch must be positive".into());
     }
@@ -230,7 +254,7 @@ pub(crate) fn load_active_endpoint_registration(
             if registration_json != row["registration_json"]
                 || registration.id != source
                 || registration.epoch != epoch
-                || registration.kind != "endpoint"
+                || registration.kind != expected_kind
                 || registration
                     .endpoint_id
                     .as_deref()
@@ -286,6 +310,7 @@ pub fn register_capture_sources(
     }
     let mut ids = HashSet::new();
     let mut endpoints = HashSet::new();
+    let mut route_endpoints = HashSet::new();
     let mut mics = 0;
     for x in regs {
         uuid(&x.id)?;
@@ -309,7 +334,12 @@ pub fn register_capture_sources(
         match x.kind.as_str() {
             "microphone" => {
                 mics += 1;
-                if mics > 1 || x.endpoint_id.is_some() {
+                let id = x
+                    .endpoint_id
+                    .as_deref()
+                    .filter(|id| valid_endpoint_identity(id))
+                    .ok_or("missing microphone endpoint identity")?;
+                if mics > 1 || !endpoints.insert(id) {
                     return Err("invalid microphone registration".into());
                 }
             }
@@ -319,7 +349,8 @@ pub fn register_capture_sources(
                     .as_deref()
                     .filter(|id| valid_endpoint_identity(id))
                     .ok_or("missing endpoint identity")?;
-                if !endpoints.insert(id) || endpoints.len() > 2 {
+                if !endpoints.insert(id) || !route_endpoints.insert(id) || route_endpoints.len() > 2
+                {
                     return Err("duplicate or too many endpoints".into());
                 }
             }

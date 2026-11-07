@@ -25,6 +25,7 @@ attributes:
 | ทางเลือกทางสถาปัตยกรรมที่ตัดสินแล้ว | `decisions/` |
 | Architecture view | `architecture/` หรือ `Desktop/ARCHITECTURE.md` ตามขอบเขต |
 | Implementation plan | `plans/` |
+| Delivery roadmap และ backlog (milestone, gate, ลำดับงาน) | `delivery/ROADMAP.md`, `delivery/BACKLOG.md` |
 | Test, review, audit, UAT evidence | `verification/` |
 | Release note และ release gate | `releases/` |
 | Deploy, demo และ operational procedure | `operations/` |

@@ -73,8 +73,8 @@ Native contract (already on `main`, `src-tauri/src/capture_routing*.rs`,
 - `capture_route_inventory({ processIds?: number[] }) -> NativeInventory`.
   This returns endpoints with `state`, `mixFormat` and `sessions`, the default
   roles, and per-PID `ApplicationIdentity` observations. `Observation<T>` is
-  serialized as `{ known: T } | { unavailable: string }`. Verify the serde shape
-  in code before typing it.
+  serialized as `{ status: "known", value: T } | { status: "unavailable", value:
+  string }` (`#[serde(tag = "status", content = "value")]`).
 - `capture_route_validate({ plan }) -> ValidatedRoutePlan | RouteError`.
 - `capture_route_start({ projectId, plan }) -> RoutedCaptureStatus`.
 - `capture_route_status() -> RoutedCaptureStatus | null`.
@@ -83,11 +83,12 @@ Native contract (already on `main`, `src-tauri/src/capture_routing*.rs`,
   routes. `CaptureRoute = { sourceId (UUID v4), label, endpointId, application:
   ApplicationIdentity, allowedChildren: [] }`. The UI sends `allowedChildren: []`
   in v1.
-- `RouteError.code` is one of `policyVersion`, `routeCount`, `invalidSourceId`,
-  `duplicateSource`, `duplicateEndpoint`, `invalidInput`, `inventoryError`,
-  `staleInventory`, `missingEndpoint`, `ambiguousEndpoint`, `defaultEndpoint`,
-  `endpointInactive`, `staleProcess`, `invalidChild`, `ambiguousSession` or
-  `unknownSession`. Verify the exact serialized casing in code.
+- `RouteError.code` is one of the 16 `Rejection` variants, serialized in
+  PascalCase because the enum has no `rename_all`: `PolicyVersion`,
+  `RouteCount`, `InvalidSourceId`, `DuplicateSource`, `DuplicateEndpoint`,
+  `InvalidInput`, `InventoryError`, `StaleInventory`, `MissingEndpoint`,
+  `AmbiguousEndpoint`, `DefaultEndpoint`, `EndpointInactive`, `StaleProcess`,
+  `InvalidChild`, `AmbiguousSession` and `UnknownSession`.
 
 UI spec:
 
@@ -165,6 +166,13 @@ endpoint and an installed candidate. **Stop point:** the lead prepares the
 runbook and the candidate, and the owner runs or approves the session.
 
 ## Open gaps recorded
+
+- E2.3 (PID Archive badge) is stopped. Native writes `recording.source =
+  "microphone"` for selected-process recordings, and the PID appears only in an
+  audit event. A badge needs a stable recording-level marker, which requires a
+  native change and its own spec. Backlog B-15.
+- Routed status carries `sourceId` but no label. After a webview reload during
+  a routed recording, the UI can show only the source id.
 
 - Routed mode records no microphone. Meetings may need mic plus routed app
   audio. Decision needed after E3: either add a mic source to the routed

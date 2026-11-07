@@ -55,6 +55,22 @@ pub(crate) struct RoutedSourceStatus {
     pub(crate) accepted_packets: u64,
     pub(crate) private_orphans: Vec<String>,
     pub(crate) first_failure: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) timing_diagnostics: Option<RoutedSourceTimingDiagnostics>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RoutedSourceTimingDiagnostics {
+    pub(crate) spool_sync_count: u64,
+    pub(crate) spool_sync_total_us: u64,
+    pub(crate) spool_sync_max_us: u64,
+    pub(crate) chunk_attempts: u64,
+    pub(crate) write_finalize_max_us: u64,
+    pub(crate) fsync_max_us: u64,
+    pub(crate) hash_max_us: u64,
+    pub(crate) fence_wait_max_us: u64,
+    pub(crate) commit_max_us: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -548,7 +564,7 @@ pub(crate) fn start(
     start_rows(&storage, &project_id, &recording, &job, &session)?;
     let shared = Arc::new(Shared {
         status: Mutex::new(RoutedCaptureStatus { project_id:project_id.clone(), recording_id:recording.clone(), phase:"starting".into(), duration_ms:0,
-            sources:plan.routes.iter().map(|route| RoutedSourceStatus { source_id:route.source_id.clone(), epoch:1, ready:false,native_terminated:false,drained:false,durable_counts_known:false,durable_frames:0,durable_chunks:0,accepted_packets:0,private_orphans:vec![],first_failure:None }).collect(), first_failure:None,
+            sources:plan.routes.iter().map(|route| RoutedSourceStatus { source_id:route.source_id.clone(), epoch:1, ready:false,native_terminated:false,drained:false,durable_counts_known:false,durable_frames:0,durable_chunks:0,accepted_packets:0,private_orphans:vec![],first_failure:None,timing_diagnostics:None }).collect(), first_failure:None,
             warnings:vec!["Capture custody only; source-aware consumer UI, export, recovery and enrichment acceptance remain open.".into()] }),
         first:Mutex::new(state::FailureLedger::default()), armed: AtomicBool::new(false), cancel_requested:AtomicBool::new(false), stop:Arc::new(AtomicBool::new(false)),observer:Mutex::new(None),
     });
@@ -1931,7 +1947,17 @@ fn finish_source(
         }
     };
     let mut report = writer.finish();
-    lock(&shared.status).warnings.push(format!("source timing diagnostic: spool_sync_count={spool_sync_count} spool_sync_total_us={spool_sync_total_us} spool_sync_max_us={spool_sync_max_us} chunk_attempts={} write_finalize_max_us={} fsync_max_us={} hash_max_us={} fence_wait_max_us={} commit_max_us={}", report.timing.chunk_attempts, report.timing.write_finalize_max_us, report.timing.fsync_max_us, report.timing.hash_max_us, report.timing.fence_wait_max_us, report.timing.commit_max_us));
+    let timing_diagnostics = RoutedSourceTimingDiagnostics {
+        spool_sync_count,
+        spool_sync_total_us,
+        spool_sync_max_us,
+        chunk_attempts: report.timing.chunk_attempts,
+        write_finalize_max_us: report.timing.write_finalize_max_us,
+        fsync_max_us: report.timing.fsync_max_us,
+        hash_max_us: report.timing.hash_max_us,
+        fence_wait_max_us: report.timing.fence_wait_max_us,
+        commit_max_us: report.timing.commit_max_us,
+    };
     if let Some(failure) = &report.first_failure {
         shared.fail(Some(&reg.id), &failure.detail);
     }
@@ -1966,6 +1992,7 @@ fn finish_source(
         .iter_mut()
         .find(|source| source.source_id == reg.id)
     {
+        status.timing_diagnostics = Some(timing_diagnostics);
         status.native_terminated = native_terminated;
         status.drained = report.drained;
         status.durable_counts_known = report.durable_counts_known;

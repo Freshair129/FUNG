@@ -1,7 +1,7 @@
 ---
 version: "0.1.0"
 created_at: "2026-11-01"
-last_update: "2026-11-01"
+last_update: "2026-11-07"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -52,11 +52,16 @@ recovery, or the remaining PID/sustained endpoint gates.
 No filename-based adoption, silence synthesis, device operation, merge or release
 is authorized by this plan. A refusal is not evidence of successful recovery.
 
-The current candidate retains at most 1,024 source file handles through its
-commit. With three sources and two-second chunks this covers approximately
-11 minutes 23 seconds. Larger recordings are refused, not recovered by splitting
-or dropping the integrity fence; the existing playback descriptor bound is not a
-recovery capacity claim.
+Recovery retains each verified deny-write source file handle through the single
+expected-frontier commit. The bounded maximum is derived from three sources and
+the 24-hour `MAX_MS` duration at two-second chunks:
+`3 * ceil(86,400,000 / 2,000) = 129,600` simultaneous file handles (43,200 per
+source, including its final partial chunk). The same cap bounds source-export
+file locks; those paths retain bare `File` handles after dropping WAV readers
+and their 64 KiB buffers. This is the custody window for one atomic commit, not
+a claim that the operating system cannot independently exhaust its handle
+resources; any such failure remains closed and never publishes an unverified
+recovery or export.
 
 For newly started routed capture, the private accepted-packet spool is stored
 under `diagnostics/routed/<recording>/sources/<source>/epoch-<epoch>` within

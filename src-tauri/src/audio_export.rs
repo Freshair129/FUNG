@@ -145,7 +145,7 @@ fn reuse_routed_exports(
     }
     let canonical_root = std::fs::canonicalize(export_root).map_err(|e| e.to_string())?;
     let mut handles = Vec::new();
-    let mut held_sources = Vec::new();
+    let mut held_source_files = Vec::new();
     let mut pinned_parents = Vec::new();
     let mut exports = Vec::new();
     for (source, item) in manifest.sources.iter().zip(existing) {
@@ -153,6 +153,11 @@ fn reuse_routed_exports(
         // Verify the current source bytes as well as the cached output; a
         // stable metadata hash alone cannot detect on-disk replacement.
         for chunk in &source.chunks {
+            if held_source_files.len()
+                >= crate::capture_source_custody::MAX_CAPTURE_SOURCE_FILE_HANDLES
+            {
+                return Err("source export file handle limit".into());
+            }
             let reader = media::open_verified_chunk(
                 storage,
                 data_root,
@@ -165,7 +170,7 @@ fn reuse_routed_exports(
             if !lease.is_available() {
                 return Err("source export revoked".into());
             }
-            held_sources.push(reader);
+            held_source_files.push(reader.into_inner().into_inner());
         }
         let path = PathBuf::from(path);
         let parent = path.parent().ok_or("source export path missing parent")?;
@@ -392,6 +397,11 @@ where
                 if c.start_frame != expected_frame || c.end_frame <= c.start_frame {
                     return Err("source export has unproven or missing coverage".into());
                 }
+                if held_source_files.len()
+                    >= crate::capture_source_custody::MAX_CAPTURE_SOURCE_FILE_HANDLES
+                {
+                    return Err("source export file handle limit".into());
+                }
                 let mut reader = media::open_verified_chunk(
                     storage,
                     data_root,
@@ -417,7 +427,7 @@ where
                         .write_sample(sample.map_err(|e| e.to_string())?)
                         .map_err(|e| e.to_string())?;
                 }
-                held_sources.push(reader);
+                held_source_files.push(reader.into_inner().into_inner());
                 expected_frame = c.end_frame;
             }
             if expected_frame <= 0

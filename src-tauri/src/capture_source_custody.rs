@@ -43,6 +43,10 @@ use std::{
     path::Path,
 };
 const MAX_MS: i64 = 24 * 60 * 60 * 1000;
+const CAPTURE_SOURCE_CHUNK_WIDTH_MS: i64 = 2_000;
+pub(crate) const MAX_CAPTURE_SOURCE_COUNT: usize = 3;
+pub(crate) const MAX_CAPTURE_SOURCE_FILE_HANDLES: usize = MAX_CAPTURE_SOURCE_COUNT
+    * ((MAX_MS + CAPTURE_SOURCE_CHUNK_WIDTH_MS - 1) / CAPTURE_SOURCE_CHUNK_WIDTH_MS) as usize;
 const MAX_CHUNK_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Process-local serialization for quarantine, recovery and export publication.
@@ -736,7 +740,7 @@ fn validate_capture_source_records(
     };
     if !permitted_status
         || sources.is_empty()
-        || sources.len() > 3
+        || sources.len() > MAX_CAPTURE_SOURCE_COUNT
         || sources.iter().any(|v| {
             let state = v["state"].as_str().unwrap_or("");
             let allowed = if recovery {
@@ -834,7 +838,7 @@ fn validate_capture_source_records(
                 {
                     return Err("source time mapping changed".into());
                 }
-                if handles.len() >= 1024 {
+                if handles.len() >= MAX_CAPTURE_SOURCE_FILE_HANDLES {
                     return Err("recovery file handle limit".into());
                 }
                 let (verified_bytes, handle) = verify_file_held(project, r, &reg, &c, trusted_root)

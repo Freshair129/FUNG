@@ -593,18 +593,29 @@ type PlaybackIdentity = PlaybackExpectation & {
 
 type PlaybackAdoptionOffer = { generation: number; token: string };
 
-// Only confirmed, owner-issued handles enter this map. Native ownership remains
-// authoritative; this local map fences mismatched status/control responses.
+// Only acknowledged, owner-issued handles enter this map. Native ownership
+// remains authoritative; this local map fences status/control responses.
 const playbackIdentities = new Map<string, PlaybackIdentity>();
 const PLAYBACK_HEARTBEAT_INTERVAL_MS = 2_000;
+const PLAYBACK_TERMINAL_HEARTBEAT_CODES = new Set([
+  "PLAYBACK_HANDLE_INVALID",
+  "PLAYBACK_LEASE_EXPIRED",
+  "PLAYBACK_ADOPTION_EXPIRED",
+  "PLAYBACK_ADOPTION_REQUIRED",
+]);
 let playbackHeartbeatTimer: number | null = null;
 
 export class PlaybackCloseUnconfirmedError extends Error {
   readonly code = "PLAYBACK_CLOSE_UNCONFIRMED";
-  readonly retryable = true;
+  readonly retryable: boolean;
+  readonly closeRetryable: boolean;
   readonly handle: string;
-  constructor(handle: string) {
-    super("ยังยืนยันการปิดเครื่องเล่นไม่ได้ โปรดลองปิดอีกครั้ง");
+  constructor(handle: string, closeRetryable = true) {
+    super(closeRetryable
+      ? "ยังยืนยันการปิดเครื่องเล่นไม่ได้ โปรดลองปิดอีกครั้ง"
+      : "ยืนยันการรับเครื่องเล่นไม่ได้ ระบบจะปิดเซสชันเมื่อสิทธิ์หมดอายุ");
+    this.retryable = closeRetryable;
+    this.closeRetryable = closeRetryable;
     this.handle = handle;
     this.name = "PlaybackCloseUnconfirmedError";
   }
@@ -652,7 +663,6 @@ async function acceptPlaybackOpen(
     adoptionToken: adoption.token,
     acknowledged: false,
   };
-  playbackIdentities.set(value.handle, adoptedIdentity);
   try {
     const receipt = await invoke<{ adopted?: boolean }>("desktop_playback_adopt", {
       handle: value.handle,
@@ -661,7 +671,8 @@ async function acceptPlaybackOpen(
     if (receipt?.adopted !== true) throw new Error("PLAYBACK_ADOPTION_UNCONFIRMED");
     playbackIdentities.set(value.handle, { ...adoptedIdentity, acknowledged: true });
   } catch {
-    throw new PlaybackCloseUnconfirmedError(value.handle);
+    playbackIdentities.delete(value.handle);
+    throw new PlaybackCloseUnconfirmedError(value.handle, false);
   }
   const { adoption: _adoption, ...state } = value as PlaybackState & { adoption: PlaybackAdoptionOffer };
   return state;
@@ -747,10 +758,19 @@ export async function closePlayback(handle: string): Promise<PlaybackCloseAcknow
 export async function heartbeatPlaybackSessions(): Promise<void> {
   for (const [handle, identity] of playbackIdentities) {
     if (!identity.acknowledged) continue;
-    await invoke("desktop_playback_heartbeat", {
-      handle,
-      lease: { generation: identity.generation, token: identity.adoptionToken },
-    });
+    try {
+      await invoke("desktop_playback_heartbeat", {
+        handle,
+        lease: { generation: identity.generation, token: identity.adoptionToken },
+      });
+    } catch (error) {
+      const code = sourceRecord(error)?.code;
+      if (typeof code === "string"
+        && PLAYBACK_TERMINAL_HEARTBEAT_CODES.has(code)
+        && playbackIdentities.get(handle) === identity) {
+        playbackIdentities.delete(handle);
+      }
+    }
   }
 }
 

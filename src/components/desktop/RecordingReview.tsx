@@ -984,7 +984,7 @@ export class RecordingReviewController {
       }));
       return state;
     } catch (error: unknown) {
-      if (error instanceof PlaybackCloseUnconfirmedError) {
+      if (error instanceof PlaybackCloseUnconfirmedError && error.closeRetryable) {
         // The native close did not acknowledge completion. Keep the opaque
         // handle available to the existing explicit close/retry path.
         this.failedCloseCustody.set(error.handle, identity);
@@ -995,7 +995,7 @@ export class RecordingReviewController {
         !sameReviewIdentity(this.playerIdentity, identity);
       if (!stale) {
         const normalized = error instanceof PlaybackCloseUnconfirmedError
-          ? { code: "PLAYBACK_CLOSE_UNCONFIRMED" as const, message: error.message, retryable: true }
+          ? { code: "PLAYBACK_CLOSE_UNCONFIRMED" as const, message: error.message, retryable: error.retryable }
           : normalizeReviewError(error);
         this.playerHandle = null;
         this.playerIdentity = null;

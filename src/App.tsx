@@ -32,6 +32,7 @@ import {
   type CloseReviewPlayer,
   type DesktopSurface,
   type ReadState,
+  type RecordingKey,
   type ReviewError,
   type ThemeChoice,
 } from "./components/desktop/contracts";
@@ -298,6 +299,15 @@ export function App() {
     return liveController.stopAndLeave();
   }, [liveController]);
 
+  const handleRoutedCaptureStopped = useCallback((selection: RecordingKey) => {
+    if (!projects.some((project) => project.id === selection.projectId)) return;
+    setMeetingIntelligenceOpen(false);
+    setSelectedRecording(selection.projectId);
+    setReviewSelection(selection);
+    setActionNotice("บันทึกเสียงแล้ว · การถอดความสำหรับโหมดนี้ยังไม่พร้อม");
+    setActiveSurface("review");
+  }, [projects]);
+
   const handleStopCapture = useCallback(async () => {
     try {
       await stopAndLeave();
@@ -502,6 +512,7 @@ export function App() {
                 setActiveSurface("home");
               }}
               projectId={selectedProjectId}
+              onRoutedCaptureStopped={handleRoutedCaptureStopped}
               visible={activeSurface === "live"}
               closeReviewPlayer={closeReviewPlayer}
               onControllerChange={handleLiveControllerChange}

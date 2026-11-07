@@ -43,6 +43,19 @@ globalThis.window = { __TAURI_INTERNALS__: { invoke: mockInvoke } };
 const api = await import("../src/tauri.ts");
 
 const pairA1 = { projectId: "project-a", recordingId: "recording-a1" };
+
+test("routed bridge sends the exact validation and project-scoped start plans and stops without transcription", async () => {
+  resetIpc();
+  const plan = { policyVersion: 1, routes: [{ sourceId: "d6d5ff64-c80e-4dd6-a4de-5d7f9f0caea2", label: "Meeting", endpointId: "device-1", application: { pid: 41, creationFiletime: "123", imagePath: "C:\\app.exe", imageFileId: "0000000000000001" }, allowedChildren: [] }] };
+  await api.captureRouteValidate(plan);
+  await api.captureRouteStart("project-a", plan);
+  await api.captureRouteStop();
+  assert.deepEqual(calls, [
+    { command: "capture_route_validate", args: { plan } },
+    { command: "capture_route_start", args: { projectId: "project-a", plan } },
+    { command: "capture_route_stop", args: {} },
+  ]);
+});
 const pairB3 = { projectId: "project-b", recordingId: "recording-b3" };
 
 const recordingA1 = {

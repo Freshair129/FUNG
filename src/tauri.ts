@@ -28,29 +28,37 @@ import type {
 } from "./lib/externalMeetingTools.ts";
 import { isPlaybackSourceCatalog } from "./components/desktop/contracts.ts";
 import type {
+  CaptureRoutePlan,
   PlaybackAction,
   PlaybackChannel,
   PlaybackCloseAcknowledgement,
   PlaybackState,
   PlaybackSource,
+  NativeCaptureInventory,
+  RoutedCaptureStatus,
   RecordingAnswer,
   RecordingListRelease,
   RecordingPage,
   RecordingRow,
   ReviewError,
+  ValidatedRoutePlan,
 } from "./components/desktop/contracts.ts";
 
 export type {
+  CaptureRoutePlan,
   PlaybackAction,
   PlaybackChannel,
   PlaybackCloseAcknowledgement,
   PlaybackState,
   PlaybackSource,
+  NativeCaptureInventory,
+  RoutedCaptureStatus,
   RecordingAnswer,
   RecordingListRelease,
   RecordingPage,
   RecordingRow,
   ReviewError,
+  ValidatedRoutePlan,
 } from "./components/desktop/contracts.ts";
 
 export type Health = {
@@ -1181,6 +1189,34 @@ export { EMPTY_MEETING_SUMMARIES } from "./lib/meetingSummaries.ts";
 export async function liveCaptureDevices(): Promise<LiveCaptureDevices> {
   if (!canInvoke()) throw new Error("รายการอุปกรณ์บันทึกต้องรันในแอปเดสก์ท็อป");
   return invoke<LiveCaptureDevices>("live_capture_devices");
+}
+
+export async function captureRouteInventory(processIds?: number[]): Promise<NativeCaptureInventory> {
+  if (!canInvoke()) throw new Error("รายการเส้นทางเสียงต้องรันในแอปเดสก์ท็อป");
+  return invoke<NativeCaptureInventory>("capture_route_inventory", { processIds: processIds ?? null });
+}
+
+export async function captureRouteValidate(plan: CaptureRoutePlan): Promise<ValidatedRoutePlan> {
+  if (!canInvoke()) throw new Error("การตรวจเส้นทางเสียงต้องรันในแอปเดสก์ท็อป");
+  return invoke<ValidatedRoutePlan>("capture_route_validate", { plan });
+}
+
+export async function captureRouteStart(
+  projectId: string,
+  plan: CaptureRoutePlan,
+): Promise<RoutedCaptureStatus> {
+  if (!canInvoke()) throw new Error("การบันทึกผ่านอุปกรณ์เฉพาะต้องรันในแอปเดสก์ท็อป");
+  return invoke<RoutedCaptureStatus>("capture_route_start", { projectId, plan });
+}
+
+export async function captureRouteStatus(): Promise<RoutedCaptureStatus | null> {
+  if (!canInvoke()) return null;
+  return invoke<RoutedCaptureStatus | null>("capture_route_status");
+}
+
+export async function captureRouteStop(): Promise<RoutedCaptureStatus> {
+  if (!canInvoke()) throw new Error("การหยุดบันทึกผ่านอุปกรณ์เฉพาะต้องรันในแอปเดสก์ท็อป");
+  return invoke<RoutedCaptureStatus>("capture_route_stop");
 }
 
 export async function liveMeetingStart(options?: {

@@ -333,6 +333,174 @@ export type LiveStartOptions = {
   applicationProcessId?: number;
 };
 
+/** Native Observation<T> is tagged with `status` and carries its payload in `value`. */
+export type NativeObservation<T> =
+  | { status: "known"; value: T }
+  | { status: "unavailable"; value: string };
+
+export type ApplicationIdentity = {
+  pid: number;
+  parentPid: number;
+  creationFiletime: string;
+  imagePath: string;
+  imageVolumeSerial: number;
+  imageFileId: string;
+};
+
+export type EndpointState = "active" | "disabled" | "notPresent" | "unplugged" | { unknown: number };
+export type RouteSessionState = "active" | "inactive" | "expired";
+export type RouteSessionOwner =
+  | { singleProcess: ApplicationIdentity }
+  | { ambiguous: { pid: number; hresult: number; reason: string } };
+
+export type RouteSessionDescriptor = {
+  instanceId: NativeObservation<string>;
+  state: NativeObservation<RouteSessionState>;
+  owner: NativeObservation<RouteSessionOwner>;
+};
+
+export type CaptureMixFormat = {
+  rate: number;
+  channels: number;
+  bits: number;
+  sampleType: string;
+};
+
+export type CaptureEndpoint = {
+  id: string;
+  name: NativeObservation<string>;
+  state: NativeObservation<EndpointState>;
+  mixFormat: NativeObservation<CaptureMixFormat>;
+  sessions: NativeObservation<RouteSessionDescriptor[]>;
+};
+
+export type CaptureDefaultRoles = {
+  console: string;
+  multimedia: string;
+  communications: string;
+};
+
+export type CaptureProcessObservation = {
+  pid: number;
+  identity: NativeObservation<ApplicationIdentity>;
+};
+
+export type NativeCaptureInventory = {
+  capturedAtMs: number;
+  processSnapshotCutoffFiletime: string;
+  endpoints: CaptureEndpoint[];
+  defaults: NativeObservation<CaptureDefaultRoles>;
+  processes: CaptureProcessObservation[];
+  errors: string[];
+};
+
+export type CaptureRoute = {
+  sourceId: string;
+  label: string;
+  endpointId: string;
+  application: ApplicationIdentity;
+  allowedChildren: ApplicationIdentity[];
+};
+
+export type CaptureRoutePlan = {
+  policyVersion: 1;
+  routes: CaptureRoute[];
+};
+
+export type RouteReadiness = "waitingForTarget" | "armed";
+
+export type ValidatedRoute = {
+  sourceId: string;
+  endpointId: string;
+  readiness: RouteReadiness;
+  observedActiveSessionIds: string[];
+};
+
+export type ValidatedRoutePlan = {
+  request: CaptureRoutePlan;
+  validatedAtMs: number;
+  routes: ValidatedRoute[];
+};
+
+// Rejection has no serde rename attribute in Rust, so these wire values retain
+// the enum's PascalCase variant names.
+export type RouteErrorCode =
+  | "PolicyVersion"
+  | "RouteCount"
+  | "InvalidSourceId"
+  | "DuplicateSource"
+  | "DuplicateEndpoint"
+  | "InvalidInput"
+  | "InventoryError"
+  | "StaleInventory"
+  | "MissingEndpoint"
+  | "AmbiguousEndpoint"
+  | "DefaultEndpoint"
+  | "EndpointInactive"
+  | "StaleProcess"
+  | "InvalidChild"
+  | "AmbiguousSession"
+  | "UnknownSession";
+
+export type CaptureRouteError = {
+  code: RouteErrorCode;
+  message: string;
+};
+
+export const ROUTE_ERROR_MESSAGES: Readonly<Record<RouteErrorCode, string>> = {
+  PolicyVersion: "รุ่นนโยบายเส้นทางไม่รองรับ",
+  RouteCount: "เส้นทางต้องมี 1–2 รายการ",
+  InvalidSourceId: "รหัสเส้นทางไม่ถูกต้อง",
+  DuplicateSource: "พบรหัสเส้นทางซ้ำ",
+  DuplicateEndpoint: "เลือกอุปกรณ์เดียวกันซ้ำไม่ได้",
+  InvalidInput: "ข้อมูลเส้นทางไม่ถูกต้อง",
+  InventoryError: "อ่านรายการอุปกรณ์หรือแอปไม่สำเร็จ",
+  StaleInventory: "รายการอุปกรณ์เปลี่ยนแล้ว โปรดกดรีเฟรชและตรวจอีกครั้ง",
+  MissingEndpoint: "ไม่พบอุปกรณ์เสียงที่เลือก",
+  AmbiguousEndpoint: "พบอุปกรณ์เสียงที่เลือกมากกว่าหนึ่งรายการ",
+  DefaultEndpoint: "เลือกอุปกรณ์เริ่มต้นของระบบไม่ได้ โปรดเลือกอุปกรณ์เฉพาะ",
+  EndpointInactive: "อุปกรณ์เสียงที่เลือกไม่พร้อมใช้งาน",
+  StaleProcess: "แอปที่เลือกเปลี่ยนไปแล้ว โปรดกดรีเฟรชและเลือกใหม่",
+  InvalidChild: "ข้อมูลแอปย่อยไม่ถูกต้อง",
+  AmbiguousSession: "ระบุเซสชันเสียงของแอปได้ไม่ชัดเจน",
+  UnknownSession: "ยังไม่ทราบสถานะเซสชันเสียงของแอป",
+};
+
+export type RoutedSourceStatus = {
+  sourceId: string;
+  epoch: number;
+  ready: boolean;
+  nativeTerminated: boolean;
+  drained: boolean;
+  durableCountsKnown: boolean;
+  durableFrames: number;
+  durableChunks: number;
+  acceptedPackets: number;
+  privateOrphans: string[];
+  firstFailure: string | null;
+  timingDiagnostics?: {
+    spoolSyncCount: number;
+    spoolSyncTotalUs: number;
+    spoolSyncMaxUs: number;
+    chunkAttempts: number;
+    writeFinalizeMaxUs: number;
+    fsyncMaxUs: number;
+    hashMaxUs: number;
+    fenceWaitMaxUs: number;
+    commitMaxUs: number;
+  };
+};
+
+export type RoutedCaptureStatus = {
+  projectId: string;
+  recordingId: string;
+  phase: string;
+  durationMs: number;
+  sources: RoutedSourceStatus[];
+  firstFailure: string | null;
+  warnings: string[];
+};
+
 export type CapabilityState = {
   available: boolean;
   reasonCode: string | null;
@@ -434,7 +602,7 @@ export type LiveWorkspaceProps = {
   liveAudioLevels: Readonly<{ mic: LiveAudioLevelSample | null; system: LiveAudioLevelSample | null }>;
   captureDevicesLoading: boolean;
   captureDevicesError: string | null;
-  refreshCaptureDevices: () => void | Promise<void>;
+  refreshCaptureDevices: () => Promise<LiveCaptureDevices | null>;
   segmentFeed: readonly LiveSegmentEvent[];
   topic: ReadState<LiveTopicEvent>;
   summaries: ReadState<MeetingSummaries>;

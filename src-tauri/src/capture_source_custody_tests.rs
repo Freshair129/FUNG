@@ -4,14 +4,15 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::sync::Arc;
 
-#[test]
-fn capture_handle_limit_covers_full_duration_for_all_sources() {
+// Compile-time guard: the recovery/export handle bound must cover a full
+// MAX_MS recording (2 s chunks) for every source, and exceed the former 1024.
+const _: () = {
     let chunks_per_source = (MAX_MS + 2_000 - 1) / 2_000;
     assert!(
         MAX_CAPTURE_SOURCE_FILE_HANDLES >= MAX_CAPTURE_SOURCE_COUNT * chunks_per_source as usize
     );
     assert!(MAX_CAPTURE_SOURCE_FILE_HANDLES > 1024);
-}
+};
 
 #[test]
 fn quarantine_waits_for_publication_custody_gate() {

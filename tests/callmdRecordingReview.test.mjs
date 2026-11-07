@@ -1004,6 +1004,20 @@ test("unconfirmed invalid-open cleanup retains the handle for an explicit retry"
   controller.dispose();
 });
 
+test("failed adoption does not offer close retry custody", async () => {
+  const { PlaybackCloseUnconfirmedError } = await import(tauriUrl);
+  const { bridge, calls } = createBridge({
+    openPlayback: () => Promise.reject(new PlaybackCloseUnconfirmedError("unadopted", false)),
+  });
+  const controller = await loadedController(bridge, A);
+  await assert.rejects(() => controller.openPlayback(A, "mic"), (error) =>
+    error.retryable === false && error.closeRetryable === false);
+  assert.equal(controller.snapshot.playback.error.retryable, false);
+  assert.deepEqual(await controller.closePlayer(), { closed: true });
+  assert.equal(calls.close.includes("unadopted"), false);
+  controller.dispose();
+});
+
 test("an unresolved open blocks close acknowledgement and stale close stays retryable", async () => {
   const pending = deferred();
   let allowClose = false;

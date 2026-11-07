@@ -10,6 +10,7 @@ const adoptionOffer = (state, generation = 1, token = "native-adoption-token") =
 globalThis.window = { __TAURI_INTERNALS__: { invoke: async (command, args = {}) => {
   calls.push({ command, args });
   const reply = replies.get(command);
+  if (typeof reply === "function") return reply(args);
   if (reply instanceof Error) throw reply;
   if (command === "desktop_playback_close" && reply === undefined) return { closed: true };
   return reply;
@@ -134,21 +135,56 @@ test("status and control reject changed source identity or handle", async () => 
   });
 });
 
-test("lost adoption acknowledgement retains exact handle identity for retryable close", async () => {
+test("failed adoption removes identity and cannot be retried as a close", async () => {
   calls.length = 0;
-  const state = { handle: "needs-close", projectId: "p", recordingId: "r", channel: "source", source: { sourceId: "s", captureEpoch: 1 }, state: "paused", positionMs: 0, durationMs: 1, streamEpoch: 0, degraded: false, missingRanges: [], outputLatencyMs: null, error: null };
+  const state = { handle: "needs-close", projectId: "p", recordingId: "r", channel: "source", source: { sourceId: "s", captureEpoch: 1 } };
   replies.set("desktop_playback_open_source", adoptionOffer(state, 4, "needs-close-token"));
   replies.set("desktop_playback_adopt", new Error("ack lost"));
-  replies.set("desktop_playback_close", new Error("native close failed"));
-  await assert.rejects(api.openSourcePlayback("p", "r", "s", 1), (error) => error.code === "PLAYBACK_CLOSE_UNCONFIRMED" && error.handle === "needs-close");
+  await assert.rejects(api.openSourcePlayback("p", "r", "s", 1), (error) =>
+    error.code === "PLAYBACK_CLOSE_UNCONFIRMED" && error.handle === "needs-close" &&
+    error.retryable === false && error.closeRetryable === false);
   await api.heartbeatPlaybackSessions();
-  assert.deepEqual(calls.slice(0, 2).map(({ command }) => command), ["desktop_playback_open_source", "desktop_playback_adopt"]);
-  assert.equal(calls.some(({ command, args }) => command === "desktop_playback_heartbeat" && args.handle === "needs-close"), false);
-  await assert.rejects(api.closePlayback("needs-close"), /native close failed/);
-  assert.deepEqual(calls.at(-1), {
-    command: "desktop_playback_close",
-    args: { handle: "needs-close", lease: { generation: 4, token: "needs-close-token" } },
+  await assert.rejects(api.closePlayback("needs-close"), /INVALID_PLAYBACK_SOURCE_METADATA/);
+  assert.equal(calls.some(({ command, args }) =>
+    (command === "desktop_playback_heartbeat" || command === "desktop_playback_close") && args.handle === "needs-close"), false);
+});
+
+test("heartbeat continues after a non-terminal failure and retains the identity", async () => {
+  const handles = ["batch-first", "batch-second", "batch-third"];
+  replies.set("desktop_playback_adopt", { adopted: true });
+  for (const handle of handles) {
+    replies.set("desktop_playback_open", adoptionOffer({ handle, projectId: "p", recordingId: "r", channel: "mic" }));
+    await api.openPlayback("p", "r", "mic");
+  }
+  replies.set("desktop_playback_heartbeat", ({ handle }) => {
+    if (handle === handles[0]) throw new Error("temporary failure");
   });
+  calls.length = 0;
+  await api.heartbeatPlaybackSessions();
+  assert.deepEqual(calls.filter(({ command, args }) => command === "desktop_playback_heartbeat" && handles.includes(args.handle)).map(({ args }) => args.handle), handles);
+  calls.length = 0;
+  await api.heartbeatPlaybackSessions();
+  assert.ok(calls.some(({ command, args }) => command === "desktop_playback_heartbeat" && args.handle === handles[0]));
+  replies.delete("desktop_playback_heartbeat");
+  for (const handle of handles) await api.closePlayback(handle);
+});
+
+test("terminal heartbeat removes identity and later ticks skip it", async () => {
+  const handle = "expired-heartbeat";
+  replies.set("desktop_playback_open", adoptionOffer({ handle, projectId: "p", recordingId: "r", channel: "mic" }));
+  replies.set("desktop_playback_adopt", { adopted: true });
+  await api.openPlayback("p", "r", "mic");
+  replies.set("desktop_playback_heartbeat", (args) => {
+    if (args.handle === handle) throw Object.assign(new Error("expired"), { code: "PLAYBACK_LEASE_EXPIRED" });
+  });
+  calls.length = 0;
+  await api.heartbeatPlaybackSessions();
+  assert.ok(calls.some((call) => call.command === "desktop_playback_heartbeat" && call.args.handle === handle));
+  calls.length = 0;
+  await api.heartbeatPlaybackSessions();
+  assert.equal(calls.some((call) => call.command === "desktop_playback_heartbeat" && call.args.handle === handle), false);
+  await assert.rejects(api.closePlayback(handle), /INVALID_PLAYBACK_SOURCE_METADATA/);
+  replies.delete("desktop_playback_heartbeat");
 });
 
 test("legacy source null is accepted for backwards-compatible serde Option", async () => {

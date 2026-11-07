@@ -1151,7 +1151,23 @@ fn exercise_packet_panic(stage: &'static str, expect_complete: bool) {
     assert!(drained.summary.is_some());
     let pcm_path = spool.pcm_path.clone();
     let metadata_path = spool.metadata_path.clone();
+    let expected_sync_count = drained.spool_sync_count;
+    let expected_sync_total = drained.spool_sync_total_us;
     let report = finish_source(&reg, writer, spool, drained, &shared);
+    {
+        let status = lock(&shared.status);
+        let timing = status.sources[0].timing_diagnostics.as_ref().unwrap();
+        assert_eq!(timing.spool_sync_count, expected_sync_count);
+        assert_eq!(timing.spool_sync_total_us, expected_sync_total);
+        assert!(!status
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("spool_sync")
+                || warning.contains("write_finalize")
+                || warning.contains("fsync_max")));
+        let serialized = serde_json::to_value(&*status).unwrap();
+        assert!(serialized["sources"][0]["timingDiagnostics"].is_object());
+    }
     let bytes = fs::read(&pcm_path).unwrap();
     let pcm = bytes
         .as_chunks::<2>()

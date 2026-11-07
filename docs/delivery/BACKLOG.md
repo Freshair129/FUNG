@@ -1,5 +1,5 @@
 ---
-version: "0.1.1b"
+version: "0.1.2b"
 created_at: "2026-11-07"
 last_update: "2026-11-07"
 status: "beta"
@@ -34,9 +34,9 @@ project owner, for decisions, hardware sessions and release actions.
 | B-03 | P0 | E3 + E3-G: Live endpoint-routing UI and fail-closed legacy job guard | Codex/Lead | 1 | Done 2026-11-07 (PR #102, afb2f85) | — | [E3](../plans/2026-11-07-endpoint-first-release-plan.md) |
 | B-04 | P0 | Decide mic capture in routed mode | Owner | decision | Decided 2026-11-07: include mic (delegated to lead) | B-03 | [Open gaps](../plans/2026-11-07-endpoint-first-release-plan.md) |
 | B-05 | P0 | E4: transcription for routed recordings (spec, code, tests) | Lead → Codex | 2–3 | Done 2026-11-07 (PR #103) | B-03, B-04 | [E4](../plans/2026-11-07-endpoint-first-release-plan.md) |
-| B-06 | P0 | E6: routed mic integration | Codex/Lead | 1–3 | Spec next | B-04 | — |
-| B-07 | P0 | Build installed candidate and write the E5 runbook | Lead/Codex | 0.5 | — | B-02, B-03, B-05 | [Routing Task 4](../plans/2026-10-25-dedicated-endpoint-routing-plan.md) |
-| B-08 | P0 | E5: installed endpoint acceptance session | Owner + Lead | 1–2 | — | B-07 | same |
+| B-06 | P0 | E6: routed mic integration | Codex/Lead | 1–3 | Done 2026-11-08 (PR #104, e7608d0) | B-04 | — |
+| B-07 | P0 | Build installed candidate and write the E5 runbook | Lead/Codex | 0.5 | Done 2026-11-08: candidate from e7608d0, [runbook](../plans/2026-11-08-e5-installed-endpoint-acceptance-runbook.md) | B-02, B-03, B-05 | [Routing Task 4](../plans/2026-10-25-dedicated-endpoint-routing-plan.md) |
+| B-08 | P0 | E5: installed endpoint acceptance session | Owner + Lead | 1–2 | Ready for owner session | B-07 | same |
 | B-09 | P0 | #94 installed delayed-playback alignment retest | Owner + Lead | 0.5 | Open | B-07 | Issue #94 |
 | B-10 | P1 | #79 standalone transcription through durable restart | Codex/Lead | 0.5–1 | Open | B-07 | Issue #79 |
 | B-11 | P1 | #81 shell layout / nested scroll native visual check | Codex (Terra) | 0.5 | Open | B-07 | Issue #81 |
@@ -71,5 +71,6 @@ Critical path: B-03 → B-04 → B-05 → B-07 → B-08 → B-14.
 
 | Version | Date | Summary | Agent |
 | --- | --- | --- | --- |
+| 0.1.2b | 2026-11-08 | B-06 done; B-07 candidate and E5 runbook done; B-08 ready. | Claude (lead) |
 | 0.1.1b | 2026-11-07 | B-02, B-03, B-05 done; B-06 spec next. | Claude (lead) |
 | 0.1.0b | 2026-11-07 | First consolidated backlog for M1 (v0.1.2 endpoint-first), maintenance, M2+. | Claude (lead) |

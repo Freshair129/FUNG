@@ -1,7 +1,7 @@
 ---
-version: "1.2.0b"
+version: "1.2.1b"
 created_at: "2026-07-05T00:00:00+07:00,ATHER"
-last_update: "2026-10-16,Codex"
+last_update: "2026-10-27"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -243,6 +243,26 @@ evidence before changing application storage or activating external services.
 - Owns native window, menu, file picker, microphone permission, filesystem access, and secure command bridge.
 - Does not perform heavy AI work inside UI thread.
 
+#### Native capture authority — bounded implementation checkpoint
+
+The Windows routed coordinator derives project/source bindings from real
+GenesisBlockDB Storage. An internal native group factory admits all routes before
+any reader starts; the actual client and capture service remain owned on their
+MTA. Runtime observers carry revocable weak state, not serialized authority.
+Only the exact live owned instance is infrastructure; it cannot arm a renderer.
+Stop revokes before native teardown, and completion waits for source termination,
+drain, durable custody and fresh final per-source checks. Legacy cleanup cannot
+release another owner's capture guard.
+
+Native Tauri inventory/validate/start/status/stop is implemented; no new HTTP/LAN
+capture-control surface is added. Existing media consumers reject unsupported
+routed/pending records. Source-aware Live/MCP, recovery/export and successful
+installed audio capture remain gated. The
+[verification checkpoint](../verification/implementation-reports/2026-10-27-runtime-guard-package-qualification.md)
+distinguishes reviewed source, 855 library passes/12 ignored and actual installed
+negative/reopen checks from still-open endpoint **and** PID acceptance. Audit
+receipts or a pure validated route cannot mint native client lifetime authority.
+
 ### Local API
 
 - Single local control plane for UI, CLI, and MCP.
@@ -405,6 +425,7 @@ microphones still need anonymous diarization/review.
 
 | Version | Change |
 | --- | --- |
+| 1.2.1b | Added the bounded implemented native capture ownership/custody boundary and Tauri-only execution scope, retaining source-aware consumer and both installed audio gates. |
 | 1.2.0b | Added the three-layer document/knowledge ownership map, current storage and retrieval evidence, identity/citation/trust boundaries and remaining decisions; reconciled the local M1–M5 status pointer. |
 | 1.1.1b | Clarified the bounded R3 native SI/D8 AccountCommitFence implementation exception without promoting the broader D1–D13 meeting-intelligence contracts to implementation. |
 | 1.1.0b | Added candidate live-transcript, knowledge, Google Meet agent and governed external gateway boundaries while retaining Genesis authority. |
@@ -415,6 +436,7 @@ microphones still need anonymous diarization/review.
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---------|------|--------|---------|-------------|-------|
+| 1.2.1b | 2026-10-27 | candidate | Recorded reviewed native-owned routed capture and separate installed negative/reopen evidence; no audio acceptance, architecture-wide adoption or release claim. | see Git history | Codex |
 | 1.2.0b | 2026-10-16 | candidate | Reviewed Source of Truth, Retrieval and Intelligence ownership; distinguished existing Genesis/files/Supabase behavior from proposed RustFS/GKS/index lifecycle. Documentation review only; no runtime verification. | working-tree | Codex (Astra review) |
 | 1.1.1b | 2026-09-23 | candidate | Clarified current bounded R3 AccountCommitFence evidence versus the still-candidate D1–D13 capability surface. | working-tree | RWANG |
 | 1.1.0b | 2026-09-21 | candidate | Added candidate live-transcript, knowledge, Google Meet agent and governed external gateway boundaries while retaining Genesis authority. | working-tree | RWANG |

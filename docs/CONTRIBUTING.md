@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1"
 created_at: "2026-10-19"
-last_update: "2026-10-19"
+last_update: "2026-11-01"
 status: "beta"
 superseded_by: null
 attributes:
@@ -87,6 +87,19 @@ attributes:
 - **Runbook:** prerequisite, ordered steps, expected result, recovery/rollback และเจ้าของระบบ.
 
 ## การเปลี่ยนเอกสาร
+
+### Incident / RCA records
+
+ใช้ [ADR: Incident/RCA records](decisions/2026-11-01-incident-rca-records.md) สำหรับรายงานใหม่:
+
+- [Incident register/template](verification/incidents/README.md) เป็นเจ้าของ Symptoms, impact, timeline และ response.
+- [RCA register/template](verification/rca/README.md) อ้าง Symptom ID และเป็นเจ้าของ findings, hypotheses, evidence และ corrective/preventive actions.
+- เพิ่ม stable `id`, `title`, `aliases`, namespaced `tags`, `relations`, `ownership`, `annotations` และแยก document status ออกจาก incident/investigation/root-cause status.
+- ตรวจ ID ไม่ซ้ำ, relation/annotation targets และ evidence refs resolve ได้, relative paths/anchors ถูกต้อง, และลงทะเบียนใน index. Templates ใช้ `id: null` ไม่ใช่รายการจริง.
+- อ้างหลักฐานเดิมโดยไม่ย้ายหรือแก้ byte ของ artifacts; machine-local paths ต้องติดป้ายและบันทึก verified hash เมื่อมี. Unknown dates/owners ใช้ null พร้อมเหตุผล.
+- การอนุมัติ ADR/เอกสารไม่ใช่การผ่าน runtime/release gates. ไม่ retrofit รายงานเก่าทั้ง repo หรือเพิ่ม doc-graph.
+
+### General changes
 
 1. อัปเดตเอกสารเจ้าของและ index ใน commit เดียวกัน.
 2. ระบุ current-state truth กับ target/proposal ให้แยกกัน.

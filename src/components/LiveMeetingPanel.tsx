@@ -1120,6 +1120,7 @@ export function LiveMeetingPanel({
     options: {
       projectId?: string;
       captureSystem?: boolean;
+      captureMicrophone?: boolean;
       language?: string;
       transcriptProfile?: "chunked" | "revisioned";
       micDeviceId?: string;
@@ -1135,6 +1136,7 @@ export function LiveMeetingPanel({
         () => liveMeetingStart({
           projectId: options.projectId ?? projectId ?? undefined,
           captureSystem: options.captureSystem ?? false,
+          captureMicrophone: options.captureMicrophone,
           language: options.language,
           transcriptProfile: options.transcriptProfile,
           micDeviceId: options.micDeviceId,

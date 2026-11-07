@@ -1,3 +1,20 @@
+pub mod capture_source_custody;
+pub mod capture_source_writer;
+mod completed_source_media;
+#[cfg(windows)]
+mod native_capture_group;
+#[cfg(windows)]
+mod native_capture_session_audit;
+#[cfg(windows)]
+mod routed_capture;
+mod routed_media_access;
+#[cfg(all(test, windows))]
+#[path = "routed_native_probe.rs"]
+mod routed_native_probe;
+mod routed_playback_ring;
+mod routed_source_commands;
+mod scoped_fs;
+mod source_playback_lease;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -22,12 +39,17 @@ mod auth_session;
 mod backup;
 mod backup_archive;
 mod backup_payload;
+/// Read-only route inventory/admission shared by native and developer adapters.
+pub mod capture_routing;
+mod capture_routing_commands;
 mod cloud_commands;
 mod cloud_config;
 mod cloud_executor;
 mod desktop_playback;
 mod device_identity;
 mod diarization;
+/// Trusted in-process private PCM seam; no capture IPC is registered.
+pub mod endpoint_packet_sink;
 mod external_mcp;
 mod external_mcp_commands;
 mod external_mcp_transport;
@@ -962,10 +984,21 @@ fn desktop_window_hide_to_tray(app: tauri::AppHandle) -> Result<(), String> {
         return Err("The system tray is unavailable; FUNG remains visible.".to_string());
     }
 
-    app.get_webview_window("main")
-        .ok_or_else(|| "The FUNG desktop window is unavailable.".to_string())?
-        .hide()
-        .map_err(|error| format!("Could not hide FUNG to the system tray: {error}"))
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "The FUNG desktop window is unavailable.".to_string())?;
+    if let Some(state) = app.try_state::<AppState>() {
+        state.playback.set_hidden_to_tray(true);
+    }
+    match window.hide() {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            if let Some(state) = app.try_state::<AppState>() {
+                state.playback.set_hidden_to_tray(false);
+            }
+            Err(format!("Could not hide FUNG to the system tray: {error}"))
+        }
+    }
 }
 
 struct DesktopTrayAvailability(std::sync::atomic::AtomicBool);
@@ -1050,7 +1083,7 @@ pub(crate) struct AppState {
     pub(crate) recording_output: Arc<Mutex<recording_output::RecordingOutputManager>>,
     pub(crate) genesis: Arc<genesis_block_native::Storage>,
     pub(crate) genesis_path: PathBuf,
-    shutdown_started: AtomicBool,
+    shutdown_started: Arc<AtomicBool>,
     genesis_checkpoint_started: AtomicBool,
     pub(crate) meeting_owner_session: Mutex<Option<genesis_adapter::NativeOwnerUnlockSession>>,
     pub(crate) meeting_intelligence:
@@ -1060,6 +1093,8 @@ pub(crate) struct AppState {
     pub(crate) mobile_gateway: Mutex<Option<mobile::MobileGatewayControl>>,
     pub(crate) fungwire: Mutex<Option<fungwire_server::FungwireServerControl>>,
     pub(crate) live: Arc<Mutex<Option<live_meeting::LiveSessionControl>>>,
+    #[cfg(windows)]
+    pub(crate) routed_live: Arc<Mutex<Option<routed_capture::RoutedCaptureHandle>>>,
     pub(crate) review_registry: Mutex<recording_review::ReviewRegistry>,
     pub(crate) playback: desktop_playback::PlaybackManager,
     pub(crate) native_capture: Arc<recording_review::NativeCaptureGuard>,
@@ -1718,7 +1753,7 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         jobs: job_engine::JobEngine::new(Arc::clone(&genesis)),
         genesis,
         genesis_path,
-        shutdown_started: AtomicBool::new(false),
+        shutdown_started: Arc::new(AtomicBool::new(false)),
         genesis_checkpoint_started: AtomicBool::new(false),
         meeting_owner_session: Mutex::new(None),
         meeting_intelligence: Mutex::new(
@@ -1729,6 +1764,8 @@ fn app_state(app: &tauri::App) -> AppResult<AppState> {
         mobile_gateway: Mutex::new(None),
         fungwire: Mutex::new(None),
         live: Arc::new(Mutex::new(None)),
+        #[cfg(windows)]
+        routed_live: Arc::new(Mutex::new(None)),
         review_registry: Mutex::new(recording_review::ReviewRegistry::default()),
         playback: desktop_playback::PlaybackManager::new(),
         native_capture: Arc::new(recording_review::NativeCaptureGuard::default()),
@@ -5364,9 +5401,16 @@ fn recovery_scan(state: State<'_, AppState>) -> AppResult<recovery::RecoveryRepo
 /// ledger, and what text was produced for it.
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RecoveredRecording {
-    adopted: recovery::RecoveryOutcome,
-    transcript: live_meeting::GapFillOutcome,
+#[serde(untagged)]
+pub(crate) enum RecoveredRecording {
+    Legacy {
+        adopted: recovery::RecoveryOutcome,
+        transcript: live_meeting::GapFillOutcome,
+    },
+    Routed {
+        routed: recovery::RoutedRecoveryOutcome,
+        transcript: live_meeting::GapFillOutcome,
+    },
 }
 
 /// Adopts a recording's orphaned audio into the ledger, then transcribes
@@ -5385,7 +5429,28 @@ async fn recovery_recover(
 ) -> AppResult<RecoveredRecording> {
     let storage = Arc::clone(&state.genesis);
     let runtime = state.whisper_runtime_clone();
+    let recovery_guard = Arc::clone(&state.native_capture);
+    let recovery_data_root = state.data_root.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let _reservation = recording_review::NativeCaptureGuard::reserve_capture(recovery_guard)
+            .map_err(|_| AppError::InvalidInput("หยุดการบันทึกและการเล่นเสียงก่อนกู้คืน".into()))?;
+        let record =
+            genesis_adapter::capture(&storage, &recording_id).map_err(AppError::Genesis)?;
+        if matches!(
+            record.source.as_str(),
+            "routed_endpoint" | "routed_endpoint_pending"
+        ) {
+            let routed =
+                recovery::recover_routed_recording(&storage, &recovery_data_root, &recording_id)
+                    .map_err(AppError::Genesis)?;
+            return Ok(RecoveredRecording::Routed {
+                routed,
+                transcript: live_meeting::GapFillOutcome {
+                    skipped_reason: Some("ยังไม่ได้ตรวจข้อความของแต่ละแหล่งเสียงหลังการกู้คืน".into()),
+                    ..Default::default()
+                },
+            });
+        }
         let adopted =
             recovery::recover_recording(&storage, &recording_id).map_err(AppError::Genesis)?;
         let project_id = genesis_adapter::capture(&storage, &recording_id)
@@ -5398,7 +5463,7 @@ async fn recovery_recover(
             &project_id,
             &recording_id,
         );
-        Ok(RecoveredRecording {
+        Ok(RecoveredRecording::Legacy {
             adopted,
             transcript,
         })
@@ -7061,6 +7126,10 @@ fn shutdown_native_state(state: &AppState) {
     // Stop accepting MCP work and drain authenticated requests before any
     // capture/job shutdown or Genesis checkpoint begins.
     product_mcp::shutdown(&state.product_mcp);
+    #[cfg(windows)]
+    let routed_quiescent = capture_routing_commands::shutdown_routed_capture(state);
+    #[cfg(not(windows))]
+    let routed_quiescent = true;
     live_meeting::shutdown(state);
     state.playback.shutdown();
     state
@@ -7069,6 +7138,10 @@ fn shutdown_native_state(state: &AppState) {
         .expect("review registry mutex poisoned")
         .clear();
     state.jobs.shutdown_and_wait();
+    if !routed_quiescent {
+        eprintln!("[storage] orderly checkpoint deferred: routed capture termination unproven");
+        return;
+    }
     match checkpoint_genesis_once(&state.genesis, &state.genesis_checkpoint_started) {
         Ok(true) => eprintln!(
             "[storage] Genesis shutdown checkpoint completed at frontier {}",
@@ -7133,7 +7206,11 @@ pub fn run() {
                             }
                         );
                         if should_show {
-                            if let Some(window) = tray.app_handle().get_webview_window("main") {
+                            let app = tray.app_handle();
+                            if let Some(state) = app.try_state::<AppState>() {
+                                state.playback.set_hidden_to_tray(false);
+                            }
+                            if let Some(window) = app.get_webview_window("main") {
                                 let _ = window.show();
                                 let _ = window.unminimize();
                                 let _ = window.set_focus();
@@ -7265,6 +7342,11 @@ pub fn run() {
             recording_output::recording_output_get,
             recording_output::recording_output_set,
             recording_output::recording_output_reset,
+            capture_routing_commands::capture_route_inventory,
+            capture_routing_commands::capture_route_validate,
+            capture_routing_commands::capture_route_start,
+            capture_routing_commands::capture_route_status,
+            capture_routing_commands::capture_route_stop,
             live_meeting::live_capture_devices,
             live_meeting::live_meeting_start,
             live_meeting::live_meeting_stop,
@@ -7277,6 +7359,10 @@ pub fn run() {
             meeting_intel::meeting_summaries,
             meeting_intel::generate_meeting_summary,
             desktop_playback::desktop_playback_open,
+            desktop_playback::desktop_playback_open_source,
+            routed_source_commands::desktop_playback_sources,
+            desktop_playback::desktop_playback_adopt,
+            desktop_playback::desktop_playback_heartbeat,
             desktop_playback::desktop_playback_control,
             desktop_playback::desktop_playback_status,
             desktop_playback::desktop_playback_close,

@@ -448,6 +448,14 @@ function createBridge(overrides = {}) {
       }
       return playback({ projectId, recordingId }, "handle-" + recordingId);
     },
+    async listPlaybackSources(projectId, recordingId) {
+      if (overrides.listPlaybackSources) return overrides.listPlaybackSources(projectId, recordingId);
+      return [];
+    },
+    async openSourcePlayback(projectId, recordingId, sourceId, captureEpoch) {
+      if (overrides.openSourcePlayback) return overrides.openSourcePlayback(projectId, recordingId, sourceId, captureEpoch);
+      throw new Error("source playback not configured");
+    },
     async controlPlayback(handle, expectedEpoch, action, positionMs) {
       calls.control.push({ handle, expectedEpoch, action, positionMs });
       if (overrides.controlPlayback) {
@@ -979,4 +987,233 @@ test("the source keeps browser/native boundaries explicit and exposes no autopla
   assert.match(sourceText, /registerRecoveryRefresh/);
   assert.match(sourceText, /refreshRecovered/);
   assert.equal(PLAYBACK_POLL_INTERVAL_MS, 250);
+});
+
+test("unconfirmed invalid-open cleanup retains the handle for an explicit retry", async () => {
+  const { PlaybackCloseUnconfirmedError } = await import(tauriUrl);
+  const { bridge, calls } = createBridge({
+    openPlayback: () => Promise.reject(new PlaybackCloseUnconfirmedError("orphan-handle")),
+    closePlayback: () => Promise.resolve({ closed: true }),
+  });
+  const controller = await loadedController(bridge, A);
+  await assert.rejects(() => controller.openPlayback(A, "mic"), (error) => error.code === "PLAYBACK_CLOSE_UNCONFIRMED");
+  assert.equal(controller.snapshot.playback.error.code, "PLAYBACK_CLOSE_UNCONFIRMED");
+  assert.equal(Object.hasOwn(controller.snapshot.playback.error, "handle"), false);
+  assert.deepEqual(await controller.closePlayer(), { closed: true });
+  assert.equal(calls.close.at(-1), "orphan-handle");
+  controller.dispose();
+});
+
+test("failed adoption does not offer close retry custody", async () => {
+  const { PlaybackCloseUnconfirmedError } = await import(tauriUrl);
+  const { bridge, calls } = createBridge({
+    openPlayback: () => Promise.reject(new PlaybackCloseUnconfirmedError("unadopted", false)),
+  });
+  const controller = await loadedController(bridge, A);
+  await assert.rejects(() => controller.openPlayback(A, "mic"), (error) =>
+    error.retryable === false && error.closeRetryable === false);
+  assert.equal(controller.snapshot.playback.error.retryable, false);
+  assert.deepEqual(await controller.closePlayer(), { closed: true });
+  assert.equal(calls.close.includes("unadopted"), false);
+  controller.dispose();
+});
+
+test("an unresolved open blocks close acknowledgement and stale close stays retryable", async () => {
+  const pending = deferred();
+  let allowClose = false;
+  const { bridge, calls } = createBridge({
+    openPlayback: () => pending.promise,
+    closePlayback: () => Promise.resolve({ closed: allowClose }),
+  });
+  const controller = await loadedController(bridge, A);
+  const opening = controller.openPlayback(A, "mic");
+  await settle();
+  assert.deepEqual(await controller.closePlayer(), { closed: false });
+  pending.resolve(playback(A, "late-held", "paused", 0, 0));
+  await assert.rejects(opening, (error) => error?.code === "PLAYBACK_STALE_EPOCH");
+  await settle();
+  assert.ok(calls.close.includes("late-held"));
+  assert.deepEqual(await controller.closePlayer(), { closed: false });
+  allowClose = true;
+  assert.deepEqual(await controller.closePlayer(), { closed: true });
+  assert.ok(calls.close.filter((handle) => handle === "late-held").length >= 2);
+  controller.dispose();
+});
+
+test("unconfirmed open prevents admitting a second open", async () => {
+  const pending = deferred();
+  const { PlaybackCloseUnconfirmedError } = await import(tauriUrl);
+  let attempt = 0;
+  let allowClose = false;
+  const { bridge, calls } = createBridge({
+    openPlayback: () => { attempt += 1; return attempt === 1 ? pending.promise : Promise.reject(new PlaybackCloseUnconfirmedError("second-held")); },
+    closePlayback: () => Promise.resolve({ closed: allowClose }),
+  });
+  const controller = await loadedController(bridge, A);
+  const first = controller.openPlayback(A, "mic");
+  await settle();
+  assert.deepEqual(await controller.closePlayer(), { closed: false });
+  pending.reject(new PlaybackCloseUnconfirmedError("first-held"));
+  await assert.rejects(first);
+  await assert.rejects(() => controller.openPlayback(A, "mic"));
+  assert.ok(calls.close.includes("first-held"));
+  // No second open was admitted while the first owner was unconfirmed.
+  assert.equal(attempt, 1);
+  allowClose = true;
+  assert.deepEqual(await controller.closePlayer(), { closed: true });
+  controller.dispose();
+});
+
+
+test("late unconfirmed open after dispose remains retryable by remounted controller", async () => {
+  const pending = deferred();
+  const { PlaybackCloseUnconfirmedError } = await import(tauriUrl);
+  const { bridge, calls } = createBridge({
+    openPlayback: () => pending.promise,
+    closePlayback: () => Promise.resolve({ closed: true }),
+  });
+  const first = await loadedController(bridge, A);
+  const opening = first.openPlayback(A, "mic");
+  await settle();
+  first.dispose();
+  const next = await loadedController(bridge, A);
+  assert.deepEqual(await next.closePlayer(), { closed: false });
+  pending.reject(new PlaybackCloseUnconfirmedError("late-unmounted"));
+  await assert.rejects(opening);
+  assert.deepEqual(await next.closePlayer(), { closed: true });
+  assert.ok(calls.close.includes("late-unmounted"));
+  next.dispose();
+});
+
+test("overlapping stale cleanup and explicit retry retain custody until one receipt", async () => {
+  const pendingOpen = deferred();
+  const firstClose = deferred();
+  let count = 0;
+  const { bridge } = createBridge({
+    openPlayback: () => pendingOpen.promise,
+    closePlayback: () => { count += 1; return count === 1 ? firstClose.promise : Promise.resolve({ closed: false }); },
+  });
+  const controller = await loadedController(bridge, A);
+  const opening = controller.openPlayback(A, "mic");
+  await settle();
+  assert.deepEqual(await controller.closePlayer(), { closed: false });
+  pendingOpen.resolve(playback(A, "late-concurrent", "paused", 0, 0));
+  await assert.rejects(opening, (error) => error?.code === "PLAYBACK_STALE_EPOCH");
+  assert.deepEqual(await controller.closePlayer(), { closed: false });
+  firstClose.resolve({ closed: true });
+  await settle();
+  assert.deepEqual(await controller.closePlayer(), { closed: true });
+  controller.dispose();
+});
+
+test("hung stale close survives remount and a later retry can confirm cleanup", async () => {
+  const pendingOpen = deferred();
+  const hungClose = deferred();
+  let closeAttempts = 0;
+  const { bridge, calls } = createBridge({
+    openPlayback: () => pendingOpen.promise,
+    closePlayback: () => {
+      closeAttempts += 1;
+      return closeAttempts === 1 ? hungClose.promise : Promise.resolve({ closed: closeAttempts >= 3 });
+    },
+  });
+  const first = await loadedController(bridge, A);
+  const opening = first.openPlayback(A, "mic");
+  await settle();
+  assert.deepEqual(await first.closePlayer(), { closed: false });
+  pendingOpen.resolve(playback(A, "hung-close", "paused", 0, 0));
+  await assert.rejects(opening, (error) => error?.code === "PLAYBACK_STALE_EPOCH");
+  first.dispose();
+  await settle();
+  const next = await loadedController(bridge, B);
+  assert.deepEqual(await next.closePlayer(), { closed: true });
+  assert.ok(calls.close.filter((handle) => handle === "hung-close").length >= 2);
+  assert.notEqual(next.snapshot.playback.error?.code, "PLAYBACK_IO_FAILED");
+  // A delayed negative result cannot resurrect or overwrite confirmed custody.
+  hungClose.resolve({ closed: false });
+  await settle();
+  assert.deepEqual(await next.closePlayer(), { closed: true });
+  next.dispose();
+});
+
+
+test("source playback retains exact project, recording, source and epoch identity", async () => {
+  const source = { sourceId: "source-a", captureEpoch: 7, label: "แอปประชุม", kind: "app", sampleRate: 48000, durationFrames: 48 };
+  let wrong = false;
+  const { bridge, calls } = createBridge({
+    listPlaybackSources: () => [source],
+    openSourcePlayback: (projectId, recordingId, sourceId, captureEpoch) => ({ ...playback({ projectId, recordingId }, "source-h"), channel: "source", source: { sourceId, captureEpoch: wrong ? captureEpoch + 1 : captureEpoch } }),
+  });
+  const controller = await loadedController(bridge, A);
+  assert.deepEqual(await controller.playbackSources(A), [source]);
+  const opened = await controller.openSourcePlayback(A, source);
+  assert.equal(opened.channel, "source");
+  assert.deepEqual(opened.source, { sourceId: "source-a", captureEpoch: 7 });
+  await controller.closePlayer();
+  wrong = true;
+  await assert.rejects(() => controller.openSourcePlayback(A, source));
+  await settle();
+  assert.ok(calls.close.includes("source-h"));
+  controller.dispose();
+});
+
+test("source selector keeps same-label sources distinct and never fabricates options", () => {
+  assert.deepEqual(production.buildPlaybackTargets([], []), []);
+  const sources = [
+    { sourceId: "app-a", captureEpoch: 7, label: "แอปประชุม", kind: "app", sampleRate: 48000, durationFrames: 48 },
+    { sourceId: "app-b", captureEpoch: 7, label: "แอปประชุม", kind: "app", sampleRate: 48000, durationFrames: 48 },
+  ];
+  const targets = production.buildPlaybackTargets(["mic"], sources);
+  assert.equal(targets.length, 3);
+  assert.equal(targets[0].target.channel, "mic");
+  assert.notEqual(targets[1].key, targets[2].key);
+  assert.notEqual(targets[1].label, targets[2].label);
+  assert.deepEqual(production.playbackTargetsForRecording({ ...recording(A), source: "routed_endpoint", channels: ["system"] }, []), []);
+  assert.equal(targets[1].target.source.sourceId, "app-a");
+  assert.equal(targets[2].target.source.sourceId, "app-b");
+});
+
+test("deferred player close cannot open an old selection after switch or dispose", async () => {
+  for (const transition of ["switch", "dispose"]) {
+    const close = deferred();
+    const { bridge, calls } = createBridge({ closePlayback: () => close.promise });
+    const controller = await loadedController(bridge, A);
+    await controller.openPlayback(A, "mic");
+    const reopening = controller.openPlayback(A, "mic");
+    await settle();
+    if (transition === "switch") controller.syncScope(B.projectId, B);
+    else controller.dispose();
+    close.resolve({ closed: true });
+    await assert.rejects(reopening, (error) => error?.code === "SCOPE_MISMATCH");
+    assert.equal(calls.open.length, 1);
+    controller.dispose();
+  }
+});
+
+test("deferred selector close cannot apply after A to B to A or capture-state changes", async () => {
+  const close = deferred();
+  let fence = production.nextPlaybackSelectionFence({ key: "", revision: 0 }, "A:inactive");
+  const captured = fence.revision;
+  let applied = false;
+  const pending = production.selectPlaybackTargetAfterClose(() => close.promise, () => fence.revision === captured, () => { applied = true; });
+  fence = production.nextPlaybackSelectionFence(fence, "B:inactive");
+  fence = production.nextPlaybackSelectionFence(fence, "A:inactive");
+  close.resolve({ closed: true });
+  await pending;
+  assert.equal(applied, false);
+  const oldRevision = fence.revision;
+  fence = production.nextPlaybackSelectionFence(fence, "A:active");
+  fence = production.nextPlaybackSelectionFence(fence, "A:inactive");
+  assert.ok(fence.revision > oldRevision);
+});
+
+test("source catalog response from a previous selection is rejected", async () => {
+  const pending = deferred();
+  const { bridge } = createBridge({ listPlaybackSources: () => pending.promise });
+  const controller = await loadedController(bridge, A);
+  const loading = controller.playbackSources(A);
+  controller.syncScope(B.projectId, B);
+  pending.resolve([{ sourceId: "old", captureEpoch: 1, label: "old", kind: "app", sampleRate: 48000, durationFrames: 10 }]);
+  await assert.rejects(loading, (error) => error?.code === "SCOPE_MISMATCH");
+  controller.dispose();
 });

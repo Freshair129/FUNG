@@ -1,6 +1,7 @@
 import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
+import { startPlaybackHeartbeat } from "./tauri";
 import {
   isMobileTauriPlatform,
   requiresSupabaseConfig,
@@ -30,6 +31,7 @@ const Dashboard = lazy(() =>
 const params = new URLSearchParams(window.location.search);
 const path = window.location.pathname;
 const isTauriRuntime = "__TAURI_INTERNALS__" in window;
+if (isTauriRuntime) startPlaybackHeartbeat();
 const surface = params.get("surface");
 const mobileViewport = window.matchMedia(
   "(pointer: coarse) and (max-width: 760px), (pointer: coarse) and (orientation: landscape) and (max-height: 760px)",

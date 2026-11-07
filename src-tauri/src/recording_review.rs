@@ -121,6 +121,13 @@ pub(crate) enum AdmissionError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlaybackGuardFailure {
+    Busy(AdmissionError),
+    Poisoned,
+    Exhausted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CapturePhase {
     Inactive,
     Starting,
@@ -132,6 +139,7 @@ pub(crate) enum CapturePhase {
 struct AdmissionState {
     capture: CapturePhase,
     playback_open: bool,
+    playback_generation: u64,
 }
 
 /// Serializes the native capture and playback ownership boundary.
@@ -156,12 +164,30 @@ impl Default for NativeCaptureGuard {
             inner: Mutex::new(AdmissionState {
                 capture: CapturePhase::Inactive,
                 playback_open: false,
+                playback_generation: 0,
             }),
         }
     }
 }
 
 impl NativeCaptureGuard {
+    #[cfg(test)]
+    pub(crate) fn poison_for_test(&self) {
+        let _ = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let _held = self.inner.lock().unwrap();
+                    panic!("injected capture guard poison");
+                })
+                .join()
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_playback_token_for_test(&self) -> Option<u64> {
+        let state = self.inner.lock().unwrap();
+        state.playback_open.then_some(state.playback_generation)
+    }
     pub(crate) fn reserve_capture(
         guard: std::sync::Arc<Self>,
     ) -> Result<CaptureReservation, AdmissionError> {
@@ -203,6 +229,7 @@ impl NativeCaptureGuard {
         state.capture = CapturePhase::Inactive;
     }
 
+    #[cfg(test)]
     pub(crate) fn try_open_playback(&self) -> Result<(), AdmissionError> {
         let mut state = self.inner.lock().expect("capture admission mutex poisoned");
         if state.playback_open {
@@ -211,13 +238,54 @@ impl NativeCaptureGuard {
         if state.capture != CapturePhase::Inactive {
             return Err(AdmissionError::CaptureActive);
         }
+        state.playback_generation = state
+            .playback_generation
+            .checked_add(1)
+            .ok_or(AdmissionError::PlaybackBusy)?;
         state.playback_open = true;
         Ok(())
     }
 
+    /// Issue a non-reusable token while acquiring playback admission.
+    pub(crate) fn try_open_playback_token(&self) -> Result<u64, PlaybackGuardFailure> {
+        let mut state = self
+            .inner
+            .lock()
+            .map_err(|_| PlaybackGuardFailure::Poisoned)?;
+        if state.playback_open {
+            return Err(PlaybackGuardFailure::Busy(AdmissionError::PlaybackBusy));
+        }
+        if state.capture != CapturePhase::Inactive {
+            return Err(PlaybackGuardFailure::Busy(AdmissionError::CaptureActive));
+        }
+        state.playback_generation = state
+            .playback_generation
+            .checked_add(1)
+            .ok_or(PlaybackGuardFailure::Exhausted)?;
+        state.playback_open = true;
+        Ok(state.playback_generation)
+    }
+
+    #[cfg(test)]
     pub(crate) fn release_playback(&self) {
         let mut state = self.inner.lock().expect("capture admission mutex poisoned");
         state.playback_open = false;
+    }
+
+    /// Non-realtime release of only the exact admission that produced this token.
+    pub(crate) fn try_release_playback_token(
+        &self,
+        token: u64,
+    ) -> Result<bool, PlaybackGuardFailure> {
+        let mut state = self
+            .inner
+            .lock()
+            .map_err(|_| PlaybackGuardFailure::Poisoned)?;
+        if !state.playback_open || state.playback_generation != token {
+            return Ok(false);
+        }
+        state.playback_open = false;
+        Ok(true)
     }
 
     pub(crate) fn capture_is_active(&self) -> bool {
@@ -905,7 +973,24 @@ fn row_to_public_with_state(
 }
 
 fn live_capture_state(state: &AppState, recording_id: &str) -> String {
-    let live = state.live.lock().expect("live session mutex poisoned");
+    #[cfg(windows)]
+    {
+        capture_state_from_lifecycles(
+            &state.live,
+            &state.routed_live,
+            recording_id,
+            crate::routed_capture::RoutedCaptureHandle::status,
+        )
+    }
+    #[cfg(not(windows))]
+    legacy_capture_state(&state.live, recording_id)
+}
+
+fn legacy_capture_state(
+    live: &Mutex<Option<crate::live_meeting::LiveSessionControl>>,
+    recording_id: &str,
+) -> String {
+    let live = live.lock().expect("live session mutex poisoned");
     match live
         .as_ref()
         .filter(|session| session.recording_id == recording_id)
@@ -916,6 +1001,35 @@ fn live_capture_state(state: &AppState, recording_id: &str) -> String {
         Some(_) => "active".to_string(),
         None => "inactive".to_string(),
     }
+}
+
+#[cfg(windows)]
+fn capture_state_from_lifecycles<R>(
+    live: &Mutex<Option<crate::live_meeting::LiveSessionControl>>,
+    routed: &Mutex<Option<R>>,
+    recording_id: &str,
+    routed_snapshot: impl FnOnce(&R) -> crate::routed_capture::RoutedCaptureStatus,
+) -> String {
+    let legacy = legacy_capture_state(live, recording_id);
+    if legacy != "inactive" {
+        return legacy;
+    }
+    // The legacy guard was released before acquiring the routed owner. Keep
+    // blocking/poison semantics: unavailable state must never become inactive.
+    let routed_status = routed
+        .lock()
+        .expect("routed session mutex poisoned")
+        .as_ref()
+        .map(routed_snapshot);
+    match routed_status.filter(|status| status.recording_id == recording_id) {
+        Some(status) => match status.phase.as_str() {
+            "starting" | "recording" => "active",
+            "stopping" => "stopping",
+            _ => "inactive",
+        },
+        None => "inactive",
+    }
+    .to_string()
 }
 
 pub(crate) fn validate_recording_pair(
@@ -1133,6 +1247,176 @@ pub(crate) fn desktop_recording_get(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    fn routed_status(phase: &str) -> crate::routed_capture::RoutedCaptureStatus {
+        crate::routed_capture::RoutedCaptureStatus {
+            project_id: "p".into(),
+            recording_id: "r".into(),
+            phase: phase.into(),
+            duration_ms: 0,
+            sources: vec![],
+            first_failure: None,
+            warnings: vec![],
+        }
+    }
+
+    fn legacy_session() -> crate::live_meeting::LiveSessionControl {
+        crate::live_meeting::LiveSessionControl {
+            stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            project_id: "p".into(),
+            recording_id: "legacy".into(),
+            job_id: "j".into(),
+            recent: Default::default(),
+            started_at: Instant::now(),
+            coordinator: None,
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn routed_lifecycle_projection_keeps_active_and_draining_recordings_visible() {
+        let live = Mutex::new(None);
+        for (phase, expected) in [
+            ("starting", "active"),
+            ("recording", "active"),
+            ("stopping", "stopping"),
+            ("completed", "inactive"),
+            ("failed", "inactive"),
+            ("partial", "inactive"),
+        ] {
+            assert_eq!(
+                capture_state_from_lifecycles(
+                    &live,
+                    &Mutex::new(Some(routed_status(phase))),
+                    "r",
+                    Clone::clone
+                ),
+                expected,
+                "routed phase={phase}"
+            );
+            assert_eq!(
+                capture_state_from_lifecycles(
+                    &live,
+                    &Mutex::new(Some(routed_status(phase))),
+                    "other",
+                    Clone::clone
+                ),
+                "inactive",
+                "different recording, routed phase={phase}"
+            );
+        }
+        let routed = Mutex::<Option<crate::routed_capture::RoutedCaptureStatus>>::new(None);
+        assert_eq!(
+            capture_state_from_lifecycles(&live, &routed, "r", Clone::clone),
+            "inactive"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn routed_projection_releases_legacy_lock_before_reading_routed_owner() {
+        let live = Mutex::new(None);
+        let routed = Mutex::new(Some(routed_status("stopping")));
+        assert_eq!(
+            capture_state_from_lifecycles(&live, &routed, "r", |status| {
+                let _legacy = live.try_lock().expect("lifecycle locks must not nest");
+                status.clone()
+            }),
+            "stopping"
+        );
+    }
+
+    #[test]
+    fn legacy_lifecycle_projection_preserves_active_stopping_and_other_recording() {
+        let session = legacy_session();
+        let stop = session.stop.clone();
+        let live = Mutex::new(Some(session));
+        assert_eq!(legacy_capture_state(&live, "legacy"), "active");
+        assert_eq!(legacy_capture_state(&live, "other"), "inactive");
+        #[cfg(windows)]
+        {
+            let routed = Mutex::new(Some(routed_status("recording")));
+            assert_eq!(
+                capture_state_from_lifecycles(&live, &routed, "legacy", Clone::clone),
+                "active"
+            );
+            assert_eq!(
+                capture_state_from_lifecycles(&live, &routed, "r", Clone::clone),
+                "active"
+            );
+        }
+        stop.store(true, std::sync::atomic::Ordering::Release);
+        assert_eq!(legacy_capture_state(&live, "legacy"), "stopping");
+        #[cfg(windows)]
+        {
+            let routed = Mutex::new(Some(routed_status("recording")));
+            assert_eq!(
+                capture_state_from_lifecycles(&live, &routed, "legacy", Clone::clone),
+                "stopping"
+            );
+        }
+        *live.lock().unwrap() = None;
+        assert_eq!(legacy_capture_state(&live, "legacy"), "inactive");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn routed_projection_waits_for_contended_lifecycle_instead_of_reporting_inactive() {
+        use std::sync::{mpsc, Arc};
+        for legacy_contention in [true, false] {
+            let live = Arc::new(Mutex::new(None));
+            let routed = Arc::new(Mutex::new(Some(routed_status("recording"))));
+            let legacy_guard = legacy_contention.then(|| live.lock().unwrap());
+            let routed_guard = (!legacy_contention).then(|| routed.lock().unwrap());
+            let worker_live = live.clone();
+            let worker_routed = routed.clone();
+            let (started_tx, started_rx) = mpsc::channel();
+            let (result_tx, result_rx) = mpsc::channel();
+            let worker = std::thread::spawn(move || {
+                started_tx.send(()).unwrap();
+                let result =
+                    capture_state_from_lifecycles(&worker_live, &worker_routed, "r", Clone::clone);
+                result_tx.send(result).unwrap();
+            });
+            started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(matches!(
+                result_rx.recv_timeout(Duration::from_millis(30)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ));
+            drop(legacy_guard);
+            drop(routed_guard);
+            assert_eq!(
+                result_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+                "active"
+            );
+            worker.join().unwrap();
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "live session mutex poisoned")]
+    fn legacy_projection_does_not_turn_poison_into_inactive() {
+        let live = Mutex::new(None);
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = live.lock().unwrap();
+            panic!("fixture poison");
+        });
+        legacy_capture_state(&live, "r");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[should_panic(expected = "routed session mutex poisoned")]
+    fn routed_projection_does_not_turn_poison_into_inactive() {
+        let live = Mutex::new(None);
+        let routed = Mutex::new(Some(routed_status("recording")));
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = routed.lock().unwrap();
+            panic!("fixture poison");
+        });
+        capture_state_from_lifecycles(&live, &routed, "r", Clone::clone);
+    }
 
     #[test]
     fn opaque_ids_are_bounded_and_path_free() {

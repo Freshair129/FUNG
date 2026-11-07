@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -20,10 +21,13 @@ import {
   getRecording as bridgeGetRecording,
   listExportArtifacts,
   listRecordings,
+  listPlaybackSources as bridgeListPlaybackSources,
   listTranscriptSegments,
   listDetailedTranscriptProposals,
   meetingSummaries,
   openPlayback as bridgeOpenPlayback,
+  openSourcePlayback as bridgeOpenSourcePlayback,
+  PlaybackCloseUnconfirmedError,
   releaseRecordingList,
   reviewDetailedTranscriptProposal,
   renameSpeaker,
@@ -38,12 +42,15 @@ import {
 import type { MeetingSummaries } from "../../lib/meetingSummaries.ts";
 import {
   normalizeReviewError,
+  isPlaybackSource,
+  isPlaybackSourceCatalog,
   settleReviewLoad,
   type CloseReviewPlayer,
   type PlaybackAction,
   type PlaybackChannel,
   type PlaybackCloseAcknowledgement,
   type PlaybackState,
+  type PlaybackSource,
   type ReadState,
   type RecordingAnswer,
   type RecordingKey,
@@ -56,6 +63,12 @@ import {
   type ReviewRequestIdentity,
 } from "./contracts.ts";
 import "./RecordingReview.css";
+
+// Window-scoped custody survives a component/controller remount. It does not
+// survive a webview reload; native adoption/renderer-loss cleanup remains a
+// separate required ownership contract.
+const windowPlaybackCloseCustody = new Map<string, ReviewRequestIdentity | null>();
+let windowPendingPlaybackOpens = 0;
 
 export const RECORDING_PAGE_LIMIT = 50;
 export const PLAYBACK_POLL_INTERVAL_MS = 250;
@@ -92,6 +105,8 @@ export type RecordingReviewBridge = {
   listExportArtifacts: typeof listExportArtifacts;
   askRecording: typeof bridgeAskRecording;
   openPlayback: typeof bridgeOpenPlayback;
+  listPlaybackSources: typeof bridgeListPlaybackSources;
+  openSourcePlayback: typeof bridgeOpenSourcePlayback;
   controlPlayback: typeof bridgeControlPlayback;
   getPlayback: typeof bridgeGetPlayback;
   closePlayback: typeof bridgeClosePlayback;
@@ -113,6 +128,8 @@ export const defaultRecordingReviewBridge: RecordingReviewBridge = {
   listExportArtifacts,
   askRecording: bridgeAskRecording,
   openPlayback: bridgeOpenPlayback,
+  listPlaybackSources: bridgeListPlaybackSources,
+  openSourcePlayback: bridgeOpenSourcePlayback,
   controlPlayback: bridgeControlPlayback,
   getPlayback: bridgeGetPlayback,
   closePlayback: bridgeClosePlayback,
@@ -463,6 +480,15 @@ function validatePlaybackFor(
   return null;
 }
 
+type PlaybackTarget = { channel: PlaybackChannel } | { channel: "source"; source: PlaybackSource };
+
+function matchesPlaybackTarget(value: PlaybackState, target: PlaybackTarget | PlaybackState): boolean {
+  if (value.channel !== target.channel) return false;
+  if (value.channel !== "source") return value.source == null;
+  return target.channel === "source" && value.source?.sourceId === target.source?.sourceId
+    && value.source?.captureEpoch === target.source?.captureEpoch;
+}
+
 function createInitialSnapshot(): RecordingReviewControllerSnapshot {
   return {
     recording: idleReadState<RecordingRow>(),
@@ -495,10 +521,7 @@ export class RecordingReviewController {
   private playerHandle: string | null = null;
   private playerIdentity: ReviewRequestIdentity | null = null;
   private playerEpoch = 0;
-  private failedCloseCustody: {
-    handle: string;
-    identity: ReviewRequestIdentity | null;
-  } | null = null;
+  private readonly failedCloseCustody = windowPlaybackCloseCustody;
   private closeInFlight: Promise<PlaybackCloseAcknowledgement> | null = null;
   private controlQueue: Promise<void> = Promise.resolve();
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -508,59 +531,43 @@ export class RecordingReviewController {
   public readonly closePlayer: CloseReviewPlayer = async () => {
     if (this.closeInFlight) return this.closeInFlight;
 
-    const custody = this.failedCloseCustody;
-    const handle = this.playerHandle ?? custody?.handle ?? null;
-    const identity = this.playerIdentity ?? custody?.identity ?? null;
+    if (this.playerHandle) this.failedCloseCustody.set(this.playerHandle, this.playerIdentity);
     const closeEpoch = ++this.playerEpoch;
     this.playerHandle = null;
     this.playerIdentity = null;
     this.stopPolling();
-
-    if (!handle) {
-      this.emit((current) => ({
-        ...current,
-        playback: idleReadState<PlaybackState>(),
-      }));
+    const pending = [...this.failedCloseCustody.entries()];
+    if (pending.length === 0) {
+      if (windowPendingPlaybackOpens > 0) return { closed: false };
+      this.emit((current) => ({ ...current, playback: idleReadState<PlaybackState>() }));
       return { closed: true };
     }
 
-    const request = this.startRequest(() => this.bridge.closePlayback(handle));
-    this.closeInFlight = request
-      .then((acknowledgement) => {
-        if (acknowledgement.closed) {
-          if (this.failedCloseCustody?.handle === handle) {
-            this.failedCloseCustody = null;
+    const request = (async (): Promise<PlaybackCloseAcknowledgement> => {
+      for (const [handle, identity] of pending) {
+        try {
+          const acknowledgement = await this.startRequest(() => this.bridge.closePlayback(handle));
+          if (acknowledgement.closed) {
+            if (this.failedCloseCustody.get(handle) === identity) this.failedCloseCustody.delete(handle);
+          } else {
+            this.publishPlaybackCloseFailure(identity, closeEpoch, reviewError(
+              "PLAYBACK_IO_FAILED", "เครื่องเล่นยังปิดไม่สมบูรณ์ จึงยังเริ่มการบันทึกไม่ได้", true,
+            ));
           }
-          if (this.canPublishPlaybackClose(identity, closeEpoch)) {
-            this.emit((current) => ({
-              ...current,
-              playback: idleReadState<PlaybackState>(),
-            }));
-          }
-          return acknowledgement;
+        } catch (error: unknown) {
+          this.publishPlaybackCloseFailure(identity, closeEpoch, normalizeReviewError(error));
         }
-
-        const error = reviewError(
-          "PLAYBACK_IO_FAILED",
-          "เครื่องเล่นยังปิดไม่สมบูรณ์ จึงยังเริ่มการบันทึกไม่ได้",
-          true,
-        );
-        this.failedCloseCustody = { handle, identity };
-        this.publishPlaybackCloseFailure(identity, closeEpoch, error);
-        return { closed: false };
-      })
-      .catch((error: unknown) => {
-        const normalized = normalizeReviewError(error);
-        this.failedCloseCustody = { handle, identity };
-        this.publishPlaybackCloseFailure(identity, closeEpoch, normalized);
-        return { closed: false };
-      })
-      .finally(() => {
-        if (this.playerEpoch === closeEpoch || this.playerHandle === handle) {
-          this.closeInFlight = null;
+      }
+      const closed = this.failedCloseCustody.size === 0 && windowPendingPlaybackOpens === 0;
+      if (closed) {
+        const identity = pending[pending.length - 1]?.[1] ?? null;
+        if (this.canPublishPlaybackClose(identity, closeEpoch)) {
+          this.emit((current) => ({ ...current, playback: idleReadState<PlaybackState>() }));
         }
-      });
-
+      }
+      return { closed };
+    })();
+    this.closeInFlight = request.finally(() => { this.closeInFlight = null; });
     return this.closeInFlight;
   };
 
@@ -879,9 +886,33 @@ export class RecordingReviewController {
     }
   }
 
-  public async openPlayback(
+  public async playbackSources(selection: RecordingKey): Promise<PlaybackSource[]> {
+    if (this.disposed || !sameKey(selection, this.currentSelection) || selection.projectId !== this.projectId) {
+      throw reviewError("SCOPE_MISMATCH", "แหล่งเสียงไม่ตรงกับการบันทึกที่เลือก");
+    }
+    const epoch = this.selectionEpoch;
+    const sources = await this.startRequest(() => this.bridge.listPlaybackSources(selection.projectId, selection.recordingId));
+    if (!isPlaybackSourceCatalog(sources)) {
+      throw reviewError("INVALID_RECORDING_METADATA", "ข้อมูลแหล่งเสียงไม่ถูกต้อง");
+    }
+    if (this.disposed || epoch !== this.selectionEpoch || !sameKey(selection, this.currentSelection)) {
+      throw reviewError("SCOPE_MISMATCH", "แหล่งเสียงเก่าไม่ถูกนำกลับมาใช้");
+    }
+    return sources;
+  }
+
+  public openPlayback(selection: RecordingKey, channel: PlaybackChannel): Promise<PlaybackState> {
+    return this.openPlaybackTarget(selection, { channel });
+  }
+
+  public openSourcePlayback(selection: RecordingKey, source: PlaybackSource): Promise<PlaybackState> {
+    if (!isPlaybackSource(source)) return Promise.reject(reviewError("INVALID_RECORDING_METADATA", "ข้อมูลแหล่งเสียงไม่ถูกต้อง"));
+    return this.openPlaybackTarget(selection, { channel: "source", source });
+  }
+
+  private async openPlaybackTarget(
     selection: RecordingKey,
-    channel: PlaybackChannel,
+    target: PlaybackTarget,
   ): Promise<PlaybackState> {
     if (
       this.disposed ||
@@ -891,6 +922,7 @@ export class RecordingReviewController {
       throw reviewError("SCOPE_MISMATCH", "เครื่องเล่นไม่ตรงกับการบันทึกที่เลือก");
     }
 
+    const selectionEpoch = this.selectionEpoch;
     const closed = await this.closePlayer();
     if (!closed.closed) {
       throw reviewError(
@@ -898,6 +930,11 @@ export class RecordingReviewController {
         "ปิดเครื่องเล่นเดิมไม่สำเร็จ จึงยังเปิดเสียงใหม่ไม่ได้",
         true,
       );
+    }
+
+    if (this.disposed || selectionEpoch !== this.selectionEpoch
+      || !sameKey(selection, this.currentSelection) || selection.projectId !== this.projectId) {
+      throw reviewError("SCOPE_MISMATCH", "เครื่องเล่นไม่ตรงกับการบันทึกที่เลือก");
     }
 
     const identity = makeReviewRequestIdentity(
@@ -912,13 +949,12 @@ export class RecordingReviewController {
       playback: loadingReadState<PlaybackState>(identity),
     }));
 
+    windowPendingPlaybackOpens += 1;
     try {
       const state = await this.startRequest(() =>
-        this.bridge.openPlayback(
-          selection.projectId,
-          selection.recordingId,
-          channel,
-        ),
+        target.channel === "source"
+          ? this.bridge.openSourcePlayback(selection.projectId, selection.recordingId, target.source.sourceId, target.source.captureEpoch)
+          : this.bridge.openPlayback(selection.projectId, selection.recordingId, target.channel),
       );
       if (
         this.disposed ||
@@ -926,11 +962,13 @@ export class RecordingReviewController {
         !sameKey(selection, this.currentSelection) ||
         !sameReviewIdentity(this.playerIdentity, identity)
       ) {
-        await this.safeCloseReturnedHandle(state.handle);
+        this.safeCloseReturnedHandle(state.handle, identity);
         throw reviewError("PLAYBACK_STALE_EPOCH", "เครื่องเล่นเก่าไม่ถูกนำกลับมาใช้");
       }
-      const validation = validatePlaybackFor(state, selection);
+      const validation = validatePlaybackFor(state, selection)
+        ?? (matchesPlaybackTarget(state, target) ? null : reviewError("SCOPE_MISMATCH", "แหล่งเสียงไม่ตรงกับที่เลือก"));
       if (validation) {
+        this.safeCloseReturnedHandle(state.handle, identity);
         this.commitPlayback(identity, { status: "rejected", error: validation });
         throw validation;
       }
@@ -946,12 +984,19 @@ export class RecordingReviewController {
       }));
       return state;
     } catch (error: unknown) {
+      if (error instanceof PlaybackCloseUnconfirmedError && error.closeRetryable) {
+        // The native close did not acknowledge completion. Keep the opaque
+        // handle available to the existing explicit close/retry path.
+        this.failedCloseCustody.set(error.handle, identity);
+      }
       const stale =
         this.disposed ||
         openEpoch !== this.playerEpoch ||
         !sameReviewIdentity(this.playerIdentity, identity);
       if (!stale) {
-        const normalized = normalizeReviewError(error);
+        const normalized = error instanceof PlaybackCloseUnconfirmedError
+          ? { code: "PLAYBACK_CLOSE_UNCONFIRMED" as const, message: error.message, retryable: error.retryable }
+          : normalizeReviewError(error);
         this.playerHandle = null;
         this.playerIdentity = null;
         this.commitPlayback(identity, {
@@ -960,6 +1005,8 @@ export class RecordingReviewController {
         });
       }
       throw error;
+    } finally {
+      windowPendingPlaybackOpens -= 1;
     }
   }
 
@@ -982,8 +1029,8 @@ export class RecordingReviewController {
   public async playbackClose(
     handle: string,
   ): Promise<PlaybackCloseAcknowledgement> {
-    const ownedHandle = this.playerHandle ?? this.failedCloseCustody?.handle ?? null;
-    if (ownedHandle && ownedHandle !== handle) {
+    if ((this.playerHandle || this.failedCloseCustody.size > 0)
+      && this.playerHandle !== handle && !this.failedCloseCustody.has(handle)) {
       throw reviewError("PLAYBACK_HANDLE_INVALID", "เครื่องเล่นนี้ไม่ใช่ของหน้านี้");
     }
     return this.closePlayer();
@@ -1187,12 +1234,13 @@ export class RecordingReviewController {
     }
   }
 
-  private async safeCloseReturnedHandle(handle: string): Promise<void> {
-    try {
-      await this.bridge.closePlayback(handle);
-    } catch {
-      // The returned handle is never installed into current UI state.
-    }
+  private safeCloseReturnedHandle(handle: string, identity: ReviewRequestIdentity): void {
+    this.failedCloseCustody.set(handle, identity);
+    void this.bridge.closePlayback(handle).then((receipt) => {
+      if (receipt.closed && this.failedCloseCustody.get(handle) === identity) this.failedCloseCustody.delete(handle);
+    }).catch(() => {
+      // Keep the exact handle for a later explicit retry.
+    });
   }
 
   private loadFirstPage(projectId: string): void {
@@ -1539,7 +1587,8 @@ export class RecordingReviewController {
       const validation = validatePlaybackFor(state, {
         projectId: identity.projectId,
         recordingId: identity.recordingId,
-      });
+      }) ?? (state.handle === handle && matchesPlaybackTarget(state, currentData)
+        ? null : reviewError("SCOPE_MISMATCH", "สถานะเครื่องเล่นไม่ตรงกับแหล่งเสียงที่เลือก"));
       if (validation) {
         this.commitPlayback(identity, { status: "rejected", error: validation });
         throw validation;
@@ -1570,8 +1619,10 @@ export class RecordingReviewController {
     const handle = this.playerHandle;
     const identity = this.playerIdentity;
     const playerEpoch = this.playerEpoch;
+    const currentData = this.snapshotValue.playback.data;
     if (
       !handle ||
+      !currentData ||
       !identity ||
       !this.visible ||
       token !== this.pollToken ||
@@ -1597,7 +1648,8 @@ export class RecordingReviewController {
       const validation = validatePlaybackFor(state, {
         projectId: identity.projectId,
         recordingId: identity.recordingId,
-      });
+      }) ?? (state.handle === handle && matchesPlaybackTarget(state, currentData)
+        ? null : reviewError("SCOPE_MISMATCH", "สถานะเครื่องเล่นไม่ตรงกับแหล่งเสียงที่เลือก"));
       if (validation) {
         this.commitPlayback(identity, { status: "rejected", error: validation });
         return;
@@ -1999,6 +2051,43 @@ export function consumePlaybackEvent(action: Promise<unknown>): void {
   void action.catch(() => undefined);
 }
 
+export function buildPlaybackTargets(channels: PlaybackChannel[], sources: PlaybackSource[]): Array<{ key: string; label: string; target: PlaybackTarget }> {
+  const legacy = channels.map((channel) => ({
+    key: `channel:${channel}`,
+    label: channel === "mic" ? "ไมโครโฟน" : channel === "system" ? "ระบบ" : "ไฟล์",
+    target: { channel } as PlaybackTarget,
+  }));
+  const routed = sources.map((source, index) => ({
+    key: `source:${encodeURIComponent(source.sourceId)}:${source.captureEpoch}`,
+    label: `${source.label} · แหล่ง ${index + 1} · รอบ ${source.captureEpoch}`,
+    target: { channel: "source", source } as PlaybackTarget,
+  }));
+  return [...legacy, ...routed];
+}
+
+export function playbackTargetsForRecording(recording: RecordingRow, sources: PlaybackSource[]) {
+  // Routed recordings require explicit source custody; never fall back to an
+  // aggregate/legacy channel when the source catalog is unavailable.
+  return buildPlaybackTargets(recording.source === "routed_endpoint" ? [] : recording.channels, sources);
+}
+
+export function nextPlaybackSelectionFence(previous: { key: string; revision: number }, key: string) {
+  return previous.key === key ? previous : { key, revision: previous.revision + 1 };
+}
+
+export async function selectPlaybackTargetAfterClose(
+  close: () => Promise<PlaybackCloseAcknowledgement>,
+  isCurrent: () => boolean,
+  select: () => void,
+): Promise<void> {
+  try {
+    const acknowledgement = await close();
+    if (acknowledgement.closed && isCurrent()) select();
+  } catch {
+    // The controller retains and surfaces any unconfirmed close.
+  }
+}
+
 function PlaybackPanel({
   recording,
   selection,
@@ -2010,38 +2099,61 @@ function PlaybackPanel({
   state: ReadState<PlaybackState>;
   actions: RecordingReviewActions;
 }) {
-  const firstChannel = recording.channels[0] ?? "mic";
-  const [channel, setChannel] = useState<PlaybackChannel>(firstChannel);
+  const [sourceCatalog, setSourceCatalog] = useState<PlaybackSource[]>([]);
+  const [sourceCatalogKey, setSourceCatalogKey] = useState("");
+  const [sourceStatus, setSourceStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [selectedKey, setSelectedKey] = useState("");
+  const selectionKey = `${selection.projectId}\u0000${selection.recordingId}\u0000${recording.captureState}\u0000${recording.source}`;
+  const selectionFence = useRef({ key: "", revision: 0 });
+  const renderedFence = nextPlaybackSelectionFence(selectionFence.current, selectionKey);
+  const selectionRevision = renderedFence.revision;
+  const catalogKey = `${selectionKey}\u0000${selectionRevision}`;
+  useLayoutEffect(() => {
+    selectionFence.current = renderedFence;
+  }, [renderedFence.key, renderedFence.revision]);
 
   useEffect(() => {
-    setChannel(recording.channels[0] ?? "mic");
-  }, [recording.id]);
+    let current = true;
+    setSelectedKey("");
+    setSourceCatalogKey(catalogKey);
+    setSourceCatalog([]);
+    if (recording.source !== "routed_endpoint" || recording.captureState !== "inactive") {
+      setSourceStatus("idle");
+      return () => { current = false; };
+    }
+    setSourceStatus("loading");
+    void actions.playbackSources(selection).then((sources) => {
+      if (current) { setSourceCatalog(sources); setSourceStatus("ready"); }
+    }).catch(() => {
+      if (current) { setSourceCatalog([]); setSourceStatus("error"); }
+    });
+    return () => { current = false; };
+  }, [actions, catalogKey, recording.id, recording.source, recording.captureState, selection.projectId, selection.recordingId]);
 
-  const availableChannel = recording.channels.includes(channel)
-    ? channel
-    : firstChannel;
+  const currentCatalog = sourceCatalogKey === catalogKey ? sourceCatalog : [];
+  const visibleSourceStatus = sourceCatalogKey === catalogKey ? sourceStatus
+    : recording.source === "routed_endpoint" && recording.captureState === "inactive" ? "loading" : "idle";
+  const targets = playbackTargetsForRecording(recording, currentCatalog);
+  const selected = targets.find((target) => target.key === selectedKey) ?? targets[0];
   const playback = state.data;
-  const canOpen = recording.captureState === "inactive";
-  const canSeek =
-    playback !== null &&
-    playback.durationMs > 0 &&
-    state.status !== "loading" &&
-    playback.error === null;
-  const position = playback
-    ? clampPlaybackPosition(playback.positionMs, playback.durationMs)
-    : 0;
+  const canOpen = recording.captureState === "inactive" && selected !== undefined;
+  const canSeek = playback !== null && playback.durationMs > 0 && state.status !== "loading" && playback.error === null;
+  const position = playback ? clampPlaybackPosition(playback.positionMs, playback.durationMs) : 0;
 
-  const selectChannel = async (nextChannel: PlaybackChannel) => {
-    if (!playback) {
-      setChannel(nextChannel);
-      return;
-    }
-    try {
-      const acknowledgement = await actions.playbackClose(playback.handle);
-      if (acknowledgement.closed) setChannel(nextChannel);
-    } catch {
-      // The controller has already surfaced the safe close failure.
-    }
+  const selectTarget = async (nextKey: string) => {
+    if (!playback) { setSelectedKey(nextKey); return; }
+    await selectPlaybackTargetAfterClose(
+      () => actions.playbackClose(playback.handle),
+      () => selectionFence.current.revision === selectionRevision,
+      () => setSelectedKey(nextKey),
+    );
+  };
+
+  const openSelected = () => {
+    if (!selected) return;
+    consumePlaybackEvent(selected.target.channel === "source"
+      ? actions.playbackOpenSource(selection, selected.target.source)
+      : actions.playbackOpen(selection, selected.target.channel));
   };
 
   const control = (action: PlaybackAction, nextPosition?: number) => {
@@ -2086,37 +2198,27 @@ function PlaybackPanel({
           เล่นเสียงไม่ได้ระหว่างบันทึก — รอให้สถานะหยุดสมบูรณ์ก่อน
         </p>
       ) : null}
-      {recording.channels.length === 0 ? (
-        <p className="recording-review__empty">
-          บันทึกนี้ยังไม่มีช่องเสียงที่อ่านได้
-        </p>
+      {visibleSourceStatus === "loading" ? <p role="status">กำลังค้นหาแหล่งเสียง</p> : null}
+      {visibleSourceStatus === "error" ? <p className="recording-review__notice" role="alert">ยังไม่สามารถแสดงแหล่งเสียงแยกได้บน Desktop นี้</p> : null}
+      {targets.length === 0 ? (
+        visibleSourceStatus !== "loading" && visibleSourceStatus !== "error" ? <p className="recording-review__empty">บันทึกนี้ยังไม่มีช่องเสียงที่อ่านได้</p> : null
       ) : (
         <div className="recording-review__player-controls">
           <label>
             ช่องเสียง
             <select
-              value={availableChannel}
-              onChange={(event) =>
-                void selectChannel(event.target.value as PlaybackChannel)
-              }
+              value={selected?.key ?? ""}
+              onChange={(event) => void selectTarget(event.target.value)}
               disabled={state.status === "loading"}
             >
-              {recording.channels.map((item) => (
-                <option key={item} value={item}>
-                  {item === "mic" ? "ไมโครโฟน" : item === "system" ? "ระบบ" : "ไฟล์"}
-                </option>
-              ))}
+              {targets.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
             </select>
           </label>
           {!playback ? (
             <button
               type="button"
               className="recording-review__button recording-review__button--primary"
-              onClick={() =>
-                consumePlaybackEvent(
-                  actions.playbackOpen(selection, availableChannel),
-                )
-              }
+              onClick={openSelected}
               disabled={!canOpen || state.status === "loading"}
             >
               เปิดเครื่องเล่น
@@ -2206,11 +2308,7 @@ function PlaybackPanel({
           title="เล่นเสียงไม่ได้ แต่บทถอดเสียงและสรุปยังใช้งานได้"
           error={state.error}
           retryLabel="ลองเปิดเครื่องเล่นอีกครั้ง"
-          onRetry={() =>
-            consumePlaybackEvent(
-              actions.playbackOpen(selection, availableChannel),
-            )
-          }
+          onRetry={openSelected}
         />
   ) : null}
     </section>
@@ -3187,6 +3285,8 @@ export function RecordingReview({
         controller.ask(key, question, requestId),
       playbackOpen: (key, channel) =>
         controller.openPlayback(key, channel),
+      playbackSources: (key) => controller.playbackSources(key),
+      playbackOpenSource: (key, source) => controller.openSourcePlayback(key, source),
       playbackControl: (handle, expectedEpoch, action, positionMs) =>
         controller.playbackControl(handle, expectedEpoch, action, positionMs),
       playbackClose: (handle) => controller.playbackClose(handle),

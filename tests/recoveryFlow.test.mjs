@@ -75,6 +75,26 @@ test("unreadable files are named rather than folded into the success count", () 
   assert.match(text, /ยังอยู่ในโฟลเดอร์เดิม/);
 });
 
+test("routed recovery reports retained evidence and quarantine without claiming completion", () => {
+  for (const state of ["needs_review", "quarantined"]) {
+    const text = describeRecovery({ routed: { recordingId: "r1", state,
+      verifiedSources: 2, verifiedChunks: 4, retainedUnboundFiles: 1, durationMs: 20000 },
+      transcript: { ...noGaps, skippedReason: "ยังไม่รองรับการเติมข้อความจากแต่ละแหล่งเสียง" } });
+    assert.match(text, /ตรวจสอบ/);
+    assert.match(text, /1 ไฟล์/);
+    assert.doesNotMatch(text, /ปิดการบันทึกเรียบร้อย|ข้อความครบอยู่แล้ว|กู้คืนครบ/);
+  }
+});
+
+test("verified routed recovery counts committed chunks without calling them adopted or transcribed", () => {
+  const text = describeRecovery({ routed: { recordingId: "r1", state: "recovered_verified",
+    verifiedSources: 2, verifiedChunks: 4, retainedUnboundFiles: 0, durationMs: 20000 },
+    transcript: { ...noGaps, skippedReason: "ยังไม่ได้ถอดความ" } });
+  assert.match(text, /2 แหล่งเสียง/);
+  assert.match(text, /4 ช่วง/);
+  assert.doesNotMatch(text, /ข้อความครบอยู่แล้ว/);
+});
+
 test("recovery refuses to run without a recording id", async () => {
   const { invoke, calls } = fakeInvoke({ recovery_recover: {} });
   await assert.rejects(() => recoverRecording(invoke, ""), /missing_recording_id/);

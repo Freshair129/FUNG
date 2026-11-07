@@ -5,7 +5,7 @@
 //! Missing runtime or codec support is a terminal export error rather than a
 //! fabricated WAV/MP3 extension.
 
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
@@ -13,10 +13,545 @@ use sha2::{Digest, Sha256};
 use crate::{genesis_adapter, local_api};
 use uuid::Uuid;
 
+#[cfg(test)]
+use crate::scoped_fs::pin_directory;
+use crate::scoped_fs::{is_reparse, open_relative, pin_ancestors};
+
+fn digest_locked_file(file: &mut std::fs::File) -> Result<(u64, String), String> {
+    let size = file.metadata().map_err(|e| e.to_string())?.len();
+    if size > MAX_AUDIO_EXPORT_BYTES {
+        return Err("source export exceeds 512 MiB ceiling".into());
+    }
+    file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 8192];
+    loop {
+        let count = file.read(&mut buffer).map_err(|e| e.to_string())?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&buffer[..count]);
+    }
+    Ok((size, format!("{:x}", hash.finalize())))
+}
+
+fn routed_manifest_hash(
+    source: &crate::completed_source_media::CompletedSource,
+) -> Result<String, String> {
+    let chunks = source
+        .chunks
+        .iter()
+        .map(|item| (&item.chunk, item.byte_size))
+        .collect::<Vec<_>>();
+    let encoded = serde_json::to_vec(&(&source.id, source.epoch, source.sample_rate, chunks))
+        .map_err(|e| e.to_string())?;
+    Ok(format!("{:x}", Sha256::digest(encoded)))
+}
+
+fn routed_artifact_id(project: &str, recording: &str, source: &str, epoch: i64) -> String {
+    format!("audio-source:{project}:{recording}:{source}:{epoch}")
+}
+
+fn reuse_routed_exports(
+    storage: &std::sync::Arc<genesis_block_native::Storage>,
+    data_root: &Path,
+    export_root: &Path,
+    manifest: &crate::completed_source_media::Manifest,
+    lease: &crate::source_playback_lease::SourcePlaybackLease,
+) -> Result<Option<Vec<AudioExport>>, String> {
+    use crate::{capture_source_custody as custody, completed_source_media as media};
+    use std::sync::atomic::AtomicBool;
+    let cancel = AtomicBool::new(false);
+    let mut existing = Vec::new();
+    let mut any_found = false;
+    let mut manifest_changed = false;
+    for source in &manifest.sources {
+        let id = routed_artifact_id(
+            &manifest.project_id,
+            &manifest.recording_id,
+            &source.id,
+            source.epoch,
+        );
+        let binding = genesis_adapter::query(
+            storage,
+            "source_export_bindings",
+            &[
+                "project_id",
+                "recording_id",
+                "source_id",
+                "capture_epoch",
+                "source_manifest_hash",
+                "checksum",
+                "byte_size",
+            ],
+            vec![genesis_adapter::eq(
+                "source_export_bindings",
+                "id",
+                serde_json::json!(id),
+            )],
+            1,
+        )?;
+        let Some(binding) = binding.first() else {
+            existing.push(None);
+            continue;
+        };
+        any_found = true;
+        if genesis_adapter::string(binding, "source_export_bindings.project_id")?
+            != manifest.project_id
+            || genesis_adapter::string(binding, "source_export_bindings.recording_id")?
+                != manifest.recording_id
+            || genesis_adapter::string(binding, "source_export_bindings.source_id")? != source.id
+            || genesis_adapter::integer(binding, "source_export_bindings.capture_epoch")?
+                != source.epoch
+        {
+            return Err("source export reuse binding changed".into());
+        }
+        if genesis_adapter::string(binding, "source_export_bindings.source_manifest_hash")?
+            != routed_manifest_hash(source)?
+        {
+            manifest_changed = true;
+        }
+        let artifacts = genesis_adapter::query(
+            storage,
+            "export_artifacts",
+            &["project_id", "kind", "file_path"],
+            vec![genesis_adapter::eq(
+                "export_artifacts",
+                "id",
+                serde_json::json!(id),
+            )],
+            1,
+        )?;
+        let artifact = artifacts.first().ok_or("source export artifact missing")?;
+        if genesis_adapter::string(artifact, "export_artifacts.project_id")? != manifest.project_id
+            || genesis_adapter::string(artifact, "export_artifacts.kind")? != "wav"
+        {
+            return Err("source export artifact identity changed".into());
+        }
+        existing.push(Some((
+            genesis_adapter::string(artifact, "export_artifacts.file_path")?,
+            genesis_adapter::integer(binding, "source_export_bindings.byte_size")?,
+            genesis_adapter::string(binding, "source_export_bindings.checksum")?,
+        )));
+    }
+    if !any_found {
+        return Ok(None);
+    }
+    if existing.iter().any(Option::is_none) {
+        return Err("incomplete source export provenance".into());
+    }
+    if manifest_changed {
+        return Ok(None);
+    }
+    let canonical_root = std::fs::canonicalize(export_root).map_err(|e| e.to_string())?;
+    let mut handles = Vec::new();
+    let mut held_source_files = Vec::new();
+    let mut pinned_parents = Vec::new();
+    let mut exports = Vec::new();
+    for (source, item) in manifest.sources.iter().zip(existing) {
+        let (path, size, checksum) = item.ok_or("source export binding missing")?;
+        // Verify the current source bytes as well as the cached output; a
+        // stable metadata hash alone cannot detect on-disk replacement.
+        for chunk in &source.chunks {
+            if held_source_files.len()
+                >= crate::capture_source_custody::MAX_CAPTURE_SOURCE_FILE_HANDLES
+            {
+                return Err("source export file handle limit".into());
+            }
+            let reader = media::open_verified_chunk(
+                storage,
+                data_root,
+                manifest,
+                &source.id,
+                source.epoch,
+                chunk.chunk.sequence,
+                &cancel,
+            )?;
+            if !lease.is_available() {
+                return Err("source export revoked".into());
+            }
+            held_source_files.push(reader.into_inner().into_inner());
+        }
+        let path = PathBuf::from(path);
+        let parent = path.parent().ok_or("source export path missing parent")?;
+        let parent_meta = std::fs::symlink_metadata(parent).map_err(|e| e.to_string())?;
+        if is_reparse(&parent_meta) || !parent_meta.is_dir() {
+            return Err("source export parent invalid".into());
+        }
+        let parents = pin_ancestors(parent)?;
+        let parent_real = std::fs::canonicalize(parent).map_err(|e| e.to_string())?;
+        if !crate::desktop_playback::normalized_path_inside(&parent_real, &canonical_root) {
+            return Err("source export parent escaped custody".into());
+        }
+        let meta = std::fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+        if is_reparse(&meta) || !meta.is_file() {
+            return Err("source export path invalid".into());
+        }
+        let mut file = open_relative(
+            parents.last().ok_or("missing export parent")?,
+            path.file_name().ok_or("missing export filename")?,
+            false,
+            1,
+            false,
+        )?;
+        pinned_parents.extend(parents);
+        let actual =
+            crate::desktop_playback::final_path_from_handle(&file, &path).map_err(|e| e.code)?;
+        if !crate::desktop_playback::normalized_path_inside(&actual, &parent_real)
+            || i64::try_from(file.metadata().map_err(|e| e.to_string())?.len()).ok() != Some(size)
+        {
+            return Err("source export file identity changed".into());
+        }
+        let mut hash = Sha256::new();
+        let mut buffer = [0u8; 8192];
+        loop {
+            let n = file.read(&mut buffer).map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
+            hash.update(&buffer[..n]);
+        }
+        if format!("{:x}", hash.finalize()) != checksum {
+            return Err("source export bytes changed".into());
+        }
+        handles.push(file);
+        exports.push(AudioExport {
+            kind: "wav",
+            file_path: path.display().to_string(),
+        });
+    }
+    custody::with_source_custody_gate(|| {
+        if !lease.is_available()
+            || custody::require_capture_source_access(storage, &manifest.recording_id)?
+                != manifest.frontier
+        {
+            return Err("source custody changed during export reuse".into());
+        }
+        Ok(Some(exports))
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AudioExport {
     pub(crate) kind: &'static str,
     pub(crate) file_path: String,
+}
+
+pub(crate) fn render_routed_source_audio_channels(
+    storage: &std::sync::Arc<genesis_block_native::Storage>,
+    data_root: &Path,
+    project_id: &str,
+    recording_id: &str,
+) -> Result<Vec<AudioExport>, String> {
+    render_routed_source_audio_channels_with_hooks(
+        storage,
+        data_root,
+        project_id,
+        recording_id,
+        || Ok(()),
+        || Ok(()),
+    )
+}
+
+fn render_routed_source_audio_channels_with_hooks<F, B>(
+    storage: &std::sync::Arc<genesis_block_native::Storage>,
+    data_root: &Path,
+    project_id: &str,
+    recording_id: &str,
+    before_publish: F,
+    before_commit: B,
+) -> Result<Vec<AudioExport>, String>
+where
+    F: FnOnce() -> Result<(), String>,
+    B: FnOnce() -> Result<(), String>,
+{
+    use crate::{capture_source_custody as custody, completed_source_media as media};
+    use genesis_block_native::{BatchInput, GenesisTransaction, RelationalMutationGroup};
+    use std::sync::atomic::AtomicBool;
+
+    // Register before admission so a quarantine with uncertain persistence
+    // denies this attempt even if the visible source row still says completed.
+    let lease = crate::source_playback_lease::SourcePlaybackLease::register(
+        std::sync::Arc::clone(storage),
+        recording_id,
+    )?;
+    let manifest = media::completed_manifest(storage, project_id, recording_id)?;
+    if !lease.is_available() {
+        return Err("source export revoked".into());
+    }
+    let project = genesis_adapter::query(
+        storage,
+        "projects",
+        &["storage_path"],
+        vec![genesis_adapter::eq(
+            "projects",
+            "id",
+            serde_json::json!(project_id),
+        )],
+        1,
+    )?
+    .into_iter()
+    .next()
+    .ok_or("project missing")?;
+    let root = crate::desktop_playback::project_custody_root(
+        data_root,
+        &genesis_adapter::string(&project, "projects.storage_path")?,
+    )
+    .map_err(|e| e.code)?;
+    let mut directory_handles = pin_ancestors(&root)?;
+    let exports_dir = root.join("exports");
+    let exports_handle = open_relative(
+        directory_handles.last().ok_or("missing project root")?,
+        std::ffi::OsStr::new("exports"),
+        true,
+        3,
+        false,
+    )?;
+    let meta = exports_handle.metadata().map_err(|e| e.to_string())?;
+    directory_handles.push(exports_handle);
+    let canonical = std::fs::canonicalize(&exports_dir).map_err(|e| e.to_string())?;
+    if is_reparse(&meta)
+        || !meta.is_dir()
+        || !crate::desktop_playback::normalized_path_inside(&canonical, &root)
+    {
+        return Err("source export directory is outside project custody".into());
+    }
+    if let Some(existing) = reuse_routed_exports(storage, data_root, &canonical, &manifest, &lease)?
+    {
+        return Ok(existing);
+    }
+    // The unique directory is unpublished until the metadata transaction.
+    // It remains at this path throughout; rename would invalidate pinning.
+    let staging_path = exports_dir.join(format!("source-set-{}", Uuid::new_v4()));
+    let set_handle = open_relative(
+        directory_handles.last().ok_or("missing exports handle")?,
+        staging_path.file_name().ok_or("missing source set name")?,
+        true,
+        2,
+        false,
+    )?;
+    directory_handles.push(set_handle);
+    // An uncommitted stage is deliberately retained on failure: deleting by
+    // path after a reparse swap could delete somebody else's file.
+    let outcome = (|| -> Result<Vec<AudioExport>, String> {
+        let cancel = AtomicBool::new(false);
+        let mut prepared = Vec::new();
+        let mut held_source_files = Vec::new();
+        let mut locked_outputs = Vec::new();
+        let mut total = 0u64;
+        for source in &manifest.sources {
+            if !lease.is_available() {
+                return Err("source export revoked".into());
+            }
+            let last = source
+                .chunks
+                .last()
+                .ok_or("source export has no chunks")?
+                .chunk
+                .end_frame;
+            let estimated = u64::try_from(last)
+                .map_err(|_| "source export size invalid")?
+                .checked_mul(2)
+                .and_then(|bytes| bytes.checked_add(128))
+                .ok_or("source export size overflow")?;
+            if total
+                .checked_add(estimated)
+                .ok_or("source export size overflow")?
+                > MAX_AUDIO_EXPORT_BYTES
+            {
+                return Err("source export exceeds 512 MiB ceiling".into());
+            }
+            let filename = format!("source-{}-epoch-{}.wav", source.id, source.epoch);
+            let destination = staging_path.join(&filename);
+            let mut file = open_relative(
+                directory_handles
+                    .last()
+                    .ok_or("missing source set handle")?,
+                std::ffi::OsStr::new(&filename),
+                false,
+                2,
+                true,
+            )?;
+            let actual = crate::desktop_playback::final_path_from_handle(&file, &destination)
+                .map_err(|e| e.code)?;
+            if !crate::desktop_playback::normalized_path_inside(&actual, &destination)
+                || !crate::desktop_playback::normalized_path_inside(&destination, &actual)
+            {
+                return Err("source export file identity changed before write".into());
+            }
+            let spec = hound::WavSpec {
+                channels: 1,
+                sample_rate: source.sample_rate,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut writer = hound::WavWriter::new(
+                std::io::BufWriter::new(file.try_clone().map_err(|e| e.to_string())?),
+                spec,
+            )
+            .map_err(|e| e.to_string())?;
+            let mut expected_frame = 0i64;
+            let mut written_frames = 0u64;
+            for descriptor in &source.chunks {
+                let c = &descriptor.chunk;
+                if c.start_frame != expected_frame || c.end_frame <= c.start_frame {
+                    return Err("source export has unproven or missing coverage".into());
+                }
+                if held_source_files.len()
+                    >= crate::capture_source_custody::MAX_CAPTURE_SOURCE_FILE_HANDLES
+                {
+                    return Err("source export file handle limit".into());
+                }
+                let mut reader = media::open_verified_chunk(
+                    storage,
+                    data_root,
+                    &manifest,
+                    &source.id,
+                    source.epoch,
+                    c.sequence,
+                    &cancel,
+                )?;
+                for sample in reader.samples::<i16>() {
+                    if !lease.is_available() {
+                        return Err("source export revoked".into());
+                    }
+                    written_frames = written_frames
+                        .checked_add(1)
+                        .ok_or("source export size overflow")?;
+                    if written_frames
+                        > u64::try_from(last).map_err(|_| "source export size invalid")?
+                    {
+                        return Err("source export exceeds declared frames".into());
+                    }
+                    writer
+                        .write_sample(sample.map_err(|e| e.to_string())?)
+                        .map_err(|e| e.to_string())?;
+                }
+                held_source_files.push(reader.into_inner().into_inner());
+                expected_frame = c.end_frame;
+            }
+            if expected_frame <= 0
+                || written_frames
+                    != u64::try_from(expected_frame).map_err(|_| "source export size invalid")?
+            {
+                return Err("source export has unproven or missing coverage".into());
+            }
+            writer.finalize().map_err(|e| e.to_string())?;
+            let (size, checksum) = digest_locked_file(&mut file)?;
+            total = total
+                .checked_add(size)
+                .ok_or("source export size overflow")?;
+            if total > MAX_AUDIO_EXPORT_BYTES {
+                return Err("source export exceeds 512 MiB ceiling".into());
+            }
+            prepared.push((source.id.clone(), source.epoch, filename, size, checksum));
+            locked_outputs.push(file);
+        }
+        if prepared.is_empty() {
+            return Err("source export has no sources".into());
+        }
+        let published = staging_path.clone();
+        before_publish()?;
+        let result = custody::with_source_custody_gate(|| {
+            if !lease.is_available() {
+                return Err("source export revoked".into());
+            }
+            if custody::require_capture_source_access(storage, recording_id)? != manifest.frontier {
+                return Err("source custody changed during export".into());
+            }
+            let published_root = std::fs::canonicalize(&published).map_err(|e| e.to_string())?;
+            if !crate::desktop_playback::normalized_path_inside(&published_root, &canonical) {
+                return Err("published source export escaped custody".into());
+            }
+            // Keep deny-write/delete handles alive through the DB commit so bytes
+            // verified for publication cannot be replaced by another handle.
+            for ((_, _, filename, size, checksum), file) in
+                prepared.iter().zip(locked_outputs.iter_mut())
+            {
+                let path = published.join(filename);
+                let meta = std::fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+                if is_reparse(&meta) || !meta.is_file() {
+                    return Err("source export path changed".into());
+                }
+                let final_path = crate::desktop_playback::final_path_from_handle(file, &path)
+                    .map_err(|e| e.code)?;
+                if !crate::desktop_playback::normalized_path_inside(&final_path, &path)
+                    || !crate::desktop_playback::normalized_path_inside(&path, &final_path)
+                    || !crate::desktop_playback::normalized_path_inside(
+                        &final_path,
+                        &published_root,
+                    )
+                {
+                    return Err("source export path escaped custody".into());
+                }
+                if digest_locked_file(file)? != (*size, checksum.clone()) {
+                    return Err("source export bytes changed".into());
+                }
+            }
+            let now = crate::now();
+            let frontier =
+                i64::try_from(manifest.frontier).map_err(|_| "source frontier overflow")?;
+            let mut mutations = Vec::new();
+            let mut exports = Vec::new();
+            for (id, epoch, filename, size, checksum) in &prepared {
+                let artifact_id = routed_artifact_id(project_id, recording_id, id, *epoch);
+                let source = manifest
+                    .sources
+                    .iter()
+                    .find(|source| source.id == *id && source.epoch == *epoch)
+                    .ok_or("source export manifest changed")?;
+                let path = published.join(filename).display().to_string();
+                mutations.push(genesis_adapter::upsert(
+                    "export_artifacts",
+                    serde_json::json!({
+                        "id":artifact_id,"project_id":project_id,"kind":"wav","file_path":path,
+                        "source_layer_id":null,"created_at":now,
+                    }),
+                ));
+                mutations.push(genesis_adapter::upsert("source_export_bindings", serde_json::json!({
+                "id":artifact_id,"project_id":project_id,"recording_id":recording_id,
+                    "source_id":id,"capture_epoch":epoch,"source_manifest_hash":routed_manifest_hash(source)?,"checksum":checksum,
+                "byte_size":i64::try_from(*size).map_err(|_| "source export size overflow")?,
+                "source_frontier":frontier,"created_at":now,
+            })));
+                exports.push(AudioExport {
+                    kind: "wav",
+                    file_path: path,
+                });
+            }
+            before_commit()?;
+            storage
+                .commit_transaction(GenesisTransaction {
+                    transaction_id: Uuid::new_v4().to_string(),
+                    expected_frontier: Some(manifest.frontier),
+                    relational: vec![RelationalMutationGroup {
+                        namespace: genesis_adapter::NAMESPACE.into(),
+                        mutations,
+                    }],
+                    graph: BatchInput {
+                        nodes: vec![],
+                        edges: vec![],
+                    },
+                    vectors: vec![],
+                })
+                .map_err(|e| e.to_string())?;
+            Ok(exports)
+        });
+        // On uncertain DB commit do not delete the set: the transaction may
+        // have committed. Unpublished sets require later safe reconciliation.
+        result.map_err(|error| {
+            format!(
+                "{error}; retained source export set: {}",
+                published.display()
+            )
+        })
+    })();
+    outcome.map_err(|error| {
+        format!(
+            "{error}; unpublished stage may be retained at {}",
+            staging_path.display()
+        )
+    })
 }
 
 pub(crate) fn render_source_audio_channels(
@@ -421,29 +956,16 @@ fn source_channels(
     project_id: &str,
     recording_id: &str,
 ) -> Result<SourceSnapshot, String> {
-    let rows = genesis_adapter::query(
-        storage,
-        "recordings",
-        &["project_id", "source", "status"],
-        vec![genesis_adapter::eq(
-            "recordings",
-            "id",
-            serde_json::json!(recording_id),
-        )],
-        1,
-    )?;
-    let recording = rows
-        .first()
-        .ok_or_else(|| format!("ไม่พบการบันทึก {recording_id}"))?;
-    if genesis_adapter::string(recording, "recordings.project_id")? != project_id {
+    let recording = crate::routed_media_access::require_legacy_media_source(storage, recording_id)?;
+    if genesis_adapter::string(&recording, "recordings.project_id")? != project_id {
         return Err("การบันทึกไม่ได้อยู่ในโปรเจกต์นี้".into());
     }
-    if genesis_adapter::string(recording, "recordings.status")? != "completed" {
+    if genesis_adapter::string(&recording, "recordings.status")? != "completed" {
         return Err(
             "audio source is still changing; stop and finish the recording before exporting".into(),
         );
     }
-    let source = genesis_adapter::string(recording, "recordings.source")?;
+    let source = genesis_adapter::string(&recording, "recordings.source")?;
     let project = project_row(storage, project_id)?;
     let root = PathBuf::from(genesis_adapter::string(&project, "projects.storage_path")?);
     let rows = genesis_adapter::query_all(
@@ -617,6 +1139,287 @@ mod tests {
     use super::*;
     use genesis_block_native::{OpenOptions, Storage};
     use std::path::{Path, PathBuf};
+
+    #[cfg(windows)]
+    #[test]
+    fn completed_routed_export_keeps_each_source_and_epoch_distinct() {
+        let f = crate::completed_source_media::tests::Fixture::new(true);
+        let exports = render_routed_source_audio_channels(
+            &f.storage,
+            f.temp.path(),
+            &f.project,
+            &f.recording,
+        )
+        .expect("completed routed sources should export separately");
+        assert_eq!(exports.len(), 2);
+        let mut samples = Vec::new();
+        for export in exports {
+            let mut wav = hound::WavReader::open(&export.file_path).unwrap();
+            samples.push(wav.samples::<i16>().collect::<Result<Vec<_>, _>>().unwrap());
+        }
+        samples.sort();
+        assert_eq!(samples, vec![vec![111], vec![222]]);
+        let bindings = genesis_adapter::query_all(
+            &f.storage,
+            "source_export_bindings",
+            &[
+                "recording_id",
+                "source_id",
+                "capture_epoch",
+                "checksum",
+                "byte_size",
+            ],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(bindings.len(), 2);
+        for registration in &f.regs {
+            assert!(bindings
+                .iter()
+                .any(
+                    |row| row["source_export_bindings.recording_id"] == f.recording
+                        && row["source_export_bindings.source_id"] == registration.id
+                        && row["source_export_bindings.capture_epoch"] == registration.epoch
+                ));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn completed_routed_export_retry_reuses_verified_files_without_new_stage() {
+        let f = crate::completed_source_media::tests::Fixture::new(true);
+        let first = render_routed_source_audio_channels(
+            &f.storage,
+            f.temp.path(),
+            &f.project,
+            &f.recording,
+        )
+        .unwrap();
+        let dir = f
+            .temp
+            .path()
+            .join("projects")
+            .join("fixture")
+            .join("exports");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        let again = render_routed_source_audio_channels(
+            &f.storage,
+            f.temp.path(),
+            &f.project,
+            &f.recording,
+        )
+        .unwrap();
+        assert_eq!(again, first);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn routed_export_quarantine_before_publication_fails_closed() {
+        let f = crate::completed_source_media::tests::Fixture::new(true);
+        let result = render_routed_source_audio_channels_with_hooks(
+            &f.storage,
+            f.temp.path(),
+            &f.project,
+            &f.recording,
+            || {
+                let attempt = crate::capture_source_custody::begin_source_commit(
+                    &f.storage,
+                    &Uuid::new_v4().to_string(),
+                    "t",
+                )?;
+                crate::capture_source_custody::quarantine_capture_source(
+                    &f.storage,
+                    &attempt,
+                    &f.regs[0].id,
+                    "test-fault",
+                )
+            },
+            || Ok(()),
+        );
+        assert!(result.is_err());
+        assert!(
+            genesis_adapter::query_all(&f.storage, "export_artifacts", &["id"], vec![])
+                .unwrap()
+                .is_empty()
+        );
+        let exports = f
+            .temp
+            .path()
+            .join("projects")
+            .join("fixture")
+            .join("exports");
+        let entries = std::fs::read_dir(exports)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0]
+            .file_name()
+            .to_string_lossy()
+            .starts_with("source-set-"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn routed_export_keeps_source_file_locked_through_publication() {
+        let f = crate::completed_source_media::tests::Fixture::new(true);
+        let result = render_routed_source_audio_channels_with_hooks(
+            &f.storage,
+            f.temp.path(),
+            &f.project,
+            &f.recording,
+            || {
+                assert!(
+                    std::fs::write(&f.paths[0], b"replacement").is_err(),
+                    "verified input handle must deny write before publication"
+                );
+                Ok(())
+            },
+            || Ok(()),
+        )
+        .unwrap();
+        assert_eq!(result.len(), 2);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn routed_export_pins_ancestor_and_set_until_commit() {
+        let f = crate::completed_source_media::tests::Fixture::new(true);
+        let project = f.temp.path().join("projects").join("fixture");
+        let exports = project.join("exports");
+        let renamed_project = project.with_file_name("renamed-fixture");
+        let renamed_exports = project.join("renamed-exports");
+        let result = render_routed_source_audio_channels_with_hooks(
+            &f.storage,
+            f.temp.path(),
+            &f.project,
+            &f.recording,
+            || {
+                assert!(
+                    std::fs::rename(&project, &renamed_project).is_err(),
+                    "project ancestor must be pinned"
+                );
+                assert!(
+                    std::fs::rename(&exports, &renamed_exports).is_err(),
+                    "exports ancestor must be pinned"
+                );
+                let set = std::fs::read_dir(&exports)
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .unwrap()
+                    .path();
+                assert!(
+                    std::fs::rename(&set, exports.join("renamed-set")).is_err(),
+                    "unpublished set must be pinned"
+                );
+                let output = std::fs::read_dir(&set)
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .unwrap()
+                    .path();
+                assert!(
+                    std::fs::write(&output, b"replacement").is_err(),
+                    "output must deny competing writers"
+                );
+                assert!(
+                    std::fs::remove_file(&output).is_err(),
+                    "output must deny deletion through commit"
+                );
+                Ok(())
+            },
+            || Ok(()),
+        )
+        .unwrap();
+        assert_eq!(result.len(), 2);
+        // Prove the test filesystem did not already forbid ordinary directory
+        // rename independent of our pins; restore immediately after checking.
+        std::fs::rename(&project, &renamed_project).unwrap();
+        std::fs::rename(&renamed_project, &project).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn routed_export_directory_pin_rejects_reparse_point() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        let link = dir.path().join("link");
+        std::fs::create_dir(&target).unwrap();
+        // Directory junction creation does not require symlink privilege.
+        // Paths are passed as environment values, never interpolated as code.
+        let status = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", "New-Item -ItemType Junction -Path $env:FUNG_TEST_LINK -Target $env:FUNG_TEST_TARGET | Out-Null"])
+            .env("FUNG_TEST_LINK", &link)
+            .env("FUNG_TEST_TARGET", &target)
+            .status().expect("launch PowerShell for junction fixture");
+        assert!(status.success(), "junction fixture creation must succeed");
+        assert!(is_reparse(&std::fs::symlink_metadata(&link).unwrap()));
+        assert!(pin_directory(&link).is_err());
+        let parent = pin_directory(dir.path()).unwrap();
+        assert!(open_relative(&parent, std::ffi::OsStr::new("link"), true, 1, false).is_err());
+        // Exercise an already-converted parent handle, not pathname traversal.
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+            FILE_SHARE_WRITE,
+        };
+        let converted = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(&link)
+            .unwrap();
+        assert!(open_relative(
+            &converted,
+            std::ffi::OsStr::new("unexpected.wav"),
+            false,
+            2,
+            true
+        )
+        .is_err());
+        assert!(!target.join("unexpected.wav").exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn routed_export_stale_commit_retains_set_and_retry_reconciles() {
+        let f = crate::completed_source_media::tests::Fixture::new(true);
+        let result = render_routed_source_audio_channels_with_hooks(
+            &f.storage,
+            f.temp.path(),
+            &f.project,
+            &f.recording,
+            || Ok(()),
+            || {
+                genesis_adapter::commit_rows(
+                    &f.storage,
+                    vec![genesis_adapter::upsert(
+                        "audit_events",
+                        serde_json::json!({
+                            "id":Uuid::new_v4().to_string(),"project_id":f.project,"event_type":"test_concurrent_change",
+                            "actor":"test","payload_json":{},"created_at":"t"
+                        }),
+                    )],
+                )
+            },
+        );
+        assert!(result.is_err());
+        assert!(
+            genesis_adapter::query_all(&f.storage, "export_artifacts", &["id"], vec![])
+                .unwrap()
+                .is_empty()
+        );
+        let exports = render_routed_source_audio_channels(
+            &f.storage,
+            f.temp.path(),
+            &f.project,
+            &f.recording,
+        )
+        .unwrap();
+        assert_eq!(exports.len(), 2);
+    }
 
     fn open_storage() -> (PathBuf, Storage) {
         let path = std::env::temp_dir().join(format!("fung-audio-export-test-{}", Uuid::new_v4()));

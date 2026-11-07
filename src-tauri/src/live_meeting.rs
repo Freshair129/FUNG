@@ -4297,7 +4297,7 @@ pub(crate) struct LiveStartOutput {
     project_id: String,
     recording_id: String,
     job_id: String,
-    mic_device: String,
+    mic_device: Option<String>,
     system_device: Option<String>,
     transcript_profile: String,
     warning: Option<String>,
@@ -4427,11 +4427,62 @@ pub(crate) fn live_capture_devices(state: State<'_, AppState>) -> AppResult<Live
     })
 }
 
+#[derive(Debug)]
+struct CaptureInputs {
+    microphone: bool,
+    system: bool,
+}
+
+impl CaptureInputs {
+    fn requested(
+        microphone: Option<bool>,
+        system: Option<bool>,
+        application_process_id: Option<u32>,
+    ) -> Result<Self, String> {
+        let microphone = microphone.unwrap_or(true);
+        let system = system.unwrap_or(true);
+        if !microphone && !system {
+            return Err("เลือกไมโครโฟนหรือเสียงฝั่งประชุมอย่างน้อยหนึ่งแหล่ง".to_string());
+        }
+        if application_process_id.is_some() && !system {
+            return Err("เปิดการจับเสียงฝั่งประชุมก่อนเลือกแอป".to_string());
+        }
+        Ok(Self { microphone, system })
+    }
+
+    fn channels(&self) -> Vec<&'static str> {
+        let mut channels = Vec::new();
+        if self.microphone {
+            channels.push(CHANNEL_MIC);
+        }
+        if self.system {
+            channels.push(CHANNEL_SYSTEM);
+        }
+        channels
+    }
+
+    fn allow_system_fallback(&self, explicit_device: bool) -> bool {
+        self.microphone && !explicit_device
+    }
+
+    fn start_microphone<T>(
+        &self,
+        start: impl FnOnce() -> Result<T, String>,
+    ) -> Result<Option<T>, String> {
+        if self.microphone {
+            start().map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub(crate) fn live_meeting_start(
     project_id: Option<String>,
     capture_system: Option<bool>,
+    capture_microphone: Option<bool>,
     language: Option<String>,
     transcript_profile: Option<String>,
     mic_device_id: Option<String>,
@@ -4440,24 +4491,24 @@ pub(crate) fn live_meeting_start(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<LiveStartOutput> {
-    let capture_system = capture_system.unwrap_or(true);
+    let inputs =
+        CaptureInputs::requested(capture_microphone, capture_system, application_process_id)
+            .map_err(AppError::InvalidInput)?;
+    let capture_system = inputs.system;
     let transcript_profile =
         crate::live_transcript::LiveTranscriptProfile::parse(transcript_profile.as_deref())
             .map_err(AppError::InvalidInput)?;
     let mic_device_id = normalize_device_id(mic_device_id);
     let system_device_id = normalize_device_id(system_device_id);
-    if application_process_id.is_some() && !capture_system {
-        return Err(AppError::InvalidInput(
-            "เปิดการจับเสียงฝั่งประชุมก่อนเลือกแอป".to_string(),
-        ));
-    }
     let selected_application = application_process_id
         .map(crate::live_application_audio::validate_active_audio_application)
         .transpose()
         .map_err(AppError::InvalidInput)?;
 
-    validate_requested_device(CaptureDeviceKind::Mic, mic_device_id.as_deref())
-        .map_err(AppError::InvalidInput)?;
+    if inputs.microphone {
+        validate_requested_device(CaptureDeviceKind::Mic, mic_device_id.as_deref())
+            .map_err(AppError::InvalidInput)?;
+    }
     if capture_system && selected_application.is_none() {
         validate_requested_device(
             CaptureDeviceKind::SystemLoopback,
@@ -4468,7 +4519,13 @@ pub(crate) fn live_meeting_start(
     write_capture_preferences(
         &state.data_root,
         &CaptureDevicePreferences {
-            mic_device_id: mic_device_id.clone(),
+            mic_device_id: if inputs.microphone {
+                mic_device_id.clone()
+            } else {
+                read_capture_preferences(&state.data_root)
+                    .map_err(AppError::InvalidInput)?
+                    .mic_device_id
+            },
             system_device_id: system_device_id.clone(),
         },
     )
@@ -4580,16 +4637,13 @@ pub(crate) fn live_meeting_start(
     genesis_adapter::commit_rows(&state.genesis, vec![
         genesis_adapter::upsert("jobs", serde_json::json!({"id": job_id, "project_id": project_id, "type": "recording.capture", "status": "running", "progress": 0, "input_refs_json": [recording_id], "output_refs_json": [], "provider_id": null, "error_code": null, "error_message": null, "attempt_no": 1, "started_at": timestamp, "finished_at": null, "created_at": timestamp, "updated_at": timestamp})),
         genesis_adapter::upsert("job_events", serde_json::json!({"id": Uuid::new_v4().to_string(), "job_id": job_id, "status": "running", "message": "live capture started", "created_at": timestamp})),
-        genesis_adapter::upsert("audit_events", serde_json::json!({"id": Uuid::new_v4().to_string(), "project_id": project_id, "event_type": "live_meeting.started", "actor": "user", "payload_json": {"recordingId": recording_id, "captureSystem": capture_system, "remoteSourceKind": if application_process_id.is_some() { "application_loopback" } else if capture_system { "system_loopback" } else { "none" }, "applicationProcessId": application_process_id, "applicationName": selected_application.as_ref().map(|application| application.name.as_str())}, "created_at": timestamp})),
+        genesis_adapter::upsert("audit_events", serde_json::json!({"id": Uuid::new_v4().to_string(), "project_id": project_id, "event_type": "live_meeting.started", "actor": "user", "payload_json": {"recordingId": recording_id, "captureSystem": capture_system, "captureMicrophone": inputs.microphone, "remoteSourceKind": if application_process_id.is_some() { "application_loopback" } else if capture_system { "system_loopback" } else { "none" }, "applicationProcessId": application_process_id, "applicationName": selected_application.as_ref().map(|application| application.name.as_str())}, "created_at": timestamp})),
     ]).map_err(AppError::Genesis)?;
 
     let revisioned_context = if transcript_profile
         == crate::live_transcript::LiveTranscriptProfile::Revisioned
     {
-        let mut channels = vec![CHANNEL_MIC];
-        if capture_system {
-            channels.push(CHANNEL_SYSTEM);
-        }
+        let channels = inputs.channels();
         let remote_source_kind = if selected_application.is_some() {
             "application_loopback_capture"
         } else {
@@ -4620,16 +4674,18 @@ pub(crate) fn live_meeting_start(
     let recent: SharedRecent = Arc::new(Mutex::new(std::collections::VecDeque::new()));
     let (chunk_tx, chunk_rx) = mpsc::sync_channel::<CaptureEvent>(CAPTURE_EVENT_QUEUE_CAPACITY);
 
-    // Microphone is mandatory: without it there is no session.
-    let mic_ready = spawn_capture_thread_with_fragment_ms(
-        ChannelKind::Mic,
-        CHANNEL_MIC,
-        mic_device_id.clone(),
-        stop.clone(),
-        chunk_tx.clone(),
-        chunks_dir.clone(),
-        transcript_profile.fragment_ms() as u64,
-    );
+    // A system/PID-only request must not validate or open the microphone.
+    let mic_ready = inputs.start_microphone(|| {
+        spawn_capture_thread_with_fragment_ms(
+            ChannelKind::Mic,
+            CHANNEL_MIC,
+            mic_device_id.clone(),
+            stop.clone(),
+            chunk_tx.clone(),
+            chunks_dir.clone(),
+            transcript_profile.fragment_ms() as u64,
+        )
+    });
     let mic_ready = match mic_ready {
         Ok(ready) => ready,
         Err(error) => {
@@ -4647,7 +4703,7 @@ pub(crate) fn live_meeting_start(
         }
     };
 
-    // System loopback is best-effort: a failure downgrades to mic-only.
+    // Only an existing microphone permits the default system-loopback fallback.
     let mut warning = None;
     let system_device = if let Some(application) = selected_application.as_ref() {
         match crate::live_application_audio::spawn_application_capture_thread(
@@ -4686,7 +4742,7 @@ pub(crate) fn live_meeting_start(
         ) {
             Ok(ready) => Some(ready.device_name),
             Err(error) => {
-                if system_device_id.is_some() {
+                if !inputs.allow_system_fallback(system_device_id.is_some()) {
                     stop.store(true, Ordering::SeqCst);
                     if let Some(context) = &revisioned_context {
                         update_revisioned_session_state(&state.genesis, context, "failed");
@@ -4767,11 +4823,7 @@ pub(crate) fn live_meeting_start(
     }
     if let Some(coordinator) = cleanup_coordinator {
         stop.store(true, Ordering::SeqCst);
-        let _ = spawn_capture_cleanup(
-            Arc::clone(&state.live),
-            Arc::clone(&state.native_capture),
-            coordinator,
-        );
+        let _ = spawn_capture_cleanup(coordinator);
     }
 
     meeting_intel::spawn_topic_tracker(
@@ -4787,7 +4839,7 @@ pub(crate) fn live_meeting_start(
         &recording_id,
         "starting",
         warning.clone(),
-        Some(mic_ready.device_name.clone()),
+        mic_ready.as_ref().map(|ready| ready.device_name.clone()),
         system_device.clone(),
     );
 
@@ -4795,7 +4847,7 @@ pub(crate) fn live_meeting_start(
         project_id,
         recording_id,
         job_id,
-        mic_device: mic_ready.device_name,
+        mic_device: mic_ready.map(|ready| ready.device_name),
         system_device,
         transcript_profile: match transcript_profile {
             crate::live_transcript::LiveTranscriptProfile::Chunked => "chunked".to_string(),
@@ -4805,17 +4857,14 @@ pub(crate) fn live_meeting_start(
     })
 }
 
-fn spawn_capture_cleanup(
-    live_state: LiveState,
-    native_capture: Arc<crate::recording_review::NativeCaptureGuard>,
-    coordinator: JoinHandle<()>,
-) -> Option<JoinHandle<()>> {
+fn spawn_capture_cleanup(coordinator: JoinHandle<()>) -> Option<JoinHandle<()>> {
     match thread::Builder::new()
         .name("fung-live-shutdown-cleanup".to_string())
         .spawn(move || {
             let _ = coordinator.join();
-            native_capture.release_capture();
-            *live_state.lock().expect("live session mutex poisoned") = None;
+            // CaptureRuntimeLease is the coordinator's sole release owner.
+            // After it exits, a new capture may already own the shared guard
+            // or visible slot; this joiner has no authority to reset either.
         }) {
         Ok(cleanup) => Some(cleanup),
         Err(error) => {
@@ -4848,13 +4897,10 @@ fn shutdown_capture(
     };
 
     if let Some(coordinator) = coordinator {
-        spawn_capture_cleanup(
-            Arc::clone(live_state),
-            Arc::clone(native_capture),
-            coordinator,
-        )
+        spawn_capture_cleanup(coordinator)
     } else if !had_session {
-        native_capture.release_capture();
+        // An empty legacy slot says nothing about routed or starting capture
+        // ownership. Only that capture's actual owner can release its guard.
         None
     } else {
         // No handle means ownership could not be proven quiescent.  Keep the
@@ -5578,20 +5624,109 @@ mod tests {
     }
 
     #[test]
+    fn shutdown_without_legacy_session_preserves_another_capture_owner() {
+        use crate::recording_review::{CapturePhase, NativeCaptureGuard};
+
+        let guard = Arc::new(NativeCaptureGuard::default());
+        NativeCaptureGuard::reserve_capture(guard.clone())
+            .unwrap()
+            .commit_active();
+        let live = Arc::new(Mutex::new(None));
+
+        assert!(shutdown_capture(&live, &guard).is_none());
+        assert_eq!(guard.capture_phase(), CapturePhase::Active);
+        assert!(NativeCaptureGuard::reserve_capture(guard.clone()).is_err());
+        assert!(guard.try_open_playback().is_err());
+
+        // Only the actual remaining owner may release this reservation.
+        guard.release_capture();
+        assert!(NativeCaptureGuard::reserve_capture(guard).is_ok());
+    }
+
+    #[test]
+    fn shutdown_old_cleanup_preserves_new_capture_owner_and_visible_session() {
+        use crate::recording_review::{CapturePhase, NativeCaptureGuard};
+
+        let guard = Arc::new(NativeCaptureGuard::default());
+        NativeCaptureGuard::reserve_capture(guard.clone())
+            .unwrap()
+            .commit_active();
+        let live: LiveState = Arc::new(Mutex::new(None));
+        let stop = Arc::new(AtomicBool::new(false));
+        let old_stop = stop.clone();
+        let old_guard = guard.clone();
+        let old_live = live.clone();
+        let (released_tx, released_rx) = mpsc::channel();
+        let (finish_tx, finish_rx) = mpsc::channel();
+        let coordinator = thread::spawn(move || {
+            while !old_stop.load(Ordering::Acquire) {
+                thread::yield_now();
+            }
+            // Model the actual coordinator's terminal slot update and its
+            // CaptureRuntimeLease owner release before its thread returns.
+            *old_live.lock().unwrap() = None;
+            old_guard.release_capture();
+            released_tx.send(()).unwrap();
+            finish_rx.recv().unwrap();
+        });
+        *live.lock().unwrap() = Some(LiveSessionControl {
+            stop,
+            project_id: "p-old".into(),
+            recording_id: "r-old".into(),
+            job_id: "j-old".into(),
+            recent: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            started_at: Instant::now(),
+            coordinator: Some(coordinator),
+        });
+        let cleanup = shutdown_capture(&live, &guard).unwrap();
+        released_rx.recv().unwrap();
+
+        NativeCaptureGuard::reserve_capture(guard.clone())
+            .unwrap()
+            .commit_active();
+        let new_stop = Arc::new(AtomicBool::new(false));
+        *live.lock().unwrap() = Some(LiveSessionControl {
+            stop: new_stop.clone(),
+            project_id: "p-new".into(),
+            recording_id: "r-new".into(),
+            job_id: "j-new".into(),
+            recent: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            started_at: Instant::now(),
+            coordinator: None,
+        });
+        finish_tx.send(()).unwrap();
+        cleanup.join().unwrap();
+
+        assert_eq!(guard.capture_phase(), CapturePhase::Active);
+        assert!(NativeCaptureGuard::reserve_capture(guard.clone()).is_err());
+        assert!(guard.try_open_playback().is_err());
+        assert_eq!(live.lock().unwrap().as_ref().unwrap().recording_id, "r-new");
+        assert!(!new_stop.load(Ordering::Acquire));
+        guard.release_capture();
+    }
+
+    #[test]
     fn shutdown_keeps_capture_admission_until_coordinator_quiesces() {
         let guard = Arc::new(crate::recording_review::NativeCaptureGuard::default());
         guard.try_start_capture().unwrap();
         guard.mark_capture_active();
         let stop = Arc::new(AtomicBool::new(false));
         let coordinator_stop = Arc::clone(&stop);
+        let live: LiveState = Arc::new(Mutex::new(None));
+        let coordinator_live = live.clone();
+        let coordinator_guard = guard.clone();
         let (allow_tx, allow_rx) = mpsc::channel();
         let coordinator = thread::spawn(move || {
             while !coordinator_stop.load(Ordering::Acquire) {
                 thread::yield_now();
             }
             allow_rx.recv().unwrap();
+            // This pure fixture explicitly models the actual coordinator's
+            // terminal slot update and CaptureRuntimeLease owner release.
+            *coordinator_live.lock().unwrap() = None;
+            coordinator_guard.release_capture();
         });
-        let live = Arc::new(Mutex::new(Some(LiveSessionControl {
+        *live.lock().unwrap() = Some(LiveSessionControl {
             stop,
             project_id: "p1".to_string(),
             recording_id: "r1".to_string(),
@@ -5599,7 +5734,7 @@ mod tests {
             recent: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             started_at: Instant::now(),
             coordinator: Some(coordinator),
-        })));
+        });
         let cleanup = shutdown_capture(&live, &guard).unwrap();
 
         let deadline = Instant::now() + Duration::from_millis(100);
@@ -6099,5 +6234,70 @@ mod tests {
             join_detailed_candidate_texts(["Hello".to_string(), "ไทย".to_string()]),
             "Hello ไทย"
         );
+    }
+}
+
+#[cfg(test)]
+mod capture_input_tests {
+    use super::*;
+
+    #[test]
+    fn capture_inputs_defaults_keep_microphone_and_system() {
+        let inputs = CaptureInputs::requested(None, None, None).unwrap();
+        assert_eq!(inputs.channels(), vec!["mic", "system"]);
+        assert_eq!(inputs.start_microphone(|| Ok(7)).unwrap(), Some(7));
+    }
+
+    #[test]
+    fn capture_inputs_system_only_never_opens_microphone() {
+        let inputs = CaptureInputs::requested(Some(false), Some(true), Some(42)).unwrap();
+        assert_eq!(inputs.channels(), vec!["system"]);
+        let result: Result<Option<()>, String> =
+            inputs.start_microphone(|| panic!("disabled microphone factory must not be evaluated"));
+        assert_eq!(result.unwrap(), None);
+        assert!(!inputs.allow_system_fallback(false));
+    }
+
+    #[test]
+    fn capture_inputs_reject_empty_capture_before_any_device_is_opened() {
+        assert!(CaptureInputs::requested(Some(false), Some(false), None).is_err());
+    }
+
+    #[test]
+    fn capture_inputs_reject_application_with_system_disabled() {
+        assert!(CaptureInputs::requested(None, Some(false), Some(42)).is_err());
+    }
+
+    #[test]
+    fn capture_inputs_microphone_only_preserves_device_failure() {
+        let inputs = CaptureInputs::requested(None, Some(false), None).unwrap();
+        assert_eq!(inputs.channels(), vec!["mic"]);
+        assert_eq!(
+            inputs.start_microphone::<()>(|| Err("device unavailable".to_string())),
+            Err("device unavailable".to_string())
+        );
+    }
+
+    #[test]
+    fn capture_inputs_only_default_system_can_fall_back_to_an_existing_microphone() {
+        let inputs = CaptureInputs::requested(None, None, None).unwrap();
+        assert!(inputs.allow_system_fallback(false));
+        assert!(!inputs.allow_system_fallback(true));
+    }
+
+    #[test]
+    fn capture_inputs_system_only_response_exposes_absent_microphone_as_null() {
+        let output = LiveStartOutput {
+            project_id: "project".to_string(),
+            recording_id: "recording".to_string(),
+            job_id: "job".to_string(),
+            mic_device: None,
+            system_device: Some("owned target".to_string()),
+            transcript_profile: "chunked".to_string(),
+            warning: None,
+        };
+        let value = serde_json::to_value(output).unwrap();
+        assert!(value["micDevice"].is_null());
+        assert_eq!(value["systemDevice"], "owned target");
     }
 }

@@ -26,11 +26,13 @@ import type {
   MeetingToolPreviewEnvelope,
   MeetingToolRevokeReceipt,
 } from "./lib/externalMeetingTools.ts";
+import { isPlaybackSourceCatalog } from "./components/desktop/contracts.ts";
 import type {
   PlaybackAction,
   PlaybackChannel,
   PlaybackCloseAcknowledgement,
   PlaybackState,
+  PlaybackSource,
   RecordingAnswer,
   RecordingListRelease,
   RecordingPage,
@@ -43,6 +45,7 @@ export type {
   PlaybackChannel,
   PlaybackCloseAcknowledgement,
   PlaybackState,
+  PlaybackSource,
   RecordingAnswer,
   RecordingListRelease,
   RecordingPage,
@@ -574,44 +577,208 @@ export async function askRecording(
   });
 }
 
+type PlaybackExpectation = {
+  projectId: string;
+  recordingId: string;
+  channel: PlaybackChannel | "source";
+  sourceId?: string;
+  captureEpoch?: number;
+};
+
+type PlaybackIdentity = PlaybackExpectation & {
+  generation: number;
+  adoptionToken: string;
+  acknowledged: boolean;
+};
+
+type PlaybackAdoptionOffer = { generation: number; token: string };
+
+// Only acknowledged, owner-issued handles enter this map. Native ownership
+// remains authoritative; this local map fences status/control responses.
+const playbackIdentities = new Map<string, PlaybackIdentity>();
+const PLAYBACK_HEARTBEAT_INTERVAL_MS = 2_000;
+const PLAYBACK_TERMINAL_HEARTBEAT_CODES = new Set([
+  "PLAYBACK_HANDLE_INVALID",
+  "PLAYBACK_LEASE_EXPIRED",
+  "PLAYBACK_ADOPTION_EXPIRED",
+  "PLAYBACK_ADOPTION_REQUIRED",
+]);
+let playbackHeartbeatTimer: number | null = null;
+
+export class PlaybackCloseUnconfirmedError extends Error {
+  readonly code = "PLAYBACK_CLOSE_UNCONFIRMED";
+  readonly retryable: boolean;
+  readonly closeRetryable: boolean;
+  readonly handle: string;
+  constructor(handle: string, closeRetryable = true) {
+    super(closeRetryable
+      ? "ยังยืนยันการปิดเครื่องเล่นไม่ได้ โปรดลองปิดอีกครั้ง"
+      : "ยืนยันการรับเครื่องเล่นไม่ได้ ระบบจะปิดเซสชันเมื่อสิทธิ์หมดอายุ");
+    this.retryable = closeRetryable;
+    this.closeRetryable = closeRetryable;
+    this.handle = handle;
+    this.name = "PlaybackCloseUnconfirmedError";
+  }
+}
+
+function sourceRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown> : null;
+}
+
+function validSourceEpoch(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function validPlaybackIdentity(value: unknown, expected: PlaybackExpectation, handle?: string): value is PlaybackState {
+  const row = sourceRecord(value);
+  if (!row || row.projectId !== expected.projectId || row.recordingId !== expected.recordingId
+    || row.channel !== expected.channel || typeof row.handle !== "string" || !row.handle
+    || (handle !== undefined && row.handle !== handle)) return false;
+  if (expected.channel !== "source") return row.source === undefined || row.source === null;
+  const source = sourceRecord(row.source);
+  return source !== null && source.sourceId === expected.sourceId
+    && validSourceEpoch(source.captureEpoch) && source.captureEpoch === expected.captureEpoch;
+}
+
+async function rejectInvalidOpen(): Promise<never> {
+  // No valid nonce means there is no close authority to send. Native adoption
+  // timeout owns cleanup of this undelivered session; do not create renderer
+  // close custody for a handle that cannot be retried with exact identity.
+  throw new Error("PLAYBACK_ADOPTION_OFFER_INVALID");
+}
+
+async function acceptPlaybackOpen(
+  value: unknown,
+  expected: PlaybackExpectation,
+): Promise<PlaybackState> {
+  if (!validPlaybackIdentity(value, expected)) return rejectInvalidOpen();
+  const row = sourceRecord(value);
+  const adoption = sourceRecord(row?.adoption);
+  if (!adoption || !Number.isSafeInteger(adoption.generation) || (adoption.generation as number) <= 0
+    || typeof adoption.token !== "string" || !adoption.token) return rejectInvalidOpen();
+  const adoptedIdentity: PlaybackIdentity = {
+    ...expected,
+    generation: adoption.generation as number,
+    adoptionToken: adoption.token,
+    acknowledged: false,
+  };
+  try {
+    const receipt = await invoke<{ adopted?: boolean }>("desktop_playback_adopt", {
+      handle: value.handle,
+      lease: { generation: adoptedIdentity.generation, token: adoptedIdentity.adoptionToken },
+    });
+    if (receipt?.adopted !== true) throw new Error("PLAYBACK_ADOPTION_UNCONFIRMED");
+    playbackIdentities.set(value.handle, { ...adoptedIdentity, acknowledged: true });
+  } catch {
+    playbackIdentities.delete(value.handle);
+    throw new PlaybackCloseUnconfirmedError(value.handle, false);
+  }
+  const { adoption: _adoption, ...state } = value as PlaybackState & { adoption: PlaybackAdoptionOffer };
+  return state;
+}
+
 export async function openPlayback(
   projectId: string,
   recordingId: string,
   channel: PlaybackChannel,
 ): Promise<PlaybackState> {
   if (!canInvoke()) throw nativeUnavailable("Desktop playback");
-  return invoke<PlaybackState>("desktop_playback_open", {
-    projectId,
-    recordingId,
-    channel,
+  const value = await invoke<unknown>("desktop_playback_open", {
+    projectId, recordingId, channel,
   });
+  return acceptPlaybackOpen(value, { projectId, recordingId, channel });
+}
+
+export async function listPlaybackSources(projectId: string, recordingId: string): Promise<PlaybackSource[]> {
+  if (!canInvoke()) throw nativeUnavailable("Desktop playback sources");
+  const rows = await invoke<unknown>("desktop_playback_sources", { projectId, recordingId });
+  if (!isPlaybackSourceCatalog(rows)) throw new Error("INVALID_PLAYBACK_SOURCE_METADATA");
+  return rows.map(({ sourceId, captureEpoch, label, kind, sampleRate, durationFrames }) =>
+    ({ sourceId, captureEpoch, label, kind, sampleRate, durationFrames }));
+}
+
+export async function openSourcePlayback(
+  projectId: string, recordingId: string, sourceId: string, captureEpoch: number,
+): Promise<PlaybackState> {
+  if (!canInvoke()) throw nativeUnavailable("Desktop source playback");
+  if (!sourceId || !validSourceEpoch(captureEpoch)) throw new Error("INVALID_PLAYBACK_SOURCE_METADATA");
+  const value = await invoke<unknown>("desktop_playback_open_source", {
+    projectId, recordingId, sourceId, captureEpoch,
+  });
+  return acceptPlaybackOpen(value, { projectId, recordingId, channel: "source", sourceId, captureEpoch });
+}
+
+function validatePlaybackResponse(value: unknown, handle: string): PlaybackState {
+  const expected = playbackIdentities.get(handle);
+  if (!expected?.acknowledged || !validPlaybackIdentity(value, expected, handle)) {
+    throw new Error("INVALID_PLAYBACK_SOURCE_METADATA");
+  }
+  return value;
 }
 
 export async function controlPlayback(
-  handle: string,
-  expectedEpoch: number,
-  action: PlaybackAction,
-  positionMs?: number,
+  handle: string, expectedEpoch: number, action: PlaybackAction, positionMs?: number,
 ): Promise<PlaybackState> {
   if (!canInvoke()) throw nativeUnavailable("Desktop playback");
-  const args: {
-    handle: string;
-    expectedEpoch: number;
-    action: PlaybackAction;
-    positionMs?: number;
-  } = { handle, expectedEpoch, action };
+  const identity = playbackIdentities.get(handle);
+  if (!identity?.acknowledged) throw new Error("INVALID_PLAYBACK_SOURCE_METADATA");
+  const args: { handle: string; expectedEpoch: number; action: PlaybackAction; positionMs?: number; lease: { generation: number; token: string } } = {
+    handle, expectedEpoch, action,
+    lease: { generation: identity.generation, token: identity.adoptionToken },
+  };
   if (positionMs !== undefined) args.positionMs = positionMs;
-  return invoke<PlaybackState>("desktop_playback_control", args);
+  const value = await invoke<unknown>("desktop_playback_control", args);
+  return validatePlaybackResponse(value, handle);
 }
 
 export async function getPlayback(handle: string): Promise<PlaybackState> {
   if (!canInvoke()) throw nativeUnavailable("Desktop playback");
-  return invoke<PlaybackState>("desktop_playback_status", { handle });
+  const identity = playbackIdentities.get(handle);
+  if (!identity?.acknowledged) throw new Error("INVALID_PLAYBACK_SOURCE_METADATA");
+  const value = await invoke<unknown>("desktop_playback_status", {
+    handle,
+    lease: { generation: identity.generation, token: identity.adoptionToken },
+  });
+  return validatePlaybackResponse(value, handle);
 }
 
 export async function closePlayback(handle: string): Promise<PlaybackCloseAcknowledgement> {
   if (!canInvoke()) throw nativeUnavailable("Desktop playback");
-  return invoke<PlaybackCloseAcknowledgement>("desktop_playback_close", { handle });
+  const identity = playbackIdentities.get(handle);
+  if (!identity) throw new Error("INVALID_PLAYBACK_SOURCE_METADATA");
+  const receipt = await invoke<PlaybackCloseAcknowledgement>("desktop_playback_close", {
+    handle,
+    lease: { generation: identity.generation, token: identity.adoptionToken },
+  });
+  if (receipt?.closed === true) playbackIdentities.delete(handle);
+  return receipt;
+}
+
+export async function heartbeatPlaybackSessions(): Promise<void> {
+  for (const [handle, identity] of playbackIdentities) {
+    if (!identity.acknowledged) continue;
+    try {
+      await invoke("desktop_playback_heartbeat", {
+        handle,
+        lease: { generation: identity.generation, token: identity.adoptionToken },
+      });
+    } catch (error) {
+      const code = sourceRecord(error)?.code;
+      if (typeof code === "string"
+        && PLAYBACK_TERMINAL_HEARTBEAT_CODES.has(code)
+        && playbackIdentities.get(handle) === identity) {
+        playbackIdentities.delete(handle);
+      }
+    }
+  }
+}
+
+export function startPlaybackHeartbeat(): void {
+  if (!canInvoke() || playbackHeartbeatTimer !== null) return;
+  playbackHeartbeatTimer = window.setInterval(() => {
+    void heartbeatPlaybackSessions().catch(() => undefined);
+  }, PLAYBACK_HEARTBEAT_INTERVAL_MS);
 }
 
 export async function listModelProviders(): Promise<ModelProvider[]> {
@@ -902,7 +1069,7 @@ export type LiveStartOutput = {
   projectId: string;
   recordingId: string;
   jobId: string;
-  micDevice: string;
+  micDevice: string | null;
   systemDevice: string | null;
   warning: string | null;
 };
@@ -1019,6 +1186,7 @@ export async function liveCaptureDevices(): Promise<LiveCaptureDevices> {
 export async function liveMeetingStart(options?: {
   projectId?: string;
   captureSystem?: boolean;
+  captureMicrophone?: boolean;
   language?: string;
   transcriptProfile?: "chunked" | "revisioned";
   micDeviceId?: string;
@@ -1029,6 +1197,7 @@ export async function liveMeetingStart(options?: {
   return invoke<LiveStartOutput>("live_meeting_start", {
     projectId: options?.projectId ?? null,
     captureSystem: options?.captureSystem ?? true,
+    captureMicrophone: options?.captureMicrophone ?? true,
     language: options?.language ?? null,
     transcriptProfile: options?.transcriptProfile ?? "chunked",
     micDeviceId: options?.micDeviceId ?? null,

@@ -1,7 +1,7 @@
 ---
-version: "0.4.0b"
+version: "0.4.1b"
 created_at: "2026-08-20"
-last_update: "2026-10-19"
+last_update: "2026-10-25"
 status: "beta"
 superseded_by: null
 attributes:
@@ -21,6 +21,7 @@ Product scope อยู่ใน [PRODUCT.md](../PRODUCT.md); RCA ย้อน�
 
 | ต้องการดู | เอกสารหลัก | ใช้ตอบคำถาม |
 | --- | --- | --- |
+| แนวคิดผลิตภัณฑ์และ core features | [Product concept](../PRODUCT.md#key-concept--ผู้ช่วยที่ทำงานไปพร้อมกับการประชุม) | ฟัง → เข้าใจ → ค้นข้อมูล → ลงมือทำระหว่างประชุม พร้อมขอบเขต readiness |
 | ภาพรวมหน้าจอและสถานะฟีเจอร์ | [UI interface inventory](design/interface-inventory.md) | มี surface ใดบ้าง และสถานะ implementation ระบุไว้อย่างไร |
 | หน้าจอ Desktop และ user flow ปัจจุบัน | [Studio flow contract](design/2026-10-16-desktop-navigation-and-flows.md) | sitemap, navigation, wireflow และ journey ปัจจุบัน |
 | เอกสาร Desktop และสถานะล่าสุด | [Desktop index](Desktop/README.md), [Desktop real progress](Desktop/08-real-progress.md) | โครงสร้างเอกสาร Desktop และหลักฐาน/gate ล่าสุด |

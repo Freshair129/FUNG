@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-10-30"
-last_update: "2026-10-31"
+last_update: "2026-11-07"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -241,7 +241,43 @@ review and are not installed-package or audio acceptance evidence.
   Clippy on the exact final tree. No builds/tests, hardware or audio work during
   the hold.
 
-## Queued executor timeout: open
+## Queued executor timeout: implemented (CPU-verified), 2026-11-07
+
+Status corrected on 2026-11-07 after lead inspection of `main` 1ba34b0. The
+correction described in the original proposal (kept below) is present in
+`src-tauri/src/desktop_playback.rs`:
+
+- One absolute deadline is captured at handoff (`deadline: Instant::now() + timeout`)
+  before the job is scheduled.
+- `dispatch_process_open_with_scheduler_hook` bounds the response with
+  `tokio::time::timeout_at`. On expiry it fences the exact generation through
+  `lease.cancel`, and the executor retains its claim. Timeout is not a cleanup
+  acknowledgement.
+- `ProcessOpenClaim::take_task` re-checks the deadline and cancellation under
+  the registry lock, both before and after taking the task. On expiry it puts
+  the task back, retaining the claim until exact unstarted rollback.
+- `open_playback_owned` uses the task's original `deadline` for every wait
+  (`recv_until_deadline_or_cancel`). It creates no second deadline. This was
+  verified by source inspection.
+- The timer uses the Tauri tokio runtime with the explicit
+  `tokio = { features = ["time"] }` dependency.
+
+Scenario coverage (CPU unit tests in `desktop_playback.rs`):
+
+| Scenario | Tests |
+| --- | --- |
+| Scheduler rejection | `process_owner_scheduler_reject_before_start_rolls_back_exact_owner` |
+| Accepted but stalled | `process_owner_accepted_stalled_executor_times_out_then_late_start_rolls_back_exact_claim` |
+| Start versus timeout | Both outcomes: the stalled late-start test above; `process_owner_ready_result_polled_after_deadline_is_fenced_and_closed`; `process_owner_start_at_expired_deadline_rolls_back_before_prepare` (W4). No test forces the exact start/expiry interleaving. The boundary relies on the locked re-check in `take_task`. |
+| Discard | `process_owner_accepted_scheduler_drop_releases_locks_before_task_destructor` |
+| Poison | `process_owner_scheduler_reject_with_poison_keeps_terminal_owner`; `process_owner_poisoned_queued_claim_never_releases_guard_on_reject_discard_or_late_start` and `process_owner_timeout_with_poisoned_queued_owner_retains_guard_and_task` (W4) |
+| Timer/runtime shutdown | `process_owner_pending_timer_runtime_drop_retains_then_discards_exact_claim` (W4) |
+| Remaining budget | `process_owner_queued_task_keeps_handoff_deadline_at_executor_start` (W4) plus source inspection |
+
+W4 tests were written by Codex gpt-6.1-terra (effort high) and verified on
+hosted CI, not locally. These are CPU checks, not installed or audio acceptance.
+
+### Original proposal (2026-10-31)
 
 The current `open_playback_owned` deadline starts after the blocking executor
 begins. If that scheduler accepts but never starts the job, the caller can wait

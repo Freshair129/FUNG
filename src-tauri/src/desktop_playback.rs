@@ -12864,6 +12864,341 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn process_owner_pending_timer_runtime_drop_retains_then_discards_exact_claim() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        let registry = Arc::new(ProcessOwnerRegistry::new());
+        let supervisor = ProcessCleanupSupervisor::start().unwrap();
+        let manager = PlaybackManager::new();
+        let guard = Arc::new(NativeCaptureGuard::default());
+        let admission = ProcessOpenAdmission::reserve(
+            manager.clone(),
+            Arc::clone(&guard),
+            Arc::clone(&registry),
+        )
+        .unwrap();
+        let generation = admission.lease.generation;
+        let lease = admission.lease.clone();
+        let token = admission.guard_token;
+        let (harness, worker_rx, _) = worker_harness();
+        admission
+            .handoff(
+                OpenPlaybackIo {
+                    prepare: Box::new(|_| panic!("discarded job must not prepare")),
+                    worker: worker_factory(harness),
+                },
+                Duration::from_secs(1),
+                17,
+            )
+            .unwrap();
+        let claim = registry.claim_open(&manager, generation).unwrap();
+        let queued = Arc::new(Mutex::new(None));
+        let scheduled = Arc::clone(&queued);
+        let future = dispatch_process_open_with_scheduler(
+            ProcessOpenDispatch {
+                claim,
+                supervisor,
+                playback: manager.clone(),
+                guard: Arc::clone(&guard),
+                guard_token: token,
+                lease: lease.clone(),
+                owner: 17,
+            },
+            move |job| {
+                *scheduled.lock().unwrap() = Some(job);
+                std::future::pending::<Result<Result<PlaybackState, ReviewError>, ReviewError>>()
+            },
+        );
+        runtime.block_on(async {
+            let _task = tokio::spawn(future);
+            tokio::task::yield_now().await;
+        });
+        assert!(guard.playback_open());
+        assert!(registry.slot.lock().unwrap().is_some());
+        drop(runtime);
+        assert!(lease.cancel.load(Ordering::Acquire));
+        assert!(guard.playback_open());
+        assert!(registry.slot.lock().unwrap().is_some());
+        assert_eq!(manager.begin_open().unwrap_err().code, "PLAYBACK_BUSY");
+        drop(queued.lock().unwrap().take().unwrap());
+        assert!(worker_rx.try_recv().is_err());
+        assert!(registry.slot.lock().unwrap().is_none());
+        assert!(!guard.playback_open());
+    }
+
+    #[test]
+    fn process_owner_queued_task_keeps_handoff_deadline_at_executor_start() {
+        let registry = Arc::new(ProcessOwnerRegistry::new());
+        let manager = PlaybackManager::new();
+        let guard = Arc::new(NativeCaptureGuard::default());
+        let admission = ProcessOpenAdmission::reserve(
+            manager.clone(),
+            Arc::clone(&guard),
+            Arc::clone(&registry),
+        )
+        .unwrap();
+        let generation = admission.lease.generation;
+        let (harness, _, _) = worker_harness();
+        admission
+            .handoff(
+                OpenPlaybackIo {
+                    prepare: Box::new(|_| Err(safe_storage_error())),
+                    worker: worker_factory(harness),
+                },
+                Duration::from_secs(1),
+                17,
+            )
+            .unwrap();
+        let mut claim = registry.claim_open(&manager, generation).unwrap();
+        let original_deadline = claim.deadline;
+        let task = claim.take_task().unwrap();
+        assert_eq!(task.deadline, original_deadline);
+        assert!(open_playback_owned(task).is_err());
+        claim.complete().unwrap();
+        drop(claim);
+        assert!(registry.slot.lock().unwrap().is_none());
+        assert!(!guard.playback_open());
+    }
+
+    #[test]
+    fn process_owner_poisoned_queued_claim_never_releases_guard_on_reject_discard_or_late_start() {
+        for poison_registry in [false, true] {
+            for action in 0..3 {
+                let registry = Arc::new(ProcessOwnerRegistry::new());
+                let supervisor = ProcessCleanupSupervisor::start().unwrap();
+                let manager = PlaybackManager::new();
+                let guard = Arc::new(NativeCaptureGuard::default());
+                let admission = ProcessOpenAdmission::reserve(
+                    manager.clone(),
+                    Arc::clone(&guard),
+                    Arc::clone(&registry),
+                )
+                .unwrap();
+                let generation = admission.lease.generation;
+                let (harness, worker_rx, _) = worker_harness();
+                admission
+                    .handoff(
+                        OpenPlaybackIo {
+                            prepare: Box::new(|_| panic!("poisoned job must not prepare")),
+                            worker: worker_factory(harness),
+                        },
+                        Duration::ZERO,
+                        17,
+                    )
+                    .unwrap();
+                let claim = registry.claim_open(&manager, generation).unwrap();
+                let capsule = Arc::clone(
+                    registry
+                        .slot
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .pending_open
+                        .as_ref()
+                        .unwrap(),
+                );
+                if poison_registry {
+                    let target = Arc::clone(&registry);
+                    assert!(thread::spawn(move || {
+                        let _locked = target.slot.lock().unwrap();
+                        panic!("inject registry poison");
+                    })
+                    .join()
+                    .is_err());
+                } else {
+                    let target = Arc::clone(&capsule);
+                    assert!(thread::spawn(move || {
+                        let _locked = target.lock().unwrap();
+                        panic!("inject capsule poison");
+                    })
+                    .join()
+                    .is_err());
+                }
+                let execution = ProcessExecutionTask {
+                    claim: Some(claim),
+                    supervisor,
+                };
+                if action == 0 {
+                    schedule_process_execution(execution, drop);
+                } else {
+                    let mut queued = None;
+                    schedule_process_execution(execution, |job| queued = Some(job));
+                    assert!(guard.playback_open());
+                    let job = queued.take().unwrap();
+                    if action == 1 {
+                        drop(job);
+                    } else {
+                        assert!(job().is_err());
+                    }
+                }
+                assert!(worker_rx.try_recv().is_err());
+                assert!(guard.playback_open());
+                let root = registry
+                    .slot
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                let slot = root.as_ref().expect("poison must retain the owner");
+                assert_eq!(slot.generation, generation);
+                if !poison_registry {
+                    assert_eq!(slot.phase, ProcessOwnerPhase::Terminal);
+                }
+                assert!(capsule
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .is_some());
+            }
+        }
+    }
+
+    #[test]
+    fn process_owner_timeout_with_poisoned_queued_owner_retains_guard_and_task() {
+        for poison_registry in [false, true] {
+            let registry = Arc::new(ProcessOwnerRegistry::new());
+            let supervisor = ProcessCleanupSupervisor::start().unwrap();
+            let manager = PlaybackManager::new();
+            let guard = Arc::new(NativeCaptureGuard::default());
+            let admission = ProcessOpenAdmission::reserve(
+                manager.clone(),
+                Arc::clone(&guard),
+                Arc::clone(&registry),
+            )
+            .unwrap();
+            let generation = admission.lease.generation;
+            let lease = admission.lease.clone();
+            let token = admission.guard_token;
+            let (harness, worker_rx, _) = worker_harness();
+            admission
+                .handoff(
+                    OpenPlaybackIo {
+                        prepare: Box::new(|_| panic!("stalled job must not prepare")),
+                        worker: worker_factory(harness),
+                    },
+                    Duration::ZERO,
+                    17,
+                )
+                .unwrap();
+            let claim = registry.claim_open(&manager, generation).unwrap();
+            let capsule = Arc::clone(
+                registry
+                    .slot
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .pending_open
+                    .as_ref()
+                    .unwrap(),
+            );
+            let queued = Arc::new(Mutex::new(None));
+            let scheduled = Arc::clone(&queued);
+            let future = dispatch_process_open_with_scheduler(
+                ProcessOpenDispatch {
+                    claim,
+                    supervisor,
+                    playback: manager,
+                    guard: Arc::clone(&guard),
+                    guard_token: token,
+                    lease: lease.clone(),
+                    owner: 17,
+                },
+                move |job| {
+                    *scheduled.lock().unwrap() = Some(job);
+                    std::future::pending::<Result<Result<PlaybackState, ReviewError>, ReviewError>>(
+                    )
+                },
+            );
+            if poison_registry {
+                let target = Arc::clone(&registry);
+                assert!(thread::spawn(move || {
+                    let _locked = target.slot.lock().unwrap();
+                    panic!("inject registry poison");
+                })
+                .join()
+                .is_err());
+            } else {
+                let target = Arc::clone(&capsule);
+                assert!(thread::spawn(move || {
+                    let _locked = target.lock().unwrap();
+                    panic!("inject capsule poison");
+                })
+                .join()
+                .is_err());
+            }
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap();
+            assert_eq!(
+                runtime.block_on(future).unwrap_err().code,
+                "PLAYBACK_OPEN_TIMEOUT"
+            );
+            assert!(lease.cancel.load(Ordering::Acquire));
+            assert!(guard.playback_open());
+            drop(queued.lock().unwrap().take().unwrap());
+            assert!(worker_rx.try_recv().is_err());
+            assert!(guard.playback_open());
+            let root = registry
+                .slot
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            assert_eq!(root.as_ref().unwrap().generation, generation);
+            assert!(capsule
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_some());
+        }
+    }
+
+    #[test]
+    fn process_owner_start_at_expired_deadline_rolls_back_before_prepare() {
+        let registry = Arc::new(ProcessOwnerRegistry::new());
+        let supervisor = ProcessCleanupSupervisor::start().unwrap();
+        let manager = PlaybackManager::new();
+        let guard = Arc::new(NativeCaptureGuard::default());
+        let admission = ProcessOpenAdmission::reserve(
+            manager.clone(),
+            Arc::clone(&guard),
+            Arc::clone(&registry),
+        )
+        .unwrap();
+        let generation = admission.lease.generation;
+        let (harness, worker_rx, _) = worker_harness();
+        admission
+            .handoff(
+                OpenPlaybackIo {
+                    prepare: Box::new(|_| panic!("expired job must not prepare")),
+                    worker: worker_factory(harness),
+                },
+                Duration::ZERO,
+                17,
+            )
+            .unwrap();
+        let claim = registry.claim_open(&manager, generation).unwrap();
+        let execution = ProcessExecutionTask {
+            claim: Some(claim),
+            supervisor,
+        };
+        let mut queued = None;
+        schedule_process_execution(execution, |job| queued = Some(job));
+        assert!(guard.playback_open());
+        assert_eq!(
+            registry.slot.lock().unwrap().as_ref().unwrap().generation,
+            generation
+        );
+        assert_eq!(
+            queued.take().unwrap()().unwrap_err().code,
+            "PLAYBACK_OPEN_TIMEOUT"
+        );
+        assert!(worker_rx.try_recv().is_err());
+        assert!(registry.slot.lock().unwrap().is_none());
+        assert!(!guard.playback_open());
+        drop(ProcessOpenAdmission::reserve(manager, guard, registry).unwrap());
+    }
+
+    #[test]
     fn process_owner_scheduler_reject_before_start_rolls_back_exact_owner() {
         let registry = Arc::new(ProcessOwnerRegistry::new());
         let supervisor = ProcessCleanupSupervisor::start().unwrap();

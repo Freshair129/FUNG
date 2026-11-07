@@ -1147,7 +1147,7 @@ mod native {
                             }
                         };
                         match unsafe { native_endpoint.GetDataFlow() } {
-                            Ok(eCapture) => {}
+                            Ok(flow) if flow == eCapture => {}
                             Ok(_) => {
                                 input_errors.push(format!(
                                     "capture endpoint {index} did not report capture flow"

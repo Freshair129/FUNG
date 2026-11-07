@@ -58,12 +58,27 @@ pub struct SourceWriterReport {
     pub durable_counts_known: bool,
     pub persistence_error: Option<String>,
     pub quarantine_error: Option<String>,
+    pub timing: WriterTiming,
+}
+#[derive(Debug, Default)]
+pub struct WriterTiming {
+    pub chunk_attempts: u64,
+    pub write_finalize_max_us: u64,
+    pub fsync_max_us: u64,
+    pub hash_max_us: u64,
+    pub fence_wait_max_us: u64,
+    pub commit_max_us: u64,
+}
+fn update_timing(maximum: &mut u64, start: std::time::Instant) {
+    *maximum = (*maximum).max(u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX));
 }
 pub struct SourceWriterOptions {
     pub registration: CaptureSourceRegistration,
     pub queue_capacity: usize,
     #[cfg(test)]
-    gate: Option<Arc<TestGate>>,
+    pub(crate) gate: Option<Arc<TestGate>>,
+    #[cfg(test)]
+    commit_gate: Option<Arc<TestGate>>,
 }
 impl SourceWriterOptions {
     pub fn new(registration: CaptureSourceRegistration) -> Self {
@@ -72,6 +87,8 @@ impl SourceWriterOptions {
             queue_capacity: 64,
             #[cfg(test)]
             gate: None,
+            #[cfg(test)]
+            commit_gate: None,
         }
     }
 }
@@ -116,6 +133,8 @@ struct Context {
     registration: CaptureSourceRegistration,
     dir: PathBuf,
     fence: Arc<Mutex<()>>,
+    #[cfg(test)]
+    commit_gate: Option<Arc<TestGate>>,
 }
 pub struct CaptureSourceWriter {
     tx: Option<SyncSender<SourcePcmPacket>>,
@@ -300,6 +319,8 @@ impl CaptureSourceWriterGroup {
             registration: reg.clone(),
             dir: local_ledger_path(dir)?,
             fence: self.fence.clone(),
+            #[cfg(test)]
+            commit_gate: options.commit_gate.clone(),
         };
         let shared = Arc::new(Mutex::new(FaultState::default()));
         let (tx, rx) = mpsc::sync_channel(options.queue_capacity);
@@ -535,6 +556,7 @@ fn empty_report(c: &Context) -> SourceWriterReport {
         durable_counts_known: true,
         persistence_error: None,
         quarantine_error: None,
+        timing: WriterTiming::default(),
     }
 }
 fn attempt(c: &Context) -> Result<custody::SourceCommitAttempt, String> {
@@ -588,7 +610,10 @@ fn write_finalized(
     sequence: i64,
     start: i64,
     pcm: &[i16],
+    timing: &mut WriterTiming,
 ) -> Result<custody::CaptureSourceChunk, String> {
+    timing.chunk_attempts = timing.chunk_attempts.saturating_add(1);
+    let started = std::time::Instant::now();
     let id = uuid::Uuid::new_v4().to_string();
     let path = c.dir.join(format!("chunk-{sequence:08}-{id}.wav"));
     let temporary = path.with_extension("wav.part");
@@ -612,15 +637,19 @@ fn write_finalized(
         wav.write_sample(*sample).map_err(|e| e.to_string())?
     }
     wav.finalize().map_err(|e| e.to_string())?;
+    update_timing(&mut timing.write_finalize_max_us, started);
+    let started = std::time::Instant::now();
     fs::OpenOptions::new()
         .write(true)
         .open(&temporary)
         .and_then(|f| f.sync_all())
         .map_err(|e| e.to_string())?;
+    update_timing(&mut timing.fsync_max_us, started);
     if path.exists() {
         return Err("unexpected final source filename collision".into());
     }
     fs::rename(&temporary, &path).map_err(|e| e.to_string())?;
+    let started = std::time::Instant::now();
     let mut file = fs::File::open(&path).map_err(|e| e.to_string())?;
     let mut hash = Sha256::new();
     let mut buf = [0u8; 65536];
@@ -631,6 +660,7 @@ fn write_finalized(
         }
         hash.update(&buf[..n]);
     }
+    update_timing(&mut timing.hash_max_us, started);
     let end = start + pcm.len() as i64;
     Ok(custody::CaptureSourceChunk {
         id,
@@ -660,10 +690,11 @@ fn flush(
         Vec::with_capacity(c.registration.sample_rate as usize * 2),
     );
     let next = a.sequence + 1;
+    let fault_before_write = lock(shared).first.is_some();
     if !ensure_quarantine(c, shared, report) {
         a.ledger_disabled = true
     }
-    match write_finalized(c, next, start, &pcm) {
+    match write_finalized(c, next, start, &pcm, &mut report.timing) {
         Err(error) => {
             report
                 .persistence_error
@@ -677,10 +708,23 @@ fn flush(
                 report.private_orphans.push(chunk.path);
                 return;
             }
+            #[cfg(test)]
+            if let Some(gate) = &c.commit_gate {
+                gate.wait();
+            }
             let result = (|| {
+                let started = std::time::Instant::now();
                 let _guard = lock(&c.fence);
+                update_timing(&mut report.timing.fence_wait_max_us, started);
+                // A failure signalled while the finalized file was being written
+                // must not start a new normal ledger commit. Earlier-faulted
+                // draining remains private under persisted quarantine.
+                if !fault_before_write && lock(shared).first.is_some() {
+                    return Err("source fault arrived before ledger admission".to_string());
+                }
+                let started = std::time::Instant::now();
                 let attempt = attempt(c)?;
-                custody::append_capture_source_chunk(
+                let result = custody::append_capture_source_chunk(
                     &c.storage,
                     &attempt,
                     &c.project,
@@ -695,7 +739,9 @@ fn flush(
                         &c.recording,
                         &chunk,
                     )
-                })
+                });
+                update_timing(&mut report.timing.commit_max_us, started);
+                result
             })();
             match result {
                 Ok(_) => {
@@ -802,13 +848,22 @@ fn run_worker(
 }
 #[cfg(test)]
 #[derive(Default)]
-struct TestGate {
+pub(crate) struct TestGate {
     open: std::sync::Mutex<bool>,
     cv: std::sync::Condvar,
+    entered: std::sync::atomic::AtomicBool,
 }
 #[cfg(test)]
 impl TestGate {
-    fn release(&self) {
+    fn wait(&self) {
+        self.entered
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut open = lock(&self.open);
+        while !*open {
+            open = self.cv.wait(open).unwrap_or_else(|p| p.into_inner());
+        }
+    }
+    pub(crate) fn release(&self) {
         *lock(&self.open) = true;
         self.cv.notify_all();
     }

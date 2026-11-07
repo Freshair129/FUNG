@@ -121,6 +121,13 @@ pub(crate) enum AdmissionError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlaybackGuardFailure {
+    Busy(AdmissionError),
+    Poisoned,
+    Exhausted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CapturePhase {
     Inactive,
     Starting,
@@ -132,6 +139,7 @@ pub(crate) enum CapturePhase {
 struct AdmissionState {
     capture: CapturePhase,
     playback_open: bool,
+    playback_generation: u64,
 }
 
 /// Serializes the native capture and playback ownership boundary.
@@ -156,12 +164,30 @@ impl Default for NativeCaptureGuard {
             inner: Mutex::new(AdmissionState {
                 capture: CapturePhase::Inactive,
                 playback_open: false,
+                playback_generation: 0,
             }),
         }
     }
 }
 
 impl NativeCaptureGuard {
+    #[cfg(test)]
+    pub(crate) fn poison_for_test(&self) {
+        let _ = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let _held = self.inner.lock().unwrap();
+                    panic!("injected capture guard poison");
+                })
+                .join()
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_playback_token_for_test(&self) -> Option<u64> {
+        let state = self.inner.lock().unwrap();
+        state.playback_open.then_some(state.playback_generation)
+    }
     pub(crate) fn reserve_capture(
         guard: std::sync::Arc<Self>,
     ) -> Result<CaptureReservation, AdmissionError> {
@@ -203,6 +229,7 @@ impl NativeCaptureGuard {
         state.capture = CapturePhase::Inactive;
     }
 
+    #[cfg(test)]
     pub(crate) fn try_open_playback(&self) -> Result<(), AdmissionError> {
         let mut state = self.inner.lock().expect("capture admission mutex poisoned");
         if state.playback_open {
@@ -211,13 +238,54 @@ impl NativeCaptureGuard {
         if state.capture != CapturePhase::Inactive {
             return Err(AdmissionError::CaptureActive);
         }
+        state.playback_generation = state
+            .playback_generation
+            .checked_add(1)
+            .ok_or(AdmissionError::PlaybackBusy)?;
         state.playback_open = true;
         Ok(())
     }
 
+    /// Issue a non-reusable token while acquiring playback admission.
+    pub(crate) fn try_open_playback_token(&self) -> Result<u64, PlaybackGuardFailure> {
+        let mut state = self
+            .inner
+            .lock()
+            .map_err(|_| PlaybackGuardFailure::Poisoned)?;
+        if state.playback_open {
+            return Err(PlaybackGuardFailure::Busy(AdmissionError::PlaybackBusy));
+        }
+        if state.capture != CapturePhase::Inactive {
+            return Err(PlaybackGuardFailure::Busy(AdmissionError::CaptureActive));
+        }
+        state.playback_generation = state
+            .playback_generation
+            .checked_add(1)
+            .ok_or(PlaybackGuardFailure::Exhausted)?;
+        state.playback_open = true;
+        Ok(state.playback_generation)
+    }
+
+    #[cfg(test)]
     pub(crate) fn release_playback(&self) {
         let mut state = self.inner.lock().expect("capture admission mutex poisoned");
         state.playback_open = false;
+    }
+
+    /// Non-realtime release of only the exact admission that produced this token.
+    pub(crate) fn try_release_playback_token(
+        &self,
+        token: u64,
+    ) -> Result<bool, PlaybackGuardFailure> {
+        let mut state = self
+            .inner
+            .lock()
+            .map_err(|_| PlaybackGuardFailure::Poisoned)?;
+        if !state.playback_open || state.playback_generation != token {
+            return Ok(false);
+        }
+        state.playback_open = false;
+        Ok(true)
     }
 
     pub(crate) fn capture_is_active(&self) -> bool {

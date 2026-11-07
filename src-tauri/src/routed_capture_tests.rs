@@ -1,6 +1,39 @@
 use super::*;
 use genesis_block_native::OpenOptions as GenesisOpenOptions;
 
+#[test]
+fn private_spool_uses_separate_diagnostics_tree_and_validates_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = ordinary_owned_temp(dir.path());
+    let recording = Uuid::new_v4().to_string();
+    let source = Uuid::new_v4().to_string();
+    let private = private_spool_directory(&project, &recording, &source, 2).unwrap();
+    assert_eq!(
+        private,
+        project
+            .join("diagnostics")
+            .join("routed")
+            .join(&recording)
+            .join("sources")
+            .join(&source)
+            .join("epoch-2")
+    );
+    assert!(!private.starts_with(project.join("live").join(&recording)));
+    let spool = PrivateSpool::new_under_project(&project, &private).unwrap();
+    assert!(spool.pcm_path.is_file());
+    assert!(spool.metadata_path.is_file());
+    assert!(private_spool_directory(&project, "../outside", &source, 1).is_err());
+    assert!(private_spool_directory(&project, &recording, "../outside", 1).is_err());
+    assert!(private_spool_directory(&project, &recording, &source, 0).is_err());
+    assert!(
+        PrivateSpool::new_under_project(&project, &project.join("..").join("outside")).is_err()
+    );
+    assert!(
+        PrivateSpool::new_under_project(&project, &private).is_err(),
+        "spool names must not overwrite existing files"
+    );
+}
+
 struct Fixture {
     _temp: tempfile::TempDir,
     base: PathBuf,
@@ -513,7 +546,8 @@ fn durable_source_quarantine_uses_runtime_first_cause_instead_of_later_cleanup()
     )
     .unwrap();
     let mut group =
-        CaptureSourceWriterGroup::new(f.storage.clone(), f.project.clone(), recording).unwrap();
+        CaptureSourceWriterGroup::new(f.storage.clone(), f.project.clone(), recording.clone())
+            .unwrap();
     let mut writer = group.spawn(SourceWriterOptions::new(reg.clone())).unwrap();
     let shared = Shared {
         status: Mutex::new(RoutedCaptureStatus {
@@ -616,7 +650,349 @@ fn complete_report() -> SourceWriterReport {
         durable_counts_known: true,
         persistence_error: None,
         quarantine_error: None,
+        timing: Default::default(),
     }
+}
+#[test]
+fn coalescer_preserves_contiguous_pcm_and_flushes_residual() {
+    let f = fixture();
+    let recording = Uuid::new_v4().to_string();
+    let job = Uuid::new_v4().to_string();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    let reg = CaptureSourceRegistration {
+        id: Uuid::new_v4().to_string(),
+        epoch: 1,
+        kind: "endpoint".into(),
+        endpoint_id: Some("endpoint".into()),
+        label: "source".into(),
+        sample_rate: i64::from(RATE),
+        clock_origin_qpc_hns: "1234".into(),
+        metadata: json!({}),
+    };
+    custody::register_capture_sources(
+        &f.storage,
+        &attempt(&f.storage).unwrap(),
+        &f.project,
+        &recording,
+        std::slice::from_ref(&reg),
+    )
+    .unwrap();
+    let mut group =
+        CaptureSourceWriterGroup::new(f.storage.clone(), f.project.clone(), recording.clone())
+            .unwrap();
+    let mut writer = group.spawn(SourceWriterOptions::new(reg.clone())).unwrap();
+    let shared = recovery_shared(&reg.id);
+    let mut coalescer = Coalescer::new();
+    let mut syncs = 0;
+    let mut expected = Vec::new();
+    let mut start = 0;
+    for packet in 0..26 {
+        let length = if packet % 2 == 0 { 479 } else { 481 };
+        expected.extend(std::iter::repeat_n(packet as i16, length));
+        assert!(coalescer.append(
+            start,
+            &vec![packet as i16; length],
+            &mut writer,
+            &shared,
+            &reg.id,
+            reg.epoch,
+            &mut || {
+                syncs += 1;
+                Ok(())
+            }
+        ));
+        start += length as u64;
+    }
+    assert_eq!(coalescer.pcm.len(), 480);
+    assert_eq!(syncs, 1);
+    assert!(
+        coalescer.flush(&mut writer, &shared, &reg.id, reg.epoch, &mut || {
+            syncs += 1;
+            Ok(())
+        })
+    );
+    assert_eq!(syncs, 2);
+    let report = writer.finish();
+    assert!(report.first_failure.is_none());
+    assert_eq!(report.durable_frames, 26 * 480);
+    assert_eq!(report.timing.chunk_attempts, 1);
+    let dir = f
+        .root
+        .join("live")
+        .join(recording)
+        .join("sources")
+        .join(&reg.id)
+        .join("epoch-1");
+    let wav = fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.extension().is_some_and(|e| e == "wav"))
+        .unwrap();
+    let actual: Vec<i16> = hound::WavReader::open(wav)
+        .unwrap()
+        .samples::<i16>()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(actual, expected);
+}
+#[test]
+fn coalescer_never_publishes_residual_after_global_failure() {
+    let f = fixture();
+    let recording = Uuid::new_v4().to_string();
+    let job = Uuid::new_v4().to_string();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    let reg = CaptureSourceRegistration {
+        id: Uuid::new_v4().to_string(),
+        epoch: 1,
+        kind: "endpoint".into(),
+        endpoint_id: Some("endpoint".into()),
+        label: "source".into(),
+        sample_rate: i64::from(RATE),
+        clock_origin_qpc_hns: "1234".into(),
+        metadata: json!({}),
+    };
+    custody::register_capture_sources(
+        &f.storage,
+        &attempt(&f.storage).unwrap(),
+        &f.project,
+        &recording,
+        std::slice::from_ref(&reg),
+    )
+    .unwrap();
+    let mut group =
+        CaptureSourceWriterGroup::new(f.storage.clone(), f.project.clone(), recording).unwrap();
+    let mut writer = group.spawn(SourceWriterOptions::new(reg.clone())).unwrap();
+    let shared = recovery_shared(&reg.id);
+    let mut coalescer = Coalescer::new();
+    assert!(coalescer.append(
+        0,
+        &[7; 480],
+        &mut writer,
+        &shared,
+        &reg.id,
+        reg.epoch,
+        &mut || Ok(())
+    ));
+    shared.fail(None, "other source failed");
+    assert!(!coalescer.flush(&mut writer, &shared, &reg.id, reg.epoch, &mut || Ok(())));
+    poison(&mut writer, &shared, &reg.id, "group stopped");
+    let report = writer.finish();
+    assert_eq!(report.durable_frames, 0);
+    assert!(report.first_failure.is_some());
+    assert_eq!(coalescer.pcm, vec![7; 480]);
+}
+#[test]
+fn coalescer_rechecks_fault_after_sync_before_admission() {
+    let f = fixture();
+    let recording = Uuid::new_v4().to_string();
+    let job = Uuid::new_v4().to_string();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    let reg = CaptureSourceRegistration {
+        id: Uuid::new_v4().to_string(),
+        epoch: 1,
+        kind: "endpoint".into(),
+        endpoint_id: Some("endpoint".into()),
+        label: "source".into(),
+        sample_rate: i64::from(RATE),
+        clock_origin_qpc_hns: "1234".into(),
+        metadata: json!({}),
+    };
+    custody::register_capture_sources(
+        &f.storage,
+        &attempt(&f.storage).unwrap(),
+        &f.project,
+        &recording,
+        std::slice::from_ref(&reg),
+    )
+    .unwrap();
+    let mut group =
+        CaptureSourceWriterGroup::new(f.storage.clone(), f.project.clone(), recording).unwrap();
+    let mut writer = group.spawn(SourceWriterOptions::new(reg.clone())).unwrap();
+    let shared = recovery_shared(&reg.id);
+    let mut coalescer = Coalescer::new();
+    assert!(coalescer.append(
+        0,
+        &[7; 480],
+        &mut writer,
+        &shared,
+        &reg.id,
+        reg.epoch,
+        &mut || Ok(())
+    ));
+    assert!(
+        !coalescer.flush(&mut writer, &shared, &reg.id, reg.epoch, &mut || {
+            shared.fail(None, "fault during sync");
+            Ok(())
+        })
+    );
+    poison(&mut writer, &shared, &reg.id, "group stopped");
+    let report = writer.finish();
+    assert_eq!(report.durable_frames, 0);
+    assert!(report.first_failure.is_some());
+    assert_eq!(coalescer.pcm, vec![7; 480]);
+}
+#[test]
+fn coalescer_sync_failure_never_transfers_residual() {
+    let f = fixture();
+    let recording = Uuid::new_v4().to_string();
+    let job = Uuid::new_v4().to_string();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    let reg = CaptureSourceRegistration {
+        id: Uuid::new_v4().to_string(),
+        epoch: 1,
+        kind: "endpoint".into(),
+        endpoint_id: Some("endpoint".into()),
+        label: "source".into(),
+        sample_rate: i64::from(RATE),
+        clock_origin_qpc_hns: "1234".into(),
+        metadata: json!({}),
+    };
+    custody::register_capture_sources(
+        &f.storage,
+        &attempt(&f.storage).unwrap(),
+        &f.project,
+        &recording,
+        std::slice::from_ref(&reg),
+    )
+    .unwrap();
+    let mut group =
+        CaptureSourceWriterGroup::new(f.storage.clone(), f.project.clone(), recording).unwrap();
+    let mut writer = group.spawn(SourceWriterOptions::new(reg.clone())).unwrap();
+    let shared = recovery_shared(&reg.id);
+    let mut coalescer = Coalescer::new();
+    let private = f.root.join("sync-failure-test");
+    fs::create_dir(&private).unwrap();
+    let mut spool = PrivateSpool::new(&private).unwrap();
+    spool.fail_next_sync = true;
+    let (mut count, mut total, mut maximum) = (0, 0, 0);
+    assert!(coalescer.append(
+        0,
+        &[7; 480],
+        &mut writer,
+        &shared,
+        &reg.id,
+        reg.epoch,
+        &mut || Ok(())
+    ));
+    assert!(!coalescer.flush(
+        &mut writer,
+        &shared,
+        &reg.id,
+        reg.epoch,
+        &mut || sync_batch(&mut spool, &mut count, &mut total, &mut maximum)
+    ));
+    assert!(spool.failed);
+    assert_eq!(count, 1);
+    poison(&mut writer, &shared, &reg.id, "group stopped");
+    let report = writer.finish();
+    assert_eq!(report.durable_frames, 0);
+    assert!(report.first_failure.is_some());
+    assert_eq!(coalescer.pcm, vec![7; 480]);
+}
+#[test]
+fn coalescer_bounded_queue_overflow_retains_terminal_packet() {
+    let f = fixture();
+    let recording = Uuid::new_v4().to_string();
+    let job = Uuid::new_v4().to_string();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    let reg = CaptureSourceRegistration {
+        id: Uuid::new_v4().to_string(),
+        epoch: 1,
+        kind: "endpoint".into(),
+        endpoint_id: Some("endpoint".into()),
+        label: "source".into(),
+        sample_rate: i64::from(RATE),
+        clock_origin_qpc_hns: "1234".into(),
+        metadata: json!({}),
+    };
+    custody::register_capture_sources(
+        &f.storage,
+        &attempt(&f.storage).unwrap(),
+        &f.project,
+        &recording,
+        std::slice::from_ref(&reg),
+    )
+    .unwrap();
+    let mut group =
+        CaptureSourceWriterGroup::new(f.storage.clone(), f.project.clone(), recording.clone())
+            .unwrap();
+    let gate = Arc::new(crate::capture_source_writer::TestGate::default());
+    let mut options = SourceWriterOptions::new(reg.clone());
+    options.queue_capacity = 2;
+    options.gate = Some(gate.clone());
+    let mut writer = group.spawn(options).unwrap();
+    let shared = recovery_shared(&reg.id);
+    let mut coalescer = Coalescer::new();
+    assert!(coalescer.append(
+        0,
+        &vec![1; COALESCE_FRAMES],
+        &mut writer,
+        &shared,
+        &reg.id,
+        reg.epoch,
+        &mut || Ok(())
+    ));
+    assert!(coalescer.append(
+        COALESCE_FRAMES as u64,
+        &vec![2; COALESCE_FRAMES],
+        &mut writer,
+        &shared,
+        &reg.id,
+        reg.epoch,
+        &mut || Ok(())
+    ));
+    assert!(!coalescer.append(
+        (COALESCE_FRAMES * 2) as u64,
+        &vec![3; COALESCE_FRAMES],
+        &mut writer,
+        &shared,
+        &reg.id,
+        reg.epoch,
+        &mut || Ok(())
+    ));
+    gate.release();
+    let report = writer.finish();
+    let failure = report
+        .first_failure
+        .as_ref()
+        .expect("overflow must be reported");
+    assert_eq!(
+        failure.kind,
+        crate::capture_source_writer::SourceWriterFailureKind::QueueOverflow
+    );
+    assert_eq!(failure.packet_frames, Some(COALESCE_FRAMES));
+    assert!(report.quarantine_persisted);
+    assert!(custody::require_capture_source_access(&f.storage, &recording).is_err());
+    let dir = f
+        .root
+        .join("live")
+        .join(recording)
+        .join("sources")
+        .join(&reg.id)
+        .join("epoch-1");
+    let wavs: Vec<_> = fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|e| e == "wav"))
+        .collect();
+    assert_eq!(
+        wavs.len(),
+        1,
+        "all three packets fit one bounded source chunk"
+    );
+    let samples: Vec<i16> = hound::WavReader::open(&wavs[0])
+        .unwrap()
+        .samples::<i16>()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let expected: Vec<i16> = [1, 2, 3]
+        .into_iter()
+        .flat_map(|n| std::iter::repeat_n(n, COALESCE_FRAMES))
+        .collect();
+    assert_eq!(
+        samples, expected,
+        "accepted and terminal PCM must survive under quarantine"
+    );
 }
 #[test]
 fn final_guard_failure_retains_reports_counts_and_private_tail_paths() {
@@ -941,6 +1317,9 @@ fn completed_transport_fixture(reg: &CaptureSourceRegistration) -> SourceDrainSt
         packets: 1,
         summary: Some(summary),
         native_terminated: true,
+        spool_sync_max_us: 0,
+        spool_sync_count: 0,
+        spool_sync_total_us: 0,
     }
 }
 fn exercise_source_custody_scope(global: bool) {
@@ -1106,6 +1485,40 @@ fn exercise_source_custody_scope(global: bool) {
         "partial"
     );
     assert!(custody::require_capture_source_access(&f.storage, &recording).is_err());
+}
+
+#[test]
+fn playback_quarantine_coordinator_lookup_error_revokes_its_trusted_recording() {
+    use crate::source_playback_lease::SourcePlaybackLease;
+    let f = fixture();
+    let recording = Uuid::new_v4().to_string();
+    start_rows(
+        &f.storage,
+        &f.project,
+        &recording,
+        &Uuid::new_v4().to_string(),
+        &f.root,
+    )
+    .unwrap();
+    let missing_source = Uuid::new_v4().to_string();
+    let shared = recovery_shared(&missing_source);
+    shared.fail(Some(&missing_source), "trusted-source-disappeared");
+    let lease = SourcePlaybackLease::register(f.storage.clone(), &recording).unwrap();
+    let unrelated =
+        SourcePlaybackLease::register(f.storage.clone(), &Uuid::new_v4().to_string()).unwrap();
+    let frontier = f.storage.txn_frontier();
+    quarantine_affected_sources(
+        &f.storage,
+        &f.project,
+        &recording,
+        &[missing_source],
+        &shared,
+    );
+    assert_eq!(f.storage.txn_frontier(), frontier);
+    assert!(!lease.is_available());
+    assert!(SourcePlaybackLease::register(f.storage.clone(), &recording).is_err());
+    assert!(unrelated.is_available());
+    assert!(shared.global_failure().is_some());
 }
 #[test]
 fn one_source_failure_quarantines_only_its_epoch_and_completes_healthy_peer() {

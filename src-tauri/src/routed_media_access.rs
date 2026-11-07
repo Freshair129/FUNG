@@ -62,14 +62,14 @@ mod tests {
     use genesis_block_native::{OpenOptions, Storage};
     use serde_json::json;
     use sha2::{Digest, Sha256};
-    use std::{fs, path::PathBuf};
+    use std::{fs, path::PathBuf, sync::Arc};
     use uuid::Uuid;
 
     const AT: &str = "2026-10-27T00:00:00Z";
 
     struct Fixture {
         _temp: tempfile::TempDir,
-        storage: Storage,
+        storage: Arc<Storage>,
         project: String,
         recording: String,
         root: PathBuf,
@@ -86,14 +86,16 @@ mod tests {
             let temp = tempfile::tempdir().unwrap();
             let root = temp.path().join("projects").join("project");
             fs::create_dir_all(&root).unwrap();
-            let storage = Storage::open(OpenOptions {
-                path: temp.path().join("db").display().to_string(),
-                page_cache_mb: Some(16),
-                read_only: Some(false),
-                vector_dim: Some(4),
-                retention: None,
-            })
-            .unwrap();
+            let storage = Arc::new(
+                Storage::open(OpenOptions {
+                    path: temp.path().join("db").display().to_string(),
+                    page_cache_mb: Some(16),
+                    read_only: Some(false),
+                    vector_dim: Some(4),
+                    retention: None,
+                })
+                .unwrap(),
+            );
             ga::install(&storage).unwrap();
             let project = Uuid::new_v4().to_string();
             let recording = Uuid::new_v4().to_string();

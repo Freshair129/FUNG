@@ -54,7 +54,8 @@ mod windows_impl {
 
     #[cfg(test)]
     use super::native_payload_diagnostic::{
-        self, AcquisitionStrategy, NativePayloadDiagnostic, OriginalPacketObservation,
+        self, AcquisitionStrategy, NativeCallResult, NativePacketIdentity, NativePayloadDiagnostic,
+        OriginalPacketObservation,
     };
     use super::packet_driver::{self, PacketSource, PacketWait};
     use super::LiveCaptureApplication;
@@ -137,12 +138,15 @@ mod windows_impl {
 
     fn read_application_packet(
         capture: &IAudioCaptureClient,
-        #[cfg(test)] diagnostic: Option<&mut NativePayloadDiagnostic>,
+        #[cfg(test)] mut diagnostic: Option<&mut NativePayloadDiagnostic>,
         #[cfg(test)] elapsed: Duration,
+        #[cfg(test)] call_clock: Instant,
     ) -> Result<(Vec<i16>, u64, u32, u64), String> {
         let mut pointer = std::ptr::null_mut();
         let (mut frames, mut flags, mut index, mut timestamp) = (0, 0, 0, 0);
-        unsafe {
+        #[cfg(test)]
+        let call_started = diagnostic.as_ref().map(|_| call_clock.elapsed());
+        let acquired = unsafe {
             capture.GetBuffer(
                 &mut pointer,
                 &mut frames,
@@ -150,15 +154,35 @@ mod windows_impl {
                 Some(&mut index),
                 Some(&mut timestamp),
             )
-        }
-        .map_err(|error| format!("อ่าน audio packet จากแอปไม่สำเร็จ: {error}"))?;
+        };
         #[cfg(test)]
-        let original = diagnostic.map(|trace| OriginalPacketObservation {
-            trace,
-            index,
-            qpc: timestamp,
-            elapsed,
-        });
+        let call_completed = call_started.map(|_| call_clock.elapsed());
+        #[cfg(test)]
+        if let Some(trace) = diagnostic.as_deref_mut() {
+            trace.record_call(
+                call_started.unwrap(),
+                call_completed.unwrap(),
+                NativeCallResult::GetBuffer {
+                    packet: acquired.as_ref().ok().map(|_| NativePacketIdentity {
+                        frames,
+                        flags,
+                        device_index: index,
+                        qpc_hns: timestamp,
+                    }),
+                    failure_hresult: acquired.as_ref().err().map(|error| error.code().0),
+                },
+            );
+        }
+        acquired.map_err(|error| format!("อ่าน audio packet จากแอปไม่สำเร็จ: {error}"))?;
+        #[cfg(test)]
+        let original = diagnostic
+            .as_deref_mut()
+            .map(|trace| OriginalPacketObservation {
+                trace,
+                index,
+                qpc: timestamp,
+                elapsed,
+            });
         // A successful empty read has no packet to release.
         if frames == 0 {
             #[cfg(test)]
@@ -169,21 +193,42 @@ mod windows_impl {
             }
             return Ok((Vec::new(), index, flags, timestamp));
         }
+        #[cfg(test)]
+        let mut release_timing = None;
         let samples = unsafe {
             decode_and_release_application_packet(
                 pointer,
                 frames,
                 flags,
                 || {
-                    capture
-                        .ReleaseBuffer(frames)
-                        .map_err(|error| format!("คืน audio packet จากแอปไม่สำเร็จ: {error}"))
+                    #[cfg(test)]
+                    let started = call_started.map(|_| call_clock.elapsed());
+                    let released = capture.ReleaseBuffer(frames);
+                    #[cfg(test)]
+                    if let Some(started) = started {
+                        release_timing = Some((
+                            started,
+                            call_clock.elapsed(),
+                            NativeCallResult::ReleaseBuffer {
+                                frames,
+                                failure_hresult: released
+                                    .as_ref()
+                                    .err()
+                                    .map(|error| error.code().0),
+                            },
+                        ));
+                    }
+                    released.map_err(|error| format!("คืน audio packet จากแอปไม่สำเร็จ: {error}"))
                 },
                 #[cfg(test)]
                 original,
             )
-        }?;
-        Ok((samples, index, flags, timestamp))
+        };
+        #[cfg(test)]
+        if let (Some(trace), Some((started, completed, result))) = (diagnostic, release_timing) {
+            trace.record_call(started, completed, result);
+        }
+        Ok((samples?, index, flags, timestamp))
     }
 
     struct InventoryApartment;
@@ -855,15 +900,20 @@ mod windows_impl {
             assert!(faults.is_empty());
             assert!(nonzero > 0, "controlled fixture must produce actual audio");
             if retain_native_payload {
-                let receipt: serde_json::Value = serde_json::from_slice(
-                    &std::fs::read(root.join("decoded-native-mono.json")).unwrap(),
-                )
-                .unwrap();
-                assert_eq!(
-                    receipt["diagnosticValid"], true,
-                    "bounded payload collection overran; no complete reconciliation claim"
-                );
-                assert_eq!(receipt["nativeStopResult"], serde_json::json!({"Ok": null}));
+                for filename in [
+                    "decoded-native-mono.json",
+                    "original-native-stereo.json",
+                    "native-call-trace.json",
+                ] {
+                    let receipt: serde_json::Value =
+                        serde_json::from_slice(&std::fs::read(root.join(filename)).unwrap())
+                            .unwrap();
+                    assert_eq!(
+                        receipt["diagnosticValid"], true,
+                        "bounded diagnostic invalid: {filename}; no complete reconciliation claim"
+                    );
+                    assert_eq!(receipt["nativeStopResult"], serde_json::json!({"Ok": null}));
+                }
             }
         }
 
@@ -1042,6 +1092,7 @@ mod windows_impl {
                 releases_expected,
                 kind,
             ) in [
+                (2, 0, false, false, false, false, true, 1, "payload"),
                 (0, 0, true, false, false, false, true, 0, "empty"),
                 (2, 2, true, false, false, false, true, 1, "silent"),
                 (1, 0, false, true, false, false, false, 1, "invalid_null"),
@@ -1091,6 +1142,7 @@ mod windows_impl {
                     capture,
                     Some(&mut diagnostic),
                     Duration::from_nanos(99),
+                    Instant::now(),
                 );
                 assert_eq!(result.is_ok(), success, "{kind}");
                 assert_eq!(releases.load(Ordering::SeqCst), releases_expected, "{kind}");
@@ -1106,6 +1158,7 @@ mod windows_impl {
                 if kind == "silent" {
                     assert_eq!(result.as_ref().unwrap().0, [0, 0]);
                 }
+                assert!(!root.path().join("native-call-trace.json").exists());
                 diagnostic.stopped(&Ok(()));
                 diagnostic
                     .flush_after_stop(
@@ -1114,6 +1167,56 @@ mod windows_impl {
                         &Ok(()),
                     )
                     .unwrap();
+                assert!(
+                    root.path().join("native-call-trace.json").is_file(),
+                    "native API call trace is missing after stop/writer completion"
+                );
+                let calls: serde_json::Value = serde_json::from_slice(
+                    &std::fs::read(root.path().join("native-call-trace.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(calls["diagnosticValid"], true, "{kind}");
+                assert_eq!(calls["observedCalls"], 1 + releases_expected);
+                let calls = calls["calls"].as_array().unwrap();
+                assert_eq!(calls.len(), 1 + releases_expected as usize);
+                assert_eq!(calls[0]["operation"], "get_buffer");
+                assert_eq!(calls[0]["sequence"], 1);
+                assert!(
+                    calls[0]["completedElapsedNs"].as_u64().unwrap()
+                        >= calls[0]["startedElapsedNs"].as_u64().unwrap()
+                );
+                if acquire_failure {
+                    assert_eq!(calls[0]["failureHresult"], -2147467259i32);
+                    assert!(calls[0]["packet"].is_null());
+                } else {
+                    assert!(calls[0]["failureHresult"].is_null());
+                    assert_eq!(
+                        calls[0]["packet"],
+                        serde_json::json!({
+                            "frames": frames, "flags": flags, "deviceIndex": 17, "qpcHns": 1900,
+                        })
+                    );
+                }
+                if releases_expected != 0 {
+                    assert_eq!(calls[1]["operation"], "release_buffer");
+                    assert_eq!(calls[1]["frames"], frames);
+                    assert_eq!(
+                        calls[1]["failureHresult"],
+                        if release_failure {
+                            serde_json::json!(-2147467259i32)
+                        } else {
+                            serde_json::Value::Null
+                        }
+                    );
+                    assert!(
+                        calls[1]["startedElapsedNs"].as_u64().unwrap()
+                            >= calls[0]["completedElapsedNs"].as_u64().unwrap()
+                    );
+                    assert!(
+                        calls[1]["completedElapsedNs"].as_u64().unwrap()
+                            >= calls[1]["startedElapsedNs"].as_u64().unwrap()
+                    );
+                }
                 let report: serde_json::Value = serde_json::from_slice(
                     &std::fs::read(root.path().join("original-native-stereo.json")).unwrap(),
                 )
@@ -1680,6 +1783,11 @@ mod windows_impl {
         fn wait(&mut self) -> Result<PacketWait, String> {
             // wasapi 0.26 masks every non-signaled status as EventTimeout.
             // Borrow its handle and preserve native timeout versus failure.
+            #[cfg(test)]
+            let started = self
+                .diagnostic
+                .as_ref()
+                .map(|_| self.capture_started.elapsed());
             let status = unsafe {
                 WaitForSingleObject(self.event.as_handle().0 as HANDLE, APP_CAPTURE_WAIT_MS)
             };
@@ -1688,11 +1796,39 @@ mod windows_impl {
             } else {
                 0
             };
+            #[cfg(test)]
+            let completed = started.map(|_| self.capture_started.elapsed());
+            #[cfg(test)]
+            if let Some(trace) = self.diagnostic.as_deref_mut() {
+                trace.record_call(
+                    started.unwrap(),
+                    completed.unwrap(),
+                    NativeCallResult::Wait { status, last_error },
+                );
+            }
             packet_driver::classify_wait(status, last_error)
         }
         fn next_packet_size(&mut self) -> Result<u32, String> {
-            unsafe { self.capture.GetNextPacketSize() }
-                .map_err(|error| format!("อ่านขนาด packet จากแอปไม่สำเร็จ: {error}"))
+            #[cfg(test)]
+            let started = self
+                .diagnostic
+                .as_ref()
+                .map(|_| self.capture_started.elapsed());
+            let result = unsafe { self.capture.GetNextPacketSize() };
+            #[cfg(test)]
+            let completed = started.map(|_| self.capture_started.elapsed());
+            #[cfg(test)]
+            if let Some(trace) = self.diagnostic.as_deref_mut() {
+                trace.record_call(
+                    started.unwrap(),
+                    completed.unwrap(),
+                    NativeCallResult::GetNextPacketSize {
+                        frames: result.as_ref().ok().copied(),
+                        failure_hresult: result.as_ref().err().map(|error| error.code().0),
+                    },
+                );
+            }
+            result.map_err(|error| format!("อ่านขนาด packet จากแอปไม่สำเร็จ: {error}"))
         }
         fn read(&mut self) -> Result<Option<Self::Packet>, String> {
             let packet = read_application_packet(
@@ -1701,6 +1837,8 @@ mod windows_impl {
                 self.diagnostic.as_deref_mut(),
                 #[cfg(test)]
                 self.capture_started.elapsed(),
+                #[cfg(test)]
+                self.capture_started,
             )?;
             #[cfg(test)]
             if let Some(diagnostic) = self.diagnostic.as_deref_mut() {

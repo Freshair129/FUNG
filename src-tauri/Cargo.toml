@@ -23,6 +23,7 @@ chacha20poly1305 = { version = "=0.10.1", features = ["stream"] }
 chrono = { version = "0.4", features = ["serde"] }
 cpal = "0.16"
 hound = "3.5"
+rtrb = "=0.4.1"
 curve25519-dalek = "4"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 genesis-block-native = { git = "https://github.com/Freshair129/GenesisBlock.git", rev = "2cf485573d48d0e5e2ae76db647ec4c4dee543c3", default-features = false, features = ["mobile"] }
@@ -40,6 +41,7 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2.4.9"
 thiserror = "1"
+tokio = { version = "1", features = ["time"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 url = "2"
 x25519-dalek = { version = "2", features = ["static_secrets"] }

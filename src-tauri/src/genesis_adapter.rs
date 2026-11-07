@@ -1722,7 +1722,47 @@ fn schema_v11() -> RelationalSchemaPackage {
 }
 
 pub(crate) fn schema() -> RelationalSchemaPackage {
-    schema_v16()
+    schema_v17()
+}
+
+/// Durable provenance for individually exported completed routed sources.
+fn schema_v17() -> RelationalSchemaPackage {
+    use RelationalColumnType::{Integer, Text};
+    let mut package = schema_v16();
+    package.schema_version = 17;
+    package.previous_version = Some(16);
+    package.package_id = "3d98fcb9-ea0f-447b-9cbf-e9832dbf938c".into();
+    package.tables.push(table(
+        "source_export_bindings",
+        vec![
+            required("id", Text),
+            required("project_id", Text),
+            required("recording_id", Text),
+            required("source_id", Text),
+            required("capture_epoch", Integer),
+            required("source_manifest_hash", Text),
+            required("checksum", Text),
+            required("byte_size", Integer),
+            required("source_frontier", Integer),
+            required("created_at", Text),
+        ],
+        vec![
+            fk("id", "export_artifacts"),
+            fk("project_id", "projects"),
+            fk("recording_id", "recordings"),
+            fk("source_id", "capture_sources"),
+        ],
+        vec![RelationalIndex {
+            name: "idx_source_export_identity".into(),
+            columns: vec![
+                "recording_id".into(),
+                "source_id".into(),
+                "capture_epoch".into(),
+            ],
+            unique: true,
+        }],
+    ));
+    package
 }
 
 /// Source UUID custody is additive: legacy audio_chunks remain unbound.
@@ -2099,6 +2139,7 @@ pub(crate) fn install(storage: &Storage) -> Result<(), String> {
         schema_v13(),
         schema_v14(),
         schema_v15(),
+        schema_v16(),
         schema(),
     ];
     let last_index = packages.len() - 1;
@@ -15012,6 +15053,7 @@ mod tests {
             schema_v13(),
             schema_v14(),
             schema_v15(),
+            schema_v16(),
             schema(),
         ];
         for (index, package) in chain.iter().enumerate() {
@@ -15269,6 +15311,49 @@ mod tests {
     }
 
     #[test]
+    fn schema_v17_exposes_typed_source_export_provenance() {
+        let current = schema();
+        assert_eq!(current.schema_version, 17);
+        assert_eq!(current.previous_version, Some(16));
+        let bindings = current
+            .tables
+            .iter()
+            .find(|table| table.name == "source_export_bindings")
+            .expect("source export provenance table");
+        for name in [
+            "id",
+            "project_id",
+            "recording_id",
+            "source_id",
+            "capture_epoch",
+            "source_manifest_hash",
+            "checksum",
+            "byte_size",
+            "source_frontier",
+            "created_at",
+        ] {
+            assert!(
+                bindings.columns.iter().any(|column| column.name == name),
+                "missing {name}"
+            );
+        }
+        for table in [
+            "export_artifacts",
+            "projects",
+            "recordings",
+            "capture_sources",
+        ] {
+            assert!(
+                bindings
+                    .foreign_keys
+                    .iter()
+                    .any(|key| key.referenced_table == table),
+                "missing FK {table}"
+            );
+        }
+    }
+
+    #[test]
     fn schema_v16_upgrades_v15_without_rewriting_legacy_audio() {
         let temp = tempfile::tempdir().unwrap();
         let options = OpenOptions {
@@ -15313,7 +15398,7 @@ mod tests {
         .unwrap();
         install(&storage).unwrap();
         install(&storage).unwrap();
-        assert_eq!(schema().schema_version, 16);
+        assert_eq!(schema().schema_version, 17);
         assert_eq!(
             query(
                 &storage,
@@ -15441,7 +15526,7 @@ mod tests {
         assert_eq!(schema_v12().schema_version, 12);
         assert_eq!(schema_v13().schema_version, 13);
         assert_eq!(schema_v14().schema_version, 14);
-        assert_eq!(schema().schema_version, 16);
+        assert_eq!(schema().schema_version, 17);
         let old_runs = schema_v12()
             .tables
             .into_iter()

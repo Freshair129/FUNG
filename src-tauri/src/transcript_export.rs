@@ -308,36 +308,139 @@ pub(crate) struct ExportArtifact {
 /// must page just like the transcript readers. `export_artifacts` was already
 /// the table for it — it just had no whole-read helper.
 fn list_export_artifacts_from_storage(
-    storage: &genesis_block_native::Storage,
+    storage: &std::sync::Arc<genesis_block_native::Storage>,
     project_id: &str,
 ) -> Result<Vec<ExportArtifact>, String> {
-    let mut artifacts: Vec<ExportArtifact> = genesis_adapter::query_all(
-        storage,
-        "export_artifacts",
-        &["id", "kind", "file_path", "created_at"],
-        vec![genesis_adapter::eq(
+    crate::capture_source_custody::with_source_custody_gate(|| {
+        let frontier = storage.txn_frontier();
+        let mut artifacts: Vec<ExportArtifact> = genesis_adapter::query_all(
+            storage,
             "export_artifacts",
-            "project_id",
-            serde_json::json!(project_id),
-        )],
-    )?
-    .into_iter()
-    .filter_map(|row| {
-        Some(ExportArtifact {
-            id: row.get("export_artifacts.id")?.as_str()?.to_string(),
-            kind: row.get("export_artifacts.kind")?.as_str()?.to_string(),
-            file_path: row.get("export_artifacts.file_path")?.as_str()?.to_string(),
-            created_at: row
-                .get("export_artifacts.created_at")?
-                .as_str()?
-                .to_string(),
+            &["id", "kind", "file_path", "created_at"],
+            vec![genesis_adapter::eq(
+                "export_artifacts",
+                "project_id",
+                serde_json::json!(project_id),
+            )],
+        )?
+        .into_iter()
+        .filter_map(|row| {
+            Some(ExportArtifact {
+                id: row.get("export_artifacts.id")?.as_str()?.to_string(),
+                kind: row.get("export_artifacts.kind")?.as_str()?.to_string(),
+                file_path: row.get("export_artifacts.file_path")?.as_str()?.to_string(),
+                created_at: row
+                    .get("export_artifacts.created_at")?
+                    .as_str()?
+                    .to_string(),
+            })
         })
+        .collect();
+        let bindings = genesis_adapter::query_all(
+            storage,
+            "source_export_bindings",
+            &[
+                "id",
+                "project_id",
+                "recording_id",
+                "source_id",
+                "capture_epoch",
+            ],
+            vec![genesis_adapter::eq(
+                "source_export_bindings",
+                "project_id",
+                serde_json::json!(project_id),
+            )],
+        )?;
+        let mut bound = std::collections::HashMap::new();
+        let mut leases = std::collections::HashMap::new();
+        for row in bindings {
+            let id = genesis_adapter::string(&row, "source_export_bindings.id")?;
+            let recording = genesis_adapter::string(&row, "source_export_bindings.recording_id")?;
+            let source = genesis_adapter::string(&row, "source_export_bindings.source_id")?;
+            let epoch = genesis_adapter::integer(&row, "source_export_bindings.capture_epoch")?;
+            if genesis_adapter::string(&row, "source_export_bindings.project_id")? != project_id
+                || bound.contains_key(&id)
+                || !artifacts.iter().any(|artifact| artifact.id == id)
+            {
+                return Err("source export binding is inconsistent".into());
+            }
+            let sources = genesis_adapter::query(
+                storage,
+                "capture_sources",
+                &["project_id", "recording_id", "capture_epoch", "state"],
+                vec![genesis_adapter::eq(
+                    "capture_sources",
+                    "id",
+                    serde_json::json!(source),
+                )],
+                1,
+            )?;
+            let source_row = sources
+                .first()
+                .ok_or("source export binding references missing source")?;
+            if genesis_adapter::string(source_row, "capture_sources.project_id")? != project_id
+                || genesis_adapter::string(source_row, "capture_sources.recording_id")? != recording
+                || genesis_adapter::integer(source_row, "capture_sources.capture_epoch")? != epoch
+            {
+                return Err("source export binding identity changed".into());
+            }
+            let recordings = genesis_adapter::query(
+                storage,
+                "recordings",
+                &["project_id", "status", "source"],
+                vec![genesis_adapter::eq(
+                    "recordings",
+                    "id",
+                    serde_json::json!(recording),
+                )],
+                1,
+            )?;
+            let recording_row = recordings
+                .first()
+                .ok_or("source export recording missing")?;
+            if genesis_adapter::string(recording_row, "recordings.project_id")? != project_id
+                || genesis_adapter::string(recording_row, "recordings.source")? != "routed_endpoint"
+            {
+                return Err("source export recording identity changed".into());
+            }
+            let hidden = genesis_adapter::string(source_row, "capture_sources.state")?
+                == "quarantined"
+                || genesis_adapter::string(recording_row, "recordings.status")? == "partial";
+            if !hidden {
+                if !leases.contains_key(&recording) {
+                    leases.insert(
+                        recording.clone(),
+                        crate::source_playback_lease::SourcePlaybackLease::register(
+                            std::sync::Arc::clone(storage),
+                            &recording,
+                        )?,
+                    );
+                }
+                let lease = leases
+                    .get(&recording)
+                    .ok_or("source export lease missing")?;
+                crate::capture_source_custody::require_capture_source_access(storage, &recording)?;
+                if !lease.is_available() {
+                    return Err("source export revoked".into());
+                }
+            }
+            bound.insert(id, hidden);
+        }
+        for artifact in &artifacts {
+            if artifact.id.starts_with("audio-source:") && !bound.contains_key(&artifact.id) {
+                return Err("source export artifact lacks provenance binding".into());
+            }
+        }
+        artifacts.retain(|artifact| !bound.get(&artifact.id).copied().unwrap_or(false));
+        if storage.txn_frontier() != frontier {
+            return Err("source export inventory changed during read".into());
+        }
+        // Newest first: the query engine guarantees no order, and the only thing
+        // a user wants after an export is the one that just ran.
+        artifacts.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+        Ok(artifacts)
     })
-    .collect();
-    // Newest first: the query engine guarantees no order, and the only thing
-    // a user wants after an export is the one that just ran.
-    artifacts.sort_by(|left, right| right.created_at.cmp(&left.created_at));
-    Ok(artifacts)
 }
 
 /// Lists a project's exports, newest first.
@@ -382,6 +485,75 @@ fn project_storage_dir(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn source_export_listing_hides_quarantined_and_fails_closed_on_uncertain_denial() {
+        let f = crate::completed_source_media::tests::Fixture::new(true);
+        crate::audio_export::render_routed_source_audio_channels(
+            &f.storage,
+            f.temp.path(),
+            &f.project,
+            &f.recording,
+        )
+        .unwrap();
+        assert_eq!(
+            list_export_artifacts_from_storage(&f.storage, &f.project)
+                .unwrap()
+                .len(),
+            2
+        );
+        let stale = crate::capture_source_custody::begin_source_commit(
+            &f.storage,
+            &uuid::Uuid::new_v4().to_string(),
+            "t",
+        )
+        .unwrap();
+        genesis_adapter::commit_rows(&f.storage, vec![genesis_adapter::upsert("audit_events", serde_json::json!({
+            "id":uuid::Uuid::new_v4().to_string(),"project_id":f.project,"event_type":"test_stale_frontier",
+            "actor":"test","payload_json":{},"created_at":"t"
+        }))]).unwrap();
+        assert!(crate::capture_source_custody::quarantine_capture_source(
+            &f.storage,
+            &stale,
+            &f.regs[0].id,
+            "uncertain"
+        )
+        .is_err());
+        assert!(
+            list_export_artifacts_from_storage(&f.storage, &f.project).is_err(),
+            "runtime denial must block disclosure even if durable quarantine did not commit"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn source_export_listing_omits_durably_quarantined_recording() {
+        let f = crate::completed_source_media::tests::Fixture::new(true);
+        crate::audio_export::render_routed_source_audio_channels(
+            &f.storage,
+            f.temp.path(),
+            &f.project,
+            &f.recording,
+        )
+        .unwrap();
+        let attempt = crate::capture_source_custody::begin_source_commit(
+            &f.storage,
+            &uuid::Uuid::new_v4().to_string(),
+            "t",
+        )
+        .unwrap();
+        crate::capture_source_custody::quarantine_capture_source(
+            &f.storage,
+            &attempt,
+            &f.regs[0].id,
+            "fault",
+        )
+        .unwrap();
+        assert!(list_export_artifacts_from_storage(&f.storage, &f.project)
+            .unwrap()
+            .is_empty());
+    }
 
     fn cue(start_ms: i64, end_ms: i64, text: &str) -> Cue {
         Cue {
@@ -730,6 +902,7 @@ mod tests {
         )
         .unwrap();
 
+        let storage = std::sync::Arc::new(storage);
         let artifacts = list_export_artifacts_from_storage(&storage, "p1").unwrap();
         assert_eq!(artifacts.len(), total);
         assert_eq!(

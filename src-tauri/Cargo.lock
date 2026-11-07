@@ -1724,6 +1724,7 @@ dependencies = [
  "keyring",
  "rand 0.8.7",
  "reqwest 0.12.28",
+ "rtrb",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1737,6 +1738,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tempfile",
  "thiserror 1.0.69",
+ "tokio",
  "url",
  "uuid",
  "wasapi",
@@ -2424,7 +2426,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -4240,6 +4242,12 @@ dependencies = [
  "bytemuck",
  "byteorder",
 ]
+
+[[package]]
+name = "rtrb"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5974e397833d890f2f74963408e0d4a6cd8eda2f6a445ae06750291b5d7a997e"
 
 [[package]]
 name = "rusqlite"

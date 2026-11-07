@@ -196,6 +196,33 @@ fn queue_full_preserves_out_of_band_first_failure_and_drains_bounded_terminal_pa
     assert!(custody::require_capture_source_access(&f.s, &f.recording).is_err());
 }
 #[test]
+fn failure_after_file_write_before_commit_never_exposes_chunk() {
+    let f = fixture(1);
+    let mut g = group(&f);
+    let gate = Arc::new(TestGate::default());
+    let mut options = SourceWriterOptions::new(f.regs[0].clone());
+    options.commit_gate = Some(gate.clone());
+    let mut writer = g.spawn(options).unwrap();
+    writer.try_push(packet(&f.regs[0], 0, 96000)).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while !gate.entered.load(std::sync::atomic::Ordering::SeqCst) {
+        if std::time::Instant::now() >= deadline {
+            gate.release();
+            panic!("writer did not reach post-write gate");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    writer.signal_failure("injected fault before ledger admission");
+    gate.release();
+    let report = writer.finish();
+    assert!(report.first_failure.is_some());
+    assert!(report.quarantine_persisted);
+    assert_eq!(report.durable_chunks, 0);
+    assert!(!report.private_orphans.is_empty());
+    assert!(audio(&f).is_empty());
+    assert!(custody::require_capture_source_access(&f.s, &f.recording).is_err());
+}
+#[test]
 fn overlap_never_rewinds_or_binds_duplicate_frames() {
     let f = fixture(1);
     let mut g = group(&f);

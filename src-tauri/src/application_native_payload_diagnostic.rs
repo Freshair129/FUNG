@@ -14,6 +14,102 @@ pub(super) enum AcquisitionStrategy {
     DirectGetBuffer,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct NativePacketIdentity {
+    pub(super) frames: u32,
+    pub(super) flags: u32,
+    pub(super) device_index: u64,
+    pub(super) qpc_hns: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[serde(
+    tag = "operation",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub(super) enum NativeCallResult {
+    Wait {
+        status: u32,
+        last_error: u32,
+    },
+    GetNextPacketSize {
+        frames: Option<u32>,
+        failure_hresult: Option<i32>,
+    },
+    GetBuffer {
+        packet: Option<NativePacketIdentity>,
+        failure_hresult: Option<i32>,
+    },
+    ReleaseBuffer {
+        frames: u32,
+        failure_hresult: Option<i32>,
+    },
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeCallReceipt {
+    sequence: u64,
+    started_elapsed_ns: u64,
+    completed_elapsed_ns: u64,
+    #[serde(flatten)]
+    result: NativeCallResult,
+}
+
+struct NativeCallTrace {
+    calls: Vec<NativeCallReceipt>,
+    max_calls: usize,
+    observed_calls: u64,
+    invalid_reason: Option<&'static str>,
+}
+
+impl NativeCallTrace {
+    fn new(max_calls: usize) -> Self {
+        Self {
+            calls: Vec::with_capacity(max_calls),
+            max_calls,
+            observed_calls: 0,
+            invalid_reason: None,
+        }
+    }
+
+    fn record(&mut self, started: Duration, completed: Duration, result: NativeCallResult) {
+        self.observed_calls = self.observed_calls.saturating_add(1);
+        if self.invalid_reason.is_some() {
+            return;
+        }
+        if self.calls.len() == self.max_calls {
+            self.invalid_reason =
+                Some("bounded_native_call_trace_overrun; retained prefix is incomplete");
+            return;
+        }
+        let (Ok(started_elapsed_ns), Ok(completed_elapsed_ns)) = (
+            u64::try_from(started.as_nanos()),
+            u64::try_from(completed.as_nanos()),
+        ) else {
+            self.invalid_reason = Some("native_call_trace_time_not_representable");
+            return;
+        };
+        if completed_elapsed_ns < started_elapsed_ns
+            || self
+                .calls
+                .last()
+                .is_some_and(|previous| previous.completed_elapsed_ns > started_elapsed_ns)
+        {
+            self.invalid_reason = Some("native_call_trace_non_monotonic_or_overlapping");
+            return;
+        }
+        self.calls.push(NativeCallReceipt {
+            sequence: self.observed_calls,
+            started_elapsed_ns,
+            completed_elapsed_ns,
+            result,
+        });
+    }
+}
+
 struct ProbeRequest {
     root: PathBuf,
     strategy: AcquisitionStrategy,
@@ -116,6 +212,7 @@ pub(super) struct NativePayloadDiagnostic {
     original_observed_packets: u64,
     original_retained_frames: usize,
     acquisition_strategy: AcquisitionStrategy,
+    calls: NativeCallTrace,
 }
 
 impl NativePayloadDiagnostic {
@@ -137,11 +234,21 @@ impl NativePayloadDiagnostic {
             original_observed_packets: 0,
             original_retained_frames: 0,
             acquisition_strategy: AcquisitionStrategy::SizeHintGated,
+            calls: NativeCallTrace::new(65_536),
         }
     }
 
     pub(super) fn acquisition_strategy(&self) -> AcquisitionStrategy {
         self.acquisition_strategy
+    }
+
+    pub(super) fn record_call(
+        &mut self,
+        started: Duration,
+        completed: Duration,
+        result: NativeCallResult,
+    ) {
+        self.calls.record(started, completed, result);
     }
 
     /// Copies original interleaved PCM16 stereo while WASAPI still owns the
@@ -330,6 +437,40 @@ impl NativePayloadDiagnostic {
             root,
             "original-native-stereo.json",
             &serde_json::to_vec_pretty(&original_report).map_err(|error| error.to_string())?,
+        )?;
+        let call_invalid_reason = self.calls.invalid_reason.or_else(|| {
+            self.calls
+                .calls
+                .is_empty()
+                .then_some("no_native_calls_observed")
+        });
+        let call_report = serde_json::json!({
+            "schema": "fung-native-call-trace-v1",
+            "acquisitionStrategy": self.acquisition_strategy,
+            "processId": process_id,
+            "clock": "Instant elapsed from capture_started; nanoseconds; not native packet QPC",
+            "boundary": "timestamps immediately around native call; wait failure end follows GetLastError; ReleaseBuffer receipt appended after decoder returns",
+            "successMeaning": "COM Result success normalized; failureHresult is exact failure code; no exact successful HRESULT claimed",
+            "diagnosticValid": call_invalid_reason.is_none(),
+            "invalidReason": call_invalid_reason,
+            "maxCalls": self.calls.max_calls,
+            "maxBytes": self.calls.max_calls * std::mem::size_of::<NativeCallReceipt>(),
+            "observedCalls": self.calls.observed_calls,
+            "calls": self.calls.calls,
+            "nativeStopResult": self.native_stop,
+            "captureResult": capture_result,
+            "writerResult": writer_result,
+            "probeBinary": binary,
+            "probeBinarySha256": binary_hash,
+            "captureSourceSha256": format!("{:x}", Sha256::digest(include_bytes!("live_application_audio.rs"))),
+            "diagnosticSourceSha256": format!("{:x}", Sha256::digest(include_bytes!("application_native_payload_diagnostic.rs"))),
+            "packetDriverSourceSha256": format!("{:x}", Sha256::digest(include_bytes!("application_packet_driver.rs"))),
+            "scope": "bounded test-only elapsed call timing; includes descheduling; cannot establish native packet availability, missing PCM contents, Windows internal cause or PID/installed acceptance"
+        });
+        write_new(
+            root,
+            "native-call-trace.json",
+            &serde_json::to_vec_pretty(&call_report).map_err(|error| error.to_string())?,
         )
     }
 }
@@ -361,6 +502,117 @@ fn write_new(root: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_call_trace_retains_order_outcomes_and_monotonic_intervals_without_growth() {
+        let mut trace = NativeCallTrace::new(2);
+        let capacity = trace.calls.capacity();
+        let pointer = trace.calls.as_ptr();
+        trace.record(
+            Duration::from_nanos(10),
+            Duration::from_nanos(30),
+            NativeCallResult::Wait {
+                status: 258,
+                last_error: 0,
+            },
+        );
+        trace.record(
+            Duration::from_nanos(40),
+            Duration::from_nanos(43),
+            NativeCallResult::GetNextPacketSize {
+                frames: None,
+                failure_hresult: Some(-2147467259),
+            },
+        );
+        assert_eq!(trace.calls.len(), 2, "native API call evidence was dropped");
+        assert_eq!(trace.observed_calls, 2);
+        assert_eq!(trace.calls[0].sequence, 1);
+        assert_eq!(trace.calls[1].sequence, 2);
+        assert_eq!(
+            (
+                trace.calls[0].started_elapsed_ns,
+                trace.calls[0].completed_elapsed_ns
+            ),
+            (10, 30)
+        );
+        assert_eq!(
+            trace.calls[1].result,
+            NativeCallResult::GetNextPacketSize {
+                frames: None,
+                failure_hresult: Some(-2147467259)
+            }
+        );
+        assert_eq!(trace.calls.capacity(), capacity);
+        assert_eq!(trace.calls.as_ptr(), pointer);
+        assert!(trace.invalid_reason.is_none());
+    }
+
+    #[test]
+    fn native_call_trace_overrun_freezes_prefix_marks_incomplete_and_counts_all_calls() {
+        let mut trace = NativeCallTrace::new(1);
+        let pointer = trace.calls.as_ptr();
+        for start in [10, 20, 30] {
+            trace.record(
+                Duration::from_nanos(start),
+                Duration::from_nanos(start + 1),
+                NativeCallResult::ReleaseBuffer {
+                    frames: 480,
+                    failure_hresult: None,
+                },
+            );
+        }
+        assert_eq!(
+            trace.calls.len(),
+            1,
+            "bounded trace must retain its first call"
+        );
+        assert_eq!(trace.observed_calls, 3);
+        assert!(trace.invalid_reason.unwrap().contains("overrun"));
+        assert_eq!(trace.calls[0].started_elapsed_ns, 10);
+        assert_eq!(trace.calls.as_ptr(), pointer);
+    }
+
+    #[test]
+    fn native_call_trace_rejects_reversed_overlapping_or_unrepresentable_time() {
+        for (start, end) in [(30, 20), (15, 25)] {
+            let mut trace = NativeCallTrace::new(4);
+            trace.record(
+                Duration::from_nanos(10),
+                Duration::from_nanos(20),
+                NativeCallResult::Wait {
+                    status: 0,
+                    last_error: 0,
+                },
+            );
+            trace.record(
+                Duration::from_nanos(start),
+                Duration::from_nanos(end),
+                NativeCallResult::Wait {
+                    status: 0,
+                    last_error: 0,
+                },
+            );
+            assert!(
+                trace.invalid_reason.is_some(),
+                "invalid temporal order was accepted"
+            );
+            assert_eq!(trace.calls.len(), 1);
+        }
+        let mut trace = NativeCallTrace::new(1);
+        trace.record(
+            Duration::from_secs(u64::MAX),
+            Duration::from_secs(u64::MAX),
+            NativeCallResult::Wait {
+                status: 0,
+                last_error: 0,
+            },
+        );
+        assert!(
+            trace.invalid_reason.is_some(),
+            "unrepresentable nanoseconds were accepted"
+        );
+        assert!(trace.calls.is_empty());
+    }
 
     #[test]
     fn direct_acquisition_request_is_scoped_single_use_and_strategy_is_receipted() {

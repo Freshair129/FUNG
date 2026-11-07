@@ -35,6 +35,9 @@ use uuid::Uuid;
 const RATE: u32 = 48_000;
 const ORIGIN_LEAD_HNS: u64 = 50_000_000;
 const QUEUE_CAPACITY: usize = 64;
+// 250 ms per writer item bounds 64 queued items to 16 seconds / 1.536 MB
+// of mono PCM per source; native packet evidence remains separately synced.
+const COALESCE_FRAMES: usize = RATE as usize / 4;
 const MAX_SOURCE_FRAMES: u64 = RATE as u64 * 86400;
 const GUARD_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -564,7 +567,7 @@ pub(crate) fn start(
                 coordinate(
                     thread_storage.clone(),
                     plan,
-                    session,
+                    root,
                     thread_job.clone(),
                     thread_shared.clone(),
                     &mut release,
@@ -628,7 +631,7 @@ impl Drop for Workers {
 fn coordinate(
     storage: Arc<Storage>,
     plan: CaptureRoutePlan,
-    session: PathBuf,
+    project_root: PathBuf,
     job: String,
     shared: Arc<Shared>,
     lease: &mut ReleaseGuard,
@@ -676,10 +679,10 @@ fn coordinate(
             if ticket.source_id() != reg.id {
                 return Err("factory ticket order mismatch".into());
             }
-            let private = session.join("sources").join(&reg.id).join("epoch-1");
-            checked_create_dir(&private)?;
+            let private =
+                private_spool_directory(&project_root, &ids.recording_id, &reg.id, reg.epoch)?;
             let writer = group.spawn(SourceWriterOptions::new(reg.clone()))?;
-            let spool = PrivateSpool::new(&private)?;
+            let spool = PrivateSpool::new_under_project(&project_root, &private)?;
             let (producer, receiver) = sink::packet_channel(ticket.scope().clone(), QUEUE_CAPACITY)
                 .map_err(|error| format!("sink channel: {error:?}"))?;
             let state = shared.clone();
@@ -831,8 +834,30 @@ fn coordinate(
     .into();
     lock(&shared.observer).take();
 }
+
+/// Raw accepted packets are retained as non-authoritative diagnostic evidence.
+/// Only ledger-bound chunks under live/<recording> are recovery/export inputs.
+fn private_spool_directory(
+    project_root: &Path,
+    recording: &str,
+    source: &str,
+    epoch: i64,
+) -> Result<PathBuf, String> {
+    canonical_uuid(recording)?;
+    canonical_uuid(source)?;
+    if epoch <= 0 {
+        return Err("private spool epoch must be positive".into());
+    }
+    Ok(project_root
+        .join("diagnostics")
+        .join("routed")
+        .join(recording)
+        .join("sources")
+        .join(source)
+        .join(format!("epoch-{epoch}")))
+}
 fn quarantine_affected_sources(
-    storage: &Storage,
+    storage: &Arc<Storage>,
     project: &str,
     recording: &str,
     sources: &[String],
@@ -870,17 +895,25 @@ fn quarantine_affected_sources(
                     return Err("quarantine source scope changed".into());
                 }
                 if row["capture_sources.state"] == "quarantined" {
-                    if row["capture_sources.quarantine_json"]["reason"]
+                    if let Some(first_reason) = row["capture_sources.quarantine_json"]["reason"]
                         .as_str()
-                        .is_some_and(|reason| !reason.is_empty())
+                        .filter(|reason| !reason.is_empty())
                     {
-                        return Ok(());
+                        return custody::quarantine_capture_source(
+                            storage,
+                            &attempt(storage)?,
+                            source,
+                            first_reason,
+                        );
                     }
                     return Err("quarantine cause missing".into());
                 }
                 custody::quarantine_capture_source(storage, &attempt(storage)?, source, &reason)
             })();
             if let Err(error) = result {
+                // The coordinator already knows the recording even when a source
+                // lookup or quarantine commit fails. Do not leave playback live.
+                crate::source_playback_lease::revoke_recording(storage, recording);
                 shared.fail(
                     None,
                     format!("source {source} quarantine persistence uncertain: {error}"),
@@ -893,7 +926,7 @@ fn quarantine_affected_sources(
     }
 }
 fn close_registered_sources(
-    storage: &Storage,
+    storage: &Arc<Storage>,
     project: &str,
     recording: &str,
     sources: &[String],
@@ -1099,25 +1132,73 @@ struct PrivateSpool {
     frames: u64,
     packets: u64,
     failed: bool,
+    #[cfg(test)]
+    fail_next_sync: bool,
+    // Keep directory identities alive throughout capture; never reopen the
+    // private PCM or metadata by a path after this handoff.
+    _directory_handles: Vec<File>,
 }
 impl PrivateSpool {
+    #[cfg(test)]
     fn new(root: &Path) -> Result<Self, String> {
+        let handles = crate::scoped_fs::pin_ancestors(root)?;
+        Self::from_pinned(root, handles)
+    }
+
+    fn new_under_project(project: &Path, root: &Path) -> Result<Self, String> {
+        use std::path::Component;
+        let relative = root
+            .strip_prefix(project)
+            .map_err(|_| "private directory escaped project")?;
+        let mut handles = crate::scoped_fs::pin_ancestors(project)?;
+        let mut current = project.to_path_buf();
+        for part in relative.components() {
+            let Component::Normal(name) = part else {
+                return Err("invalid private directory component".into());
+            };
+            let file = crate::scoped_fs::open_relative(
+                handles.last().ok_or("missing parent handle")?,
+                name,
+                true,
+                3,
+                false,
+            )?;
+            current.push(name);
+            let actual = crate::desktop_playback::final_path_from_handle(&file, &current)
+                .map_err(|e| e.code)?;
+            if !crate::desktop_playback::normalized_path_inside(&actual, &current)
+                || !crate::desktop_playback::normalized_path_inside(&current, &actual)
+            {
+                return Err("private directory identity changed".into());
+            }
+            handles.push(file);
+        }
+        Self::from_pinned(root, handles)
+    }
+
+    fn from_pinned(root: &Path, handles: Vec<File>) -> Result<Self, String> {
         let pcm_path = root.join("accepted-native.pcm");
         let metadata_path = root.join("accepted-native.jsonl");
-        let pcm = BufWriter::new(
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&pcm_path)
-                .map_err(|e| e.to_string())?,
-        );
-        let metadata = BufWriter::new(
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&metadata_path)
-                .map_err(|e| e.to_string())?,
-        );
+        let parent = handles.last().ok_or("missing private directory handle")?;
+        let create = |name: &str, expected: &Path| -> Result<File, String> {
+            let file = crate::scoped_fs::open_relative(
+                parent,
+                std::ffi::OsStr::new(name),
+                false,
+                2,
+                true,
+            )?;
+            let actual = crate::desktop_playback::final_path_from_handle(&file, expected)
+                .map_err(|e| e.code)?;
+            if !crate::desktop_playback::normalized_path_inside(&actual, expected)
+                || !crate::desktop_playback::normalized_path_inside(expected, &actual)
+            {
+                return Err("private spool file identity changed".into());
+            }
+            Ok(file)
+        };
+        let pcm = BufWriter::new(create("accepted-native.pcm", &pcm_path)?);
+        let metadata = BufWriter::new(create("accepted-native.jsonl", &metadata_path)?);
         Ok(Self {
             pcm,
             metadata,
@@ -1126,6 +1207,9 @@ impl PrivateSpool {
             frames: 0,
             packets: 0,
             failed: false,
+            #[cfg(test)]
+            fail_next_sync: false,
+            _directory_handles: handles,
         })
     }
     fn append(&mut self, packet: &EndpointPacket) -> Result<(), String> {
@@ -1168,6 +1252,10 @@ impl PrivateSpool {
         Ok(())
     }
     fn sync(&mut self) -> Result<(), String> {
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_next_sync) {
+            return Err("injected spool sync failure".into());
+        }
         self.pcm
             .flush()
             .and_then(|_| self.pcm.get_ref().sync_all())
@@ -1292,6 +1380,98 @@ fn admit_packet(
         }
     }
 }
+struct Coalescer {
+    start: u64,
+    pcm: Vec<i16>,
+}
+impl Coalescer {
+    fn new() -> Self {
+        Self {
+            start: 0,
+            pcm: Vec::with_capacity(COALESCE_FRAMES),
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn append(
+        &mut self,
+        start: u64,
+        mut samples: &[i16],
+        writer: &mut CaptureSourceWriter,
+        shared: &Shared,
+        source: &str,
+        epoch: i64,
+        sync: &mut impl FnMut() -> Result<(), String>,
+    ) -> bool {
+        let mut pos = start;
+        while !samples.is_empty() {
+            if shared.source_failure(source).is_some() {
+                return false;
+            }
+            if self.pcm.is_empty() {
+                self.start = pos;
+            }
+            if self.start + self.pcm.len() as u64 != pos {
+                poison(
+                    writer,
+                    shared,
+                    source,
+                    "coalescer encountered noncontiguous PCM",
+                );
+                return false;
+            }
+            let count = (COALESCE_FRAMES - self.pcm.len()).min(samples.len());
+            self.pcm.extend_from_slice(&samples[..count]);
+            samples = &samples[count..];
+            pos += count as u64;
+            if self.pcm.len() == COALESCE_FRAMES && !self.flush(writer, shared, source, epoch, sync)
+            {
+                return false;
+            }
+        }
+        true
+    }
+    fn flush(
+        &mut self,
+        writer: &mut CaptureSourceWriter,
+        shared: &Shared,
+        source: &str,
+        epoch: i64,
+        sync: &mut impl FnMut() -> Result<(), String>,
+    ) -> bool {
+        if self.pcm.is_empty() {
+            return true;
+        }
+        if shared.source_failure(source).is_some() {
+            return false;
+        }
+        if let Err(error) = sync() {
+            poison(
+                writer,
+                shared,
+                source,
+                format!("private batch sync before writer transfer: {error}"),
+            );
+            return false;
+        }
+        // Sync can block while another source faults. Preserve the pending
+        // batch privately rather than starting a new writer admission.
+        if shared.source_failure(source).is_some() {
+            return false;
+        }
+        let pcm = std::mem::replace(&mut self.pcm, Vec::with_capacity(COALESCE_FRAMES));
+        admit_packet(
+            writer,
+            SourcePcmPacket {
+                source_id: source.to_owned(),
+                epoch,
+                first_frame: self.start as i64,
+                pcm,
+            },
+            shared,
+            source,
+        )
+    }
+}
 #[cfg(test)]
 thread_local! { static PACKET_PANIC_STAGE:std::cell::Cell<Option<&'static str>>=const {std::cell::Cell::new(None)}; }
 #[cfg(test)]
@@ -1332,6 +1512,26 @@ struct SourceDrainState {
     packets: u64,
     summary: Option<sink::StreamSummary>,
     native_terminated: bool,
+    spool_sync_max_us: u64,
+    spool_sync_count: u64,
+    spool_sync_total_us: u64,
+}
+fn sync_batch(
+    spool: &mut PrivateSpool,
+    count: &mut u64,
+    total: &mut u64,
+    maximum: &mut u64,
+) -> Result<(), String> {
+    let start = Instant::now();
+    let result = spool.sync();
+    let elapsed = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
+    *count = count.saturating_add(1);
+    *total = total.saturating_add(elapsed);
+    *maximum = (*maximum).max(elapsed);
+    if result.is_err() {
+        spool.failed = true;
+    }
+    result
 }
 #[allow(clippy::too_many_arguments)]
 fn drain_source(
@@ -1348,6 +1548,10 @@ fn drain_source(
     let mut native_terminated = false;
     let mut stopped_at = None;
     let mut timeout_reported = false;
+    let mut coalescer = Coalescer::new();
+    let mut spool_sync_max_us = 0u64;
+    let mut spool_sync_count = 0u64;
+    let mut spool_sync_total_us = 0u64;
     // These values outlive the processing unwind boundary. A removed packet is
     // either still owned here or already durable in the private spool.
     let mut inflight: Option<EndpointPacket> = None;
@@ -1424,18 +1628,8 @@ fn drain_source(
                     if !inflight_spooled {
                         continue;
                     }
-                    // Transfer to a consuming writer API only after durable private
-                    // ownership exists; a writer panic cannot destroy the sole PCM.
-                    if let Err(error) = spool.sync() {
-                        spool.failed = true;
-                        poison(
-                            writer,
-                            shared,
-                            &reg.id,
-                            format!("accepted PCM sync before writer transfer: {error}"),
-                        );
-                        continue;
-                    }
+                    // Private bytes are synced at batch admission, before any
+                    // coalesced PCM is transferred to the writer.
                     #[cfg(test)]
                     inject_packet_panic("after_private_spool");
                     if shared.source_failure(&reg.id).is_some()
@@ -1477,17 +1671,23 @@ fn drain_source(
                         while next_frame < packet.frames.start
                             && shared.source_failure(&reg.id).is_none()
                         {
-                            let count = (packet.frames.start - next_frame).min(u64::from(RATE) * 2);
-                            if !admit_packet(
+                            let count =
+                                (packet.frames.start - next_frame).min(COALESCE_FRAMES as u64);
+                            if !coalescer.append(
+                                next_frame,
+                                &vec![0; count as usize],
                                 writer,
-                                SourcePcmPacket {
-                                    source_id: reg.id.clone(),
-                                    epoch: reg.epoch,
-                                    first_frame: next_frame as i64,
-                                    pcm: vec![0; count as usize],
-                                },
                                 shared,
                                 &reg.id,
+                                reg.epoch,
+                                &mut || {
+                                    sync_batch(
+                                        spool,
+                                        &mut spool_sync_count,
+                                        &mut spool_sync_total_us,
+                                        &mut spool_sync_max_us,
+                                    )
+                                },
                             ) {
                                 break;
                             }
@@ -1501,13 +1701,22 @@ fn drain_source(
                     let packet = inflight
                         .take()
                         .expect("inflight packet retained until durable transfer");
-                    let packet = SourcePcmPacket {
-                        source_id: reg.id.clone(),
-                        epoch: reg.epoch,
-                        first_frame: packet.frames.start as i64,
-                        pcm: packet.samples,
-                    };
-                    if admit_packet(writer, packet, shared, &reg.id) {
+                    if coalescer.append(
+                        packet.frames.start,
+                        &packet.samples,
+                        writer,
+                        shared,
+                        &reg.id,
+                        reg.epoch,
+                        &mut || {
+                            sync_batch(
+                                spool,
+                                &mut spool_sync_count,
+                                &mut spool_sync_total_us,
+                                &mut spool_sync_max_us,
+                            )
+                        },
+                    ) {
                         next_frame = end_frame;
                     }
                 }
@@ -1531,6 +1740,16 @@ fn drain_source(
                             &reg.id,
                             "sink drain/quarantine/packet reconciliation failed",
                         );
+                    }
+                    if shared.source_failure(&reg.id).is_none() {
+                        coalescer.flush(writer, shared, &reg.id, reg.epoch, &mut || {
+                            sync_batch(
+                                spool,
+                                &mut spool_sync_count,
+                                &mut spool_sync_total_us,
+                                &mut spool_sync_max_us,
+                            )
+                        });
                     }
                     summary = Some(value);
                 }
@@ -1627,6 +1846,9 @@ fn drain_source(
         packets,
         summary,
         native_terminated,
+        spool_sync_max_us,
+        spool_sync_count,
+        spool_sync_total_us,
     }
 }
 
@@ -1684,6 +1906,9 @@ fn finish_source(
         packets,
         summary,
         native_terminated,
+        spool_sync_max_us,
+        spool_sync_count,
+        spool_sync_total_us,
     } = drain;
     if shared.source_failure(&reg.id).is_some() {
         poison(
@@ -1706,6 +1931,7 @@ fn finish_source(
         }
     };
     let mut report = writer.finish();
+    lock(&shared.status).warnings.push(format!("source timing diagnostic: spool_sync_count={spool_sync_count} spool_sync_total_us={spool_sync_total_us} spool_sync_max_us={spool_sync_max_us} chunk_attempts={} write_finalize_max_us={} fsync_max_us={} hash_max_us={} fence_wait_max_us={} commit_max_us={}", report.timing.chunk_attempts, report.timing.write_finalize_max_us, report.timing.fsync_max_us, report.timing.hash_max_us, report.timing.fence_wait_max_us, report.timing.commit_max_us));
     if let Some(failure) = &report.first_failure {
         shared.fail(Some(&reg.id), &failure.detail);
     }

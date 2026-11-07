@@ -44,6 +44,17 @@ use std::{
 };
 const MAX_MS: i64 = 24 * 60 * 60 * 1000;
 const MAX_CHUNK_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Process-local serialization for quarantine, recovery and export publication.
+/// Call only off the audio thread, with no SDK or source playback gate held.
+/// This is not a lock against another process.
+pub(crate) fn with_source_custody_gate<T>(
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    static GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _gate = GATE.lock().map_err(|_| "source custody gate poisoned")?;
+    operation()
+}
 /// Caller retains this attempt through uncertain commit reconciliation. Capture before reads.
 pub fn begin_source_commit(s: &Storage, id: &str, at: &str) -> Result<SourceCommitAttempt, String> {
     if uuid::Uuid::parse_str(id).is_err() || at.is_empty() || at.len() > 64 {
@@ -350,15 +361,28 @@ fn verify_file(
     reg: &CaptureSourceRegistration,
     c: &CaptureSourceChunk,
 ) -> Result<i64, String> {
+    verify_file_held(project, r, reg, c, None).map(|(bytes, _)| bytes)
+}
+
+fn verify_file_held(
+    project: &Value,
+    r: &str,
+    reg: &CaptureSourceRegistration,
+    c: &CaptureSourceChunk,
+    trusted_root: Option<&Path>,
+) -> Result<(i64, std::fs::File), String> {
     if !c.path.is_absolute()
         || c.path.to_string_lossy().len() > 4096
         || c.path.to_string_lossy().starts_with("\\\\")
     {
         return Err("local absolute PCM path required".into());
     }
-    let project_root = Path::new(text(project, "storage_path")?)
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
+    let project_root = match trusted_root {
+        Some(root) => root.to_path_buf(),
+        None => Path::new(text(project, "storage_path")?)
+            .canonicalize()
+            .map_err(|e| e.to_string())?,
+    };
     let expected = project_root
         .join("live")
         .join(r)
@@ -375,7 +399,19 @@ fn verify_file(
     if !before.is_file() || before.len() == 0 || before.len() > MAX_CHUNK_BYTES {
         return Err("PCM byte bound exceeded".into());
     }
-    let mut f = std::fs::File::open(&actual).map_err(|e| e.to_string())?;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.share_mode(1); // FILE_SHARE_READ; deny new writers and deletion.
+    }
+    let mut f = options.open(&actual).map_err(|e| e.to_string())?;
+    let final_path =
+        crate::desktop_playback::final_path_from_handle(&f, &actual).map_err(|e| e.code)?;
+    if !crate::desktop_playback::normalized_path_inside(&final_path, &expected) {
+        return Err("PCM handle outside authoritative source directory".into());
+    }
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 65536];
     let mut total = 0u64;
@@ -411,14 +447,15 @@ fn verify_file(
     if frames != c.end_frame - c.start_frame {
         return Err("PCM frame provenance mismatch".into());
     }
-    let after = std::fs::metadata(&actual).map_err(|e| e.to_string())?;
+    let f = wav.into_inner();
+    let after = f.metadata().map_err(|e| e.to_string())?;
     if before.len() != after.len()
         || before.modified().ok() != after.modified().ok()
         || total != after.len()
     {
         return Err("PCM changed during validation".into());
     }
-    Ok(total as i64)
+    Ok((total as i64, f))
 }
 /// False=new durable append_capture_source_chunk; true=exact same attempt already durable. No enrichment here.
 pub fn append_capture_source_chunk(
@@ -525,8 +562,34 @@ pub fn append_capture_source_chunk(
     )?;
     Ok(false)
 }
+fn quarantine_source_recording(
+    s: &std::sync::Arc<Storage>,
+    source: &Value,
+    revoked: &mut Vec<std::sync::Arc<crate::source_playback_lease::SourcePlaybackLease>>,
+) -> Result<String, String> {
+    match text(source, "recording_id") {
+        Ok(recording) if uuid(recording).is_ok() => Ok(recording.to_owned()),
+        _ => {
+            revoked.extend(crate::source_playback_lease::latch_revoke_recording(s, ""));
+            Err("quarantine source recording identity invalid".into())
+        }
+    }
+}
+
+fn quarantine_recording_row(
+    s: &std::sync::Arc<Storage>,
+    recording: &str,
+    revoked: &mut Vec<std::sync::Arc<crate::source_playback_lease::SourcePlaybackLease>>,
+) -> Result<Value, String> {
+    get(s, "recordings", recording).inspect_err(|_| {
+        revoked.extend(crate::source_playback_lease::latch_revoke_recording(
+            s, recording,
+        ));
+    })
+}
+
 pub fn quarantine_capture_source(
-    s: &Storage,
+    s: &std::sync::Arc<Storage>,
     a: &SourceCommitAttempt,
     id: &str,
     reason: &str,
@@ -534,32 +597,64 @@ pub fn quarantine_capture_source(
     if reason.is_empty() || reason.len() > 1024 {
         return Err("bounded quarantine_capture_source reason required".into());
     }
-    let mut source = get(s, "capture_sources", id)?;
-    if text(&source, "state")? == "quarantined" {
-        return if source["quarantine_json"]["reason"] == reason {
-            Ok(())
-        } else {
-            Err("quarantine_capture_source first cause immutable".into())
-        };
+    uuid(id)?;
+    let mut revoked = Vec::new();
+    let mut entered_gate = false;
+    let outcome = with_source_custody_gate(|| {
+        entered_gate = true;
+        let mut source = get(s, "capture_sources", id).inspect_err(|_| {
+            revoked.extend(crate::source_playback_lease::latch_revoke_recording(s, ""));
+        })?;
+        let recording = quarantine_source_recording(s, &source, &mut revoked)?;
+        let state = text(&source, "state").inspect_err(|_| {
+            revoked.extend(crate::source_playback_lease::latch_revoke_recording(
+                s, &recording,
+            ));
+        })?;
+        if state == "quarantined" {
+            revoked.extend(crate::source_playback_lease::latch_revoke_recording(
+                s, &recording,
+            ));
+            return if source["quarantine_json"]["reason"] == reason {
+                Ok(())
+            } else {
+                Err("quarantine_capture_source first cause immutable".into())
+            };
+        }
+        let mut rec = quarantine_recording_row(s, &recording, &mut revoked)?;
+        source["state"] = json!("quarantined");
+        source["quarantine_json"] = json!({"reason":reason,"attemptId":a.id,"at":a.at});
+        source["updated_at"] = json!(a.at);
+        rec["status"] = json!("partial");
+        rec["updated_at"] = json!(a.at);
+        let outcome = commit(
+            s,
+            a,
+            vec![
+                ga::upsert("capture_sources", source.clone()),
+                ga::upsert("recordings", rec),
+                ga::upsert(
+                    "audit_events",
+                    json!({"id":a.id,"project_id":source["project_id"],"event_type":"capture_source_quarantined","actor":"native-capture","payload_json":{"sourceId":id,"recordingId":source["recording_id"],"epoch":source["capture_epoch"],"reason":reason},"created_at":a.at}),
+                ),
+            ],
+        );
+        // Any commit error is uncertain at this boundary. Retain a runtime denial
+        // and fence existing output even if persistence needs reconciliation/retry.
+        // SDK commit locks are released before waiting on any in-flight callback.
+        revoked.extend(crate::source_playback_lease::latch_revoke_recording(
+            s, &recording,
+        ));
+        outcome
+    });
+    if !entered_gate {
+        // Gate poisoning makes publication and the intended recording
+        // uncertain. Deny this store before returning, even though no
+        // transaction could be started.
+        revoked.extend(crate::source_playback_lease::latch_revoke_recording(s, ""));
     }
-    let mut rec = get(s, "recordings", text(&source, "recording_id")?)?;
-    source["state"] = json!("quarantined");
-    source["quarantine_json"] = json!({"reason":reason,"attemptId":a.id,"at":a.at});
-    source["updated_at"] = json!(a.at);
-    rec["status"] = json!("partial");
-    rec["updated_at"] = json!(a.at);
-    commit(
-        s,
-        a,
-        vec![
-            ga::upsert("capture_sources", source.clone()),
-            ga::upsert("recordings", rec),
-            ga::upsert(
-                "audit_events",
-                json!({"id":a.id,"project_id":source["project_id"],"event_type":"capture_source_quarantined","actor":"native-capture","payload_json":{"sourceId":id,"recordingId":source["recording_id"],"epoch":source["capture_epoch"],"reason":reason},"created_at":a.at}),
-            ),
-        ],
-    )
+    crate::source_playback_lease::quiesce_revoked(revoked);
+    outcome
 }
 pub fn complete_capture_sources(
     s: &Storage,
@@ -597,6 +692,29 @@ pub fn complete_capture_sources(
 /// Returns the validated storage frontier, NOT a reusable permission token.
 /// Consumers must fence publication with that frontier and install quarantine_capture_source cancellation.
 pub fn require_capture_source_access(s: &Storage, r: &str) -> Result<u64, String> {
+    validate_capture_source_records(s, r, None, &mut Vec::new())
+}
+
+/// Recovery-only validation of the committed prefix. The caller must hold
+/// exclusive native capture admission and serialize mutations with the custody
+/// gate. No unbound file is treated as a ledger chunk.
+pub(crate) fn validate_recovery_prefix(
+    s: &Storage,
+    r: &str,
+    project_root: &Path,
+) -> Result<(u64, Vec<std::fs::File>), String> {
+    let mut handles = Vec::new();
+    let frontier = validate_capture_source_records(s, r, Some(project_root), &mut handles)?;
+    Ok((frontier, handles))
+}
+
+fn validate_capture_source_records(
+    s: &Storage,
+    r: &str,
+    trusted_root: Option<&Path>,
+    handles: &mut Vec<std::fs::File>,
+) -> Result<u64, String> {
+    let recovery = trusted_root.is_some();
     let frontier = s.txn_frontier();
     let rec = get(s, "recordings", r)?;
     let sources = rows(s, "capture_sources", "recording_id", r)?;
@@ -611,13 +729,23 @@ pub fn require_capture_source_access(s: &Storage, r: &str) -> Result<u64, String
             Err("source marker mismatch or concurrent mutation".into())
         };
     }
-    if text(&rec, "status")? != "completed"
+    let permitted_status = if recovery {
+        ["recording", "paused", "pending", "completed"].contains(&text(&rec, "status")?)
+    } else {
+        text(&rec, "status")? == "completed"
+    };
+    if !permitted_status
         || sources.is_empty()
         || sources.len() > 3
         || sources.iter().any(|v| {
-            v["state"] != "completed"
-                || v["closed_at"].is_null()
-                || v["last_sequence"].as_i64().unwrap_or(0) == 0
+            let state = v["state"].as_str().unwrap_or("");
+            let allowed = if recovery {
+                ["registered", "capturing"].contains(&state)
+                    || (state == "completed" && !v["closed_at"].is_null())
+            } else {
+                state == "completed" && !v["closed_at"].is_null()
+            };
+            !allowed || v["last_sequence"].as_i64().unwrap_or(0) == 0
         })
     {
         return Err("routed source not completed/trusted".into());
@@ -631,6 +759,14 @@ pub fn require_capture_source_access(s: &Storage, r: &str) -> Result<u64, String
         .iter()
         .map(|v| Ok((text(v, "id")?, v)))
         .collect::<Result<std::collections::HashMap<_, _>, String>>()?;
+    if audio.len() != chunks.len() {
+        return Err("duplicate audio authority".into());
+    }
+    let project = if recovery {
+        Some(get(s, "projects", text(&rec, "project_id")?)?)
+    } else {
+        None
+    };
     let mut expected_global = Vec::with_capacity(bindings.len());
     let mut duration = 0;
     for source in &sources {
@@ -638,6 +774,9 @@ pub fn require_capture_source_access(s: &Storage, r: &str) -> Result<u64, String
             return Err("source scope changed".into());
         }
         let reg = registration(source)?;
+        if recovery && !(8000..=192000).contains(&reg.sample_rate) {
+            return Err("source sample rate invalid".into());
+        }
         if source["id"] != reg.id || source["capture_epoch"] != reg.epoch {
             return Err("registration ownership changed".into());
         }
@@ -648,6 +787,9 @@ pub fn require_capture_source_access(s: &Storage, r: &str) -> Result<u64, String
         owned.sort_by_key(|b| b["source_sequence"].as_i64().unwrap_or(-1));
         if owned.len() as i64 != int(source, "last_sequence")? {
             return Err("source checkpoint/binding count mismatch".into());
+        }
+        if recovery && int(source, "checkpoint_revision")? != owned.len() as i64 {
+            return Err("source checkpoint revision changed".into());
         }
         let mut end = 0;
         let mut end_ms = 0;
@@ -685,6 +827,28 @@ pub fn require_capture_source_access(s: &Storage, r: &str) -> Result<u64, String
             {
                 return Err("audio ledger diverged from source authority".into());
             }
+            if let Some(project) = &project {
+                if c.start_frame.checked_mul(1000).map(|v| v / reg.sample_rate) != Some(c.start_ms)
+                    || c.end_frame.checked_mul(1000).map(|v| v / reg.sample_rate) != Some(c.end_ms)
+                    || c.end_frame > MAX_MS * reg.sample_rate / 1000
+                {
+                    return Err("source time mapping changed".into());
+                }
+                if handles.len() >= 1024 {
+                    return Err("recovery file handle limit".into());
+                }
+                let (verified_bytes, handle) = verify_file_held(project, r, &reg, &c, trusted_root)
+                    .map_err(|error| match error.as_str() {
+                        "PCM checksum mismatch"
+                        | "unsupported source PCM header"
+                        | "PCM frame provenance mismatch" => "RECOVERY_MEDIA_INTEGRITY".to_string(),
+                        _ => format!("recovery media unavailable: {error}"),
+                    })?;
+                if verified_bytes != bytes {
+                    return Err("verified source byte count changed".into());
+                }
+                handles.push(handle);
+            }
             expected_global.push(int(b, "global_sequence")?);
             end = c.end_frame;
             end_ms = c.end_ms;
@@ -714,6 +878,225 @@ pub fn require_capture_source_access(s: &Storage, r: &str) -> Result<u64, String
         return Err("custody changed during access validation".into());
     }
     Ok(frontier)
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RoutedRecoveryOutcome {
+    pub(crate) recording_id: String,
+    pub(crate) state: String,
+    pub(crate) verified_sources: usize,
+    pub(crate) verified_chunks: usize,
+    pub(crate) retained_unbound_files: usize,
+    pub(crate) duration_ms: i64,
+}
+
+/// Inspect existing recording files only; never infer a source or timeline from a name.
+fn count_unbound_files(session: &Path, known: &HashSet<PathBuf>) -> Result<usize, String> {
+    let mut pending = vec![session.to_path_buf()];
+    let mut visited = 0usize;
+    let mut unbound = 0usize;
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir).map_err(|_| "recovery directory unavailable")? {
+            let entry = entry.map_err(|_| "recovery directory unavailable")?;
+            visited = visited.checked_add(1).ok_or("recovery directory limit")?;
+            if visited > 200_000 {
+                return Err("recovery directory limit".into());
+            }
+            let meta =
+                std::fs::symlink_metadata(entry.path()).map_err(|_| "recovery path unavailable")?;
+            if meta.file_type().is_symlink() {
+                return Err("recovery linked path refused".into());
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::MetadataExt;
+                if meta.file_attributes() & 0x400 != 0 {
+                    return Err("recovery reparse path refused".into());
+                }
+            }
+            if meta.is_dir() {
+                pending.push(entry.path());
+            } else if meta.is_file() {
+                let canonical = entry
+                    .path()
+                    .canonicalize()
+                    .map_err(|_| "recovery path unavailable")?;
+                if !canonical.starts_with(session) {
+                    return Err("recovery path escaped recording".into());
+                }
+                if !known.contains(&canonical) {
+                    unbound += 1;
+                }
+            }
+        }
+    }
+    Ok(unbound)
+}
+
+/// Caller holds native capture reservation. An interrupted but internally
+/// valid prefix can be finalized; it does not claim later audio was recorded.
+pub(crate) fn recover_routed_prefix(
+    s: &std::sync::Arc<Storage>,
+    data_root: &Path,
+    r: &str,
+) -> Result<RoutedRecoveryOutcome, String> {
+    uuid(r)?;
+    // A previously latched uncertain quarantine remains denied until an
+    // explicit reconciliation; never report a usable prefix on retry.
+    let recovery_lease =
+        crate::source_playback_lease::SourcePlaybackLease::register(std::sync::Arc::clone(s), r)?;
+    let mut revoked = Vec::new();
+    let mut entered = false;
+    let result = with_source_custody_gate(|| {
+        entered = true;
+        if !recovery_lease.is_available() {
+            return Err("recovery source denied".into());
+        }
+        // Capture the transaction frontier before *any* ledger reads; the
+        // expected-frontier commit rejects concurrent mutations during review.
+        let attempt = begin_source_commit(s, &uuid::Uuid::new_v4().to_string(), &crate::now())?;
+        let mut rec = get(s, "recordings", r)?;
+        if text(&rec, "source")? != "routed_endpoint" {
+            return Err("routed recovery requires registered sources".into());
+        }
+        let project_id = text(&rec, "project_id")?.to_owned();
+        let project = get(s, "projects", &project_id)?;
+        // Reject arbitrary ledger paths before scanning or opening any media.
+        let project_root = crate::desktop_playback::project_custody_root(
+            data_root,
+            text(&project, "storage_path")?,
+        )
+        .map_err(|e| e.code)?;
+        let mut sources = rows(s, "capture_sources", "recording_id", r)?;
+        let bindings = rows(s, "capture_source_chunks", "recording_id", r)?;
+        let duration = int(&rec, "duration_ms")?;
+        let source_count = sources.len();
+        let chunk_count = bindings.len();
+        let base_outcome = |state: &str, unbound| RoutedRecoveryOutcome {
+            recording_id: r.to_owned(),
+            state: state.into(),
+            verified_sources: source_count,
+            verified_chunks: chunk_count,
+            retained_unbound_files: unbound,
+            duration_ms: duration,
+        };
+        let validation = validate_recovery_prefix(s, r, &project_root);
+        if let Err(error) = &validation {
+            revoked.extend(crate::source_playback_lease::latch_revoke_recording(s, r));
+            if error != "RECOVERY_MEDIA_INTEGRITY" {
+                return Err(error.clone());
+            }
+            let mut mutations = Vec::new();
+            for source in &mut sources {
+                source["state"] = json!("quarantined");
+                source["quarantine_json"] = json!({"reason":"recovery_media_integrity","attemptId":attempt.id,"at":attempt.at});
+                source["updated_at"] = json!(attempt.at);
+                mutations.push(ga::upsert("capture_sources", source.clone()));
+            }
+            rec["status"] = json!("partial");
+            rec["updated_at"] = json!(attempt.at);
+            mutations.push(ga::upsert("recordings", rec.clone()));
+            mutations.push(ga::upsert("audit_events", json!({"id":attempt.id,"project_id":project_id,"event_type":"recovery.routed_quarantined","actor":"user","payload_json":{"recordingId":r,"reason":"media_integrity"},"created_at":attempt.at})));
+            commit(s, &attempt, mutations)?;
+            return Ok(RoutedRecoveryOutcome {
+                recording_id: r.to_owned(),
+                state: "quarantined".into(),
+                verified_sources: 0,
+                verified_chunks: 0,
+                retained_unbound_files: 0,
+                duration_ms: duration,
+            });
+        }
+        let (_validated_frontier, _held_media_handles) = validation?;
+        let raw_session = project_root.join("live").join(r);
+        for component in [project_root.join("live"), raw_session.clone()] {
+            let meta = std::fs::symlink_metadata(component)
+                .map_err(|_| "recovery recording directory unavailable")?;
+            if meta.file_type().is_symlink() {
+                return Err("recovery linked path refused".into());
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::MetadataExt;
+                if meta.file_attributes() & 0x400 != 0 {
+                    return Err("recovery reparse path refused".into());
+                }
+            }
+        }
+        let session = raw_session
+            .canonicalize()
+            .map_err(|_| "recovery recording directory unavailable")?;
+        if session != project_root.join("live").join(r) {
+            return Err("recovery recording path changed".into());
+        }
+        let mut known = HashSet::new();
+        for b in &bindings {
+            let c: CaptureSourceChunk = serde_json::from_value(b["chunk_json"].clone())
+                .map_err(|_| "invalid source binding")?;
+            known.insert(
+                c.path
+                    .canonicalize()
+                    .map_err(|_| "recovery path unavailable")?,
+            );
+        }
+        let unbound = count_unbound_files(&session, &known)?;
+        if !recovery_lease.is_available() {
+            return Err("recovery source denied".into());
+        }
+        if s.txn_frontier() != attempt.frontier {
+            return Err("custody changed during recovery".into());
+        }
+        if unbound > 0 {
+            return Ok(base_outcome("needs_review", unbound));
+        }
+        if text(&rec, "status")? == "completed" {
+            let audits = rows(
+                s,
+                "audit_events",
+                "id",
+                &format!("recovery.routed_verified:{r}"),
+            )?;
+            if audits.len() != 1
+                || audits[0]["project_id"] != project_id
+                || audits[0]["event_type"] != "recovery.routed_verified"
+                || audits[0]["payload_json"]["recordingId"] != r
+                || audits[0]["payload_json"]["warning"] != "interrupted_recovered"
+                || audits[0]["payload_json"]["verifiedSources"].as_u64()
+                    != Some(source_count as u64)
+                || audits[0]["payload_json"]["verifiedChunks"].as_u64() != Some(chunk_count as u64)
+            {
+                return Err("completed recording has no recovery evidence".into());
+            }
+            if s.txn_frontier() != attempt.frontier {
+                return Err("custody changed during recovery".into());
+            }
+            return Ok(base_outcome("recovered_verified", 0));
+        }
+        let mut mutations = Vec::new();
+        for source in &mut sources {
+            if source["state"] != "completed" {
+                source["state"] = json!("completed");
+                if source["closed_at"].is_null() {
+                    source["closed_at"] = json!(attempt.at);
+                }
+                source["updated_at"] = json!(attempt.at);
+            }
+            mutations.push(ga::upsert("capture_sources", source.clone()));
+        }
+        rec["status"] = json!("completed");
+        rec["updated_at"] = json!(attempt.at);
+        mutations.push(ga::upsert("recordings", rec));
+        mutations.push(ga::upsert("audit_events", json!({"id":format!("recovery.routed_verified:{r}"),"project_id":project_id,"event_type":"recovery.routed_verified","actor":"user","payload_json":{"recordingId":r,"warning":"interrupted_recovered","verifiedSources":sources.len(),"verifiedChunks":bindings.len()},"created_at":attempt.at})));
+        mutations.push(ga::upsert("audit_events", json!({"id":format!("recovery.routed_warning:{r}"),"project_id":project_id,"event_type":"live_meeting.source_terminated","actor":"user","payload_json":{"recordingId":r,"reason":"interrupted_recovered"},"created_at":attempt.at})));
+        commit(s, &attempt, mutations)?;
+        Ok(base_outcome("recovered_verified", 0))
+    });
+    if !entered {
+        revoked.extend(crate::source_playback_lease::latch_revoke_recording(s, ""));
+    }
+    crate::source_playback_lease::quiesce_revoked(revoked);
+    result
 }
 #[cfg(test)]
 #[path = "capture_source_custody_tests.rs"]

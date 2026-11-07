@@ -24,6 +24,17 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+pub(crate) use crate::capture_source_custody::RoutedRecoveryOutcome;
+
+/// The caller must hold the native capture reservation for this whole call.
+pub(crate) fn recover_routed_recording(
+    storage: &std::sync::Arc<genesis_block_native::Storage>,
+    data_root: &Path,
+    recording_id: &str,
+) -> Result<RoutedRecoveryOutcome, String> {
+    crate::capture_source_custody::recover_routed_prefix(storage, data_root, recording_id)
+}
+
 /// Rows read per query. GenesisBlockDB rejects any limit outside `1..1000`.
 const GENESIS_QUERY_LIMIT: u32 = crate::genesis_adapter::ROW_CAP;
 
@@ -514,7 +525,7 @@ mod tests {
     const ROUTED_AT: &str = "2026-10-29T00:00:00Z";
 
     struct RoutedRecoveryFixture {
-        storage: genesis_block_native::Storage,
+        storage: std::sync::Arc<genesis_block_native::Storage>,
         _directory: tempfile::TempDir,
         recording: String,
         project_root: PathBuf,
@@ -528,7 +539,8 @@ mod tests {
 
         fn routed(state: &str) -> Self {
             let directory = tempfile::tempdir().unwrap();
-            let storage = open_recovery_storage(&directory.path().join("genesisdb"));
+            let storage =
+                std::sync::Arc::new(open_recovery_storage(&directory.path().join("genesisdb")));
             let project = Uuid::new_v4().to_string();
             let recording = Uuid::new_v4().to_string();
             let project_root = directory.path().join("projects").join(&project);
@@ -706,6 +718,36 @@ mod tests {
         rows
     }
 
+    fn replace_fixture_row(
+        storage: &genesis_block_native::Storage,
+        table: &str,
+        row: serde_json::Value,
+        key: &str,
+        value: serde_json::Value,
+    ) {
+        let prefix = format!("{table}.");
+        let mut data = row
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.strip_prefix(&prefix).unwrap().to_string(),
+                    value.clone(),
+                )
+            })
+            .collect::<serde_json::Map<String, serde_json::Value>>();
+        data.insert(key.to_string(), value);
+        genesis_adapter::commit_rows(
+            storage,
+            vec![genesis_adapter::upsert(
+                table,
+                serde_json::Value::Object(data),
+            )],
+        )
+        .unwrap();
+    }
+
     #[derive(Debug, PartialEq)]
     struct RoutedRecoverySnapshot {
         frontier: u64,
@@ -769,6 +811,182 @@ mod tests {
             "legacy recovery must reject {state} routed media before repair; got {result:?}"
         );
         assert_eq!(RoutedRecoverySnapshot::take(&fixture), before);
+    }
+
+    #[test]
+    fn routed_recovery_finalizes_only_verified_committed_prefix_and_is_idempotent() {
+        let f = RoutedRecoveryFixture::routed("recording");
+        let bait = f
+            .project_root
+            .join("live")
+            .join(&f.recording)
+            .join("chunks")
+            .join("mic-00001.wav");
+        std::fs::remove_file(bait).unwrap();
+        let first =
+            recover_routed_recording(&f.storage, f._directory.path(), &f.recording).unwrap();
+        assert_eq!(first.state, "recovered_verified");
+        assert_eq!(
+            (
+                first.verified_sources,
+                first.verified_chunks,
+                first.retained_unbound_files
+            ),
+            (2, 2, 0)
+        );
+        custody::require_capture_source_access(&f.storage, &f.recording).unwrap();
+        let frontier = f.storage.txn_frontier();
+        let second =
+            recover_routed_recording(&f.storage, f._directory.path(), &f.recording).unwrap();
+        assert_eq!(second.state, "recovered_verified");
+        assert_eq!(f.storage.txn_frontier(), frontier);
+        let database = f._directory.path().join("genesisdb");
+        let recording = f.recording.clone();
+        drop(f.storage);
+        let reopened = std::sync::Arc::new(open_recovery_storage(&database));
+        custody::require_capture_source_access(&reopened, &recording).unwrap();
+        let reopened_frontier = reopened.txn_frontier();
+        let retry = recover_routed_recording(&reopened, f._directory.path(), &recording).unwrap();
+        assert_eq!(retry.state, "recovered_verified");
+        assert_eq!(reopened.txn_frontier(), reopened_frontier);
+    }
+
+    #[test]
+    fn routed_recovery_retains_separate_diagnostics_without_adopting_tail() {
+        let f = RoutedRecoveryFixture::routed("recording");
+        let session = f.project_root.join("live").join(&f.recording);
+        std::fs::remove_file(session.join("chunks").join("mic-00001.wav")).unwrap();
+        let diagnostics = f
+            .project_root
+            .join("diagnostics")
+            .join("routed")
+            .join(&f.recording)
+            .join("sources")
+            .join(Uuid::new_v4().to_string())
+            .join("epoch-1");
+        std::fs::create_dir_all(&diagnostics).unwrap();
+        let tail = diagnostics.join("accepted-native.pcm");
+        let metadata = diagnostics.join("accepted-native.jsonl");
+        std::fs::write(&tail, b"uncommitted tail").unwrap();
+        std::fs::write(&metadata, b"{partial").unwrap();
+        let outcome =
+            recover_routed_recording(&f.storage, f._directory.path(), &f.recording).unwrap();
+        assert_eq!(outcome.state, "recovered_verified");
+        assert_eq!(outcome.verified_chunks, 2);
+        assert_eq!(outcome.retained_unbound_files, 0);
+        assert_eq!(std::fs::read(&tail).unwrap(), b"uncommitted tail");
+        assert_eq!(std::fs::read(&metadata).unwrap(), b"{partial");
+    }
+
+    #[test]
+    fn routed_recovery_legacy_in_tree_spool_still_requires_review() {
+        let f = RoutedRecoveryFixture::routed("recording");
+        let session = f.project_root.join("live").join(&f.recording);
+        std::fs::remove_file(session.join("chunks").join("mic-00001.wav")).unwrap();
+        let legacy = session.join("legacy").join("accepted-native.pcm");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(&legacy, b"retained legacy tail").unwrap();
+        let frontier = f.storage.txn_frontier();
+        let outcome =
+            recover_routed_recording(&f.storage, f._directory.path(), &f.recording).unwrap();
+        assert_eq!(outcome.state, "needs_review");
+        assert_eq!(outcome.retained_unbound_files, 1);
+        assert_eq!(f.storage.txn_frontier(), frontier);
+        assert_eq!(std::fs::read(legacy).unwrap(), b"retained legacy tail");
+    }
+
+    #[test]
+    fn routed_recovery_retains_unbound_audio_without_claiming_completion() {
+        let f = RoutedRecoveryFixture::routed("recording");
+        let before = f.storage.txn_frontier();
+        let outcome =
+            recover_routed_recording(&f.storage, f._directory.path(), &f.recording).unwrap();
+        assert_eq!(outcome.state, "needs_review");
+        assert_eq!(outcome.retained_unbound_files, 1);
+        assert_eq!(f.storage.txn_frontier(), before);
+        assert!(f
+            .project_root
+            .join("live")
+            .join(&f.recording)
+            .join("chunks")
+            .join("mic-00001.wav")
+            .exists());
+        assert!(custody::require_capture_source_access(&f.storage, &f.recording).is_err());
+    }
+
+    #[test]
+    fn routed_recovery_refuses_project_outside_configured_roots_without_mutation() {
+        let f = RoutedRecoveryFixture::routed("recording");
+        let other_root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(other_root.path().join("projects")).unwrap();
+        let frontier = f.storage.txn_frontier();
+        assert!(recover_routed_recording(&f.storage, other_root.path(), &f.recording).is_err());
+        assert_eq!(f.storage.txn_frontier(), frontier);
+    }
+
+    #[test]
+    fn routed_recovery_rejects_completed_source_missing_closure() {
+        let f = RoutedRecoveryFixture::routed("recording");
+        let row = recovery_table_snapshot(&f.storage, "capture_sources").remove(0);
+        replace_fixture_row(
+            &f.storage,
+            "capture_sources",
+            row,
+            "state",
+            serde_json::json!("completed"),
+        );
+        let frontier = f.storage.txn_frontier();
+        assert!(recover_routed_recording(&f.storage, f._directory.path(), &f.recording).is_err());
+        assert_eq!(f.storage.txn_frontier(), frontier);
+    }
+
+    #[test]
+    fn routed_recovery_rejects_forged_prior_recovery_evidence() {
+        let f = RoutedRecoveryFixture::routed("recording");
+        std::fs::remove_file(
+            f.project_root
+                .join("live")
+                .join(&f.recording)
+                .join("chunks")
+                .join("mic-00001.wav"),
+        )
+        .unwrap();
+        recover_routed_recording(&f.storage, f._directory.path(), &f.recording).unwrap();
+        let row = recovery_table_snapshot(&f.storage, "audit_events")
+            .into_iter()
+            .find(|row| row["audit_events.event_type"] == "recovery.routed_verified")
+            .unwrap();
+        replace_fixture_row(
+            &f.storage,
+            "audit_events",
+            row,
+            "event_type",
+            serde_json::json!("forged"),
+        );
+        let frontier = f.storage.txn_frontier();
+        assert!(recover_routed_recording(&f.storage, f._directory.path(), &f.recording).is_err());
+        assert_eq!(f.storage.txn_frontier(), frontier);
+    }
+
+    #[test]
+    fn routed_recovery_quarantines_corrupt_committed_media() {
+        let f = RoutedRecoveryFixture::routed("recording");
+        let rows = recovery_table_snapshot(&f.storage, "capture_source_chunks");
+        let path = rows[0]["capture_source_chunks.chunk_json"]["path"]
+            .as_str()
+            .unwrap();
+        std::fs::write(path, b"corrupt").unwrap();
+        let outcome =
+            recover_routed_recording(&f.storage, f._directory.path(), &f.recording).unwrap();
+        assert_eq!(outcome.state, "quarantined");
+        assert!(
+            recover_routed_recording(&f.storage, f._directory.path(), &f.recording).is_err(),
+            "a denied recording cannot be reported recovered on retry"
+        );
+        assert!(custody::require_capture_source_access(&f.storage, &f.recording).is_err());
+        assert!(recovery_table_snapshot(&f.storage, "capture_sources")
+            .iter()
+            .all(|row| row["capture_sources.state"] == "quarantined"));
     }
 
     #[test]

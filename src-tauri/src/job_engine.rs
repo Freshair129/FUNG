@@ -1135,6 +1135,36 @@ fn dispatch(
             Ok(())
         }
         JobKind::ExportRender => {
+            let recording = genesis_adapter::capture(storage, recording_id)
+                .map_err(|reason| JobFailure::permanent("export_source_invalid", reason))?;
+            if matches!(
+                recording.source.as_str(),
+                "routed_endpoint" | "routed_endpoint_pending"
+            ) {
+                let state = app.state::<crate::AppState>();
+                if !std::sync::Arc::ptr_eq(storage, &state.genesis) {
+                    return Err(JobFailure::permanent(
+                        "export_store_mismatch",
+                        "Export storage owner changed",
+                    ));
+                }
+                let audio = crate::audio_export::render_routed_source_audio_channels(
+                    &state.genesis,
+                    &state.data_root,
+                    &job.project_id,
+                    recording_id,
+                )
+                .map_err(|reason| JobFailure::permanent("routed_export_failed", reason))?;
+                genesis_adapter::commit_rows(storage, vec![genesis_adapter::upsert(
+                    "job_events", serde_json::json!({
+                        "id": Uuid::new_v4().to_string(), "job_id": job.id,
+                        "status": "running",
+                        "message": format!("ส่งออกเสียงแยกตามแหล่งที่มา {} ไฟล์ · ยังไม่ได้ส่งออกคำบรรยายสำหรับการบันทึกแบบแยกแหล่งเสียง", audio.len()),
+                        "created_at": now(),
+                    }),
+                )]).map_err(|reason| JobFailure::permanent("export_event_failed", reason))?;
+                return Ok(());
+            }
             crate::transcript_export::render_subtitles(storage, &job.project_id, recording_id)
                 .and_then(|export| {
                     let runtime = app.state::<crate::AppState>().whisper_runtime_clone();

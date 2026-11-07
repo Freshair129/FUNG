@@ -215,7 +215,11 @@ test("native playback wrappers use the approved handle/epoch/channel wire", asyn
   const getPlayback = requiredExport("getPlayback");
   const closePlayback = requiredExport("closePlayback");
 
-  queueResponse("desktop_playback_open", playbackState);
+  queueResponse("desktop_playback_open", {
+    ...playbackState,
+    adoption: { generation: 4, token: "native-playback-token" },
+  });
+  queueResponse("desktop_playback_adopt", { adopted: true });
   const opened = await openPlayback(pairA1.projectId, pairA1.recordingId, "mic");
   assert.deepEqual(opened, playbackState);
   assert.equal(opened.state, "paused");
@@ -224,11 +228,16 @@ test("native playback wrappers use the approved handle/epoch/channel wire", asyn
     ...pairA1,
     channel: "mic",
   });
+  assert.deepEqual(lastCall("desktop_playback_adopt").args, {
+    handle: playbackState.handle,
+    lease: { generation: 4, token: "native-playback-token" },
+  });
 
   queueResponse("desktop_playback_control", { ...playbackState, positionMs: 1500, streamEpoch: 1 });
   await controlPlayback(playbackState.handle, playbackState.streamEpoch, "seek", 1500);
   assert.deepEqual(lastCall("desktop_playback_control").args, {
     handle: playbackState.handle,
+    lease: { generation: 4, token: "native-playback-token" },
     expectedEpoch: playbackState.streamEpoch,
     action: "seek",
     positionMs: 1500,
@@ -236,11 +245,17 @@ test("native playback wrappers use the approved handle/epoch/channel wire", asyn
 
   queueResponse("desktop_playback_status", playbackState);
   assert.deepEqual(await getPlayback(playbackState.handle), playbackState);
-  assert.deepEqual(lastCall("desktop_playback_status").args, { handle: playbackState.handle });
+  assert.deepEqual(lastCall("desktop_playback_status").args, {
+    handle: playbackState.handle,
+    lease: { generation: 4, token: "native-playback-token" },
+  });
 
   queueResponse("desktop_playback_close", { closed: true });
   assert.deepEqual(await closePlayback(playbackState.handle), { closed: true });
-  assert.deepEqual(lastCall("desktop_playback_close").args, { handle: playbackState.handle });
+  assert.deepEqual(lastCall("desktop_playback_close").args, {
+    handle: playbackState.handle,
+    lease: { generation: 4, token: "native-playback-token" },
+  });
 });
 
 test("invalid and cross-recording pairs preserve typed native rejection", async () => {
@@ -541,6 +556,8 @@ test("native command/module presence is a separate expected-red gate", () => {
       "desktop_recording_get",
       "meeting_ask_recording",
       "desktop_playback_open",
+      "desktop_playback_adopt",
+      "desktop_playback_heartbeat",
       "desktop_playback_control",
       "desktop_playback_status",
       "desktop_playback_close",

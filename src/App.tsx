@@ -193,7 +193,8 @@ export function App() {
         recoveryProjectByRecordingRef.current = nextMapping;
       } else if (command === "recovery_recover") {
         const recovered = result as RecoveredRecording;
-        const recordingId = recovered?.adopted?.recordingId;
+        const recordingId = recovered && ("routed" in recovered
+          ? recovered.routed.recordingId : recovered.adopted?.recordingId);
         const projectId = recordingId
           ? recoveryProjectByRecordingRef.current.get(recordingId)
           : undefined;

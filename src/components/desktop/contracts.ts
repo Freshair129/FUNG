@@ -51,6 +51,7 @@ export type ReviewErrorCode =
   | "PLAYBACK_STALE_EPOCH"
   | "PLAYBACK_HANDLE_INVALID"
   | "PLAYBACK_IO_FAILED"
+  | "PLAYBACK_CLOSE_UNCONFIRMED"
   | "PLAYBACK_DEVICE_LOST"
   | "PLAYBACK_CAPTURE_ACTIVE"
   | "PLAYBACK_BUSY"
@@ -87,6 +88,7 @@ const reviewErrorCodes: ReadonlySet<string> = new Set([
   "PLAYBACK_STALE_EPOCH",
   "PLAYBACK_HANDLE_INVALID",
   "PLAYBACK_IO_FAILED",
+  "PLAYBACK_CLOSE_UNCONFIRMED",
   "PLAYBACK_DEVICE_LOST",
   "PLAYBACK_CAPTURE_ACTIVE",
   "PLAYBACK_BUSY",
@@ -223,6 +225,38 @@ export type RecordingAnswer = {
   liveTailPolicy: "excluded";
 };
 
+export type PlaybackSource = {
+  sourceId: string;
+  captureEpoch: number;
+  label: string;
+  kind: string;
+  sampleRate: number;
+  durationFrames: number;
+};
+
+export function isPlaybackSource(value: unknown): value is PlaybackSource {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.sourceId === "string" && row.sourceId.length > 0
+    && typeof row.captureEpoch === "number" && Number.isSafeInteger(row.captureEpoch) && row.captureEpoch > 0
+    && typeof row.label === "string" && typeof row.kind === "string"
+    && typeof row.sampleRate === "number" && Number.isSafeInteger(row.sampleRate) && row.sampleRate > 0
+    && typeof row.durationFrames === "number" && Number.isSafeInteger(row.durationFrames) && row.durationFrames >= 0;
+}
+
+export function isPlaybackSourceCatalog(value: unknown): value is PlaybackSource[] {
+  if (!Array.isArray(value) || !value.every(isPlaybackSource)) return false;
+  const seen = new Set<string>();
+  for (const source of value) {
+    const key = JSON.stringify([source.sourceId, source.captureEpoch]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+  }
+  return true;
+}
+
+export type PlaybackSourceIdentity = Pick<PlaybackSource, "sourceId" | "captureEpoch">;
+
 export type PlaybackStateName = "paused" | "playing" | "ended" | "error";
 
 export type PlaybackMissingRange = {
@@ -231,11 +265,10 @@ export type PlaybackMissingRange = {
   reason: string;
 };
 
-export type PlaybackState = {
+type PlaybackStateBase = {
   handle: string;
   projectId: string;
   recordingId: string;
-  channel: PlaybackChannel;
   state: PlaybackStateName;
   positionMs: number;
   durationMs: number;
@@ -245,6 +278,11 @@ export type PlaybackState = {
   outputLatencyMs: number | null;
   error: ReviewError | null;
 };
+
+export type PlaybackState = PlaybackStateBase & (
+  | { channel: PlaybackChannel; source?: null }
+  | { channel: "source"; source: PlaybackSourceIdentity }
+);
 
 export type PlaybackAction = "play" | "pause" | "seek";
 
@@ -434,6 +472,8 @@ export type RecordingReviewActions = {
     selection: RecordingKey,
     channel: PlaybackChannel,
   ) => Promise<PlaybackState>;
+  playbackSources: (selection: RecordingKey) => Promise<PlaybackSource[]>;
+  playbackOpenSource: (selection: RecordingKey, source: PlaybackSource) => Promise<PlaybackState>;
   playbackControl: (
     handle: string,
     expectedEpoch: number,

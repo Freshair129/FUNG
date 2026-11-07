@@ -41,10 +41,19 @@ export type GapFillOutcome = {
   skippedReason: string | null;
 };
 
+export type RoutedRecoveryOutcome = {
+  recordingId: string;
+  state: "recovered_verified" | "needs_review" | "quarantined";
+  verifiedSources: number;
+  verifiedChunks: number;
+  retainedUnboundFiles: number;
+  durationMs: number;
+};
+
 export type RecoveredRecording = {
   adopted: RecoveryOutcome;
   transcript: GapFillOutcome;
-};
+} | { routed: RoutedRecoveryOutcome; transcript: GapFillOutcome };
 
 export async function scanForInterruptedRecordings(invoke: InvokeFn): Promise<RecoveryReport> {
   return invoke<RecoveryReport>("recovery_scan");
@@ -76,6 +85,18 @@ function formatBytes(bytes: number): string {
  * a success count.
  */
 export function describeRecovery(result: RecoveredRecording): string {
+  if ("routed" in result) {
+    const outcome = result.routed;
+    const summary = outcome.state === "recovered_verified"
+      ? `กู้คืนข้อมูลที่ตรวจสอบแล้ว ${outcome.verifiedSources} แหล่งเสียง รวม ${outcome.verifiedChunks} ช่วง`
+      : outcome.state === "quarantined"
+        ? "พักการใช้งานเสียงชุดนี้เพื่อรอตรวจสอบความถูกต้อง"
+        : "พบข้อมูลที่ยังต้องตรวจสอบก่อนนำกลับมาใช้งาน";
+    const retained = outcome.retainedUnboundFiles > 0
+      ? ` · เก็บไฟล์ที่ยังยืนยันที่มาไม่ได้ ${outcome.retainedUnboundFiles} ไฟล์ไว้ในที่เดิม`
+      : "";
+    return `${summary}${retained} · ${describeGapFill(result.transcript)}`;
+  }
   const outcome = result.adopted;
   const seconds = Math.round(outcome.durationMs / 1000);
   let text: string;

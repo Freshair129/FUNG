@@ -114,6 +114,7 @@ const ERROR_LABELS: Record<ReviewErrorCode, string> = {
   PLAYBACK_STALE_EPOCH: "สถานะเครื่องเล่นเสียงเก่าเกินไป",
   PLAYBACK_HANDLE_INVALID: "เครื่องเล่นเสียงนี้ไม่พร้อมใช้งาน",
   PLAYBACK_IO_FAILED: "อ่านเสียงไม่สำเร็จ",
+  PLAYBACK_CLOSE_UNCONFIRMED: "ยังยืนยันการปิดเครื่องเล่นไม่ได้ โปรดลองอีกครั้ง",
   PLAYBACK_DEVICE_LOST: "อุปกรณ์เสียงหลุดการเชื่อมต่อ",
   PLAYBACK_CAPTURE_ACTIVE: "เล่นเสียงไม่ได้ระหว่างบันทึก",
   PLAYBACK_BUSY: "กรุณาปิดเครื่องเล่นเสียงก่อน",

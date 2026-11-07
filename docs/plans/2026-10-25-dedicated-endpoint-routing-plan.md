@@ -148,6 +148,10 @@ Use the established shell/grid/tabs and existing MCP authorization contracts.
 - [ ] Expose terminal/partial source statuses to Archive and MCP, no synthetic success.
 - [x] Record the user's explicit disposition: keep PID mode and no release until
   both PID and endpoint modes pass. Do not hide, disable or waive the original defect.
+  **Superseded 2026-11-07** by the owner decision
+  [Endpoint-first release; PID experimental](../decisions/2026-11-07-endpoint-first-release-pid-experimental.md):
+  endpoint mode is the release gate, and PID mode stays available marked experimental.
+  Execution: [endpoint-first release plan](2026-11-07-endpoint-first-release-plan.md) E3.
 - [ ] Independent UI/MCP review and meaningful contract tests.
 
 ## Task 4 — complete source and actual installed acceptance

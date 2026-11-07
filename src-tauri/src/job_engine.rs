@@ -239,6 +239,17 @@ impl JobFailure {
     }
 }
 
+fn transcription_failure(fallback_code: &'static str, message: String) -> JobFailure {
+    if message == crate::routed_media_access::ROUTED_TRANSCRIPTION_UNAVAILABLE_REASON {
+        JobFailure::permanent(
+            crate::routed_media_access::ROUTED_TRANSCRIPTION_UNAVAILABLE_CODE,
+            message,
+        )
+    } else {
+        JobFailure::permanent(fallback_code, message)
+    }
+}
+
 /// Decides whether an opaque error string from a handler describes a
 /// condition that a later attempt could survive.
 ///
@@ -1120,7 +1131,7 @@ fn dispatch(
                 // Every decline here is a state the user has to change —
                 // install the dependencies, fetch the model, record some
                 // far-side audio. None of them clear by waiting.
-                return Err(JobFailure::permanent("diarization_skipped", reason));
+                return Err(transcription_failure("diarization_skipped", reason));
             }
             if outcome.turns == 0 {
                 // The model ran and heard nobody. Reported as a failure
@@ -1235,7 +1246,7 @@ fn dispatch(
                         )],
                     );
                 })
-                .map_err(|error| JobFailure::permanent("detailed_draft_failed", error));
+                .map_err(|error| transcription_failure("detailed_draft_failed", error));
             }
             // The pass reads the recording's own language from the ledger, so
             // a queued re-run transcribes with the setting the session was
@@ -1251,7 +1262,7 @@ fn dispatch(
                 // The pass declined to run at all — a saturated segment
                 // table, a missing recording. None of those clear on their
                 // own, so this is terminal.
-                return Err(JobFailure::permanent("gap_fill_skipped", reason));
+                return Err(transcription_failure("gap_fill_skipped", reason));
             }
             if outcome.still_missing > 0 {
                 // Safe to retry precisely because the pass recomputes which
@@ -1375,6 +1386,30 @@ mod tests {
         assert!(
             !failure.retryable,
             "an unrecognised failure must not be retried"
+        );
+    }
+
+    #[test]
+    fn routed_transcription_unavailability_is_a_permanent_user_facing_failure() {
+        let failure = transcription_failure(
+            "gap_fill_skipped",
+            crate::routed_media_access::ROUTED_TRANSCRIPTION_UNAVAILABLE_REASON.to_string(),
+        );
+        assert_eq!(
+            failure.code,
+            crate::routed_media_access::ROUTED_TRANSCRIPTION_UNAVAILABLE_CODE
+        );
+        assert_eq!(
+            failure.message,
+            crate::routed_media_access::ROUTED_TRANSCRIPTION_UNAVAILABLE_REASON
+        );
+        assert!(!failure.retryable);
+        assert_eq!(
+            next_step(Err(failure), 1, false),
+            NextStep::Fail(transcription_failure(
+                "gap_fill_skipped",
+                crate::routed_media_access::ROUTED_TRANSCRIPTION_UNAVAILABLE_REASON.to_string(),
+            ))
         );
     }
 

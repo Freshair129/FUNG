@@ -5,6 +5,18 @@ use crate::genesis_adapter as ga;
 use genesis_block_native::Storage;
 use serde_json::{json, Value};
 
+pub(crate) const ROUTED_TRANSCRIPTION_UNAVAILABLE_CODE: &str = "routed_transcription_unavailable";
+pub(crate) const ROUTED_TRANSCRIPTION_UNAVAILABLE_REASON: &str =
+    "การถอดความสำหรับการบันทึกแบบอุปกรณ์เฉพาะต่อแอปยังไม่พร้อม";
+
+pub(crate) fn transcription_guard_error(error: String) -> String {
+    if error.contains("routed_endpoint") {
+        ROUTED_TRANSCRIPTION_UNAVAILABLE_REASON.to_string()
+    } else {
+        error
+    }
+}
+
 /// Read recording ownership from the SDK before a legacy consumer examines any
 /// paths or PCM. Completed routed sources still need a source-aware consumer;
 /// the custody completed-access guard alone cannot make filename guessing safe.
@@ -225,6 +237,106 @@ mod tests {
             python: PathBuf::from("must-not-run-python"),
             script: PathBuf::from("must-not-run-worker"),
             cuda_bin: PathBuf::new(),
+        }
+    }
+
+    fn routed_with_source(source: &str) -> Fixture {
+        let fixture = if source == "routed_endpoint_pending" {
+            Fixture::routed("recording")
+        } else {
+            Fixture::routed("completed")
+        };
+        if source == "routed_endpoint_pending" {
+            ga::commit_rows(
+                &fixture.storage,
+                vec![ga::upsert(
+                    "recordings",
+                    json!({
+                        "id": fixture.recording,
+                        "project_id": fixture.project,
+                        "source": source,
+                        "canonical_audio_path": "unused",
+                        "status": "recording",
+                        "duration_ms": 0,
+                        "created_at": AT,
+                        "updated_at": AT,
+                    }),
+                )],
+            )
+            .unwrap();
+        }
+        fixture
+    }
+
+    #[test]
+    fn transcript_gap_fill_rejects_routed_media_before_legacy_chunk_lookup() {
+        for source in ["routed_endpoint_pending", "routed_endpoint"] {
+            let fixture = routed_with_source(source);
+            let app = tauri::test::mock_app();
+            let outcome = crate::live_meeting::fill_transcript_gaps(
+                app.handle(),
+                &fixture.storage,
+                &runtime(),
+                &fixture.project,
+                &fixture.recording,
+            );
+
+            assert_eq!(
+                outcome.skipped_reason.as_deref(),
+                Some(super::ROUTED_TRANSCRIPTION_UNAVAILABLE_REASON),
+                "source={source}"
+            );
+            assert_eq!(outcome.chunks_missing_transcript, 0, "source={source}");
+            assert_eq!(outcome.chunks_transcribed, 0, "source={source}");
+            assert_eq!(outcome.still_missing, 0, "source={source}");
+        }
+    }
+
+    #[test]
+    fn detailed_transcription_rejects_routed_media_before_readiness_or_audio_rows() {
+        for source in ["routed_endpoint_pending", "routed_endpoint"] {
+            let fixture = routed_with_source(source);
+            let result = crate::live_meeting::create_detailed_transcript_draft(
+                &fixture.storage,
+                &runtime(),
+                &fixture.project,
+                &fixture.recording,
+                "job-fixture",
+            );
+
+            assert!(
+                matches!(result, Err(ref reason) if reason == super::ROUTED_TRANSCRIPTION_UNAVAILABLE_REASON),
+                "source={source}, result={result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn diarization_rejects_routed_media_before_readiness_or_system_chunks() {
+        for source in ["routed_endpoint_pending", "routed_endpoint"] {
+            let fixture = routed_with_source(source);
+            let app = tauri::test::mock_app();
+            let data_root = fixture._temp.path().join("data-root");
+            let outcome = crate::local_diarization::diarize_recording(
+                app.handle(),
+                &fixture.storage,
+                &runtime(),
+                &data_root,
+                &fixture.project,
+                &fixture.recording,
+                |_| {},
+            );
+
+            assert_eq!(
+                outcome.skipped_reason.as_deref(),
+                Some(super::ROUTED_TRANSCRIPTION_UNAVAILABLE_REASON),
+                "source={source}"
+            );
+            assert_eq!(outcome.turns, 0, "source={source}");
+            assert!(
+                !data_root.join("diarization").exists(),
+                "source={source} must not create/read diarization work files"
+            );
         }
     }
 

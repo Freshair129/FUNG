@@ -189,8 +189,8 @@ const SUBJECT_CHANNEL: &str = crate::live_meeting::CHANNEL_SYSTEM;
 /// concatenate them into one file, diarize that file, project the turns back
 /// onto the recording's timeline, then rewrite only the affected segments'
 /// speaker — never their ids, because summaries and graph edges cite those.
-pub(crate) fn diarize_recording(
-    app: &tauri::AppHandle,
+pub(crate) fn diarize_recording<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     storage: &genesis_block_native::Storage,
     runtime: &crate::WhisperRuntime,
     data_root: &std::path::Path,
@@ -202,6 +202,14 @@ pub(crate) fn diarize_recording(
         skipped_reason: Some(reason),
         ..LocalDiarizationOutcome::default()
     };
+
+    if let Err(reason) =
+        crate::routed_media_access::require_legacy_media_source(storage, recording_id)
+    {
+        return declined(crate::routed_media_access::transcription_guard_error(
+            reason,
+        ));
+    }
 
     let readiness = crate::diarization::probe(runtime, data_root);
     if let Some(blocker) = readiness.blocker {

@@ -327,8 +327,8 @@ struct LiveSegmentEvent {
     confidence: Option<f64>,
 }
 
-fn emit_status(
-    app: &tauri::AppHandle,
+fn emit_status<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     recording_id: &str,
     state: &str,
     detail: Option<String>,
@@ -1708,8 +1708,8 @@ fn window_coverage_for_range(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn emit_transcript_event(
-    app: &tauri::AppHandle,
+fn emit_transcript_event<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     context: &RevisionedSessionContext,
     scope: &crate::meeting_intelligence_schema::MeetingScope,
     event_type: &str,
@@ -2747,8 +2747,8 @@ pub(crate) fn capture_outcome(
 /// survives restart and a status event the panel renders. Both matter — a
 /// toast the user missed is not a record that audio was lost.
 #[allow(clippy::too_many_arguments)]
-fn record_capture_fault(
-    app: &tauri::AppHandle,
+fn record_capture_fault<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     storage: &genesis_block_native::Storage,
     project_id: &str,
     recording_id: &str,
@@ -3660,13 +3660,24 @@ fn chunks_missing_transcript(
 /// safe and unreadable at the same time. This is the same catch-up pass a
 /// degraded live session runs at its end, aimed at a recording that already
 /// finished.
-pub(crate) fn fill_transcript_gaps(
-    app: &tauri::AppHandle,
+pub(crate) fn fill_transcript_gaps<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     storage: &genesis_block_native::Storage,
     runtime: &WhisperRuntime,
     project_id: &str,
     recording_id: &str,
 ) -> GapFillOutcome {
+    if let Err(reason) =
+        crate::routed_media_access::require_legacy_media_source(storage, recording_id)
+    {
+        return GapFillOutcome {
+            skipped_reason: Some(crate::routed_media_access::transcription_guard_error(
+                reason,
+            )),
+            ..GapFillOutcome::default()
+        };
+    }
+
     let missing = match chunks_missing_transcript(storage, project_id, recording_id) {
         Ok(missing) => missing,
         Err(reason) => {
@@ -3858,6 +3869,14 @@ pub(crate) fn create_detailed_transcript_draft(
     recording_id: &str,
     job_id: &str,
 ) -> Result<DetailedDraftOutcome, String> {
+    if let Err(reason) =
+        crate::routed_media_access::require_legacy_media_source(storage, recording_id)
+    {
+        return Err(crate::routed_media_access::transcription_guard_error(
+            reason,
+        ));
+    }
+
     if detailed_proposals_pending(storage, project_id, recording_id)? {
         return Err("รีวิวหรือปฏิเสธข้อเสนอจากโหมดละเอียดที่ค้างอยู่ก่อนเริ่มรอบใหม่".to_string());
     }
@@ -4097,8 +4116,8 @@ pub(crate) fn create_detailed_transcript_draft(
 // Every argument is a distinct collaborator the pass genuinely needs; a
 // context struct here would just move the same list behind one name.
 #[allow(clippy::too_many_arguments)]
-fn transcribe_pending_chunks(
-    app: &tauri::AppHandle,
+fn transcribe_pending_chunks<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     storage: &genesis_block_native::Storage,
     recent: &SharedRecent,
     runtime: &WhisperRuntime,
@@ -4183,8 +4202,8 @@ fn transcribe_pending_chunks(
 /// silence produces no segments, and without the stamp it is indistinguishable
 /// from one that was never transcribed — which is why every catch-up pass
 /// used to offer the same silent chunks again.
-fn persist_and_emit_segments(
-    app: &tauri::AppHandle,
+fn persist_and_emit_segments<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     storage: &genesis_block_native::Storage,
     recent: &SharedRecent,
     project_id: &str,

@@ -20,6 +20,7 @@ const recordingReviewCssText = readFileSync(
 );
 
 const tauriUrl = pathToFileURL(path.resolve(root, "src/tauri.ts")).href;
+const jobActionsUrl = pathToFileURL(path.resolve(root, "src/lib/jobActions.ts")).href;
 const contractsUrl = pathToFileURL(
   path.resolve(root, "src/components/desktop/contracts.ts"),
 ).href;
@@ -38,6 +39,7 @@ let productionSource = ts.transpileModule(sourceText, {
 productionSource = productionSource
   .replace(/import\s+["']\.\/RecordingReview\.css["'];?\s*/g, "")
   .replaceAll('"../../tauri.ts"', JSON.stringify(tauriUrl))
+  .replaceAll('"../../lib/jobActions.ts"', JSON.stringify(jobActionsUrl))
   .replaceAll('"./contracts.ts"', JSON.stringify(contractsUrl))
   .replaceAll('"react/jsx-runtime"', JSON.stringify(jsxRuntimeUrl))
   .replaceAll('"react"', JSON.stringify(reactUrl));

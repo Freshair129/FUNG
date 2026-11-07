@@ -6,6 +6,7 @@ import {
   RUNNABLE_JOB_TYPES,
   isJobActionEnabled,
   jobActionBlockedReason,
+  routedTranscriptionBlockReason,
   resolveJobAction,
 } from "../src/lib/jobActions.ts";
 globalThis.window = {};
@@ -79,6 +80,48 @@ test("an unimplemented action is disabled even when a recording exists", () => {
     jobActionBlockedReason("archive.project", true),
     resolveJobAction("archive.project").reason,
   );
+});
+
+test("routed recordings block legacy transcription actions with the user-facing reason", () => {
+  const reason = "การถอดความสำหรับการบันทึกแบบอุปกรณ์เฉพาะต่อแอปยังไม่พร้อม";
+  const guardedActions = [
+    "transcript.retry",
+    "transcript.detailed",
+    "speakers.diarize",
+  ];
+  const routedSources = ["routed_endpoint", "routed_endpoint_pending"];
+
+  for (const source of routedSources) {
+    for (const action of guardedActions) {
+      assert.equal(routedTranscriptionBlockReason(action, source), reason);
+    }
+  }
+  for (const source of ["microphone", "system", "import", "file"]) {
+    for (const action of guardedActions) {
+      assert.equal(routedTranscriptionBlockReason(action, source), null);
+    }
+  }
+  assert.equal(routedTranscriptionBlockReason("export.render", "routed_endpoint"), null);
+
+  const review = readFileSync("src/components/desktop/RecordingReview.tsx", "utf8");
+  assert.match(review, /recordingSource=\{recording\.data\.source\}/);
+  const blockReasons = new Map([
+    ["transcript.retry", "routedTranscriptionReason"],
+    ["transcript.detailed", "detailedTranscriptionReason"],
+    ["speakers.diarize", "diarizationBlockReason"],
+  ]);
+  for (const [action, blockReason] of blockReasons) {
+    assert.match(review, new RegExp(`routedTranscriptionBlockReason\\(\\s*"${action}"`));
+    const actionOffset = review.indexOf(`queue("${action}"`);
+    const buttonStart = review.lastIndexOf("<button", actionOffset);
+    const buttonEnd = review.indexOf("</button>", actionOffset);
+    assert.ok(actionOffset >= 0 && buttonStart >= 0 && buttonEnd > actionOffset);
+    const button = review.slice(buttonStart, buttonEnd);
+    assert.match(button, new RegExp(`disabled=\\{[^}]*${blockReason} !== null`));
+    assert.match(button, new RegExp(`title=\\{${blockReason}`));
+  }
+  assert.match(review, /routedTranscriptionReason[\s\S]*role="status"/);
+  assert.match(review, /if \(routedBlockReason\)\s*\{\s*setNotice\(routedBlockReason\);\s*return;/);
 });
 
 test("a runnable action waits for a recording rather than queueing nothing", () => {

@@ -1,9 +1,9 @@
 ---
 id: FUNG-RCA-000096-01
 title: "PID stream lifecycle gaps — causal boundary investigation"
-version: "0.1.3"
+version: "0.1.4"
 created_at: "2026-11-01"
-last_update: "2026-11-01"
+last_update: "2026-11-07"
 status: candidate
 superseded_by: null
 attributes:
@@ -143,6 +143,7 @@ The separate C++ receiver copies native bytes before ReleaseBuffer and bypasses 
 | <a id="FUNG-RCA-000096-01-H05"></a>FUNG-RCA-000096-01-H05 | Same-client state-preserving Stop/Start differs from destruction/recreation at the capture boundary | Four serial A/B/B/A runs; B edge parity/no QPC gaps, A loss/gaps; E04 | supported for this combined intervention; E05 controls queue/cursor/prime, with identity/duration still coupled |
 | <a id="FUNG-RCA-000096-01-H06"></a>FUNG-RCA-000096-01-H06 | Reset/clearing queued PCM alone explains the PID deficit | Same-client Reset versus recreation, equal cursor/prime; E05 | not_supported_in_tested_scope; recreation duration/identity remain coupled |
 | <a id="FUNG-RCA-000096-01-H07"></a>FUNG-RCA-000096-01-H07 | Elapsed setup delay alone explains the first-Resume deficit | Same-client Reset with complete 15.500–15.590 ms Reset-return→before-prime interval; E06 | not_supported_in_tested_scope; one owned fixture/host, not a foreign-app intervention |
+| <a id="FUNG-RCA-000096-01-H08"></a>FUNG-RCA-000096-01-H08 | Pre-Stop renderer client queue state explains the seam | Paired queue diagnostic produced an inconclusive capture; E07 | open; no qualified per-cycle edge comparison |
 
 ## Causal analysis and unknowns
 
@@ -214,6 +215,23 @@ All paths beginning `E:\` below are **machine-local**, not portable repository d
 - Independent post-capture reviews rechecked the 87 input hashes and 21 receiver pins, 4,800-sample stereo marker windows per epoch (channel correlations approximately 1.0), target PID/creation identity, reference endpoint/faults and process exits. The endpoint review confirmed the 28 sampled inventory and 29 mute receipts; these checks do not prove continuous isolation outside observation windows.
 - Whole diagnostic verdict **NOT_PROVEN**, not PASS. The fixture intentionally discards queued source PCM; source-coordinate skips are about 4,389/4,395 frames and final receiver tails are censored. This is not installed FUNG acceptance. No product source changed and no package was rebuilt.
 
+<a id="FUNG-RCA-000096-01-E07"></a>
+### FUNG-RCA-000096-01-E07 - Paired renderer-queue diagnostic, 2026-11-07
+
+- Hypothesis `ISSUE-96-HYP-PRE-STOP-RENDER-QUEUE-20261102`; single variable: stable-zero versus nonzero renderer client queue at Stop after a matched delay. Fixture root: `E:\verification\fung-pid96-render-drain-20261102` (machine-local).
+- Both attempts used this exact command from that directory:
+
+  ```powershell
+  $env:FUNG_RENDER_STOP_SCHEDULE = 'drain-stable,refill-matched'
+  & 'E:\verification\fung-pid96-obs-rtwq-20261102\venv\Scripts\python.exe' .\run-pair.py
+  ```
+
+- **Attempt 1: BLOCKED at interpreter startup**, exit 1: `No Python at '"C:\Users\suanr\AppData\Roaming\uv\python\cpython-3.11.17-windows-x86_64-none\python.exe'`. The runner did not start and produced no pair, guard results or capture. The lead subsequently created a directory junction at that missing base path to the original MSIX-virtualized interpreter at `C:\Users\suanr\AppData\Local\Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Roaming\uv\python\cpython-3.11.17-windows-x86_64-none`, with no download or pinned-file change; the venv reported Python 3.11.17. The addendum authorized attempt 2 and reported Dota absent since 14:00 Bangkok; a process check immediately before the run also found none, but was not continuous independent monitoring.
+- **Attempt 2:** 2026-11-07 14:13:24 to 14:14:03 Bangkok; runner exit 12. Pair ID `issue96-render-queue-pair-20261107T071324Z-15285d53`; report (machine-local) `E:\verification\fung-pid96-render-drain-20261102\native\issue96-render-queue-pair-20261107T071324Z-15285d53-pair-report.json`, SHA-256 `6591751C1DC12BA98AC3A2ED79850B21DDE44FD466B9377F26E9134D05A28960`. `queueStateComparison.outcome` = `DRAINED_QUEUE_CYCLE_FAILS_OR_INCONCLUSIVE`; overall `outcome` = `QUEUE_STATE_DIAGNOSTIC_INCONCLUSIVE`; arm classification `INCONCLUSIVE_CAPTURE`.
+- Both cycle edge differences are **unavailable**: `cycleEdges` is empty. The app route had two detected active segments instead of three; the system route had three. The marker and edge gates failed, so the false per-cycle edge flags are not measured frame differences. System first post-resume window cosine was 0.748187 and 0.817943 for cycles 1 and 2, below 0.999; app transition windows were unavailable. The receiver/reference fault gate passed, but this is not a qualified edge comparison.
+- All reported pair timing/order checks and both queue guards passed. Cycle 1 / 2: flag detection 0.5179 / 22.0055 ms; pause observed to Stop return 104.5618 / 106.8938 ms (limit 250 ms); policy start to Stop return 104.5262 / 106.8725 ms, difference 2.3463 ms (limit 10 ms); Stop call 0.3067 / 0.2453 ms (limit 10 ms). Stable-zero sample spacing met the 5 ms guard in cycle 1. Both Stop/Resume cycles were observed. Pinned binary strategy, controller safety/cleanup and all 17 read-only mute receipts passed; preflight, between-arm and 17 sampled controller Dota checks were clear. Controller exit 0, no first failure or cleanup failures. These observations are sampled, not continuous.
+- Interpretation: the drained cycle did not produce a passing diagnostic, but missing edge evidence and incomplete marker gates prevent a causal conclusion about whether queue state explains the seam. `GetCurrentPadding()==0` proves only that the shared-mode engine read the client buffer, not physical drain or capture delivery; drain-first order was not counterbalanced. This is a fixture diagnostic, not a fix or installed acceptance. **Next step:** lead reviews the inconclusive capture and missing app segment/marker evidence and decides how to obtain a qualified comparison; any repeat requires a separate lead decision and renewed guard prerequisites. No repeat was run in attempt 2.
+
 <a id="actions"></a>
 ## Corrective and preventive actions
 
@@ -238,6 +256,7 @@ Keep the existing dual-mode installed acceptance and release block unless the ow
 
 ## Changelog and navigation
 
+- 2026-11-07 — 0.1.4: record W5 interpreter startup blocker, junction repair and inconclusive paired diagnostic.
 - 2026-11-01 — 0.1.3: add F06/H07/E06 matched timing discriminator and owner architecture decision request; root cause unconfirmed, dual-mode gate unchanged.
 - 2026-11-01 — 0.1.2: add F05/H06/E05 from matched Reset/recreation study; preserve interrupted evidence and installed release gates.
 

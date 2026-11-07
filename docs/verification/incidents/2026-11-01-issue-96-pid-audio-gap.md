@@ -1,9 +1,9 @@
 ---
 id: FUNG-INC-000096
 title: "PID audio gaps at source stream lifecycle transitions"
-version: "0.1.3"
+version: "0.1.4"
 created_at: "2026-11-01"
-last_update: "2026-11-01"
+last_update: "2026-11-07"
 status: candidate
 superseded_by: null
 attributes:
@@ -112,6 +112,7 @@ E06's matched 15.5 ms Reset-to-prime timing did not reproduce the recreation arm
 | 2026-11-01, date-only | Documentation committed; fresh lifecycle A/B/B/A narrows trigger without product repair | [E04](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md#FUNG-RCA-000096-01-E04) |
 | 2026-11-01, date-only | Matched Reset/recreation C/D/D/C narrows lifecycle sensitivity; no product remedy | [E05](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md#FUNG-RCA-000096-01-E05) |
 | 2026-11-01, date-only | Matched Reset-to-prime timing discriminator does not reproduce first-Resume deficit; diagnostic remains NOT_PROVEN | [E06](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md#FUNG-RCA-000096-01-E06) |
+| 2026-11-07, Asia/Bangkok date | W5 attempt 1 blocked at interpreter startup; lead repaired the junction; attempt 2 captured an inconclusive pair with missing app segment and no per-cycle edge differences | [E07](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md#FUNG-RCA-000096-01-E07) |
 
 ## Containment and workaround
 
@@ -127,6 +128,7 @@ Closure requires a supported repair, regression checks, actual installed PID and
 
 [RCA](../rca/2026-11-01-issue-96-pid-audio-gap-rca.md), [incident index](README.md), [ADR](../../decisions/2026-11-01-incident-rca-records.md).
 
+- 2026-11-07 — 0.1.4: record W5 startup blocker and inconclusive paired diagnostic; incident and release gates remain open.
 - 2026-11-01 — 0.1.0: consolidated existing evidence, allocated S01–S03; no new native or installed test.
 - 2026-11-01 — 0.1.1: add scope qualification from fresh same-client lifecycle study; incident stays investigating.
 

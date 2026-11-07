@@ -99,6 +99,11 @@ passed to the executor. Then a Terra round for scheduler rejection,
 accepted-but-stalled, start-versus-timeout, discard/poison and runtime shutdown
 races. Starts only after W2.
 
+Outcome (2026-11-07): the correction was already implemented on `main`, so no
+Luna code round was needed. A Terra coverage audit added five gap tests, and
+the playback close plan now records the scenario-to-test mapping. One residual
+remains: no test forces the exact start/expiry interleaving.
+
 ### W5 — #96 paired renderer-queue diagnostic (Codex, Terra/high)
 
 Run the already-reviewed diagnostic in `E:\verification\fung-pid96-render-drain-20261102`

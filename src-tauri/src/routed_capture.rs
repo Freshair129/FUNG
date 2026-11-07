@@ -709,7 +709,7 @@ pub(crate) fn start(
             let reason = format!("start coordinator: {error}");
             let _ = recording_terminal(&storage, &recording, "failed");
             let _ = crate::set_job_status(&storage, &job, "failed", None, Some(&reason));
-            Err(reason)
+            Err(reason.into())
         }
     }
 }

@@ -3782,7 +3782,7 @@ fn materialize_routed_asr_wav(
     data_root: &Path,
     project_id: &str,
     recording_id: &str,
-    reader: hound::WavReader<BufReader<std::fs::File>>,
+    mut reader: hound::WavReader<BufReader<std::fs::File>>,
 ) -> Result<(TemporaryAsrWav, u64), String> {
     let root = std::fs::canonicalize(data_root).map_err(|error| error.to_string())?;
     if Uuid::parse_str(project_id).is_err() || Uuid::parse_str(recording_id).is_err() {
@@ -4094,6 +4094,60 @@ pub(crate) fn transcribe_routed_recording(
     recording_id: &str,
     job_id: &str,
 ) -> Result<(), RoutedTranscriptionError> {
+    let mut worker: Option<LiveWorker> = None;
+    let result = transcribe_routed_with_worker(
+        storage,
+        data_root,
+        project_id,
+        recording_id,
+        job_id,
+        &mut |chunk| {
+            if let Some(chunk) = chunk {
+                let response = match worker
+                    .as_mut()
+                    .expect("worker initialized")
+                    .transcribe_chunk(chunk)
+                {
+                    Ok(response) => response,
+                    Err(error) => {
+                        if let Some(worker) = worker.take() {
+                            worker.shutdown();
+                        }
+                        return Err(error);
+                    }
+                };
+                match response.error {
+                    Some(error) => Err(error),
+                    None => Ok(response.segments),
+                }
+            } else {
+                let mut started = LiveWorker::spawn(runtime, language)?;
+                if let Err(error) = started.wait_ready() {
+                    started.shutdown();
+                    return Err(error);
+                }
+                worker = Some(started);
+                Ok(Vec::new())
+            }
+        },
+    );
+    if let Some(worker) = worker {
+        worker.shutdown();
+    }
+    result
+}
+
+pub(crate) type RoutedWorker<'a> =
+    dyn FnMut(Option<&RawChunk>) -> Result<Vec<WorkerSegment>, String> + 'a;
+
+pub(crate) fn transcribe_routed_with_worker(
+    storage: &Arc<genesis_block_native::Storage>,
+    data_root: &Path,
+    project_id: &str,
+    recording_id: &str,
+    job_id: &str,
+    worker: &mut RoutedWorker<'_>,
+) -> Result<(), RoutedTranscriptionError> {
     let lease = crate::source_playback_lease::SourcePlaybackLease::register(
         Arc::clone(storage),
         recording_id,
@@ -4154,117 +4208,88 @@ pub(crate) fn transcribe_routed_recording(
     };
     publisher.upsert_speakers()?;
 
-    let mut worker = if uncovered_chunks > 0 {
-        let mut worker =
-            LiveWorker::spawn(runtime, language).map_err(RoutedTranscriptionError::Failed)?;
-        if let Err(error) = worker.wait_ready() {
-            worker.shutdown();
-            return Err(RoutedTranscriptionError::Failed(error));
-        }
-        Some(worker)
-    } else {
-        None
-    };
+    if uncovered_chunks > 0 {
+        worker(None).map_err(RoutedTranscriptionError::Failed)?;
+    }
 
     let cancel = AtomicBool::new(false);
     let mut processed = 0usize;
     let mut last_progress = 0i64;
-    let transcription = (|| -> Result<(), RoutedTranscriptionError> {
-        for source_index in 0..publisher.manifest.sources.len() {
-            let chunk_count = publisher.manifest.sources[source_index].chunks.len();
-            for chunk_index in 0..chunk_count {
-                publisher.check_access()?;
-                let (source_id, epoch, chunk_id, sequence, start_ms, end_ms) = {
-                    let source = &publisher.manifest.sources[source_index];
-                    let descriptor = &source.chunks[chunk_index];
-                    (
-                        source.id.clone(),
-                        source.epoch,
-                        descriptor.chunk.id.clone(),
-                        descriptor.chunk.sequence,
-                        descriptor.chunk.start_ms,
-                        descriptor.chunk.end_ms,
-                    )
-                };
-                if !covered.contains(&chunk_id) {
+    for source_index in 0..publisher.manifest.sources.len() {
+        let chunk_count = publisher.manifest.sources[source_index].chunks.len();
+        for chunk_index in 0..chunk_count {
+            publisher.check_access()?;
+            let (source_id, epoch, chunk_id, sequence, start_ms, end_ms) = {
+                let source = &publisher.manifest.sources[source_index];
+                let descriptor = &source.chunks[chunk_index];
+                (
+                    source.id.clone(),
+                    source.epoch,
+                    descriptor.chunk.id.clone(),
+                    descriptor.chunk.sequence,
+                    descriptor.chunk.start_ms,
+                    descriptor.chunk.end_ms,
+                )
+            };
+            if !covered.contains(&chunk_id) {
+                if !lease.is_available() {
+                    return Err(RoutedTranscriptionError::Revoked);
+                }
+                let reader = crate::completed_source_media::open_verified_chunk(
+                    storage,
+                    data_root,
+                    publisher.manifest,
+                    &source_id,
+                    epoch,
+                    sequence,
+                    &cancel,
+                )
+                .map_err(|error| {
                     if !lease.is_available() {
-                        return Err(RoutedTranscriptionError::Revoked);
+                        RoutedTranscriptionError::Revoked
+                    } else {
+                        RoutedTranscriptionError::Failed(error)
                     }
-                    let reader = crate::completed_source_media::open_verified_chunk(
-                        storage,
-                        data_root,
-                        publisher.manifest,
-                        &source_id,
-                        epoch,
-                        sequence,
-                        &cancel,
+                })?;
+                let (temporary, byte_size) =
+                    materialize_routed_asr_wav(data_root, project_id, recording_id, reader)
+                        .map_err(RoutedTranscriptionError::Failed)?;
+                publisher.check_access()?;
+                let byte_size = i64::try_from(byte_size).map_err(|_| {
+                    RoutedTranscriptionError::Failed(
+                        "routed ASR temporary WAV exceeds supported size".into(),
                     )
-                    .map_err(|error| {
-                        if !lease.is_available() {
-                            RoutedTranscriptionError::Revoked
-                        } else {
-                            RoutedTranscriptionError::Failed(error)
-                        }
-                    })?;
-                    let (temporary, byte_size) =
-                        materialize_routed_asr_wav(data_root, project_id, recording_id, reader)
-                            .map_err(RoutedTranscriptionError::Failed)?;
-                    publisher.check_access()?;
-                    let byte_size = i64::try_from(byte_size).map_err(|_| {
-                        RoutedTranscriptionError::Failed(
-                            "routed ASR temporary WAV exceeds supported size".into(),
-                        )
-                    })?;
-                    let chunk = RawChunk {
-                        channel: CHANNEL_SYSTEM,
-                        chunk_id: chunk_id.clone(),
-                        file_path: temporary.path.to_string_lossy().into_owned(),
-                        start_ms,
-                        end_ms,
-                        byte_size,
-                        checksum: String::new(),
-                    };
-                    let response = match worker
-                        .as_mut()
-                        .expect("uncovered routed chunks start a worker")
-                        .transcribe_chunk(&chunk)
-                    {
-                        Ok(response) => response,
-                        Err(error) => {
-                            if let Some(worker) = worker.take() {
-                                worker.shutdown();
-                            }
-                            drop(temporary);
-                            return Err(RoutedTranscriptionError::Failed(error));
-                        }
-                    };
-                    drop(temporary);
-                    if let Some(error) = response.error {
-                        return Err(RoutedTranscriptionError::Failed(error));
-                    }
-                    publisher.publish_chunk(&source_id, &chunk_id, start_ms, response.segments)?;
-                }
+                })?;
+                let chunk = RawChunk {
+                    channel: CHANNEL_SYSTEM,
+                    chunk_id: chunk_id.clone(),
+                    file_path: temporary.path.to_string_lossy().into_owned(),
+                    start_ms,
+                    end_ms,
+                    byte_size,
+                    checksum: String::new(),
+                };
+                let response = worker(Some(&chunk));
+                drop(temporary);
+                let segments = response.map_err(RoutedTranscriptionError::Failed)?;
+                publisher.publish_chunk(&source_id, &chunk_id, start_ms, segments)?;
+            }
 
-                processed += 1;
-                let progress = (processed.saturating_mul(100) / total_chunks.max(1)) as i64;
-                if progress > last_progress {
-                    publisher.update_progress(job_id, progress)?;
-                    last_progress = progress;
-                }
+            processed += 1;
+            let progress = (processed.saturating_mul(100) / total_chunks.max(1)) as i64;
+            if progress > last_progress {
+                publisher.update_progress(job_id, progress)?;
+                last_progress = progress;
             }
         }
-
-        crate::capture_source_custody::with_source_custody_gate(|| {
-            current_routed_frontier(storage, &lease, recording_id, publisher.manifest.frontier)?;
-            Ok(())
-        })
-        .map_err(routed_transcription_error)?;
-        Ok(())
-    })();
-    if let Some(worker) = worker {
-        worker.shutdown();
     }
-    transcription
+
+    crate::capture_source_custody::with_source_custody_gate(|| {
+        current_routed_frontier(storage, &lease, recording_id, publisher.manifest.frontier)?;
+        Ok(())
+    })
+    .map_err(routed_transcription_error)?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy)]

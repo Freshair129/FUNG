@@ -268,6 +268,197 @@ mod tests {
         fixture
     }
 
+    fn routed_job(f: &Fixture) {
+        ga::commit_rows(
+            &f.storage,
+            vec![ga::upsert(
+                "jobs",
+                json!({
+                    "id":"job-fixture", "project_id":f.project, "type":"transcript.retry",
+                    "status":"running", "progress":0, "input_refs_json":[], "output_refs_json":[],
+                    "provider_id":null, "error_code":null, "error_message":null, "attempt_no":1,
+                    "started_at":AT, "finished_at":null, "created_at":AT, "updated_at":AT
+                }),
+            )],
+        )
+        .unwrap();
+    }
+
+    fn worker_segment() -> crate::live_meeting::WorkerSegment {
+        crate::live_meeting::WorkerSegment {
+            start_ms: 0,
+            end_ms: 100,
+            text: "fixture".into(),
+            confidence: Some(0.9),
+        }
+    }
+
+    fn run_fake(
+        f: &Fixture,
+        worker: &mut crate::live_meeting::RoutedWorker<'_>,
+    ) -> Result<(), crate::live_meeting::RoutedTranscriptionError> {
+        crate::live_meeting::transcribe_routed_with_worker(
+            &f.storage,
+            f._temp.path(),
+            &f.project,
+            &f.recording,
+            "job-fixture",
+            worker,
+        )
+    }
+
+    #[test]
+    fn routed_worker_uses_temporary_files_and_source_speakers_and_skips_covered_chunks() {
+        let f = Fixture::routed("completed");
+        routed_job(&f);
+        let custody = ga::query_all(&f.storage, "audio_chunks", &["file_path"], vec![]).unwrap();
+        let custody_paths: Vec<_> = custody
+            .iter()
+            .map(|row| PathBuf::from(row["audio_chunks.file_path"].as_str().unwrap()))
+            .collect();
+        assert_eq!(custody_paths.len(), 2);
+        let mut paths = Vec::new();
+        run_fake(&f, &mut |chunk| {
+            if let Some(chunk) = chunk {
+                let path = PathBuf::from(&chunk.file_path);
+                assert_eq!(path.parent().unwrap().file_name().unwrap(), "asr-tmp");
+                assert!(path.is_file());
+                assert!(
+                    custody_paths
+                        .iter()
+                        .all(|custody| custody.canonicalize().unwrap()
+                            != path.canonicalize().unwrap())
+                );
+                paths.push(path);
+                Ok(vec![worker_segment()])
+            } else {
+                Ok(vec![])
+            }
+        })
+        .unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().all(|path| !path.exists()));
+        let segments = ga::query_all(
+            &f.storage,
+            "transcript_segments",
+            &["id", "speaker_id"],
+            vec![],
+        )
+        .unwrap();
+        let speakers = ga::query_all(
+            &f.storage,
+            "speakers",
+            &["id", "key", "display_name"],
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(segments.len(), 2);
+        assert_eq!(speakers.len(), 2);
+        let manifest =
+            crate::completed_source_media::completed_manifest(&f.storage, &f.project, &f.recording)
+                .unwrap();
+        for speaker in &speakers {
+            let key = speaker["speakers.key"].as_str().unwrap();
+            let id = speaker["speakers.id"].as_str().unwrap();
+            assert!(key.starts_with("route:"));
+            assert_eq!(id, format!("{}::speaker::{key}", f.project));
+            let source = manifest
+                .sources
+                .iter()
+                .find(|source| format!("route:{}", source.id) == key)
+                .unwrap();
+            assert_eq!(
+                speaker["speakers.display_name"].as_str().unwrap(),
+                source.label
+            );
+            assert!(matches!(
+                speaker["speakers.display_name"].as_str().unwrap(),
+                "Private routed source" | "Other private routed source"
+            ));
+            assert_eq!(
+                segments
+                    .iter()
+                    .filter(|segment| segment["transcript_segments.speaker_id"] == id)
+                    .count(),
+                1
+            );
+        }
+        let mut calls = 0;
+        run_fake(&f, &mut |chunk| {
+            if chunk.is_some() {
+                calls += 1;
+            }
+            Ok(vec![worker_segment()])
+        })
+        .unwrap();
+        assert_eq!(calls, 0);
+        ga::commit_rows(
+            &f.storage,
+            vec![ga::delete(
+                "transcript_segments",
+                segments[0]["transcript_segments.id"].as_str().unwrap(),
+            )],
+        )
+        .unwrap();
+        run_fake(&f, &mut |chunk| {
+            if chunk.is_some() {
+                calls += 1;
+            }
+            Ok(vec![worker_segment()])
+        })
+        .unwrap();
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn routed_worker_revocation_preserves_first_committed_chunk() {
+        let f = Fixture::routed("completed");
+        routed_job(&f);
+        let mut paths = Vec::new();
+        let result = run_fake(&f, &mut |chunk| {
+            if let Some(chunk) = chunk {
+                paths.push(PathBuf::from(&chunk.file_path));
+                if paths.len() == 2 {
+                    crate::source_playback_lease::revoke_recording(&f.storage, &f.recording);
+                }
+                Ok(vec![worker_segment()])
+            } else {
+                Ok(vec![])
+            }
+        });
+        assert!(matches!(
+            result,
+            Err(crate::live_meeting::RoutedTranscriptionError::Revoked)
+        ));
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().all(|path| !path.exists()));
+        let segments = ga::query_all(&f.storage, "transcript_segments", &["id"], vec![]).unwrap();
+        assert_eq!(segments.len(), 1);
+    }
+
+    #[test]
+    fn routed_worker_failure_removes_failed_chunk_temp_and_surfaces_error() {
+        let f = Fixture::routed("completed");
+        routed_job(&f);
+        let mut paths = Vec::new();
+        let result = run_fake(&f, &mut |chunk| {
+            if let Some(chunk) = chunk {
+                paths.push(PathBuf::from(&chunk.file_path));
+                if paths.len() == 2 {
+                    return Err("fake worker failed".into());
+                }
+                Ok(vec![worker_segment()])
+            } else {
+                Ok(vec![])
+            }
+        });
+        assert!(
+            matches!(result, Err(crate::live_meeting::RoutedTranscriptionError::Failed(ref message)) if message == "fake worker failed")
+        );
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().all(|path| !path.exists()));
+    }
+
     #[test]
     fn routed_transcription_admits_completed_and_blocks_partial_quarantine_and_pending() {
         use crate::live_meeting::{transcribe_routed_recording, RoutedTranscriptionError};

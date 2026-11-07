@@ -239,6 +239,37 @@ impl JobFailure {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum RetryRoute {
+    Pending,
+    Routed,
+    Legacy,
+}
+
+fn retry_route(source: &str) -> RetryRoute {
+    match source {
+        "routed_endpoint_pending" => RetryRoute::Pending,
+        "routed_endpoint" => RetryRoute::Routed,
+        _ => RetryRoute::Legacy,
+    }
+}
+
+fn routed_failure(error: crate::live_meeting::RoutedTranscriptionError) -> JobFailure {
+    match error {
+        crate::live_meeting::RoutedTranscriptionError::Blocked => JobFailure::permanent(
+            "routed_transcription_blocked",
+            crate::live_meeting::ROUTED_TRANSCRIPTION_BLOCKED_REASON,
+        ),
+        crate::live_meeting::RoutedTranscriptionError::Revoked => JobFailure::permanent(
+            "routed_transcription_revoked",
+            crate::live_meeting::ROUTED_TRANSCRIPTION_REVOKED_REASON,
+        ),
+        crate::live_meeting::RoutedTranscriptionError::Failed(message) => {
+            JobFailure::permanent("routed_transcription_failed", message)
+        }
+    }
+}
+
 fn transcription_failure(fallback_code: &'static str, message: String) -> JobFailure {
     if message == crate::routed_media_access::ROUTED_TRANSCRIPTION_UNAVAILABLE_REASON {
         JobFailure::permanent(
@@ -1278,13 +1309,13 @@ fn dispatch(
             }
             let recording = genesis_adapter::capture(storage, recording_id)
                 .map_err(|reason| JobFailure::permanent("transcription_source_invalid", reason))?;
-            if recording.source == "routed_endpoint_pending" {
+            if retry_route(&recording.source) == RetryRoute::Pending {
                 return Err(JobFailure::permanent(
                     "routed_transcription_blocked",
                     crate::live_meeting::ROUTED_TRANSCRIPTION_BLOCKED_REASON,
                 ));
             }
-            if recording.source == "routed_endpoint" {
+            if retry_route(&recording.source) == RetryRoute::Routed {
                 let state = app.state::<crate::AppState>();
                 if !Arc::ptr_eq(storage, &state.genesis) {
                     return Err(JobFailure::permanent(
@@ -1303,23 +1334,7 @@ fn dispatch(
                     recording_id,
                     &job.id,
                 )
-                .map_err(|error| match error {
-                    crate::live_meeting::RoutedTranscriptionError::Blocked => {
-                        JobFailure::permanent(
-                            "routed_transcription_blocked",
-                            crate::live_meeting::ROUTED_TRANSCRIPTION_BLOCKED_REASON,
-                        )
-                    }
-                    crate::live_meeting::RoutedTranscriptionError::Revoked => {
-                        JobFailure::permanent(
-                            "routed_transcription_revoked",
-                            crate::live_meeting::ROUTED_TRANSCRIPTION_REVOKED_REASON,
-                        )
-                    }
-                    crate::live_meeting::RoutedTranscriptionError::Failed(message) => {
-                        JobFailure::permanent("routed_transcription_failed", message)
-                    }
-                });
+                .map_err(routed_failure);
             }
             // The pass reads the recording's own language from the ledger, so
             // a queued re-run transcribes with the setting the session was
@@ -1375,6 +1390,29 @@ fn emit(app: &tauri::AppHandle, job: &JobRow, status: &str, progress: i64, detai
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retry_dispatch_selects_routed_or_legacy_and_preserves_failure_codes() {
+        assert_eq!(retry_route("routed_endpoint"), RetryRoute::Routed);
+        assert_eq!(retry_route("routed_endpoint_pending"), RetryRoute::Pending);
+        assert_eq!(retry_route("microphone"), RetryRoute::Legacy);
+        assert_eq!(
+            routed_failure(crate::live_meeting::RoutedTranscriptionError::Revoked).code,
+            "routed_transcription_revoked"
+        );
+        let failure = routed_failure(crate::live_meeting::RoutedTranscriptionError::Failed(
+            "worker error".into(),
+        ));
+        assert_eq!(failure.code, "routed_transcription_failed");
+        assert_eq!(failure.message, "worker error");
+        for fallback in ["detailed_draft_failed", "diarization_skipped"] {
+            let failure = transcription_failure(
+                fallback,
+                crate::routed_media_access::ROUTED_TRANSCRIPTION_UNAVAILABLE_REASON.into(),
+            );
+            assert_eq!(failure.code, "routed_transcription_unavailable");
+        }
+    }
 
     #[test]
     fn only_kinds_with_a_handler_parse() {

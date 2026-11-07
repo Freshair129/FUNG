@@ -272,14 +272,11 @@ mod tests {
     fn transcript_gap_fill_rejects_routed_media_before_legacy_chunk_lookup() {
         for source in ["routed_endpoint_pending", "routed_endpoint"] {
             let fixture = routed_with_source(source);
-            let app = tauri::test::mock_app();
-            let outcome = crate::live_meeting::fill_transcript_gaps(
-                app.handle(),
+            let outcome = crate::live_meeting::routed_gap_fill_rejection(
                 &fixture.storage,
-                &runtime(),
-                &fixture.project,
                 &fixture.recording,
-            );
+            )
+            .expect("routed recording must be rejected");
 
             assert_eq!(
                 outcome.skipped_reason.as_deref(),
@@ -315,17 +312,12 @@ mod tests {
     fn diarization_rejects_routed_media_before_readiness_or_system_chunks() {
         for source in ["routed_endpoint_pending", "routed_endpoint"] {
             let fixture = routed_with_source(source);
-            let app = tauri::test::mock_app();
             let data_root = fixture._temp.path().join("data-root");
-            let outcome = crate::local_diarization::diarize_recording(
-                app.handle(),
+            let outcome = crate::local_diarization::routed_diarization_rejection(
                 &fixture.storage,
-                &runtime(),
-                &data_root,
-                &fixture.project,
                 &fixture.recording,
-                |_| {},
-            );
+            )
+            .expect("routed recording must be rejected");
 
             assert_eq!(
                 outcome.skipped_reason.as_deref(),

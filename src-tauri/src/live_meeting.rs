@@ -3653,6 +3653,22 @@ fn chunks_missing_transcript(
     Ok(missing)
 }
 
+/// Legacy gap fill reads `audio_chunks.file_path` directly, so routed
+/// recordings are refused before any audio row is read.
+pub(crate) fn routed_gap_fill_rejection(
+    storage: &genesis_block_native::Storage,
+    recording_id: &str,
+) -> Option<GapFillOutcome> {
+    crate::routed_media_access::require_legacy_media_source(storage, recording_id)
+        .err()
+        .map(|reason| GapFillOutcome {
+            skipped_reason: Some(crate::routed_media_access::transcription_guard_error(
+                reason,
+            )),
+            ..GapFillOutcome::default()
+        })
+}
+
 /// Transcribes whatever text a recording is still missing.
 ///
 /// Recovery adopts orphaned audio back into the ledger, but adoption alone
@@ -3667,15 +3683,8 @@ pub(crate) fn fill_transcript_gaps<R: tauri::Runtime>(
     project_id: &str,
     recording_id: &str,
 ) -> GapFillOutcome {
-    if let Err(reason) =
-        crate::routed_media_access::require_legacy_media_source(storage, recording_id)
-    {
-        return GapFillOutcome {
-            skipped_reason: Some(crate::routed_media_access::transcription_guard_error(
-                reason,
-            )),
-            ..GapFillOutcome::default()
-        };
+    if let Some(rejected) = routed_gap_fill_rejection(storage, recording_id) {
+        return rejected;
     }
 
     let missing = match chunks_missing_transcript(storage, project_id, recording_id) {

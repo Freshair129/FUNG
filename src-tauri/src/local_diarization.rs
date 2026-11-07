@@ -182,6 +182,22 @@ pub(crate) struct LocalDiarizationOutcome {
 /// provenance; only the far side is unknown. See the module docs.
 const SUBJECT_CHANNEL: &str = crate::live_meeting::CHANNEL_SYSTEM;
 
+/// Diarization reads legacy `system` chunk paths, so routed recordings are
+/// refused before readiness probing or any audio row is read.
+pub(crate) fn routed_diarization_rejection(
+    storage: &genesis_block_native::Storage,
+    recording_id: &str,
+) -> Option<LocalDiarizationOutcome> {
+    crate::routed_media_access::require_legacy_media_source(storage, recording_id)
+        .err()
+        .map(|reason| LocalDiarizationOutcome {
+            skipped_reason: Some(crate::routed_media_access::transcription_guard_error(
+                reason,
+            )),
+            ..LocalDiarizationOutcome::default()
+        })
+}
+
 /// Diarizes a locally captured recording's far-side audio and re-labels the
 /// segments it covers.
 ///
@@ -203,12 +219,8 @@ pub(crate) fn diarize_recording<R: tauri::Runtime>(
         ..LocalDiarizationOutcome::default()
     };
 
-    if let Err(reason) =
-        crate::routed_media_access::require_legacy_media_source(storage, recording_id)
-    {
-        return declined(crate::routed_media_access::transcription_guard_error(
-            reason,
-        ));
+    if let Some(rejected) = routed_diarization_rejection(storage, recording_id) {
+        return rejected;
     }
 
     let readiness = crate::diarization::probe(runtime, data_root);

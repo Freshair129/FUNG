@@ -68,7 +68,6 @@ window-vibrancy = "=0.6.0"
 
 [dev-dependencies]
 tempfile = "3"
-tauri = { version = "2", features = ["tray-icon", "test"] }
 
 # --- Local development against a WIP GenesisBlock checkout ---
 # Uncomment to build against the local working copy instead of the pinned git rev.

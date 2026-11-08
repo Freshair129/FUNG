@@ -56,6 +56,80 @@ struct PlannedSource {
     kind: &'static str,
     flow: EndpointCaptureFlow,
 }
+
+// Use the already-polled evidence and keep identifiers and free-form COM errors
+// out of the terminal failure detail.
+fn runtime_guard_failure(
+    inventory: &routing::NativeInventory,
+    endpoint_id: &str,
+    proof: &NativeProof,
+) -> (usize, String) {
+    let mut endpoint_found = false;
+    let mut all_sessions_known = true;
+    let mut known_session_count = 0usize;
+    let mut session_enumeration_error = false;
+    let mut active = 0usize;
+    let mut inactive = 0usize;
+    let mut expired = 0usize;
+    let mut unknown_state = 0usize;
+
+    for endpoint in inventory
+        .endpoints
+        .iter()
+        .filter(|endpoint| endpoint.id == endpoint_id)
+    {
+        endpoint_found = true;
+        match &endpoint.sessions {
+            routing::Observation::Known(sessions) => {
+                known_session_count = known_session_count.saturating_add(sessions.len());
+                for session in sessions {
+                    let (
+                        routing::Observation::Known(instance),
+                        routing::Observation::Known(routing::SessionOwner::SingleProcess(owner)),
+                    ) = (&session.instance_id, &session.owner)
+                    else {
+                        continue;
+                    };
+                    if !proof.matches(instance, owner) {
+                        continue;
+                    }
+                    match &session.state {
+                        routing::Observation::Known(routing::SessionState::Active) => active += 1,
+                        routing::Observation::Known(routing::SessionState::Inactive) => {
+                            inactive += 1
+                        }
+                        routing::Observation::Known(routing::SessionState::Expired) => expired += 1,
+                        routing::Observation::Unavailable(_) => unknown_state += 1,
+                    }
+                }
+            }
+            routing::Observation::Unavailable(reason) => {
+                all_sessions_known = false;
+                if reason != "inactive endpoint; sessions not queried" {
+                    session_enumeration_error = true;
+                }
+            }
+        }
+    }
+
+    let exact_active = active;
+    let sessions = if endpoint_found && all_sessions_known {
+        format!("known:{known_session_count}")
+    } else {
+        "unavailable".to_owned()
+    };
+    let session_error = if session_enumeration_error {
+        "; error=enum"
+    } else {
+        ""
+    };
+    let message = format!(
+        "live native capture instance absent/inactive/ambiguous (endpoint={}; sessions={sessions}{session_error}; proofMatches=active:{active},inactive:{inactive},expired:{expired},unknownState:{unknown_state}; exactActive={exact_active})",
+        if endpoint_found { "found" } else { "missing" },
+    );
+    (exact_active, message)
+}
+
 fn planned_sources(plan: &routing::CaptureRoutePlan) -> Vec<PlannedSource> {
     let mut sources = plan
         .routes
@@ -392,11 +466,13 @@ impl NativeGroupObserver {
                 "native capture process generation changed/unknown",
             ));
         }
-        let exact_active = inventory.endpoints.iter().filter(|e| e.id == snapshot.value.scope.endpoint_id()).filter_map(|e| match &e.sessions { routing::Observation::Known(rows) => Some(rows), _ => None }).flatten().filter(|session| matches!((&session.instance_id, &session.owner, &session.state), (routing::Observation::Known(instance), routing::Observation::Known(routing::SessionOwner::SingleProcess(owner)), routing::Observation::Known(routing::SessionState::Active)) if snapshot.value.proof.matches(instance, owner))).count();
+        let (exact_active, failure) = runtime_guard_failure(
+            &inventory,
+            snapshot.value.scope.endpoint_id(),
+            &snapshot.value.proof,
+        );
         if exact_active != 1 {
-            return Err(route_error(
-                "live native capture instance absent/inactive/ambiguous",
-            ));
+            return Err(route_error(failure));
         }
         let result = routing::validate_owned_route_plan(
             &plan,

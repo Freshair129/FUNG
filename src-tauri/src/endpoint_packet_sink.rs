@@ -2,7 +2,7 @@
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::time::Duration;
 use uuid::Uuid;
-pub const MAX_PACKET_QUEUE_CAPACITY: usize = 64;
+pub const MAX_PACKET_QUEUE_CAPACITY: usize = 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourcePacketScope {
     source_id: Uuid,
@@ -190,8 +190,9 @@ pub struct EndpointPacketReceiver {
     pending: Option<EndpointPacket>,
 }
 
-/// Pure private stream transport. At current 48kHz, <=64 two-second PCM packets
-/// bound queued samples to 12,288,000 bytes, plus bounded in-flight packets.
+/// Pure private stream transport. Each mono PCM packet is bounded to two
+/// seconds; 1024 slots therefore bound queued samples to 786,432,000 bytes at
+/// the maximum accepted 192 kHz rate, plus bounded in-flight packets.
 pub fn packet_channel(
     scope: SourcePacketScope,
     capacity: usize,
@@ -1200,6 +1201,7 @@ mod tests {
     #[test]
     fn no_clock_finish_and_capacity_violations_are_explicit() {
         assert!(packet_channel(scope(B), 0).is_err());
+        assert!(packet_channel(scope(B), MAX_PACKET_QUEUE_CAPACITY).is_ok());
         assert!(packet_channel(scope(B), MAX_PACKET_QUEUE_CAPACITY + 1).is_err());
         let (tx, mut rx) = packet_channel(scope(B), 1).unwrap();
         tx.finish(Ok(()));

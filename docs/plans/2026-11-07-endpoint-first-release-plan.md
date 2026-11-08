@@ -1,7 +1,7 @@
 ---
-version: "0.1.1b"
+version: "0.1.2b"
 created_at: "2026-11-07"
-last_update: "2026-11-08"
+last_update: "2026-11-09"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -403,6 +403,10 @@ This is routing-plan Task 4. It needs the owner's machine with a second output
 endpoint and an installed candidate. **Stop point:** the lead prepares the
 runbook and the candidate, and the owner runs or approves the session.
 
+The routed sink holds 512 packets (about 5 seconds at the observed ~10 ms
+packet cadence) to absorb the ~1.6-second private-spool sync stall while
+keeping overflow fail-closed.
+
 ## Open gaps recorded
 
 - E2.3 (PID Archive badge) is stopped. Native writes `recording.source =
@@ -424,4 +428,5 @@ merge of release candidates remain owner actions.
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 0.1.2b | 2026-11-09 | Recorded 512-packet routed sink headroom to absorb observed private-spool sync stalls while preserving fail-closed overflow. |
 | 0.1.1b | 2026-11-08 | Documented first-run project creation before routed capture. |

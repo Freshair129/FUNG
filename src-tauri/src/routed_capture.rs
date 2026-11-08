@@ -34,8 +34,9 @@ use uuid::Uuid;
 
 const RATE: u32 = 48_000;
 const ORIGIN_LEAD_HNS: u64 = 50_000_000;
-const QUEUE_CAPACITY: usize = 64;
-// 250 ms per writer item bounds 64 queued items to 16 seconds / 1.536 MB
+const QUEUE_CAPACITY: usize = 512;
+const NATIVE_EVENT_QUEUE_CAPACITY: usize = 64;
+// The separate writer queue remains 64 items at 250 ms each: 16 seconds / 1.536 MB
 // of mono PCM per source; native packet evidence remains separately synced.
 const COALESCE_FRAMES: usize = RATE as usize / 4;
 const MAX_SOURCE_FRAMES: u64 = RATE as u64 * 86400;
@@ -2034,7 +2035,7 @@ fn source_worker(
     mut spool: PrivateSpool,
     shared: Arc<Shared>,
 ) -> SourceWriterReport {
-    let (events_tx, events_rx) = mpsc::sync_channel(QUEUE_CAPACITY);
+    let (events_tx, events_rx) = mpsc::sync_channel(NATIVE_EVENT_QUEUE_CAPACITY);
     let native = NativeExit {
         events: events_rx,
         shared: shared.clone(),

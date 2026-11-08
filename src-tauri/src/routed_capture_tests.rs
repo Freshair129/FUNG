@@ -1194,7 +1194,7 @@ fn exercise_real_sink_readiness(kind: &str, case: ReadinessCase) {
             assert!(!ready);
             assert!(failure.as_deref().unwrap().contains("StartupUnverified"));
             assert_eq!(packets, 1);
-            assert_eq!(pcm, vec![9i16.to_le_bytes(); 48].concat());
+            assert_eq!(pcm, [9i16.to_le_bytes(); 48].concat());
             assert!(report.first_failure.is_some());
         }
         ReadinessCase::UnarmedPacket => {
@@ -1203,7 +1203,7 @@ fn exercise_real_sink_readiness(kind: &str, case: ReadinessCase) {
                 Some("accepted PCM retained privately after stopped/unarmed admission")
             );
             assert_eq!(packets, 1);
-            assert_eq!(pcm, vec![9i16.to_le_bytes(); 48].concat());
+            assert_eq!(pcm, [9i16.to_le_bytes(); 48].concat());
             assert!(report.first_failure.is_some());
         }
     }

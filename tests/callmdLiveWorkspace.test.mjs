@@ -275,6 +275,81 @@ test("route UI restricts choices, invalidates edits and disables competing start
   assert.match(workspaceSource, /captureSourceMode === "routed" \|\| captureBusy/);
 });
 
+function workspaceInitializer(name) {
+  const ast = ts.createSourceFile(liveWorkspacePath, workspaceSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let initializer;
+  function visit(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(ast) === name) initializer = node.initializer.getText(ast);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(initializer, `${name} must exist`);
+  return initializer;
+}
+
+test("routed project availability controls Start and explains both no-project cases", () => {
+  const expression = workspaceInitializer("canStartRoutedCapture");
+  const context = { projectId: null, ensureProject: async () => "new", activeRoutePlan: {}, routePlanIsValidated: true, captureBusy: false, routeValidationLoading: false };
+  assert.equal(vm.runInNewContext(expression, context), true);
+  context.ensureProject = undefined;
+  assert.equal(vm.runInNewContext(expression, context), false);
+  context.projectId = "existing";
+  assert.equal(vm.runInNewContext(expression, context), true);
+  context.routePlanIsValidated = false;
+  assert.equal(vm.runInNewContext(expression, context), false);
+  assert.match(workspaceSource, /disabled=\{!privacyAcknowledged \|\| !canStartRoutedCapture \|\| routedStarting\}/);
+  assert.match(workspaceSource, /\{!projectId \? ensureProject \? \(\s*<p className="live-workspace__muted" role="status">\s*ยังไม่ได้เลือกโครงการ — จะสร้างโครงการใหม่ให้เมื่อเริ่มบันทึก\s*<\/p>\s*\) : \(\s*<p className="live-workspace__disabled-reason">เลือกโครงการก่อนเริ่มบันทึก<\/p>\s*\) : null\}/);
+});
+
+test("routed start waits for close acknowledgement and resolves only a missing project", async () => {
+  for (const projectId of [null, "existing-project"]) {
+    const calls = [];
+    let acknowledge;
+    const closePromise = new Promise((resolve) => { acknowledge = resolve; });
+    const plan = { routes: [] };
+    const context = {
+      projectId, activeRoutePlan: plan, canStartRoutedCapture: true,
+      closeReviewPlayer: () => { calls.push("close"); return closePromise; },
+      ensureProject: async () => { calls.push("ensure"); return "new-project"; },
+      captureRouteStart: async (id, actualPlan) => { calls.push(["start", id, actualPlan]); return {}; },
+      setRoutedStarting() {}, setRouteError() {}, setRoutedCompletedMessage() {},
+      setRoutedStatus() {}, setRoutedActive() {}, setCaptureSourceMode() {}, routeErrorText: String,
+    };
+    const js = transpile(`const start = ${workspaceInitializer("startRoutedCapture")};`, "start.ts");
+    const pending = vm.runInNewContext(`${js}\nstart()`, context);
+    assert.deepEqual(calls, ["close"]);
+    acknowledge({ closed: true });
+    await pending;
+    assert.deepEqual(calls, projectId ? ["close", ["start", projectId, plan]] : ["close", "ensure", ["start", "new-project", plan]]);
+  }
+});
+
+test("routed project creation failure uses route error and never starts capture", async () => {
+  const errors = [];
+  let starts = 0;
+  const context = {
+    projectId: null, activeRoutePlan: {}, canStartRoutedCapture: true,
+    closeReviewPlayer: async () => ({ closed: true }),
+    ensureProject: async () => { throw new Error("creation failed"); },
+    captureRouteStart: async () => { starts++; },
+    setRoutedStarting() {}, setRouteError: (value) => errors.push(value), setRoutedCompletedMessage() {},
+    setRoutedStatus() {}, setRoutedActive() {}, setCaptureSourceMode() {},
+    routeErrorText: (error) => `route: ${error.message}`,
+  };
+  const js = transpile(`const start = ${workspaceInitializer("startRoutedCapture")};`, "start.ts");
+  await vm.runInNewContext(`${js}\nstart()`, context);
+  assert.deepEqual(errors, [null, "route: creation failed"]);
+  assert.equal(starts, 0);
+});
+
+test("App supplies project creation through LiveMeetingPanel to LiveWorkspace", async () => {
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(appSource, /const ensureLiveProject = async \(\): Promise<string> => \{\s*const project = await handleNewProject\(\);\s*return project\.id;/);
+  assert.match(appSource, /<LiveMeetingPanel\b[\s\S]*?ensureProject=\{ensureLiveProject\}/);
+  assert.match(panelSource, /export function LiveMeetingPanel\(\{[\s\S]*?\bensureProject,/);
+  assert.match(panelSource, /<LiveWorkspace\b[\s\S]*?ensureProject=\{ensureProject\}/);
+});
+
 test("routed stop reports the final status and queued transcription job", async () => {
   const ast = ts.createSourceFile(liveWorkspacePath, workspaceSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let stop;

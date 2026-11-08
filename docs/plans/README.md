@@ -1,7 +1,7 @@
 ---
-version: "0.1.3l"
+version: "0.1.4l"
 created_at: "2026-10-19"
-last_update: "2026-11-01"
+last_update: "2026-11-08"
 status: "beta"
 superseded_by: null
 attributes:
@@ -17,7 +17,7 @@ attributes:
 
 ## จุดอ้างอิงหลัก
 
-- [Endpoint-first release plan](2026-11-07-endpoint-first-release-plan.md) — candidate; delivers endpoint capture as the release per-app mode (UI, transcription, installed acceptance) and marks PID experimental per the [2026-11-07 decision](../decisions/2026-11-07-endpoint-first-release-pid-experimental.md).
+- [Endpoint-first release plan](2026-11-07-endpoint-first-release-plan.md) — candidate; delivers endpoint capture as the release per-app mode (UI, transcription, installed acceptance), creates a project on first routed start when needed, and marks PID experimental per the [2026-11-07 decision](../decisions/2026-11-07-endpoint-first-release-pid-experimental.md).
 
 - [Backlog closure and gap plan](2026-11-07-backlog-closure-and-gap-plan.md) — candidate; secures the uncommitted #96 branch work, closes evidenced issues, and lists Boss stop points. Not completion evidence.
 

@@ -42,6 +42,7 @@ function appendLivePeak(history: readonly number[], value: number, limit: number
 
 export type LiveWorkspaceAdapterProps = {
   projectId: string | null;
+  ensureProject?: () => Promise<string>;
   onRoutedCaptureStopped?: (status: RoutedCaptureStatus) => void;
   closeReviewPlayer?: CloseReviewPlayer;
   transcriptLoading?: boolean;
@@ -467,6 +468,7 @@ export function LiveWorkspace({
   transcriptIncomplete = false,
   visible = true,
   projectId,
+  ensureProject,
   onRoutedCaptureStopped,
 }: LiveWorkspaceProps & LiveWorkspaceAdapterProps) {
   const headingRef = useRef<HTMLHeadingElement | null>(null);
@@ -897,7 +899,7 @@ export function LiveWorkspace({
     activeRoutePlan && !captureBusy && !routeInventoryLoading && !captureDevicesLoading && !routeValidationLoading,
   );
   const canStartRoutedCapture = Boolean(
-    projectId && activeRoutePlan && routePlanIsValidated && !captureBusy && !routeValidationLoading,
+    (projectId || ensureProject) && activeRoutePlan && routePlanIsValidated && !captureBusy && !routeValidationLoading,
   );
   const routeReadinessBySourceId = new Map<string, RouteReadiness>(
     (routeValidation?.routes ?? []).map((route): [string, RouteReadiness] => [route.sourceId, route.readiness]),
@@ -1008,7 +1010,7 @@ export function LiveWorkspace({
   };
 
   const startRoutedCapture = async () => {
-    if (!projectId || !activeRoutePlan || !canStartRoutedCapture) return;
+    if (!activeRoutePlan || !canStartRoutedCapture) return;
     setRoutedStarting(true);
     setRouteError(null);
     setRoutedCompletedMessage(null);
@@ -1017,7 +1019,11 @@ export function LiveWorkspace({
       if (!closeAck.closed) {
         throw new Error("ปิดเครื่องเล่นเสียงก่อนเริ่มบันทึก");
       }
-      const status = await captureRouteStart(projectId, activeRoutePlan);
+      const targetProjectId = projectId ?? (ensureProject ? await ensureProject() : null);
+      if (!targetProjectId) {
+        throw new Error("เลือกโครงการก่อนเริ่มบันทึก");
+      }
+      const status = await captureRouteStart(targetProjectId, activeRoutePlan);
       setRoutedStatus(status);
       setRoutedActive(true);
       setCaptureSourceMode("routed");
@@ -1428,7 +1434,11 @@ export function LiveWorkspace({
                     {routeDrafts.some((draft) => !draft.processId || !draft.endpointId || !draft.label.trim()) ? (
                       <p className="live-workspace__disabled-reason">เลือกแอป อุปกรณ์เสียง และชื่อแหล่งเสียงให้ครบก่อนตรวจเส้นทาง</p>
                     ) : null}
-                    {!projectId ? (
+                    {!projectId ? ensureProject ? (
+                      <p className="live-workspace__muted" role="status">
+                        ยังไม่ได้เลือกโครงการ — จะสร้างโครงการใหม่ให้เมื่อเริ่มบันทึก
+                      </p>
+                    ) : (
                       <p className="live-workspace__disabled-reason">เลือกโครงการก่อนเริ่มบันทึก</p>
                     ) : null}
                   </div>

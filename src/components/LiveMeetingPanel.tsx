@@ -614,6 +614,7 @@ function scopeMeetingSummaries(
 export type LiveMeetingPanelProps = {
   onClose: () => void;
   projectId: string | null;
+  ensureProject?: () => Promise<string>;
   onRoutedCaptureStopped?: (status: RoutedCaptureStatus) => void;
   visible?: boolean;
   closeReviewPlayer?: CloseReviewPlayer;
@@ -623,6 +624,7 @@ export type LiveMeetingPanelProps = {
 export function LiveMeetingPanel({
   onClose,
   projectId,
+  ensureProject,
   onRoutedCaptureStopped,
   visible = true,
   closeReviewPlayer,
@@ -1367,6 +1369,7 @@ export function LiveMeetingPanel({
       <div className="live-panel" role="region" aria-labelledby="live-workspace-title">
         <LiveWorkspace
           projectId={projectId}
+          ensureProject={ensureProject}
           selection={selection}
           phase={phase}
           elapsedMs={elapsedMs}

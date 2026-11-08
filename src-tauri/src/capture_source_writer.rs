@@ -103,6 +103,7 @@ use std::{
     io::Read,
     path::PathBuf,
     sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender, TrySendError},
         Mutex,
     },
@@ -141,10 +142,71 @@ pub struct CaptureSourceWriter {
     shared: Arc<Mutex<FaultState>>,
     join: Option<JoinHandle<SourceWriterReport>>,
     context: Context,
+    progress: WriterProgressHandle,
     next_frame: i64,
     #[cfg(test)]
     gate: Option<Arc<TestGate>>,
 }
+
+struct WriterProgress {
+    durable_frames: AtomicU64,
+    durable_chunks: AtomicU64,
+    counts_known: AtomicBool,
+}
+
+#[derive(Clone)]
+pub(crate) struct WriterProgressHandle(Arc<WriterProgress>);
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WriterProgressSnapshot {
+    pub(crate) durable_frames: u64,
+    pub(crate) durable_chunks: u64,
+    pub(crate) counts_known: bool,
+}
+
+impl WriterProgressHandle {
+    fn new() -> Self {
+        Self(Arc::new(WriterProgress {
+            durable_frames: AtomicU64::new(0),
+            durable_chunks: AtomicU64::new(0),
+            counts_known: AtomicBool::new(true),
+        }))
+    }
+
+    pub(crate) fn durable_frames(&self) -> u64 {
+        self.0.durable_frames.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn durable_chunks(&self) -> u64 {
+        self.0.durable_chunks.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn counts_known(&self) -> bool {
+        self.0.counts_known.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn snapshot(&self) -> WriterProgressSnapshot {
+        WriterProgressSnapshot {
+            durable_frames: self.durable_frames(),
+            durable_chunks: self.durable_chunks(),
+            counts_known: self.counts_known(),
+        }
+    }
+
+    fn publish_counts(&self, report: &SourceWriterReport) {
+        self.0
+            .durable_frames
+            .store(report.durable_frames, Ordering::Release);
+        self.0
+            .durable_chunks
+            .store(report.durable_chunks, Ordering::Release);
+    }
+
+    fn mark_counts_unknown(&self) {
+        self.0.counts_known.store(false, Ordering::Release);
+    }
+}
+
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
@@ -323,6 +385,8 @@ impl CaptureSourceWriterGroup {
             commit_gate: options.commit_gate.clone(),
         };
         let shared = Arc::new(Mutex::new(FaultState::default()));
+        let progress = WriterProgressHandle::new();
+        let worker_progress = progress.clone();
         let (tx, rx) = mpsc::sync_channel(options.queue_capacity);
         let c = context.clone();
         let sh = shared.clone();
@@ -336,6 +400,7 @@ impl CaptureSourceWriterGroup {
                         c.clone(),
                         rx,
                         sh.clone(),
+                        &worker_progress,
                         #[cfg(test)]
                         gate,
                     )
@@ -343,6 +408,7 @@ impl CaptureSourceWriterGroup {
                 match result {
                     Ok(report) => report,
                     Err(_) => {
+                        worker_progress.mark_counts_unknown();
                         first_fault(
                             &sh,
                             fail(
@@ -366,6 +432,7 @@ impl CaptureSourceWriterGroup {
             shared,
             join: Some(join),
             context,
+            progress,
             next_frame: 0,
             #[cfg(test)]
             gate: options.gate,
@@ -373,6 +440,11 @@ impl CaptureSourceWriterGroup {
     }
 }
 impl CaptureSourceWriter {
+    /// Cloneable read-only view of committed writer progress.
+    pub(crate) fn progress(&self) -> WriterProgressHandle {
+        self.progress.clone()
+    }
+
     /// Native failure signal only; coordinator must stop producer. Worker persists quarantine.
     pub fn signal_failure(&mut self, detail: &str) {
         let mut f = fail(SourceWriterFailureKind::NativeSourceFailure, detail);
@@ -515,11 +587,10 @@ impl CaptureSourceWriter {
         if let Some(g) = &self.gate {
             g.release();
         }
-        self.join
-            .take()
-            .expect("writer join available")
-            .join()
-            .unwrap_or_else(|_| {
+        match self.join.take().expect("writer join available").join() {
+            Ok(report) => report,
+            Err(_) => {
+                self.progress.mark_counts_unknown();
                 let mut r = empty_report(&self.context);
                 r.drained = false;
                 r.durable_counts_known = false;
@@ -528,7 +599,8 @@ impl CaptureSourceWriter {
                     "writer join panic",
                 ));
                 r
-            })
+            }
+        }
     }
 }
 impl Drop for CaptureSourceWriter {
@@ -680,6 +752,7 @@ fn flush(
     shared: &Mutex<FaultState>,
     a: &mut Assembler,
     report: &mut SourceWriterReport,
+    progress: &WriterProgressHandle,
 ) {
     if a.pcm.is_empty() {
         return;
@@ -748,11 +821,13 @@ fn flush(
                     a.sequence = next;
                     report.durable_chunks += 1;
                     report.durable_frames += pcm.len() as u64;
+                    progress.publish_counts(report);
                 }
                 Err(error) => {
                     // An opaque failed commit AND failed same-attempt reconciliation leave
                     // total durable state uncertain. Counters remain confirmed lower bounds.
                     report.durable_counts_known = false;
+                    progress.mark_counts_unknown();
                     report.persistence_error = Some(bounded(&error));
                     first_fault(shared, fail(SourceWriterFailureKind::Persistence, error));
                     a.ledger_disabled = true;
@@ -768,10 +843,11 @@ fn consume(
     shared: &Mutex<FaultState>,
     a: &mut Assembler,
     report: &mut SourceWriterReport,
+    progress: &WriterProgressHandle,
     packet: SourcePcmPacket,
 ) {
     if packet.first_frame != a.next_frame {
-        flush(c, shared, a, report);
+        flush(c, shared, a, report, progress);
         if packet.first_frame < a.next_frame {
             return;
         }
@@ -788,7 +864,7 @@ fn consume(
         offset += count;
         a.next_frame += count as i64;
         if a.pcm.len() == width {
-            flush(c, shared, a, report);
+            flush(c, shared, a, report, progress);
         }
     }
 }
@@ -796,6 +872,7 @@ fn run_worker(
     c: Context,
     rx: Receiver<SourcePcmPacket>,
     shared: Arc<Mutex<FaultState>>,
+    progress: &WriterProgressHandle,
     #[cfg(test)] gate: Option<Arc<TestGate>>,
 ) -> SourceWriterReport {
     #[cfg(test)]
@@ -817,12 +894,12 @@ fn run_worker(
         if lock(&shared).first.is_some() {
             let _ = ensure_quarantine(&c, &shared, &mut report);
             while let Ok(packet) = rx.try_recv() {
-                consume(&c, &shared, &mut a, &mut report, packet)
+                consume(&c, &shared, &mut a, &mut report, progress, packet)
             }
             break;
         }
         match rx.recv_timeout(Duration::from_millis(20)) {
-            Ok(packet) => consume(&c, &shared, &mut a, &mut report, packet),
+            Ok(packet) => consume(&c, &shared, &mut a, &mut report, progress, packet),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
@@ -830,7 +907,7 @@ fn run_worker(
     let terminal = lock(&shared).terminal_packet.take();
     if let Some(packet) = terminal {
         let _ = ensure_quarantine(&c, &shared, &mut report);
-        consume(&c, &shared, &mut a, &mut report, packet)
+        consume(&c, &shared, &mut a, &mut report, progress, packet)
     }
     if a.next_frame == 0 && lock(&shared).first.is_none() {
         first_fault(
@@ -841,7 +918,7 @@ fn run_worker(
             ),
         );
     }
-    flush(&c, &shared, &mut a, &mut report);
+    flush(&c, &shared, &mut a, &mut report, progress);
     let _ = ensure_quarantine(&c, &shared, &mut report);
     report.first_failure = lock(&shared).first.clone();
     report

@@ -1059,6 +1059,59 @@ fn final_snapshot_never_runs_when_any_native_termination_is_unproven() {
     .is_err());
     assert!(!called.get());
 }
+#[test]
+fn routed_packet_queue_has_headroom_and_reports_overflow() {
+    let origin = 10_010_000u64;
+    let native_origin = 10_000_000u64;
+    let (mut producer, mut receiver) = sink::packet_channel(
+        sink::SourcePacketScope::new(Uuid::new_v4(), 1, "endpoint".into(), RATE, origin).unwrap(),
+        QUEUE_CAPACITY,
+    )
+    .unwrap();
+    producer.bind_native_clock(native_origin, RATE).unwrap();
+    producer
+        .confirm_native_ready(native_origin + 1_000)
+        .unwrap();
+    let stamp = |index: usize| {
+        let first = index as u64 * 480;
+        sink::PacketStamp {
+            first_sample: first,
+            silence_before: None,
+            native_index: first,
+            native_qpc_hns: native_origin + first * 10_000_000 / u64::from(RATE),
+            observed_qpc_hns: if index == 0 {
+                origin - 1
+            } else {
+                origin + first * 10_000_000 / u64::from(RATE)
+            },
+            native_flags: 0,
+        }
+    };
+    let mut accepted = 0;
+    for index in 0..QUEUE_CAPACITY {
+        producer.push_native(stamp(index), vec![7; 480]).unwrap();
+        accepted += 1;
+    }
+    assert!(accepted >= 500);
+    assert!(matches!(
+        producer.push_native(stamp(QUEUE_CAPACITY), vec![7; 480]),
+        Err(sink::SinkFault::QueueFull { .. })
+    ));
+    assert!(matches!(
+        receiver.recv_timeout(Duration::ZERO).unwrap(),
+        SinkRead::Fault {
+            fault: sink::SinkFault::QueueFull { .. },
+            ..
+        }
+    ));
+    for _ in 0..accepted {
+        assert!(matches!(
+            receiver.recv_timeout(Duration::ZERO).unwrap(),
+            SinkRead::Packet(_)
+        ));
+    }
+}
+
 #[derive(Clone, Copy)]
 enum ReadinessCase {
     Preroll,

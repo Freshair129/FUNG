@@ -347,6 +347,11 @@ export function App() {
     return project;
   };
 
+  const ensureLiveProject = async (): Promise<string> => {
+    const project = await handleNewProject();
+    return project.id;
+  };
+
   // Returns the job as it finished, so a caller can tell "done" from "failed"
   // rather than refreshing and hoping. `null` means it stopped being visible
   // or outlasted the poll.
@@ -551,6 +556,7 @@ export function App() {
                 setActiveSurface("home");
               }}
               projectId={selectedProjectId}
+              ensureProject={ensureLiveProject}
               onRoutedCaptureStopped={handleRoutedCaptureStopped}
               visible={activeSurface === "live"}
               closeReviewPlayer={closeReviewPlayer}

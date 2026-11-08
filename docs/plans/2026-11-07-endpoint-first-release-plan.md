@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-11-07"
-last_update: "2026-11-07"
+last_update: "2026-11-08"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -120,9 +120,11 @@ UI spec:
    regenerate it when the row's app or endpoint changes.
 4. Start is enabled only after a successful validation of the current plan.
    Any edit invalidates it. Start calls `capture_route_start` with the active
-   project id. Native revalidates; show its error as it is. While this mode is
-   active, the other source tabs and the normal start path are disabled. Only
-   one capture mode can run at a time.
+   project id; if none is selected, Live creates and selects a project using
+   the existing import naming (`ประชุมใหม่ N`) before starting routed capture.
+   Native revalidates; show its error as it is. While this mode is active, the
+   other source tabs and the normal start path are disabled. Only one capture
+   mode can run at a time.
 5. While recording, poll `capture_route_status` every 1 s. Stop polling on
    unmount or stop. For each source, show the label, the state (ready, failed
    with `firstFailure`, or drained) and the durable duration
@@ -417,3 +419,9 @@ runbook and the candidate, and the owner runs or approves the session.
 
 E2–E4 are merged with green CI. E5 is accepted by the owner. Release, tag and
 merge of release candidates remain owner actions.
+
+## CHANGELOG
+
+| Version | Date | Change |
+| --- | --- | --- |
+| 0.1.1b | 2026-11-08 | Documented first-run project creation before routed capture. |

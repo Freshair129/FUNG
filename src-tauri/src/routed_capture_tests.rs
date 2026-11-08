@@ -1059,6 +1059,176 @@ fn final_snapshot_never_runs_when_any_native_termination_is_unproven() {
     .is_err());
     assert!(!called.get());
 }
+#[derive(Clone, Copy)]
+enum ReadinessCase {
+    Preroll,
+    NoWitness,
+    UnarmedPacket,
+}
+
+fn exercise_real_sink_readiness(kind: &str, case: ReadinessCase) {
+    let f = fixture();
+    let recording = Uuid::new_v4().to_string();
+    let job = Uuid::new_v4().to_string();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    let id = Uuid::new_v4();
+    let origin = 10_010_000u64;
+    let reg = CaptureSourceRegistration {
+        id: id.to_string(),
+        epoch: 1,
+        kind: kind.into(),
+        endpoint_id: Some("endpoint".into()),
+        label: "source".into(),
+        sample_rate: i64::from(RATE),
+        clock_origin_qpc_hns: origin.to_string(),
+        metadata: json!({}),
+    };
+    custody::register_capture_sources(
+        &f.storage,
+        &attempt(&f.storage).unwrap(),
+        &f.project,
+        &recording,
+        std::slice::from_ref(&reg),
+    )
+    .unwrap();
+    let mut group =
+        CaptureSourceWriterGroup::new(f.storage.clone(), f.project.clone(), recording).unwrap();
+    let mut writer = group.spawn(SourceWriterOptions::new(reg.clone())).unwrap();
+    let private = f.root.join("readiness-evidence");
+    fs::create_dir(&private).unwrap();
+    let mut spool = PrivateSpool::new(&private).unwrap();
+    let pcm_path = spool.pcm_path.clone();
+    let (mut producer, mut receiver) = sink::packet_channel(
+        sink::SourcePacketScope::new(id, 1, "endpoint".into(), RATE, origin).unwrap(),
+        QUEUE_CAPACITY,
+    )
+    .unwrap();
+    producer.bind_native_clock(10_000_000, RATE).unwrap();
+    producer.confirm_native_ready(10_001_000).unwrap();
+    let shared = recovery_shared(&reg.id);
+    shared.armed.store(false, Ordering::SeqCst);
+    shared.stop.store(false, Ordering::SeqCst);
+    {
+        let mut status = lock(&shared.status);
+        status.sources[0].ready = false;
+        status.sources[0].accepted_packets = 0;
+        status.sources[0].kind = if kind == "microphone" {
+            RoutedSourceKind::Microphone
+        } else {
+            RoutedSourceKind::Endpoint
+        };
+    }
+    let (events_tx, events_rx) = mpsc::sync_channel(2);
+    drop(events_tx);
+    let native = NativeExit {
+        events: events_rx,
+        shared: shared.clone(),
+    };
+    let worker_shared = shared.clone();
+    let worker = thread::spawn(move || {
+        let drained = drain_source(
+            &reg,
+            &mut writer,
+            &mut receiver,
+            &native,
+            &mut spool,
+            &worker_shared,
+        );
+        let packets = drained.packets;
+        let report = finish_source(&reg, writer, spool, drained, &worker_shared);
+        (packets, report)
+    });
+    let stamp = |first: u64, observed: u64| sink::PacketStamp {
+        first_sample: first,
+        silence_before: None,
+        native_index: first + 777,
+        native_qpc_hns: 10_000_000 + first * 10_000_000 / u64::from(RATE),
+        observed_qpc_hns: observed,
+        native_flags: 0,
+    };
+    let mut ready_before_packet = false;
+    if matches!(case, ReadinessCase::NoWitness) {
+        thread::sleep(Duration::from_millis(30));
+        ready_before_packet = lock(&shared.status).sources[0].ready;
+        producer
+            .push_native(stamp(48, origin + 1), vec![9; 48])
+            .unwrap();
+    } else {
+        // 24 frames end before the cut at frame 48: the sink drops them.
+        producer
+            .push_native(stamp(0, origin - 1), vec![7; 24])
+            .unwrap();
+        if matches!(case, ReadinessCase::UnarmedPacket) {
+            producer
+                .push_native(stamp(24, origin + 1), vec![9; 72])
+                .unwrap();
+        }
+    }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        let ready = lock(&shared.status).sources[0].ready;
+        if (matches!(case, ReadinessCase::Preroll) && ready)
+            || (!matches!(case, ReadinessCase::Preroll) && shared.failed())
+        {
+            break;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    let ready = lock(&shared.status).sources[0].ready;
+    let failure = shared.source_failure(&id.to_string());
+    let armed = shared.armed.load(Ordering::SeqCst);
+    shared.cancel();
+    producer.finish(Ok(()));
+    let (packets, report) = worker.join().unwrap();
+    let pcm = fs::read(pcm_path).unwrap();
+    assert!(!armed);
+    match case {
+        ReadinessCase::Preroll => {
+            assert!(ready, "{kind} did not become ready from preroll");
+            assert_eq!(failure, None);
+            assert_eq!(packets, 0);
+            assert!(pcm.is_empty());
+        }
+        ReadinessCase::NoWitness => {
+            assert!(!ready_before_packet);
+            assert!(!ready);
+            assert!(failure.as_deref().unwrap().contains("StartupUnverified"));
+            assert_eq!(packets, 1);
+            assert_eq!(pcm, vec![9i16.to_le_bytes(); 48].concat());
+            assert!(report.first_failure.is_some());
+        }
+        ReadinessCase::UnarmedPacket => {
+            assert_eq!(
+                failure.as_deref(),
+                Some("accepted PCM retained privately after stopped/unarmed admission")
+            );
+            assert_eq!(packets, 1);
+            assert_eq!(pcm, vec![9i16.to_le_bytes(); 48].concat());
+            assert!(report.first_failure.is_some());
+        }
+    }
+}
+
+#[test]
+fn microphone_is_ready_from_dropped_preroll_before_arming() {
+    exercise_real_sink_readiness("microphone", ReadinessCase::Preroll);
+}
+
+#[test]
+fn endpoint_is_ready_from_dropped_preroll_before_arming() {
+    exercise_real_sink_readiness("endpoint", ReadinessCase::Preroll);
+}
+
+#[test]
+fn microphone_without_prebarrier_witness_stays_unready_and_fails() {
+    exercise_real_sink_readiness("microphone", ReadinessCase::NoWitness);
+}
+
+#[test]
+fn microphone_accepted_packet_before_arming_is_retained_and_poisoned() {
+    exercise_real_sink_readiness("microphone", ReadinessCase::UnarmedPacket);
+}
+
 fn exercise_packet_panic(stage: &'static str, expect_complete: bool) {
     let f = fixture();
     let recording = Uuid::new_v4().to_string();

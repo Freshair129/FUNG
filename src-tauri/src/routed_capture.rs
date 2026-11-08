@@ -1703,8 +1703,9 @@ fn drain_source(
     let processing = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         loop {
             native_terminated |= events(&native.events, writer, shared, &reg.id);
-            if reg.kind == "endpoint"
-                && receiver.clock().is_some()
+            // All sources become ready from receiver evidence: a bound clock, post-Start
+            // ready confirmation, and a qualified prebarrier witness of a valid native packet.
+            if receiver.clock().is_some()
                 && receiver.ready_observed_hns().is_some()
                 && receiver.prebarrier_witness().is_some()
             {
@@ -1771,31 +1772,6 @@ fn drain_source(
                     }
                     if !inflight_spooled {
                         continue;
-                    }
-                    if reg.kind == "microphone"
-                        && receiver.ready_observed_hns().is_some()
-                        && receiver.prebarrier_witness().is_some()
-                    {
-                        if let Some(status) = lock(&shared.status)
-                            .sources
-                            .iter_mut()
-                            .find(|source| source.source_id == reg.id)
-                        {
-                            status.ready = true;
-                        }
-                    }
-                    // Startup needs a valid microphone packet as readiness
-                    // evidence, but the common-origin barrier may not arm the
-                    // group until every route is ready. Keep this packet in
-                    // the private spool and retain its in-flight ownership
-                    // until the coordinator arms or cancels the group.
-                    if reg.kind == "microphone"
-                        && !shared.armed.load(Ordering::SeqCst)
-                        && !shared.cancelling()
-                    {
-                        while !shared.armed.load(Ordering::SeqCst) && !shared.cancelling() {
-                            thread::sleep(Duration::from_millis(1));
-                        }
                     }
                     // Private bytes are synced at batch admission, before any
                     // coalesced PCM is transferred to the writer.

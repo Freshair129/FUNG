@@ -7,7 +7,7 @@ use crate::{
     capture_source_custody::{self as custody, CaptureSourceRegistration},
     capture_source_writer::{
         CaptureSourceWriter, CaptureSourceWriterGroup, SourcePacketDisposition, SourcePcmPacket,
-        SourceWriterOptions, SourceWriterReport,
+        SourceWriterOptions, SourceWriterReport, WriterProgressHandle,
     },
     endpoint_packet_sink::{self as sink, EndpointPacket, EndpointPacketReceiver, SinkRead},
     genesis_adapter as ga,
@@ -758,6 +758,8 @@ fn coordinate(
     let mut registered = false;
     let mut reports = vec![];
     let expected_sources = source_count(&plan);
+    let mut progress_handles: Vec<(String, WriterProgressHandle)> =
+        Vec::with_capacity(expected_sources);
     let execution = (|| -> Result<(), ExecutionFailure> {
         let origin = qpc()?.checked_add(ORIGIN_LEAD_HNS).ok_or("QPC overflow")?;
         let mut registrations = Vec::with_capacity(source_count(&plan));
@@ -832,6 +834,7 @@ fn coordinate(
             let private =
                 private_spool_directory(&project_root, &ids.recording_id, &reg.id, reg.epoch)?;
             let writer = group.spawn(SourceWriterOptions::new(reg.clone()))?;
+            progress_handles.push((reg.id.clone(), writer.progress()));
             let spool = PrivateSpool::new_under_project(&project_root, &private)?;
             let (producer, receiver) = sink::packet_channel(ticket.scope().clone(), QUEUE_CAPACITY)
                 .map_err(|error| format!("sink channel: {error:?}"))?;
@@ -859,6 +862,29 @@ fn coordinate(
             validate_runtime(&observer, &plan, &shared).map_err(|_| ExecutionFailure::Recorded)?;
             if qpc()? >= origin.saturating_add(86400 * 10_000_000) {
                 return Err("maximum 24-hour capture reached".into());
+            }
+            let live_progress = progress_handles
+                .iter()
+                .map(|(source_id, handle)| (source_id.clone(), handle.snapshot()))
+                .collect::<Vec<_>>();
+            {
+                let mut status = lock(&shared.status);
+                for source in &mut status.sources {
+                    if let Some((_, progress)) = live_progress
+                        .iter()
+                        .find(|(source_id, _)| source_id == &source.source_id)
+                    {
+                        source.durable_frames = progress.durable_frames;
+                        source.durable_chunks = progress.durable_chunks;
+                        source.durable_counts_known = progress.counts_known;
+                    }
+                }
+                status.duration_ms = status
+                    .sources
+                    .iter()
+                    .map(|source| source.durable_frames * 1000 / u64::from(RATE))
+                    .max()
+                    .unwrap_or(0);
             }
             thread::sleep(GUARD_INTERVAL.saturating_sub(check.elapsed()));
         }

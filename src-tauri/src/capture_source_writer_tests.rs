@@ -117,6 +117,79 @@ fn exact_two_second_chunk_and_one_frame_tail_bind_real_pcm() {
     custody::complete_capture_sources(&f.s, &attempt(&f.s), &f.recording).unwrap();
     custody::require_capture_source_access(&f.s, &f.recording).unwrap();
 }
+fn wait_for_progress(predicate: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while !predicate() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "writer progress timed out"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn progress_counts_only_committed_chunks_and_flushes_tail_on_finish() {
+    let f = fixture(1);
+    let mut g = group(&f);
+    let gate = Arc::new(TestGate::default());
+    let mut options = SourceWriterOptions::new(f.regs[0].clone());
+    options.commit_gate = Some(gate.clone());
+    let mut w = g.spawn(options).unwrap();
+    let progress = w.progress();
+    assert_eq!(progress.durable_frames(), 0);
+    assert_eq!(progress.durable_chunks(), 0);
+    assert!(progress.counts_known());
+
+    w.try_push(packet(&f.regs[0], 0, 96000)).unwrap();
+    w.try_push(packet(&f.regs[0], 96000, 1)).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while !gate.entered.load(std::sync::atomic::Ordering::SeqCst) {
+        if std::time::Instant::now() >= deadline {
+            gate.release();
+            panic!("writer did not reach post-write gate");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let before_commit = progress.snapshot();
+    gate.release();
+    assert_eq!(before_commit.durable_frames, 0);
+    assert_eq!(before_commit.durable_chunks, 0);
+    assert!(before_commit.counts_known);
+    wait_for_progress(|| progress.durable_chunks() == 1);
+    assert_eq!(progress.durable_frames(), 96000);
+    assert!(progress.counts_known());
+    assert_eq!(audio(&f).len(), 1);
+
+    let report = w.finish();
+    assert!(report.first_failure.is_none(), "{report:?}");
+    assert_eq!(report.durable_frames, 96001);
+    assert_eq!(report.durable_chunks, 2);
+    assert_eq!(progress.durable_frames(), report.durable_frames);
+    assert_eq!(progress.durable_chunks(), report.durable_chunks);
+    assert_eq!(progress.counts_known(), report.durable_counts_known);
+}
+
+#[test]
+fn live_progress_for_full_chunk_matches_final_report() {
+    let f = fixture(1);
+    let mut g = group(&f);
+    let mut w = g
+        .spawn(SourceWriterOptions::new(f.regs[0].clone()))
+        .unwrap();
+    let progress = w.progress();
+    w.try_push(packet(&f.regs[0], 0, 96000)).unwrap();
+    wait_for_progress(|| progress.durable_chunks() == 1);
+    let live = progress.snapshot();
+    assert_eq!(live.durable_frames, 96000);
+    assert_eq!(live.durable_chunks, 1);
+    assert!(live.counts_known);
+    let report = w.finish();
+    assert!(report.first_failure.is_none(), "{report:?}");
+    assert_eq!(live.durable_frames, report.durable_frames);
+    assert_eq!(live.durable_chunks, report.durable_chunks);
+    assert_eq!(live.counts_known, report.durable_counts_known);
+}
 #[test]
 fn interleaved_sources_have_independent_writers_and_common_max_duration() {
     let f = fixture(2);
@@ -263,6 +336,8 @@ fn custody_failure_retains_private_orphans_without_successful_audio_publication(
     let mut options = SourceWriterOptions::new(f.regs[0].clone());
     options.gate = Some(gate.clone());
     let mut w = g.spawn(options).unwrap();
+    let progress = w.progress();
+    assert!(progress.counts_known());
     w.try_push(packet(&f.regs[0], 0, 96000)).unwrap();
     w.try_push(packet(&f.regs[0], 96000, 96000)).unwrap();
     let mut rec = ga::query(
@@ -293,6 +368,7 @@ fn custody_failure_retains_private_orphans_without_successful_audio_publication(
     rec["status"] = json!("completed");
     ga::commit_rows(&f.s, vec![ga::upsert("recordings", rec)]).unwrap();
     gate.release();
+    wait_for_progress(|| !progress.counts_known());
     let r = w.finish();
     assert_eq!(
         r.first_failure.unwrap().kind,
@@ -303,6 +379,8 @@ fn custody_failure_retains_private_orphans_without_successful_audio_publication(
         !r.durable_counts_known,
         "opaque failed commit/replay cannot claim globally certain totals"
     );
+    assert!(!progress.counts_known());
+    assert_eq!(progress.counts_known(), r.durable_counts_known);
     assert!(audio(&f).is_empty());
     assert_eq!(r.private_orphans.len(), 2);
     for p in r.private_orphans {

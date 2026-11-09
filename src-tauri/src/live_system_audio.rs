@@ -355,7 +355,9 @@ mod selection_tests {
 }
 
 struct PacketClock {
-    origin_hns: u64,
+    admission_origin_hns: u64,
+    frame_base_hns: u64,
+    strict_frame_base: bool,
     end: u64,
     last_index: Option<u64>,
     last_timestamp: Option<u64>,
@@ -368,7 +370,9 @@ struct PacketClock {
 impl PacketClock {
     fn new(origin_hns: u64, max_future_hns: u64, startup_buffer_hns: u64) -> Self {
         Self {
-            origin_hns,
+            admission_origin_hns: origin_hns,
+            frame_base_hns: origin_hns,
+            strict_frame_base: false,
             end: 0,
             last_index: None,
             last_timestamp: None,
@@ -377,6 +381,14 @@ impl PacketClock {
             startup_buffer_hns,
             latest_empty_hns: origin_hns,
         }
+    }
+    fn use_routed_frame_base(&mut self, frame_base_hns: u64) -> Result<(), String> {
+        if frame_base_hns == 0 || frame_base_hns > self.admission_origin_hns {
+            return Err("routed native frame base is outside the QPC range".into());
+        }
+        self.frame_base_hns = frame_base_hns;
+        self.strict_frame_base = true;
+        Ok(())
     }
     fn observe_empty(&mut self, before_query_hns: u64) -> Result<(), String> {
         if before_query_hns < self.latest_empty_hns {
@@ -407,7 +419,9 @@ impl PacketClock {
         if timestamp > now.saturating_add(self.max_future_hns) {
             return Err("system loopback packet exceeds endpoint clock latency bound".into());
         }
-        if timestamp < self.origin_hns && self.origin_hns - timestamp > self.max_future_hns {
+        if timestamp < self.admission_origin_hns
+            && self.admission_origin_hns - timestamp > self.max_future_hns
+        {
             return Err("system loopback packet predates stream start".into());
         }
         if self.last_index.is_some_and(|last| index < last) {
@@ -436,7 +450,14 @@ impl PacketClock {
                 .checked_add(idle_frames)
                 .ok_or("system loopback frame range overflow")?
         } else {
-            to_frames(timestamp.saturating_sub(self.origin_hns))?
+            let offset_hns = if self.strict_frame_base {
+                timestamp
+                    .checked_sub(self.frame_base_hns)
+                    .ok_or("system loopback packet timestamp predates routed frame base")?
+            } else {
+                timestamp.saturating_sub(self.frame_base_hns)
+            };
+            to_frames(offset_hns)?
         };
         if discontinuity && !startup_packet && first == self.end {
             return Err("system loopback lost audio with unknown duration".into());
@@ -796,8 +817,19 @@ fn capture_selected_inner(
     let mut frequency = 0;
     win(unsafe { QueryPerformanceFrequency(&mut frequency) })?;
     let origin_hns = qpc_hns(frequency)?;
+    let routed_clock = packet_sink.is_some();
+    let frame_base_hns = if routed_clock {
+        origin_hns
+            .checked_sub(max_future_hns)
+            .filter(|base| *base > 0)
+            .ok_or("routed native frame base underflowed or reached zero")?
+    } else {
+        origin_hns
+    };
     if let Some(sink) = packet_sink.as_mut() {
-        sink.bind_native_clock(origin_hns, RATE as u32)
+        sink.set_native_ready_origin(origin_hns)
+            .map_err(|fault| format!("source packet readiness origin failed: {fault:?}"))?;
+        sink.bind_native_clock(frame_base_hns, RATE as u32)
             .map_err(|fault| format!("source packet clock binding failed: {fault:?}"))?;
     }
     if ticket.is_some() && stop.load(Ordering::SeqCst) {
@@ -850,6 +882,9 @@ fn capture_selected_inner(
         let _ = ready.send(Ok(CaptureReady { device_name }));
     }
     let mut clock = PacketClock::new(origin_hns, max_future_hns, buffer_duration_hns);
+    if routed_clock {
+        clock.use_routed_frame_base(frame_base_hns)?;
+    }
     let mut samples = Vec::new();
     let mut timeline = 0;
     let mut expected = 0;
@@ -1009,6 +1044,63 @@ mod tests {
                 .unwrap(),
             (2143, Some(0))
         );
+    }
+
+    fn routed_test_clock() -> PacketClock {
+        let mut clock = PacketClock::new(1_000_000_000, 20_000_000, 20_000_000);
+        clock.use_routed_frame_base(980_000_000).unwrap();
+        clock
+    }
+
+    #[test]
+    fn legacy_pre_origin_packet_still_clamps_to_frame_zero() {
+        let mut clock = PacketClock::new(1_000_000_000, 20_000_000, 20_000_000);
+        assert_eq!(
+            clock
+                .position(995_000_000, 1_000_000_000, 0, 480, false, false)
+                .unwrap(),
+            (0, None)
+        );
+    }
+
+    #[test]
+    fn routed_first_packet_uses_base_and_preserves_admission_bound() {
+        for (timestamp, expected) in [
+            (995_000_000, 72_000),
+            (1_000_000_000, 96_000),
+            (980_000_000, 0),
+        ] {
+            let mut clock = routed_test_clock();
+            let (first, _) = clock
+                .position(timestamp, 1_000_000_000, 0, 480, false, false)
+                .unwrap();
+            assert_eq!(first, expected);
+        }
+        let error = routed_test_clock()
+            .position(979_999_999, 1_000_000_000, 0, 480, false, false)
+            .unwrap_err();
+        assert!(error.contains("predates stream start"));
+    }
+
+    #[test]
+    fn routed_continuous_packet_adds_no_gap_or_idle() {
+        let mut clock = routed_test_clock();
+        let first = clock
+            .position(995_000_000, 1_000_000_000, 0, 480, false, false)
+            .unwrap();
+        let next = clock
+            .position(995_100_010, 1_000_100_000, 480, 480, false, false)
+            .unwrap();
+        assert_eq!(first.0, 72_000);
+        assert_eq!(next, (first.0 + 480, None));
+    }
+
+    #[test]
+    fn routed_frame_base_must_be_nonzero_and_not_after_origin() {
+        for base in [0, 1_000_000_001] {
+            let mut clock = PacketClock::new(1_000_000_000, 20_000_000, 20_000_000);
+            assert!(clock.use_routed_frame_base(base).is_err());
+        }
     }
 
     #[test]

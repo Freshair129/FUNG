@@ -65,6 +65,7 @@ pub struct FrameSpan {
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StreamClock {
+    /// QPC base used to number native frames; routed capture may precede Start.
     pub native_origin_hns: u64,
     pub common_origin_hns: u64,
     pub sample_rate: u32,
@@ -170,6 +171,7 @@ pub struct EndpointPacketProducer {
     scope: Arc<SourcePacketScope>,
     sender: Option<mpsc::SyncSender<EndpointPacket>>,
     shared: Arc<Shared>,
+    native_ready_origin_hns: Option<u64>,
     expected_native: u64,
     accepted_packets: u64,
     last_accepted_end: Option<u64>,
@@ -220,6 +222,7 @@ pub fn packet_channel(
             scope: scope.clone(),
             sender: Some(sender),
             shared: shared.clone(),
+            native_ready_origin_hns: None,
             expected_native: 0,
             accepted_packets: 0,
             last_accepted_end: None,
@@ -313,6 +316,34 @@ impl EndpointPacketProducer {
     fn protocol(&mut self, reason: &str) -> SinkFault {
         self.fail(SinkFault::Protocol(reason.into()))
     }
+    /// Preserve the measured pre-Start origin as the readiness floor while the
+    /// bound clock may begin earlier to cover every admissible preroll packet.
+    pub fn set_native_ready_origin(&mut self, origin: u64) -> Result<(), SinkFault> {
+        if self.finished
+            || self.shared.clock.get().is_some()
+            || self.native_ready_origin_hns.is_some()
+            || origin == 0
+        {
+            return Err(self.protocol("native readiness origin must be set before clock binding"));
+        }
+        if origin > self.scope.common_origin_hns {
+            let elapsed = origin - self.scope.common_origin_hns;
+            let rounded = ((u128::from(elapsed) * u128::from(self.scope.sample_rate) + 5_000_000)
+                / 10_000_000) as u64;
+            let _ = self.shared.startup.set(StartupMissing {
+                elapsed_hns: elapsed,
+                rounded_frame_span: (rounded > 0).then_some(FrameSpan {
+                    start: 0,
+                    end: rounded,
+                }),
+            });
+            return Err(
+                self.protocol("native stream origin is after the shared recording deadline")
+            );
+        }
+        self.native_ready_origin_hns = Some(origin);
+        Ok(())
+    }
     pub fn bind_native_clock(&mut self, origin: u64, rate: u32) -> Result<(), SinkFault> {
         if self.finished || self.shared.clock.get().is_some() {
             return Err(self.protocol("native clock binding must occur exactly once"));
@@ -321,6 +352,12 @@ impl EndpointPacketProducer {
             return Err(
                 self.protocol("native rate/origin does not match authoritative source projection")
             );
+        }
+        if self
+            .native_ready_origin_hns
+            .is_some_and(|ready_origin| origin > ready_origin)
+        {
+            return Err(self.protocol("native frame base follows the measured stream origin"));
         }
         if origin > self.scope.common_origin_hns {
             let elapsed = origin - self.scope.common_origin_hns;
@@ -353,6 +390,7 @@ impl EndpointPacketProducer {
                 phase_numerator: phase as u64,
             })
             .map_err(|_| self.protocol("native clock already bound"))?;
+        self.native_ready_origin_hns.get_or_insert(origin);
         Ok(())
     }
     /// Must be measured after IAudioClient::Start returns, before readiness is
@@ -364,7 +402,11 @@ impl EndpointPacketProducer {
         let Some(clock) = self.shared.clock.get().cloned() else {
             return Err(self.protocol("native readiness before clock binding"));
         };
-        if observed < clock.native_origin_hns {
+        if observed
+            < self
+                .native_ready_origin_hns
+                .unwrap_or(clock.native_origin_hns)
+        {
             return Err(self.protocol("native readiness observation moved backwards"));
         }
         let _ = self.shared.ready.set(observed);
@@ -725,6 +767,135 @@ mod tests {
             .unwrap();
         (tx, rx)
     }
+    // Find the first sample on or after the barrier by comparing rational times.
+    fn oracle_cut_and_phase(base: u64, common: u64) -> (u64, u64) {
+        let target = (common - base) * 48_000;
+        let mut frame = 0;
+        while frame * 10_000_000 < target {
+            frame += 1;
+        }
+        (frame, frame * 10_000_000 - target)
+    }
+
+    #[test]
+    fn routed_preroll_witness_and_crossing_keep_indexed_pcm() {
+        let base = N;
+        let origin = N + 2_000;
+        let common = N + 10_101;
+        let (cut, phase) = oracle_cut_and_phase(base, common);
+        let (mut tx, mut rx) = packet_channel(scope(common), 2).unwrap();
+        tx.set_native_ready_origin(origin).unwrap();
+        tx.bind_native_clock(base, 48_000).unwrap();
+        tx.confirm_native_ready(origin).unwrap();
+        let clock = rx.clock().unwrap();
+        assert_eq!((clock.cut_frame, clock.phase_numerator), (cut, phase));
+        let mut first = stamp(5, Some(0), origin + 1);
+        first.native_qpc_hns = N + 1_000;
+        tx.push_native(first, vec![0; 10]).unwrap();
+        let pcm: Vec<i16> = (15..55).collect();
+        tx.push_native(stamp(15, None, common + 1), pcm).unwrap();
+        tx.finish(Ok(()));
+        let SinkRead::Packet(packet) = recv(&mut rx) else {
+            panic!("expected visible packet without startup diagnostic")
+        };
+        assert_eq!(
+            packet.frames,
+            FrameSpan {
+                start: 0,
+                end: 55 - cut
+            }
+        );
+        assert_eq!(packet.preroll_clipped_frames, cut - 15);
+        assert_eq!(packet.samples, (cut as i16..55).collect::<Vec<_>>());
+        assert_eq!(packet.samples[0], cut as i16);
+        let SinkRead::Drained(summary) = recv(&mut rx) else {
+            panic!("expected clean drain")
+        };
+        assert!(!summary.quarantined);
+        assert_eq!(summary.preroll_packets_dropped, 1);
+        assert_eq!(summary.preroll_frames_dropped, 10 + cut - 15);
+    }
+
+    #[test]
+    fn routed_ready_floor_is_measured_origin() {
+        for observed in [N, N + 1_999] {
+            let (mut tx, _) = packet_channel(scope(B), 1).unwrap();
+            tx.set_native_ready_origin(N + 2_000).unwrap();
+            tx.bind_native_clock(N, 48_000).unwrap();
+            assert!(
+                matches!(tx.confirm_native_ready(observed), Err(SinkFault::Protocol(reason)) if reason.contains("moved backwards"))
+            );
+        }
+        for observed in [N + 2_000, N + 2_001] {
+            let (mut tx, _) = packet_channel(scope(B), 1).unwrap();
+            tx.set_native_ready_origin(N + 2_000).unwrap();
+            tx.bind_native_clock(N, 48_000).unwrap();
+            assert!(tx.confirm_native_ready(observed).is_ok());
+        }
+    }
+
+    #[test]
+    fn ready_origin_and_frame_base_reject_invalid_order_and_values() {
+        let (mut tx, _) = packet_channel(scope(B), 1).unwrap();
+        assert!(tx.set_native_ready_origin(0).is_err());
+        let (mut tx, _) = packet_channel(scope(B), 1).unwrap();
+        tx.set_native_ready_origin(N + 1).unwrap();
+        assert!(tx.set_native_ready_origin(N + 1).is_err());
+        let (mut tx, _) = packet_channel(scope(B), 1).unwrap();
+        tx.bind_native_clock(N, 48_000).unwrap();
+        assert!(tx.set_native_ready_origin(N + 1).is_err());
+        let (mut tx, mut rx) = packet_channel(scope(B), 1).unwrap();
+        assert!(tx.set_native_ready_origin(B + 1).is_err());
+        assert!(matches!(recv(&mut rx), SinkRead::StartupMissing { .. }));
+        let (mut tx, _) = packet_channel(scope(B), 1).unwrap();
+        tx.set_native_ready_origin(N + 1).unwrap();
+        assert!(tx.bind_native_clock(N + 2, 48_000).is_err());
+    }
+
+    #[test]
+    fn issue_115_pre_origin_anchor_is_verified_but_pre_base_is_not() {
+        // Issue #115 gives common and observed stamps, but not the native QPC
+        // or measured origin; choose representative values preserving their ordering.
+        let common = 2_905_593_119_930;
+        let observed = 2_905_546_788_899;
+        let arm = common - 50_000_000;
+        let origin = arm + 3_000_000;
+        let base = origin - 20_000_000;
+        for (qpc, expected_unverified) in [(origin - 1_000, false), (base - 1, true)] {
+            let (mut tx, _rx) = packet_channel(scope(common), 1).unwrap();
+            tx.set_native_ready_origin(origin).unwrap();
+            tx.bind_native_clock(base, 48_000).unwrap();
+            tx.confirm_native_ready(observed).unwrap();
+            let first_sample = if qpc < base {
+                0
+            } else {
+                ((qpc - base) * 48_000 + 5_000_000) / 10_000_000
+            };
+            let packet = PacketStamp {
+                first_sample,
+                silence_before: Some(0),
+                native_index: 0,
+                native_qpc_hns: qpc,
+                observed_qpc_hns: observed,
+                native_flags: 0,
+            };
+            tx.push_native(packet, vec![1; 480]).unwrap();
+            assert_eq!(tx.shared.unverified.get().is_some(), expected_unverified);
+            if expected_unverified {
+                assert!(tx
+                    .shared
+                    .unverified
+                    .get()
+                    .unwrap()
+                    .reason
+                    .contains("predates native origin"));
+            } else {
+                assert!(tx.shared.witness.get().is_some());
+                assert_eq!(tx.preroll_packets, 1);
+            }
+        }
+    }
+
     #[test]
     fn registration_projection_keeps_integer_epoch_and_no_implicit_origin() {
         let id = Uuid::new_v4();

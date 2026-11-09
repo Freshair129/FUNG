@@ -1,5 +1,5 @@
 ---
-version: "0.1.2b"
+version: "0.1.3b"
 created_at: "2026-11-07"
 last_update: "2026-11-09"
 status: "candidate"
@@ -403,6 +403,10 @@ This is routing-plan Task 4. It needs the owner's machine with a second output
 endpoint and an installed candidate. **Stop point:** the lead prepares the
 runbook and the candidate, and the owner runs or approves the session.
 
+For routed capture, native frame numbering starts at the measured pre-Start QPC
+minus the unchanged maximum-future bound, so an admissible pre-origin packet
+keeps its true offset for exact preroll clipping at the shared recording cut.
+
 The routed sink holds 512 packets (about 5 seconds at the observed ~10 ms
 packet cadence) to absorb the ~1.6-second private-spool sync stall while
 keeping overflow fail-closed.
@@ -428,5 +432,6 @@ merge of release candidates remain owner actions.
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 0.1.3b | 2026-11-09 | Documented the routed native frame base needed to preserve admissible pre-origin packet offsets and exact shared-cut preroll clipping. |
 | 0.1.2b | 2026-11-09 | Recorded 512-packet routed sink headroom to absorb observed private-spool sync stalls while preserving fail-closed overflow. |
 | 0.1.1b | 2026-11-08 | Documented first-run project creation before routed capture. |

@@ -73,6 +73,34 @@ function createRoutedRouteDraft(): RoutedRouteDraft {
   };
 }
 
+function routePlanSourceIds(plan: CaptureRoutePlan): string[] {
+  return [
+    ...plan.routes.map((route) => route.sourceId),
+    ...(plan.microphone ? [plan.microphone.sourceId] : []),
+  ];
+}
+
+/**
+ * Source ids are single-use. Once a plan reaches native start, native may have
+ * registered its ids to that recording, so every id in it is spent whatever the
+ * outcome. Native rejects a spent id; the UI must never send one again.
+ */
+function freshSourceIdsFor(plan: CaptureRoutePlan): Map<string, string> {
+  return new Map(routePlanSourceIds(plan).map((sourceId) => [sourceId, crypto.randomUUID()]));
+}
+
+function withReplacedSourceId<T extends { sourceId: string }>(row: T, replacements: ReadonlyMap<string, string>): T {
+  const sourceId = replacements.get(row.sourceId);
+  return sourceId ? { ...row, sourceId } : row;
+}
+
+function routePlanSourceLabels(plan: CaptureRoutePlan): Record<string, string> {
+  const labels: Record<string, string> = {};
+  for (const route of plan.routes) labels[route.sourceId] = route.label;
+  if (plan.microphone) labels[plan.microphone.sourceId] = plan.microphone.label;
+  return labels;
+}
+
 function knownObservation<T>(observation: NativeObservation<T> | null | undefined): T | null {
   return observation?.status === "known" ? observation.value : null;
 }
@@ -156,9 +184,11 @@ function routedDuration(source: RoutedCaptureStatus["sources"][number]): string 
 function RoutedCaptureStatusView({
   status,
   drafts,
+  labels,
 }: {
   status: RoutedCaptureStatus;
   drafts: RoutedRouteDraft[];
+  labels: Readonly<Record<string, string>>;
 }) {
   return (
     <section className="live-workspace__routed-status" aria-label="สถานะการบันทึกผ่านอุปกรณ์เฉพาะ">
@@ -169,7 +199,7 @@ function RoutedCaptureStatusView({
           const draft = drafts.find((row) => row.sourceId === source.sourceId);
           return (
             <p key={`${source.sourceId}:${source.epoch}`}>
-              <strong>{source.kind === "microphone" ? "ไมโครโฟน" : draft?.label.trim() || source.sourceId}</strong>
+              <strong>{source.kind === "microphone" ? "ไมโครโฟน" : labels[source.sourceId] || draft?.label.trim() || source.sourceId}</strong>
               {" · "}{routedSourceState(source)}
               {" · เสียงที่บันทึกได้ "}{routedDuration(source)}
             </p>
@@ -496,6 +526,7 @@ export function LiveWorkspace({
   const [routedStopping, setRoutedStopping] = useState(false);
   const [routeStatusLoading, setRouteStatusLoading] = useState(true);
   const [routedCompletedMessage, setRoutedCompletedMessage] = useState<string | null>(null);
+  const [routedSourceLabels, setRoutedSourceLabels] = useState<Record<string, string>>({});
   const routeInventoryInitialReadRef = useRef(false);
   const routeInventoryRequestRef = useRef(0);
   const [waveformHistory, setWaveformHistory] = useState<{ mic: number[]; system: number[] }>({
@@ -983,6 +1014,21 @@ export function LiveWorkspace({
     }
   };
 
+  const retireSubmittedSourceIds = (plan: CaptureRoutePlan) => {
+    let replacements: Map<string, string>;
+    try {
+      replacements = freshSourceIdsFor(plan);
+    } catch {
+      setRouteError("เบราว์เซอร์นี้สร้างรหัสเส้นทางแบบ UUID ไม่ได้");
+      return;
+    }
+    setRouteDrafts((drafts) => drafts.map((draft) => withReplacedSourceId(draft, replacements)));
+    setRoutedMicrophone((microphone) => withReplacedSourceId(microphone, replacements));
+    // The validated plan named the spent ids; the next start validates fresh ones.
+    setRouteValidation(null);
+    setRouteValidationPlanKey(null);
+  };
+
   const removeSecondRouteDraft = () => {
     if (routeDrafts.length !== 2 || captureBusy) return;
     setRouteDrafts((drafts) => drafts.slice(0, 1));
@@ -1011,6 +1057,8 @@ export function LiveWorkspace({
 
   const startRoutedCapture = async () => {
     if (!activeRoutePlan || !canStartRoutedCapture) return;
+    const plan = activeRoutePlan;
+    let submitted = false;
     setRoutedStarting(true);
     setRouteError(null);
     setRoutedCompletedMessage(null);
@@ -1023,13 +1071,16 @@ export function LiveWorkspace({
       if (!targetProjectId) {
         throw new Error("เลือกโครงการก่อนเริ่มบันทึก");
       }
-      const status = await captureRouteStart(targetProjectId, activeRoutePlan);
+      setRoutedSourceLabels(routePlanSourceLabels(plan));
+      submitted = true;
+      const status = await captureRouteStart(targetProjectId, plan);
       setRoutedStatus(status);
       setRoutedActive(true);
       setCaptureSourceMode("routed");
     } catch (error) {
       setRouteError(routeErrorText(error));
     } finally {
+      if (submitted) retireSubmittedSourceIds(plan);
       setRoutedStarting(false);
     }
   };
@@ -1515,7 +1566,7 @@ export function LiveWorkspace({
                     <p className="live-workspace__notice" role="status">{routedCompletedMessage}</p>
                   ) : null}
                   {routedStatus && !routeCaptureBusy ? (
-                    <RoutedCaptureStatusView status={routedStatus} drafts={routeDrafts} />
+                    <RoutedCaptureStatusView status={routedStatus} drafts={routeDrafts} labels={routedSourceLabels} />
                   ) : null}
                   <button
                     type="button"
@@ -1540,7 +1591,7 @@ export function LiveWorkspace({
           ) : (
             <div className="live-workspace__capture-monitor" aria-label="เสียงที่กำลังบันทึก">
               {routeCaptureBusy && routedStatus ? (
-                <RoutedCaptureStatusView status={routedStatus} drafts={routeDrafts} />
+                <RoutedCaptureStatusView status={routedStatus} drafts={routeDrafts} labels={routedSourceLabels} />
               ) : routeStatusLoading ? (
                 <p className="live-workspace__muted" role="status">กำลังตรวจสถานะการบันทึกผ่านอุปกรณ์เฉพาะ…</p>
               ) : routedStarting ? (

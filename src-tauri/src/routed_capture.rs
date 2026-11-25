@@ -310,6 +310,16 @@ fn strict(
 fn source_count(plan: &CaptureRoutePlan) -> usize {
     plan.routes.len() + usize::from(plan.microphone.is_some())
 }
+/// Sources this run owns custody of. A rejected registration owns none, so
+/// cleanup never looks up or quarantines rows that may belong to another
+/// recording under the same ids.
+fn registered_source_ids(registered: bool, plan: &CaptureRoutePlan) -> Vec<String> {
+    if registered {
+        source_ids(plan)
+    } else {
+        vec![]
+    }
+}
 fn source_ids(plan: &CaptureRoutePlan) -> Vec<String> {
     let mut sources = plan
         .routes
@@ -616,6 +626,9 @@ pub(crate) fn start(
     if ga::active_capture(&storage, &project_id)?.is_some() {
         return Err("project already has an unfinished recording".into());
     }
+    // Source ids are single-use. Reject reuse before any recording, job or
+    // custody row exists, so a rejected start owns nothing and touches nothing.
+    custody::reject_registered_source_ids(&storage, &source_ids(&plan))?;
     // Fresh native facts, never a client-supplied inventory/validated token.
     let admission = strict(&plan)?;
     let recording = Uuid::new_v4().to_string();
@@ -981,7 +994,7 @@ fn coordinate(
             &storage,
             &ids.project_id,
             &ids.recording_id,
-            &source_ids(&plan),
+            &registered_source_ids(registered, &plan),
             &shared,
         );
         let reason = lock(&shared.status).first_failure.clone();

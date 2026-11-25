@@ -1,7 +1,7 @@
 ---
-version: "0.1.3b"
+version: "0.1.4b"
 created_at: "2026-11-07"
-last_update: "2026-11-09"
+last_update: "2026-11-25"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -117,7 +117,13 @@ UI spec:
    `contracts.ts` with no untranslated fallback text. `staleInventory` and
    `staleProcess` prompt the user to refresh. Generate `sourceId` with
    `crypto.randomUUID()` per row, keep it while the row is unchanged, and
-   regenerate it when the row's app or endpoint changes.
+   regenerate it when the row's app or endpoint changes. Source ids are
+   single-use: once a plan reaches `capture_route_start`, every id in it
+   (routes and microphone) is spent whatever the outcome, and the UI replaces
+   them with fresh ids and clears the validation, so the next recording is
+   validated and started with new ids. Native rejects a spent id before it
+   writes any recording, job or custody row, and a rejected registration never
+   runs source quarantine.
 4. Start is enabled only after a successful validation of the current plan.
    Any edit invalidates it. Start calls `capture_route_start` with the active
    project id; if none is selected, Live creates and selects a project using
@@ -432,6 +438,7 @@ merge of release candidates remain owner actions.
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 0.1.4b | 2026-11-25 | Made routed source ids single-use per start: the UI issues fresh ids after each submitted plan, native rejects a spent id before writing rows, and a rejected registration never quarantines another recording's sources. |
 | 0.1.3b | 2026-11-09 | Documented the routed native frame base needed to preserve admissible pre-origin packet offsets and exact shared-cut preroll clipping. |
 | 0.1.2b | 2026-11-09 | Recorded 512-packet routed sink headroom to absorb observed private-spool sync stalls while preserving fail-closed overflow. |
 | 0.1.1b | 2026-11-08 | Documented first-run project creation before routed capture. |

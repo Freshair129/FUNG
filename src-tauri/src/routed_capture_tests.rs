@@ -2068,3 +2068,137 @@ fn three_source_closure_completes_two_routes_and_microphone() {
 fn microphone_fault_quarantines_it_and_makes_three_source_recording_partial() {
     exercise_three_source_closure(true);
 }
+
+const CUSTODY_COLUMNS: [&str; 10] = [
+    "project_id",
+    "recording_id",
+    "capture_epoch",
+    "registration_attempt",
+    "state",
+    "closed_at",
+    "last_sequence",
+    "checkpoint_revision",
+    "quarantine_json",
+    "updated_at",
+];
+fn custody_row(f: &Fixture, source: &str) -> serde_json::Value {
+    let rows = ga::query(
+        &f.storage,
+        "capture_sources",
+        &CUSTODY_COLUMNS,
+        vec![ga::eq("capture_sources", "id", json!(source))],
+        2,
+    )
+    .unwrap();
+    assert_eq!(rows.len(), 1);
+    rows[0].clone()
+}
+/// A finished routed recording whose source ids the UI may resend unchanged.
+fn finished_recording_with_source(f: &Fixture, kind: &str) -> (String, String) {
+    let recording = Uuid::new_v4().to_string();
+    start_rows(
+        &f.storage,
+        &f.project,
+        &recording,
+        &Uuid::new_v4().to_string(),
+        &f.root,
+    )
+    .unwrap();
+    let source = Uuid::new_v4().to_string();
+    custody::register_capture_sources(
+        &f.storage,
+        &attempt(&f.storage).unwrap(),
+        &f.project,
+        &recording,
+        &[CaptureSourceRegistration {
+            id: source.clone(),
+            epoch: 1,
+            kind: kind.into(),
+            endpoint_id: Some(format!("{kind}-endpoint")),
+            label: "source".into(),
+            sample_rate: i64::from(RATE),
+            clock_origin_qpc_hns: "1234".into(),
+            metadata: json!({}),
+        }],
+    )
+    .unwrap();
+    recording_terminal(&f.storage, &recording, "completed").unwrap();
+    (recording, source)
+}
+fn count(f: &Fixture, table: &str) -> usize {
+    ga::query(&f.storage, table, &["id"], vec![], 100)
+        .unwrap()
+        .len()
+}
+#[test]
+fn reused_source_id_is_rejected_before_any_row_and_leaves_prior_custody_intact() {
+    for kind in ["endpoint", "microphone"] {
+        let f = fixture();
+        let (prior, source) = finished_recording_with_source(&f, kind);
+        let before = custody_row(&f, &source);
+        let (recordings, jobs, events) = (
+            count(&f, "recordings"),
+            count(&f, "jobs"),
+            count(&f, "audit_events"),
+        );
+        let mut p = plan();
+        if kind == "endpoint" {
+            p.routes[0].source_id = source.clone();
+        } else {
+            p.microphone = Some(routing::CaptureMicrophone {
+                source_id: source.clone(),
+                label: "mic".into(),
+                endpoint_id: "mic-endpoint".into(),
+            });
+        }
+        let guard = Arc::new(NativeCaptureGuard::default());
+        let error = match start(f.storage.clone(), f.project.clone(), p, guard.clone()) {
+            Err(routing::RouteStartError::Message(message)) => message,
+            Err(other) => panic!("unexpected rejection {other:?}"),
+            Ok(_) => panic!("reused {kind} source id must be rejected"),
+        };
+        assert!(
+            error.contains("already belongs to another recording"),
+            "{error}"
+        );
+        assert!(!guard.capture_is_active());
+        // A rejected start creates no recording, job or audit row of its own.
+        assert_eq!(count(&f, "recordings"), recordings);
+        assert_eq!(count(&f, "jobs"), jobs);
+        assert_eq!(count(&f, "audit_events"), events);
+        assert_eq!(custody_row(&f, &source), before);
+        assert_eq!(before["capture_sources.recording_id"], json!(prior));
+        assert!(before["capture_sources.quarantine_json"].is_null());
+        assert_eq!(ga::capture(&f.storage, &prior).unwrap().status, "completed");
+    }
+}
+#[test]
+fn failed_registration_cleanup_never_quarantines_another_recordings_source() {
+    let f = fixture();
+    let (prior, source) = finished_recording_with_source(&f, "endpoint");
+    let before = custody_row(&f, &source);
+    let mut p = plan();
+    p.routes[0].source_id = source.clone();
+    // A run whose registration was rejected owns no source custody.
+    assert!(registered_source_ids(false, &p).is_empty());
+    assert_eq!(registered_source_ids(true, &p), source_ids(&p));
+    // Defense in depth: even if cleanup were handed a foreign id, the scope
+    // check refuses before any custody write.
+    let next = Uuid::new_v4().to_string();
+    let shared = recovery_shared(&source);
+    shared.fail(Some(&source), "registration rejected");
+    quarantine_affected_sources(
+        &f.storage,
+        &f.project,
+        &next,
+        std::slice::from_ref(&source),
+        &shared,
+    );
+    assert!(lock(&shared.status)
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("quarantine source scope changed")));
+    assert_eq!(custody_row(&f, &source), before);
+    assert_eq!(before["capture_sources.recording_id"], json!(prior));
+    assert!(before["capture_sources.quarantine_json"].is_null());
+}

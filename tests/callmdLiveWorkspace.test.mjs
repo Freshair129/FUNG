@@ -117,7 +117,7 @@ const panel = runCommonJs(
 );
 
 const workspace = runCommonJs(
-  transpile(`${workspaceSource}\nexport { routePlanForDrafts, createRoutedRouteDraft, routedSourceState, routedDuration, routeStatusIsActive };`, liveWorkspacePath),
+  transpile(`${workspaceSource}\nexport { routePlanForDrafts, createRoutedRouteDraft, routedSourceState, routedDuration, routeStatusIsActive, routePlanSourceIds, freshSourceIdsFor, withReplacedSourceId, routePlanSourceLabels };`, liveWorkspacePath),
   liveWorkspacePath,
   {
     react: reactStub,
@@ -314,13 +314,17 @@ test("routed start waits for close acknowledgement and resolves only a missing p
       captureRouteStart: async (id, actualPlan) => { calls.push(["start", id, actualPlan]); return {}; },
       setRoutedStarting() {}, setRouteError() {}, setRoutedCompletedMessage() {},
       setRoutedStatus() {}, setRoutedActive() {}, setCaptureSourceMode() {}, routeErrorText: String,
+      setRoutedSourceLabels() {}, routePlanSourceLabels: () => ({}),
+      retireSubmittedSourceIds: (spent) => calls.push(["retire", spent]),
     };
     const js = transpile(`const start = ${workspaceInitializer("startRoutedCapture")};`, "start.ts");
     const pending = vm.runInNewContext(`${js}\nstart()`, context);
     assert.deepEqual(calls, ["close"]);
     acknowledge({ closed: true });
     await pending;
-    assert.deepEqual(calls, projectId ? ["close", ["start", projectId, plan]] : ["close", "ensure", ["start", "new-project", plan]]);
+    assert.deepEqual(calls, projectId
+      ? ["close", ["start", projectId, plan], ["retire", plan]]
+      : ["close", "ensure", ["start", "new-project", plan], ["retire", plan]]);
   }
 });
 
@@ -335,11 +339,102 @@ test("routed project creation failure uses route error and never starts capture"
     setRoutedStarting() {}, setRouteError: (value) => errors.push(value), setRoutedCompletedMessage() {},
     setRoutedStatus() {}, setRoutedActive() {}, setCaptureSourceMode() {},
     routeErrorText: (error) => `route: ${error.message}`,
+    setRoutedSourceLabels() {}, routePlanSourceLabels: () => ({}),
+    retireSubmittedSourceIds: () => { retired++; },
   };
+  let retired = 0;
   const js = transpile(`const start = ${workspaceInitializer("startRoutedCapture")};`, "start.ts");
   await vm.runInNewContext(`${js}\nstart()`, context);
   assert.deepEqual(errors, [null, "route: creation failed"]);
   assert.equal(starts, 0);
+  // Ids never reached native, so they are not spent.
+  assert.equal(retired, 0);
+});
+
+test("a submitted plan's source ids are spent even when native start rejects it", async () => {
+  const calls = [];
+  const plan = { routes: [{ sourceId: "spent-route", label: "Meeting" }], microphone: null };
+  const context = {
+    projectId: "project", activeRoutePlan: plan, canStartRoutedCapture: true,
+    closeReviewPlayer: async () => ({ closed: true }),
+    captureRouteStart: async () => { calls.push("start"); throw new Error("source UUID already belongs to another recording/epoch"); },
+    setRoutedStarting() {}, setRouteError: (value) => calls.push(["error", value]), setRoutedCompletedMessage() {},
+    setRoutedStatus() {}, setRoutedActive: () => calls.push("active"), setCaptureSourceMode() {},
+    routeErrorText: (error) => error.message,
+    setRoutedSourceLabels: (labels) => calls.push(["labels", labels]),
+    routePlanSourceLabels: workspace.routePlanSourceLabels,
+    retireSubmittedSourceIds: (spent) => calls.push(["retire", spent]),
+  };
+  const js = transpile(`const start = ${workspaceInitializer("startRoutedCapture")};`, "start.ts");
+  await vm.runInNewContext(`${js}\nstart()`, context);
+  assert.deepEqual(calls.map((call) => (Array.isArray(call) ? call[0] : call)), ["error", "labels", "start", "error", "retire"]);
+  assert.equal(calls.find((call) => call[0] === "retire")[1], plan);
+  assert.equal(calls.at(-2)[1], "source UUID already belongs to another recording/epoch");
+  assert.deepEqual({ ...calls.find((call) => call[0] === "labels")[1] }, { "spent-route": "Meeting" });
+});
+
+test("a second routed recording with unchanged routes sends only fresh source ids", () => {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const identity = { pid: 41, creationFiletime: "123", imagePath: "C:\\app.exe", imageFileId: "1" };
+  const identities = new Map([[41, identity], [42, { ...identity, pid: 42 }]]);
+  let drafts = [
+    { ...workspace.createRoutedRouteDraft(), processId: 41, endpointId: "out-1", label: "Meeting" },
+    { ...workspace.createRoutedRouteDraft(), processId: 42, endpointId: "out-2", label: "Music" },
+  ];
+  let microphone = { endpointId: "input", sourceId: globalThis.crypto.randomUUID() };
+  const first = workspace.routePlanForDrafts(drafts, identities, microphone);
+  const spent = new Set(workspace.routePlanSourceIds(first));
+  assert.equal(spent.size, 3);
+
+  const replacements = workspace.freshSourceIdsFor(first);
+  drafts = drafts.map((draft) => workspace.withReplacedSourceId(draft, replacements));
+  microphone = workspace.withReplacedSourceId(microphone, replacements);
+  const second = workspace.routePlanForDrafts(drafts, identities, microphone);
+  const fresh = workspace.routePlanSourceIds(second);
+  assert.equal(new Set(fresh).size, 3);
+  for (const id of fresh) {
+    assert.match(id, uuid);
+    assert.ok(!spent.has(id), `source id ${id} was already sent to native start`);
+  }
+  // Only the ids change; the user's routes, labels and microphone stay as chosen.
+  const shape = (plan) => JSON.stringify({
+    routes: plan.routes.map(({ sourceId, ...route }) => route),
+    microphone: plan.microphone && { ...plan.microphone, sourceId: undefined },
+  });
+  assert.equal(shape(second), shape(first));
+
+  // An unused microphone slot has no id to spend.
+  const noMicrophone = { endpointId: "", sourceId: "" };
+  assert.equal(workspace.withReplacedSourceId(noMicrophone, replacements), noMicrophone);
+});
+
+test("retiring spent ids replaces them in drafts, clears validation and keeps the start error", () => {
+  const calls = [];
+  const state = {
+    drafts: [{ processId: 41, endpointId: "out", label: "Meeting", sourceId: "spent-route" }],
+    microphone: { endpointId: "input", sourceId: "spent-mic" },
+  };
+  const context = {
+    freshSourceIdsFor: workspace.freshSourceIdsFor,
+    withReplacedSourceId: workspace.withReplacedSourceId,
+    setRouteDrafts: (update) => { state.drafts = update(state.drafts); },
+    setRoutedMicrophone: (update) => { state.microphone = update(state.microphone); },
+    setRouteValidation: (value) => calls.push(["validation", value]),
+    setRouteValidationPlanKey: (value) => calls.push(["planKey", value]),
+    setRouteError: (value) => calls.push(["error", value]),
+  };
+  const js = transpile(`const retire = ${workspaceInitializer("retireSubmittedSourceIds")};`, "retire.ts");
+  vm.runInNewContext(`${js}\nretire({ routes: [{ sourceId: "spent-route" }], microphone: { sourceId: "spent-mic" } })`, context);
+  assert.match(state.drafts[0].sourceId, /^[0-9a-f-]{36}$/);
+  assert.match(state.microphone.sourceId, /^[0-9a-f-]{36}$/);
+  assert.equal(state.drafts[0].label, "Meeting");
+  assert.equal(state.microphone.endpointId, "input");
+  assert.deepEqual(calls, [["validation", null], ["planKey", null]]);
+});
+
+test("routed status keeps the labels of the plan it started with", () => {
+  assert.match(workspaceSource, /labels\[source\.sourceId\] \|\| draft\?\.label\.trim\(\) \|\| source\.sourceId/);
+  assert.equal((workspaceSource.match(/<RoutedCaptureStatusView status=\{routedStatus\} drafts=\{routeDrafts\} labels=\{routedSourceLabels\} \/>/g) ?? []).length, 2);
 });
 
 test("App supplies project creation through LiveMeetingPanel to LiveWorkspace", async () => {

@@ -289,6 +289,18 @@ fn load_active_registration(
     Err("custody changed during all three active registration reads".into())
 }
 /// Native caller supplies already admitted identities; this API grants no Windows authority.
+/// Read-only start preflight. A source UUID names exactly one recording/epoch,
+/// so a plan that reuses a registered id is rejected before any recording,
+/// job or custody row is written. Registration repeats this check atomically.
+pub(crate) fn reject_registered_source_ids(s: &Storage, ids: &[String]) -> Result<(), String> {
+    for id in ids {
+        uuid(id)?;
+        if !rows(s, "capture_sources", "id", id)?.is_empty() {
+            return Err("source UUID already belongs to another recording/epoch".into());
+        }
+    }
+    Ok(())
+}
 pub fn register_capture_sources(
     s: &Storage,
     a: &SourceCommitAttempt,

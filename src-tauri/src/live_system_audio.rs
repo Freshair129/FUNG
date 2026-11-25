@@ -73,7 +73,7 @@ impl EndpointCaptureFlow {
     }
 }
 
-use crate::endpoint_packet_sink::{EndpointPacketProducer, PacketStamp};
+use crate::endpoint_packet_sink::{EndpointPacketProducer, PacketStamp, SinkFault};
 fn validate_sink_selection(
     selection: &EndpointSelection,
     sink: &Option<EndpointPacketProducer>,
@@ -105,6 +105,11 @@ struct NativePacketObservation {
     observed_now_hns: u64,
     flags: u32,
 }
+/// The native worker's stream failure text for a sink fault. Routed capture
+/// reuses it to attribute a guard rejection to the fault that stopped the stream.
+pub(crate) fn packet_sink_failure(fault: &SinkFault) -> String {
+    format!("source packet sink failed: {fault:?}")
+}
 fn dispatch_endpoint_packet(
     packet_sink: &mut Option<EndpointPacketProducer>,
     batch: CaptureSampleBatch,
@@ -123,7 +128,7 @@ fn dispatch_endpoint_packet(
             },
             batch.samples,
         )
-        .map_err(|fault| format!("source packet sink failed: {fault:?}"))
+        .map_err(|fault| packet_sink_failure(&fault))
     } else {
         legacy(batch);
         Ok(())

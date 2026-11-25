@@ -761,6 +761,7 @@ fn coordinate(
     let expected_sources = source_count(&plan);
     let mut progress_handles: Vec<(String, WriterProgressHandle)> =
         Vec::with_capacity(expected_sources);
+    let mut sink_faults: Vec<(String, sink::SinkFaultProbe)> = Vec::with_capacity(expected_sources);
     let execution = (|| -> Result<(), ExecutionFailure> {
         let origin = qpc()?.checked_add(ORIGIN_LEAD_HNS).ok_or("QPC overflow")?;
         let mut registrations = Vec::with_capacity(source_count(&plan));
@@ -839,6 +840,7 @@ fn coordinate(
             let spool = PrivateSpool::new_under_project(&project_root, &private)?;
             let (producer, receiver) = sink::packet_channel(ticket.scope().clone(), QUEUE_CAPACITY)
                 .map_err(|error| format!("sink channel: {error:?}"))?;
+            sink_faults.push((reg.id.clone(), receiver.fault_probe()));
             let state = shared.clone();
             let join = thread::Builder::new()
                 .name(format!("fung-routed-{}", reg.id))
@@ -850,7 +852,7 @@ fn coordinate(
                 .map_err(|error| format!("source worker spawn: {error}"))?;
             workers.joins.push(join);
         }
-        await_ready(&observer, &plan, &shared, origin)?;
+        await_ready(&observer, &plan, &shared, &sink_faults, origin)?;
         lease
             .reservation
             .take()
@@ -860,7 +862,8 @@ fn coordinate(
         lock(&shared.status).phase = "recording".into();
         while !shared.stop.load(Ordering::SeqCst) {
             let check = Instant::now();
-            validate_runtime(&observer, &plan, &shared).map_err(|_| ExecutionFailure::Recorded)?;
+            validate_runtime(&observer, &plan, &shared, &sink_faults)
+                .map_err(|_| ExecutionFailure::Recorded)?;
             if qpc()? >= origin.saturating_add(86400 * 10_000_000) {
                 return Err("maximum 24-hour capture reached".into());
             }
@@ -1204,19 +1207,47 @@ fn validate_runtime(
     observer: &NativeGroupObserver,
     plan: &CaptureRoutePlan,
     shared: &Shared,
+    sink_faults: &[(String, sink::SinkFaultProbe)],
 ) -> Result<(), String> {
     validate_runtime_decisions(
         plan,
         shared,
         || observer.ready(),
         |source| observer.validate_source(source),
+        |source| recorded_sink_failure(sink_faults, source),
     )
 }
+fn recorded_sink_failure(
+    sink_faults: &[(String, sink::SinkFaultProbe)],
+    source: &str,
+) -> Option<String> {
+    sink_faults
+        .iter()
+        .find(|(id, _)| id == source)
+        .and_then(|(_, probe)| probe.fault())
+        .map(|fault| native_sink_failure(&fault))
+}
+/// Same text the source worker publishes when it later reads the native
+/// worker's `StreamFailed` event, so both paths record one cause.
+fn native_sink_failure(fault: &sink::SinkFault) -> String {
+    format!(
+        "native capture: {}",
+        crate::live_system_audio::packet_sink_failure(fault)
+    )
+}
+/// `sink_fault` reports a source's already-recorded sink fault. A sink fault
+/// makes the native worker stop its own stream and revoke its lease, so the
+/// next guard poll sees that session Inactive or revoked, or the group not
+/// ready (#112). The writer that would publish the fault may
+/// be blocked (for example in a spool sync), so a rejected source with a sink
+/// fault fails with that fault instead of the guard's secondary symptom. It
+/// still fails closed either way.
 fn validate_runtime_decisions(
     plan: &CaptureRoutePlan,
     shared: &Shared,
     mut ready: impl FnMut() -> bool,
     mut validate_source: impl FnMut(&str) -> Result<routing::ValidatedRoutePlan, routing::RouteError>,
+    mut sink_fault: impl FnMut(&str) -> Option<String>,
 ) -> Result<(), String> {
     if shared.cancelling() {
         return Ok(());
@@ -1224,6 +1255,18 @@ fn validate_runtime_decisions(
     if !ready() {
         if shared.cancelling() {
             return Ok(());
+        }
+        // A faulted producer revokes its own lease when it stops its stream,
+        // so not-ready can be that source's sink fault seen early.
+        let faulted = plan
+            .routes
+            .iter()
+            .map(|route| route.source_id.as_str())
+            .chain(plan.microphone.iter().map(|mic| mic.source_id.as_str()))
+            .find_map(|source| sink_fault(source).map(|reason| (source.to_owned(), reason)));
+        if let Some((source, reason)) = faulted {
+            shared.fail(Some(&source), &reason);
+            return Err(reason);
         }
         let reason = "native owner group revoked or not ready";
         shared.fail(None, reason);
@@ -1242,10 +1285,12 @@ fn validate_runtime_decisions(
             return Ok(());
         }
         let validated = result.map_err(|error| {
-            let reason = format!(
-                "source {} runtime route: {}",
-                route.source_id, error.message
-            );
+            let reason = sink_fault(&route.source_id).unwrap_or_else(|| {
+                format!(
+                    "source {} runtime route: {}",
+                    route.source_id, error.message
+                )
+            });
             shared.fail(Some(&route.source_id), &reason);
             reason
         })?;
@@ -1264,6 +1309,7 @@ fn await_ready(
     observer: &NativeGroupObserver,
     plan: &CaptureRoutePlan,
     shared: &Shared,
+    sink_faults: &[(String, sink::SinkFaultProbe)],
     origin: u64,
 ) -> Result<(), ExecutionFailure> {
     loop {
@@ -1283,7 +1329,8 @@ fn await_ready(
                 .iter()
                 .all(|source| source.ready)
         {
-            validate_runtime(observer, plan, shared).map_err(|_| ExecutionFailure::Recorded)?;
+            validate_runtime(observer, plan, shared, sink_faults)
+                .map_err(|_| ExecutionFailure::Recorded)?;
             if qpc()? >= origin {
                 return Err("runtime admission missed original common origin".into());
             }

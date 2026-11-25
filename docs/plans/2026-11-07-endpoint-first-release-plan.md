@@ -1,7 +1,7 @@
 ---
-version: "0.1.3b"
+version: "0.1.4b"
 created_at: "2026-11-07"
-last_update: "2026-11-09"
+last_update: "2026-11-25"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -411,6 +411,15 @@ The routed sink holds 512 packets (about 5 seconds at the observed ~10 ms
 packet cadence) to absorb the ~1.6-second private-spool sync stall while
 keeping overflow fail-closed.
 
+A sink fault (for example QueueFull) makes the native worker stop its own
+stream and revoke its lease, so the next runtime-guard poll can see that
+session Inactive, the owner revoked during the decision, or the group not
+ready. The source worker that would publish the fault can still be blocked in
+a spool sync. When the guard rejects a source, or reports the group not ready,
+and a source's sink already holds a fault, routed capture records that sink
+fault as that source's first failure instead of the guard message (#112). The
+source still fails closed, and the guard predicate does not change.
+
 ## Open gaps recorded
 
 - E2.3 (PID Archive badge) is stopped. Native writes `recording.source =
@@ -432,6 +441,7 @@ merge of release candidates remain owner actions.
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 0.1.4b | 2026-11-25 | Recorded sink-fault attribution for runtime-guard rejections caused by a source stopping its own stream (#112). |
 | 0.1.3b | 2026-11-09 | Documented the routed native frame base needed to preserve admissible pre-origin packet offsets and exact shared-cut preroll clipping. |
 | 0.1.2b | 2026-11-09 | Recorded 512-packet routed sink headroom to absorb observed private-spool sync stalls while preserving fail-closed overflow. |
 | 0.1.1b | 2026-11-08 | Documented first-run project creation before routed capture. |

@@ -1803,6 +1803,7 @@ fn runtime_cancellation_race(
                 message: "controlled observer decision".into(),
             })
         },
+        |_| None,
     );
     worker.join().unwrap();
     (shared, b, result)
@@ -1836,6 +1837,209 @@ fn runtime_independent_policy_rejection_is_retained_despite_peer_cancellation() 
     );
 }
 
+fn guard_rejection_with_sink_fault(
+    sink_fault: Option<String>,
+) -> (Arc<Shared>, String, Result<(), String>) {
+    let p = plan();
+    let a = p.routes[0].source_id.clone();
+    let shared = recovery_shared(&a);
+    shared.stop.store(false, Ordering::SeqCst);
+    let result = validate_runtime_decisions(
+        &p,
+        &shared,
+        || true,
+        |_| {
+            Err(routing::RouteError {
+                code: routing::Rejection::InventoryError,
+                message: "live native capture instance absent/inactive/ambiguous (endpoint=found; sessions=known:2; proofMatches=active:0,inactive:1,expired:0,unknownState:0; exactActive=0)".into(),
+            })
+        },
+        |source| {
+            assert_eq!(source, a);
+            sink_fault.clone()
+        },
+    );
+    (shared, a, result)
+}
+#[test]
+fn runtime_guard_attributes_own_stream_stop_to_the_earlier_sink_fault() {
+    // #112: a private-spool stall filled the queue, the native worker failed
+    // QueueFull and stopped its own stream, and the 100 ms guard then saw that
+    // session Inactive before the stalled writer could publish the sink fault.
+    let queue_full = "native capture: source packet sink failed: QueueFull { dropped: FrameSpan { start: 1662653, end: 1663133 } }";
+    let (shared, a, result) = guard_rejection_with_sink_fault(Some(queue_full.into()));
+    assert_eq!(result.unwrap_err(), queue_full);
+    assert_eq!(shared.source_failure(&a).as_deref(), Some(queue_full));
+    assert_eq!(
+        lock(&shared.status).first_failure.as_deref(),
+        Some(queue_full)
+    );
+    assert!(
+        shared.stop.load(Ordering::SeqCst),
+        "the source still fails closed"
+    );
+}
+#[test]
+fn issue_112_stalled_writer_overflow_is_reported_as_queue_full_not_guard() {
+    // Replays E5 candidate 8df7468: the writer stalls (never drains), the
+    // routed queue fills at production capacity, the native producer faults
+    // QueueFull and stops its stream, and the guard then sees it Inactive.
+    let p = plan();
+    let a = p.routes[0].source_id.clone();
+    let b = Uuid::new_v4().to_string();
+    let origin = 10_010_000u64;
+    let native_origin = 10_000_000u64;
+    let (mut producer, receiver) = sink::packet_channel(
+        sink::SourcePacketScope::new(
+            Uuid::parse_str(&a).unwrap(),
+            1,
+            "endpoint".into(),
+            RATE,
+            origin,
+        )
+        .unwrap(),
+        QUEUE_CAPACITY,
+    )
+    .unwrap();
+    let healthy = sink::packet_channel(
+        sink::SourcePacketScope::new(
+            Uuid::parse_str(&b).unwrap(),
+            1,
+            "endpoint-b".into(),
+            RATE,
+            origin,
+        )
+        .unwrap(),
+        QUEUE_CAPACITY,
+    )
+    .unwrap();
+    let probes = vec![
+        (b.clone(), healthy.1.fault_probe()),
+        (a.clone(), receiver.fault_probe()),
+    ];
+    producer.bind_native_clock(native_origin, RATE).unwrap();
+    producer
+        .confirm_native_ready(native_origin + 1_000)
+        .unwrap();
+    let stamp = |index: usize| {
+        let first = index as u64 * 480;
+        sink::PacketStamp {
+            first_sample: first,
+            silence_before: None,
+            native_index: first,
+            native_qpc_hns: native_origin + first * 10_000_000 / u64::from(RATE),
+            observed_qpc_hns: if index == 0 {
+                origin - 1
+            } else {
+                origin + first * 10_000_000 / u64::from(RATE)
+            },
+            native_flags: 0,
+        }
+    };
+    // Before the overflow the guard rejection keeps its own reason path.
+    assert_eq!(recorded_sink_failure(&probes, &a), None);
+    for index in 0..QUEUE_CAPACITY {
+        producer.push_native(stamp(index), vec![7; 480]).unwrap();
+    }
+    let fault = producer
+        .push_native(stamp(QUEUE_CAPACITY), vec![7; 480])
+        .unwrap_err();
+    assert!(matches!(fault, sink::SinkFault::QueueFull { .. }));
+    // What the native worker sends as StreamFailed and the stalled source
+    // worker would publish much later.
+    let worker_text = format!(
+        "native capture: {}",
+        crate::live_system_audio::packet_sink_failure(&fault)
+    );
+    assert!(worker_text.starts_with("native capture: source packet sink failed: QueueFull"));
+    assert_eq!(recorded_sink_failure(&probes, &b), None);
+
+    let shared = recovery_shared(&a);
+    shared.stop.store(false, Ordering::SeqCst);
+    let result = validate_runtime_decisions(
+        &p,
+        &shared,
+        || true,
+        |source| {
+            assert_eq!(source, a);
+            Err(routing::RouteError {
+                code: routing::Rejection::InventoryError,
+                message: "live native capture instance absent/inactive/ambiguous (endpoint=found; sessions=known:3; proofMatches=active:0,inactive:1,expired:0,unknownState:0; exactActive=0)".into(),
+            })
+        },
+        |source| recorded_sink_failure(&probes, source),
+    );
+    assert_eq!(result.unwrap_err(), worker_text);
+    assert_eq!(
+        shared.source_failure(&a).as_deref(),
+        Some(worker_text.as_str())
+    );
+    assert_eq!(
+        lock(&shared.status).first_failure.as_deref(),
+        Some(worker_text.as_str())
+    );
+    assert!(
+        shared.stop.load(Ordering::SeqCst),
+        "the group still fails closed"
+    );
+    // The stalled worker wakes and publishes its StreamFailed: one cause stays.
+    shared.fail(Some(&a), &worker_text);
+    assert_eq!(
+        shared.source_failure(&a).as_deref(),
+        Some(worker_text.as_str())
+    );
+    drop(receiver);
+}
+#[test]
+fn group_not_ready_after_own_sink_fault_reports_that_source_fault() {
+    // The faulted producer revokes its lease when it stops its stream, so the
+    // group observer can report not-ready before any per-source decision.
+    let p = plan();
+    let a = p.routes[0].source_id.clone();
+    let shared = recovery_shared(&a);
+    shared.stop.store(false, Ordering::SeqCst);
+    let queue_full = "native capture: source packet sink failed: QueueFull { dropped: FrameSpan { start: 973257, end: 973737 } }";
+    let result = validate_runtime_decisions(
+        &p,
+        &shared,
+        || false,
+        |_| panic!("revoked group must not read per-source decisions"),
+        |source| (source == a).then(|| queue_full.to_owned()),
+    );
+    assert_eq!(result.unwrap_err(), queue_full);
+    assert_eq!(shared.source_failure(&a).as_deref(), Some(queue_full));
+    assert_eq!(shared.global_failure(), None);
+    assert_eq!(
+        lock(&shared.status).first_failure.as_deref(),
+        Some(queue_full)
+    );
+    assert!(shared.stop.load(Ordering::SeqCst));
+}
+#[test]
+fn group_not_ready_without_sink_fault_stays_a_global_failure() {
+    let p = plan();
+    let shared = recovery_shared(&p.routes[0].source_id);
+    shared.stop.store(false, Ordering::SeqCst);
+    let result = validate_runtime_decisions(&p, &shared, || false, |_| panic!("no read"), |_| None);
+    assert_eq!(
+        result.unwrap_err(),
+        "native owner group revoked or not ready"
+    );
+    assert_eq!(
+        shared.global_failure().as_deref(),
+        Some("native owner group revoked or not ready")
+    );
+}
+#[test]
+fn runtime_guard_rejection_without_sink_fault_keeps_guard_reason() {
+    let (shared, a, result) = guard_rejection_with_sink_fault(None);
+    let reason = result.unwrap_err();
+    assert!(reason.starts_with(&format!(
+        "source {a} runtime route: live native capture instance"
+    )));
+    assert_eq!(shared.source_failure(&a).as_deref(), Some(reason.as_str()));
+    assert!(shared.stop.load(Ordering::SeqCst));
+}
 #[test]
 fn cancellation_intent_blocks_observer_reads_before_native_stop_flag_is_set() {
     let p = plan();
@@ -1846,7 +2050,8 @@ fn cancellation_intent_blocks_observer_reads_before_native_stop_flag_is_set() {
         &p,
         &shared,
         || panic!("observer readiness read after cancellation intent"),
-        |_| panic!("source read after cancellation intent")
+        |_| panic!("source read after cancellation intent"),
+        |_| panic!("sink fault read after cancellation intent")
     )
     .is_ok());
     assert!(!shared.stop.load(Ordering::SeqCst));
@@ -1865,7 +2070,8 @@ fn group_cancellation_during_readiness_does_not_create_global_uncertainty() {
             shared.fail(Some(&a), "A native source failed");
             false
         },
-        |_| panic!("revoked source read")
+        |_| panic!("revoked source read"),
+        |_| panic!("sink fault read for revoked group")
     )
     .is_ok());
     assert!(shared.global_failure().is_none());

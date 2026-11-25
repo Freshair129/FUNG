@@ -180,6 +180,18 @@ pub struct EndpointPacketProducer {
     last_observed_hns: Option<u64>,
     finished: bool,
 }
+/// Read-only view of a sink's first fault. The producer records the fault
+/// before it returns the error that makes its native worker stop the stream,
+/// so a holder can see it without waiting for the receiver to drain.
+#[derive(Clone)]
+pub struct SinkFaultProbe {
+    shared: Arc<Shared>,
+}
+impl SinkFaultProbe {
+    pub fn fault(&self) -> Option<SinkFault> {
+        self.shared.fault.get().cloned()
+    }
+}
 pub struct EndpointPacketReceiver {
     scope: Arc<SourcePacketScope>,
     receiver: mpsc::Receiver<EndpointPacket>,
@@ -731,6 +743,11 @@ impl EndpointPacketReceiver {
     pub fn prebarrier_witness(&self) -> Option<&BarrierWitness> {
         self.shared.witness.get()
     }
+    pub fn fault_probe(&self) -> SinkFaultProbe {
+        SinkFaultProbe {
+            shared: self.shared.clone(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1131,6 +1148,23 @@ mod tests {
         assert_eq!(p.frames, FrameSpan { start: 0, end: 24 });
         assert_eq!(p.known_idle_before, None);
         assert_eq!(p.missing_before, None);
+    }
+    #[test]
+    fn fault_probe_sees_overflow_before_the_receiver_drains() {
+        let (mut tx, rx) = seeded(1);
+        let probe = rx.fault_probe();
+        assert_eq!(probe.fault(), None);
+        tx.push_native(stamp(C, None, B + 1000), vec![1; 480])
+            .unwrap();
+        let fault = tx
+            .push_native(stamp(C + 480, None, B + 100000), vec![2; 480])
+            .unwrap_err();
+        // The producer has not finished and nothing was received yet: the
+        // coordinator can still attribute the failure without the writer.
+        assert_eq!(probe.fault(), Some(fault));
+        drop(tx);
+        drop(rx);
+        assert!(matches!(probe.fault(), Some(SinkFault::QueueFull { .. })));
     }
     #[test]
     fn bounded_overflow_reports_visible_dropped_frames_and_drains_accepted_tail() {

@@ -1,5 +1,5 @@
 ---
-version: "0.1.7b"
+version: "0.1.8b"
 created_at: "2026-11-07"
 last_update: "2026-11-25"
 status: "candidate"
@@ -441,6 +441,15 @@ that role move as a warning instead of a source failure, because a role move
 alone is not evidence of captured foreign audio (#126). The audio recorded
 before and after the move is kept, and the warning appears in routed status.
 
+Each source writer commits one 2-second chunk per GenesisBlock transaction and
+holds about 640 ms of packets while that commit runs. GenesisBlock's lookup of
+an existing row's identity used to scan every row revision in the namespace.
+Commit time therefore grew with database age, and a routed recording stopped
+with `QueueOverflow` after about 11 minutes (#135). FUNG pins GenesisBlock
+`41e026b` (branch `fix/row-identity-join-order-on-2cf4855`). That commit is
+`2cf4855` plus the fixed lookup, so chunk commit time stays flat as history
+grows.
+
 ## Open gaps recorded
 
 - E2.3 (PID Archive badge) is stopped. Native writes `recording.source =
@@ -462,6 +471,7 @@ merge of release candidates remain owner actions.
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 0.1.8b | 2026-11-25 | GenesisBlock pin moved to `41e026b` (row identity lookup no longer scans namespace history), so long routed recordings no longer overflow the writer queue (#135). |
 | 0.1.7b | 2026-11-25 | Stop-time admission keeps a route whose endpoint gained a Windows default role mid-capture and reports it as a warning (#126). |
 | 0.1.6b | 2026-11-25 | Routed start carries the transcription language; the Live language selector applies to routed capture (#125). |
 | 0.1.5b | 2026-11-25 | Recorded sink-fault attribution for runtime-guard rejections caused by a source stopping its own stream (#112). |

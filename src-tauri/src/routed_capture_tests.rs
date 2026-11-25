@@ -2159,6 +2159,29 @@ fn group_cancellation_during_readiness_does_not_create_global_uncertainty() {
     assert!(shared.global_failure().is_none());
     assert!(shared.source_failure(&p.routes[0].source_id).is_none());
 }
+/// #126: a default role that Windows moved onto a routed endpoint during
+/// capture is reported at Stop, but it does not fail or quarantine the source.
+#[test]
+fn final_default_role_move_keeps_the_source_and_records_a_warning() {
+    let p = plan();
+    let source = p.routes[0].source_id.clone();
+    let shared = recovery_shared(&source);
+    let passed = check_final_sources(&p, &shared, |_| {
+        Ok(Some(
+            "Windows assigned a default role to this routed endpoint".into(),
+        ))
+    });
+    assert!(passed);
+    assert!(shared.source_failure(&source).is_none());
+    assert!(lock(&shared.status).first_failure.is_none());
+    let warnings = lock(&shared.status).warnings.clone();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains(&source) && w.contains("default role")),
+        "{warnings:?}"
+    );
+}
 fn exercise_post_runtime_finalization(reject_b: bool, global_error: bool) {
     let mut p = plan();
     let a = p.routes[0].source_id.clone();
@@ -2216,7 +2239,7 @@ fn exercise_post_runtime_finalization(reject_b: bool, global_error: bool) {
             if reject_b {
                 Err("B final foreign renderer".into())
             } else {
-                Ok(())
+                Ok(None)
             }
         },
     );

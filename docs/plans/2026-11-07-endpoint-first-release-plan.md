@@ -1,5 +1,5 @@
 ---
-version: "0.1.6b"
+version: "0.1.7b"
 created_at: "2026-11-07"
 last_update: "2026-11-25"
 status: "candidate"
@@ -432,6 +432,15 @@ and a source's sink already holds a fault, routed capture records that sink
 fault as that source's first failure instead of the guard message (#112). The
 source still fails closed, and the guard predicate does not change.
 
+Start rejects a route whose endpoint holds any Windows default role (Console,
+Multimedia or Communications). When the device that held a role disappears,
+for example an unplugged USB headset, Windows can give the role to a routed
+endpoint in the middle of a recording. At Stop, final admission keeps every
+other check, including unknown, system and cross-process sessions, but treats
+that role move as a warning instead of a source failure, because a role move
+alone is not evidence of captured foreign audio (#126). The audio recorded
+before and after the move is kept, and the warning appears in routed status.
+
 ## Open gaps recorded
 
 - E2.3 (PID Archive badge) is stopped. Native writes `recording.source =
@@ -453,6 +462,7 @@ merge of release candidates remain owner actions.
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 0.1.7b | 2026-11-25 | Stop-time admission keeps a route whose endpoint gained a Windows default role mid-capture and reports it as a warning (#126). |
 | 0.1.6b | 2026-11-25 | Routed start carries the transcription language; the Live language selector applies to routed capture (#125). |
 | 0.1.5b | 2026-11-25 | Recorded sink-fault attribution for runtime-guard rejections caused by a source stopping its own stream (#112). |
 | 0.1.4b | 2026-11-25 | Made routed source ids single-use per start: the UI issues fresh ids after each submitted plan, native rejects a spent id before writing rows, and a rejected registration never quarantines another recording's sources. |

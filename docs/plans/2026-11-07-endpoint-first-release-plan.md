@@ -1,5 +1,5 @@
 ---
-version: "0.1.5b"
+version: "0.1.6b"
 created_at: "2026-11-07"
 last_update: "2026-11-25"
 status: "candidate"
@@ -76,7 +76,13 @@ Native contract (already on `main`, `src-tauri/src/capture_routing*.rs`,
   serialized as `{ status: "known", value: T } | { status: "unavailable", value:
   string }` (`#[serde(tag = "status", content = "value")]`).
 - `capture_route_validate({ plan }) -> ValidatedRoutePlan | RouteError`.
-- `capture_route_start({ projectId, plan }) -> RoutedCaptureStatus`.
+- `capture_route_start({ projectId, plan, language }) -> RoutedCaptureStatus`.
+  `language` is `"th"`, `"en"` or `null` (auto-detect); any other value is
+  rejected before a reservation or row exists. The recording stores it, and the
+  routed transcription job passes it to the worker as `--language`. The Live
+  language selector is shown in routed mode too, because routed audio is
+  decoded per 2-second chunk and an unset language is re-detected on every
+  chunk, which made a Thai microphone transcribe as other languages (#125).
 - `capture_route_status() -> RoutedCaptureStatus | null`.
 - `capture_route_stop() -> RoutedCaptureStatus`.
 - `CaptureRoutePlan = { policyVersion: 1, routes: CaptureRoute[] }`, with 1–2
@@ -447,6 +453,7 @@ merge of release candidates remain owner actions.
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 0.1.6b | 2026-11-25 | Routed start carries the transcription language; the Live language selector applies to routed capture (#125). |
 | 0.1.5b | 2026-11-25 | Recorded sink-fault attribution for runtime-guard rejections caused by a source stopping its own stream (#112). |
 | 0.1.4b | 2026-11-25 | Made routed source ids single-use per start: the UI issues fresh ids after each submitted plan, native rejects a spent id before writing rows, and a rejected registration never quarantines another recording's sources. |
 | 0.1.3b | 2026-11-09 | Documented the routed native frame base needed to preserve admissible pre-origin packet offsets and exact shared-cut preroll clipping. |

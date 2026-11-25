@@ -1073,7 +1073,13 @@ export function LiveWorkspace({
       }
       setRoutedSourceLabels(routePlanSourceLabels(plan));
       submitted = true;
-      const status = await captureRouteStart(targetProjectId, plan);
+      // #125: the routed transcript is decoded per chunk, so an unset
+      // language is re-detected on every chunk of the microphone.
+      const status = await captureRouteStart(
+        targetProjectId,
+        plan,
+        language === "auto" ? undefined : language,
+      );
       setRoutedStatus(status);
       setRoutedActive(true);
       setCaptureSourceMode("routed");
@@ -1501,16 +1507,20 @@ export function LiveWorkspace({
                   <p className="live-workspace__device-issue" role="status">{captureDevices.issue}</p>
                 ) : null}
               </div>
+              <label className="live-workspace__field">
+                <span>ภาษา</span>
+                <select
+                  value={language}
+                  disabled={captureSourceMode === "routed" && routeCaptureBusy}
+                  onChange={(event) => setLanguage(event.target.value)}
+                >
+                  <option value="auto">ตรวจอัตโนมัติ</option>
+                  <option value="th">ไทย</option>
+                  <option value="en">อังกฤษ</option>
+                </select>
+              </label>
               {captureSourceMode !== "routed" ? (
                 <>
-                  <label className="live-workspace__field">
-                    <span>ภาษา</span>
-                    <select value={language} onChange={(event) => setLanguage(event.target.value)}>
-                      <option value="auto">ตรวจอัตโนมัติ</option>
-                      <option value="th">ไทย</option>
-                      <option value="en">อังกฤษ</option>
-                    </select>
-                  </label>
                   <label className="live-workspace__field">
                     <span>รูปแบบ transcript สด</span>
                     <select

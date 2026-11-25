@@ -1206,9 +1206,10 @@ export async function captureRouteValidate(plan: CaptureRoutePlan): Promise<Vali
 export async function captureRouteStart(
   projectId: string,
   plan: CaptureRoutePlan,
+  language?: string,
 ): Promise<RoutedCaptureStatus> {
   if (!canInvoke()) throw new Error("การบันทึกผ่านอุปกรณ์เฉพาะต้องรันในแอปเดสก์ท็อป");
-  return invoke<RoutedCaptureStatus>("capture_route_start", { projectId, plan });
+  return invoke<RoutedCaptureStatus>("capture_route_start", { projectId, plan, language: language ?? null });
 }
 
 export async function captureRouteStatus(): Promise<RoutedCaptureStatus | null> {

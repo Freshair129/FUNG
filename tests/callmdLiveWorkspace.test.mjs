@@ -308,7 +308,7 @@ test("routed start waits for close acknowledgement and resolves only a missing p
     const closePromise = new Promise((resolve) => { acknowledge = resolve; });
     const plan = { routes: [] };
     const context = {
-      projectId, activeRoutePlan: plan, canStartRoutedCapture: true,
+      projectId, activeRoutePlan: plan, canStartRoutedCapture: true, language: "auto",
       closeReviewPlayer: () => { calls.push("close"); return closePromise; },
       ensureProject: async () => { calls.push("ensure"); return "new-project"; },
       captureRouteStart: async (id, actualPlan) => { calls.push(["start", id, actualPlan]); return {}; },
@@ -328,11 +328,38 @@ test("routed start waits for close acknowledgement and resolves only a missing p
   }
 });
 
+test("routed start sends the chosen language and leaves auto-detect unset (#125)", async () => {
+  for (const [language, expected] of [["th", "th"], ["en", "en"], ["auto", undefined]]) {
+    const starts = [];
+    const plan = { routes: [] };
+    const context = {
+      projectId: "project", activeRoutePlan: plan, canStartRoutedCapture: true, language,
+      closeReviewPlayer: async () => ({ closed: true }),
+      captureRouteStart: async (...args) => { starts.push(args); return {}; },
+      setRoutedStarting() {}, setRouteError() {}, setRoutedCompletedMessage() {},
+      setRoutedStatus() {}, setRoutedActive() {}, setCaptureSourceMode() {}, routeErrorText: String,
+      setRoutedSourceLabels() {}, routePlanSourceLabels: () => ({}), retireSubmittedSourceIds() {},
+    };
+    const js = transpile(`const start = ${workspaceInitializer("startRoutedCapture")};`, "start.ts");
+    await vm.runInNewContext(`${js}
+start()`, context);
+    assert.equal(starts.length, 1);
+    assert.equal(starts[0][2], expected);
+  }
+});
+
+test("the language selector is shown for routed capture too (#125)", () => {
+  const selector = workspaceSource.indexOf("<span>ภาษา</span>");
+  const routedGate = workspaceSource.indexOf('{captureSourceMode !== "routed" ? (', selector - 400);
+  assert.ok(selector > 0, "language selector exists");
+  assert.ok(routedGate > selector, "the language selector is not inside the non-routed branch");
+});
+
 test("routed project creation failure uses route error and never starts capture", async () => {
   const errors = [];
   let starts = 0;
   const context = {
-    projectId: null, activeRoutePlan: {}, canStartRoutedCapture: true,
+    projectId: null, activeRoutePlan: {}, canStartRoutedCapture: true, language: "auto",
     closeReviewPlayer: async () => ({ closed: true }),
     ensureProject: async () => { throw new Error("creation failed"); },
     captureRouteStart: async () => { starts++; },
@@ -355,7 +382,7 @@ test("a submitted plan's source ids are spent even when native start rejects it"
   const calls = [];
   const plan = { routes: [{ sourceId: "spent-route", label: "Meeting" }], microphone: null };
   const context = {
-    projectId: "project", activeRoutePlan: plan, canStartRoutedCapture: true,
+    projectId: "project", activeRoutePlan: plan, canStartRoutedCapture: true, language: "auto",
     closeReviewPlayer: async () => ({ closed: true }),
     captureRouteStart: async () => { calls.push("start"); throw new Error("source UUID already belongs to another recording/epoch"); },
     setRoutedStarting() {}, setRouteError: (value) => calls.push(["error", value]), setRoutedCompletedMessage() {},

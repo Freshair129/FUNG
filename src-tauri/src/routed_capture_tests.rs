@@ -168,7 +168,38 @@ fn invalid_storage_root_releases_capture_reservation_before_native_admission() {
     let f = fixture();
     set_project_path(&f, Path::new("relative-untrusted-root"));
     let guard = Arc::new(NativeCaptureGuard::default());
-    assert!(start(f.storage.clone(), f.project.clone(), plan(), guard.clone()).is_err());
+    assert!(start(
+        f.storage.clone(),
+        f.project.clone(),
+        plan(),
+        None,
+        guard.clone()
+    )
+    .is_err());
+    assert!(!guard.capture_is_active());
+    assert!(ga::query(&f.storage, "recordings", &["id"], vec![], 10)
+        .unwrap()
+        .is_empty());
+}
+#[test]
+fn unsupported_language_is_rejected_before_any_reservation_or_row() {
+    let f = fixture();
+    let guard = Arc::new(NativeCaptureGuard::default());
+    let error = match start(
+        f.storage.clone(),
+        f.project.clone(),
+        plan(),
+        Some("ja"),
+        guard.clone(),
+    ) {
+        Err(routing::RouteStartError::Message(message)) => message,
+        Err(other) => panic!("unexpected rejection {other:?}"),
+        Ok(_) => panic!("an unsupported language must be rejected"),
+    };
+    assert!(
+        error.contains("unsupported transcription language"),
+        "{error}"
+    );
     assert!(!guard.capture_is_active());
     assert!(ga::query(&f.storage, "recordings", &["id"], vec![], 10)
         .unwrap()
@@ -320,13 +351,63 @@ fn lazy_ledger_root_under_reparse_ancestor_is_rejected_before_target_mutation() 
     assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
     fs::remove_dir(&junction).unwrap();
 }
+/// #125: a routed recording stored no language, so every 2-second chunk of a
+/// Thai microphone was auto-detected on its own and produced foreign-language
+/// hallucinations. The start rows must carry the language the user picked,
+/// and the terminal rewrite must keep it for the transcription job.
+#[test]
+fn startup_rows_keep_the_requested_transcription_language() {
+    let f = fixture();
+    let recording = Uuid::new_v4().to_string();
+    let job = Uuid::new_v4().to_string();
+    start_rows(
+        &f.storage,
+        &f.project,
+        &recording,
+        &job,
+        &f.root,
+        Some("th"),
+    )
+    .unwrap();
+    assert_eq!(
+        ga::recording_language(&f.storage, &recording).as_deref(),
+        Some("th")
+    );
+    recording_terminal(&f.storage, &recording, "completed").unwrap();
+    assert_eq!(
+        ga::recording_language(&f.storage, &recording).as_deref(),
+        Some("th")
+    );
+}
+#[test]
+fn startup_rows_without_a_language_keep_auto_detect() {
+    let f = fixture();
+    let recording = Uuid::new_v4().to_string();
+    let job = Uuid::new_v4().to_string();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root, None).unwrap();
+    assert_eq!(ga::recording_language(&f.storage, &recording), None);
+}
+#[test]
+fn routed_language_accepts_only_supported_codes() {
+    assert_eq!(routed_language(None), Ok(None));
+    assert_eq!(routed_language(Some("auto")), Ok(None));
+    assert_eq!(routed_language(Some("")), Ok(None));
+    assert_eq!(routed_language(Some("th")), Ok(Some("th")));
+    assert_eq!(routed_language(Some("en")), Ok(Some("en")));
+    for rejected in ["TH", "thai", "ja", "th --task translate", "../th"] {
+        assert!(
+            routed_language(Some(rejected)).is_err(),
+            "{rejected} must be rejected"
+        );
+    }
+}
 #[test]
 fn startup_rows_and_failed_finalization_preserve_project_and_source_marker() {
     let f = fixture();
     let recording = Uuid::new_v4().to_string();
     let job = Uuid::new_v4().to_string();
     assert_eq!(project_root(&f.storage, &f.project).unwrap(), f.root);
-    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root, None).unwrap();
     assert_eq!(
         ga::capture(&f.storage, &recording).unwrap().source,
         "routed_endpoint_pending"
@@ -529,7 +610,7 @@ fn durable_source_quarantine_uses_runtime_first_cause_instead_of_later_cleanup()
     let f = fixture();
     let recording = Uuid::new_v4().to_string();
     let job = Uuid::new_v4().to_string();
-    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root, None).unwrap();
     let reg = CaptureSourceRegistration {
         id: Uuid::new_v4().to_string(),
         epoch: 1,
@@ -663,7 +744,7 @@ fn coalescer_preserves_contiguous_pcm_and_flushes_residual() {
     let f = fixture();
     let recording = Uuid::new_v4().to_string();
     let job = Uuid::new_v4().to_string();
-    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root, None).unwrap();
     let reg = CaptureSourceRegistration {
         id: Uuid::new_v4().to_string(),
         epoch: 1,
@@ -745,7 +826,7 @@ fn coalescer_never_publishes_residual_after_global_failure() {
     let f = fixture();
     let recording = Uuid::new_v4().to_string();
     let job = Uuid::new_v4().to_string();
-    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root, None).unwrap();
     let reg = CaptureSourceRegistration {
         id: Uuid::new_v4().to_string(),
         epoch: 1,
@@ -791,7 +872,7 @@ fn coalescer_rechecks_fault_after_sync_before_admission() {
     let f = fixture();
     let recording = Uuid::new_v4().to_string();
     let job = Uuid::new_v4().to_string();
-    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root, None).unwrap();
     let reg = CaptureSourceRegistration {
         id: Uuid::new_v4().to_string(),
         epoch: 1,
@@ -841,7 +922,7 @@ fn coalescer_sync_failure_never_transfers_residual() {
     let f = fixture();
     let recording = Uuid::new_v4().to_string();
     let job = Uuid::new_v4().to_string();
-    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root, None).unwrap();
     let reg = CaptureSourceRegistration {
         id: Uuid::new_v4().to_string(),
         epoch: 1,
@@ -899,7 +980,7 @@ fn coalescer_bounded_queue_overflow_retains_terminal_packet() {
     let f = fixture();
     let recording = Uuid::new_v4().to_string();
     let job = Uuid::new_v4().to_string();
-    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root, None).unwrap();
     let reg = CaptureSourceRegistration {
         id: Uuid::new_v4().to_string(),
         epoch: 1,
@@ -1123,7 +1204,7 @@ fn exercise_real_sink_readiness(kind: &str, case: ReadinessCase) {
     let f = fixture();
     let recording = Uuid::new_v4().to_string();
     let job = Uuid::new_v4().to_string();
-    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root, None).unwrap();
     let id = Uuid::new_v4();
     let origin = 10_010_000u64;
     let reg = CaptureSourceRegistration {
@@ -1286,7 +1367,7 @@ fn exercise_packet_panic(stage: &'static str, expect_complete: bool) {
     let f = fixture();
     let recording = Uuid::new_v4().to_string();
     let job = Uuid::new_v4().to_string();
-    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root, None).unwrap();
     let id = Uuid::new_v4();
     let origin = 10010000u64;
     let reg = CaptureSourceRegistration {
@@ -1571,7 +1652,7 @@ fn exercise_source_custody_scope(global: bool) {
     let f = fixture();
     let recording = Uuid::new_v4().to_string();
     let job = Uuid::new_v4().to_string();
-    start_rows(&f.storage, &f.project, &recording, &job, &f.root).unwrap();
+    start_rows(&f.storage, &f.project, &recording, &job, &f.root, None).unwrap();
     let regs = (0..2)
         .map(|index| CaptureSourceRegistration {
             id: Uuid::new_v4().to_string(),
@@ -1742,6 +1823,7 @@ fn playback_quarantine_coordinator_lookup_error_revokes_its_trusted_recording() 
         &recording,
         &Uuid::new_v4().to_string(),
         &f.root,
+        None,
     )
     .unwrap();
     let missing_source = Uuid::new_v4().to_string();
@@ -2190,6 +2272,7 @@ fn exercise_three_source_closure(fault: bool) {
         &recording,
         &Uuid::new_v4().to_string(),
         &f.root,
+        None,
     )
     .unwrap();
     let regs = (0..3)
@@ -2308,6 +2391,7 @@ fn finished_recording_with_source(f: &Fixture, kind: &str) -> (String, String) {
         &recording,
         &Uuid::new_v4().to_string(),
         &f.root,
+        None,
     )
     .unwrap();
     let source = Uuid::new_v4().to_string();
@@ -2358,7 +2442,7 @@ fn reused_source_id_is_rejected_before_any_row_and_leaves_prior_custody_intact()
             });
         }
         let guard = Arc::new(NativeCaptureGuard::default());
-        let error = match start(f.storage.clone(), f.project.clone(), p, guard.clone()) {
+        let error = match start(f.storage.clone(), f.project.clone(), p, None, guard.clone()) {
             Err(routing::RouteStartError::Message(message)) => message,
             Err(other) => panic!("unexpected rejection {other:?}"),
             Ok(_) => panic!("reused {kind} source id must be rejected"),

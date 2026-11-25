@@ -52,8 +52,16 @@ test("routed bridge sends the exact validation and project-scoped start plans an
   await api.captureRouteStop();
   assert.deepEqual(calls, [
     { command: "capture_route_validate", args: { plan } },
-    { command: "capture_route_start", args: { projectId: "project-a", plan } },
+    { command: "capture_route_start", args: { projectId: "project-a", plan, language: null } },
     { command: "capture_route_stop", args: {} },
+  ]);
+});
+test("routed bridge sends the selected transcription language with start (#125)", async () => {
+  resetIpc();
+  const plan = { policyVersion: 1, routes: [], microphone: { sourceId: "mic-id", label: "Mic", endpointId: "input-id" } };
+  await api.captureRouteStart("project-a", plan, "th");
+  assert.deepEqual(calls, [
+    { command: "capture_route_start", args: { projectId: "project-a", plan, language: "th" } },
   ]);
 });
 test("routed bridge preserves the selected microphone in both requests", async () => {
@@ -63,7 +71,7 @@ test("routed bridge preserves the selected microphone in both requests", async (
   await api.captureRouteStart("project-a", plan);
   assert.deepEqual(calls, [
     { command: "capture_route_validate", args: { plan } },
-    { command: "capture_route_start", args: { projectId: "project-a", plan } },
+    { command: "capture_route_start", args: { projectId: "project-a", plan, language: null } },
   ]);
 });
 const pairB3 = { projectId: "project-b", recordingId: "recording-b3" };

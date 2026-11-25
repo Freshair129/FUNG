@@ -567,12 +567,26 @@ fn attempt(storage: &Storage) -> Result<custody::SourceCommitAttempt, String> {
 }
 // Pending is fenced from the first row; it never receives legacy microphone or
 // enrichment authority while native registration has not committed.
+/// The transcription language a routed recording is started with. `None`
+/// keeps per-window auto-detection; a code is passed to the worker as
+/// `--language`, so only the codes the Live UI offers are accepted (#125).
+pub(crate) fn routed_language(raw: Option<&str>) -> Result<Option<&'static str>, String> {
+    match raw {
+        None | Some("") | Some("auto") => Ok(None),
+        Some("th") => Ok(Some("th")),
+        Some("en") => Ok(Some("en")),
+        Some(other) => Err(format!(
+            "unsupported transcription language: {other:?} (expected th, en or auto)"
+        )),
+    }
+}
 fn start_rows(
     storage: &Storage,
     project: &str,
     recording: &str,
     job: &str,
     root: &Path,
+    language: Option<&str>,
 ) -> Result<(), String> {
     let at = chrono::Utc::now().to_rfc3339();
     ga::commit_rows(
@@ -580,7 +594,7 @@ fn start_rows(
         vec![
             ga::upsert(
                 "recordings",
-                json!({"id":recording,"project_id":project,"source":"routed_endpoint_pending","input_path":null,"canonical_audio_path":root,"status":"recording","duration_ms":0,"created_at":at,"updated_at":at,"language":null}),
+                json!({"id":recording,"project_id":project,"source":"routed_endpoint_pending","input_path":null,"canonical_audio_path":root,"status":"recording","duration_ms":0,"created_at":at,"updated_at":at,"language":language}),
             ),
             ga::upsert(
                 "mobile_recording_checkpoints",
@@ -616,10 +630,12 @@ pub(crate) fn start(
     storage: Arc<Storage>,
     project_id: String,
     plan: CaptureRoutePlan,
+    language: Option<&str>,
     capture_guard: Arc<NativeCaptureGuard>,
 ) -> Result<RoutedCaptureHandle, routing::RouteStartError> {
     canonical_uuid(&project_id)?;
     validate_plan(&plan)?;
+    let language = routed_language(language)?;
     let reservation = NativeCaptureGuard::reserve_capture(capture_guard.clone())
         .map_err(|error| format!("capture admission: {error:?}"))?;
     let root = project_root(&storage, &project_id)?;
@@ -635,7 +651,7 @@ pub(crate) fn start(
     let job = Uuid::new_v4().to_string();
     let session = root.join("live").join(&recording);
     checked_create_dir(&session)?;
-    start_rows(&storage, &project_id, &recording, &job, &session)?;
+    start_rows(&storage, &project_id, &recording, &job, &session, language)?;
     let mut initial_sources = plan
         .routes
         .iter()

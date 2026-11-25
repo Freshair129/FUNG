@@ -57,6 +57,7 @@ fn publish_started_session<T, R>(
 pub(crate) async fn capture_route_start(
     project_id: String,
     plan: CaptureRoutePlan,
+    language: Option<String>,
     state: tauri::State<'_, crate::AppState>,
 ) -> Result<serde_json::Value, capture_routing::RouteStartError> {
     #[cfg(windows)]
@@ -83,7 +84,13 @@ pub(crate) async fn capture_route_start(
             }
             // Dropping a finished handle cannot release or stop a new capture.
             slot.take();
-            let session = crate::routed_capture::start(storage, project_id, plan, guard)?;
+            let session = crate::routed_capture::start(
+                storage,
+                project_id,
+                plan,
+                language.as_deref(),
+                guard,
+            )?;
             publish_started_session(
                 &mut slot,
                 session,
@@ -105,7 +112,7 @@ pub(crate) async fn capture_route_start(
     }
     #[cfg(not(windows))]
     {
-        let _ = (project_id, plan, state);
+        let _ = (project_id, plan, language, state);
         Err("routed endpoint capture requires Windows".into())
     }
 }

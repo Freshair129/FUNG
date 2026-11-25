@@ -352,12 +352,14 @@ fn microphone_mix_format<'a>(
         .map(routing::ValidatedMicrophone::mix_format)
         .ok_or_else(|| "validated microphone mix format missing".into())
 }
-fn final_admission(plan: &CaptureRoutePlan) -> Result<(), String> {
+/// `Ok(Some(warning))` keeps the source but reports a default role that
+/// Windows moved onto its endpoint during capture (#126).
+fn final_admission(plan: &CaptureRoutePlan) -> Result<Option<String>, String> {
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
         // Strict policy without the revoked observer; an idle target is valid.
-        match routing::admit_owned_route_plan(plan) {
-            Ok(_) => return Ok(()),
+        match routing::admit_owned_final_route_plan(plan) {
+            Ok(warning) => return Ok(warning),
             Err(error) if Instant::now() >= deadline => {
                 return Err(format!("final native admission: {}", error.message))
             }
@@ -1151,7 +1153,7 @@ fn close_registered_sources(
 fn check_final_sources(
     plan: &CaptureRoutePlan,
     shared: &Shared,
-    mut check: impl FnMut(&CaptureRoutePlan) -> Result<(), String>,
+    mut check: impl FnMut(&CaptureRoutePlan) -> Result<Option<String>, String>,
 ) -> bool {
     let mut all_passed = true;
     for route in &plan.routes {
@@ -1163,14 +1165,21 @@ fn check_final_sources(
             routes: vec![route.clone()],
             microphone: None,
         };
-        if let Err(error) = check(&selected) {
-            // This fresh strict observation selects exactly this source; an
-            // earlier peer failure cannot mask its independent final rejection.
-            shared.fail(
-                Some(&route.source_id),
-                format!("source {} final native admission: {error}", route.source_id),
-            );
-            all_passed = false;
+        match check(&selected) {
+            Ok(None) => {}
+            Ok(Some(warning)) => lock(&shared.status).warnings.push(bounded(format!(
+                "source {} final native admission: {warning}",
+                route.source_id
+            ))),
+            Err(error) => {
+                // This fresh strict observation selects exactly this source; an
+                // earlier peer failure cannot mask its independent final rejection.
+                shared.fail(
+                    Some(&route.source_id),
+                    format!("source {} final native admission: {error}", route.source_id),
+                );
+                all_passed = false;
+            }
         }
     }
     all_passed
@@ -1181,7 +1190,7 @@ fn drain_and_finalize(
     reports: &mut Vec<SourceWriterReport>,
     plan: &CaptureRoutePlan,
     shared: &Shared,
-    check: impl FnMut(&CaptureRoutePlan) -> Result<(), String>,
+    check: impl FnMut(&CaptureRoutePlan) -> Result<Option<String>, String>,
 ) -> bool {
     shared.cancel();
     match execution {

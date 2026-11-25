@@ -395,11 +395,66 @@ pub(crate) fn validate_owned_route_plan(
     })
 }
 
+/// Stop-time admission of a finished route (#126).
+///
+/// Windows moves a default role to another endpoint when the device that held
+/// it disappears, for example when a USB headset is unplugged. That can make a
+/// routed endpoint a default-role endpoint in the middle of a recording. Start
+/// still refuses such an endpoint, but at Stop the role move alone is not
+/// evidence that foreign audio was captured: every other check, including the
+/// unknown, system and cross-process session checks, still applies. The route
+/// is kept and the role move is returned as a warning.
+pub fn validate_final_route_plan(
+    plan: &CaptureRoutePlan,
+    inventory: &NativeInventory,
+    now_ms: u64,
+) -> Result<Option<String>, RouteError> {
+    match validate_route_policy(plan, inventory, now_ms, |_, _, _| false) {
+        Ok(_) => Ok(None),
+        Err(rejection) if rejection.code == Rejection::DefaultEndpoint => {
+            validate_route_policy_with(
+                plan,
+                inventory,
+                now_ms,
+                |_, _, _| false,
+                DefaultRolePolicy::Tolerate,
+            )?;
+            Ok(Some(format!(
+                "Windows assigned a default role to this routed endpoint during capture;                  the source was kept because no unauthorized session was observed                  ({})",
+                rejection.message
+            )))
+        }
+        Err(rejection) => Err(rejection),
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DefaultRolePolicy {
+    Reject,
+    Tolerate,
+}
+
 fn validate_route_policy(
     plan: &CaptureRoutePlan,
     inventory: &NativeInventory,
     now_ms: u64,
     infrastructure: impl Fn(&CaptureRoute, &str, &ApplicationIdentity) -> bool,
+) -> Result<ValidatedRoutePlan, RouteError> {
+    validate_route_policy_with(
+        plan,
+        inventory,
+        now_ms,
+        infrastructure,
+        DefaultRolePolicy::Reject,
+    )
+}
+
+fn validate_route_policy_with(
+    plan: &CaptureRoutePlan,
+    inventory: &NativeInventory,
+    now_ms: u64,
+    infrastructure: impl Fn(&CaptureRoute, &str, &ApplicationIdentity) -> bool,
+    default_roles: DefaultRolePolicy,
 ) -> Result<ValidatedRoutePlan, RouteError> {
     if plan.policy_version != ROUTE_POLICY_VERSION {
         return Err(error(Rejection::PolicyVersion, "unsupported route policy"));
@@ -462,12 +517,13 @@ fn validate_route_policy(
         {
             return Err(error(Rejection::InvalidInput, "route input bounds invalid"));
         }
-        if [
-            &defaults.console,
-            &defaults.multimedia,
-            &defaults.communications,
-        ]
-        .contains(&&route.endpoint_id)
+        if default_roles == DefaultRolePolicy::Reject
+            && [
+                &defaults.console,
+                &defaults.multimedia,
+                &defaults.communications,
+            ]
+            .contains(&&route.endpoint_id)
         {
             return Err(error(
                 Rejection::DefaultEndpoint,
@@ -783,6 +839,34 @@ pub(crate) fn admit_owned_route_plan(
         .collect::<Vec<_>>();
     let inventory = read_owned_native_inventory(&pids)?;
     validate_route_plan(plan, &inventory, now_ms()?)
+}
+
+/// Owned stop-time admission; see [`validate_final_route_plan`].
+#[cfg(windows)]
+pub(crate) fn admit_owned_final_route_plan(
+    plan: &CaptureRoutePlan,
+) -> Result<Option<String>, RouteError> {
+    if plan.policy_version != ROUTE_POLICY_VERSION {
+        return Err(error(Rejection::PolicyVersion, "unsupported route policy"));
+    }
+    if plan.routes.is_empty()
+        || plan.routes.len() > 2
+        || plan.routes.iter().any(|r| r.allowed_children.len() > 32)
+    {
+        return Err(error(
+            Rejection::RouteCount,
+            "route/child count exceeds admission bounds",
+        ));
+    }
+    let pids = plan
+        .routes
+        .iter()
+        .flat_map(|r| {
+            std::iter::once(r.application.pid).chain(r.allowed_children.iter().map(|a| a.pid))
+        })
+        .collect::<Vec<_>>();
+    let inventory = read_owned_native_inventory(&pids)?;
+    validate_final_route_plan(plan, &inventory, now_ms()?)
 }
 
 #[cfg(windows)]
@@ -1397,6 +1481,65 @@ mod tests {
             })
         }
         assert!(validate_route_plan(&p, &i, 101).is_ok());
+    }
+    fn defaults_with(role: usize, endpoint: &str) -> DefaultRoles {
+        let mut d = DefaultRoles {
+            console: "C".into(),
+            multimedia: "M".into(),
+            communications: "V".into(),
+        };
+        match role {
+            0 => d.console = endpoint.into(),
+            1 => d.multimedia = endpoint.into(),
+            _ => d.communications = endpoint.into(),
+        };
+        d
+    }
+    /// #126: unplugging a headset that held a default role makes Windows give
+    /// the role to another endpoint, possibly a routed one. Start still rejects
+    /// a default-role endpoint, but at Stop the role move is not contamination
+    /// evidence, so the finished source is kept with a warning.
+    #[test]
+    fn final_admission_keeps_a_route_whose_endpoint_gained_a_default_role() {
+        let (p, mut i) = fixture();
+        assert_eq!(validate_final_route_plan(&p, &i, 101).unwrap(), None);
+        for role in 0..3 {
+            i.defaults = Observation::Known(defaults_with(role, "opaque-A"));
+            reject(&p, &i, Rejection::DefaultEndpoint);
+            let warning = validate_final_route_plan(&p, &i, 101)
+                .unwrap()
+                .expect("a moved default role is reported");
+            assert!(warning.contains("default-role"), "{warning}");
+        }
+    }
+    #[test]
+    fn final_admission_still_rejects_contamination_after_a_default_role_move() {
+        let (p, mut i) = fixture();
+        i.defaults = Observation::Known(defaults_with(2, "opaque-A"));
+        let mut reused = app(10, 1);
+        reused.creation_filetime = "100000000000000999".into();
+        i.endpoints[0].sessions = Observation::Known(vec![SessionDescriptor {
+            owner: Observation::Known(SessionOwner::SingleProcess(reused)),
+            ..session(10, "foreign-renderer")
+        }]);
+        assert_eq!(
+            validate_final_route_plan(&p, &i, 101).unwrap_err().code,
+            Rejection::UnknownSession
+        );
+        i = fixture().1;
+        i.defaults = Observation::Known(defaults_with(0, "opaque-A"));
+        i.endpoints[0].sessions = Observation::Known(vec![SessionDescriptor {
+            owner: Observation::Known(SessionOwner::Ambiguous {
+                pid: 0,
+                hresult: 0,
+                reason: "system".into(),
+            }),
+            ..session(10, "system-sounds")
+        }]);
+        assert_eq!(
+            validate_final_route_plan(&p, &i, 101).unwrap_err().code,
+            Rejection::AmbiguousSession
+        );
     }
     #[test]
     fn every_default_role_and_selected_field_error_fails() {

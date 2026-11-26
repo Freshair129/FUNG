@@ -43,7 +43,7 @@ attributes:
 
 | Blocker เดิม | สิ่งที่แอปทำแทนผู้ใช้ |
 | --- | --- |
-| `dependencies_missing` | ดาวน์โหลด **runtime add-on archive** ที่ FUNG build และตรึง hash ไว้ แล้วแตกไฟล์ลงโฟลเดอร์ข้อมูลของแอป |
+| `dependencies_missing` | ดาวน์โหลด **wheel ทุกตัวใน lockfile จาก PyPI โดยตรง** ตรวจ SHA-256 กับค่าที่ตรึงไว้ แล้วแตกไฟล์ลงโฟลเดอร์ข้อมูลของแอป |
 | `model_not_fetched` | พาผู้ใช้ไปหน้าเงื่อนไขบน Hugging Face (เปิดใน browser ของเครื่อง) รับ token ผ่านช่องในแอป แล้วดาวน์โหลดโมเดลทันทีเพื่อตรวจว่าใช้ได้ |
 
 ผู้ใช้ที่ไม่เปิดฟีเจอร์นี้จะไม่ต้องโหลดอะไรเพิ่ม และ installer มีขนาดเท่าเดิม
@@ -55,21 +55,26 @@ attributes:
 - **รัน pip ในแอป:** embedded Python ไม่มี pip โดยเจตนา (ดู parent spec §3)
   และการ resolve จาก PyPI ตอนรันทำให้ได้ชุดแพ็กเกจที่ไม่ได้ review
 - **ใส่โมเดลมากับ installer:** ทำไม่ได้ เป็นเงื่อนไขอนุญาตของโมเดล
+- **FUNG build archive รวมแล้วแจกเองผ่าน GitHub Release (ร่างแรก):** ทำให้ FUNG เป็นผู้แจกต่อ binary
+  ทั้งหมด รวม Intel OpenMP (`libiomp5md.dll` เงื่อนไข proprietary, ไม่มี notice ใน wheel) และ GCC runtime
+  (GPL-3.0 + exception) ตาม [licence audit](../verification/2026-11-26-diarization-runtime-licence-audit.md) §3
+  และต้องมี CI สำหรับ build/host ไฟล์ขนาดใหญ่
 
-## 4. Runtime add-on archive
+## 4. Runtime add-on (ดาวน์โหลด wheel จาก PyPI)
 
 | Item | Contract |
 | --- | --- |
-| เนื้อหา | `site-packages` ของชุดแพ็กเกจใน `scripts/diarization-runtime-requirements.txt` เท่านั้น (CPU variant), พร้อมโฟลเดอร์ `LICENSES/` ของทุกแพ็กเกจ |
-| วิธี build | CI job ใหม่ที่ติดตั้งจาก lockfile ด้วย `--require-hashes` ลง venv ชั่วคราว แล้วบีบ `site-packages` เป็น archive เดียว |
-| ที่เก็บ | GitHub Release asset ของ FUNG แยกตาม lock version, ชื่อเช่น `fung-diarization-runtime-cpu-win-x64-<lockhash>.zip` |
-| การตรวจสอบ | SHA-256 และขนาดของ archive ถูก compile เข้า binary ของแอป (ไม่อ่านจาก server); hash ไม่ตรง = ลบไฟล์และหยุด |
+| แหล่งไฟล์ | wheel ตามชื่อไฟล์และ SHA-256 ใน `scripts/diarization-runtime-requirements.txt` (CPU variant) จาก `files.pythonhosted.org` — ตรวจแล้วเมื่อ 2026-11-26 ว่า hash ของ 96 wheel ตรงกับไฟล์บน PyPI ทุกตัว |
+| ข้อยกเว้น sdist | `antlr4-python3-runtime` (BSD-3-Clause) และ `docopt` (MIT) มีแต่ source archive; CI build เป็น `py3-none-any` wheel แล้วแนบใน GitHub Release ของ FUNG (pure Python, permissive) |
+| Manifest | build step สร้าง manifest (ชื่อไฟล์, URL, SHA-256, ขนาด) จาก lockfile แล้ว compile เข้า binary ของแอป; แอปไม่ resolve dependency เองและไม่อ่าน URL/hash จาก server |
+| การตรวจสอบ | ทุกไฟล์ต้องตรง SHA-256 และขนาดใน manifest; ไม่ตรง = ลบไฟล์และหยุด |
+| การติดตั้ง | แตก wheel (zip) ลง `site-packages` ตามรูปแบบ wheel spec; ไม่รันสคริปต์ใดๆ จากแพ็กเกจ; เก็บ `*.dist-info/licenses/` ไว้ครบ |
 | ตำแหน่งติดตั้ง | `<data_root>/diarization-runtime/<lockhash>/site-packages` — ไม่เขียนลงโฟลเดอร์ติดตั้งของแอป เพราะอาจเขียนไม่ได้และจะถูกลบตอนอัปเดต |
 | การโหลด | Rust ตั้ง `PYTHONPATH` ชี้โฟลเดอร์นี้ตอน spawn `diarize.py` เท่านั้น; worker อื่นไม่เห็น |
-| ความเข้ากันได้ | archive ผูกกับ CPython minor version ของ `.venv-whisper` ที่มากับ installer; แอปตรวจ tag นี้ก่อนใช้ |
+| ความเข้ากันได้ | wheel ผูกกับ `cp311-win_amd64`; แอปตรวจว่า `.venv-whisper` เป็น CPython 3.11 ก่อนเริ่ม |
 | การติดตั้งแบบ atomic | ดาวน์โหลดเป็น `.partial` → ตรวจ hash → แตกลงโฟลเดอร์ชั่วคราว → rename เป็นโฟลเดอร์จริง; ล้มกลางทางไม่ทิ้งสถานะครึ่งๆ |
-| Resume/ยกเลิก | ยกเลิกได้ระหว่างดาวน์โหลด; เริ่มใหม่ได้โดยไม่ต้องโหลดซ้ำส่วนที่ hash แล้ว (ถ้า server รองรับ Range) |
-| พื้นที่ดิสก์ | ตรวจพื้นที่ว่างก่อนเริ่ม (ประมาณ archive + ขนาดหลังแตก) ด้วย `GetDiskFreeSpaceExW` ที่มีอยู่แล้ว |
+| Resume/ยกเลิก | ยกเลิกได้ระหว่างดาวน์โหลด; เริ่มใหม่โดยไม่โหลดซ้ำไฟล์ที่ hash ผ่านแล้ว |
+| พื้นที่ดิสก์ | ตรวจพื้นที่ว่างก่อนเริ่ม (รวมขนาด wheel + ขนาดหลังแตก) ด้วย `GetDiskFreeSpaceExW` ที่มีอยู่แล้ว |
 | ถอนการติดตั้ง | ปุ่ม "ลบ" ในหน้าเดียวกัน ลบทั้ง runtime add-on และ (ถามแยก) model cache |
 
 `dependencies_present()` เปลี่ยนจากดู `.venv-whisper/Lib/site-packages` อย่างเดียว
@@ -101,7 +106,8 @@ attributes:
 ## 7. Privacy และ security invariants
 
 - คงทุกข้อใน parent spec §4 (ไม่ส่งเสียงขึ้น cloud, ผลเป็น anonymous speaker, ไม่ redistribute น้ำหนักโมเดล)
-- egress ใหม่มีสองปลายทางเท่านั้น: GitHub Release asset ของ FUNG และ Hugging Face; ทั้งสองเกิดเมื่อผู้ใช้กดเองเท่านั้น
+- egress ใหม่มีสามปลายทางเท่านั้น: `files.pythonhosted.org` (wheel), GitHub Release asset ของ FUNG (wheel สองตัวที่ build เอง)
+  และ Hugging Face; ทั้งหมดเกิดเมื่อผู้ใช้กดเองเท่านั้น และ request ไม่มีข้อมูลผู้ใช้นอกจาก token ที่ส่งไป Hugging Face
 - โค้ดที่ดาวน์โหลดมาจะรันได้ก็ต่อเมื่อ hash ตรงกับค่าที่ compile ไว้ใน binary ที่ลงนามแล้ว
 - token ไม่ปรากฏใน stdout/stderr ของ worker, log, telemetry หรือ error message
 
@@ -109,17 +115,21 @@ attributes:
 
 1. **License audit ของทั้ง ~100 แพ็กเกจใน lockfile** — การแจก archive ถือเป็นการ redistribute;
    ต้องยืนยันว่าทุกแพ็กเกจอนุญาตให้แจก binary และรวมไฟล์ license ครบ (ตอนนี้ script เก็บแค่ของ pyannote.audio และ PyTorch)
-2. ขนาด archive จริงของ CPU variant หลังบีบอัด (ต้องวัด) และจะรองรับ CUDA variant ด้วยไหม
-3. ที่เก็บ archive: GitHub Release พอไหม หรือต้องมี mirror
-4. ทำ code signing / Authenticode กับไฟล์ `.pyd`/`.dll` ใน archive ด้วยหรือพอแค่ hash pin
-5. นโยบายเมื่อ lockfile เปลี่ยน (security update ของ torch): แอปเวอร์ชันใหม่ชี้ archive ใหม่ — จะลบของเก่าอัตโนมัติไหม
+   — **ตรวจแล้ว:** [`2026-11-26-diarization-runtime-licence-audit.md`](../verification/2026-11-26-diarization-runtime-licence-audit.md)
+   ไม่พบแพ็กเกจที่ห้ามแจก; Intel OpenMP และ GCC runtime ที่ต้องตัดสินใจหมดไปเมื่อเปลี่ยน §4 เป็นการดาวน์โหลดจาก PyPI
+   โดยตรง (FUNG แจกเองแค่ wheel ของ `antlr4-python3-runtime` และ `docopt`) — **ให้เจ้าของโปรเจกต์ยืนยันข้อสรุปนี้**
+2. ขนาดดาวน์โหลดรวมจริงของ CPU variant (torch wheel อย่างเดียว ~118 MB) และจะรองรับ CUDA variant ด้วยไหม
+   (cu130 มาจาก `download.pytorch.org` ไม่ใช่ PyPI)
+3. ถ้า PyPI ล่มหรือถูกบล็อกในเครือข่ายของผู้ใช้ จะมี fallback ไหม
+4. พอแค่ hash pin หรือต้องตรวจลายเซ็น Authenticode ของ `.pyd`/`.dll` เพิ่ม (wheel ส่วนใหญ่ไม่ได้ลงนาม)
+5. นโยบายเมื่อ lockfile เปลี่ยน (security update ของ torch): แอปเวอร์ชันใหม่ใช้ lockhash ใหม่ — จะลบโฟลเดอร์เก่าอัตโนมัติไหม
 6. `pyannote.audio` 4.x มี pipeline ใหม่ที่อาจไม่ gated — ควรประเมินแยกว่าเปลี่ยนโมเดลแล้วตัดขั้นตอน token ได้ไหม (นอกขอบเขตเอกสารนี้)
 
 ## 9. Scope
 
 ### In scope
 
-- CI job build + publish runtime add-on archive จาก lockfile เดิม
+- build step ที่สร้าง manifest จาก lockfile และ CI job ที่ build/publish wheel ของ `antlr4-python3-runtime` กับ `docopt`
 - Rust: download/verify/extract/remove add-on, ขยาย `probe()`, ตั้ง `PYTHONPATH`, เก็บ/อ่าน/ลบ token ผ่าน `keyring`
 - `diarize.py`: โหมด `--fetch-only` และ error code แยก 401/403/network
 - UI ตาม §6
@@ -136,7 +146,7 @@ attributes:
 
 - บนเครื่อง Windows ที่ติดตั้งจาก installer อย่างเดียว (ไม่มี Python บนเครื่อง ไม่มี source checkout)
   ผู้ใช้เปิดฟีเจอร์ได้ครบจากในแอป และงานถอดเสียงถัดไปได้ `Speaker 1`, `Speaker 2`
-- archive ที่ hash ไม่ตรง, ดาวน์โหลดไม่ครบ หรือแตกไฟล์ล้ม ไม่ทำให้ probe รายงานว่าพร้อม และไม่ทิ้งไฟล์ครึ่งๆ
+- wheel ที่ hash ไม่ตรง, ดาวน์โหลดไม่ครบ หรือแตกไฟล์ล้ม ไม่ทำให้ probe รายงานว่าพร้อม และไม่ทิ้งไฟล์ครึ่งๆ
 - token ผิด / ยังไม่ยอมรับเงื่อนไข / ไม่มีเน็ต แสดงข้อความต่างกันตาม §5
 - ค้นหา token ใน log, GenesisBlockDB, `<data_root>` และ job event แล้วไม่พบ
 - หลังโหลดโมเดลแล้ว ตัดเน็ตแล้วงานแยกผู้พูดยังทำงานได้
@@ -148,10 +158,10 @@ attributes:
 
 | Version | Change |
 | --- | --- |
-| 0.1.0b | First draft of the in-app opt-in flow for the diarization runtime and gated model. |
+| 0.1.0b | First draft of the in-app opt-in flow for the diarization runtime and gated model. Revised the same day after the licence audit: the runtime comes from hash-pinned PyPI wheels instead of a FUNG-hosted archive. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.1.0b | 2026-11-26 | draft | Proposed add-on archive, keyring token storage, fetch-only model check and UX; awaiting owner approval. | pending | Claude |
+| 0.1.0b | 2026-11-26 | draft | Proposed direct PyPI wheel download (hash-pinned), keyring token storage, fetch-only model check and UX; awaiting owner approval. | pending | Claude |

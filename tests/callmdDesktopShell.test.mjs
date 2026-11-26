@@ -553,4 +553,16 @@ test("navigation guard presents the three choices, focuses Stay by default, and 
   assert.match(failedMarkup, /เซสชันยังอยู่หน้านี้/);
 });
 
+test("brand mark breathes with a slow CSS glow that stops under reduced motion", () => {
+  const keyframes = appCssSource.match(/@keyframes fung-mark-breathe\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+  assert.match(keyframes, /50%\s*\{[^}]*drop-shadow\([^;]*var\(--fung-mark-glow\)/);
+  const markRule = appCssSource.match(/\n\.fung-logo-mark,\s*\.desktop-shell__brand-mark\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(markRule, /--fung-mark-glow:\s*color-mix\(in srgb, currentColor/);
+  assert.match(markRule, /animation:\s*fung-mark-breathe\s+[3-5](?:\.\d+)?s\s+ease-in-out\s+infinite;/);
+  assert.match(
+    appCssSource,
+    /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.fung-logo-mark,\s*\.desktop-shell__brand-mark\s*\{\s*animation:\s*none;\s*filter:\s*none;/,
+  );
+});
+
 await rm(runtimeDir, { recursive: true, force: true });

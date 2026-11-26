@@ -139,3 +139,31 @@ body[data-fung-root="true"] {
 body[data-surface="landing"] {
   background: var(--fung-bg-canvas);
 }
+
+/* Brand mark breathing glow: a slow 4s halo derived from the mark's own color (the mark itself is never tinted or reshaped).
+   The small peak radii (3px + 10px) keep the mark's central negative space clear (DESIGN_SYSTEM.md §3.3). */
+@keyframes fung-mark-breathe {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 transparent) drop-shadow(0 0 0 transparent);
+  }
+  50% {
+    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--fung-mark-glow) 80%, transparent))
+      drop-shadow(0 0 10px color-mix(in srgb, var(--fung-mark-glow) 50%, transparent));
+  }
+}
+
+.fung-logo-mark,
+.desktop-shell__brand-mark {
+  /* Lifted toward porcelain so a dark-tinted mark (Studio sage) still glows on the dark dock. */
+  --fung-mark-glow: color-mix(in srgb, currentColor 55%, #FAF8F3);
+  animation: fung-mark-breathe 4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fung-logo-mark,
+  .desktop-shell__brand-mark {
+    animation: none;
+    filter: none;
+  }
+}

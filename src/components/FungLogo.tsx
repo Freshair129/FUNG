@@ -30,6 +30,7 @@ export function FungLogo({
       }}
     >
       <svg
+        className="fung-logo-mark"
         width={size}
         height={size}
         viewBox="0 0 100 100"

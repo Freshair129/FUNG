@@ -40,7 +40,7 @@ export function StudioHome({ project, selectedProjectId, liveStatus, headingRef,
   return (
     <div className="studio-home" aria-label="ภาพรวมพื้นที่ทำงาน">
       <section className="studio-hero" aria-labelledby="desktop-shell-main-heading">
-        <img className="studio-hero__image" src="/images/fung-listening-hero.png" alt="" />
+        <img className="studio-hero__image" src="/images/fung-meeting-hero.svg" alt="" />
         <div className="studio-hero__top">
           <span><Headphones size={16} /> พื้นที่ของคุณ</span>
           <button type="button" onClick={onProjects}><FolderOpen size={16} /> เลือกโครงการ</button>

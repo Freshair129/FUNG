@@ -1,8 +1,8 @@
 ---
-version: "0.1.0b"
+version: "0.2.0"
 created_at: "2026-11-26"
 last_update: "2026-11-26"
-status: "draft"
+status: "beta"
 superseded_by: null
 attributes:
   domain: "local-first-audio-ai"
@@ -22,7 +22,7 @@ attributes:
 | Parent architecture | `docs/Desktop/ARCHITECTURE.md` |
 | Parent feature design | [`2026-09-21-pyannote-diarization-runtime.md`](2026-09-21-pyannote-diarization-runtime.md) (runtime contract, pins, privacy invariants) |
 | Peer governance | `docs/ai-system/ethics-governance.md` speaker identity boundary |
-| Approval state | **Draft — รอเจ้าของโปรเจกต์อนุมัติ ยังไม่มีโค้ด** |
+| Approval state | Approved by owner on 2026-11-26 (spec and the licence-audit conclusion in §8 ข้อ 1). Open questions §8 ข้อ 2–6 ยังต้องตอบระหว่าง implementation |
 
 ## 2. ปัญหา
 
@@ -159,9 +159,11 @@ attributes:
 | Version | Change |
 | --- | --- |
 | 0.1.0b | First draft of the in-app opt-in flow for the diarization runtime and gated model. Revised the same day after the licence audit: the runtime comes from hash-pinned PyPI wheels instead of a FUNG-hosted archive. |
+| 0.2.0 | Owner approval recorded. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.1.0b | 2026-11-26 | draft | Proposed direct PyPI wheel download (hash-pinned), keyring token storage, fetch-only model check and UX; awaiting owner approval. | pending | Claude |
+| 0.1.0b | 2026-11-26 | draft | Proposed direct PyPI wheel download (hash-pinned), keyring token storage, fetch-only model check and UX; awaiting owner approval. | 4e74324 | Claude |
+| 0.2.0 | 2026-11-26 | beta | Owner approved the spec and the licence-audit conclusion; implementation may start. | pending | Claude |

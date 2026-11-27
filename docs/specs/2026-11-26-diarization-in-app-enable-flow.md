@@ -1,5 +1,5 @@
 ---
-version: "0.2.0"
+version: "0.3.0"
 created_at: "2026-11-26"
 last_update: "2026-11-26"
 status: "beta"
@@ -65,13 +65,15 @@ attributes:
 | Item | Contract |
 | --- | --- |
 | แหล่งไฟล์ | wheel ตามชื่อไฟล์และ SHA-256 ใน `scripts/diarization-runtime-requirements.txt` (CPU variant) จาก `files.pythonhosted.org` — ตรวจแล้วเมื่อ 2026-11-26 ว่า hash ของ 96 wheel ตรงกับไฟล์บน PyPI ทุกตัว |
-| ข้อยกเว้น sdist | `antlr4-python3-runtime` (BSD-3-Clause) และ `docopt` (MIT) มีแต่ source archive; CI build เป็น `py3-none-any` wheel แล้วแนบใน GitHub Release ของ FUNG (pure Python, permissive) |
-| Manifest | build step สร้าง manifest (ชื่อไฟล์, URL, SHA-256, ขนาด) จาก lockfile แล้ว compile เข้า binary ของแอป; แอปไม่ resolve dependency เองและไม่อ่าน URL/hash จาก server |
+| ข้อยกเว้น sdist | `antlr4-python3-runtime` และ `docopt` มีแต่ source archive **และไม่มีแพ็กเกจใดใน lock ต้องใช้ตอนรัน** (ตรวจ `requires_dist` บน PyPI 2026-11-26: docopt เป็นแค่ extra `cli` ของ pyannote.metrics/pipeline, antlr4 ไม่มีใครอ้าง) จึงไม่ติดตั้ง — ไม่ต้อง build หรือ host เอง (ระบุใน manifest `skipped` และมี unit test กันหลุด) |
+| Manifest | `scripts/generate_diarization_manifest.py` สร้าง `scripts/diarization-runtime-manifest.json` (ชื่อไฟล์, URL, SHA-256, ขนาด) จาก lockfile; ไฟล์นี้ถูก commit และ `include_str!` เข้า binary; แอปไม่ resolve dependency เองและไม่อ่าน URL/hash จาก server; unit test ตรวจว่าทุก wheel ถูกตรึงโดย lockfile |
+| ขนาด | 96 wheels, ดาวน์โหลด 240 MiB, หลังแตกประมาณ 836 MiB (วัด 2026-11-26); ติดตั้งจริงบนเครื่อง dev ใช้ 108 วินาที |
 | การตรวจสอบ | ทุกไฟล์ต้องตรง SHA-256 และขนาดใน manifest; ไม่ตรง = ลบไฟล์และหยุด |
 | การติดตั้ง | แตก wheel (zip) ลง `site-packages` ตามรูปแบบ wheel spec; ไม่รันสคริปต์ใดๆ จากแพ็กเกจ; เก็บ `*.dist-info/licenses/` ไว้ครบ |
 | ตำแหน่งติดตั้ง | `<data_root>/diarization-runtime/<lockhash>/site-packages` — ไม่เขียนลงโฟลเดอร์ติดตั้งของแอป เพราะอาจเขียนไม่ได้และจะถูกลบตอนอัปเดต |
-| การโหลด | Rust ตั้ง `PYTHONPATH` ชี้โฟลเดอร์นี้ตอน spawn `diarize.py` เท่านั้น; worker อื่นไม่เห็น |
-| ความเข้ากันได้ | wheel ผูกกับ `cp311-win_amd64`; แอปตรวจว่า `.venv-whisper` เป็น CPython 3.11 ก่อนเริ่ม |
+| การโหลด | Rust ตั้ง `FUNG_DIARIZATION_SITE` ตอน spawn `diarize.py` เท่านั้น แล้ว worker เรียก `site.addsitedir` และย้ายไว้หน้าสุดของ `sys.path` เอง — ใช้ `PYTHONPATH` ไม่ได้ เพราะ Python ที่มากับ FUNG เป็นแบบ embeddable ที่มี `python311._pth` ซึ่งทำให้ไม่อ่านตัวแปร `PYTHON*` เลย; worker อื่นไม่เห็น |
+| ความเข้ากันได้ | wheel ผูกกับ `cp311-win_amd64`; แอปตรวจว่ามี `python311.dll` ข้าง `python.exe` และ build เป็น Windows x64 ก่อนเริ่ม |
+| Lock เก่า | ติดตั้ง lock ใหม่สำเร็จแล้วลบโฟลเดอร์ของ lock อื่นทิ้ง (build นี้โหลดไม่ได้อยู่แล้ว) — ตอบ open question 5 |
 | การติดตั้งแบบ atomic | ดาวน์โหลดเป็น `.partial` → ตรวจ hash → แตกลงโฟลเดอร์ชั่วคราว → rename เป็นโฟลเดอร์จริง; ล้มกลางทางไม่ทิ้งสถานะครึ่งๆ |
 | Resume/ยกเลิก | ยกเลิกได้ระหว่างดาวน์โหลด; เริ่มใหม่โดยไม่โหลดซ้ำไฟล์ที่ hash ผ่านแล้ว |
 | พื้นที่ดิสก์ | ตรวจพื้นที่ว่างก่อนเริ่ม (รวมขนาด wheel + ขนาดหลังแตก) ด้วย `GetDiskFreeSpaceExW` ที่มีอยู่แล้ว |
@@ -88,13 +90,14 @@ attributes:
 | ที่เก็บ token | Windows Credential Manager ผ่าน crate `keyring` ที่มีอยู่แล้ว; ไม่เขียนลง GenesisBlockDB, ไฟล์ config, log หรือ job event |
 | ลำดับความสำคัญ | `FUNG_HF_TOKEN` / `HF_TOKEN` จาก environment ยังใช้ได้และมาก่อน (คงพฤติกรรมเดิม) |
 | การดาวน์โหลดโมเดล | หลังรับ token แอปสั่ง worker ดาวน์โหลดโมเดลทันที (โหมด `--fetch-only`) ไม่รอจนถึงงานแรก |
-| ข้อความเมื่อพลาด | HTTP 401 → "token ไม่ถูกต้อง"; HTTP 403/gated → "ยังไม่ได้ยอมรับเงื่อนไข" พร้อมลิงก์ทั้งสองโมเดล; network → "เชื่อมต่อไม่ได้ ลองใหม่" |
+| ข้อความเมื่อพลาด | Hugging Face ตอบ `401 GatedRepo` เหมือนกันทั้ง token ผิดและยังไม่ยอมรับเงื่อนไข (ตรวจ 2026-11-26) worker จึงเรียก `whoami` ก่อน: 401 → `token_invalid` "token ไม่ถูกต้อง"; ผ่านแล้วแต่ repo ปฏิเสธ → `terms_not_accepted` พร้อมลิงก์ทั้งสองโมเดล; เชื่อมต่อไม่ได้ → `network` |
 | หลังโหลดสำเร็จ | เสนอให้ลบ token ออกจาก Credential Manager เพราะรอบต่อไปใช้ cache แบบ offline (ตาม `a_cached_model_needs_no_token`) |
 | ลิงก์ภายนอก | เปิดหน้า Hugging Face ด้วย `tauri-plugin-opener` ใน browser ของระบบ; ไม่ฝังหน้า login ในแอป |
 
 ## 6. UX (ร่าง)
 
-แสดงในที่ที่ `RecordingReview.tsx` ใช้ `diarizationStatus` อยู่แล้ว และในหน้าตั้งค่า:
+แสดงใน ตั้งค่า › ระบบและประสิทธิภาพ (`DiarizationSetupPanel.tsx`); หน้า `RecordingReview.tsx` แสดงข้อความ blocker
+ที่บอกทางไปหน้าตั้งค่านั้น (ไม่ฝัง panel ใน RecordingReview เพื่อไม่ผูก component นั้นกับ Tauri โดยตรง):
 
 1. สถานะ "ยังไม่ได้เปิดใช้" + ปุ่ม **เปิดใช้การแยกเสียงผู้พูด** + บอกขนาดดาวน์โหลดจริง
 2. แถบความคืบหน้าดาวน์โหลด/ตรวจสอบ/ติดตั้ง พร้อมปุ่มยกเลิก
@@ -106,8 +109,8 @@ attributes:
 ## 7. Privacy และ security invariants
 
 - คงทุกข้อใน parent spec §4 (ไม่ส่งเสียงขึ้น cloud, ผลเป็น anonymous speaker, ไม่ redistribute น้ำหนักโมเดล)
-- egress ใหม่มีสามปลายทางเท่านั้น: `files.pythonhosted.org` (wheel), GitHub Release asset ของ FUNG (wheel สองตัวที่ build เอง)
-  และ Hugging Face; ทั้งหมดเกิดเมื่อผู้ใช้กดเองเท่านั้น และ request ไม่มีข้อมูลผู้ใช้นอกจาก token ที่ส่งไป Hugging Face
+- egress ใหม่มีสองปลายทางเท่านั้น: `files.pythonhosted.org` (wheel) และ Hugging Face; ทั้งหมดเกิดเมื่อผู้ใช้กดเองเท่านั้น
+  และ request ไม่มีข้อมูลผู้ใช้นอกจาก token ที่ส่งไป Hugging Face (ลงทะเบียนใน `docs/appendices/E-egress-register.md` §1.8)
 - โค้ดที่ดาวน์โหลดมาจะรันได้ก็ต่อเมื่อ hash ตรงกับค่าที่ compile ไว้ใน binary ที่ลงนามแล้ว
 - token ไม่ปรากฏใน stdout/stderr ของ worker, log, telemetry หรือ error message
 
@@ -117,21 +120,22 @@ attributes:
    ต้องยืนยันว่าทุกแพ็กเกจอนุญาตให้แจก binary และรวมไฟล์ license ครบ (ตอนนี้ script เก็บแค่ของ pyannote.audio และ PyTorch)
    — **ตรวจแล้ว:** [`2026-11-26-diarization-runtime-licence-audit.md`](../verification/2026-11-26-diarization-runtime-licence-audit.md)
    ไม่พบแพ็กเกจที่ห้ามแจก; Intel OpenMP และ GCC runtime ที่ต้องตัดสินใจหมดไปเมื่อเปลี่ยน §4 เป็นการดาวน์โหลดจาก PyPI
-   โดยตรง (FUNG แจกเองแค่ wheel ของ `antlr4-python3-runtime` และ `docopt`) — **ให้เจ้าของโปรเจกต์ยืนยันข้อสรุปนี้**
-2. ขนาดดาวน์โหลดรวมจริงของ CPU variant (torch wheel อย่างเดียว ~118 MB) และจะรองรับ CUDA variant ด้วยไหม
-   (cu130 มาจาก `download.pytorch.org` ไม่ใช่ PyPI)
+   โดยตรง; ระหว่าง implementation พบว่า `antlr4-python3-runtime` และ `docopt` ไม่จำเป็นตอนรัน จึงไม่ติดตั้ง —
+   FUNG ไม่แจกไฟล์ใดเลย (เจ้าของยืนยันข้อสรุป audit 2026-11-26; การตัดสองแพ็กเกจนี้เป็นการเปลี่ยนระหว่าง
+   implementation ที่ต้องทบทวนใน PR ของ #137)
+2. ขนาดดาวน์โหลดรวม CPU variant: **240 MiB (ตอบแล้ว)**; CUDA variant ยังเปิดอยู่ (cu130 มาจาก `download.pytorch.org` ไม่ใช่ PyPI)
 3. ถ้า PyPI ล่มหรือถูกบล็อกในเครือข่ายของผู้ใช้ จะมี fallback ไหม
 4. พอแค่ hash pin หรือต้องตรวจลายเซ็น Authenticode ของ `.pyd`/`.dll` เพิ่ม (wheel ส่วนใหญ่ไม่ได้ลงนาม)
-5. นโยบายเมื่อ lockfile เปลี่ยน (security update ของ torch): แอปเวอร์ชันใหม่ใช้ lockhash ใหม่ — จะลบโฟลเดอร์เก่าอัตโนมัติไหม
+5. นโยบายเมื่อ lockfile เปลี่ยน: **ตอบแล้ว** — ลบโฟลเดอร์ lock เก่าอัตโนมัติหลังติดตั้ง lock ใหม่สำเร็จ (§4)
 6. `pyannote.audio` 4.x มี pipeline ใหม่ที่อาจไม่ gated — ควรประเมินแยกว่าเปลี่ยนโมเดลแล้วตัดขั้นตอน token ได้ไหม (นอกขอบเขตเอกสารนี้)
 
 ## 9. Scope
 
 ### In scope
 
-- build step ที่สร้าง manifest จาก lockfile และ CI job ที่ build/publish wheel ของ `antlr4-python3-runtime` กับ `docopt`
-- Rust: download/verify/extract/remove add-on, ขยาย `probe()`, ตั้ง `PYTHONPATH`, เก็บ/อ่าน/ลบ token ผ่าน `keyring`
-- `diarize.py`: โหมด `--fetch-only` และ error code แยก 401/403/network
+- script สร้าง manifest จาก lockfile
+- Rust: download/verify/extract/remove add-on, ขยาย `probe()`, ส่ง `FUNG_DIARIZATION_SITE`, เก็บ/อ่าน/ลบ token ผ่าน `keyring`
+- `diarize.py`: โหมด `--fetch-only`, ตรวจ token ด้วย `whoami`, error code `token_invalid`/`terms_not_accepted`/`network`
 - UI ตาม §6
 - เอกสาร setup สำหรับผู้ใช้
 
@@ -160,10 +164,12 @@ attributes:
 | --- | --- |
 | 0.1.0b | First draft of the in-app opt-in flow for the diarization runtime and gated model. Revised the same day after the licence audit: the runtime comes from hash-pinned PyPI wheels instead of a FUNG-hosted archive. |
 | 0.2.0 | Owner approval recorded. |
+| 0.3.0 | Implementation deviations recorded: source-only antlr4/docopt are not installed, the add-on path goes through `FUNG_DIARIZATION_SITE` (embeddable Python ignores `PYTHONPATH`), `whoami` separates a bad token from unaccepted terms, old locks are removed. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
 | 0.1.0b | 2026-11-26 | draft | Proposed direct PyPI wheel download (hash-pinned), keyring token storage, fetch-only model check and UX; awaiting owner approval. | 4e74324 | Claude |
-| 0.2.0 | 2026-11-26 | beta | Owner approved the spec and the licence-audit conclusion; implementation may start. | pending | Claude |
+| 0.2.0 | 2026-11-26 | beta | Owner approved the spec and the licence-audit conclusion; implementation may start. | baf254e | Claude |
+| 0.3.0 | 2026-11-26 | beta | Synced the contract with the implementation and recorded measured sizes. | pending | Claude |

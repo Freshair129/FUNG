@@ -1,0 +1,32 @@
+.diarization-setup { display: grid; gap: 12px; padding: 18px 20px; border: 1px solid var(--fung-border-subtle); border-radius: 18px; background: var(--fung-bg-surface); color: var(--fung-text-primary); }
+.diarization-setup__header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.diarization-setup__header h3 { margin: 0; font-size: 16px; }
+.diarization-setup__badge { padding: 2px 10px; border-radius: 999px; background: var(--fung-bg-inset); color: var(--fung-text-secondary); font-size: 11px; font-weight: 700; }
+.diarization-setup__badge.is-ready { background: var(--fung-state-success-bg, var(--fung-bg-inset)); color: var(--fung-state-success-fg, var(--fung-text-primary)); }
+
+/* Thai text keeps its readable line height and no added letter spacing. */
+.diarization-setup__lede,
+.diarization-setup__step p,
+.diarization-setup__step li,
+.diarization-setup__remove p { margin: 0; color: var(--fung-text-secondary); font-size: 12px; line-height: 1.7; }
+.diarization-setup__step { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: var(--fung-bg-inset); }
+.diarization-setup__step ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.diarization-setup__step progress { width: 100%; height: 8px; }
+.diarization-setup__blocked { margin: 0; padding: 14px; border-radius: 14px; background: var(--fung-bg-inset); color: var(--fung-text-secondary); font-size: 12px; line-height: 1.7; }
+
+.diarization-setup button { justify-self: start; min-height: 34px; padding: 0 16px; border: 1px solid var(--fung-border-subtle); border-radius: 999px; background: var(--fung-action-secondary-bg); color: var(--fung-text-secondary); font-size: 12px; font-weight: 700; cursor: pointer; }
+.diarization-setup button:disabled { cursor: not-allowed; opacity: .6; }
+.diarization-setup button:focus-visible { outline: 2px solid var(--fung-focus); outline-offset: 2px; }
+.diarization-setup .diarization-setup__primary { background: var(--fung-action-primary-bg); color: var(--fung-action-primary-fg); border-color: transparent; }
+.diarization-setup .diarization-setup__link { min-height: 0; padding: 0; border: none; border-radius: 0; background: none; color: var(--fung-text-link, var(--fung-text-primary)); text-decoration: underline; font-weight: 600; }
+
+.diarization-setup__field { display: grid; gap: 6px; }
+.diarization-setup__field span { font-size: 11px; font-weight: 700; color: var(--fung-text-secondary); }
+.diarization-setup__field input { min-height: 38px; padding: 0 14px; border: 1px solid var(--fung-border-strong); border-radius: 12px; background: var(--fung-bg-surface); color: var(--fung-text-primary); font-size: 13px; }
+.diarization-setup__field input:focus-visible { outline: 2px solid var(--fung-focus); outline-offset: 1px; }
+
+.diarization-setup__remove { display: grid; gap: 10px; }
+.diarization-setup__actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.diarization-setup__note { margin: 0; color: var(--fung-text-secondary); font-size: 11px; line-height: 1.7; }
+.diarization-setup__notice { margin: 0; color: var(--fung-text-primary); font-size: 12px; line-height: 1.7; }
+.diarization-setup__error { margin: 0; color: var(--fung-state-danger-fg); font-size: 12px; font-weight: 600; line-height: 1.7; }

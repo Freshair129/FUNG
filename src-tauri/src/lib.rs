@@ -48,6 +48,8 @@ mod cloud_executor;
 mod desktop_playback;
 mod device_identity;
 mod diarization;
+mod diarization_addon;
+mod diarization_setup;
 /// Trusted in-process private PCM seam; no capture IPC is registered.
 pub mod endpoint_packet_sink;
 mod external_mcp;
@@ -6189,12 +6191,16 @@ pub(crate) fn run_python_worker(
         args,
         path_prefix,
         hf_home,
+        &[],
         on_progress,
     )
 }
 
 /// Runs a worker with an explicitly selected interpreter while preserving the
 /// operational subprocess environment, progress and stderr handling.
+/// `extra_env` is set on the child only; the diarization worker uses it for
+/// its add-on path and token so no other worker ever sees either.
+#[allow(clippy::too_many_arguments)]
 fn run_python_worker_with_interpreter(
     runtime: &WhisperRuntime,
     interpreter: &std::path::Path,
@@ -6202,6 +6208,7 @@ fn run_python_worker_with_interpreter(
     args: &[&str],
     path_prefix: Option<&std::path::Path>,
     hf_home: Option<&std::path::Path>,
+    extra_env: &[(&str, std::ffi::OsString)],
     on_progress: impl Fn(i64) + Send + 'static,
 ) -> Result<String, String> {
     if !interpreter.exists() {
@@ -6244,11 +6251,25 @@ fn run_python_worker_with_interpreter(
         }
     }
 
+    for (name, value) in extra_env {
+        command.env(name, value);
+    }
+
     if let Some(prefix) = path_prefix {
         let inherited_path = env::var_os("PATH").unwrap_or_default();
         let child_path = env::join_paths([prefix.as_os_str(), inherited_path.as_os_str()])
             .map_err(|err| format!("could not compose FUNG GPU runtime PATH: {err}"))?;
         command.env("PATH", child_path);
+    }
+
+    // The release app has no console of its own, so Windows would give the
+    // console-subsystem python.exe a fresh, visible console window for the
+    // length of the job. Its output is piped, so that window shows nothing.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
     }
 
     let mut child = command
@@ -6368,6 +6389,7 @@ fn run_detailed_qwen_candidate_worker(
         &arg_refs,
         None,
         None,
+        &[],
         |_| {},
     )?;
     let value = serde_json::from_str::<serde_json::Value>(raw.trim())
@@ -6588,16 +6610,41 @@ pub(crate) fn run_diarization(
 
     let script = diarization::worker_script(runtime)
         .ok_or_else(|| "could not resolve the diarization worker path".to_string())?;
-    let raw = run_python_worker(
+    let raw = run_python_worker_with_interpreter(
         runtime,
+        &runtime.python,
         &script,
         &[file_path],
         None,
         Some(&diarization::hf_home(data_root)),
+        &diarization::worker_env(data_root),
         on_progress,
     )?;
     serde_json::from_str(raw.trim())
         .map_err(|err| format!("failed to parse diarization output: {err}"))
+}
+
+/// Fetches the gated diarization model into FUNG's cache now, with the token
+/// the user just entered, instead of on the first diarization job. A wrong
+/// token or unaccepted licence then surfaces while the user is still on the
+/// setup screen, as a code `diarize.py --fetch-only` prints on stderr.
+pub(crate) fn fetch_diarization_model(
+    runtime: &WhisperRuntime,
+    data_root: &std::path::Path,
+) -> Result<(), String> {
+    let script = diarization::worker_script(runtime)
+        .ok_or_else(|| "could not resolve the diarization worker path".to_string())?;
+    run_python_worker_with_interpreter(
+        runtime,
+        &runtime.python,
+        &script,
+        &["--fetch-only"],
+        None,
+        Some(&diarization::hf_home(data_root)),
+        &diarization::worker_env(data_root),
+        |_| {},
+    )
+    .map(|_| ())
 }
 
 /// Starts (or reports) the loopback API and returns its connect URL. Idempotent
@@ -7350,6 +7397,13 @@ pub fn run() {
             zoom_sync::zoom_import_recording,
             graph_build::graph_build_start,
             diarization::diarization_status,
+            diarization_setup::diarization_addon_install,
+            diarization_setup::diarization_addon_cancel,
+            diarization_setup::diarization_addon_remove,
+            diarization_setup::diarization_set_token,
+            diarization_setup::diarization_clear_token,
+            diarization_setup::diarization_fetch_model,
+            diarization_setup::diarization_open_page,
             recording_output::recording_output_get,
             recording_output::recording_output_set,
             recording_output::recording_output_reset,

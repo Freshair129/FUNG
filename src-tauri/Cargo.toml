@@ -46,6 +46,10 @@ uuid = { version = "1", features = ["v4", "serde"] }
 url = "2"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 zeroize = "1"
+# Unpacks the diarization add-on's wheels (`diarization_addon`). Deflate only,
+# on flate2's pure-Rust backend; flate2 is already in the tree transitively.
+zip = { version = "9.8.2", default-features = false, features = ["deflate-flate2"] }
+flate2 = "1.1.9"
 
 # Free-space checks before and during capture. Already present transitively;
 # declared here because `live_meeting` calls GetDiskFreeSpaceExW directly.

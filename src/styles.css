@@ -156,7 +156,7 @@ body[data-surface="landing"] {
 .fung-logo-mark,
 .desktop-shell__brand-mark {
   /* Lifted toward porcelain so a dark-tinted mark (Studio sage) still glows on the dark dock. */
-  --fung-mark-glow: color-mix(in srgb, currentColor 55%, #FAF8F3);
+  --fung-mark-glow: color-mix(in srgb, currentColor 55%, var(--fung-brand-porcelain));
   animation: fung-mark-breathe 4s ease-in-out infinite;
 }
 

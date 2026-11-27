@@ -71,12 +71,12 @@ impl DiarizationBlocker {
             DiarizationBlocker::RuntimeMissing => "ไม่พบ Python runtime ที่มากับ FUNG — ต้องติดตั้งแอปใหม่",
             DiarizationBlocker::WorkerMissing => "ไม่พบสคริปต์ diarize.py ในชุดติดตั้ง — ต้องติดตั้งแอปใหม่",
             DiarizationBlocker::DependenciesMissing => {
-                "ยังไม่ได้ติดตั้ง pyannote.audio — รัน scripts/stage_diarization_runtime.ps1 \
-                 (ไม่ได้มากับตัวติดตั้งเพราะ torch มีขนาดใหญ่มาก)"
+                "ยังไม่ได้เปิดใช้การแยกเสียงผู้พูด — ไปที่ ตั้งค่า › ระบบและประสิทธิภาพ \
+                 แล้วกด \"เปิดใช้การแยกเสียงผู้พูด\" (ไม่ได้มากับตัวติดตั้งเพราะมีขนาดใหญ่)"
             }
             DiarizationBlocker::ModelNotFetched => {
-                "ยังไม่ได้ดาวน์โหลดโมเดล — ต้องยอมรับสัญญาอนุญาตบน Hugging Face \
-                 แล้วตั้งค่า FUNG_HF_TOKEN ครั้งแรกครั้งเดียว"
+                "ยังไม่ได้ดาวน์โหลดโมเดล — ไปที่ ตั้งค่า › ระบบและประสิทธิภาพ \
+                 ยอมรับเงื่อนไขบน Hugging Face แล้วใส่ token ครั้งแรกครั้งเดียว"
             }
         }
     }
@@ -115,6 +115,13 @@ pub(crate) struct DiarizationReadiness {
     /// Where a fetched model lives, so the user can see what to back up or
     /// delete. Always reported, present or not.
     pub(crate) cache_root: String,
+    /// Whether the dependencies come from the in-app add-on (as opposed to a
+    /// developer staging them into the bundled runtime by script). Only an
+    /// add-on can be removed from inside the app.
+    pub(crate) addon_installed: bool,
+    /// What enabling the add-on will download, so the UI can say so before
+    /// the user commits to it.
+    pub(crate) addon_download_bytes: u64,
 }
 
 /// Decides the single blocker from the four facts.
@@ -159,29 +166,102 @@ pub(crate) fn hf_home(data_root: &Path) -> PathBuf {
         .unwrap_or_else(|| data_root.join("huggingface"))
 }
 
-/// Whether a Hugging Face token is available to fetch the gated model.
-///
-/// Reads only whether one is set — never its value, which stays in the
-/// environment and is passed to the worker process without ever entering the
-/// ledger, a log line, or this struct.
-pub(crate) fn token_configured() -> bool {
+const KEYRING_SERVICE: &str = "FUNG";
+const TOKEN_KEYRING_ACCOUNT: &str = "huggingface-token";
+
+fn env_token() -> Option<String> {
     ["FUNG_HF_TOKEN", "HF_TOKEN"]
         .iter()
-        .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()))
+        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
 }
 
-/// Whether the staged runtime has the diarization dependency tree.
+fn token_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYRING_SERVICE, TOKEN_KEYRING_ACCOUNT).map_err(|e| e.to_string())
+}
+
+fn stored_token() -> Option<String> {
+    token_entry()
+        .ok()?
+        .get_password()
+        .ok()
+        .filter(|value| !value.is_empty())
+}
+
+/// Saves the token the user typed into Windows Credential Manager. It never
+/// enters GenesisBlockDB, a config file, a log line or a job event.
+pub(crate) fn store_token(token: &str) -> Result<(), String> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err("token ว่างอยู่".to_string());
+    }
+    token_entry()?
+        .set_password(token)
+        .map_err(|e| e.to_string())
+}
+
+/// Removes the stored token. Once the model is cached it is no longer
+/// needed, and keeping a credential nobody uses is a liability.
+pub(crate) fn delete_token() -> Result<(), String> {
+    match token_entry()?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// The token handed to the worker process: the environment first (the
+/// original developer contract), then the one saved from inside the app.
+pub(crate) fn worker_token() -> Option<String> {
+    env_token().or_else(stored_token)
+}
+
+/// Whether a Hugging Face token is available to fetch the gated model.
+///
+/// Reports only whether one is set — never its value, which is passed to the
+/// worker process without ever entering the ledger, a log line, or this
+/// struct.
+pub(crate) fn token_configured() -> bool {
+    worker_token().is_some()
+}
+
+/// Whether the diarization dependency tree is available, either from the
+/// in-app add-on or staged into the bundled runtime by script.
 ///
 /// Checks for the installed package directories rather than importing them:
 /// importing `torch` costs seconds and allocates hundreds of megabytes, which
 /// is far too expensive for a probe the UI may call on every panel open.
-fn dependencies_present(runtime: &WhisperRuntime) -> bool {
+fn dependencies_present(runtime: &WhisperRuntime, data_root: &Path) -> bool {
+    if crate::diarization_addon::installed(data_root) {
+        return true;
+    }
     let Some(site_packages) = site_packages(runtime) else {
         return false;
     };
     ["pyannote", "torch"]
         .iter()
         .all(|package| site_packages.join(package).is_dir())
+}
+
+/// The add-on `site-packages` the worker must put first on `sys.path`, when
+/// the add-on is what provides the dependencies.
+///
+/// Passed as `FUNG_DIARIZATION_SITE` rather than `PYTHONPATH`: the bundled
+/// interpreter is the embeddable CPython, whose `python311._pth` makes it
+/// ignore `PYTHON*` environment variables entirely.
+pub(crate) fn worker_site_packages(data_root: &Path) -> Option<PathBuf> {
+    crate::diarization_addon::installed(data_root)
+        .then(|| crate::diarization_addon::site_packages(data_root))
+}
+
+/// Environment the diarization worker needs beyond the common worker setup.
+pub(crate) fn worker_env(data_root: &Path) -> Vec<(&'static str, std::ffi::OsString)> {
+    let mut env = Vec::new();
+    if let Some(site) = worker_site_packages(data_root) {
+        env.push(("FUNG_DIARIZATION_SITE", site.into_os_string()));
+    }
+    if let Some(token) = worker_token() {
+        env.push(("FUNG_HF_TOKEN", token.into()));
+    }
+    env
 }
 
 /// `<venv>/Lib/site-packages`, derived from the interpreter path the runtime
@@ -211,7 +291,7 @@ pub(crate) fn probe(runtime: &WhisperRuntime, data_root: &Path) -> DiarizationRe
     let cache_root = hf_home(data_root);
     let runtime_present = runtime.python.is_file();
     let worker_present = worker_script(runtime).is_some_and(|script| script.is_file());
-    let dependencies_present = dependencies_present(runtime);
+    let dependencies_present = dependencies_present(runtime, data_root);
     let model_present = model_present(&cache_root);
     let token_configured = token_configured();
 
@@ -233,6 +313,8 @@ pub(crate) fn probe(runtime: &WhisperRuntime, data_root: &Path) -> DiarizationRe
         token_configured,
         model: DIARIZATION_MODEL,
         cache_root: cache_root.display().to_string(),
+        addon_installed: crate::diarization_addon::installed(data_root),
+        addon_download_bytes: crate::diarization_addon::download_bytes(),
     }
 }
 

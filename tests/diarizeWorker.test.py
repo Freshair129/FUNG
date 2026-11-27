@@ -74,5 +74,78 @@ class DiarizationWorkerTests(unittest.TestCase):
         ])
 
 
+class _Response:
+    def __init__(self, status_code):
+        self.status_code = status_code
+
+
+def _http_error(name, status):
+    error_type = type(name, (Exception,), {})
+    error = error_type("request failed")
+    error.response = _Response(status)
+    return error
+
+
+class ModelAccessCodeTests(unittest.TestCase):
+    def test_gated_repository_means_terms_not_accepted(self):
+        self.assertEqual(MODULE.model_access_code(_http_error("GatedRepoError", 403)), "terms_not_accepted")
+        self.assertEqual(MODULE.model_access_code(_http_error("HfHubHTTPError", 403)), "terms_not_accepted")
+
+    def test_unauthorized_means_token_invalid(self):
+        self.assertEqual(MODULE.model_access_code(_http_error("HfHubHTTPError", 401)), "token_invalid")
+
+    def test_no_connection_means_network(self):
+        self.assertEqual(MODULE.model_access_code(ConnectionError("offline")), "network")
+        local = type("LocalEntryNotFoundError", (Exception,), {})("not cached and offline")
+        self.assertEqual(MODULE.model_access_code(local), "network")
+
+    def test_cause_chain_is_followed(self):
+        outer = RuntimeError("pipeline failed")
+        outer.__cause__ = _http_error("GatedRepoError", 403)
+        self.assertEqual(MODULE.model_access_code(outer), "terms_not_accepted")
+
+    def test_anything_else_is_unknown(self):
+        self.assertEqual(MODULE.model_access_code(ValueError("boom")), "unknown")
+
+
+class TokenProblemTests(unittest.TestCase):
+    # The hub returns `401 GatedRepo` for both a wrong token and unaccepted
+    # terms, so the worker asks `whoami` first to tell them apart.
+    def test_missing_token_is_reported_before_any_request(self):
+        whoami = Mock()
+        self.assertEqual(MODULE.token_problem(None, whoami), "token_invalid")
+        whoami.assert_not_called()
+
+    def test_rejected_identity_means_token_invalid(self):
+        whoami = Mock(side_effect=_http_error("HfHubHTTPError", 401))
+        self.assertEqual(MODULE.token_problem("hf_x", whoami), "token_invalid")
+
+    def test_valid_identity_defers_to_the_repo_request(self):
+        self.assertIsNone(MODULE.token_problem("hf_x", Mock(return_value={"name": "u"})))
+
+    def test_offline_identity_check_means_network(self):
+        whoami = Mock(side_effect=ConnectionError("offline"))
+        self.assertEqual(MODULE.token_problem("hf_x", whoami), "network")
+
+
+class AddonSiteTests(unittest.TestCase):
+    def test_addon_site_goes_first_on_sys_path(self):
+        original = list(sys.path)
+        try:
+            with patch.dict("os.environ", {"FUNG_DIARIZATION_SITE": str(pathlib.Path(__file__).parent)}):
+                MODULE.add_addon_site()
+            self.assertEqual(pathlib.Path(sys.path[0]), pathlib.Path(__file__).parent)
+        finally:
+            sys.path[:] = original
+
+    def test_no_addon_leaves_sys_path_alone(self):
+        original = list(sys.path)
+        with patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop("FUNG_DIARIZATION_SITE", None)
+            MODULE.add_addon_site()
+        self.assertEqual(sys.path, original)
+
+
 if __name__ == "__main__":
     unittest.main()

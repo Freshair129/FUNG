@@ -451,6 +451,10 @@ export type DiarizationReadiness = {
   tokenConfigured: boolean;
   model: string;
   cacheRoot: string;
+  /** Dependencies come from the in-app add-on (removable from the app). */
+  addonInstalled: boolean;
+  /** What enabling the add-on downloads, in bytes. */
+  addonDownloadBytes: number;
 };
 
 export async function diarizationStatus(): Promise<DiarizationReadiness | null> {
@@ -458,6 +462,71 @@ export async function diarizationStatus(): Promise<DiarizationReadiness | null> 
   // the browser preview has no backend to probe.
   if (!canInvoke()) return null;
   return invoke<DiarizationReadiness>("diarization_status");
+}
+
+/** See `src-tauri/src/diarization_addon.rs` and `diarization_setup.rs`. */
+export type DiarizationAddonProgress = {
+  phase: "downloading" | "unpacking" | "done";
+  doneBytes: number;
+  totalBytes: number;
+  doneFiles: number;
+  totalFiles: number;
+};
+
+export type DiarizationAddonFinished = {
+  ok: boolean;
+  /** cancelled | unsupported_runtime | insufficient_disk | network | integrity | io */
+  code: string | null;
+  detail: string | null;
+};
+
+export type DiarizationFetchOutcome = {
+  ok: boolean;
+  /** token_invalid | terms_not_accepted | network | not_ready | unknown */
+  code: string | null;
+  detail: string | null;
+};
+
+export type DiarizationPage = "pipeline" | "segmentation" | "tokens";
+
+export async function diarizationAddonInstall(): Promise<void> {
+  await invoke<void>("diarization_addon_install");
+}
+
+export async function diarizationAddonCancel(): Promise<void> {
+  await invoke<void>("diarization_addon_cancel");
+}
+
+export async function diarizationAddonRemove(includeModel: boolean): Promise<void> {
+  await invoke<void>("diarization_addon_remove", { includeModel });
+}
+
+export async function diarizationSetToken(token: string): Promise<void> {
+  await invoke<void>("diarization_set_token", { token });
+}
+
+export async function diarizationClearToken(): Promise<void> {
+  await invoke<void>("diarization_clear_token");
+}
+
+export async function diarizationFetchModel(): Promise<DiarizationFetchOutcome> {
+  return invoke<DiarizationFetchOutcome>("diarization_fetch_model");
+}
+
+export async function diarizationOpenPage(page: DiarizationPage): Promise<void> {
+  await invoke<void>("diarization_open_page", { page });
+}
+
+export async function onDiarizationAddonProgress(
+  handler: (progress: DiarizationAddonProgress) => void,
+): Promise<() => void> {
+  return listen<DiarizationAddonProgress>("diarization-addon-progress", (event) => handler(event.payload));
+}
+
+export async function onDiarizationAddonFinished(
+  handler: (finished: DiarizationAddonFinished) => void,
+): Promise<() => void> {
+  return listen<DiarizationAddonFinished>("diarization-addon-finished", (event) => handler(event.payload));
 }
 
 /**

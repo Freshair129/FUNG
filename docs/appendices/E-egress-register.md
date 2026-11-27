@@ -1,7 +1,7 @@
 ---
-version: "0.2.1b"
+version: "0.2.2b"
 created_at: "2026-09-21T03:45:30+07:00,RWANG,base-b336f33"
-last_update: "2026-10-01T09:00:00+07:00,RWANG"
+last_update: "2026-11-26,Claude"
 status: "candidate"
 superseded_by: null
 attributes:
@@ -220,12 +220,21 @@ then take path 1.1 with it — governed, as above, by the desktop's policy.
 
 | Path | Fetches | When |
 |---|---|---|
-| `scripts/diarize.py:40` | `pyannote/speaker-diarization-3.1` from HuggingFace | First diarization run, with the operator's own token |
+| `scripts/diarize.py` | `pyannote/speaker-diarization-3.1` (+ `segmentation-3.0`) from HuggingFace | First diarization run, or `--fetch-only` when the user presses "ตรวจสอบและดาวน์โหลดโมเดล"; with the user's own token |
+| `src-tauri/src/diarization_addon.rs` | the 96 wheels in `scripts/diarization-runtime-manifest.json` from `files.pythonhosted.org` | Only when the user presses "เปิดใช้การแยกเสียงผู้พูด" (Settings › ระบบและประสิทธิภาพ) |
+| `src-tauri/src/diarization_setup.rs` (`diarization_open_page`) | opens one of three fixed `huggingface.co` pages in the system browser | Only on the user's click; the browser, not FUNG, makes the request |
 | `scripts/stage_diarization_runtime.ps1` | wheels + optionally the model | Only when run by hand |
 
-Both are opt-in by construction: the dependencies are not in the installer and
-the model is licence-gated. `diarization::token_configured` reads only *whether*
-a token is set, never its value (`diarization.rs`).
+All are opt-in by construction: the dependencies are not in the installer and
+the model is licence-gated. The add-on request carries only the wheel URL and
+a `FUNG/<version>` user agent — no recording, transcript, account or device
+identifier. Each wheel URL and SHA-256 is compiled into the binary from the
+reviewed lockfile; `diarization_addon` refuses any URL outside
+`files.pythonhosted.org/packages/` and deletes any file whose digest differs.
+The Hugging Face token is held in Windows Credential Manager
+(`diarization::store_token`), handed to the worker process only, and never
+written to GenesisBlockDB, logs or job events. `diarization::token_configured`
+reports only *whether* a token is set, never its value (`diarization.rs`).
 
 The transcription worker is now pinned offline rather than merely believed to
 be — [§3.1](#31-the-transcription-worker-was-offline-by-habit-not-by-constraint).
@@ -456,6 +465,7 @@ Required negative verification: local-only zero new egress; no bytes before appl
 | unversioned → 0.1.0b | Added metadata and a separately labelled candidate meeting-media/gateway/publication register; historical audit is unchanged. |
 | 0.1.0b → 0.2.0b | Registered the implemented local Ollama Meeting Agent path separately from proposed external paths. |
 | 0.2.0b → 0.2.1b | Registered the local Meeting & Task Manager action-draft model path (§1.3b). |
+| 0.2.1b → 0.2.2b | Registered the in-app diarization add-on download, model fetch and fixed Hugging Face pages (§1.8). |
 
 ## CHANGELOG
 
@@ -464,3 +474,4 @@ Required negative verification: local-only zero new egress; no bytes before appl
 | 0.1.0b | 2026-09-21 | candidate | Registered proposed Meet/API/agent data flows without claiming runtime or packet-capture verification. | working-tree; base b336f33 | RWANG |
 | 0.2.0b | 2026-09-25 | candidate | Registered bounded local Meeting Agent model proposal egress and consent gate. | working-tree | RWANG |
 | 0.2.1b | 2026-10-01 | candidate | Registered the bearer-gated, loopback-only Meeting & Task Manager action-draft egress. | working-tree | RWANG |
+| 0.2.2b | 2026-11-26 | candidate | Registered the user-initiated diarization add-on (PyPI wheels), `--fetch-only` model fetch and fixed Hugging Face page opener (#137). | pending | Claude |

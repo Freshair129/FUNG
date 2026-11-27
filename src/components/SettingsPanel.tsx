@@ -30,6 +30,9 @@ const AccountLoginPanel = lazy(() =>
   import("./AccountLoginPanel").then((m) => ({ default: m.AccountLoginPanel })),
 );
 const BackupPanel = lazy(() => import("./BackupPanel").then((m) => ({ default: m.BackupPanel })));
+const DiarizationSetupPanel = lazy(() =>
+  import("./DiarizationSetupPanel").then((m) => ({ default: m.DiarizationSetupPanel })),
+);
 
 export type SettingsTab = "account" | "tts" | "cloud" | "fetch" | "zoom" | "runtime" | "account-login" | "product-mcp";
 
@@ -282,6 +285,7 @@ export function SettingsPanel({
               )}
               {activeTab === "runtime" && (
                 <div className="settings-runtime">
+                  <DiarizationSetupPanel />
                   <p>Local API runtime status: <strong>{apiRunning ? "Running" : "Stopped"}</strong></p>
                   <button type="button" className="settings-runtime-start" onClick={onStartApi} disabled={apiRunning}>
                     Start local API

@@ -4,8 +4,8 @@ Generated from CSS under `src/` and the canonical generated token CSS. This is a
 
 ## Findings
 
-- Stylesheets scanned: **25**.
-- Stylesheets using at least one canonical `--fung-*` variable: **25/25**. A locally invented `--fung-*` alias does not count as a canonical token reference.
+- Stylesheets scanned: **26**.
+- Stylesheets using at least one canonical `--fung-*` variable: **26/26**. A locally invented `--fung-*` alias does not count as a canonical token reference.
 - Stylesheets with no canonical token reference: **0**.
 - Flat, single-color CSS declarations written as direct literals: **2**. Block comments are excluded; semantic UI colors should use a canonical token.
 - Embedded CSS color syntax occurrences: **108** across **28** unique hex values. This inventory includes token fallbacks, gradients, shadows, translucent materials, illustrations and third-party marks; inspect context before changing these effects.
@@ -19,6 +19,7 @@ Generated from CSS under `src/` and the canonical generated token CSS. This is a
 | `src/components/BackupPanel.css` | `--fung-action-primary-fg` | 0 | 18 |
 | `src/components/CloudProvidersPanel.css` | `--fung-action-primary-bg`, `--fung-action-secondary-bg`, `--fung-bg-backdrop`, `--fung-bg-canvas`, `--fung-bg-elevated`, `--fung-bg-hover`, `--fung-bg-inset`, `--fung-bg-surface`, `--fung-border-subtle`, `--fung-state-danger-bg`, `--fung-state-danger-fg`, `--fung-state-local-fg`, `--fung-text-primary`, `--fung-text-secondary` | 0 | 2 |
 | `src/components/DevicePairingPanel.css` | `--fung-action-primary-bg`, `--fung-action-primary-fg`, `--fung-action-secondary-bg`, `--fung-bg-canvas`, `--fung-bg-elevated`, `--fung-bg-hover`, `--fung-bg-inset`, `--fung-bg-surface`, `--fung-border-subtle`, `--fung-state-danger-bg`, `--fung-state-danger-fg`, `--fung-state-local-bg`, `--fung-state-local-fg`, `--fung-state-pending-bg`, `--fung-state-pending-fg`, `--fung-text-primary`, `--fung-text-secondary` | 0 | 4 |
+| `src/components/DiarizationSetupPanel.css` | `--fung-action-primary-bg`, `--fung-action-primary-fg`, `--fung-action-secondary-bg`, `--fung-bg-inset`, `--fung-bg-surface`, `--fung-border-strong`, `--fung-border-subtle`, `--fung-focus`, `--fung-state-danger-fg`, `--fung-text-primary`, `--fung-text-secondary` | 0 | 0 |
 | `src/components/ExternalAccountPanel.css` | `--fung-action-primary-bg`, `--fung-action-primary-fg`, `--fung-action-secondary-bg`, `--fung-bg-backdrop`, `--fung-bg-inset`, `--fung-bg-surface`, `--fung-border-subtle`, `--fung-link`, `--fung-state-danger-fg`, `--fung-state-inactive-bg`, `--fung-state-local-bg`, `--fung-state-local-fg`, `--fung-state-pending-bg`, `--fung-state-pending-fg`, `--fung-text-primary`, `--fung-text-secondary` | 0 | 1 |
 | `src/components/LiveMeetingPanel.css` | `--fung-action-primary-fg`, `--fung-action-primary-hover`, `--fung-bg-backdrop`, `--fung-bg-canvas`, `--fung-bg-hover`, `--fung-bg-inset`, `--fung-bg-surface`, `--fung-border-strong`, `--fung-border-subtle`, `--fung-focus`, `--fung-focus-width`, `--fung-link`, `--fung-state-danger-bg`, `--fung-state-danger-fg`, `--fung-state-inferred-bg`, `--fung-state-inferred-fg`, `--fung-state-local-bg`, `--fung-state-local-fg`, `--fung-state-pending-bg`, `--fung-state-pending-fg`, `--fung-text-primary`, `--fung-text-secondary` | 0 | 1 |
 | `src/components/MediaFetchPanel.css` | `--fung-action-primary-bg`, `--fung-action-primary-fg`, `--fung-action-secondary-bg`, `--fung-bg-backdrop`, `--fung-bg-inset`, `--fung-bg-surface`, `--fung-border-strong`, `--fung-border-subtle`, `--fung-focus`, `--fung-state-danger-fg`, `--fung-state-pending-bg`, `--fung-state-pending-fg`, `--fung-text-primary`, `--fung-text-secondary` | 0 | 1 |

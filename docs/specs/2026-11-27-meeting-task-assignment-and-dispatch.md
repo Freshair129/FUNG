@@ -1,5 +1,5 @@
 ---
-version: "0.1.2b"
+version: "0.1.3b"
 created_at: "2026-11-27"
 last_update: "2026-11-28"
 status: "draft"
@@ -20,8 +20,8 @@ attributes:
 | Complexity | C-3 — Documentation-Driven Implementation, หลาย phase |
 | Risk | HIGH — เพิ่มการเขียนข้อมูลออกนอกเครื่องครั้งแรกของ connector (เดิม read-only), เก็บ credential, เนื้อหาการประชุมออกนอกเครื่อง |
 | Parent architecture | `docs/Desktop/ARCHITECTURE.md` |
-| Parent feature designs | [`2026-08-11-live-meeting-external-retrieval-design.md`](2026-08-11-live-meeting-external-retrieval-design.md) (connector trust layer, preview hash, audit) · [`../plans/2026-09-30-meeting-task-manager-local-adapter.md`](../plans/2026-09-30-meeting-task-manager-local-adapter.md) (local API สำหรับ Mission Control) |
-| Amends | Non-goal "External writes" ของ parent retrieval design — ดู §7 |
+| Parent feature designs | [`2026-08-11-live-meeting-external-retrieval-design.md`](2026-08-11-live-meeting-external-retrieval-design.md) (connector trust layer, preview hash, audit) · [`../plans/2026-09-30-meeting-task-manager-local-adapter.md`](../plans/2026-09-30-meeting-task-manager-local-adapter.md) (local API เดิมสำหรับ Mission Control; spec นี้ไม่ขยาย) |
+| Amends | Non-goal "External writes" ของ parent retrieval design — ดู §6.1 |
 | Egress | ต้องเพิ่มรายการใน `docs/appendices/E-egress-register.md` ก่อน release (§9) |
 | Approval state | Draft — รอเจ้าของอนุมัติ spec และตอบ open questions §11 |
 
@@ -52,8 +52,8 @@ attributes:
 flowchart LR
   AI["action_item (ai_proposed)"] -->|ผู้ใช้ตรวจ แก้ มอบหมาย| T["meeting_tasks (confirmed)"]
   AI -->|ผู้ใช้ปฏิเสธ| R["rejected — ไม่ถูกเสนอซ้ำ"]
-  T -->|ดึงผ่าน local API loopback| Z["Zuri Mission Control"]
-  T -->|preview + อนุมัติทีละชุด| M["MCP task connector (PM / ERP)"]
+  T -->|preview + อนุมัติทีละชุด · tasks.create| Z["Zuri Mission Control (อีกเครื่อง)"]
+  T -->|preview + อนุมัติทีละชุด · tasks.create| M["MCP task connector อื่น (PM / ERP)"]
   T -->|ส่งออกไฟล์| F[".md / .csv / .docx"]
 ```
 
@@ -61,11 +61,13 @@ flowchart LR
 | --- | --- | --- | --- |
 | P1 ตรวจและมอบหมายในเครื่อง | — | ไม่มี | ได้ |
 | P2 ส่งออกไฟล์ (รวม Minute of Note `.docx` ที่มีตารางงาน) | — | ไม่มี | ได้ หลัง P1 |
-| P3 Zuri Mission Control ดึงงานที่ยืนยันแล้ว | งานที่ยืนยันแล้ว | loopback เท่านั้น | ได้ หลัง P1 |
-| P4 MCP connector ที่เขียนงานได้ (`tasks.create`) | ฟิลด์งานที่ผู้ใช้เห็นใน preview | ออกนอกเครื่องได้ | ได้ หลัง P1 |
+| P3 FUNG ส่งงานไป Zuri ผ่าน `tasks.create` (connector ตัวแรก) | ฟิลด์งานที่ผู้ใช้เห็นใน preview | ออกนอกเครื่อง ไปเครื่องที่รัน Zuri | ได้ หลัง P1 |
+| P4 connector PM/ERP อื่นด้วยกลไกเดียวกับ P3 | ฟิลด์งานที่ผู้ใช้เห็นใน preview | ออกนอกเครื่องได้ | ได้ หลัง P3 |
 
 **ลำดับที่ตกลง (2026-11-28):** ผู้ใช้ยืนยันว่า "Suri" คือ Zuri และให้เริ่มที่ Zuri ก่อน ลำดับจึงเป็น P1 → P3 → P2 → P4
 P4 ยังอยู่ใน spec แต่ยังไม่มีระบบ PM/ERP ตัวแรก จึงเลื่อนไปจนกว่าจะเลือกระบบได้
+Zuri รันบนอีกเครื่อง และผู้ใช้เลือกให้ **FUNG เป็นฝ่ายส่งออก** (ตกลง 2026-11-28, §11 Q3)
+P3 จึงสร้างกลไก dispatch ทั้งหมด (§6–§7) และ P4 แค่เพิ่ม connector ตัวอื่นบนกลไกเดียวกัน
 
 ### ทางเลือกที่ไม่เลือก
 
@@ -75,8 +77,11 @@ P4 ยังอยู่ใน spec แต่ยังไม่มีระบ�
   scorecard ตัดสินให้เลื่อนไว้ก่อน (`CALLMD_FUNG_SCORECARD_TH.md` แถว "Workflow webhooks")
 - **เขียน connector เฉพาะยี่ห้อ (Jira/Asana/ERP รายตัว) ใน FUNG:** parent design ไม่รับ vendor-specific connector;
   ใช้ MCP server ที่ผู้ใช้ลงทะเบียนเองแทน ยี่ห้อไหนก็ได้ถ้ามี MCP server ที่ประกาศ `tasks.create`
-- **ให้ FUNG push เข้า Zuri:** Mission Control ดึงข้อมูลจาก FUNG ผ่าน local API อยู่แล้ว เพิ่ม feed อีกเส้นง่ายกว่า
-  และไม่ต้องเก็บ credential ของ Zuri ใน FUNG (ยืนยันใน §11 Q3)
+- **ให้ Zuri ดึงงานจาก FUNG (loopback feed ใน `meeting_task_manager.rs`):** ใช้ไม่ได้เพราะ Zuri อยู่อีกเครื่อง
+  และ local API เดิมเป็น loopback only
+- **เปิด local API ของ FUNG ให้เครื่องอื่นในวงแลนดึง:** ต้องเปิดพอร์ตรับ connection, เพิ่ม TLS และการจับคู่เครื่อง
+  และข้อมูลประชุมจะเปิดอยู่บนเครือข่าย — ผู้ใช้ไม่เลือก (2026-11-28)
+- **เขียน client เฉพาะ Zuri ใน FUNG:** ขัดกับหลักไม่ฝัง connector เฉพาะยี่ห้อ; ให้ Zuri เปิด MCP server แทน
 
 ## 4. P1 — ตรวจ แก้ และมอบหมายในเครื่อง
 
@@ -102,7 +107,7 @@ P4 ยังอยู่ใน spec แต่ยังไม่มีระบ�
 | Table | Columns หลัก |
 | --- | --- |
 | `meeting_tasks` | `id`, `project_id`, `recording_id`, `source_node_id` (null ถ้าเพิ่มเอง), `title`, `description`, `assignee_label`, `assignee_ref` (null ได้), `due_date` (ISO date, null ได้), `priority` (`low`/`normal`/`high`), `status` (`confirmed`/`cancelled`), `evidence_segment_ids_json`, `revision`, `confirmed_by`, `confirmed_at`, `updated_at` |
-| `meeting_task_dispatches` (ใช้ใน P3–P4) | `id`, `task_id`, `task_revision`, `target_kind` (`mission_control`/`mcp_connector`/`file_export`), `connector_id`, `preview_hash`, `idempotency_key`, `status`, `external_ref`, `external_url`, `error_code`, `created_at`, `finished_at` |
+| `meeting_task_dispatches` (ใช้ใน P3–P4) | `id`, `task_id`, `task_revision`, `target_kind` (`mcp_connector`/`file_export`), `connector_id`, `preview_hash`, `idempotency_key`, `status`, `external_ref`, `external_url`, `error_code`, `created_at`, `finished_at` |
 
 - ยืนยันแล้ว: upsert edge `extracted_from` เดิมเป็น `confirmed` (transition ที่ `mobile.rs` อนุญาตอยู่แล้ว)
   และสร้างแถว `meeting_tasks`; ปฏิเสธ: เปลี่ยน edge เป็น `disputed` และไม่แสดงในกล่องงานอีก
@@ -118,26 +123,31 @@ P4 ยังอยู่ใน spec แต่ยังไม่มีระบ�
 - เขียนไฟล์ลงที่ที่ผู้ใช้เลือกผ่าน dialog เดิม ไม่มี network
 - ส่งออกเฉพาะงานที่ยืนยันแล้ว; ข้อเสนอ AI ที่ยังไม่ตรวจไม่อยู่ในไฟล์ (Q5)
 
-## 6. P3 — Zuri Mission Control ดึงงานที่ยืนยันแล้ว
+## 6. P3 — FUNG ส่งงานไป Zuri Mission Control
 
-- เพิ่ม route ใน `meeting_task_manager.rs` ภายใต้ prefix เดิม `/integrations/meeting-task-manager/v1`:
-  - `GET /recordings/{id}/tasks` — งานที่ยืนยันแล้วของการบันทึกนั้น
-  - `GET /tasks?updatedSince=<iso>` — งานที่ยืนยัน/แก้ตั้งแต่เวลาที่ระบุ ทั้งโปรเจกต์ที่ผู้ใช้เลือกเปิดให้
-  - `POST /tasks/{id}/ack` — Mission Control แจ้ง `externalRef`/`externalUrl` และ `taskRevision` ที่รับไป
-- ใช้ gate เดิมทั้งหมด: loopback only แม้เปิด LAN listener, bearer ของ local API, origin allowlist เดิม
-- payload ต่องาน: ฟิลด์ใน `meeting_tasks` + ลิงก์ deep link กลับ FUNG + evidence segment ids
-  **ไม่มี transcript** (Mission Control ดึง snapshot แยกผ่าน route เดิมได้ถ้าต้องการ)
-- ผู้ใช้เปิด/ปิด feed นี้ต่อโปรเจกต์ใน Settings; ปิดอยู่ = route ตอบ `403` และไม่เปิดเผยว่ามีงาน
-- ack บันทึกเป็นแถว `meeting_task_dispatches` (`target_kind = mission_control`) ให้ FUNG แสดง "ส่งเข้า Zuri แล้ว"
+Zuri รันบนอีกเครื่อง จึงเป็น connector ปลายทางตัวแรกของ `tasks.create`
+FUNG เป็นฝ่ายเปิด connection ออกไปเท่านั้น ไม่เปิดพอร์ตรับ connection จากเครื่องอื่น
 
-## 7. P4 — MCP connector ที่สร้างงานได้
+- Zuri เปิด MCP server แบบ `streamable_http` (transport ที่ `external_mcp.rs::ConnectorTransport` รองรับอยู่แล้ว)
+  ที่ประกาศ tool `tasks.create` ตาม payload §7.3 — ส่วนนี้อยู่ฝั่ง Zuri นอก repo นี้
+- ผู้ใช้ลงทะเบียน Zuri เป็น connector ใน FUNG เหมือน connector อื่น พร้อม grant `tasks.create` ต่อโปรเจกต์
+- URL ของ Zuri ต้องเป็น `https://` และ FUNG ตรวจ certificate ตามปกติ; ไม่รับ `http://` ไปเครื่องอื่น
+- Credential ของ Zuri เก็บใน OS keyring ใต้ prefix `external-mcp/` เหมือน connector อื่น
+- การส่งทำตาม §7.2 ทุกข้อ: preview ทุกฟิลด์ → อนุมัติ → ส่งทีละรายการพร้อม idempotency key → บันทึกผล
+- ผลที่ Zuri ตอบ (`externalRef`, `externalUrl`) บันทึกใน `meeting_task_dispatches` และแสดง "ส่งเข้า Zuri แล้ว"
+- local API เดิมใน `meeting_task_manager.rs` ไม่เปลี่ยน และยังเป็น loopback only
 
-### 7.1 การแก้ parent design
+### 6.1 การแก้ parent design
 
 Parent retrieval design ระบุ non-goal "External writes" และ `from_advertised` ปฏิเสธชื่อที่มีคำว่า create/write
 spec นี้เสนอยกเว้น **หนึ่ง capability เท่านั้น**: `tasks.create` โดยคง trust layer เดิมทุกข้อ:
 default deny, grant ต่อโปรเจกต์/การประชุมพร้อมวันหมดอายุ, preview hash, อนุมัติต่อครั้ง, audit, sanitize ผลลัพธ์
 capability เขียนอื่นทั้งหมด (`update`, `delete`, `send`, ฯลฯ) ยังถูกปฏิเสธเหมือนเดิม
+การยกเว้นนี้เริ่มใช้ใน P3
+
+## 7. กลไก dispatch (ใช้ใน P3 และ P4)
+
+P4 เพิ่ม connector PM/ERP อื่นที่ประกาศ `tasks.create` โดยไม่ต้องเปลี่ยนกลไกนี้
 
 ### 7.2 พฤติกรรม
 
@@ -162,7 +172,7 @@ capability เขียนอื่นทั้งหมด (`update`, `delete`,
 | `sourceLabel` | ชื่อโปรเจกต์ + ชื่อการประชุม + วันที่ | ไม่มี URL เข้าเครื่องผู้ใช้ |
 | `idempotencyKey` | ตาม §7.2 ข้อ 4 | |
 
-ไม่มี transcript ทั้งบท, ไฟล์เสียง, ชื่อ speaker อื่น หรือ path ในเครื่องใน payload
+ไม่มี transcript ทั้งบท, ไฟล์เสียง, ชื่อ speaker อื่น, deep link หรือ path ในเครื่องใน payload
 connector ที่ต้องการฟิลด์เพิ่ม (เช่นรหัสโปรเจกต์ใน ERP) ประกาศผ่าน input schema ของ tool
 และ FUNG แสดงเป็นช่องให้ผู้ใช้กรอกใน preview — ไม่เติมค่าจากข้อมูลประชุมเอง
 
@@ -174,8 +184,8 @@ connector ที่ต้องการฟิลด์เพิ่ม (เช�
 ## 8. UX (ร่าง)
 
 - ส่วน "งานจากการประชุม" ในแท็บ "สรุปและถาม": รายการ ข้อเสนอ AI (ป้าย "AI เสนอ") แยกจาก "ยืนยันแล้ว"
-- แต่ละงานที่ยืนยันแล้วแสดงสถานะส่ง: "ยังไม่ส่ง", "Zuri รับแล้ว", "ส่งไป <connector> แล้ว · เปิดดู", "ส่งไม่สำเร็จ · ลองใหม่"
-- Preview sheet ของ P4 ใช้ component เดิมของ `ExternalMeetingToolsPanel` แสดงฟิลด์ที่ออกจากเครื่องเป็นตาราง
+- แต่ละงานที่ยืนยันแล้วแสดงสถานะส่ง: "ยังไม่ส่ง", "ส่งเข้า Zuri แล้ว", "ส่งไป <connector> แล้ว · เปิดดู", "ส่งไม่สำเร็จ · ลองใหม่"
+- Preview sheet ของ P3/P4 ใช้ component เดิมของ `ExternalMeetingToolsPanel` แสดงฟิลด์ที่ออกจากเครื่องเป็นตาราง
 - ข้อความ error ภาษาไทยแยกตามสาเหตุ: connector ไม่ตอบ, ไม่มีสิทธิ์, grant หมดอายุ, ข้อมูลไม่ครบตาม schema, ปลายทางปฏิเสธ
 - Accessibility: ทุกปุ่มใช้คีย์บอร์ดได้, focus มองเห็นได้, สถานะใช้ข้อความ + สี, preview sheet คืน focus ให้ปุ่มที่เปิด
 
@@ -187,8 +197,9 @@ connector ที่ต้องการฟิลด์เพิ่ม (เช�
 - React ไม่เปิด connection ไปยัง connector และไม่เห็น credential (เหมือน parent design)
 - Credential ของ connector อยู่ใน OS keyring ใต้ account prefix เดิม `external-mcp/`
 - Audit ทุกครั้ง: preview, อนุมัติ, ปฏิเสธ, ผลส่งแต่ละรายการ — เก็บ hash ไม่เก็บ payload ดิบ
-- เพิ่มรายการใน egress register: §1.3c (P3 loopback feed), §1.11 (P4 `tasks.create`) ก่อน merge phase นั้น
-- Deep link กลับ FUNG ใน payload เป็น scheme ในเครื่อง ไม่ใช่ URL สาธารณะ
+- FUNG ไม่เปิดพอร์ตรับ connection ใหม่; การส่งงานทุกทางเป็น outbound ที่ผู้ใช้อนุมัติ
+- Connector ที่อยู่เครื่องอื่นต้องใช้ `https://` เท่านั้น
+- เพิ่มรายการใน egress register: §1.11 (`tasks.create` ไป Zuri และ connector อื่น) ก่อน merge P3
 
 ## 10. Scope
 
@@ -197,7 +208,7 @@ connector ที่ต้องการฟิลด์เพิ่ม (เช�
 - P1–P4 ตาม §4–§7, ตารางใหม่สองตาราง, egress register และ traceability (`docs/appendices/D-traceability.md`)
 - Requirement IDs ที่เสนอ (ยืนยันเลขตอนอนุมัติ):
   FR-118 ตรวจ/ยืนยัน/ปฏิเสธข้อเสนอ AI · FR-119 มอบหมายผู้รับผิดชอบและกำหนดส่ง ·
-  FR-120 ส่งออกไฟล์งาน + Minute of Note `.docx` · FR-121 feed งานยืนยันแล้วสำหรับ Mission Control ·
+  FR-120 ส่งออกไฟล์งาน + Minute of Note `.docx` · FR-121 ส่งงานยืนยันแล้วไป Zuri Mission Control ·
   FR-122 `tasks.create` ผ่าน MCP connector แบบ preview + อนุมัติ · FR-123 สถานะการส่งต่องานและกันส่งซ้ำ
 
 ### Out of scope
@@ -207,7 +218,8 @@ connector ที่ต้องการฟิลด์เพิ่ม (เช�
 - Webhook / ส่ง transcript ทั้งบท
 - Connector เฉพาะยี่ห้อที่ฝังใน FUNG
 - การยืนยันตัวตน speaker อัตโนมัติเพื่อเติมผู้รับผิดชอบ (อยู่ใน speaker-identification spec)
-- ส่วน Mission Control ฝั่ง Zuri (อยู่นอก repo นี้; spec นี้กำหนดแค่ contract ฝั่ง FUNG)
+- MCP server ฝั่ง Zuri (อยู่นอก repo นี้; spec นี้กำหนดแค่ tool contract `tasks.create` ตาม §7.3)
+- เปิด local API ของ FUNG ให้เครื่องอื่นเข้าถึง
 
 ## 11. Open questions (ต้องตอบก่อนอนุมัติ)
 
@@ -215,7 +227,9 @@ connector ที่ต้องการฟิลด์เพิ่ม (เช�
    ระบบ PM/ERP ตัวแรกสำหรับ P4 ยังไม่เลือก จะถามอีกครั้งก่อนเริ่ม P4
 2. ~~**รายชื่อผู้รับผิดชอบ**~~ **ตอบแล้ว 2026-11-28:** ใช้ชื่อในโปรเจกต์เท่านั้น (speaker ที่ยืนยันแล้วและชื่อที่เคยใช้)
    ไม่ดึงรายชื่อจาก Zuri หรือระบบปลายทาง และไม่เพิ่ม `directory.users.read`
-3. **Zuri ดึงหรือ FUNG ส่ง:** ยืนยันว่า Mission Control ดึงผ่าน local API (§6) ได้ และรันบนเครื่องเดียวกันเสมอ
+3. ~~**Zuri ดึงหรือ FUNG ส่ง**~~ **ตอบแล้ว 2026-11-28:** Zuri อยู่อีกเครื่อง และให้ FUNG เป็นฝ่ายส่งออก (§6)
+   - 3a. Zuri มีหรือจะเพิ่ม MCP server แบบ HTTPS ที่ประกาศ `tasks.create` ได้ไหม ถ้าไม่ได้ ต้องเลือกทางอื่นก่อนเริ่ม P3
+   - 3b. Zuri อยู่ในวงแลนเดียวกัน หรือบน internet (มีผลต่อ certificate และ egress register)
 4. **ส่งหลายรายการด้วยการอนุมัติครั้งเดียว:** parent design บังคับอนุมัติต่อ call; §7.2 เสนอให้หนึ่ง preview ครอบชุด
    (≤ 20 รายการ, hash ผูกทั้งชุด) — รับได้หรือต้องอนุมัติทีละรายการ
 5. **`.docx`:** ต้องการ Minute of Note เป็น `.docx` จริงหรือ `.md` พอ และควรใส่ข้อเสนอ AI ที่ยังไม่ตรวจไหม
@@ -232,15 +246,18 @@ P2
 - ไฟล์ `.csv` เปิดใน Excel แล้วภาษาไทยถูกต้อง; `.docx` มีตารางงานครบทุกงานที่ยืนยันแล้ว และไม่มีข้อเสนอที่ยังไม่ตรวจ
 
 P3
-- Route ใหม่ตอบเฉพาะ loopback + bearer ที่ถูกต้อง; ปิด feed แล้วตอบ `403`; payload ไม่มี transcript
-- ack แล้ว FUNG แสดง "Zuri รับแล้ว" พร้อม `externalRef`
-
-P4
+- ส่งงานไป Zuri จำลอง (MCP server `streamable_http` ใน test) ได้ผลตรง §7.3 ทุกฟิลด์ และไม่มีฟิลด์อื่น
+- URL `http://` ไปเครื่องอื่นถูกปฏิเสธ; certificate ผิดถูกปฏิเสธ
 - Capability อื่นที่มี create/update/delete/write/send ยังถูกปฏิเสธ (test เดิม `contract_rejects_unapproved_or_write_capabilities` ยังผ่าน เพิ่มเฉพาะ `tasks.create`)
 - แก้งานหลังสร้าง preview แล้วกดส่ง → ถูกปฏิเสธด้วย preview mismatch
-- ส่งซ้ำด้วยงาน/revision เดิม → ไม่เกิด call ใหม่ (idempotency) ; connector ล้มกลางชุด → รายการที่สำเร็จคงสถานะสำเร็จ
-- Payload ที่ connector จำลองได้รับตรงกับตาราง §7.3 ทุกฟิลด์ และไม่มีฟิลด์อื่น
+- ส่งซ้ำด้วยงาน/revision เดิม → ไม่เกิด call ใหม่ (idempotency); Zuri ล้มกลางชุด → รายการที่สำเร็จคงสถานะสำเร็จ
+- ส่งสำเร็จแล้ว FUNG แสดง "ส่งเข้า Zuri แล้ว" พร้อม `externalRef`
+- ไม่มี listener ใหม่ที่รับ connection จากนอกเครื่อง; local API เดิมยังเป็น loopback only
 - ค้นใน log/audit/DB แล้วไม่พบ credential หรือ payload ดิบ
+
+P4
+- ลงทะเบียน connector PM/ERP ตัวที่สองแล้วส่งงานได้ โดยไม่แก้โค้ดกลไก dispatch
+- ทุกข้อของ P3 ผ่านกับ connector ตัวที่สอง
 
 ทุก phase
 - `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test --lib`, frontend tests, `npm run design-system:check` และ `git diff --check` ผ่าน
@@ -253,6 +270,7 @@ P4
 | 0.1.0b | First draft: confirmed-task layer, file export, Mission Control feed and a single `tasks.create` connector capability. |
 | 0.1.1b | Recorded owner answers: "Suri" is Zuri and Zuri comes first; phase order is now P1 → P3 → P2 → P4, and P4 waits for a PM/ERP choice. |
 | 0.1.2b | Recorded owner answer: assignees come from project names only; no remote user directory. |
+| 0.1.3b | Zuri runs on another machine, so P3 is now an outbound `tasks.create` push to a Zuri MCP server over HTTPS. The loopback pull feed is dropped, and P4 reuses the same mechanism. |
 
 ## CHANGELOG
 
@@ -260,4 +278,5 @@ P4
 |---|---|---|---|---|---|
 | 0.1.0b | 2026-11-27 | draft | Proposed task review/assignment and three dispatch paths after the user found no assign/send step in the current build; awaiting owner approval. | d1a1c26 | Claude |
 | 0.1.1b | 2026-11-28 | draft | Owner answered Q1 and Q6: Zuri first, phases P1 → P3 → P2 → P4. Q2–Q5 still open. | 568539c | Claude |
-| 0.1.2b | 2026-11-28 | draft | Owner answered Q2: assignees from project names only. Q3–Q5 still open. | pending | Claude |
+| 0.1.2b | 2026-11-28 | draft | Owner answered Q2: assignees from project names only. Q3–Q5 still open. | ae765c3 | Claude |
+| 0.1.3b | 2026-11-28 | draft | Owner answered Q3: Zuri is on another machine and FUNG sends out. P3 redesigned as an outbound push; new sub-questions 3a and 3b. | pending | Claude |

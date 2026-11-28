@@ -1,7 +1,7 @@
 ---
-version: "0.1.0b"
+version: "0.1.1b"
 created_at: "2026-11-27"
-last_update: "2026-11-27"
+last_update: "2026-11-28"
 status: "draft"
 superseded_by: null
 attributes:
@@ -63,6 +63,9 @@ flowchart LR
 | P2 ส่งออกไฟล์ (รวม Minute of Note `.docx` ที่มีตารางงาน) | — | ไม่มี | ได้ หลัง P1 |
 | P3 Zuri Mission Control ดึงงานที่ยืนยันแล้ว | งานที่ยืนยันแล้ว | loopback เท่านั้น | ได้ หลัง P1 |
 | P4 MCP connector ที่เขียนงานได้ (`tasks.create`) | ฟิลด์งานที่ผู้ใช้เห็นใน preview | ออกนอกเครื่องได้ | ได้ หลัง P1 |
+
+**ลำดับที่ตกลง (2026-11-28):** ผู้ใช้ยืนยันว่า "Suri" คือ Zuri และให้เริ่มที่ Zuri ก่อน ลำดับจึงเป็น P1 → P3 → P2 → P4
+P4 ยังอยู่ใน spec แต่ยังไม่มีระบบ PM/ERP ตัวแรก จึงเลื่อนไปจนกว่าจะเลือกระบบได้
 
 ### ทางเลือกที่ไม่เลือก
 
@@ -206,15 +209,15 @@ connector ที่ต้องการฟิลด์เพิ่ม (เช�
 
 ## 11. Open questions (ต้องตอบก่อนอนุมัติ)
 
-1. **ปลายทางแรกคืออะไร:** "Suri" ในคำขอหมายถึง Zuri Mission Control ใช่ไหม และระบบ PM/ERP ตัวแรกที่ต้องใช้คือตัวไหน
-   มี MCP server ที่สร้างงานได้อยู่แล้วหรือไม่ (ถ้าไม่มี P4 ต้องรอ หรือต้องเขียน MCP server แยก repo)
+1. ~~**ปลายทางแรกคืออะไร**~~ **ตอบแล้ว 2026-11-28:** "Suri" คือ Zuri Mission Control และเริ่มที่ Zuri ก่อน
+   ระบบ PM/ERP ตัวแรกสำหรับ P4 ยังไม่เลือก จะถามอีกครั้งก่อนเริ่ม P4
 2. **รายชื่อผู้รับผิดชอบ:** ใช้แค่ speaker/ชื่อในโปรเจกต์ หรือต้องดึงรายชื่อผู้ใช้จาก Zuri/ระบบปลายทาง
    (ถ้าดึง = capability อ่านใหม่ `directory.users.read`)
 3. **Zuri ดึงหรือ FUNG ส่ง:** ยืนยันว่า Mission Control ดึงผ่าน local API (§6) ได้ และรันบนเครื่องเดียวกันเสมอ
 4. **ส่งหลายรายการด้วยการอนุมัติครั้งเดียว:** parent design บังคับอนุมัติต่อ call; §7.2 เสนอให้หนึ่ง preview ครอบชุด
    (≤ 20 รายการ, hash ผูกทั้งชุด) — รับได้หรือต้องอนุมัติทีละรายการ
 5. **`.docx`:** ต้องการ Minute of Note เป็น `.docx` จริงหรือ `.md` พอ และควรใส่ข้อเสนอ AI ที่ยังไม่ตรวจไหม
-6. **ลำดับ phase:** เสนอ P1 → P2 → P3 → P4; ถ้า Zuri คือปลายทางหลัก P3 อาจขึ้นก่อน P2
+6. ~~**ลำดับ phase**~~ **ตอบแล้ว 2026-11-28 (ตามข้อ 1):** P1 → P3 → P2 → P4
 
 ## 12. Acceptance criteria
 
@@ -246,9 +249,11 @@ P4
 | Version | Change |
 | --- | --- |
 | 0.1.0b | First draft: confirmed-task layer, file export, Mission Control feed and a single `tasks.create` connector capability. |
+| 0.1.1b | Recorded owner answers: "Suri" is Zuri and Zuri comes first; phase order is now P1 → P3 → P2 → P4, and P4 waits for a PM/ERP choice. |
 
 ## CHANGELOG
 
 | Version | Date | Status | Summary | Commit Hash | Agent |
 |---|---|---|---|---|---|
-| 0.1.0b | 2026-11-27 | draft | Proposed task review/assignment and three dispatch paths after the user found no assign/send step in the current build; awaiting owner approval. | pending | Claude |
+| 0.1.0b | 2026-11-27 | draft | Proposed task review/assignment and three dispatch paths after the user found no assign/send step in the current build; awaiting owner approval. | d1a1c26 | Claude |
+| 0.1.1b | 2026-11-28 | draft | Owner answered Q1 and Q6: Zuri first, phases P1 → P3 → P2 → P4. Q2–Q5 still open. | pending | Claude |
